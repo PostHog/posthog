@@ -401,10 +401,10 @@ FLAGS_CACHE_VERIFICATION_GRACE_PERIOD_MINUTES=5  # Skip recently updated flags
 
 ### For initial cache build
 
-Scheduled tasks only maintain existing caches. For initial population or schema migrations, use the management command:
+Scheduled tasks only maintain existing caches. For initial population, use the management command:
 
 ```bash
-python manage.py warm_flags_cache [--invalidate-first] [--team-ids ID1 ID2 ...]
+python manage.py warm_flags_cache [--team-ids ID1 ID2 ...]
 ```
 
 By default, the command warms caches only for teams that have ever had a feature flag (using `config.get_teams_queryset()`). This includes teams whose flags have all been soft-deleted (so the cache correctly contains an empty flags list). Teams that have never had any feature flags are skipped to avoid unnecessary database queries and Redis writes.

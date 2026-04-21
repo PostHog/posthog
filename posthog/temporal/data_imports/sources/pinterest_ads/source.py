@@ -6,11 +6,16 @@ from posthog.schema import (
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
     SourceFieldOauthConfig,
+    SuggestedTable,
 )
 
 from posthog.exceptions_capture import capture_exception
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
-from posthog.temporal.data_imports.sources.common.base import FieldType, SimpleSource
+from posthog.temporal.data_imports.sources.common.base import (
+    MARKETING_ANALYTICS_SUGGESTED_TABLE_TOOLTIP,
+    FieldType,
+    SimpleSource,
+)
 from posthog.temporal.data_imports.sources.common.mixins import OAuthMixin
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
@@ -42,8 +47,6 @@ class PinterestAdsSource(SimpleSource[PinterestAdsSourceConfig], OAuthMixin):
             label="Pinterest Ads",
             caption="Collect campaign data, ad performance, and advertising metrics from Pinterest Ads. Ensure you have granted PostHog access to your Pinterest Ads account, learn how to do this in [the documentation](https://posthog.com/docs/cdp/sources/pinterest-ads).",
             betaSource=True,
-            unreleasedSource=True,
-            featureFlag="pinterest-ads-source",
             iconPath="/static/services/pinterest_ads.png",
             docsUrl="https://posthog.com/docs/cdp/sources/pinterest-ads",
             fields=cast(
@@ -64,6 +67,16 @@ class PinterestAdsSource(SimpleSource[PinterestAdsSourceConfig], OAuthMixin):
                     ),
                 ],
             ),
+            suggestedTables=[
+                SuggestedTable(
+                    table="campaigns",
+                    tooltip=MARKETING_ANALYTICS_SUGGESTED_TABLE_TOOLTIP,
+                ),
+                SuggestedTable(
+                    table="campaign_analytics",
+                    tooltip=MARKETING_ANALYTICS_SUGGESTED_TABLE_TOOLTIP,
+                ),
+            ],
         )
 
     def validate_credentials(

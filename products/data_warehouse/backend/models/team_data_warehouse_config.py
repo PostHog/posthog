@@ -14,7 +14,7 @@ class TeamDataWarehouseConfig(models.Model):
     # The dashboards embedded on the data ops "Dashboard" tab.
     # Seeded on first visit; supports multiple dashboards for future use.
     overview_dashboards = models.ManyToManyField(
-        "posthog.Dashboard",
+        "dashboards.Dashboard",
         blank=True,
         related_name="+",
     )

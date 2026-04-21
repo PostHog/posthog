@@ -42,6 +42,7 @@ import pythonImage from './logos/python.svg'
 import railsImage from './logos/rails.svg'
 import reactImage from './logos/react.svg'
 import reactNativeImage from './logos/react.svg'
+import { ReactRouterLogo } from './logos/ReactRouterLogo'
 import { RemixLogo } from './logos/RemixLogo'
 import { RetoolLogo } from './logos/RetoolLogo'
 import rubyImage from './logos/ruby.svg'
@@ -236,6 +237,20 @@ export const ALL_SDKS: SDK[] = [
         tags: [SDKTag.GATEWAY],
         image: <OpenRouterLogo />,
         docsLink: 'https://posthog.com/docs/llm-analytics/installation/openrouter',
+    },
+    {
+        name: 'Cloudflare AI Gateway',
+        key: SDKKey.CLOUDFLARE_AI_GATEWAY,
+        tags: [SDKTag.GATEWAY],
+        image: 'https://res.cloudinary.com/dmukukwp6/image/upload/cloudflare_logo_6572a9f441.svg',
+        docsLink: 'https://posthog.com/docs/llm-analytics/installation/cloudflare-ai-gateway',
+    },
+    {
+        name: 'Dedalus Labs',
+        key: SDKKey.DEDALUS,
+        tags: [SDKTag.GATEWAY],
+        image: 'https://res.cloudinary.com/dmukukwp6/image/upload/dedalus_labs_logo_e03bb97137.svg',
+        docsLink: 'https://posthog.com/docs/llm-analytics/installation/dedalus',
     },
     {
         name: 'DeepSeek',
@@ -445,6 +460,13 @@ export const ALL_SDKS: SDK[] = [
         docsLink: 'https://posthog.com/docs/llm-analytics/manual-capture',
     },
     {
+        name: 'OpenTelemetry',
+        key: SDKKey.OPENTELEMETRY,
+        tags: [SDKTag.INTEGRATION],
+        image: 'https://res.cloudinary.com/dmukukwp6/image/upload/opentelemetry_afb29df5ab.svg',
+        docsLink: 'https://posthog.com/docs/llm-analytics/installation/opentelemetry',
+    },
+    {
         name: 'iOS',
         key: SDKKey.IOS,
         tags: [SDKTag.MOBILE],
@@ -508,6 +530,14 @@ export const ALL_SDKS: SDK[] = [
         recommended: true,
         image: pythonImage,
         docsLink: 'https://posthog.com/docs/libraries/python',
+    },
+    {
+        name: 'React Router',
+        key: SDKKey.REACT_ROUTER,
+        tags: [SDKTag.WEB],
+        searchTerms: ['remix'],
+        image: <ReactRouterLogo />,
+        docsLink: 'https://posthog.com/docs/libraries/react-router',
     },
     {
         name: 'Remix',

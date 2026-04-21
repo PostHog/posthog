@@ -1,9 +1,7 @@
-import re
 from datetime import timedelta
 from decimal import Decimal
 from functools import lru_cache
-from typing import TYPE_CHECKING, Optional, cast
-from uuid import UUID
+from typing import TYPE_CHECKING, Any, Optional, cast
 from zoneinfo import ZoneInfo
 
 from django.conf import settings
@@ -18,11 +16,10 @@ import pytz
 import pydantic
 import posthoganalytics
 
-from posthog.clickhouse.query_tagging import tag_queries
+from posthog.clickhouse.query_tagging import Feature, Product, tag_queries, tags_context
 from posthog.cloud_utils import is_cloud
 from posthog.helpers.dashboard_templates import create_dashboard_from_template
 from posthog.helpers.session_recording_playlist_templates import DEFAULT_PLAYLISTS
-from posthog.models.dashboard import Dashboard
 from posthog.models.filters.filter import Filter
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.filters.utils import GroupTypeIndex
@@ -40,9 +37,9 @@ from posthog.models.utils import (
 from posthog.rbac.decorators import field_access_control
 from posthog.session_recordings.models.session_recording_playlist import SessionRecordingPlaylist
 from posthog.settings.utils import get_list
-from posthog.utils import GenericEmails
 
 from products.customer_analytics.backend.constants import DEFAULT_ACTIVITY_EVENT
+from products.dashboards.backend.models.dashboard import Dashboard
 
 from ...hogql.modifiers import set_default_modifier_values
 from ...schema import CurrencyCode, HogQLQueryModifiers, PathCleaningFilter, PersonsOnEventsMode
@@ -87,50 +84,35 @@ class TeamManager(models.Manager):
     def get_queryset(self):
         return super().get_queryset().defer(*DEPRECATED_ATTRS)
 
-    def set_test_account_filters(self, organization_id: Optional[UUID]) -> list:
-        filters = [
-            {
-                "key": "$host",
-                "operator": "not_regex",
-                "value": r"^(localhost|127\.0\.0\.1)($|:)",
-                "type": "event",
-            }
-        ]
-        if organization_id:
-            example_emails_raw = OrganizationMembership.objects.filter(organization_id=organization_id).values_list(
-                "user__email", flat=True
-            )
-            generic_emails = GenericEmails()
-            example_emails = [email for email in example_emails_raw if not generic_emails.is_generic(email)]
-            if len(example_emails) > 0:
-                example_email = re.search(r"@[\w.]+", example_emails[0])
-                if example_email:
-                    return [
-                        {
-                            "key": "email",
-                            "operator": "not_icontains",
-                            "value": example_email.group(),
-                            "type": "person",
-                        },
-                        *filters,
-                    ]
-        return filters
-
     def create_with_data(self, *, initiating_user: Optional["User"], **kwargs) -> "Team":
         team = cast("Team", self.create(**kwargs))
+
+        # Create internal/test users cohort and set test_account_filters to exclude it
+        from posthog.models.cohort.cohort import get_or_create_internal_test_users_cohort
+
+        initiating_user_email = initiating_user.email if initiating_user else None
+        test_users_cohort = get_or_create_internal_test_users_cohort(team, initiating_user_email=initiating_user_email)
+        team.test_account_filters = [
+            {"key": "id", "type": "cohort", "value": test_users_cohort.pk, "operator": "not_in"}
+        ]
 
         if kwargs.get("is_demo"):
             if initiating_user is None:
                 raise ValueError("initiating_user must be provided when creating a demo team")
-            team.kick_off_demo_data_generation(initiating_user)
+            team.save()
+            # Defer Celery task if we're inside an atomic block (e.g., ensure_account_and_save)
+            # to avoid sending task before transaction commits. In tests, Celery tasks run
+            # synchronously so we can call directly (and on_commit doesn't run in TestCase).
+            if connection.in_atomic_block and not settings.TEST:
+                transaction.on_commit(lambda: team.kick_off_demo_data_generation(initiating_user))
+            else:
+                team.kick_off_demo_data_generation(initiating_user)
             return team  # Return quickly, as the demo data and setup will be created asynchronously
 
         # Get organization to apply defaults
         organization = kwargs.get("organization") or Organization.objects.get(id=kwargs.get("organization_id"))
 
         team.anonymize_ips = kwargs.get("anonymize_ips", organization.default_anonymize_ips)
-
-        team.test_account_filters = self.set_test_account_filters(organization.id)
 
         # Self-hosted deployments get 5-year session recording retention by default
         if not is_cloud():
@@ -321,6 +303,7 @@ class Team(UUIDTClassicModel):
         default="Default project",
         validators=[MinLengthValidator(1, "Project must have a name!")],
     )
+    # DEPRECATED - not used anywhere and eligible for deletion
     slack_incoming_webhook = models.CharField(max_length=500, null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -387,6 +370,15 @@ class Team(UUIDTClassicModel):
     )
     session_recording_trigger_match_type_config = field_access_control(
         models.CharField(null=True, blank=True, max_length=24),
+        "project",
+        "admin",
+    )
+    session_recording_trigger_groups = field_access_control(
+        models.JSONField(
+            null=True,
+            blank=True,
+            help_text="V2 trigger groups configuration for session recording. If present, takes precedence over legacy trigger fields.",
+        ),
         "project",
         "admin",
     )
@@ -543,7 +535,7 @@ class Team(UUIDTClassicModel):
     )
 
     primary_dashboard = models.ForeignKey(
-        "posthog.Dashboard",
+        "dashboards.Dashboard",
         on_delete=models.SET_NULL,
         null=True,
         related_name="primary_dashboard_teams",
@@ -735,8 +727,9 @@ class Team(UUIDTClassicModel):
 
     @property
     def _person_on_events_person_id_no_override_properties_on_events(self) -> bool:
-        if settings.PERSON_ON_EVENTS_OVERRIDE is not None:
-            return settings.PERSON_ON_EVENTS_OVERRIDE
+        person_on_events_override = getattr(settings, "PERSON_ON_EVENTS_OVERRIDE", None)
+        if person_on_events_override is not None:
+            return person_on_events_override
 
         # on PostHog Cloud, use the feature flag
         if is_cloud():
@@ -747,7 +740,7 @@ class Team(UUIDTClassicModel):
                 group_properties={
                     "project": {
                         "id": str(self.id),
-                        "created_at": self.created_at,
+                        "created_at": self.created_at.isoformat() if self.created_at else None,
                         "uuid": self.uuid,
                     }
                 },
@@ -760,8 +753,9 @@ class Team(UUIDTClassicModel):
 
     @property
     def _person_on_events_person_id_override_properties_on_events(self) -> bool:
-        if settings.PERSON_ON_EVENTS_V2_OVERRIDE is not None:
-            return settings.PERSON_ON_EVENTS_V2_OVERRIDE
+        person_on_events_v2_override = getattr(settings, "PERSON_ON_EVENTS_V2_OVERRIDE", None)
+        if person_on_events_v2_override is not None:
+            return person_on_events_v2_override
 
         # on PostHog Cloud, use the feature flag
         if is_cloud():
@@ -772,7 +766,9 @@ class Team(UUIDTClassicModel):
                 group_properties={
                     "organization": {
                         "id": str(self.organization_id),
-                        "created_at": self.organization.created_at,
+                        "created_at": self.organization.created_at.isoformat()
+                        if self.organization.created_at
+                        else None,
                     }
                 },
                 only_evaluate_locally=True,
@@ -794,29 +790,31 @@ class Team(UUIDTClassicModel):
         filter = Filter(data={"full": "true"})
         person_query, person_query_params = PersonQuery(filter, self.id).get_query()
 
-        return sync_execute(
-            f"""
-            SELECT count(1) FROM (
-                {person_query}
-            )
-        """,
-            {**person_query_params, **filter.hogql_context.values},
-        )[0][0]
+        with tags_context(product=Product.FEATURE_FLAGS, feature=Feature.QUERY):
+            return sync_execute(
+                f"""
+                SELECT count(1) FROM (
+                    {person_query}
+                )
+            """,
+                {**person_query_params, **filter.hogql_context.values},
+            )[0][0]
 
     @lru_cache(maxsize=5)  # noqa: B019 - TODO: refactor to module-level cache
     def groups_seen_so_far(self, group_type_index: GroupTypeIndex) -> int:
         from posthog.clickhouse.client import sync_execute
 
-        # nosemgrep: clickhouse-fstring-param-audit - no interpolation, only parameterized values
-        return sync_execute(
-            f"""
-            SELECT
-                count(DISTINCT group_key)
-            FROM groups
-            WHERE team_id = %(team_id)s AND group_type_index = %(group_type_index)s
-        """,
-            {"team_id": self.pk, "group_type_index": group_type_index},
-        )[0][0]
+        with tags_context(product=Product.FEATURE_FLAGS, feature=Feature.QUERY):
+            # nosemgrep: clickhouse-fstring-param-audit - no interpolation, only parameterized values
+            return sync_execute(
+                f"""
+                SELECT
+                    count(DISTINCT group_key)
+                FROM groups
+                WHERE team_id = %(team_id)s AND group_type_index = %(group_type_index)s
+            """,
+                {"team_id": self.pk, "group_type_index": group_type_index},
+            )[0][0]
 
     @property
     def timezone_info(self) -> ZoneInfo:
@@ -1069,7 +1067,7 @@ class Team(UUIDTClassicModel):
             )
 
             # Union all sets of user IDs
-            user_ids_queryset = admin_user_ids.union(member_access_user_ids).union(role_user_ids)
+            user_ids_queryset = cast(Any, admin_user_ids).union(member_access_user_ids, role_user_ids)
 
         return User.objects.filter(is_active=True, id__in=user_ids_queryset)
 

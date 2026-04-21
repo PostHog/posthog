@@ -25,6 +25,13 @@ var (
 		Name: "livestream_ph_events_total",
 		Help: "The total number of handled PostHog events, less than or equal to consumed",
 	})
+	NotificationErrors = promauto.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "livestream_notification_errors_total",
+			Help: "Notification consumer errors by reason",
+		},
+		[]string{"reason"},
+	)
 
 	IncomingQueue = promauto.NewGauge(prometheus.GaugeOpts{
 		Name: "livestream_incoming_queue_use_ratio",

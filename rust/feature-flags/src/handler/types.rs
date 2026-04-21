@@ -8,7 +8,7 @@ use uuid::Uuid;
 use crate::{
     api::types::FlagsQueryParams,
     cohorts::{cohort_cache_manager::CohortCacheManager, membership::CohortMembershipProvider},
-    flags::flag_models::FeatureFlagList,
+    flags::{flag_group_type_mapping::GroupTypeCacheManager, flag_models::FeatureFlagList},
     rayon_dispatcher::RayonDispatcher,
     router,
     utils::user_agent::UserAgentInfo,
@@ -55,6 +55,7 @@ pub struct FeatureFlagEvaluationContext {
     pub non_persons_reader: Arc<dyn common_database::Client + Send + Sync>,
     pub non_persons_writer: Arc<dyn common_database::Client + Send + Sync>,
     pub cohort_cache: Arc<CohortCacheManager>,
+    pub group_type_cache: Arc<GroupTypeCacheManager>,
     pub person_property_overrides: Option<HashMap<String, Value>>,
     pub group_property_overrides: Option<HashMap<String, HashMap<String, Value>>>,
     pub groups: Option<HashMap<String, Value>>,

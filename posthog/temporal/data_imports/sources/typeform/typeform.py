@@ -104,6 +104,10 @@ class TypeformResponsesPaginator(BasePaginator):
         super().__init__()
         self._cursor: str | None = None
 
+    def init_request(self, request: Request) -> None:
+        self._cursor = None
+        self._has_next_page = True
+
     def update_state(self, response: Response, data: list[Any] | None = None) -> None:
         if not data:
             self._cursor = None
@@ -122,6 +126,10 @@ class TypeformResponsesPaginator(BasePaginator):
         if self._cursor:
             if request.params is None:
                 request.params = {}
+            # Typeform rejects mixing token cursor pagination with datetime window filters.
+            # Keep since/until only on the first request, then continue with before token.
+            request.params.pop("since", None)
+            request.params.pop("until", None)
             request.params["before"] = self._cursor
 
 

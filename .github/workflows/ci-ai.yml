@@ -122,8 +122,8 @@ jobs:
             - name: Install sqlx-cli
               run: cargo install sqlx-cli --version 0.8.0 --features postgres --no-default-features --locked
 
-            - name: Add Kafka and ClickHouse to /etc/hosts
-              run: sudo echo "127.0.0.1 kafka clickhouse" | sudo tee -a /etc/hosts
+            - name: Add service hostnames to /etc/hosts
+              run: sudo echo "127.0.0.1 db redis7 kafka clickhouse clickhouse-coordinator objectstorage seaweedfs temporal" | sudo tee -a /etc/hosts
 
             - name: Run LLM evals
               run: pytest ${{ matrix.test_paths }} ${{ matrix.ignore_paths }} -vv --junitxml=junit.xml

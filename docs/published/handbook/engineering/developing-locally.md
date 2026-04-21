@@ -41,7 +41,7 @@ These components rely on a few external services:
 When spinning up an instance of PostHog for development, we recommend the following hybrid configuration:
 
 - External services (ClickHouse, Kafka, PostgreSQL, Redis, etc.) run in Docker via `docker compose`
-- PostHog apps (Django, frontend, plugin-server, Celery) run on the host using `hogli start` (which uses mprocs, a terminal UI, to manage and display logs from all processes simultaneously)
+- PostHog apps (Django, frontend, plugin-server, Celery) run on the host using `hogli start` (which uses phrocs, a terminal UI, to manage and display logs from all processes simultaneously)
 
 This approach gives you fast iteration on the code you're developing while keeping infrastructure isolated.
 
@@ -134,7 +134,13 @@ To get PostHog running in a dev environment:
 
    > Note on app dependencies: Python requirements get updated every time the environment is activated (`uv sync` is lightning fast). JS dependencies only get installed if `node_modules/` is not present (`pnpm install` still takes a couple lengthy seconds). Dependencies for other languages currently don't get auto-installed.
 
-3. After successful environment activation, run `hogli start`. This launches the Docker infrastructure and all PostHog processes together via mprocs — a terminal UI that shows logs from every service side by side.
+3. After successful environment activation, run `hogli start`. This launches the Docker infrastructure and all PostHog processes together via phrocs, a terminal UI that aggregates logs from all processes in one place.
+
+   > Note on connection errors: If you see connection errors on `hogli start`, ensure the following entry exists in `/etc/hosts`:
+   >
+   > ```text
+   > 127.0.0.1 db redis7 kafka clickhouse clickhouse-coordinator objectstorage seaweedfs temporal
+   > ```
 
 This is it – you should be seeing the PostHog app at <a href="http://localhost:8010" target="_blank">http://localhost:8010</a>.
 
@@ -203,25 +209,9 @@ If you get `Configuration property "enable.ssl.certificate.verification" not sup
 **pyproject.toml parse warnings**
 When running `uv sync`, you may see a `Failed to parse` warning related to `pyproject.toml`. This is usually harmless – if you see the `Activate with:` line at the end, your environment was created successfully.
 
-## Option 2: Developing with Codespaces
+## Option 2: Developing with Coder workspaces (PostHog employees only)
 
-This is a faster option to get up and running if you can't or don't want to set up locally.
-
-1. Create your codespace.
-   ![](https://user-images.githubusercontent.com/890921/231489405-cb2010b4-d9e3-4837-bfdf-b2d4ef5c5d0b.png)
-2. Update it to 8-core machine type (the smallest is probably too small to get PostHog running properly).
-   ![](https://user-images.githubusercontent.com/890921/231490278-140f814e-e77b-46d5-9a4f-31c1b1d6956a.png)
-3. Open the codespace, using one of the "Open in" options from the list.
-4. In the codespace, open a terminal window and run `docker compose -f docker-compose.dev.yml up`.
-5. Ensure that you are using the right Node version (`nvm install 22 && nvm use 22`) then, in another terminal, run `pnpm i` (and use the same terminal for the following commands).
-6. Then run `uv sync`
-   - If this doesn't activate your python virtual environment, run `uv venv` (install `uv` following the [uv standalone installer guide](https://docs.astral.sh/uv/getting-started/installation/#standalone-installer) if needed)
-7. Install `sqlx-cli` with `cargo install sqlx-cli` (install Cargo following the [Cargo getting started guide](https://doc.rust-lang.org/cargo/getting-started/installation.html) if needed)
-8. Now run `DEBUG=1 ./bin/migrate`
-9. Install [mprocs](https://github.com/pvolok/mprocs#installation) (`cargo install mprocs`)
-10. Run `bin/hogli start` (or just `hogli start` if using Flox).
-11. Open browser to <http://localhost:8010/>.
-12. To get some practical test data into your brand-new instance of PostHog, run `DEBUG=1 ./manage.py generate_demo_data`.
+If you work at PostHog and want a remote workspace instead of running the stack on your laptop, see the [internal Coder workspaces guide](https://github.com/PostHog/posthog/blob/master/docs/internal/coder-workspaces.md).
 
 ## Testing
 
@@ -232,25 +222,19 @@ For a PostHog PR to be merged, all tests must be green, and ideally you should b
 For frontend unit tests, run:
 
 ```bash
-pnpm --filter=@posthog/frontend test
+hogli test frontend/src/
 ```
 
 You can narrow the run down to only files under matching paths:
 
 ```bash
-pnpm jest --testPathPattern=frontend/src/lib/components/DateFilter/DateFilter.test.tsx
+hogli test frontend/src/lib/components/DateFilter/DateFilter.test.tsx
 ```
 
-To update all visual regression test snapshots, make sure Storybook is running on your machine (you can start it with `pnpm storybook` in a separate Terminal tab). You may also need to install Playwright with `pnpm exec playwright install`. And then run:
+To update all visual regression test snapshots, make sure Storybook is running on your machine (you can start it with `hogli storybook` in a separate Terminal tab). You may also need to install Playwright with `pnpm exec playwright install`. And then run:
 
 ```bash
-pnpm test:visual
-```
-
-To only update snapshots for stories under a specific path, run:
-
-```bash
-pnpm test:visual:update frontend/src/lib/Example.stories.tsx
+hogli storybook:test
 ```
 
 ### Backend
@@ -258,26 +242,32 @@ pnpm test:visual:update frontend/src/lib/Example.stories.tsx
 For backend tests, run:
 
 ```bash
-pytest
+hogli test posthog/test/
 ```
 
 You can narrow the run down to only files under matching paths:
 
 ```bash
-pytest posthog/test/test_example.py
+hogli test posthog/test/test_example.py
 ```
 
 Or to only test cases with matching function names:
 
 ```bash
-pytest posthog/test/test_example.py -k test_something
+hogli test posthog/test/test_example.py -k test_something
 ```
 
 To see debug logs (such as ClickHouse queries), add argument `--log-cli-level=DEBUG`.
 
+You can also run tests for all files changed on the current branch:
+
+```bash
+hogli test --changed
+```
+
 ### End-to-end
 
-For Playwright end-to-end tests, run `bin/e2e-test-runner`. This will spin up a test instance of PostHog and show you the Playwright interface, from which you'll manually choose tests to run. You'll need `uv` installed (the Python package manager), which you can do so with `brew install uv`. Once you're done, terminate the command with Cmd + C.
+For Playwright end-to-end tests, run `hogli test:e2e` (which wraps `bin/e2e-test-runner`). This will spin up a test instance of PostHog and show you the Playwright interface, from which you'll manually choose tests to run. You'll need `uv` installed (the Python package manager), which you can do so with `brew install uv`. Once you're done, terminate the command with Cmd + C.
 
 ## Django migrations
 
@@ -443,6 +433,36 @@ When creating a new email, there are a few steps to take. It's important to add 
    message.send()
    ```
 
+## Extra: Using AI assistants with your local dev environment
+
+Phrocs (the process manager) includes an MCP (Model Context Protocol) server that lets AI coding assistants query your local dev environment. This is useful for debugging issues with AI tools like Claude Desktop, Cursor, Windsurf, or other MCP-compatible assistants.
+
+### Setup
+
+The repository includes a `.mcp.json` configuration file in the repo root that registers the phrocs MCP server. To use it:
+
+1. Ensure your AI tool supports MCP and can read `.mcp.json` configuration files
+2. Open the PostHog repository in your AI tool
+3. The phrocs MCP server is available automatically when `hogli start` is running
+
+### Available tools
+
+The MCP server provides two tools:
+
+- **get_process_status** – Returns process status including PID, running state, readiness, and real-time metrics (CPU, memory, threads)
+- **get_process_logs** – Retrieves recent log lines from a process's in-memory buffer, with optional grep filtering
+
+### Example usage
+
+Ask your AI assistant questions like:
+
+- "What processes are currently running?"
+- "Show me the recent logs from the backend process"
+- "Is the frontend process ready?"
+- "Search the worker logs for error messages"
+
+The AI assistant uses the MCP tools to query phrocs directly and provide you with the relevant information.
+
 ## Extra: Developing paid features (PostHog employees only)
 
 If you're a PostHog employee, you can get access to paid features on your local instance to make development easier. [Learn how to do so in our internal billing guide](https://github.com/PostHog/billing?tab=readme-ov-file#licensing-your-local-instance).
@@ -467,7 +487,7 @@ If you need to start fresh with a clean database (for example, if your local dat
 
 3. Wait for all migrations to complete. You can monitor the logs to ensure migrations have finished running.
 
-4. Once PostHog is running, click the **generate-demo-data** service in the mprocs terminal UI (you may have to scroll), then type `r` to start the service and generate test data.
+4. Once PostHog is running, click the **generate-demo-data** service in the phrocs terminal UI (you may have to scroll), then type `r` to start the service and generate test data.
 
 > **Note:** This process will completely wipe your local database. Make sure you don't have any important local data before proceeding.
 

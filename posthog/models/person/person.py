@@ -1,4 +1,4 @@
-from typing import Any, Optional
+from typing import Any, Optional, cast
 
 from django.conf import settings
 from django.core.exceptions import EmptyResultSet
@@ -123,7 +123,7 @@ class PersonManager(models.Manager):
             if not kwargs.get("distinct_ids"):
                 return super().create(*args, **kwargs)
             distinct_ids = kwargs.pop("distinct_ids")
-            person = super().create(*args, **kwargs)
+            person = cast("Person", super().create(*args, **kwargs))
             person._add_distinct_ids(distinct_ids)
             return person
 
@@ -572,6 +572,15 @@ def get_distinct_ids_for_subquery(person: Person | None, team: Team) -> list[str
     last_ids_limit = MAX_LIMIT_DISTINCT_IDS - first_ids_limit
 
     if person is not None:
+        # When a Person comes from personhog (via proto_person_to_model), distinct IDs
+        # are already populated on _distinct_ids — use them directly to avoid hitting
+        # the Django ORM below, which would defeat the purpose of the personhog path.
+        if hasattr(person, "_distinct_ids") and person._distinct_ids is not None:
+            ids = person._distinct_ids
+            if len(ids) <= MAX_LIMIT_DISTINCT_IDS:
+                return ids
+            return list(set(ids[:first_ids_limit] + ids[-last_ids_limit:]))
+
         first_ids = (
             PersonDistinctId.objects.db_manager(READ_DB_FOR_PERSONS)
             .filter(person=person, team=team)
@@ -584,7 +593,7 @@ def get_distinct_ids_for_subquery(person: Person | None, team: Team) -> list[str
             .order_by("-id")
             .values_list("distinct_id", flat=True)[:last_ids_limit]
         )
-        distinct_ids = first_ids.union(last_ids)
+        distinct_ids = cast(Any, first_ids).union(last_ids)
     else:
         distinct_ids = []
     return list(map(str, distinct_ids))

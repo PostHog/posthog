@@ -154,6 +154,7 @@ export const VisualizationArtifactAnswer = React.memo(function VisualizationArti
                                           query: query as InsightVizNode | DataVisualizationNode,
                                       })
                             }
+                            targetBlank
                             icon={<IconOpenInNew />}
                             size="xsmall"
                             tooltip={isSavedInsight ? 'Open insight' : 'Open as new insight'}

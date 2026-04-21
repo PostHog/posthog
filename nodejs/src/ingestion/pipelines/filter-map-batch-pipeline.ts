@@ -1,11 +1,6 @@
 import { BatchPipeline, BatchPipelineResultWithContext } from './batch-pipeline.interface'
-import { PipelineContext, PipelineResultWithContext } from './pipeline.interface'
-import { PipelineResultOk, isOkResult } from './results'
-
-export type OkResultWithContext<TOutput, COutput> = {
-    result: PipelineResultOk<TOutput>
-    context: PipelineContext<COutput>
-}
+import { OkResultWithContext, PipelineResultWithContext } from './pipeline.interface'
+import { isOkResult } from './results'
 
 export type FilterMapMappingFunction<TInput, TOutput, CInput, COutput> = (
     element: OkResultWithContext<TInput, CInput>
@@ -30,19 +25,21 @@ export class FilterMapBatchPipeline<
     CIntermediate = CInput,
     CMapped = CIntermediate,
     COutput = CMapped,
-> implements BatchPipeline<TInput, TOutput, CInput, COutput | CIntermediate>
+    RPrev extends string = never,
+    RSub extends string = never,
+> implements BatchPipeline<TInput, TOutput, CInput, COutput | CIntermediate, RPrev | RSub>
 {
     constructor(
-        private previousPipeline: BatchPipeline<TInput, TIntermediate, CInput, CIntermediate>,
+        private previousPipeline: BatchPipeline<TInput, TIntermediate, CInput, CIntermediate, RPrev>,
         private mappingFn: FilterMapMappingFunction<TIntermediate, TMapped, CIntermediate, CMapped>,
-        private subPipeline: BatchPipeline<TMapped, TOutput, CMapped, COutput>
+        private subPipeline: BatchPipeline<TMapped, TOutput, CMapped, COutput, RSub>
     ) {}
 
-    feed(elements: BatchPipelineResultWithContext<TInput, CInput>): void {
+    feed(elements: OkResultWithContext<TInput, CInput>[]): void {
         this.previousPipeline.feed(elements)
     }
 
-    async next(): Promise<BatchPipelineResultWithContext<TOutput, COutput | CIntermediate> | null> {
+    async next(): Promise<BatchPipelineResultWithContext<TOutput, COutput | CIntermediate, RPrev | RSub> | null> {
         // Try subpipeline first (drains any pending results)
         const subPipelineResults = await this.subPipeline.next()
         if (subPipelineResults !== null) {
@@ -57,7 +54,7 @@ export class FilterMapBatchPipeline<
 
         // Separate OK and non-OK results
         const okResults: OkResultWithContext<TIntermediate, CIntermediate>[] = []
-        const nonOkResults: PipelineResultWithContext<TOutput, CIntermediate>[] = []
+        const nonOkResults: PipelineResultWithContext<TOutput, CIntermediate, RPrev | RSub>[] = []
 
         for (const element of previousResults) {
             if (isOkResult(element.result)) {
@@ -75,9 +72,7 @@ export class FilterMapBatchPipeline<
 
         // Map OK results and feed to subpipeline
         if (okResults.length > 0) {
-            const mappedResults: BatchPipelineResultWithContext<TMapped, CMapped> = okResults.map((element) =>
-                this.mappingFn(element)
-            )
+            const mappedResults = okResults.map((element) => this.mappingFn(element))
             this.subPipeline.feed(mappedResults)
         }
 

@@ -8,6 +8,7 @@ pub use error::Error as SymbolDataError;
 
 // The core data type
 pub use symbol_data::read_as as read_symbol_data;
+pub use symbol_data::read_as_with_byte_count as read_symbol_data_with_byte_count;
 pub use symbol_data::write as write_symbol_data;
 pub use symbol_data::write_uncompressed as write_symbol_data_uncompressed;
 

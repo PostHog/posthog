@@ -32,6 +32,13 @@ describe('Persons', { concurrent: false }, () => {
             expect(response.results).toBeTruthy()
             expect(Array.isArray(response.results)).toBe(true)
             expect(response._posthogUrl).toContain('/persons')
+
+            if (response.results.length > 0) {
+                const person = response.results[0]
+                expect(Object.keys(person).sort()).toEqual(
+                    ['created_at', 'distinct_ids', 'id', 'last_seen_at', 'name', 'properties', 'uuid'].sort()
+                )
+            }
         })
 
         it('should support pagination with limit and offset', async () => {
@@ -43,10 +50,29 @@ describe('Persons', { concurrent: false }, () => {
         })
 
         it('should support search by email', async () => {
-            const result = await listTool.handler(context, { search: 'test@' })
+            // Find a person with an email property to use as a search term
+            const allResult = await listTool.handler(context, { limit: 100 })
+            const allResponse = parseToolResponse(allResult)
+            const personWithEmail = allResponse.results.find((p: any) => p.properties?.email || p.properties?.$email)
+
+            if (!personWithEmail) {
+                console.warn('No persons with email found in project, skipping search by email test')
+                return
+            }
+
+            const email = personWithEmail.properties.email ?? personWithEmail.properties.$email
+            const result = await listTool.handler(context, { search: email })
             const response = parseToolResponse(result)
 
             expect(Array.isArray(response.results)).toBe(true)
+            expect(response.results.length).toBeGreaterThan(0)
+
+            // Verify only the dot-notation picked properties are present (no full properties blob leaked)
+            const allowedProps = new Set(['email', '$email', '$geoip_country_code'])
+            const person = response.results[0]
+            for (const key of Object.keys(person.properties)) {
+                expect(allowedProps).toContain(key)
+            }
         })
     })
 
@@ -131,14 +157,12 @@ describe('Persons', { concurrent: false }, () => {
             const person = listResponse.results[0]
             const testKey = `mcp_test_prop_${Date.now()}`
 
-            // The endpoint returns 202 Accepted with no body — the property is updated asynchronously
+            // The endpoint returns 202 Accepted with no body
             const result = await updatePropertyTool.handler(context, {
                 id: person.id,
                 key: testKey,
                 value: 'test_value',
             })
-
-            // 202 returns an empty body, so we just check the call didn't throw
             expect(result).toBeTruthy()
         })
     })

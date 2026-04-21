@@ -1,4 +1,5 @@
 import json
+from typing import Any, cast
 from uuid import UUID
 
 import pytest
@@ -10,7 +11,7 @@ from unittest.mock import MagicMock, patch
 from django.core.cache import cache
 from django.db import IntegrityError
 
-from orjson import orjson
+import orjson
 from rest_framework import status
 
 from posthog.hogql import ast
@@ -30,6 +31,10 @@ from posthog.test.test_utils import create_group_type_mapping_without_created_at
 from products.notebooks.backend.models import Notebook, ResourceNotebook
 
 PATH = "ee.clickhouse.views.groups"
+
+
+def typed_group_type_index(value: int) -> GroupTypeIndex:
+    return cast(GroupTypeIndex, value)
 
 
 class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
@@ -164,10 +169,14 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND, "Should return 404 Not Found")
 
+    def test_find_missing_group_key(self):
+        response = self.client.get(f"/api/projects/{self.team.id}/groups/find?group_type_index=0")
+        self.assertEqual(response.status_code, 400)
+
     @freeze_time("2021-05-02")
     @patch(f"{PATH}.posthoganalytics.feature_enabled", return_value=False)
     def test_retrieve_group_crm_disabled(self, _):
-        index = 0
+        index: GroupTypeIndex = 0
         key = "key"
         group = create_group(
             team_id=self.team.pk,
@@ -195,7 +204,7 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
     @freeze_time("2021-05-02")
     @patch(f"{PATH}.posthoganalytics.feature_enabled", return_value=True)
     def test_retrieve_group_crm_enabled(self, _):
-        index = 0
+        index: GroupTypeIndex = 0
         key = "key"
         group = create_group(
             team_id=self.team.pk,
@@ -209,6 +218,8 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK, "Should return 200 OK")
         relationships = ResourceNotebook.objects.filter(group=group.id)
         self.assertIsNotNone(relationships)
+        relationship = relationships.first()
+        assert relationship is not None
         self.assertEqual(
             response.json(),
             {
@@ -216,13 +227,13 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
                 "group_key": key,
                 "group_properties": {"industry": "finance", "name": "Mr. Krabs"},
                 "group_type_index": index,
-                "notebook": relationships.first().notebook.short_id,
+                "notebook": relationship.notebook.short_id,
             },
         )
         self.assertEqual(1, Notebook.objects.filter(team=self.team).count())
 
         # Test default notebook content structure
-        notebook = relationships.first().notebook
+        notebook = relationship.notebook
         self.assertIsNotNone(notebook.content)
         self.assertEqual(notebook.content[0]["type"], "heading")
         self.assertEqual(notebook.content[0]["attrs"]["level"], 1)
@@ -231,7 +242,7 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
 
     @freeze_time("2021-05-02")
     def test_retrieve_group_with_notebook(self):
-        index = 0
+        index: GroupTypeIndex = 0
         key = "key"
         group = create_group(
             team_id=self.team.pk,
@@ -260,7 +271,7 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
     @patch(f"{PATH}.ResourceNotebook.objects.create", side_effect=IntegrityError)
     @patch(f"{PATH}.posthoganalytics.feature_enabled", return_value=True)
     def test_retrieve_group_notebook_transaction_rollback(self, _, mock_relationship_create):
-        index = 0
+        index: GroupTypeIndex = 0
         key = "key"
         group = create_group(
             team_id=self.team.pk,
@@ -284,10 +295,11 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
         mock_relationship_create.assert_called_once()
         self.assertEqual(len(logs.records), 1)
         log = logs.records[0]
-        self.assertEqual(log.msg["group_key"], key)
-        self.assertEqual(log.msg["group_type_index"], index)
-        self.assertEqual(log.msg["team_id"], self.team.pk)
-        self.assertEqual(log.msg["event"], "Group notebook creation failed")
+        message = cast(dict[str, Any], log.msg)
+        self.assertEqual(message["group_key"], key)
+        self.assertEqual(message["group_type_index"], index)
+        self.assertEqual(message["team_id"], self.team.pk)
+        self.assertEqual(message["event"], "Group notebook creation failed")
 
     @freeze_time("2021-05-02")
     @mock.patch("ee.clickhouse.views.groups.capture_internal")
@@ -353,7 +365,7 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
                 "group_type_index": 0,
             },
         )
-        response = execute_hogql_query(
+        hogql_response = execute_hogql_query(
             parse_select(
                 """
                 select properties
@@ -368,7 +380,7 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
             ),
             self.team,
         )
-        self.assertEqual(response.results, [(json.dumps(group_properties),)])
+        self.assertEqual(hogql_response.results, [(json.dumps(group_properties),)])
         mock_capture.assert_called_once_with(
             token=self.team.api_token,
             event_name="$groupidentify",
@@ -421,7 +433,7 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
         group_key = "1234"
         create_group(
             team_id=self.team.pk,
-            group_type_index=group_type_mapping.group_type_index,
+            group_type_index=typed_group_type_index(group_type_mapping.group_type_index),
             group_key=group_key,
             properties={},
         )
@@ -512,13 +524,13 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
         )
         group = create_group(
             team_id=self.team.pk,
-            group_type_index=group_type_mapping.group_type_index,
+            group_type_index=typed_group_type_index(group_type_mapping.group_type_index),
             group_key="org:5",
             properties={"name": "Mr. Krabs"},
         )
         create_group(
             team_id=self.team.pk,
-            group_type_index=group_type_mapping.group_type_index,
+            group_type_index=typed_group_type_index(group_type_mapping.group_type_index),
             group_key="org:55",
             properties={"name": "Mr. Krabs"},
         )
@@ -539,7 +551,7 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
             },
         )
 
-        response = execute_hogql_query(
+        hogql_response = execute_hogql_query(
             parse_select(
                 """
                 select properties
@@ -554,7 +566,7 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
             ),
             self.team,
         )
-        self.assertEqual(response.results, [('{"name": "Mr. Krabs", "industry": "technology"}',)])
+        self.assertEqual(hogql_response.results, [('{"name": "Mr. Krabs", "industry": "technology"}',)])
 
         mock_capture.assert_called_once_with(
             token=self.team.api_token,
@@ -597,7 +609,7 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
         )
         group = create_group(
             team_id=self.team.pk,
-            group_type_index=group_type_mapping.group_type_index,
+            group_type_index=typed_group_type_index(group_type_mapping.group_type_index),
             group_key="org:5",
             properties={"industry": "finance", "name": "Mr. Krabs"},
         )
@@ -618,7 +630,7 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
             },
         )
 
-        response = execute_hogql_query(
+        hogql_response = execute_hogql_query(
             parse_select(
                 """
                 select properties
@@ -634,9 +646,9 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
             self.team,
         )
         # Check properties regardless of JSON key order
-        self.assertEqual(len(response.results), 1)
-        self.assertEqual(len(response.results[0]), 1)
-        self.assertEqual(orjson.loads(response.results[0][0]), {"name": "Mr. Krabs", "industry": "technology"})
+        self.assertEqual(len(hogql_response.results), 1)
+        self.assertEqual(len(hogql_response.results[0]), 1)
+        self.assertEqual(orjson.loads(hogql_response.results[0][0]), {"name": "Mr. Krabs", "industry": "technology"})
 
         mock_capture.assert_called_once_with(
             token=self.team.api_token,
@@ -677,7 +689,7 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
         )
         create_group(
             team_id=self.team.pk,
-            group_type_index=group_type_mapping.group_type_index,
+            group_type_index=typed_group_type_index(group_type_mapping.group_type_index),
             group_key="org:5",
             properties={"industry": "finance", "name": "Mr. Krabs"},
         )
@@ -698,7 +710,7 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
         )
         create_group(
             team_id=self.team.pk,
-            group_type_index=group_type_mapping.group_type_index,
+            group_type_index=typed_group_type_index(group_type_mapping.group_type_index),
             group_key="org:5",
             properties={"industry": "finance", "name": "Mr. Krabs"},
         )
@@ -721,7 +733,7 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
         )
         group = create_group(
             team_id=self.team.pk,
-            group_type_index=group_type_mapping.group_type_index,
+            group_type_index=typed_group_type_index(group_type_mapping.group_type_index),
             group_key="org:5",
             properties={"industry": "finance", "name": "Mr. Krabs"},
         )
@@ -742,7 +754,7 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
             },
         )
 
-        response = execute_hogql_query(
+        hogql_response = execute_hogql_query(
             parse_select(
                 """
                 select properties
@@ -757,7 +769,7 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
             ),
             self.team,
         )
-        self.assertEqual(response.results, [('{"name": "Mr. Krabs"}',)])
+        self.assertEqual(hogql_response.results, [('{"name": "Mr. Krabs"}',)])
 
         mock_capture.assert_called_once_with(
             token=self.team.api_token,
@@ -798,7 +810,7 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
         )
         create_group(
             team_id=self.team.pk,
-            group_type_index=group_type_mapping.group_type_index,
+            group_type_index=typed_group_type_index(group_type_mapping.group_type_index),
             group_key="org:5",
             properties={"industry": "finance", "name": "Mr. Krabs"},
         )
@@ -819,7 +831,7 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
         )
         create_group(
             team_id=self.team.pk,
-            group_type_index=group_type_mapping.group_type_index,
+            group_type_index=typed_group_type_index(group_type_mapping.group_type_index),
             group_key="org:5",
             properties={"industry": "finance", "name": "Mr. Krabs"},
         )
@@ -829,6 +841,65 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
             {"$unset": "industry"},
         )
         self.assertEqual(response.status_code, 404)
+
+    def test_delete_property_missing_group_type_index(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/groups/delete_property?group_key=org:5",
+            {"$unset": "industry"},
+        )
+        self.assertEqual(response.status_code, 400)
+
+    def test_delete_property_missing_group_key(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/groups/delete_property?group_type_index=0",
+            {"$unset": "industry"},
+        )
+        self.assertEqual(response.status_code, 400)
+
+    @freeze_time("2021-05-02")
+    @patch("ee.clickhouse.views.groups.capture_internal")
+    def test_delete_property_nonexistent_property(self, mock_capture):
+        mock_capture.return_value = mock.MagicMock(status_code=200)
+        create_group_type_mapping_without_created_at(
+            team=self.team,
+            project_id=self.team.project_id,
+            group_type_index=0,
+            group_type="organization",
+        )
+        create_group(
+            team_id=self.team.pk,
+            group_type_index=0,
+            group_key="org:5",
+            properties={"industry": "finance"},
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/groups/delete_property?group_key=org:5&group_type_index=0",
+            {"$unset": "nonexistent"},
+        )
+        self.assertEqual(response.status_code, 400)
+
+    @freeze_time("2021-05-02")
+    def test_delete_property_non_string_unset(self):
+        create_group_type_mapping_without_created_at(
+            team=self.team,
+            project_id=self.team.project_id,
+            group_type_index=0,
+            group_type="organization",
+        )
+        create_group(
+            team_id=self.team.pk,
+            group_type_index=0,
+            group_key="org:5",
+            properties={"industry": "finance"},
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/groups/delete_property?group_key=org:5&group_type_index=0",
+            {"$unset": ["industry"]},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 400)
 
     @freeze_time("2021-05-02")
     @patch("ee.clickhouse.views.groups.capture_internal")
@@ -844,7 +915,7 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
         )
         group = create_group(
             team_id=self.team.pk,
-            group_type_index=group_type_mapping.group_type_index,
+            group_type_index=typed_group_type_index(group_type_mapping.group_type_index),
             group_key="org:5",
             properties={"industry": "finance", "name": "Mr. Krabs"},
         )
@@ -884,7 +955,7 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
         )
         create_group(
             team_id=self.team.pk,
-            group_type_index=group_type_mapping.group_type_index,
+            group_type_index=typed_group_type_index(group_type_mapping.group_type_index),
             group_key="org:5",
             properties={"industry": "finance", "name": "Mr. Krabs"},
         )
@@ -1001,6 +1072,10 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
                 },
             ],
         )
+
+    def test_related_missing_id(self):
+        response = self.client.get(f"/api/projects/{self.team.id}/groups/related?group_type_index=0")
+        self.assertEqual(response.status_code, 400)
 
     def test_property_definitions(self):
         create_group(
@@ -1140,6 +1215,14 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
         ).json()["results"]
         self.assertEqual(len(response_data), 0)
         self.assertEqual(response_data, [])
+
+    def test_property_values_missing_group_type_index(self):
+        response = self.client.get(f"/api/projects/{self.team.id}/groups/property_values/?key=name")
+        self.assertEqual(response.status_code, 400)
+
+    def test_property_values_missing_key(self):
+        response = self.client.get(f"/api/projects/{self.team.id}/groups/property_values/?group_type_index=0")
+        self.assertEqual(response.status_code, 400)
 
     def test_update_groups_metadata(self):
         create_group_type_mapping_without_created_at(
@@ -2008,6 +2091,34 @@ class GroupPropertyDefinitionsTestCase(ClickhouseTestMixin, APIBaseTest):
         assert prop_def is not None
         self.assertEqual(prop_def.property_type, "Numeric")
         self.assertTrue(prop_def.is_numerical)
+
+    @mock.patch("ee.clickhouse.views.groups.capture_internal")
+    def test_update_property_missing_key(self, mock_capture):
+        mock_capture.return_value = mock.MagicMock(status_code=200)
+        create_group(
+            team_id=self.team.pk, group_type_index=self.group_type_index, group_key=self.group_key, properties={}
+        )
+
+        response = self.client.post(
+            f"{self.base_url}update_property?group_key={self.group_key}&group_type_index={self.group_type_index}",
+            {"value": "something"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 400)
+
+    @mock.patch("ee.clickhouse.views.groups.capture_internal")
+    def test_update_property_empty_key(self, mock_capture):
+        mock_capture.return_value = mock.MagicMock(status_code=200)
+        create_group(
+            team_id=self.team.pk, group_type_index=self.group_type_index, group_key=self.group_key, properties={}
+        )
+
+        response = self.client.post(
+            f"{self.base_url}update_property?group_key={self.group_key}&group_type_index={self.group_type_index}",
+            {"key": "", "value": "something"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 400)
 
     @mock.patch("ee.clickhouse.views.groups.capture_internal")
     def test_property_definitions_have_correct_group_type_index(self, mock_capture):

@@ -366,6 +366,7 @@ export function addGroupAttrsToNode({ attrs, node, children = [] }: AddAttrsToNo
                     ...node.attrs,
                     nodeId,
                     id: groupKey,
+                    type: 'person',
                     groupTypeIndex,
                     children,
                 },

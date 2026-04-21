@@ -153,6 +153,6 @@ If multiple partitions for the same team run concurrently, they may race to crea
 ## S3 Path Structure
 
 ```text
-s3://{bucket}/backfill/events/team_id={team_id}/year={year}/month={month}/day={day}/{run_id}.parquet
-s3://{bucket}/backfill/persons/team_id={team_id}/year={year}/month={month}/day={day}/{run_id}.parquet
+s3://{bucket}/backfill/events/{team_id}/{year}/{month}/{day}/{run_id}.parquet
+s3://{bucket}/backfill/persons/{team_id}/{year}/{month}/{day}/{run_id}.parquet
 ```

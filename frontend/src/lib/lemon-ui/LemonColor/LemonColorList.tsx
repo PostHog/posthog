@@ -22,7 +22,7 @@ type LemonColorListTokenProps = {
     onSelectColor?: never
 }
 
-type LemonColorListProps = LemonColorListColorProps | LemonColorListTokenProps
+export type LemonColorListProps = LemonColorListColorProps | LemonColorListTokenProps
 
 export function LemonColorList({
     colors,

@@ -3,7 +3,6 @@ import { useValues } from 'kea'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { Scene } from 'scenes/sceneTypes'
 
@@ -16,10 +15,8 @@ interface DashboardZoomControlProps {
 
 export function DashboardZoomControl({ layoutZoom, setLayoutZoom }: DashboardZoomControlProps): JSX.Element | null {
     const { dashboard, currentLayoutSize } = useValues(dashboardLogic)
-    const showLayoutZoom = useFeatureFlag('DASHBOARD_LAYOUT_ZOOM')
-    const isSmallLayout = currentLayoutSize === 'xs'
 
-    if (!showLayoutZoom) {
+    if (currentLayoutSize === 'xs') {
         return null
     }
 
@@ -31,7 +28,6 @@ export function DashboardZoomControl({ layoutZoom, setLayoutZoom }: DashboardZoo
                 intent="Toggle dashboard layout zoom while editing"
                 interaction="click"
                 scope={Scene.Dashboard}
-                disabled={isSmallLayout}
             >
                 <LemonButton
                     size="small"
@@ -42,7 +38,6 @@ export function DashboardZoomControl({ layoutZoom, setLayoutZoom }: DashboardZoo
                         setLayoutZoom(nextZoom)
                         eventUsageLogic.actions.reportDashboardLayoutZoomChanged(dashboard ?? null, nextZoom, 'button')
                     }}
-                    disabledReason={isSmallLayout ? 'Layout editing is disabled on smaller screens.' : undefined}
                     tooltip="Collapse/Expand view. Makes it easier to edit the layout for busier dashboards."
                 >
                     {layoutZoom < 1 ? 'Expand view' : 'Collapse view'}

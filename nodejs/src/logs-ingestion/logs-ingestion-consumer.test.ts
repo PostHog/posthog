@@ -1,4 +1,4 @@
-import { mockProducerObserver } from '~/tests/helpers/mocks/producer.mock'
+import { mockProducer, mockProducerObserver } from '~/tests/helpers/mocks/producer.mock'
 
 import { DateTime } from 'luxon'
 import { Message } from 'node-rdkafka'
@@ -14,6 +14,7 @@ import { KAFKA_APP_METRICS_2 } from '../config/kafka-topics'
 import { parseJSON } from '../utils/json-parse'
 import { LogRecord, encodeLogRecords } from './log-record-avro'
 import {
+    DEFAULT_LOGS_RETENTION_DAYS,
     LogsIngestionConsumer,
     logMessageDlqCounter,
     logMessageDroppedCounter,
@@ -110,7 +111,11 @@ describe('LogsIngestionConsumer', () => {
     let logMessageDroppedCounterSpy: jest.SpyInstance
 
     const createLogsIngestionConsumer = async (hub: Hub, overrides: any = {}) => {
-        const consumer = new LogsIngestionConsumer(hub, hub, overrides)
+        const consumer = new LogsIngestionConsumer(
+            hub,
+            { ...hub, kafkaProducer: mockProducer, mskProducer: mockProducer },
+            overrides
+        )
         // NOTE: We don't actually use kafka so we skip instantiation for faster tests
         consumer['kafkaConsumer'] = {
             connect: jest.fn(),
@@ -353,7 +358,7 @@ describe('LogsIngestionConsumer', () => {
                 token: team.api_token,
                 team_id: team.id.toString(),
                 'json-parse': 'false',
-                'retention-days': '15',
+                'retention-days': DEFAULT_LOGS_RETENTION_DAYS.toString(),
             })
         })
 
@@ -375,7 +380,7 @@ describe('LogsIngestionConsumer', () => {
                 token: team.api_token,
                 team_id: team.id.toString(),
                 'json-parse': 'false',
-                'retention-days': '15',
+                'retention-days': DEFAULT_LOGS_RETENTION_DAYS.toString(),
             })
         })
 

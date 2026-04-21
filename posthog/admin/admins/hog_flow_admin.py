@@ -4,8 +4,21 @@ from django.utils.html import format_html
 
 from posthog.models.hog_flow.hog_flow import HogFlow
 
+from products.workflows.backend.models.hog_flow_schedule import HogFlowSchedule
+
+
+class HogFlowScheduleInline(admin.TabularInline):
+    model = HogFlowSchedule
+    extra = 0
+    readonly_fields = ("id", "rrule", "starts_at", "timezone", "variables", "status", "next_run_at")
+    fields = ("rrule", "starts_at", "timezone", "variables", "status", "next_run_at")
+    ordering = ("-created_at",)
+    max_num = 10
+    show_change_link = False
+
 
 class HogFlowAdmin(admin.ModelAdmin):
+    inlines = [HogFlowScheduleInline]
     list_display = ("id", "name", "status", "version", "team_link", "created_at")
     list_filter = (
         ("status", admin.ChoicesFieldListFilter),

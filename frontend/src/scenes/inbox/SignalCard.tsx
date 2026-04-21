@@ -1,17 +1,20 @@
 import clsx from 'clsx'
 import { useState } from 'react'
 
-import { IconChevronRight, IconExternal } from '@posthog/icons'
+import { IconChevronRight, IconExternal, IconWarning } from '@posthog/icons'
 import { LemonButton, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import ViewRecordingButton, { RecordingPlayerType } from 'lib/components/ViewRecordingButton/ViewRecordingButton'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
+import { signalCardSourceLine } from 'lib/signals/signalCardSourceLine'
 import { humanFriendlyDetailedTime } from 'lib/utils'
 import { sourceProductColor } from 'scenes/debug/signals/helpers'
 import type { SignalNode } from 'scenes/debug/signals/types'
+import { urls } from 'scenes/urls'
 
 import type {
+    ErrorTrackingSignalExtra,
     GithubIssueSignalExtra,
     LlmEvalSignalExtra,
     SessionSegmentClusterSignalExtra,
@@ -19,6 +22,9 @@ import type {
 } from '~/queries/schema/schema-signals'
 
 export function SignalCard({ signal }: { signal: SignalNode }): JSX.Element {
+    if (signal.source_product === 'error_tracking' && isErrorTrackingExtra(signal.extra)) {
+        return <ErrorTrackingSignalCard signal={signal} extra={signal.extra} />
+    }
     if (isSessionReplayExtra(signal.extra)) {
         return <SessionReplaySignalCard signal={signal} extra={signal.extra} />
     }
@@ -192,6 +198,43 @@ function LlmEvalSignalCard({ signal, extra }: { signal: SignalNode; extra: LlmEv
     )
 }
 
+function ErrorTrackingSignalCard({
+    signal,
+    extra,
+}: {
+    signal: SignalNode
+    extra: ErrorTrackingSignalExtra
+}): JSX.Element {
+    const fingerprintShort = extra.fingerprint.length > 14 ? `${extra.fingerprint.slice(0, 14)}…` : extra.fingerprint
+
+    return (
+        <div className="border rounded p-3 bg-surface-primary">
+            <SignalCardHeader signal={signal} />
+
+            {signal.content && <LemonMarkdown className="text-sm text-secondary mb-2">{signal.content}</LemonMarkdown>}
+
+            <div className="flex flex-wrap items-center gap-2 text-xs text-tertiary">
+                <span className="inline-flex items-center gap-1">
+                    <IconWarning className="size-3.5 text-warning shrink-0" />
+                    <span>
+                        Fingerprint{' '}
+                        <span className="font-mono text-primary" title={extra.fingerprint}>
+                            {fingerprintShort}
+                        </span>
+                    </span>
+                </span>
+                <span className="flex-1" />
+                <Link
+                    to={urls.errorTrackingIssue(signal.source_id, { fingerprint: extra.fingerprint })}
+                    className="flex items-center gap-1 text-xs font-medium"
+                >
+                    View issue <IconExternal className="size-3" />
+                </Link>
+            </div>
+        </div>
+    )
+}
+
 function GenericSignalCard({ signal }: { signal: SignalNode }): JSX.Element {
     const [showRaw, setShowRaw] = useState(false)
 
@@ -235,9 +278,7 @@ function SignalCardHeader({ signal, label }: { signal: SignalNode; label?: strin
                 className="size-2.5 rounded-full shrink-0"
                 style={{ backgroundColor: sourceProductColor(signal.source_product) }}
             />
-            <span className="text-xs font-medium text-tertiary">
-                {signal.source_product} / {signal.source_type}
-            </span>
+            <span className="text-xs font-medium text-tertiary">{signalCardSourceLine(signal)}</span>
             {label && <span className="text-xs font-medium text-primary flex-1 truncate">{label}</span>}
             <LemonTag size="small" className="shrink-0">
                 Weight: {signal.weight.toFixed(1)}
@@ -264,4 +305,10 @@ function isZendeskTicketExtra(
 
 function isLlmEvalExtra(extra: Record<string, unknown>): extra is Record<string, unknown> & LlmEvalSignalExtra {
     return 'evaluation_id' in extra && 'trace_id' in extra
+}
+
+function isErrorTrackingExtra(
+    extra: Record<string, unknown>
+): extra is Record<string, unknown> & ErrorTrackingSignalExtra {
+    return typeof extra.fingerprint === 'string'
 }

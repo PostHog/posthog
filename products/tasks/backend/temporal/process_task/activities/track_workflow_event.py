@@ -14,6 +14,7 @@ class TrackWorkflowEventInput:
     event_name: str
     distinct_id: str
     properties: dict[str, Any]
+    groups: dict[str, str] | None = None
 
 
 @activity.defn
@@ -24,6 +25,7 @@ def track_workflow_event(input: TrackWorkflowEventInput) -> None:
             distinct_id=input.distinct_id,
             event=input.event_name,
             properties=input.properties,
+            groups=input.groups or {},
         )
     except Exception:
         logger.exception(

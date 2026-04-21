@@ -30,9 +30,11 @@ from unittest.mock import MagicMock, patch
 
 import structlog
 
+from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.sources.hubspot.hubspot import (
     PROPERTY_LENGTH_LIMIT,
     _backfill_missing_properties,
+    _flatten_result,
     _get_properties_str,
     get_rows,
 )
@@ -180,6 +182,207 @@ def test_hubspot_get_properties_when_no_default_props_exist():
             logger=logger,
         )
     assert props_str == "id,name"
+
+
+def test_flatten_result_backfills_missing_properties():
+    result = {
+        "id": "123",
+        "properties": {
+            "email": "test@example.com",
+            # firstname and lastname are missing — HubSpot omits them when they have no value
+        },
+    }
+    row = _flatten_result(result)
+
+    # Simulate the backfill logic from get_rows
+    expected_properties = ["email", "firstname", "lastname"]
+    for prop in expected_properties:
+        if prop not in row:
+            row[prop] = None
+
+    assert row["id"] == "123"
+    assert row["email"] == "test@example.com"
+    assert row["firstname"] is None
+    assert row["lastname"] is None
+
+
+def test_get_rows_with_selected_properties_backfills_missing_columns():
+    """When HubSpot omits properties from the response, selected_properties ensures they appear as None."""
+    mock_api_response = {
+        "results": [
+            {
+                "id": "1",
+                "properties": {"email": "a@b.com"},
+                # firstname is missing from response
+            },
+            {
+                "id": "2",
+                "properties": {"email": "c@d.com", "firstname": "Alice"},
+            },
+        ],
+        "paging": {},
+    }
+
+    mock_response = MagicMock()
+    mock_response.status_code = 200
+    mock_response.ok = True
+    mock_response.json.return_value = mock_api_response
+
+    mock_rsm = MagicMock(spec=ResumableSourceManager)
+    mock_rsm.can_resume.return_value = False
+
+    with (
+        patch("posthog.temporal.data_imports.sources.hubspot.hubspot._get_property_names") as mock_get_props,
+        patch("posthog.temporal.data_imports.sources.hubspot.hubspot.requests.get", return_value=mock_response),
+    ):
+        mock_get_props.return_value = ["email", "firstname"]
+
+        rows = list(
+            get_rows(
+                api_key="key",
+                refresh_token="token",
+                endpoint="contacts",
+                logger=logger,
+                resumable_source_manager=mock_rsm,
+                selected_properties=["email", "firstname"],
+            )
+        )
+
+    assert len(rows) == 1  # one PyArrow table batch
+    table = rows[0]
+    assert "email" in table.column_names
+    assert "firstname" in table.column_names
+    # Row 1 should have firstname=None (backfilled), Row 2 should have firstname="Alice"
+    firstname_col = table.column("firstname").to_pylist()
+    assert firstname_col[0] is None
+    assert firstname_col[1] == "Alice"
+
+
+def test_get_rows_with_selected_properties_filters_invalid():
+    """Invalid properties are filtered out before the request."""
+    mock_api_response = {
+        "results": [
+            {"id": "1", "properties": {"email": "a@b.com"}},
+        ],
+        "paging": {},
+    }
+
+    mock_response = MagicMock()
+    mock_response.status_code = 200
+    mock_response.ok = True
+    mock_response.json.return_value = mock_api_response
+
+    mock_rsm = MagicMock(spec=ResumableSourceManager)
+    mock_rsm.can_resume.return_value = False
+
+    with (
+        patch("posthog.temporal.data_imports.sources.hubspot.hubspot._get_property_names") as mock_get_props,
+        patch("posthog.temporal.data_imports.sources.hubspot.hubspot.requests.get", return_value=mock_response),
+        patch.object(logger, "warning") as mock_warning,
+    ):
+        # Only "email" exists, "nonexistent_prop" does not
+        mock_get_props.return_value = ["email", "firstname", "lastname"]
+
+        rows = list(
+            get_rows(
+                api_key="key",
+                refresh_token="token",
+                endpoint="contacts",
+                logger=logger,
+                resumable_source_manager=mock_rsm,
+                selected_properties=["email", "nonexistent_prop"],
+            )
+        )
+
+    assert len(rows) == 1
+    table = rows[0]
+    # email should be present, nonexistent_prop should not
+    assert "email" in table.column_names
+    assert "nonexistent_prop" not in table.column_names
+    # Warning should have been logged about the invalid property
+    warning_messages = [str(call) for call in mock_warning.call_args_list]
+    assert any("nonexistent_prop" in msg for msg in warning_messages)
+
+
+def test_get_rows_all_invalid_properties_falls_back_to_defaults():
+    """If all selected properties are invalid, falls back to default behavior."""
+    mock_api_response = {
+        "results": [
+            {"id": "1", "properties": {"email": "a@b.com", "firstname": "Test"}},
+        ],
+        "paging": {},
+    }
+
+    mock_response = MagicMock()
+    mock_response.status_code = 200
+    mock_response.ok = True
+    mock_response.json.return_value = mock_api_response
+
+    mock_rsm = MagicMock(spec=ResumableSourceManager)
+    mock_rsm.can_resume.return_value = False
+
+    with (
+        patch("posthog.temporal.data_imports.sources.hubspot.hubspot._get_property_names") as mock_get_props,
+        patch("posthog.temporal.data_imports.sources.hubspot.hubspot.requests.get", return_value=mock_response),
+    ):
+        # None of the selected properties exist
+        mock_get_props.return_value = ["email", "firstname", "lastname"]
+
+        rows = list(
+            get_rows(
+                api_key="key",
+                refresh_token="token",
+                endpoint="contacts",
+                logger=logger,
+                resumable_source_manager=mock_rsm,
+                selected_properties=["totally_fake_1", "totally_fake_2"],
+            )
+        )
+
+    assert len(rows) == 1
+    table = rows[0]
+    # Should have fallen back to defaults, so no backfill of fake properties
+    assert "totally_fake_1" not in table.column_names
+    assert "totally_fake_2" not in table.column_names
+
+
+def test_get_rows_without_selected_properties_uses_defaults():
+    """When selected_properties is None, default behavior is unchanged."""
+    mock_api_response = {
+        "results": [
+            {"id": "1", "properties": {"email": "a@b.com"}},
+        ],
+        "paging": {},
+    }
+
+    mock_response = MagicMock()
+    mock_response.status_code = 200
+    mock_response.ok = True
+    mock_response.json.return_value = mock_api_response
+
+    mock_rsm = MagicMock(spec=ResumableSourceManager)
+    mock_rsm.can_resume.return_value = False
+
+    with (
+        patch("posthog.temporal.data_imports.sources.hubspot.hubspot._get_property_names") as mock_get_props,
+        patch("posthog.temporal.data_imports.sources.hubspot.hubspot.requests.get", return_value=mock_response),
+    ):
+        mock_get_props.return_value = ["email", "custom_field"]
+
+        rows = list(
+            get_rows(
+                api_key="key",
+                refresh_token="token",
+                endpoint="contacts",
+                logger=logger,
+                resumable_source_manager=mock_rsm,
+                selected_properties=None,
+            )
+        )
+
+    assert len(rows) == 1
+    # _get_property_names should have been called for custom prop discovery (default behavior)
+    mock_get_props.assert_called_once()
 
 
 def test_hubspot_get_properties_url_length_limit():

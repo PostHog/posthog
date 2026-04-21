@@ -1,5 +1,5 @@
 from datetime import datetime, timedelta
-from typing import Any, Optional
+from typing import Any, Optional, cast
 from uuid import UUID
 
 from django.conf import settings
@@ -13,9 +13,11 @@ from posthog.clickhouse.query_tagging import tag_queries
 from posthog.event_usage import EventSource
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.query_runner import ExecutionMode
-from posthog.models import Dashboard, Insight, InsightCachingState
+from posthog.models import Insight, InsightCachingState
 from posthog.schema_migrations.upgrade_manager import upgrade_query
 from posthog.tasks.tasks import update_cache_task
+
+from products.dashboards.backend.models.dashboard import Dashboard
 
 logger = structlog.get_logger(__name__)
 
@@ -73,7 +75,7 @@ def update_cache(caching_state_id: UUID):
         try:
             response = process_query_dict(
                 insight.team,
-                insight.query,
+                cast(dict[str, Any], insight.query),
                 dashboard_filters_json=dashboard.filters if dashboard is not None else None,
                 execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
                 analytics_props={"source": EventSource.CACHE_WARMING},

@@ -1,38 +1,19 @@
 import { z } from 'zod'
 
-import { ErrorDetailsSchema, ListErrorsSchema, UpdateIssueStatusSchema } from './errors'
-import { CreateInsightInputSchema, ListInsightsSchema, UpdateInsightInputSchema } from './insights'
-import { LogsListAttributeValuesInputSchema, LogsListAttributesInputSchema, LogsQueryInputSchema } from './logs'
 import { InsightQuerySchema, PropertyFilter } from './query'
-import {
-    CreateSurveyInputSchema,
-    GetSurveySpecificStatsInputSchema,
-    GetSurveyStatsInputSchema,
-    ListSurveysInputSchema,
-    UpdateSurveyInputSchema,
-} from './surveys'
+
+export const PromptListInputSchema = z.object({
+    search: z.string().optional().describe('Optional substring filter applied to prompt names and prompt content.'),
+    content: z
+        .enum(['full', 'preview', 'none'])
+        .default('none')
+        .describe(
+            "Controls how much prompt content is included in list results. 'full' includes the full prompt, 'preview' includes a short prompt_preview, and 'none' omits prompt content entirely."
+        ),
+})
 
 export const DocumentationSearchSchema = z.object({
     query: z.string(),
-})
-
-export const ErrorTrackingDetailsSchema = ErrorDetailsSchema
-
-export const ErrorTrackingListSchema = ListErrorsSchema
-
-export const ErrorTrackingUpdateIssueStatusSchema = UpdateIssueStatusSchema
-
-export const ExperimentGetAllSchema = z.object({
-    data: z
-        .object({
-            limit: z.number().int().positive().optional(),
-            offset: z.number().int().min(0).optional(),
-        })
-        .optional(),
-})
-
-export const ExperimentGetSchema = z.object({
-    experimentId: z.number().describe('The ID of the experiment to retrieve'),
 })
 
 export const ExperimentResultsGetSchema = z.object({
@@ -247,22 +228,13 @@ export const ExperimentCreateSchema = z.object({
         .number()
         .optional()
         .describe('Holdout group ID if this experiment should exclude users from other experiments'),
-})
 
-export const InsightCreateSchema = z.object({
-    data: CreateInsightInputSchema,
-})
-
-export const InsightDeleteSchema = z.object({
-    insightId: z.string(),
-})
-
-export const InsightGetSchema = z.object({
-    insightId: z.string(),
-})
-
-export const InsightGetAllSchema = z.object({
-    data: ListInsightsSchema.optional(),
+    allow_unknown_events: z
+        .boolean()
+        .optional()
+        .describe(
+            'Set to true to skip validation that event names exist in the project. Use when intentionally referencing events that have not been ingested yet.'
+        ),
 })
 
 export const InsightGenerateHogQLFromQuestionSchema = z.object({
@@ -273,22 +245,20 @@ export const InsightGenerateHogQLFromQuestionSchema = z.object({
 })
 
 export const InsightQueryInputSchema = z.object({
-    insightId: z.string(),
-})
-
-export const InsightUpdateSchema = z.object({
-    insightId: z.string(),
-    data: UpdateInsightInputSchema,
+    insightId: z.string().describe('The insight ID or short_id to run.'),
+    output_format: z
+        .enum(['optimized', 'json'])
+        .optional()
+        .default('optimized')
+        .describe(
+            'Output format. "optimized" returns a human-readable summary from server-side formatters (recommended for analysis). "json" returns the raw query results as JSON.'
+        ),
 })
 
 export const LLMAnalyticsGetCostsSchema = z.object({
     projectId: z.number().int().positive(),
     days: z.number().optional(),
 })
-
-export const OrganizationGetDetailsSchema = z.object({})
-
-export const OrganizationGetAllSchema = z.object({})
 
 export const OrganizationSetActiveSchema = z.object({
     orgId: z.string(),
@@ -337,33 +307,11 @@ export const ProjectSetActiveSchema = z.object({
     projectId: z.number().int().positive(),
 })
 
-export const SurveyCreateSchema = CreateSurveyInputSchema
-
 export const SurveyResponseCountsSchema = z.object({})
-
-export const SurveyGlobalStatsSchema = GetSurveyStatsInputSchema
-
-export const SurveyStatsSchema = GetSurveySpecificStatsInputSchema
-
-export const SurveyDeleteSchema = z.object({
-    surveyId: z.string(),
-})
-
-export const SurveyGetSchema = z.object({
-    surveyId: z.string(),
-})
-
-export const SurveyGetAllSchema = ListSurveysInputSchema
-
-export const SurveyUpdateSchema = UpdateSurveyInputSchema.extend({
-    surveyId: z.string(),
-})
 
 export const QueryRunInputSchema = z.object({
     query: InsightQuerySchema,
 })
-
-export { LogsQueryInputSchema, LogsListAttributesInputSchema, LogsListAttributeValuesInputSchema }
 
 // Entity Search
 export const EntitySearchSchema = z.object({

@@ -1,16 +1,14 @@
 import re
 from time import perf_counter
-from typing import Optional
 
 from django.core.cache import cache
 from django.http import JsonResponse, StreamingHttpResponse
 
 import orjson
 import structlog
-import posthoganalytics
 from drf_spectacular.utils import OpenApiResponse
+from prometheus_client import Counter
 from pydantic import BaseModel
-from redis.exceptions import RedisError
 from rest_framework import status, viewsets
 from rest_framework.exceptions import APIException, NotAuthenticated, Throttled, ValidationError
 from rest_framework.request import Request
@@ -35,10 +33,10 @@ from posthog import settings
 from posthog.api.documentation import extend_schema
 from posthog.api.mixins import PydanticModelMixin
 from posthog.api.monitoring import Feature, monitor
-from posthog.api.query_coalescer import CoalesceSignal, QueryCoalescer, compute_coalescing_key
+from posthog.api.query_coalescer import QueryCoalescingMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.services.query import process_query_model
-from posthog.api.utils import action, is_insight_actors_options_query, is_insight_actors_query, is_insight_query
+from posthog.api.utils import action, is_async_query, is_insight_actors_options_query, is_insight_actors_query
 from posthog.clickhouse.client.execute_async import cancel_query, get_query_status
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import get_query_tag_value, get_query_tags, tag_queries
@@ -66,6 +64,25 @@ from posthog.schema_migrations.upgrade import upgrade
 from common.hogvm.python.utils import HogVMException
 
 logger = structlog.get_logger(__name__)
+
+QUERY_VALIDATION_ERROR_TOTAL = Counter(
+    "posthog_query_validation_error_total",
+    "Query validation failures returned from the query API.",
+    labelnames=["query_type", "validation_code"],
+)
+
+
+def _extract_validation_code(error: ValidationError) -> str:
+    validation_codes = error.get_codes()
+    if isinstance(validation_codes, list):
+        return validation_codes[0] if validation_codes and isinstance(validation_codes[0], str) else "unknown"
+    if isinstance(validation_codes, dict):
+        first_code = next(iter(validation_codes.values()), None)
+        if isinstance(first_code, str):
+            return first_code
+        if isinstance(first_code, list) and first_code and isinstance(first_code[0], str):
+            return first_code[0]
+    return "unknown"
 
 
 def _process_query_request(
@@ -100,17 +117,13 @@ def _process_query_request(
     return query, query_id, execution_mode
 
 
-class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
+class QueryViewSet(QueryCoalescingMixin, TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
     # NOTE: Do we need to override the scopes for the "create"
     scope_object = "query"
     # Special case for query - these are all essentially read actions
     scope_object_read_actions = ["retrieve", "create", "list", "destroy"]
     scope_object_write_actions: list[str] = []
     sharing_enabled_actions = ["retrieve"]
-
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
-        self._coalescer: Optional[QueryCoalescer] = None
 
     def get_throttles(self):
         if self.action == "draft_sql":
@@ -139,95 +152,6 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             return new_val
         return False
 
-    def _try_coalesce(
-        self, query: BaseModel, execution_mode: ExecutionMode, client_query_id: str
-    ) -> Optional[Response]:
-        """Attempt query coalescing. Returns Response for follower-error, None otherwise."""
-        if execution_mode != ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE:
-            return None
-
-        enabled = posthoganalytics.feature_enabled(
-            "http-query-coalescing",
-            str(self.team.pk),
-        )
-
-        query_json = query.model_dump_json()
-        key = compute_coalescing_key(self.team.pk, query_json)
-        coalescer = QueryCoalescer(key, dry_run=not enabled)
-
-        log = logger.bind(coalescing_key=key, query_id=client_query_id)
-
-        # Dry run: all requests still compete for the lock so we can measure how many
-        # concurrent duplicates exist (follower_dry_run metric). Leaders proceed normally
-        # (the Redis overhead is minimal). Followers return immediately without waiting.
-        try:
-            is_leader = coalescer.try_acquire()
-        except RedisError:
-            log.warning("query_coalescing_redis_error", msg="redis unavailable, skipping coalescing")
-            return None
-
-        if is_leader:
-            log.info("query_coalescing_leader_start")
-            self._coalescer = coalescer
-            return None
-
-        if not enabled:
-            return None
-
-        # Follower path
-        log.info("query_coalescing_follower_waiting")
-
-        signal = coalescer.wait_for_signal(max_wait=settings.QUERY_COALESCING_MAX_WAIT_SECONDS)
-
-        if signal == CoalesceSignal.DONE:
-            log.info("query_coalescing_follower_done")
-            return None
-
-        if signal == CoalesceSignal.ERROR:
-            error_data = coalescer.get_error_response()
-            if error_data:
-                log.info("query_coalescing_follower_replaying_error", status=error_data["status"])
-                try:
-                    body = orjson.loads(error_data["body"])
-                except Exception:
-                    log.warning("query_coalescing_follower_body_parse_failed")
-                    return None
-                return Response(
-                    data=body,
-                    status=error_data["status"],
-                )
-            # Couldn't read error, fall through
-            log.warning("query_coalescing_follower_error_read_failed")
-            return None
-
-        if signal == CoalesceSignal.TIMEOUT:
-            log.warning("query_coalescing_follower_timeout")
-            return Response(
-                data={"type": "server_error", "detail": "Query is still running, please try again shortly."},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            )
-
-        log.info("query_coalescing_follower_fallthrough", signal=signal)
-        return None
-
-    def finalize_response(self, request, response, *args, **kwargs):
-        try:
-            response = super().finalize_response(request, response, *args, **kwargs)
-        finally:
-            if self._coalescer and self._coalescer.is_leader:
-                try:
-                    if response.status_code >= 400:
-                        response.render()
-                        self._coalescer.store_error_response(response.status_code, response.content)
-                    else:
-                        self._coalescer.mark_done()
-                except Exception:
-                    logger.warning("query_coalescing_finalize_error", exc_info=True)
-                finally:
-                    self._coalescer.cleanup()
-
-        return response
-
     @extend_schema(
         request=QueryRequest,
         responses={
@@ -236,18 +160,16 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
     )
     @monitor(feature=Feature.QUERY, endpoint="query", method="POST")
     def create(self, request: Request, *args, **kwargs) -> Response:
+        self._validate_query_kind(request, kwargs.get("query_kind"))
         start_time = perf_counter()
         upgraded_query = upgrade(request.data)
         data = self.get_model(upgraded_query, QueryRequest)
 
+        query = None
         try:
             query, client_query_id, execution_mode = _process_query_request(
                 data, self.team, data.client_query_id, request.user
             )
-
-            error = self._try_coalesce(query, execution_mode, client_query_id)
-            if error is not None:
-                return error
 
             self._tag_client_query_id(client_query_id)
             analytics_props = get_request_analytics_properties(request)
@@ -256,7 +178,7 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             if data.limit_context == SchemaLimitContext.POSTHOG_AI:
                 limit_context: LimitContext | None = LimitContext.POSTHOG_AI
             elif (
-                is_insight_query(query_dict)
+                is_async_query(query_dict)
                 or is_insight_actors_query(query_dict)
                 or is_insight_actors_options_query(query_dict)
             ) and get_query_tag_value("access_method") != "personal_api_key":
@@ -304,6 +226,12 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
                 if result.get("query_status") and result["query_status"].get("complete") is False
                 else status.HTTP_200_OK
             )
+
+            if request.META.get("HTTP_X_POSTHOG_CLIENT") == "mcp":
+                formatted = self._try_format_for_llm(query, result)
+                if formatted is not None:
+                    result["formatted_results"] = formatted
+
             return Response(result, status=response_status)
         except (ExposedHogQLError, ExposedCHQueryError, HogVMException) as e:
             raise ValidationError(str(e), getattr(e, "code_name", None))
@@ -315,6 +243,13 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             raise ValidationError(str(e))
         except ResolutionError as e:
             raise ValidationError(str(e))
+        except ValidationError as e:
+            query_type = getattr(query, "kind", "unknown")
+            QUERY_VALIDATION_ERROR_TOTAL.labels(
+                query_type=query_type,
+                validation_code=_extract_validation_code(e),
+            ).inc()
+            raise
         except ConcurrencyLimitExceeded as c:
             raise Throttled(detail=str(c))
         except Exception as e:
@@ -435,6 +370,36 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             return
 
         tag_queries(client_query_id=query_id)
+
+    @action(methods=["POST"], detail=False, url_path=r"(?P<query_kind>[A-Z][A-Za-z]*)")
+    def create_with_kind(self, request: Request, *args, **kwargs) -> Response:
+        return self.create(request, *args, **kwargs)
+
+    def _validate_query_kind(self, request: Request, query_kind: str | None) -> None:
+        if not query_kind:
+            return
+        if not isinstance(request.data, dict):
+            raise ValidationError("Query body must be a JSON object.")
+        query_payload = request.data.get("query")
+        if query_payload is not None and not isinstance(query_payload, dict):
+            raise ValidationError("Query must be a JSON object.")
+        body_kind = query_payload.get("kind") if isinstance(query_payload, dict) else None
+        if query_kind != body_kind:
+            raise ValidationError(
+                f'Query kind mismatch: path kind "{query_kind}" does not match body kind "{body_kind}".'
+            )
+
+    def _try_format_for_llm(self, query: BaseModel, result: dict) -> str | None:
+        """Try to format query results as LLM-friendly text. Returns None on failure."""
+        if not settings.EE_AVAILABLE:
+            return None
+        try:
+            from ee.hogai.context.insight.format import format_query_results_for_llm
+
+            return format_query_results_for_llm(query, result, self.team)
+        except Exception:
+            logger.warning("mcp_llm_format_failed", exc_info=True)
+            return None
 
 
 MAX_QUERY_TIMEOUT = 600

@@ -1,6 +1,6 @@
 import re
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Optional, Union
 from urllib.parse import urlparse
 
@@ -9,7 +9,6 @@ from django.core.exceptions import ValidationError
 from django.db import models, transaction
 
 import structlog
-from dlt.common.normalizers.naming.snake_case import NamingConvention
 
 from posthog.schema import DataWarehouseSavedQueryOrigin, HogQLQueryModifiers
 
@@ -22,6 +21,7 @@ from posthog.hogql.database.s3_table import DataWarehouseTable as HogQLDataWareh
 from posthog.exceptions_capture import capture_exception
 from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UpdatedMetaFields, UUIDTModel
 from posthog.sync import database_sync_to_async
+from posthog.temporal.data_imports.naming_convention import NamingConvention
 
 from products.data_warehouse.backend.models.util import (
     CLICKHOUSE_HOGQL_MAPPING,
@@ -31,6 +31,8 @@ from products.data_warehouse.backend.models.util import (
 )
 
 logger = structlog.get_logger(__name__)
+
+TEST_VIEW_EXPIRY_INTERVAL = timedelta(days=7)
 
 
 def validate_saved_query_name(value):
@@ -104,10 +106,34 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
         blank=True,
         related_name="saved_queries",
     )
+    folder = models.ForeignKey(
+        "data_warehouse.DataWarehouseSavedQueryFolder",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="saved_queries",
+        help_text="Optional folder used to organize this saved query in the SQL editor sidebar.",
+    )
 
     origin = models.CharField(
         choices=Origin.choices, help_text="Where this SavedQuery is created.", default=None, null=True, blank=True
     )
+
+    is_test = models.BooleanField(
+        default=False, help_text="Whether this view is for testing only and will auto-expire."
+    )
+    expires_at = models.DateTimeField(
+        null=True, blank=True, help_text="When this test view should be automatically deleted."
+    )
+
+    def save(self, *args, **kwargs):
+        if self.is_test and not self.expires_at:
+            from django.utils import timezone
+
+            self.expires_at = timezone.now() + TEST_VIEW_EXPIRY_INTERVAL
+        elif not self.is_test and self.expires_at:
+            self.expires_at = None
+        super().save(*args, **kwargs)
 
     class Meta:
         constraints = [
@@ -169,23 +195,26 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
         from products.data_warehouse.backend.data_load.saved_query_service import delete_saved_query_schedule
         from products.data_warehouse.backend.models.modeling import DataWarehouseModelPath
 
-        with transaction.atomic():
-            self.sync_frequency_interval = None
-            self.last_run_at = None
-            self.latest_error = None
-            self.status = None
-            self.is_materialized = False
+        self.sync_frequency_interval = None
+        self.last_run_at = None
+        self.latest_error = None
+        self.status = None
+        self.is_materialized = False
 
-            # delete the materialized table reference
-            if self.table is not None:
-                self.table.soft_delete()
-                self.table_id = None
+        should_delete_saved_query_schedule: bool = False
+        try:
+            with transaction.atomic():
+                # delete the materialized table reference
+                if self.table is not None:
+                    self.table.soft_delete()
+                    self.table_id = None
 
-            delete_saved_query_schedule(self)
-
-            self.save()
-
-            DataWarehouseModelPath.objects.filter(team=self.team, path__lquery=f"*{{1,}}.{self.id.hex}").delete()
+                should_delete_saved_query_schedule = True
+                self.save()
+                DataWarehouseModelPath.objects.filter(team=self.team, path__lquery=f"*{{1,}}.{self.id.hex}").delete()
+        finally:
+            if should_delete_saved_query_schedule:
+                delete_saved_query_schedule(self)
 
     def soft_delete(self):
         self.deleted = True
@@ -239,6 +268,9 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
 
     @property
     def s3_tables(self):
+        return self.get_s3_tables()
+
+    def get_s3_tables(self, database=None):
         from posthog.hogql.context import HogQLContext
         from posthog.hogql.database.database import Database
         from posthog.hogql.parser import parse_select
@@ -251,8 +283,7 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
             team_id=self.team.pk,
             enable_select_queries=True,
             modifiers=create_default_modifiers_for_team(self.team),
-            # KLUDGE: Should accept this as a parameter to avoid rebuilding it everytime this is called
-            database=Database.create_for(self.team.pk),
+            database=database or Database.create_for(self.team.pk),
         )
 
         query = self.query or {}
@@ -273,7 +304,7 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
 
     @property
     def normalized_name(self):
-        return NamingConvention().normalize_identifier(self.name)
+        return NamingConvention.normalize_identifier(self.name)
 
     @property
     def url_pattern(self):
@@ -319,13 +350,11 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
             # Support for 'old' style columns
             if isinstance(type, str):
                 hogql_type_str = clickhouse_type.partition("(")[0]
-                hogql_type = CLICKHOUSE_HOGQL_MAPPING[hogql_type_str]
+                fields[column] = CLICKHOUSE_HOGQL_MAPPING[hogql_type_str](name=column)
             elif isinstance(type, dict):
-                hogql_type = STR_TO_HOGQL_MAPPING[type["hogql"]]
+                fields[column] = STR_TO_HOGQL_MAPPING[type["hogql"]](name=column)
             else:
                 raise Exception(f"Unknown column type: {type}")  # Never reached
-
-            fields[column] = hogql_type(name=column)
 
         return SavedQuery(
             id=str(self.id),

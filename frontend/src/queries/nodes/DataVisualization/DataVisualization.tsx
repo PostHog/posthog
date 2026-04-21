@@ -1,7 +1,7 @@
 import clsx from 'clsx'
 import { BindLogic, BuiltLogic, LogicWrapper, useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { useCallback, useState } from 'react'
+import { useCallback, useRef, useState } from 'react'
 
 import { IconGear } from '@posthog/icons'
 import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
@@ -32,6 +32,7 @@ import { ElapsedTime } from '../DataNode/ElapsedTime'
 import { Reload } from '../DataNode/Reload'
 import { QueryFeature } from '../DataTable/queryFeatures'
 import { LineGraph } from './Components/Charts/LineGraph'
+import { PieChart } from './Components/Charts/PieChart'
 import { TwoDimensionalHeatmap } from './Components/Heatmap/TwoDimensionalHeatmap'
 import { seriesBreakdownLogic } from './Components/seriesBreakdownLogic'
 import { Table } from './Components/Table'
@@ -42,6 +43,7 @@ import { VariablesForInsight } from './Components/Variables/Variables'
 import { VariablesLogicProps, variablesLogic } from './Components/Variables/variablesLogic'
 import { DataVisualizationLogicProps, dataVisualizationLogic } from './dataVisualizationLogic'
 import { displayLogic } from './displayLogic'
+import { applyDataVisualizationQueryUpdate } from './queryUpdateUtils'
 
 export interface DataTableVisualizationProps {
     uniqueKey?: string | number
@@ -76,6 +78,9 @@ export function DataTableVisualization({
     embedded,
 }: DataTableVisualizationProps): JSX.Element {
     const [key] = useState(`DataVisualizationNode.${uniqueKey ?? uniqueNode++}`)
+    const queryRef = useRef(query)
+    queryRef.current = query
+
     const insightProps: InsightLogicProps<DataVisualizationNode> = context?.insightProps || {
         dashboardItemId: `new-AdHoc.${key}`,
         query,
@@ -93,7 +98,7 @@ export function DataTableVisualization({
         loadPriority: insightProps.loadPriority,
         editMode,
         setQuery: (setter) => {
-            setQuery(setter(query))
+            applyDataVisualizationQueryUpdate(queryRef, setter, setQuery)
         },
         cachedResults,
         variablesOverride,
@@ -243,8 +248,24 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
                 presetChartHeight={presetChartHeight}
             />
         )
+    } else if (effectiveVisualizationType === ChartDisplayType.ActionsPie) {
+        const _xData = seriesBreakdownData.xData.data.length ? seriesBreakdownData.xData : xData
+        // Pie charts can consume breakdown series totals directly, even when there isn't
+        // a matching breakdown x-axis to swap in like the line/bar path expects.
+        const _yData = seriesBreakdownData.seriesData.length ? seriesBreakdownData.seriesData : yData
+
+        component = (
+            <PieChart
+                className="p-3"
+                uniqueKey={props.uniqueKey?.toString() ?? dataVisualizationProps.key}
+                xData={_xData}
+                yData={_yData}
+                chartSettings={chartSettings}
+                presetChartHeight={presetChartHeight}
+            />
+        )
     } else if (effectiveVisualizationType === ChartDisplayType.TwoDimensionalHeatmap) {
-        component = <TwoDimensionalHeatmap />
+        component = <TwoDimensionalHeatmap allowSorting={!(props.embedded && readOnly)} />
     } else if (effectiveVisualizationType === ChartDisplayType.BoldNumber) {
         component = <HogQLBoldNumber />
     }

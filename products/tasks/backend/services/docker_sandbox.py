@@ -28,17 +28,39 @@ from products.tasks.backend.temporal.exceptions import (
     SnapshotCreationError,
 )
 
-from .sandbox import AgentServerResult, ExecutionResult, ExecutionStream, SandboxConfig, SandboxStatus, SandboxTemplate
+from .agentsh import (
+    ENV_FILE,
+    ENV_WRAPPER_SCRIPT,
+    SESSION_ID_FILE,
+    build_exec_prefix,
+    build_setup_script,
+    generate_config_yaml,
+    generate_env_wrapper,
+    generate_policy_yaml,
+)
+from .local_skills import ENV_LOCAL_SKILLS_HOST_PATH, LocalSkillsCache
+from .sandbox import (
+    WORKING_DIR,
+    AgentServerResult,
+    ExecutionResult,
+    ExecutionStream,
+    SandboxBase,
+    SandboxConfig,
+    SandboxStatus,
+    SandboxTemplate,
+    build_agent_runtime_env_prefix,
+    parse_sandbox_repo_mount_map,
+    wait_for_health_check,
+)
 
 logger = logging.getLogger(__name__)
 
-WORKING_DIR = "/tmp/workspace"
 DEFAULT_IMAGE_NAME = "posthog-sandbox-base"
 NOTEBOOK_IMAGE_NAME = "posthog-sandbox-notebook"
 AGENT_SERVER_PORT = 47821  # Arbitrary high port unlikely to conflict with dev servers
 
 
-class DockerSandbox:
+class DockerSandbox(SandboxBase):
     """
     Docker-based sandbox for local development and testing.
     Implements the same interface as the Modal-based Sandbox.
@@ -128,6 +150,13 @@ class DockerSandbox:
             return
 
         logger.info(f"Building {image_name} image (this may take a few minutes)...")
+
+        # Ensure the skills dist directory is populated so the Dockerfile's
+        # unconditional COPY picks up real content instead of an empty dir.
+        # In CI the directory is pre-populated by the release workflow; in
+        # local dev checkouts this triggers a cached build via
+        # hogli build:skills.
+        LocalSkillsCache().ensure_built()
 
         DockerSandbox._run(
             [
@@ -254,6 +283,29 @@ class DockerSandbox:
             host_port = DockerSandbox._find_available_port()
             port_args = ["-p", f"{host_port}:{AGENT_SERVER_PORT}"]
 
+            mount_map = parse_sandbox_repo_mount_map()
+            volume_args: list[str] = []
+            for repo_key, local_path in mount_map.items():
+                org, repo = repo_key.split("/", 1)
+                container_path = f"{WORKING_DIR}/repos/{org}/{repo}"
+                volume_args.extend(["-v", f"{local_path}:{container_path}"])
+
+            # Opt-in bind-mount for local skills. Set by the eval harness so
+            # sandboxes see the working-tree skills without rebuilding the
+            # base image. Mounts per-subdirectory rather than the parent so
+            # the baked-in rendered skills in the image stay visible — only
+            # the specific skills the user has on disk get overlaid.
+            local_skills_host = os.environ.get(ENV_LOCAL_SKILLS_HOST_PATH)
+            if local_skills_host and os.path.isdir(local_skills_host):
+                for entry in sorted(os.listdir(local_skills_host)):
+                    if entry.startswith(".") or entry == "__pycache__":
+                        continue
+                    host_skill = os.path.join(local_skills_host, entry)
+                    if not os.path.isdir(host_skill):
+                        continue
+                    container_skill = f"/scripts/plugins/posthog/skills/{entry}"
+                    volume_args.extend(["-v", f"{host_skill}:{container_skill}:ro"])
+
             docker_args = [
                 "docker",
                 "run",
@@ -262,12 +314,15 @@ class DockerSandbox:
                 container_name,
                 "--add-host",
                 "host.docker.internal:host-gateway",
+                "--cap-add",
+                "SYS_PTRACE",
                 "-w",
                 WORKING_DIR,
                 f"--memory={config.memory_gb}g",
                 f"--cpus={config.cpu_cores}",
                 *env_args,
                 *port_args,
+                *volume_args,
                 image,
                 "tail",
                 "-f",
@@ -494,29 +549,12 @@ class DockerSandbox:
 
         return result
 
-    def clone_repository(self, repository: str, github_token: Optional[str] = "") -> ExecutionResult:
-        if not self.is_running():
-            raise RuntimeError("Sandbox not in running state.")
-
-        org, repo = repository.lower().split("/")
-        repo_url = (
-            f"https://x-access-token:{github_token}@github.com/{org}/{repo}.git"
-            if github_token
-            else f"https://github.com/{org}/{repo}.git"
-        )
-
-        target_path = f"/tmp/workspace/repos/{org}/{repo}"
-        org_path = f"/tmp/workspace/repos/{org}"
-
-        clone_command = (
-            f"rm -rf {shlex.quote(target_path)} && "
-            f"mkdir -p {shlex.quote(org_path)} && "
-            f"cd {shlex.quote(org_path)} && "
-            f"git clone --depth 1 --single-branch {shlex.quote(repo_url)} {shlex.quote(repo)}"
-        )
-
-        logger.info(f"Cloning repository {repository} to {target_path} in sandbox {self.id}")
-        return self.execute(clone_command, timeout_seconds=5 * 60)
+    def clone_repository(self, repository: str, github_token: str | None = "", shallow: bool = True) -> ExecutionResult:
+        mount_map = parse_sandbox_repo_mount_map()
+        if repository.lower() in mount_map:
+            logger.info(f"Repository {repository} is bind-mounted from host, skipping clone")
+            return ExecutionResult(stdout="", stderr="", exit_code=0, error=None)
+        return super().clone_repository(repository, github_token, shallow)
 
     def setup_repository(self, repository: str) -> ExecutionResult:
         """No-op: Repository setup is now handled by agent-server."""
@@ -534,7 +572,9 @@ class DockerSandbox:
 
         return is_clean, result.stdout
 
-    def execute_task(self, task_id: str, run_id: str, repository: str, create_pr: bool = True) -> ExecutionResult:
+    def execute_task(
+        self, task_id: str, run_id: str, repository: str | None = None, create_pr: bool = True
+    ) -> ExecutionResult:
         """No-op: Task execution is now handled by agent-server."""
         return ExecutionResult(stdout="", stderr="", exit_code=0, error=None)
 
@@ -556,25 +596,46 @@ class DockerSandbox:
 
     def _build_agent_server_command(
         self,
-        repo_path: str,
+        repo_path: str | None,
         task_id: str,
         run_id: str,
         mode: str,
+        create_pr: bool,
         interaction_origin: str | None = None,
         branch: str | None = None,
+        runtime_adapter: str | None = None,
+        provider: str | None = None,
+        model: str | None = None,
+        reasoning_effort: str | None = None,
         mcp_servers_arg: str = "",
+        allowed_domains: list[str] | None = None,
     ) -> str:
-        env_prefix = (
-            f"env POSTHOG_CODE_INTERACTION_ORIGIN={shlex.quote(interaction_origin)} " if interaction_origin else ""
+        env_prefix = build_agent_runtime_env_prefix(
+            interaction_origin=interaction_origin,
+            runtime_adapter=runtime_adapter,
+            provider=provider,
+            model=model,
+            reasoning_effort=reasoning_effort,
         )
+        create_pr_flag = f" --createPr {shlex.quote('true' if create_pr else 'false')}"
         branch_flag = f" --baseBranch {shlex.quote(branch)}" if branch else ""
-        return (
-            f"cd /scripts && "
-            f"nohup {env_prefix}./node_modules/.bin/agent-server --port {AGENT_SERVER_PORT} --repositoryPath {shlex.quote(repo_path)} "
+        repo_flag = f" --repositoryPath {shlex.quote(repo_path)}" if repo_path else ""
+        domains_flag = f" --allowedDomains {shlex.quote(','.join(allowed_domains))}" if allowed_domains else ""
+        server_cmd = (
+            f"{env_prefix}./node_modules/.bin/agent-server --port {AGENT_SERVER_PORT}{repo_flag} "
             f"--taskId {shlex.quote(task_id)} --runId {shlex.quote(run_id)} --mode {shlex.quote(mode)}"
-            f"{branch_flag}{mcp_servers_arg} "
-            f"> /tmp/agent-server.log 2>&1 &"
+            f"{create_pr_flag}{branch_flag}{mcp_servers_arg}{domains_flag}"
         )
+
+        inner = f"cd /scripts && {server_cmd} > /tmp/agent-server.log 2>&1"
+
+        if allowed_domains:
+            return (
+                f"cd /scripts && env -0 > {ENV_FILE} && "
+                f"{build_exec_prefix()} {ENV_WRAPPER_SCRIPT} bash -c {shlex.quote(inner)} &"
+            )
+        else:
+            return f"cd /scripts && nohup {server_cmd} > /tmp/agent-server.log 2>&1 &"
 
     def _launch_and_check(self, command: str) -> bool:
         """Execute the agent-server command and wait for the health check.
@@ -585,17 +646,23 @@ class DockerSandbox:
         if result.exit_code != 0:
             logger.warning(f"Agent-server process failed to launch in sandbox {self.id}: {result.stderr}")
             return False
-        return self._wait_for_health_check()
+        return self._wait_for_health_check(max_attempts=20)
 
     def start_agent_server(
         self,
-        repository: str,
+        repository: str | None,
         task_id: str,
         run_id: str,
         mode: str = "background",
+        create_pr: bool = True,
         interaction_origin: str | None = None,
         branch: str | None = None,
+        runtime_adapter: str | None = None,
+        provider: str | None = None,
+        model: str | None = None,
+        reasoning_effort: str | None = None,
         mcp_configs: list[McpServerConfig] | None = None,
+        allowed_domains: list[str] | None = None,
     ) -> None:
         """Start the agent-server HTTP server in the sandbox.
 
@@ -608,8 +675,16 @@ class DockerSandbox:
         if self._host_port is None:
             raise RuntimeError("Sandbox was not created with port exposure.")
 
-        org, repo = repository.lower().split("/")
-        repo_path = f"/tmp/workspace/repos/{org}/{repo}"
+        repo_path: str | None = None
+        if repository:
+            org, repo = repository.lower().split("/")
+            repo_path = f"/tmp/workspace/repos/{org}/{repo}"
+
+        # TODO: Re-enable agentsh egress enforcement in the Docker sandbox once
+        # agentsh works reliably inside local Docker containers.
+        # For now we skip setup and ignore allowed_domains so that callers
+        # (signals, tasks, etc.) don't need to hotfix around Docker failures.
+        allowed_domains = None
 
         mcp_servers_arg = ""
         if mcp_configs:
@@ -617,10 +692,22 @@ class DockerSandbox:
             mcp_servers_arg = f" --mcpServers {shlex.quote(mcp_json)}"
 
         command = self._build_agent_server_command(
-            repo_path, task_id, run_id, mode, interaction_origin, branch, mcp_servers_arg
+            repo_path,
+            task_id,
+            run_id,
+            mode,
+            create_pr,
+            interaction_origin,
+            branch,
+            runtime_adapter,
+            provider,
+            model,
+            reasoning_effort,
+            mcp_servers_arg,
+            allowed_domains=allowed_domains,
         )
 
-        logger.info(f"Starting agent-server in sandbox {self.id} for {repository}")
+        logger.info(f"Starting agent-server in sandbox {self.id} for {repository or 'no-repo'}")
 
         if self._launch_and_check(command):
             logger.info(f"Agent-server started on port {self._host_port}")
@@ -637,7 +724,19 @@ class DockerSandbox:
             self.execute("pkill -f agent-server || true", timeout_seconds=5)
 
             command = self._build_agent_server_command(
-                repo_path, task_id, run_id, mode, interaction_origin, branch=None, mcp_servers_arg=mcp_servers_arg
+                repo_path,
+                task_id,
+                run_id,
+                mode,
+                create_pr,
+                interaction_origin,
+                branch=None,
+                runtime_adapter=runtime_adapter,
+                provider=provider,
+                model=model,
+                reasoning_effort=reasoning_effort,
+                mcp_servers_arg=mcp_servers_arg,
+                allowed_domains=allowed_domains,
             )
             if self._launch_and_check(command):
                 logger.info(f"Agent-server started on port {self._host_port} (without --baseBranch)")
@@ -645,15 +744,63 @@ class DockerSandbox:
 
         log_result = self.execute("cat /tmp/agent-server.log 2>/dev/null || echo 'No log file'", timeout_seconds=5)
         logger.warning(f"Agent-server health check failed for sandbox {self.id}. Log output:\n{log_result.stdout}")
+
         raise SandboxExecutionError(
             "Agent-server failed to start",
             {"sandbox_id": self.id, "log": log_result.stdout},
             cause=RuntimeError("Health check failed after retries"),
         )
 
-    def _wait_for_health_check(self, max_attempts: int = 20, poll_interval: float = 0.3) -> bool:
+    def _setup_agentsh(self, workspace_path: str, allowed_domains: list[str] | None = None) -> None:
+        if allowed_domains:
+            logger.info(
+                "Configuring agentsh in Docker sandbox %s for %d allowed domain(s)", self.id, len(allowed_domains)
+            )
+        else:
+            logger.info("Configuring agentsh in Docker sandbox %s (allow-all mode)", self.id)
+
+        config_yaml = generate_config_yaml()
+        policy_yaml = generate_policy_yaml(allowed_domains)
+
+        self.execute("pkill -f 'agentsh server' || true", timeout_seconds=5)
+        self.execute("mkdir -p /etc/agentsh/policies /var/log/agentsh /var/lib/agentsh/sessions", timeout_seconds=5)
+        self.write_file("/etc/agentsh/config.yaml", config_yaml.encode())
+        self.write_file("/etc/agentsh/policies/default.yaml", policy_yaml.encode())
+        self.write_file(ENV_WRAPPER_SCRIPT, generate_env_wrapper().encode())
+        self.execute(f"chmod +x {ENV_WRAPPER_SCRIPT}", timeout_seconds=5)
+
+        setup_script = build_setup_script(workspace_path)
+        result = self.execute(setup_script, timeout_seconds=30)
+        if result.exit_code != 0:
+            agentsh_log = self.execute("cat /var/log/agentsh/agentsh.log 2>/dev/null || true", timeout_seconds=5)
+            raise SandboxExecutionError(
+                "Failed to start agentsh daemon",
+                {
+                    "sandbox_id": self.id,
+                    "stderr": result.stderr,
+                    "stdout": result.stdout,
+                    "agentsh_log": agentsh_log.stdout,
+                },
+                cause=RuntimeError(result.stderr),
+            )
+
+        session_check = self.execute(f"cat {SESSION_ID_FILE}", timeout_seconds=5)
+        if session_check.exit_code != 0 or not session_check.stdout.strip():
+            agentsh_log = self.execute("cat /var/log/agentsh/agentsh.log 2>/dev/null || true", timeout_seconds=5)
+            raise SandboxExecutionError(
+                "Failed to create agentsh session",
+                {
+                    "sandbox_id": self.id,
+                    "stderr": session_check.stderr,
+                    "agentsh_log": agentsh_log.stdout,
+                },
+                cause=RuntimeError("agentsh session create failed"),
+            )
+
+        logger.info("agentsh daemon started and session created in Docker sandbox %s", self.id)
+
+    def _wait_for_health_check(self, max_attempts: int = 60, poll_interval: float = 0.5) -> bool:
         """Poll health endpoint until server is ready (single remote call)."""
-        from products.tasks.backend.services.sandbox import wait_for_health_check
 
         return wait_for_health_check(self.execute, self.id, AGENT_SERVER_PORT, max_attempts, poll_interval)
 
@@ -712,12 +859,6 @@ class DockerSandbox:
                 {"sandbox_id": self.id, "error": str(e)},
                 cause=e,
             )
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        self.destroy()
 
     def is_running(self) -> bool:
         return self.get_status() == SandboxStatus.RUNNING

@@ -45,6 +45,7 @@ describe('ApiClient', () => {
             Authorization: 'Bearer test-token-123',
             'Content-Type': 'application/json',
             'User-Agent': USER_AGENT,
+            'X-PostHog-Client': 'mcp',
         })
 
         vi.unstubAllGlobals()
@@ -71,6 +72,7 @@ describe('ApiClient', () => {
             Authorization: 'Bearer test-token-123',
             'Content-Type': 'application/json',
             'User-Agent': getUserAgent('posthog/wizard 1.0.0'),
+            'X-PostHog-Client': 'mcp',
             'x-posthog-mcp-user-agent': 'posthog/wizard 1.0.0',
         })
 

@@ -43,16 +43,16 @@ export const getAndroidSteps = (ctx: OnboardingComponentsContext): StepDefinitio
                                     class SampleApp : Application() {
 
                                         companion object {
-                                            const val POSTHOG_API_KEY = "<ph_project_token>"
+                                            const val POSTHOG_PROJECT_TOKEN = "<ph_project_token>"
                                             const val POSTHOG_HOST = "<ph_client_api_host>"
                                         }
 
                                         override fun onCreate() {
                                             super.onCreate()
 
-                                            // Create a PostHog Config with the given API key and host
+                                            // Create a PostHog Config with the given project token and host
                                             val config = PostHogAndroidConfig(
-                                                apiKey = POSTHOG_API_KEY,
+                                                apiKey = POSTHOG_PROJECT_TOKEN,
                                                 host = POSTHOG_HOST
                                             )
 

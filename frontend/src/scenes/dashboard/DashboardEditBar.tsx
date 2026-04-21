@@ -50,7 +50,7 @@ export function DashboardEditBar({ showDateFilter = true, className }: Dashboard
             className={
                 className ??
                 clsx(
-                    'flex gap-2 items-end flex-wrap border md:[&>*]:grow-0 [&>*]:grow',
+                    'flex gap-2 items-end flex-wrap border',
                     dashboardMode === DashboardMode.Edit
                         ? '-m-1.5 p-1.5 border-primary border-dashed rounded-lg'
                         : 'border-transparent'
@@ -58,7 +58,7 @@ export function DashboardEditBar({ showDateFilter = true, className }: Dashboard
             }
         >
             {showDateFilter && (
-                <div className={clsx('content-end', { 'h-[61px]': hasVariables })}>
+                <div className={clsx('content-end min-w-0', { 'h-[61px]': hasVariables })}>
                     <AppShortcut
                         name="DashboardDateFilter"
                         keybind={[keyBinds.dateFilter]}

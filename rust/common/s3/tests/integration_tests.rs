@@ -111,3 +111,64 @@ async fn test_s3_get_string_invalid_utf8() {
         .send()
         .await;
 }
+
+#[tokio::test]
+async fn test_s3_put_string_then_get_string() {
+    let (s3_client, aws_client) = create_test_s3_client().await;
+    ensure_bucket_exists(&aws_client).await;
+
+    let test_key = "test/put-string-roundtrip.json";
+    let test_content = r#"{"flags":[{"id":1,"key":"test-flag"}]}"#;
+
+    // Put using our wrapper
+    s3_client
+        .put_string(TEST_BUCKET, test_key, test_content)
+        .await
+        .expect("Failed to put string");
+
+    // Get using our wrapper
+    let result = s3_client
+        .get_string(TEST_BUCKET, test_key)
+        .await
+        .expect("Failed to get string");
+    assert_eq!(result, test_content);
+
+    // Cleanup
+    let _ = s3_client.delete(TEST_BUCKET, test_key).await;
+}
+
+#[tokio::test]
+async fn test_s3_delete_existing_key() {
+    let (s3_client, aws_client) = create_test_s3_client().await;
+    ensure_bucket_exists(&aws_client).await;
+
+    let test_key = "test/delete-existing.txt";
+
+    // Put an object first
+    s3_client
+        .put_string(TEST_BUCKET, test_key, "to be deleted")
+        .await
+        .expect("Failed to put string");
+
+    // Delete it
+    s3_client
+        .delete(TEST_BUCKET, test_key)
+        .await
+        .expect("Failed to delete");
+
+    // Verify it's gone
+    let result = s3_client.get_string(TEST_BUCKET, test_key).await;
+    assert!(matches!(result, Err(S3Error::NotFound(_))));
+}
+
+#[tokio::test]
+async fn test_s3_delete_nonexistent_key_is_idempotent() {
+    let (s3_client, aws_client) = create_test_s3_client().await;
+    ensure_bucket_exists(&aws_client).await;
+
+    let nonexistent_key = "test/never-existed.txt";
+
+    // Delete should succeed even if key doesn't exist (S3 delete_object is idempotent)
+    let result = s3_client.delete(TEST_BUCKET, nonexistent_key).await;
+    assert!(result.is_ok(), "Delete of nonexistent key should succeed");
+}

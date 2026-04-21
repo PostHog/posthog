@@ -1,10 +1,14 @@
 use std::sync::Arc;
 use std::time::Duration;
 
+use assignment_coordination::store::{EtcdStore, StoreConfig};
 use axum::{routing::get, Router};
+use common_kafka::kafka_producer::create_kafka_producer;
 use common_metrics::setup_metrics_routes;
 use envconfig::Envconfig;
 use lifecycle::{ComponentOptions, Manager};
+use personhog_coordination::pod::{PodConfig, PodHandle};
+use personhog_coordination::store::PersonhogStore;
 use personhog_proto::personhog::leader::v1::person_hog_leader_server::PersonHogLeaderServer;
 use tonic::transport::Server;
 use tracing::level_filters::LevelFilter;
@@ -15,6 +19,7 @@ use tracing_subscriber::EnvFilter;
 
 use personhog_leader::cache::PartitionedCache;
 use personhog_leader::config::Config;
+use personhog_leader::coordination::LeaderHandoffHandler;
 use personhog_leader::service::PersonHogLeaderService;
 
 common_alloc::used!();
@@ -45,6 +50,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         config.cache_memory_capacity
     );
     tracing::info!("Metrics port: {}", config.metrics_port);
+    tracing::info!("etcd endpoints: {}", config.etcd_endpoints);
+    tracing::info!("etcd prefix: {}", config.etcd_prefix);
+    tracing::info!("Pod name: {}", config.pod_name);
+    tracing::info!("Kafka changelog topic: {}", config.kafka_person_state_topic);
 
     let mut manager = Manager::builder("personhog-leader")
         .with_global_shutdown_timeout(Duration::from_secs(30))
@@ -58,6 +67,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         "metrics-server",
         ComponentOptions::new().is_observability(true),
     );
+    let coordination_handle = manager.register(
+        "coordination",
+        ComponentOptions::new().with_graceful_shutdown(Duration::from_secs(5)),
+    );
+    let kafka_handle = manager.register("kafka-producer", ComponentOptions::new());
 
     let readiness = manager.readiness_handler();
     let liveness = manager.liveness_handler();
@@ -91,10 +105,54 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .expect("Metrics server error");
     });
 
-    // Initialize partitioned cache and service
+    // Initialize partitioned cache and Kafka producer
     let cache = Arc::new(PartitionedCache::new(config.cache_memory_capacity));
-    let service = PersonHogLeaderService::new(cache);
 
+    let kafka_producer = match create_kafka_producer(&config.kafka, kafka_handle).await {
+        Ok(producer) => producer,
+        Err(e) => {
+            tracing::error!(error = %e, "failed to create Kafka producer");
+            return Err(e.into());
+        }
+    };
+
+    let service = PersonHogLeaderService::new(
+        Arc::clone(&cache),
+        kafka_producer,
+        config.kafka_person_state_topic.clone(),
+    );
+
+    // Connect to etcd and start coordination
+    let etcd_config = StoreConfig {
+        endpoints: config.etcd_endpoint_list(),
+        prefix: config.etcd_prefix.clone(),
+    };
+    let etcd_store = EtcdStore::connect(etcd_config)
+        .await
+        .expect("Failed to connect to etcd");
+    let store = Arc::new(PersonhogStore::new(etcd_store));
+
+    let handler = LeaderHandoffHandler::new(Arc::clone(&cache));
+    let pod = PodHandle::new(
+        store,
+        PodConfig {
+            pod_name: config.pod_name.clone(),
+            lease_ttl: config.lease_ttl,
+            heartbeat_interval: config.heartbeat_interval(),
+            ..Default::default()
+        },
+        Arc::new(handler),
+        None,
+    );
+
+    tokio::spawn(async move {
+        let _guard = coordination_handle.process_scope();
+        if let Err(e) = pod.run(coordination_handle.shutdown_token()).await {
+            coordination_handle.signal_failure(format!("Coordination error: {e}"));
+        }
+    });
+
+    // gRPC server
     let grpc_addr = config.grpc_address;
     tracing::info!("Starting gRPC server on {}", grpc_addr);
 

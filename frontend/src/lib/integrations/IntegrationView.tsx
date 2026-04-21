@@ -13,7 +13,7 @@ import { dayjs } from 'lib/dayjs'
 import { IntegrationScopesWarning } from 'lib/integrations/IntegrationScopesWarning'
 import { IconBranch } from 'lib/lemon-ui/icons'
 
-import { CyclotronJobInputSchemaType, IntegrationType } from '~/types'
+import { IntegrationType } from '~/types'
 
 import { integrationsLogic } from './integrationsLogic'
 
@@ -24,7 +24,7 @@ export function IntegrationView({
 }: {
     integration: IntegrationType
     suffix?: JSX.Element
-    schema?: CyclotronJobInputSchemaType
+    schema?: { requiredScopes?: string }
 }): JSX.Element {
     const { deleteIntegration } = useActions(integrationsLogic)
     const restrictedReason = useRestrictedArea({
@@ -99,7 +99,7 @@ export function IntegrationView({
                             </div>
                         ) : null}
                         {isGitHub &&
-                            (githubRepositoriesLoading ? (
+                            (githubRepositoriesLoading && repositories.length === 0 ? (
                                 <div className="flex items-center gap-1 text-xs text-muted mr-4 min-h-5">
                                     <Spinner className="text-sm" />
                                     Loading repositories...
@@ -109,7 +109,10 @@ export function IntegrationView({
                                     <div className="text-xs text-muted">
                                         <IconBranch className="inline mr-1 text-sm" />
                                         {repositories.length} repositor
-                                        {repositories.length === 1 ? 'y' : 'ies'} allowed: {repositories.join(', ')}
+                                        {repositories.length === 1 ? 'y' : 'ies'} allowed:{' '}
+                                        {repositories.length <= 3
+                                            ? repositories.join(', ')
+                                            : `${repositories.slice(0, 3).join(', ')} and ${repositories.length - 3} more`}
                                     </div>
                                     <LemonButton
                                         size="xxsmall"
@@ -118,10 +121,13 @@ export function IntegrationView({
                                         onClick={() => {
                                             const installationId = integration.config?.installation_id
                                             if (installationId) {
-                                                window.open(
-                                                    `https://github.com/settings/installations/${installationId}`,
-                                                    '_blank'
-                                                )
+                                                const accountType = integration.config?.account?.type
+                                                const accountName = integration.config?.account?.name
+                                                const basePath =
+                                                    accountType === 'Organization' && accountName
+                                                        ? `https://github.com/organizations/${accountName}/settings/installations/${installationId}`
+                                                        : `https://github.com/settings/installations/${installationId}`
+                                                window.open(basePath, '_blank')
                                             }
                                         }}
                                         tooltip="Manage repository access on GitHub"
@@ -140,10 +146,13 @@ export function IntegrationView({
                                         onClick={() => {
                                             const installationId = integration.config?.installation_id
                                             if (installationId) {
-                                                window.open(
-                                                    `https://github.com/settings/installations/${installationId}`,
-                                                    '_blank'
-                                                )
+                                                const accountType = integration.config?.account?.type
+                                                const accountName = integration.config?.account?.name
+                                                const basePath =
+                                                    accountType === 'Organization' && accountName
+                                                        ? `https://github.com/organizations/${accountName}/settings/installations/${installationId}`
+                                                        : `https://github.com/settings/installations/${installationId}`
+                                                window.open(basePath, '_blank')
                                             }
                                         }}
                                         tooltip="Configure repository access"
@@ -171,7 +180,7 @@ export function IntegrationView({
                         }}
                     >
                         {errors[0] === 'TOKEN_REFRESH_FAILED'
-                            ? 'Authentication token could not be refreshed. Please reconnect.'
+                            ? 'Authentication token could not be refreshed. You can reconnect this account or disconnect it and connect a different one.'
                             : `There was an error with this integration: ${errors[0]}`}
                     </LemonBanner>
                 </div>

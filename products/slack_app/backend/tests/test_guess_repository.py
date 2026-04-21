@@ -58,7 +58,7 @@ class TestGetFullRepoNames:
         )
 
         mock_github = MagicMock()
-        mock_github.list_repositories.return_value = [
+        mock_github.list_all_repositories.return_value = [
             _repo_dict("posthog", "posthog", 1),
             _repo_dict("posthog", "posthog-js", 2),
             _repo_dict("posthog", "plugin-server", 3),
@@ -80,7 +80,7 @@ class TestGetFullRepoNames:
         page2 = [_repo_dict("org", f"repo-{i}", i) for i in range(100, 120)]
 
         mock_github = MagicMock()
-        mock_github.list_repositories.side_effect = [page1, page2]
+        mock_github.list_all_repositories.return_value = page1 + page2
         mock_github_class.return_value = mock_github
 
         result = _get_full_repo_names(self.slack_integration)
@@ -104,10 +104,10 @@ class TestGetFullRepoNames:
         )
 
         gh_a = MagicMock()
-        gh_a.list_repositories.return_value = [_repo_dict("orgA", "repo-1", 1)]
+        gh_a.list_all_repositories.return_value = [_repo_dict("orgA", "repo-1", 1)]
 
         gh_b = MagicMock()
-        gh_b.list_repositories.return_value = [_repo_dict("orgB", "repo-2", 2)]
+        gh_b.list_all_repositories.return_value = [_repo_dict("orgB", "repo-2", 2)]
 
         mock_github_class.side_effect = [gh_a, gh_b]
 
@@ -124,7 +124,7 @@ class TestGetFullRepoNames:
         )
 
         mock_github = MagicMock()
-        mock_github.list_repositories.return_value = [_repo_dict("org", f"repo-{i}", i) for i in range(10)]
+        mock_github.list_all_repositories.return_value = [_repo_dict("org", f"repo-{i}", i) for i in range(10)]
         mock_github_class.return_value = mock_github
 
         with caplog.at_level(logging.WARNING):
@@ -142,7 +142,7 @@ class TestGetFullRepoNames:
         )
 
         mock_github = MagicMock()
-        mock_github.list_repositories.return_value = [
+        mock_github.list_all_repositories.return_value = [
             _repo_dict("posthog", "zebra", 1),
             _repo_dict("posthog", "alpha", 2),
             _repo_dict("posthog", "middle", 3),
@@ -178,7 +178,7 @@ class TestGetFullRepoNamesCache:
     def test_cache_miss_populates_cache(self, mock_github_class):
         self._create_github_integration()
         mock_github = MagicMock()
-        mock_github.list_repositories.return_value = [_repo_dict("posthog", "repo-a")]
+        mock_github.list_all_repositories.return_value = [_repo_dict("posthog", "repo-a")]
         mock_github_class.return_value = mock_github
 
         result = _get_full_repo_names(self.slack_integration)
@@ -189,7 +189,7 @@ class TestGetFullRepoNamesCache:
     def test_cache_hit_avoids_github_api(self, mock_github_class):
         self._create_github_integration()
         mock_github = MagicMock()
-        mock_github.list_repositories.return_value = [_repo_dict("posthog", "repo-a")]
+        mock_github.list_all_repositories.return_value = [_repo_dict("posthog", "repo-a")]
         mock_github_class.return_value = mock_github
 
         _get_full_repo_names(self.slack_integration)
@@ -213,10 +213,10 @@ class TestGetFullRepoNamesCache:
         self._create_github_integration(team=team_b, name="orgB")
 
         gh_a = MagicMock()
-        gh_a.list_repositories.return_value = [_repo_dict("orgA", "repo-a")]
+        gh_a.list_all_repositories.return_value = [_repo_dict("orgA", "repo-a")]
 
         gh_b = MagicMock()
-        gh_b.list_repositories.return_value = [_repo_dict("orgB", "repo-b")]
+        gh_b.list_all_repositories.return_value = [_repo_dict("orgB", "repo-b")]
 
         mock_github_class.side_effect = [gh_a, gh_b]
 
@@ -229,7 +229,7 @@ class TestGetFullRepoNamesCache:
     def test_invalidation_forces_refetch(self, mock_github_class):
         self._create_github_integration()
         mock_github = MagicMock()
-        mock_github.list_repositories.return_value = [_repo_dict("posthog", "repo-a")]
+        mock_github.list_all_repositories.return_value = [_repo_dict("posthog", "repo-a")]
         mock_github_class.return_value = mock_github
 
         _get_full_repo_names(self.slack_integration)
@@ -237,7 +237,7 @@ class TestGetFullRepoNamesCache:
 
         assert cache.get(_repo_list_cache_key(self.team.id)) is None
 
-        mock_github.list_repositories.return_value = [
+        mock_github.list_all_repositories.return_value = [
             _repo_dict("posthog", "repo-a"),
             _repo_dict("posthog", "repo-b", 2),
         ]
@@ -254,7 +254,7 @@ class TestGetFullRepoNamesCache:
     def test_empty_result_with_github_integrations_not_cached(self, mock_github_class):
         self._create_github_integration()
         mock_github = MagicMock()
-        mock_github.list_repositories.return_value = []
+        mock_github.list_all_repositories.return_value = []
         mock_github_class.return_value = mock_github
 
         result = _get_full_repo_names(self.slack_integration)
@@ -265,7 +265,7 @@ class TestGetFullRepoNamesCache:
     def test_signal_invalidates_on_github_save(self, mock_github_class):
         self._create_github_integration()
         mock_github = MagicMock()
-        mock_github.list_repositories.return_value = [_repo_dict("posthog", "repo-a")]
+        mock_github.list_all_repositories.return_value = [_repo_dict("posthog", "repo-a")]
         mock_github_class.return_value = mock_github
 
         _get_full_repo_names(self.slack_integration)
@@ -284,7 +284,7 @@ class TestGetFullRepoNamesCache:
     def test_signal_invalidates_on_github_delete(self, mock_github_class):
         gh_record = self._create_github_integration()
         mock_github = MagicMock()
-        mock_github.list_repositories.return_value = [_repo_dict("posthog", "repo-a")]
+        mock_github.list_all_repositories.return_value = [_repo_dict("posthog", "repo-a")]
         mock_github_class.return_value = mock_github
 
         _get_full_repo_names(self.slack_integration)
@@ -297,7 +297,7 @@ class TestGetFullRepoNamesCache:
     def test_signal_ignores_non_github_integration(self, mock_github_class):
         self._create_github_integration()
         mock_github = MagicMock()
-        mock_github.list_repositories.return_value = [_repo_dict("posthog", "repo-a")]
+        mock_github.list_all_repositories.return_value = [_repo_dict("posthog", "repo-a")]
         mock_github_class.return_value = mock_github
 
         _get_full_repo_names(self.slack_integration)
@@ -341,7 +341,7 @@ class TestPostRepoPickerPrewarm:
             sensitive_config={"access_token": "ghp-test"},
         )
         mock_github = MagicMock()
-        mock_github.list_repositories.return_value = [_repo_dict("posthog", "repo-a")]
+        mock_github.list_all_repositories.return_value = [_repo_dict("posthog", "repo-a")]
         mock_github_class.return_value = mock_github
 
         _post_repo_picker_message(
@@ -571,7 +571,7 @@ class TestMatchRepoRule:
         result = _match_repo_rule("fix bug", [{"user": "Dev", "text": "fix bug"}], self.team.id, ["org/repo"])
         assert result is None
 
-    @patch("posthog.llm.gateway_client.get_llm_client")
+    @patch("products.slack_app.backend.api.get_llm_client")
     def test_llm_returns_valid_index(self, mock_get_client):
         RepoRoutingRule.objects.create(
             team=self.team,
@@ -590,7 +590,7 @@ class TestMatchRepoRule:
         )
         assert result == "org/js-sdk"
 
-    @patch("posthog.llm.gateway_client.get_llm_client")
+    @patch("products.slack_app.backend.api.get_llm_client")
     def test_llm_returns_null_index(self, mock_get_client):
         RepoRoutingRule.objects.create(
             team=self.team,
@@ -609,7 +609,7 @@ class TestMatchRepoRule:
         )
         assert result is None
 
-    @patch("posthog.llm.gateway_client.get_llm_client")
+    @patch("products.slack_app.backend.api.get_llm_client")
     def test_llm_returns_invalid_index(self, mock_get_client):
         RepoRoutingRule.objects.create(
             team=self.team,
@@ -626,7 +626,7 @@ class TestMatchRepoRule:
         result = _match_repo_rule("fix bug", [{"user": "Dev", "text": "fix bug"}], self.team.id, ["org/js-sdk"])
         assert result is None
 
-    @patch("posthog.llm.gateway_client.get_llm_client")
+    @patch("products.slack_app.backend.api.get_llm_client")
     def test_llm_failure_returns_none(self, mock_get_client):
         RepoRoutingRule.objects.create(
             team=self.team,
@@ -640,7 +640,7 @@ class TestMatchRepoRule:
         result = _match_repo_rule("fix bug", [{"user": "Dev", "text": "fix bug"}], self.team.id, ["org/js-sdk"])
         assert result is None
 
-    @patch("posthog.llm.gateway_client.get_llm_client")
+    @patch("products.slack_app.backend.api.get_llm_client")
     def test_llm_invalid_json_returns_none(self, mock_get_client):
         RepoRoutingRule.objects.create(
             team=self.team,
@@ -673,7 +673,9 @@ class TestParseRulesCommand:
                 'rules add "fix frontend" my-org/my.repo',
                 RulesCommand(action="add", rule_text="fix frontend", repository="my-org/my.repo"),
             ),
-            ("remove", "rules remove 3", RulesCommand(action="remove", rule_number=3)),
+            ("remove", "rules remove 3", RulesCommand(action="remove", rule_numbers=[3])),
+            ("remove_multiple", "rules remove 1,2", RulesCommand(action="remove", rule_numbers=[1, 2])),
+            ("remove_multiple_spaces", "rules remove 1, 3", RulesCommand(action="remove", rule_numbers=[1, 3])),
             (
                 "bot_mention_list",
                 "<@U123BOT> rules list",
@@ -697,7 +699,7 @@ class TestParseRulesCommand:
             (
                 "bot_mention_remove",
                 "<@U123BOT> rules remove 1",
-                RulesCommand(action="remove", rule_number=1),
+                RulesCommand(action="remove", rule_numbers=[1]),
             ),
             ("help", "help", RulesCommand(action="help")),
             ("help_case_insensitive", "Help", RulesCommand(action="help")),

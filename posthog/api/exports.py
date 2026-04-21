@@ -1,4 +1,3 @@
-import threading
 from datetime import timedelta
 from typing import Any
 
@@ -19,18 +18,17 @@ from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
-from posthog.event_usage import groups
-from posthog.models import Insight, User
+from posthog.event_usage import EventSource, get_event_source, groups
+from posthog.models import Insight, Team, User
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.exported_asset import ExportedAsset, get_content_response
 from posthog.security.url_validation import is_url_allowed
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 from posthog.settings.temporal import TEMPORAL_WORKFLOW_MAX_ATTEMPTS
-from posthog.tasks import exporter
+from posthog.slo.types import SloArea, SloConfig, SloOperation
 from posthog.temporal.common.client import async_connect
-from posthog.temporal.exports_video.workflow import VideoExportInputs, VideoExportWorkflow
-
-VIDEO_EXPORT_SEMAPHORE = threading.Semaphore(10)  # Allow max 10 concurrent video exports
+from posthog.temporal.exports.workflows import ExportAssetWorkflow, ExportAssetWorkflowInputs
+from posthog.temporal.session_replay.rasterize_recording.types import RasterizeRecordingInputs
 
 # Allow max 10 full video exports per team per calendar month
 FULL_VIDEO_EXPORTS_LIMIT_PER_TEAM = 10
@@ -107,20 +105,23 @@ class ExportedAssetSerializer(serializers.ModelSerializer):
         if data.get("insight") and data["insight"].team.id != self.context["team_id"]:
             raise ValidationError({"insight": ["This insight does not belong to your team."]})
 
-        # NEW: Check full video export limit for team (only MP4 exports with "video" mode)
+        # Check full video export limit for team (video session recording exports)
         export_format = data.get("export_format")
         export_context = data.get("export_context", {})
-        export_mode = export_context.get("mode")
 
-        if export_format == "video/mp4" and export_mode == "video":
+        is_full_video_export = export_format in ("video/mp4", "video/webm", "image/gif") and export_context.get(
+            "session_recording_id"
+        )
+
+        if is_full_video_export:
             # Calculate the start of the current month
             current_time = now()
             start_of_month = current_time.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
 
             existing_full_video_exports_count = ExportedAsset.objects.filter(
                 team_id=self.context["team_id"],
-                export_format="video/mp4",
-                export_context__mode="video",
+                export_format__in=["video/mp4", "video/webm", "image/gif"],
+                export_context__session_recording_id__isnull=False,
                 created_at__gte=start_of_month,
             ).count()
 
@@ -156,7 +157,7 @@ class ExportedAssetSerializer(serializers.ModelSerializer):
         if export_context and export_context.get("heatmap_url"):
             ok, err = is_url_allowed(export_context["heatmap_url"])
             if not ok:
-                raise ValidationError({"export_context": ["heatmap_url not allowed"]})
+                raise ValidationError({"export_context": [f"heatmap_url not allowed: {err}"]})
 
         data["team_id"] = self.context["team_id"]
         return data
@@ -207,43 +208,30 @@ class ExportedAssetSerializer(serializers.ModelSerializer):
                         {"export_format": ["Video export supports session recordings only."]}
                     )
 
-                logger.info("starting_video_export_workflow", asset_id=instance.id)
+                logger.info("starting_rasterize_recording_workflow", asset_id=instance.id)
 
                 async def _start():
                     client = await async_connect()
                     await client.execute_workflow(
-                        VideoExportWorkflow.run,
-                        VideoExportInputs(exported_asset_id=instance.id, use_puppeteer=False),
+                        "rasterize-recording",
+                        RasterizeRecordingInputs(exported_asset_id=instance.id),
                         id=f"export-video-{instance.id}",
-                        task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
+                        task_queue=settings.SESSION_REPLAY_TASK_QUEUE,
                         retry_policy=RetryPolicy(maximum_attempts=int(TEMPORAL_WORKFLOW_MAX_ATTEMPTS)),
                         id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
-                        # Keep hard limit to avoid hanging workflows
-                        execution_timeout=timedelta(hours=3),
+                        execution_timeout=timedelta(hours=1),
                     )
 
-                with VIDEO_EXPORT_SEMAPHORE:
-                    try:
-                        async_to_sync(_start)()
-                        logger.info("video_export_workflow_dispatched", asset_id=instance.id)
-                    except Exception as e:
-                        logger.exception("video_export_workflow_dispatch_failed", asset_id=instance.id, error=str(e))
-                        raise
+                try:
+                    async_to_sync(_start)()
+                    logger.info("rasterize_recording_workflow_dispatched", asset_id=instance.id)
+                except Exception as e:
+                    logger.exception("rasterize_recording_workflow_dispatch_failed", asset_id=instance.id, error=str(e))
+                    raise
             else:
-                exporter.export_asset(instance.id)
+                self._start_export_workflow(instance, team, user, force_async=False)
         else:
-            task = exporter.export_asset.delay(instance.id)
-            posthoganalytics.capture(
-                distinct_id=user.distinct_id if user else str(team.uuid),
-                event="export queued",
-                properties={
-                    **instance.get_analytics_metadata(),
-                    "force_async": force_async,
-                    "reason": reason,
-                    "task_id": task.id,
-                },
-                groups=groups(team.organization, team),
-            )
+            self._start_export_workflow(instance, team, user, force_async=True)
 
         posthoganalytics.capture(
             distinct_id=user.distinct_id if user else str(team.uuid),
@@ -294,6 +282,67 @@ class ExportedAssetSerializer(serializers.ModelSerializer):
                 )
                 pass
         return instance
+
+    def _start_export_workflow(
+        self, instance: ExportedAsset, team: Team, user: User | None, force_async: bool = False
+    ) -> None:
+        request = self.context.get("request")
+        source = get_event_source(request) if request else EventSource.EXPORT
+        distinct_id = str(user.distinct_id) if user else str(team.id)
+
+        workflow_inputs = ExportAssetWorkflowInputs(
+            exported_asset_id=instance.id,
+            team_id=team.id,
+            distinct_id=distinct_id,
+            slo=SloConfig(
+                operation=SloOperation.EXPORT,
+                area=SloArea.ANALYTIC_PLATFORM,
+                team_id=team.id,
+                resource_id=str(instance.id),
+                distinct_id=distinct_id,
+                start_properties={
+                    "export_format": instance.export_format,
+                    "export_type": instance.export_type,
+                    "source": source,
+                },
+                completion_properties={
+                    "export_format": instance.export_format,
+                    "export_type": instance.export_type,
+                    "source": source,
+                },
+            ),
+        )
+
+        async def _run():
+            client = await async_connect()
+            method = client.start_workflow if force_async else client.execute_workflow
+            await method(
+                ExportAssetWorkflow.run,
+                workflow_inputs,
+                id=f"export-asset-{instance.id}",
+                task_queue=settings.ANALYTICS_PLATFORM_TASK_QUEUE,
+                id_reuse_policy=WorkflowIDReusePolicy.TERMINATE_IF_RUNNING,
+                execution_timeout=timedelta(minutes=35),
+            )
+
+        try:
+            async_to_sync(_run)()
+        except Exception as e:
+            # Swallow workflow failures so the API always returns a 201 with the
+            # ExportedAsset record. export_asset_direct populates the exception
+            # field before re-raising, so callers (frontend toast, sharing
+            # endpoint) can inspect the failure on the asset itself.
+            logger.info(
+                "export_workflow_failed_gracefully",
+                asset_id=instance.id,
+                error=str(e),
+            )
+            return
+
+        logger.info(
+            "export_workflow_dispatched" if force_async else "export_workflow_completed",
+            asset_id=instance.id,
+        )
 
 
 @extend_schema(tags=["core"])

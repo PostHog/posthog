@@ -75,6 +75,7 @@ export const ChatHistoryPanel = memo(function ChatHistoryPanel({ tabId }: ChatHi
                     <div className="flex items-center gap-1 p-2 shrink-0">
                         <ButtonPrimitive
                             onClick={toggleChatHistoryPanelCollapsed}
+                            data-attr="max-toggle-chat-history"
                             tooltip={isChatHistoryPanelCollapsed ? 'Expand history' : 'Collapse history'}
                             className="h-[32px]"
                             iconOnly
@@ -92,6 +93,7 @@ export const ChatHistoryPanel = memo(function ChatHistoryPanel({ tabId }: ChatHi
                                     <IconSearch className="size-3 text-tertiary group-focus-within:text-primary w-4 shrink-0" />
                                     <Autocomplete.Input
                                         id="search-chats"
+                                        data-attr="max-search-chat-history"
                                         placeholder="Chat history"
                                         aria-label="Chat history"
                                         className={cn(
@@ -103,6 +105,7 @@ export const ChatHistoryPanel = memo(function ChatHistoryPanel({ tabId }: ChatHi
                                     variant="outline"
                                     iconOnly
                                     onClick={() => startNewConversation()}
+                                    data-attr="max-new-chat"
                                     tooltip="New chat"
                                 >
                                     <IconPlusSmall />
@@ -127,52 +130,46 @@ export const ChatHistoryPanel = memo(function ChatHistoryPanel({ tabId }: ChatHi
                             ) : (
                                 <>
                                     <Autocomplete.List className="flex flex-col gap-1 -mx-1">
-                                        <Autocomplete.Group items={conversationHistory}>
-                                            <Autocomplete.Collection>
-                                                {(conversation: ConversationDetail) => (
-                                                    <AiChatListItem.Root>
-                                                        <AiChatListItem.Group>
-                                                            <Autocomplete.Item
-                                                                key={conversation.id}
-                                                                value={conversation}
-                                                                onClick={(e) => {
-                                                                    e.preventDefault()
-                                                                    openConversation(conversation.id)
+                                        {(conversation: ConversationDetail) => (
+                                            <AiChatListItem.Root>
+                                                <AiChatListItem.Group>
+                                                    <Autocomplete.Item
+                                                        key={conversation.id}
+                                                        value={conversation}
+                                                        onClick={(e) => {
+                                                            e.preventDefault()
+                                                            openConversation(conversation.id)
+                                                        }}
+                                                        render={
+                                                            <Link
+                                                                to={AiChatListItem.getHref(conversation.id)}
+                                                                buttonProps={{
+                                                                    active: conversation.id === conversationId,
+                                                                    fullWidth: true,
+                                                                    className: 'pr-0',
                                                                 }}
-                                                                render={
-                                                                    <Link
-                                                                        to={AiChatListItem.getHref(conversation.id)}
-                                                                        buttonProps={{
-                                                                            active: conversation.id === conversationId,
-                                                                            fullWidth: true,
-                                                                            className: 'pr-0',
-                                                                        }}
-                                                                        tooltip={
-                                                                            conversation.title || 'view conversation'
-                                                                        }
-                                                                        tooltipPlacement="right"
-                                                                        extraContextMenuItems={
-                                                                            <AiChatListItem.ContextMenuAction
-                                                                                conversationId={conversation.id}
-                                                                            />
-                                                                        }
-                                                                    >
-                                                                        <AiChatListItem.Content
-                                                                            showIcon
-                                                                            title={conversation.title}
-                                                                            status={conversation.status}
-                                                                            updatedAt={conversation.updated_at}
-                                                                        />
-                                                                    </Link>
+                                                                tooltip={conversation.title || 'view conversation'}
+                                                                tooltipPlacement="right"
+                                                                extraContextMenuItems={
+                                                                    <AiChatListItem.ContextMenuAction
+                                                                        conversationId={conversation.id}
+                                                                    />
                                                                 }
-                                                            />
-                                                            <AiChatListItem.Trigger />
-                                                        </AiChatListItem.Group>
-                                                        <AiChatListItem.Actions conversationId={conversation.id} />
-                                                    </AiChatListItem.Root>
-                                                )}
-                                            </Autocomplete.Collection>
-                                        </Autocomplete.Group>
+                                                            >
+                                                                <AiChatListItem.Content
+                                                                    showIcon
+                                                                    title={conversation.title}
+                                                                    status={conversation.status}
+                                                                    updatedAt={conversation.updated_at}
+                                                                />
+                                                            </Link>
+                                                        }
+                                                    />
+                                                    <AiChatListItem.Trigger />
+                                                </AiChatListItem.Group>
+                                                <AiChatListItem.Actions conversationId={conversation.id} />
+                                            </AiChatListItem.Root>
+                                        )}
                                     </Autocomplete.List>
                                     <Autocomplete.Empty className="flex flex-col items-center justify-center text-center py-8 text-muted empty:hidden">
                                         <p className="text-sm mb-0">No chats found</p>

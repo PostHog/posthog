@@ -70,7 +70,7 @@ def refresh_expiring_flags_cache_entries(self: PushGatewayTask) -> None:
     This job just prevents expiration-related cache misses.
 
     For initial cache build or schema migrations, use the management command:
-        python manage.py warm_flags_cache [--invalidate-first]
+        python manage.py warm_flags_cache
     """
 
     if not settings.FLAGS_REDIS_URL:

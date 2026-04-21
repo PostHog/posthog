@@ -1,15 +1,15 @@
 import { logger } from '../../utils/logger'
-import { BatchPipeline, BatchPipelineResultWithContext } from './batch-pipeline.interface'
+import { BatchPipeline, OkResultWithContext } from './batch-pipeline.interface'
 import { isOkResult } from './results'
 
 /**
  * Pipeline unwrapper that extracts successful results from a batch pipeline and logs warnings about remaining side effects.
  * This unwrapper filters out non-OK results and returns only the unwrapped values.
  */
-export class BatchPipelineUnwrapper<TInput, TOutput, C> {
-    constructor(private batchPipeline: BatchPipeline<TInput, TOutput, C>) {}
+export class BatchPipelineUnwrapper<TInput, TOutput, C, R extends string = never> {
+    constructor(private batchPipeline: BatchPipeline<TInput, TOutput, C, C, R>) {}
 
-    feed(elements: BatchPipelineResultWithContext<TInput, C>): void {
+    feed(elements: OkResultWithContext<TInput, C>[]): void {
         this.batchPipeline.feed(elements)
     }
 

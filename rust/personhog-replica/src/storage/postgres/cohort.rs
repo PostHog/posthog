@@ -2,6 +2,8 @@ use std::collections::HashSet;
 
 use async_trait::async_trait;
 
+use personhog_common::grpc::current_client_name;
+
 use super::{ConsistencyLevel, PostgresStorage, DB_QUERY_DURATION};
 use crate::storage::error::StorageResult;
 use crate::storage::traits::CohortStorage;
@@ -19,6 +21,7 @@ impl CohortStorage for PostgresStorage {
             return Ok(Vec::new());
         }
 
+        let client = current_client_name();
         let pool_label = PostgresStorage::pool_label(consistency);
         let labels = [
             (
@@ -26,6 +29,7 @@ impl CohortStorage for PostgresStorage {
                 "check_cohort_membership".to_string(),
             ),
             ("pool".to_string(), pool_label.to_string()),
+            ("client".to_string(), client.to_string()),
         ];
         let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
 

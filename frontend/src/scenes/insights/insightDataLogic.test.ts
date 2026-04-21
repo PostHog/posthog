@@ -1,3 +1,9 @@
+jest.mock('~/queries/query', () => ({
+    __esModule: true,
+    ...jest.requireActual('~/queries/query'),
+    performQuery: jest.fn().mockResolvedValue({ result: [] }),
+}))
+
 import { expectLogic } from 'kea-test-utils'
 
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -5,6 +11,7 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { examples } from '~/queries/examples'
+import { performQuery } from '~/queries/query'
 import {
     FunnelsQuery,
     InsightVizNode,
@@ -16,6 +23,8 @@ import { initKeaTests } from '~/test/init'
 import { FunnelVizType, InsightShortId } from '~/types'
 
 import { insightDataLogic } from './insightDataLogic'
+
+const mockedPerformQuery = performQuery as jest.MockedFunction<typeof performQuery>
 
 const Insight123 = '123' as InsightShortId
 
@@ -270,6 +279,106 @@ describe('insightDataLogic', () => {
             await expectLogic(theInsightDataLogic, () => {
                 theInsightLogic.actions.setInsight({ query: q }, { overrideQuery: false })
             }).toNotHaveDispatchedActions(['setQuery'])
+        })
+    })
+
+    describe('dashboard tile: cached insight with no chart data yet', () => {
+        beforeEach(() => {
+            mockedPerformQuery.mockClear()
+        })
+
+        it('dispatches loadData when dashboardId is set and result is null', async () => {
+            const logic = insightDataLogic({
+                dashboardItemId: Insight123,
+                dashboardId: 99,
+                cachedInsight: {
+                    short_id: Insight123,
+                    query: examples.InsightTrends,
+                    result: null,
+                } as any,
+            })
+            // dataNode in tests does not receive query/cachedResults via BindLogic; the loader may bail
+            // before performQuery. We only assert that insightDataLogic kicks a force loadData.
+            await expectLogic(logic, () => {
+                logic.mount()
+            }).toDispatchActions(['loadData'])
+            logic.unmount()
+        })
+
+        it('does not dispatch loadData when not on a dashboard', async () => {
+            const logic = insightDataLogic({
+                dashboardItemId: Insight123,
+                cachedInsight: {
+                    short_id: Insight123,
+                    query: examples.InsightTrends,
+                    result: null,
+                } as any,
+            })
+            await expectLogic(logic, () => {
+                logic.mount()
+            }).toNotHaveDispatchedActions(['loadData'])
+
+            await expectLogic(logic).delay(0)
+            expect(mockedPerformQuery).not.toHaveBeenCalled()
+            logic.unmount()
+        })
+
+        it('does not dispatch loadData when result is already present (empty series)', async () => {
+            const logic = insightDataLogic({
+                dashboardItemId: Insight123,
+                dashboardId: 99,
+                cachedInsight: {
+                    short_id: Insight123,
+                    query: examples.InsightTrends,
+                    result: [],
+                } as any,
+            })
+            await expectLogic(logic, () => {
+                logic.mount()
+            }).toNotHaveDispatchedActions(['loadData'])
+
+            await expectLogic(logic).delay(0)
+            expect(mockedPerformQuery).not.toHaveBeenCalled()
+            logic.unmount()
+        })
+
+        it('does not dispatch loadData when doNotLoad is true', async () => {
+            const logic = insightDataLogic({
+                dashboardItemId: Insight123,
+                dashboardId: 99,
+                doNotLoad: true,
+                cachedInsight: {
+                    short_id: Insight123,
+                    query: examples.InsightTrends,
+                    result: null,
+                } as any,
+            })
+            await expectLogic(logic, () => {
+                logic.mount()
+            }).toNotHaveDispatchedActions(['loadData'])
+
+            await expectLogic(logic).delay(0)
+            expect(mockedPerformQuery).not.toHaveBeenCalled()
+            logic.unmount()
+        })
+
+        it('does not dispatch loadData for web analytics web stats tile', async () => {
+            const logic = insightDataLogic({
+                dashboardItemId: Insight123,
+                dashboardId: 99,
+                cachedInsight: {
+                    short_id: Insight123,
+                    query: examples.WebAnalyticsPath,
+                    result: null,
+                } as any,
+            })
+            await expectLogic(logic, () => {
+                logic.mount()
+            }).toNotHaveDispatchedActions(['loadData'])
+
+            await expectLogic(logic).delay(0)
+            expect(mockedPerformQuery).not.toHaveBeenCalled()
+            logic.unmount()
         })
     })
 })

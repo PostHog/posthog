@@ -76,6 +76,27 @@
   
   '''
 # ---
+# name: test_create_kafka_table_with_different_kafka_host[kafka_ai_events_json]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS kafka_ai_events_json
+  (
+      uuid UUID,
+      event VARCHAR,
+      properties VARCHAR,
+      timestamp DateTime64(6, 'UTC'),
+      team_id Int64,
+      distinct_id VARCHAR,
+      elements_chain VARCHAR,
+      created_at DateTime64(6, 'UTC'),
+      person_id UUID,
+      person_properties VARCHAR,
+      person_created_at DateTime64,
+      person_mode Enum8('full' = 0, 'propertyless' = 1, 'force_upgrade' = 2)
+  ) ENGINE = Kafka(msk_cluster, kafka_topic_list = 'clickhouse_ai_events_json_test', kafka_group_name = 'group1', kafka_format = 'JSONEachRow')
+  
+  '''
+# ---
 # name: test_create_kafka_table_with_different_kafka_host[kafka_app_metrics2]
   '''
   
@@ -139,6 +160,27 @@
       timestamp DateTime64(6, 'UTC')
   ) ENGINE = Kafka(warpstream_ingestion, kafka_topic_list = 'distinct_id_usage_events_json_test', kafka_group_name = 'clickhouse_distinct_id_usage', kafka_format = 'JSONEachRow')
   SETTINGS kafka_skip_broken_messages = 100
+  
+  '''
+# ---
+# name: test_create_kafka_table_with_different_kafka_host[kafka_error_tracking_fingerprint_issue_state]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS kafka_error_tracking_fingerprint_issue_state 
+  (
+      team_id Int64,
+      fingerprint VARCHAR,
+      issue_id UUID,
+      issue_name Nullable(VARCHAR),
+      issue_description Nullable(VARCHAR),
+      issue_status VARCHAR,
+      assigned_user_id Nullable(Int64),
+      assigned_role_id Nullable(UUID),
+      first_seen DateTime64(3, 'UTC'),
+      is_deleted Int8,
+      version Int64
+      
+  ) ENGINE = Kafka(msk_cluster, kafka_topic_list = 'clickhouse_error_tracking_fingerprint_issue_state_test', kafka_group_name = 'clickhouse-error-tracking-fingerprint-issue-state', kafka_format = 'JSONEachRow')
   
   '''
 # ---
@@ -578,7 +620,63 @@
       snapshot_library Nullable(String),
       retention_period_days Nullable(Int64),
       is_deleted UInt8,
+      ai_tags_fixed Array(String),
+      ai_tags_freeform Array(String),
+      ai_highlighted UInt8,
   ) ENGINE = Kafka(msk_cluster, kafka_topic_list = 'clickhouse_session_replay_events_test', kafka_group_name = 'group1', kafka_format = 'JSONEachRow')
+  
+  '''
+# ---
+# name: test_create_kafka_table_with_different_kafka_host[kafka_session_replay_features]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS kafka_session_replay_features ON CLUSTER 'posthog'
+  (
+      session_id VARCHAR,
+      team_id Int64,
+      distinct_id VARCHAR,
+      batch_id VARCHAR,
+      first_timestamp DateTime64(6, 'UTC'),
+      last_timestamp DateTime64(6, 'UTC'),
+      event_count Int64,
+      mouse_position_count Int64,
+      mouse_sum_x Float64,
+      mouse_sum_x_squared Float64,
+      mouse_sum_y Float64,
+      mouse_sum_y_squared Float64,
+      mouse_distance_traveled Float64,
+      mouse_direction_change_count Int64,
+      mouse_velocity_sum Float64,
+      mouse_velocity_sum_of_squares Float64,
+      mouse_velocity_count Int64,
+      scroll_event_count Int64,
+      total_scroll_magnitude Float64,
+      scroll_direction_reversal_count Int64,
+      rapid_scroll_reversal_count Int64,
+      click_count Int64,
+      keypress_count Int64,
+      mouse_activity_count Int64,
+      rage_click_count Int64,
+      dead_click_count Int64,
+      inter_action_gap_count Int64,
+      inter_action_gap_sum_ms Float64,
+      inter_action_gap_sum_of_squares_ms Float64,
+      max_idle_gap_ms Float64,
+      quick_back_count Int64,
+      page_visit_count Int64,
+      visited_urls Array(String),
+      console_error_count Int64,
+      console_error_after_click_count Int64,
+      network_request_count Int64,
+      network_failed_request_count Int64,
+      network_request_duration_sum Float64,
+      network_request_duration_sum_of_squares Float64,
+      network_request_duration_count Int64,
+      max_scroll_y Float64,
+      click_target_ids Array(Int64),
+      text_selection_count Int64,
+      is_deleted UInt8
+  ) ENGINE = Kafka(msk_cluster, kafka_topic_list = 'clickhouse_session_replay_features_test', kafka_group_name = 'group1', kafka_format = 'JSONEachRow')
   
   '''
 # ---
@@ -598,6 +696,182 @@
       labels Map(LowCardinality(String), String)
   ) ENGINE = Kafka(msk_cluster, kafka_topic_list = 'clickhouse_tophog_test', kafka_group_name = 'clickhouse_tophog', kafka_format = 'JSONEachRow')
   SETTINGS date_time_input_format = 'best_effort', kafka_skip_broken_messages = 100
+  
+  '''
+# ---
+# name: test_create_table_query[ai_events]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS ai_events
+  (
+      -- Core fields
+      uuid UUID,
+      event LowCardinality(String),
+      timestamp DateTime64(6, 'UTC'),
+      team_id Int64,
+      distinct_id String,
+      person_id UUID,
+      properties String,
+      retention_days Int16 DEFAULT 30,
+      drop_date Date MATERIALIZED toDate(timestamp) + toIntervalDay(retention_days),
+  
+      -- Trace structure
+      trace_id String,
+      session_id Nullable(String),
+      parent_id Nullable(String),
+      span_id Nullable(String),
+      span_type LowCardinality(Nullable(String)),
+      generation_id Nullable(String),
+      experiment_id Nullable(String),
+  
+      -- Names
+      span_name Nullable(String),
+      trace_name Nullable(String),
+      prompt_name Nullable(String),
+  
+      -- Model info
+      model LowCardinality(Nullable(String)),
+      provider LowCardinality(Nullable(String)),
+      framework LowCardinality(Nullable(String)),
+  
+      -- Token counts
+      total_tokens Nullable(Int64),
+      input_tokens Nullable(Int64),
+      output_tokens Nullable(Int64),
+      text_input_tokens Nullable(Int64),
+      text_output_tokens Nullable(Int64),
+      image_input_tokens Nullable(Int64),
+      image_output_tokens Nullable(Int64),
+      audio_input_tokens Nullable(Int64),
+      audio_output_tokens Nullable(Int64),
+      video_input_tokens Nullable(Int64),
+      video_output_tokens Nullable(Int64),
+      reasoning_tokens Nullable(Int64),
+      cache_read_input_tokens Nullable(Int64),
+      cache_creation_input_tokens Nullable(Int64),
+      web_search_count Nullable(Int64),
+  
+      -- Costs
+      input_cost_usd Nullable(Float64),
+      output_cost_usd Nullable(Float64),
+      total_cost_usd Nullable(Float64),
+      request_cost_usd Nullable(Float64),
+      web_search_cost_usd Nullable(Float64),
+      audio_cost_usd Nullable(Float64),
+      image_cost_usd Nullable(Float64),
+      video_cost_usd Nullable(Float64),
+  
+      -- Timing
+      latency Nullable(Float64),
+      time_to_first_token Nullable(Float64),
+  
+      -- Errors
+      is_error UInt8,
+      error Nullable(String),
+      error_type LowCardinality(Nullable(String)),
+      error_normalized Nullable(String),
+  
+      -- Heavy columns (large content)
+      input Nullable(String),
+      output Nullable(String),
+      output_choices Nullable(String),
+      input_state Nullable(String),
+      output_state Nullable(String),
+      tools Nullable(String),
+  
+      -- Kafka metadata
+      _timestamp DateTime,
+      _offset UInt64,
+      _partition UInt64
+  
+      
+  ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_ai_events', cityHash64(concat(toString(team_id), '-', trace_id, '-', toString(toDate(timestamp)))))
+  
+  '''
+# ---
+# name: test_create_table_query[ai_events_json_mv]
+  '''
+  
+  CREATE MATERIALIZED VIEW IF NOT EXISTS ai_events_json_mv
+  TO ai_events
+  AS SELECT
+      uuid,
+      event,
+      timestamp,
+      team_id,
+      distinct_id,
+      person_id,
+      concat('{', arrayStringConcat(arrayMap(x -> concat('"', x.1, '":', x.2), arrayFilter(x -> x.1 NOT IN ('$ai_input', '$ai_output', '$ai_output_choices', '$ai_input_state', '$ai_output_state', '$ai_tools'), JSONExtractKeysAndValuesRaw(src.properties))), ','), '}') AS properties,
+  
+      -- Trace structure
+      JSONExtractString(src.properties, '$ai_trace_id') AS trace_id,
+      JSONExtract(src.properties, '$ai_session_id', 'Nullable(String)') AS session_id,
+      JSONExtract(src.properties, '$ai_parent_id', 'Nullable(String)') AS parent_id,
+      JSONExtract(src.properties, '$ai_span_id', 'Nullable(String)') AS span_id,
+      JSONExtract(src.properties, '$ai_span_type', 'Nullable(String)') AS span_type,
+      JSONExtract(src.properties, '$ai_generation_id', 'Nullable(String)') AS generation_id,
+      JSONExtract(src.properties, '$ai_experiment_id', 'Nullable(String)') AS experiment_id,
+  
+      -- Names
+      JSONExtract(src.properties, '$ai_span_name', 'Nullable(String)') AS span_name,
+      JSONExtract(src.properties, '$ai_trace_name', 'Nullable(String)') AS trace_name,
+      JSONExtract(src.properties, '$ai_prompt_name', 'Nullable(String)') AS prompt_name,
+  
+      -- Model info
+      JSONExtract(src.properties, '$ai_model', 'Nullable(String)') AS model,
+      JSONExtract(src.properties, '$ai_provider', 'Nullable(String)') AS provider,
+      JSONExtract(src.properties, '$ai_framework', 'Nullable(String)') AS framework,
+  
+      -- Token counts
+      JSONExtract(src.properties, '$ai_total_tokens', 'Nullable(Int64)') AS total_tokens,
+      JSONExtract(src.properties, '$ai_input_tokens', 'Nullable(Int64)') AS input_tokens,
+      JSONExtract(src.properties, '$ai_output_tokens', 'Nullable(Int64)') AS output_tokens,
+      JSONExtract(src.properties, '$ai_text_input_tokens', 'Nullable(Int64)') AS text_input_tokens,
+      JSONExtract(src.properties, '$ai_text_output_tokens', 'Nullable(Int64)') AS text_output_tokens,
+      JSONExtract(src.properties, '$ai_image_input_tokens', 'Nullable(Int64)') AS image_input_tokens,
+      JSONExtract(src.properties, '$ai_image_output_tokens', 'Nullable(Int64)') AS image_output_tokens,
+      JSONExtract(src.properties, '$ai_audio_input_tokens', 'Nullable(Int64)') AS audio_input_tokens,
+      JSONExtract(src.properties, '$ai_audio_output_tokens', 'Nullable(Int64)') AS audio_output_tokens,
+      JSONExtract(src.properties, '$ai_video_input_tokens', 'Nullable(Int64)') AS video_input_tokens,
+      JSONExtract(src.properties, '$ai_video_output_tokens', 'Nullable(Int64)') AS video_output_tokens,
+      JSONExtract(src.properties, '$ai_reasoning_tokens', 'Nullable(Int64)') AS reasoning_tokens,
+      JSONExtract(src.properties, '$ai_cache_read_input_tokens', 'Nullable(Int64)') AS cache_read_input_tokens,
+      JSONExtract(src.properties, '$ai_cache_creation_input_tokens', 'Nullable(Int64)') AS cache_creation_input_tokens,
+      JSONExtract(src.properties, '$ai_web_search_count', 'Nullable(Int64)') AS web_search_count,
+  
+      -- Costs
+      JSONExtract(src.properties, '$ai_input_cost_usd', 'Nullable(Float64)') AS input_cost_usd,
+      JSONExtract(src.properties, '$ai_output_cost_usd', 'Nullable(Float64)') AS output_cost_usd,
+      JSONExtract(src.properties, '$ai_total_cost_usd', 'Nullable(Float64)') AS total_cost_usd,
+      JSONExtract(src.properties, '$ai_request_cost_usd', 'Nullable(Float64)') AS request_cost_usd,
+      JSONExtract(src.properties, '$ai_web_search_cost_usd', 'Nullable(Float64)') AS web_search_cost_usd,
+      JSONExtract(src.properties, '$ai_audio_cost_usd', 'Nullable(Float64)') AS audio_cost_usd,
+      JSONExtract(src.properties, '$ai_image_cost_usd', 'Nullable(Float64)') AS image_cost_usd,
+      JSONExtract(src.properties, '$ai_video_cost_usd', 'Nullable(Float64)') AS video_cost_usd,
+  
+      -- Timing
+      JSONExtract(src.properties, '$ai_latency', 'Nullable(Float64)') AS latency,
+      JSONExtract(src.properties, '$ai_time_to_first_token', 'Nullable(Float64)') AS time_to_first_token,
+  
+      -- Errors
+      if(JSONExtractRaw(src.properties, '$ai_is_error') IN ('true', '"true"'), 1, 0) AS is_error,
+      JSONExtract(src.properties, '$ai_error', 'Nullable(String)') AS error,
+      JSONExtract(src.properties, '$ai_error_type', 'Nullable(String)') AS error_type,
+      JSONExtract(src.properties, '$ai_error_normalized', 'Nullable(String)') AS error_normalized,
+  
+      -- Heavy columns
+      nullIf(JSONExtractRaw(src.properties, '$ai_input'), '') AS input,
+      nullIf(JSONExtractRaw(src.properties, '$ai_output'), '') AS output,
+      nullIf(JSONExtractRaw(src.properties, '$ai_output_choices'), '') AS output_choices,
+      nullIf(JSONExtractRaw(src.properties, '$ai_input_state'), '') AS input_state,
+      nullIf(JSONExtractRaw(src.properties, '$ai_output_state'), '') AS output_state,
+      nullIf(JSONExtractRaw(src.properties, '$ai_tools'), '') AS tools,
+  
+      -- Kafka metadata
+      _timestamp,
+      _offset,
+      _partition
+  FROM kafka_ai_events_json AS src
   
   '''
 # ---
@@ -908,6 +1182,55 @@
           ENGINE = Distributed(posthog, system, processes)
           SETTINGS skip_unavailable_shards=1
       
+  '''
+# ---
+# name: test_create_table_query[error_tracking_fingerprint_issue_state]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS error_tracking_fingerprint_issue_state 
+  (
+      team_id Int64,
+      fingerprint VARCHAR,
+      issue_id UUID,
+      issue_name Nullable(VARCHAR),
+      issue_description Nullable(VARCHAR),
+      issue_status VARCHAR,
+      assigned_user_id Nullable(Int64),
+      assigned_role_id Nullable(UUID),
+      first_seen DateTime64(3, 'UTC'),
+      is_deleted Int8,
+      version Int64
+      
+  , _timestamp DateTime
+  , _offset UInt64
+  , _partition UInt64
+  
+  ) ENGINE = Distributed('aux', 'posthog_test', 'raw_error_tracking_fingerprint_issue_state')
+  
+  '''
+# ---
+# name: test_create_table_query[error_tracking_fingerprint_issue_state_mv]
+  '''
+  
+  CREATE MATERIALIZED VIEW IF NOT EXISTS error_tracking_fingerprint_issue_state_mv 
+  TO writable_error_tracking_fingerprint_issue_state
+  AS SELECT
+  team_id,
+  fingerprint,
+  issue_id,
+  issue_name,
+  issue_description,
+  issue_status,
+  assigned_user_id,
+  assigned_role_id,
+  first_seen,
+  is_deleted,
+  version,
+  _timestamp,
+  _offset,
+  _partition
+  FROM posthog_test.kafka_error_tracking_fingerprint_issue_state
+  
   '''
 # ---
 # name: test_create_table_query[error_tracking_issue_fingerprint_overrides]
@@ -1305,6 +1628,36 @@
   
   '''
 # ---
+# name: test_create_table_query[experiment_metric_events_preaggregated]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS experiment_metric_events_preaggregated
+  (
+      team_id Int64,
+      job_id UUID,
+  
+      -- Per-event data
+      entity_id String,
+      timestamp DateTime64(6, 'UTC'),
+      event_uuid UUID,
+      session_id String,
+  
+      -- Mean/ratio metrics store the computed value here (default 0 for funnels)
+      numeric_value Float64 DEFAULT 0,
+  
+      -- Funnel metrics store step indicators here (default empty for non-funnels)
+      -- e.g. [1, 0, 1] means this event matches step_0 and step_2
+      steps Array(UInt8) DEFAULT [],
+  
+      -- When this row was computed (used as ReplacingMergeTree version)
+      computed_at DateTime64(6, 'UTC') DEFAULT now(),
+  
+      -- TTL: rows are automatically deleted after expires_at
+      expires_at Date DEFAULT today() + INTERVAL 7 DAY
+  ) ENGINE = Distributed('aux', 'posthog_test', 'sharded_experiment_metric_events_preaggregated', cityHash64(entity_id))
+  
+  '''
+# ---
 # name: test_create_table_query[groups]
   '''
   
@@ -1436,6 +1789,27 @@
   
   '''
 # ---
+# name: test_create_table_query[kafka_ai_events_json]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS kafka_ai_events_json
+  (
+      uuid UUID,
+      event VARCHAR,
+      properties VARCHAR,
+      timestamp DateTime64(6, 'UTC'),
+      team_id Int64,
+      distinct_id VARCHAR,
+      elements_chain VARCHAR,
+      created_at DateTime64(6, 'UTC'),
+      person_id UUID,
+      person_properties VARCHAR,
+      person_created_at DateTime64,
+      person_mode Enum8('full' = 0, 'propertyless' = 1, 'force_upgrade' = 2)
+  ) ENGINE = Kafka(msk_cluster, kafka_topic_list = 'clickhouse_ai_events_json_test', kafka_group_name = 'group1', kafka_format = 'JSONEachRow')
+  
+  '''
+# ---
 # name: test_create_table_query[kafka_app_metrics2]
   '''
   
@@ -1499,6 +1873,27 @@
       timestamp DateTime64(6, 'UTC')
   ) ENGINE = Kafka(warpstream_ingestion, kafka_topic_list = 'distinct_id_usage_events_json_test', kafka_group_name = 'clickhouse_distinct_id_usage', kafka_format = 'JSONEachRow')
   SETTINGS kafka_skip_broken_messages = 100
+  
+  '''
+# ---
+# name: test_create_table_query[kafka_error_tracking_fingerprint_issue_state]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS kafka_error_tracking_fingerprint_issue_state 
+  (
+      team_id Int64,
+      fingerprint VARCHAR,
+      issue_id UUID,
+      issue_name Nullable(VARCHAR),
+      issue_description Nullable(VARCHAR),
+      issue_status VARCHAR,
+      assigned_user_id Nullable(Int64),
+      assigned_role_id Nullable(UUID),
+      first_seen DateTime64(3, 'UTC'),
+      is_deleted Int8,
+      version Int64
+      
+  ) ENGINE = Kafka(msk_cluster, kafka_topic_list = 'clickhouse_error_tracking_fingerprint_issue_state_test', kafka_group_name = 'clickhouse-error-tracking-fingerprint-issue-state', kafka_format = 'JSONEachRow')
   
   '''
 # ---
@@ -1938,7 +2333,63 @@
       snapshot_library Nullable(String),
       retention_period_days Nullable(Int64),
       is_deleted UInt8,
+      ai_tags_fixed Array(String),
+      ai_tags_freeform Array(String),
+      ai_highlighted UInt8,
   ) ENGINE = Kafka(msk_cluster, kafka_topic_list = 'clickhouse_session_replay_events_test', kafka_group_name = 'group1', kafka_format = 'JSONEachRow')
+  
+  '''
+# ---
+# name: test_create_table_query[kafka_session_replay_features]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS kafka_session_replay_features ON CLUSTER 'posthog'
+  (
+      session_id VARCHAR,
+      team_id Int64,
+      distinct_id VARCHAR,
+      batch_id VARCHAR,
+      first_timestamp DateTime64(6, 'UTC'),
+      last_timestamp DateTime64(6, 'UTC'),
+      event_count Int64,
+      mouse_position_count Int64,
+      mouse_sum_x Float64,
+      mouse_sum_x_squared Float64,
+      mouse_sum_y Float64,
+      mouse_sum_y_squared Float64,
+      mouse_distance_traveled Float64,
+      mouse_direction_change_count Int64,
+      mouse_velocity_sum Float64,
+      mouse_velocity_sum_of_squares Float64,
+      mouse_velocity_count Int64,
+      scroll_event_count Int64,
+      total_scroll_magnitude Float64,
+      scroll_direction_reversal_count Int64,
+      rapid_scroll_reversal_count Int64,
+      click_count Int64,
+      keypress_count Int64,
+      mouse_activity_count Int64,
+      rage_click_count Int64,
+      dead_click_count Int64,
+      inter_action_gap_count Int64,
+      inter_action_gap_sum_ms Float64,
+      inter_action_gap_sum_of_squares_ms Float64,
+      max_idle_gap_ms Float64,
+      quick_back_count Int64,
+      page_visit_count Int64,
+      visited_urls Array(String),
+      console_error_count Int64,
+      console_error_after_click_count Int64,
+      network_request_count Int64,
+      network_failed_request_count Int64,
+      network_request_duration_sum Float64,
+      network_request_duration_sum_of_squares Float64,
+      network_request_duration_count Int64,
+      max_scroll_y Float64,
+      click_target_ids Array(Int64),
+      text_selection_count Int64,
+      is_deleted UInt8
+  ) ENGINE = Kafka(msk_cluster, kafka_topic_list = 'clickhouse_session_replay_features_test', kafka_group_name = 'group1', kafka_format = 'JSONEachRow')
   
   '''
 # ---
@@ -1987,6 +2438,13 @@
       storage_policy = 'default',
       deduplicate_merge_projection_mode = 'drop',
       index_granularity = 8192
+  
+  '''
+# ---
+# name: test_create_table_query[log_attributes_distributed]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS posthog_test.log_attributes_distributed AS posthog_test.log_attributes ENGINE = Distributed('posthog_single_shard', 'posthog_test', 'log_attributes')
   
   '''
 # ---
@@ -2232,6 +2690,38 @@
   '''
   
   CREATE TABLE IF NOT EXISTS posthog_test.logs AS posthog_test.logs32 ENGINE = Distributed('posthog_single_shard', 'posthog_test', 'logs32')
+  
+  '''
+# ---
+# name: test_create_table_query[logs_distributed]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS posthog_test.logs_distributed AS posthog_test.logs32 ENGINE = Distributed('posthog_single_shard', 'posthog_test', 'logs32')
+  
+  '''
+# ---
+# name: test_create_table_query[logs_kafka_metrics]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS posthog_test.logs_kafka_metrics
+  (
+      `_partition` UInt32,
+      `_topic` String,
+      `max_offset` SimpleAggregateFunction(max, UInt64),
+      `max_observed_timestamp` SimpleAggregateFunction(max, DateTime64(9)),
+      `max_timestamp` SimpleAggregateFunction(max, DateTime64(9)),
+      `max_created_at` SimpleAggregateFunction(max, DateTime64(9)),
+      `max_lag` SimpleAggregateFunction(max, UInt64)
+  )
+  ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.logs_kafka_metrics', '{replica}-{shard}')
+  ORDER BY (_topic, _partition)
+  
+  '''
+# ---
+# name: test_create_table_query[logs_kafka_metrics_distributed]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS posthog_test.logs_kafka_metrics_distributed AS posthog_test.logs_kafka_metrics ENGINE = Distributed('posthog_single_shard', 'posthog_test', 'logs_kafka_metrics')
   
   '''
 # ---
@@ -3097,6 +3587,37 @@
       
   '''
 # ---
+# name: test_create_table_query[raw_error_tracking_fingerprint_issue_state]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS raw_error_tracking_fingerprint_issue_state 
+  (
+      team_id Int64,
+      fingerprint VARCHAR,
+      issue_id UUID,
+      issue_name Nullable(VARCHAR),
+      issue_description Nullable(VARCHAR),
+      issue_status VARCHAR,
+      assigned_user_id Nullable(Int64),
+      assigned_role_id Nullable(UUID),
+      first_seen DateTime64(3, 'UTC'),
+      is_deleted Int8,
+      version Int64
+      
+      
+  , _timestamp DateTime
+  , _offset UInt64
+  , _partition UInt64
+  
+      , INDEX kafka_timestamp_minmax_raw_error_tracking_fingerprint_issue_state _timestamp TYPE minmax GRANULARITY 3
+      
+  ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.raw_error_tracking_fingerprint_issue_state', '{replica}-{shard}', version)
+  
+      ORDER BY (team_id, fingerprint)
+      SETTINGS index_granularity = 512
+      
+  '''
+# ---
 # name: test_create_table_query[raw_sessions]
   '''
   
@@ -3747,6 +4268,12 @@
       retention_period_days SimpleAggregateFunction(max, Nullable(Int64)),
       -- marks the recording as deleted for crypto shredding; once 1, merges keep it as 1
       is_deleted SimpleAggregateFunction(max, UInt8) DEFAULT 0,
+      -- AI-generated session tags from the summarization pipeline (fixed taxonomy)
+      ai_tags_fixed SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
+      -- AI-generated session tags from the summarization pipeline (free-form)
+      ai_tags_freeform SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
+      -- AI-generated flag indicating the session is highlighted / worth watching
+      ai_highlighted SimpleAggregateFunction(max, UInt8) DEFAULT 0,
   ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_session_replay_events', sipHash64(distinct_id))
   
   '''
@@ -3774,6 +4301,9 @@
   `_timestamp` Nullable(DateTime)
   ,`retention_period_days` SimpleAggregateFunction(max, Nullable(Int64))
   ,`is_deleted` SimpleAggregateFunction(max, UInt8)
+  ,`ai_tags_fixed` SimpleAggregateFunction(groupUniqArrayArray, Array(String))
+  ,`ai_tags_freeform` SimpleAggregateFunction(groupUniqArrayArray, Array(String))
+  ,`ai_highlighted` SimpleAggregateFunction(max, UInt8)
   )
   AS SELECT
   session_id,
@@ -3811,8 +4341,117 @@
   max(_timestamp) as _timestamp
   ,max(retention_period_days) as retention_period_days
   ,max(is_deleted) as is_deleted
+  ,groupUniqArrayArray(ai_tags_fixed) as ai_tags_fixed
+  ,groupUniqArrayArray(ai_tags_freeform) as ai_tags_freeform
+  ,max(ai_highlighted) as ai_highlighted
   FROM posthog_test.kafka_session_replay_events
   group by session_id, team_id
+  
+  '''
+# ---
+# name: test_create_table_query[session_replay_features]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS session_replay_features 
+  (
+      session_id VARCHAR,
+      team_id Int64,
+      distinct_id VARCHAR,
+      min_first_timestamp SimpleAggregateFunction(min, DateTime64(6, 'UTC')),
+      max_last_timestamp SimpleAggregateFunction(max, DateTime64(6, 'UTC')),
+      event_count SimpleAggregateFunction(sum, Int64),
+      mouse_position_count SimpleAggregateFunction(sum, Int64),
+      mouse_sum_x SimpleAggregateFunction(sum, Float64),
+      mouse_sum_x_squared SimpleAggregateFunction(sum, Float64),
+      mouse_sum_y SimpleAggregateFunction(sum, Float64),
+      mouse_sum_y_squared SimpleAggregateFunction(sum, Float64),
+      mouse_distance_traveled SimpleAggregateFunction(sum, Float64),
+      mouse_direction_change_count SimpleAggregateFunction(sum, Int64),
+      mouse_velocity_sum SimpleAggregateFunction(sum, Float64),
+      mouse_velocity_sum_of_squares SimpleAggregateFunction(sum, Float64),
+      mouse_velocity_count SimpleAggregateFunction(sum, Int64),
+      scroll_event_count SimpleAggregateFunction(sum, Int64),
+      total_scroll_magnitude SimpleAggregateFunction(sum, Float64),
+      scroll_direction_reversal_count SimpleAggregateFunction(sum, Int64),
+      rapid_scroll_reversal_count SimpleAggregateFunction(sum, Int64),
+      click_count SimpleAggregateFunction(sum, Int64),
+      keypress_count SimpleAggregateFunction(sum, Int64),
+      mouse_activity_count SimpleAggregateFunction(sum, Int64),
+      rage_click_count SimpleAggregateFunction(sum, Int64),
+      dead_click_count SimpleAggregateFunction(sum, Int64),
+      inter_action_gap_count SimpleAggregateFunction(sum, Int64),
+      inter_action_gap_sum_ms SimpleAggregateFunction(sum, Float64),
+      inter_action_gap_sum_of_squares_ms SimpleAggregateFunction(sum, Float64),
+      max_idle_gap_ms SimpleAggregateFunction(max, Float64),
+      quick_back_count SimpleAggregateFunction(sum, Int64),
+      page_visit_count SimpleAggregateFunction(sum, Int64),
+      unique_url_count AggregateFunction(uniqExact, String),
+      console_error_count SimpleAggregateFunction(sum, Int64),
+      console_error_after_click_count SimpleAggregateFunction(sum, Int64),
+      network_request_count SimpleAggregateFunction(sum, Int64),
+      network_failed_request_count SimpleAggregateFunction(sum, Int64),
+      network_request_duration_sum SimpleAggregateFunction(sum, Float64),
+      network_request_duration_sum_of_squares SimpleAggregateFunction(sum, Float64),
+      network_request_duration_count SimpleAggregateFunction(sum, Int64),
+      max_scroll_y SimpleAggregateFunction(max, Float64),
+      unique_click_target_count AggregateFunction(uniqExact, Int64),
+      text_selection_count SimpleAggregateFunction(sum, Int64),
+      is_deleted SimpleAggregateFunction(max, UInt8) DEFAULT 0
+  ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_session_replay_features', sipHash64(session_id))
+  
+  '''
+# ---
+# name: test_create_table_query[session_replay_features_mv]
+  '''
+  
+  CREATE MATERIALIZED VIEW IF NOT EXISTS session_replay_features_mv ON CLUSTER 'posthog'
+  TO posthog_test.writable_session_replay_features
+  AS SELECT
+  session_id,
+  team_id,
+  any(distinct_id) as distinct_id,
+  min(first_timestamp) AS min_first_timestamp,
+  max(last_timestamp) AS max_last_timestamp,
+  sum(event_count) as event_count,
+  sum(mouse_position_count) as mouse_position_count,
+  sum(mouse_sum_x) as mouse_sum_x,
+  sum(mouse_sum_x_squared) as mouse_sum_x_squared,
+  sum(mouse_sum_y) as mouse_sum_y,
+  sum(mouse_sum_y_squared) as mouse_sum_y_squared,
+  sum(mouse_distance_traveled) as mouse_distance_traveled,
+  sum(mouse_direction_change_count) as mouse_direction_change_count,
+  sum(mouse_velocity_sum) as mouse_velocity_sum,
+  sum(mouse_velocity_sum_of_squares) as mouse_velocity_sum_of_squares,
+  sum(mouse_velocity_count) as mouse_velocity_count,
+  sum(scroll_event_count) as scroll_event_count,
+  sum(total_scroll_magnitude) as total_scroll_magnitude,
+  sum(scroll_direction_reversal_count) as scroll_direction_reversal_count,
+  sum(rapid_scroll_reversal_count) as rapid_scroll_reversal_count,
+  sum(click_count) as click_count,
+  sum(keypress_count) as keypress_count,
+  sum(mouse_activity_count) as mouse_activity_count,
+  sum(rage_click_count) as rage_click_count,
+  sum(dead_click_count) as dead_click_count,
+  sum(inter_action_gap_count) as inter_action_gap_count,
+  sum(inter_action_gap_sum_ms) as inter_action_gap_sum_ms,
+  sum(inter_action_gap_sum_of_squares_ms) as inter_action_gap_sum_of_squares_ms,
+  max(max_idle_gap_ms) as max_idle_gap_ms,
+  sum(quick_back_count) as quick_back_count,
+  sum(page_visit_count) as page_visit_count,
+  uniqExactArrayState(visited_urls) as unique_url_count,
+  sum(console_error_count) as console_error_count,
+  sum(console_error_after_click_count) as console_error_after_click_count,
+  sum(network_request_count) as network_request_count,
+  sum(network_failed_request_count) as network_failed_request_count,
+  sum(network_request_duration_sum) as network_request_duration_sum,
+  sum(network_request_duration_sum_of_squares) as network_request_duration_sum_of_squares,
+  sum(network_request_duration_count) as network_request_duration_count,
+  max(max_scroll_y) as max_scroll_y,
+  uniqExactArrayState(click_target_ids) as unique_click_target_count,
+  sum(text_selection_count) as text_selection_count,
+  max(is_deleted) as is_deleted
+  FROM posthog_test.kafka_session_replay_features
+  GROUP BY session_id, team_id
   
   '''
 # ---
@@ -3925,6 +4564,112 @@
   WHERE `$session_id` IS NOT NULL AND `$session_id` != '' AND team_id IN (1, 2, 13610, 19279, 21173, 29929, 32050, 9910, 11775, 21129, 31490)
   GROUP BY `$session_id`, team_id
   
+  
+  '''
+# ---
+# name: test_create_table_query[sharded_ai_events]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS sharded_ai_events
+  (
+      -- Core fields
+      uuid UUID,
+      event LowCardinality(String),
+      timestamp DateTime64(6, 'UTC'),
+      team_id Int64,
+      distinct_id String,
+      person_id UUID,
+      properties String,
+      retention_days Int16 DEFAULT 30,
+      drop_date Date MATERIALIZED toDate(timestamp) + toIntervalDay(retention_days),
+  
+      -- Trace structure
+      trace_id String,
+      session_id Nullable(String),
+      parent_id Nullable(String),
+      span_id Nullable(String),
+      span_type LowCardinality(Nullable(String)),
+      generation_id Nullable(String),
+      experiment_id Nullable(String),
+  
+      -- Names
+      span_name Nullable(String),
+      trace_name Nullable(String),
+      prompt_name Nullable(String),
+  
+      -- Model info
+      model LowCardinality(Nullable(String)),
+      provider LowCardinality(Nullable(String)),
+      framework LowCardinality(Nullable(String)),
+  
+      -- Token counts
+      total_tokens Nullable(Int64),
+      input_tokens Nullable(Int64),
+      output_tokens Nullable(Int64),
+      text_input_tokens Nullable(Int64),
+      text_output_tokens Nullable(Int64),
+      image_input_tokens Nullable(Int64),
+      image_output_tokens Nullable(Int64),
+      audio_input_tokens Nullable(Int64),
+      audio_output_tokens Nullable(Int64),
+      video_input_tokens Nullable(Int64),
+      video_output_tokens Nullable(Int64),
+      reasoning_tokens Nullable(Int64),
+      cache_read_input_tokens Nullable(Int64),
+      cache_creation_input_tokens Nullable(Int64),
+      web_search_count Nullable(Int64),
+  
+      -- Costs
+      input_cost_usd Nullable(Float64),
+      output_cost_usd Nullable(Float64),
+      total_cost_usd Nullable(Float64),
+      request_cost_usd Nullable(Float64),
+      web_search_cost_usd Nullable(Float64),
+      audio_cost_usd Nullable(Float64),
+      image_cost_usd Nullable(Float64),
+      video_cost_usd Nullable(Float64),
+  
+      -- Timing
+      latency Nullable(Float64),
+      time_to_first_token Nullable(Float64),
+  
+      -- Errors
+      is_error UInt8,
+      error Nullable(String),
+      error_type LowCardinality(Nullable(String)),
+      error_normalized Nullable(String),
+  
+      -- Heavy columns (large content)
+      input Nullable(String),
+      output Nullable(String),
+      output_choices Nullable(String),
+      input_state Nullable(String),
+      output_state Nullable(String),
+      tools Nullable(String),
+  
+      -- Kafka metadata
+      _timestamp DateTime,
+      _offset UInt64,
+      _partition UInt64
+  
+      
+      , INDEX idx_trace_id trace_id TYPE bloom_filter(0.001) GRANULARITY 1
+      , INDEX idx_session_id session_id TYPE bloom_filter(0.01) GRANULARITY 1
+      , INDEX idx_parent_id parent_id TYPE bloom_filter(0.01) GRANULARITY 1
+      , INDEX idx_span_id span_id TYPE bloom_filter(0.01) GRANULARITY 1
+      , INDEX idx_prompt_name prompt_name TYPE bloom_filter(0.01) GRANULARITY 1
+      , INDEX idx_model model TYPE bloom_filter(0.01) GRANULARITY 1
+      , INDEX idx_experiment_id experiment_id TYPE bloom_filter(0.01) GRANULARITY 1
+      , INDEX idx_event event TYPE set(20) GRANULARITY 1
+      , INDEX idx_is_error is_error TYPE set(2) GRANULARITY 1
+      , INDEX idx_provider provider TYPE set(50) GRANULARITY 1
+  
+  ) ENGINE = ReplicatedMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.ai_events', '{replica}')
+  
+  PARTITION BY toYYYYMM(drop_date)
+  ORDER BY (team_id, trace_id, timestamp)
+  TTL drop_date
+  SETTINGS ttl_only_drop_parts = 1
   
   '''
 # ---
@@ -4096,6 +4841,7 @@
       , INDEX `minmax_$group_4` `$group_4` TYPE minmax GRANULARITY 1
       , INDEX `minmax_$window_id` `$window_id` TYPE minmax GRANULARITY 1
       , INDEX `minmax_$session_id` `$session_id` TYPE minmax GRANULARITY 1
+      , INDEX `minmax_$session_id_uuid` `$session_id_uuid` TYPE minmax GRANULARITY 1
       ,             properties_group_custom Map(String, String)
               MATERIALIZED mapSort(
                   mapFilter((key, _) -> key NOT LIKE '$%' AND key NOT IN ('token', 'distinct_id', 'utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'utm_term', 'gclid', 'gad_source', 'gclsrc', 'dclid', 'gbraid', 'wbraid', 'fbclid', 'msclkid', 'twclid', 'li_fat_id', 'mc_cid', 'igshid', 'ttclid', 'rdt_cid', 'epik', 'qclid', 'sccid', 'irclid', '_kx'),
@@ -4215,6 +4961,41 @@
   
   PARTITION BY toYYYYMMDD(expires_at)
   ORDER BY (team_id, job_id, entity_id, breakdown_value)
+  TTL expires_at
+  SETTINGS index_granularity=8192, ttl_only_drop_parts = 1
+  
+  '''
+# ---
+# name: test_create_table_query[sharded_experiment_metric_events_preaggregated]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS sharded_experiment_metric_events_preaggregated
+  (
+      team_id Int64,
+      job_id UUID,
+  
+      -- Per-event data
+      entity_id String,
+      timestamp DateTime64(6, 'UTC'),
+      event_uuid UUID,
+      session_id String,
+  
+      -- Mean/ratio metrics store the computed value here (default 0 for funnels)
+      numeric_value Float64 DEFAULT 0,
+  
+      -- Funnel metrics store step indicators here (default empty for non-funnels)
+      -- e.g. [1, 0, 1] means this event matches step_0 and step_2
+      steps Array(UInt8) DEFAULT [],
+  
+      -- When this row was computed (used as ReplacingMergeTree version)
+      computed_at DateTime64(6, 'UTC') DEFAULT now(),
+  
+      -- TTL: rows are automatically deleted after expires_at
+      expires_at Date DEFAULT today() + INTERVAL 7 DAY
+  ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.experiment_metric_events_preaggregated', '{replica}-{shard}', computed_at)
+  
+  PARTITION BY toYYYYMMDD(expires_at)
+  ORDER BY (team_id, job_id, entity_id, timestamp, event_uuid)
   TTL expires_at
   SETTINGS index_granularity=8192, ttl_only_drop_parts = 1
   
@@ -4752,6 +5533,12 @@
       retention_period_days SimpleAggregateFunction(max, Nullable(Int64)),
       -- marks the recording as deleted for crypto shredding; once 1, merges keep it as 1
       is_deleted SimpleAggregateFunction(max, UInt8) DEFAULT 0,
+      -- AI-generated session tags from the summarization pipeline (fixed taxonomy)
+      ai_tags_fixed SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
+      -- AI-generated session tags from the summarization pipeline (free-form)
+      ai_tags_freeform SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
+      -- AI-generated flag indicating the session is highlighted / worth watching
+      ai_highlighted SimpleAggregateFunction(max, UInt8) DEFAULT 0,
   ) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.session_replay_events', '{replica}')
   
       PARTITION BY toYYYYMM(min_first_timestamp)
@@ -4766,6 +5553,62 @@
       -- so we order by date first, then team_id, then session_id
       -- hopefully, this is a good balance between the two
       ORDER BY (toDate(min_first_timestamp), team_id, session_id)
+  SETTINGS index_granularity=512
+  
+  '''
+# ---
+# name: test_create_table_query[sharded_session_replay_features]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS sharded_session_replay_features ON CLUSTER 'posthog'
+  (
+      session_id VARCHAR,
+      team_id Int64,
+      distinct_id VARCHAR,
+      min_first_timestamp SimpleAggregateFunction(min, DateTime64(6, 'UTC')),
+      max_last_timestamp SimpleAggregateFunction(max, DateTime64(6, 'UTC')),
+      event_count SimpleAggregateFunction(sum, Int64),
+      mouse_position_count SimpleAggregateFunction(sum, Int64),
+      mouse_sum_x SimpleAggregateFunction(sum, Float64),
+      mouse_sum_x_squared SimpleAggregateFunction(sum, Float64),
+      mouse_sum_y SimpleAggregateFunction(sum, Float64),
+      mouse_sum_y_squared SimpleAggregateFunction(sum, Float64),
+      mouse_distance_traveled SimpleAggregateFunction(sum, Float64),
+      mouse_direction_change_count SimpleAggregateFunction(sum, Int64),
+      mouse_velocity_sum SimpleAggregateFunction(sum, Float64),
+      mouse_velocity_sum_of_squares SimpleAggregateFunction(sum, Float64),
+      mouse_velocity_count SimpleAggregateFunction(sum, Int64),
+      scroll_event_count SimpleAggregateFunction(sum, Int64),
+      total_scroll_magnitude SimpleAggregateFunction(sum, Float64),
+      scroll_direction_reversal_count SimpleAggregateFunction(sum, Int64),
+      rapid_scroll_reversal_count SimpleAggregateFunction(sum, Int64),
+      click_count SimpleAggregateFunction(sum, Int64),
+      keypress_count SimpleAggregateFunction(sum, Int64),
+      mouse_activity_count SimpleAggregateFunction(sum, Int64),
+      rage_click_count SimpleAggregateFunction(sum, Int64),
+      dead_click_count SimpleAggregateFunction(sum, Int64),
+      inter_action_gap_count SimpleAggregateFunction(sum, Int64),
+      inter_action_gap_sum_ms SimpleAggregateFunction(sum, Float64),
+      inter_action_gap_sum_of_squares_ms SimpleAggregateFunction(sum, Float64),
+      max_idle_gap_ms SimpleAggregateFunction(max, Float64),
+      quick_back_count SimpleAggregateFunction(sum, Int64),
+      page_visit_count SimpleAggregateFunction(sum, Int64),
+      unique_url_count AggregateFunction(uniqExact, String),
+      console_error_count SimpleAggregateFunction(sum, Int64),
+      console_error_after_click_count SimpleAggregateFunction(sum, Int64),
+      network_request_count SimpleAggregateFunction(sum, Int64),
+      network_failed_request_count SimpleAggregateFunction(sum, Int64),
+      network_request_duration_sum SimpleAggregateFunction(sum, Float64),
+      network_request_duration_sum_of_squares SimpleAggregateFunction(sum, Float64),
+      network_request_duration_count SimpleAggregateFunction(sum, Int64),
+      max_scroll_y SimpleAggregateFunction(max, Float64),
+      unique_click_target_count AggregateFunction(uniqExact, Int64),
+      text_selection_count SimpleAggregateFunction(sum, Int64),
+      is_deleted SimpleAggregateFunction(max, UInt8) DEFAULT 0
+  ) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.session_replay_features', '{replica}')
+  
+      PARTITION BY toYYYYMM(min_first_timestamp)
+      ORDER BY (team_id, session_id)
   SETTINGS index_granularity=512
   
   '''
@@ -5120,6 +5963,31 @@
       minute DateTime,
       event_count UInt64
   ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_distinct_id_usage', sipHash64(distinct_id))
+  
+  '''
+# ---
+# name: test_create_table_query[writable_error_tracking_fingerprint_issue_state]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS writable_error_tracking_fingerprint_issue_state 
+  (
+      team_id Int64,
+      fingerprint VARCHAR,
+      issue_id UUID,
+      issue_name Nullable(VARCHAR),
+      issue_description Nullable(VARCHAR),
+      issue_status VARCHAR,
+      assigned_user_id Nullable(Int64),
+      assigned_role_id Nullable(UUID),
+      first_seen DateTime64(3, 'UTC'),
+      is_deleted Int8,
+      version Int64
+      
+  , _timestamp DateTime
+  , _offset UInt64
+  , _partition UInt64
+  
+  ) ENGINE = Distributed('aux', 'posthog_test', 'raw_error_tracking_fingerprint_issue_state')
   
   '''
 # ---
@@ -5801,7 +6669,65 @@
       retention_period_days SimpleAggregateFunction(max, Nullable(Int64)),
       -- marks the recording as deleted for crypto shredding; once 1, merges keep it as 1
       is_deleted SimpleAggregateFunction(max, UInt8) DEFAULT 0,
+      -- AI-generated session tags from the summarization pipeline (fixed taxonomy)
+      ai_tags_fixed SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
+      -- AI-generated session tags from the summarization pipeline (free-form)
+      ai_tags_freeform SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
+      -- AI-generated flag indicating the session is highlighted / worth watching
+      ai_highlighted SimpleAggregateFunction(max, UInt8) DEFAULT 0,
   ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_session_replay_events', sipHash64(distinct_id))
+  
+  '''
+# ---
+# name: test_create_table_query[writable_session_replay_features]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS writable_session_replay_features 
+  (
+      session_id VARCHAR,
+      team_id Int64,
+      distinct_id VARCHAR,
+      min_first_timestamp SimpleAggregateFunction(min, DateTime64(6, 'UTC')),
+      max_last_timestamp SimpleAggregateFunction(max, DateTime64(6, 'UTC')),
+      event_count SimpleAggregateFunction(sum, Int64),
+      mouse_position_count SimpleAggregateFunction(sum, Int64),
+      mouse_sum_x SimpleAggregateFunction(sum, Float64),
+      mouse_sum_x_squared SimpleAggregateFunction(sum, Float64),
+      mouse_sum_y SimpleAggregateFunction(sum, Float64),
+      mouse_sum_y_squared SimpleAggregateFunction(sum, Float64),
+      mouse_distance_traveled SimpleAggregateFunction(sum, Float64),
+      mouse_direction_change_count SimpleAggregateFunction(sum, Int64),
+      mouse_velocity_sum SimpleAggregateFunction(sum, Float64),
+      mouse_velocity_sum_of_squares SimpleAggregateFunction(sum, Float64),
+      mouse_velocity_count SimpleAggregateFunction(sum, Int64),
+      scroll_event_count SimpleAggregateFunction(sum, Int64),
+      total_scroll_magnitude SimpleAggregateFunction(sum, Float64),
+      scroll_direction_reversal_count SimpleAggregateFunction(sum, Int64),
+      rapid_scroll_reversal_count SimpleAggregateFunction(sum, Int64),
+      click_count SimpleAggregateFunction(sum, Int64),
+      keypress_count SimpleAggregateFunction(sum, Int64),
+      mouse_activity_count SimpleAggregateFunction(sum, Int64),
+      rage_click_count SimpleAggregateFunction(sum, Int64),
+      dead_click_count SimpleAggregateFunction(sum, Int64),
+      inter_action_gap_count SimpleAggregateFunction(sum, Int64),
+      inter_action_gap_sum_ms SimpleAggregateFunction(sum, Float64),
+      inter_action_gap_sum_of_squares_ms SimpleAggregateFunction(sum, Float64),
+      max_idle_gap_ms SimpleAggregateFunction(max, Float64),
+      quick_back_count SimpleAggregateFunction(sum, Int64),
+      page_visit_count SimpleAggregateFunction(sum, Int64),
+      unique_url_count AggregateFunction(uniqExact, String),
+      console_error_count SimpleAggregateFunction(sum, Int64),
+      console_error_after_click_count SimpleAggregateFunction(sum, Int64),
+      network_request_count SimpleAggregateFunction(sum, Int64),
+      network_failed_request_count SimpleAggregateFunction(sum, Int64),
+      network_request_duration_sum SimpleAggregateFunction(sum, Float64),
+      network_request_duration_sum_of_squares SimpleAggregateFunction(sum, Float64),
+      network_request_duration_count SimpleAggregateFunction(sum, Int64),
+      max_scroll_y SimpleAggregateFunction(max, Float64),
+      unique_click_target_count AggregateFunction(uniqExact, Int64),
+      text_selection_count SimpleAggregateFunction(sum, Int64),
+      is_deleted SimpleAggregateFunction(max, UInt8) DEFAULT 0
+  ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_session_replay_features', sipHash64(session_id))
   
   '''
 # ---
@@ -6225,6 +7151,24 @@
   
   '''
 # ---
+# name: test_create_table_query_replicated_and_storage[logs_kafka_metrics]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS posthog_test.logs_kafka_metrics
+  (
+      `_partition` UInt32,
+      `_topic` String,
+      `max_offset` SimpleAggregateFunction(max, UInt64),
+      `max_observed_timestamp` SimpleAggregateFunction(max, DateTime64(9)),
+      `max_timestamp` SimpleAggregateFunction(max, DateTime64(9)),
+      `max_created_at` SimpleAggregateFunction(max, DateTime64(9)),
+      `max_lag` SimpleAggregateFunction(max, UInt64)
+  )
+  ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.logs_kafka_metrics', '{replica}-{shard}')
+  ORDER BY (_topic, _partition)
+  
+  '''
+# ---
 # name: test_create_table_query_replicated_and_storage[partitioned_sharded_posthog_document_embeddings]
   '''
   
@@ -6638,6 +7582,143 @@
       
   '''
 # ---
+# name: test_create_table_query_replicated_and_storage[raw_error_tracking_fingerprint_issue_state]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS raw_error_tracking_fingerprint_issue_state 
+  (
+      team_id Int64,
+      fingerprint VARCHAR,
+      issue_id UUID,
+      issue_name Nullable(VARCHAR),
+      issue_description Nullable(VARCHAR),
+      issue_status VARCHAR,
+      assigned_user_id Nullable(Int64),
+      assigned_role_id Nullable(UUID),
+      first_seen DateTime64(3, 'UTC'),
+      is_deleted Int8,
+      version Int64
+      
+      
+  , _timestamp DateTime
+  , _offset UInt64
+  , _partition UInt64
+  
+      , INDEX kafka_timestamp_minmax_raw_error_tracking_fingerprint_issue_state _timestamp TYPE minmax GRANULARITY 3
+      
+  ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.raw_error_tracking_fingerprint_issue_state', '{replica}-{shard}', version)
+  
+      ORDER BY (team_id, fingerprint)
+      SETTINGS index_granularity = 512
+      
+  '''
+# ---
+# name: test_create_table_query_replicated_and_storage[sharded_ai_events]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS sharded_ai_events
+  (
+      -- Core fields
+      uuid UUID,
+      event LowCardinality(String),
+      timestamp DateTime64(6, 'UTC'),
+      team_id Int64,
+      distinct_id String,
+      person_id UUID,
+      properties String,
+      retention_days Int16 DEFAULT 30,
+      drop_date Date MATERIALIZED toDate(timestamp) + toIntervalDay(retention_days),
+  
+      -- Trace structure
+      trace_id String,
+      session_id Nullable(String),
+      parent_id Nullable(String),
+      span_id Nullable(String),
+      span_type LowCardinality(Nullable(String)),
+      generation_id Nullable(String),
+      experiment_id Nullable(String),
+  
+      -- Names
+      span_name Nullable(String),
+      trace_name Nullable(String),
+      prompt_name Nullable(String),
+  
+      -- Model info
+      model LowCardinality(Nullable(String)),
+      provider LowCardinality(Nullable(String)),
+      framework LowCardinality(Nullable(String)),
+  
+      -- Token counts
+      total_tokens Nullable(Int64),
+      input_tokens Nullable(Int64),
+      output_tokens Nullable(Int64),
+      text_input_tokens Nullable(Int64),
+      text_output_tokens Nullable(Int64),
+      image_input_tokens Nullable(Int64),
+      image_output_tokens Nullable(Int64),
+      audio_input_tokens Nullable(Int64),
+      audio_output_tokens Nullable(Int64),
+      video_input_tokens Nullable(Int64),
+      video_output_tokens Nullable(Int64),
+      reasoning_tokens Nullable(Int64),
+      cache_read_input_tokens Nullable(Int64),
+      cache_creation_input_tokens Nullable(Int64),
+      web_search_count Nullable(Int64),
+  
+      -- Costs
+      input_cost_usd Nullable(Float64),
+      output_cost_usd Nullable(Float64),
+      total_cost_usd Nullable(Float64),
+      request_cost_usd Nullable(Float64),
+      web_search_cost_usd Nullable(Float64),
+      audio_cost_usd Nullable(Float64),
+      image_cost_usd Nullable(Float64),
+      video_cost_usd Nullable(Float64),
+  
+      -- Timing
+      latency Nullable(Float64),
+      time_to_first_token Nullable(Float64),
+  
+      -- Errors
+      is_error UInt8,
+      error Nullable(String),
+      error_type LowCardinality(Nullable(String)),
+      error_normalized Nullable(String),
+  
+      -- Heavy columns (large content)
+      input Nullable(String),
+      output Nullable(String),
+      output_choices Nullable(String),
+      input_state Nullable(String),
+      output_state Nullable(String),
+      tools Nullable(String),
+  
+      -- Kafka metadata
+      _timestamp DateTime,
+      _offset UInt64,
+      _partition UInt64
+  
+      
+      , INDEX idx_trace_id trace_id TYPE bloom_filter(0.001) GRANULARITY 1
+      , INDEX idx_session_id session_id TYPE bloom_filter(0.01) GRANULARITY 1
+      , INDEX idx_parent_id parent_id TYPE bloom_filter(0.01) GRANULARITY 1
+      , INDEX idx_span_id span_id TYPE bloom_filter(0.01) GRANULARITY 1
+      , INDEX idx_prompt_name prompt_name TYPE bloom_filter(0.01) GRANULARITY 1
+      , INDEX idx_model model TYPE bloom_filter(0.01) GRANULARITY 1
+      , INDEX idx_experiment_id experiment_id TYPE bloom_filter(0.01) GRANULARITY 1
+      , INDEX idx_event event TYPE set(20) GRANULARITY 1
+      , INDEX idx_is_error is_error TYPE set(2) GRANULARITY 1
+      , INDEX idx_provider provider TYPE set(50) GRANULARITY 1
+  
+  ) ENGINE = ReplicatedMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.ai_events', '{replica}')
+  
+  PARTITION BY toYYYYMM(drop_date)
+  ORDER BY (team_id, trace_id, timestamp)
+  TTL drop_date
+  SETTINGS ttl_only_drop_parts = 1
+  
+  '''
+# ---
 # name: test_create_table_query_replicated_and_storage[sharded_app_metrics2]
   '''
   
@@ -6806,6 +7887,7 @@
       , INDEX `minmax_$group_4` `$group_4` TYPE minmax GRANULARITY 1
       , INDEX `minmax_$window_id` `$window_id` TYPE minmax GRANULARITY 1
       , INDEX `minmax_$session_id` `$session_id` TYPE minmax GRANULARITY 1
+      , INDEX `minmax_$session_id_uuid` `$session_id_uuid` TYPE minmax GRANULARITY 1
       ,             properties_group_custom Map(String, String)
               MATERIALIZED mapSort(
                   mapFilter((key, _) -> key NOT LIKE '$%' AND key NOT IN ('token', 'distinct_id', 'utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'utm_term', 'gclid', 'gad_source', 'gclsrc', 'dclid', 'gbraid', 'wbraid', 'fbclid', 'msclkid', 'twclid', 'li_fat_id', 'mc_cid', 'igshid', 'ttclid', 'rdt_cid', 'epik', 'qclid', 'sccid', 'irclid', '_kx'),
@@ -6925,6 +8007,41 @@
   
   PARTITION BY toYYYYMMDD(expires_at)
   ORDER BY (team_id, job_id, entity_id, breakdown_value)
+  TTL expires_at
+  SETTINGS index_granularity=8192, ttl_only_drop_parts = 1
+  
+  '''
+# ---
+# name: test_create_table_query_replicated_and_storage[sharded_experiment_metric_events_preaggregated]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS sharded_experiment_metric_events_preaggregated
+  (
+      team_id Int64,
+      job_id UUID,
+  
+      -- Per-event data
+      entity_id String,
+      timestamp DateTime64(6, 'UTC'),
+      event_uuid UUID,
+      session_id String,
+  
+      -- Mean/ratio metrics store the computed value here (default 0 for funnels)
+      numeric_value Float64 DEFAULT 0,
+  
+      -- Funnel metrics store step indicators here (default empty for non-funnels)
+      -- e.g. [1, 0, 1] means this event matches step_0 and step_2
+      steps Array(UInt8) DEFAULT [],
+  
+      -- When this row was computed (used as ReplacingMergeTree version)
+      computed_at DateTime64(6, 'UTC') DEFAULT now(),
+  
+      -- TTL: rows are automatically deleted after expires_at
+      expires_at Date DEFAULT today() + INTERVAL 7 DAY
+  ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.experiment_metric_events_preaggregated', '{replica}-{shard}', computed_at)
+  
+  PARTITION BY toYYYYMMDD(expires_at)
+  ORDER BY (team_id, job_id, entity_id, timestamp, event_uuid)
   TTL expires_at
   SETTINGS index_granularity=8192, ttl_only_drop_parts = 1
   
@@ -7462,6 +8579,12 @@
       retention_period_days SimpleAggregateFunction(max, Nullable(Int64)),
       -- marks the recording as deleted for crypto shredding; once 1, merges keep it as 1
       is_deleted SimpleAggregateFunction(max, UInt8) DEFAULT 0,
+      -- AI-generated session tags from the summarization pipeline (fixed taxonomy)
+      ai_tags_fixed SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
+      -- AI-generated session tags from the summarization pipeline (free-form)
+      ai_tags_freeform SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
+      -- AI-generated flag indicating the session is highlighted / worth watching
+      ai_highlighted SimpleAggregateFunction(max, UInt8) DEFAULT 0,
   ) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.session_replay_events', '{replica}')
   
       PARTITION BY toYYYYMM(min_first_timestamp)
@@ -7476,6 +8599,62 @@
       -- so we order by date first, then team_id, then session_id
       -- hopefully, this is a good balance between the two
       ORDER BY (toDate(min_first_timestamp), team_id, session_id)
+  SETTINGS index_granularity=512
+  
+  '''
+# ---
+# name: test_create_table_query_replicated_and_storage[sharded_session_replay_features]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS sharded_session_replay_features ON CLUSTER 'posthog'
+  (
+      session_id VARCHAR,
+      team_id Int64,
+      distinct_id VARCHAR,
+      min_first_timestamp SimpleAggregateFunction(min, DateTime64(6, 'UTC')),
+      max_last_timestamp SimpleAggregateFunction(max, DateTime64(6, 'UTC')),
+      event_count SimpleAggregateFunction(sum, Int64),
+      mouse_position_count SimpleAggregateFunction(sum, Int64),
+      mouse_sum_x SimpleAggregateFunction(sum, Float64),
+      mouse_sum_x_squared SimpleAggregateFunction(sum, Float64),
+      mouse_sum_y SimpleAggregateFunction(sum, Float64),
+      mouse_sum_y_squared SimpleAggregateFunction(sum, Float64),
+      mouse_distance_traveled SimpleAggregateFunction(sum, Float64),
+      mouse_direction_change_count SimpleAggregateFunction(sum, Int64),
+      mouse_velocity_sum SimpleAggregateFunction(sum, Float64),
+      mouse_velocity_sum_of_squares SimpleAggregateFunction(sum, Float64),
+      mouse_velocity_count SimpleAggregateFunction(sum, Int64),
+      scroll_event_count SimpleAggregateFunction(sum, Int64),
+      total_scroll_magnitude SimpleAggregateFunction(sum, Float64),
+      scroll_direction_reversal_count SimpleAggregateFunction(sum, Int64),
+      rapid_scroll_reversal_count SimpleAggregateFunction(sum, Int64),
+      click_count SimpleAggregateFunction(sum, Int64),
+      keypress_count SimpleAggregateFunction(sum, Int64),
+      mouse_activity_count SimpleAggregateFunction(sum, Int64),
+      rage_click_count SimpleAggregateFunction(sum, Int64),
+      dead_click_count SimpleAggregateFunction(sum, Int64),
+      inter_action_gap_count SimpleAggregateFunction(sum, Int64),
+      inter_action_gap_sum_ms SimpleAggregateFunction(sum, Float64),
+      inter_action_gap_sum_of_squares_ms SimpleAggregateFunction(sum, Float64),
+      max_idle_gap_ms SimpleAggregateFunction(max, Float64),
+      quick_back_count SimpleAggregateFunction(sum, Int64),
+      page_visit_count SimpleAggregateFunction(sum, Int64),
+      unique_url_count AggregateFunction(uniqExact, String),
+      console_error_count SimpleAggregateFunction(sum, Int64),
+      console_error_after_click_count SimpleAggregateFunction(sum, Int64),
+      network_request_count SimpleAggregateFunction(sum, Int64),
+      network_failed_request_count SimpleAggregateFunction(sum, Int64),
+      network_request_duration_sum SimpleAggregateFunction(sum, Float64),
+      network_request_duration_sum_of_squares SimpleAggregateFunction(sum, Float64),
+      network_request_duration_count SimpleAggregateFunction(sum, Int64),
+      max_scroll_y SimpleAggregateFunction(max, Float64),
+      unique_click_target_count AggregateFunction(uniqExact, Int64),
+      text_selection_count SimpleAggregateFunction(sum, Int64),
+      is_deleted SimpleAggregateFunction(max, UInt8) DEFAULT 0
+  ) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.session_replay_features', '{replica}')
+  
+      PARTITION BY toYYYYMM(min_first_timestamp)
+      ORDER BY (team_id, session_id)
   SETTINGS index_granularity=512
   
   '''
@@ -7761,6 +8940,12 @@
       retention_period_days SimpleAggregateFunction(max, Nullable(Int64)),
       -- marks the recording as deleted for crypto shredding; once 1, merges keep it as 1
       is_deleted SimpleAggregateFunction(max, UInt8) DEFAULT 0,
+      -- AI-generated session tags from the summarization pipeline (fixed taxonomy)
+      ai_tags_fixed SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
+      -- AI-generated session tags from the summarization pipeline (free-form)
+      ai_tags_freeform SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
+      -- AI-generated flag indicating the session is highlighted / worth watching
+      ai_highlighted SimpleAggregateFunction(max, UInt8) DEFAULT 0,
   ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_session_replay_events', sipHash64(distinct_id))
   
   '''

@@ -1,5 +1,5 @@
 from copy import deepcopy
-from typing import Literal, Optional, cast
+from typing import Optional
 
 import structlog
 
@@ -150,8 +150,13 @@ class MarketingAnalyticsTableQueryRunner(MarketingAnalyticsBaseQueryRunner[Marke
 
         campaign_alias = self.config.get_campaign_column_alias()
 
-        if level in (MarketingAnalyticsDrillDownLevel.CHANNEL, MarketingAnalyticsDrillDownLevel.SOURCE):
-            # Channel/source levels have a single grouping column with dynamic alias
+        if level in (
+            MarketingAnalyticsDrillDownLevel.CHANNEL,
+            MarketingAnalyticsDrillDownLevel.SOURCE,
+            MarketingAnalyticsDrillDownLevel.MEDIUM,
+            MarketingAnalyticsDrillDownLevel.CONTENT,
+            MarketingAnalyticsDrillDownLevel.TERM,
+        ):
             join_condition: ast.Expr = ast.CompareOperation(
                 left=ast.Field(chain=["current_period", campaign_alias]),
                 op=ast.CompareOperationOp.Eq,
@@ -268,6 +273,7 @@ class MarketingAnalyticsTableQueryRunner(MarketingAnalyticsBaseQueryRunner[Marke
         level = self.config.drill_down_level
         excluded = DRILL_DOWN_LEVEL_CONFIG[level]["excluded_base_columns"]
 
+        all_columns: dict[str, ast.Expr]
         if excluded:
             all_columns = self._build_aggregated_level_columns(excluded)
         else:
@@ -305,9 +311,13 @@ class MarketingAnalyticsTableQueryRunner(MarketingAnalyticsBaseQueryRunner[Marke
 
         # Add single unified conversion goals join if we have conversion goals
         if conversion_aggregator:
-            if level in (MarketingAnalyticsDrillDownLevel.CHANNEL, MarketingAnalyticsDrillDownLevel.SOURCE):
-                # At channel/source level, FULL OUTER JOIN on campaign_name (holds channel_type/source)
-                # so organic channels with only conversions also appear
+            if level in (
+                MarketingAnalyticsDrillDownLevel.CHANNEL,
+                MarketingAnalyticsDrillDownLevel.SOURCE,
+                MarketingAnalyticsDrillDownLevel.MEDIUM,
+                MarketingAnalyticsDrillDownLevel.CONTENT,
+                MarketingAnalyticsDrillDownLevel.TERM,
+            ):
                 join_type = "FULL OUTER JOIN"
                 join_constraint = ast.JoinConstraint(
                     expr=ast.CompareOperation(
@@ -380,7 +390,8 @@ class MarketingAnalyticsTableQueryRunner(MarketingAnalyticsBaseQueryRunner[Marke
                 if column_name in select_columns:
                     order_by_exprs.append(
                         ast.OrderExpr(
-                            expr=ast.Field(chain=[column_name]), order=cast(Literal["ASC", "DESC"], str(order_by))
+                            expr=ast.Field(chain=[column_name]),
+                            order="DESC" if str(order_by).upper() == "DESC" else "ASC",
                         )
                     )
         else:

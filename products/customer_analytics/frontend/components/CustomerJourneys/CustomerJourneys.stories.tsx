@@ -1,4 +1,4 @@
-import { Meta, StoryFn } from '@storybook/react'
+import { Meta, StoryObj } from '@storybook/react'
 
 import { App } from 'scenes/App'
 import { emptyJourneysList, JOURNEY_FEATURE_FLAGS } from 'scenes/funnels/FunnelFlowGraph/__mocks__/journeyMocks'
@@ -25,13 +25,17 @@ const meta: Meta = {
 }
 export default meta
 
-export const EmptyState: StoryFn = () => {
-    useStorybookMocks({
-        get: { 'api/environments/:team_id/customer_journeys/': emptyJourneysList },
-    })
-    return <App />
-}
-EmptyState.parameters = {
-    pageUrl: urls.customerAnalyticsJourneys(),
-    testOptions: { waitForSelector: '[data-attr="product-introduction-journey"]' },
+type Story = StoryObj<{}>
+
+export const EmptyState: Story = {
+    render: () => {
+        useStorybookMocks({
+            get: { 'api/environments/:team_id/customer_journeys/': emptyJourneysList },
+        })
+        return <App />
+    },
+    parameters: {
+        pageUrl: urls.customerAnalyticsJourneys(),
+        testOptions: { waitForSelector: '[data-attr="product-introduction-journey"]' },
+    },
 }

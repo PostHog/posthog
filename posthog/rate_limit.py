@@ -17,8 +17,8 @@ from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.metrics import LABEL_PATH, LABEL_ROUTE, LABEL_TEAM_ID
 from posthog.models.instance_setting import get_instance_setting
-from posthog.models.personal_api_key import hash_key_value
 from posthog.models.team.team import Team
+from posthog.models.utils import hash_key_value
 from posthog.settings.utils import get_list
 from posthog.utils import patchable
 
@@ -331,16 +331,6 @@ class SignupEmailPrecheckThrottle(IPThrottle):
     rate = "30/minute"
 
 
-class OnboardingIPThrottle(IPThrottle):
-    """
-    Rate limit onboarding product recommendations by IP address.
-    This endpoint uses an LLM, so we want to be conservative with rate limits.
-    """
-
-    scope = "onboarding_ip"
-    rate = "10/hour"
-
-
 class BurstRateThrottle(PersonalApiKeyRateThrottle):
     # Throttle class that's applied on all endpoints (except for capture + decide)
     # Intended to block quick bursts of requests, per project
@@ -481,16 +471,6 @@ class APIQueriesBurstThrottle(PersonalApiKeyRateThrottle):
 
 class APIQueriesSustainedThrottle(PersonalApiKeyRateThrottle):
     scope = "api_queries_sustained"
-    rate = "2400/hour"
-
-
-class WebAnalyticsAPIBurstThrottle(PersonalApiKeyRateThrottle):
-    scope = "web_analytics_api_burst"
-    rate = "240/minute"
-
-
-class WebAnalyticsAPISustainedThrottle(PersonalApiKeyRateThrottle):
-    scope = "web_analytics_api_sustained"
     rate = "2400/hour"
 
 
@@ -809,8 +789,50 @@ class MaterializationRateThrottle(PersonalApiKeyRateThrottle):
         return super().get_cache_key(request, view)
 
 
+class SubscriptionTestDeliveryThrottle(PersonalApiKeyOrUserRateThrottle):
+    # Rate limit manual test deliveries of subscriptions.
+    #
+    # The viewset already returns 409 for concurrent deliveries on the same
+    # subscription, but that per-subscription dedupe does not stop a caller
+    # rotating across many subscriptions to spam real email / Slack / webhook
+    # recipients, nor does it stop a caller minting extra personal API keys
+    # and splitting traffic across them.
+    #
+    # Keyed per team (not per personal API key, not per subscription) so
+    # neither rotating subscriptions nor rotating API keys bypasses the limit.
+    # Intentionally overrides get_cache_key — sibling throttles
+    # (RunSavedQueryRateThrottle, MaterializationRateThrottle) use "{team_id}_{pk}",
+    # but we want a single team-wide bucket, so we drop pk.
+    #
+    # Extends PersonalApiKeyOrUserRateThrottle (not PersonalApiKeyRateThrottle)
+    # so the limit applies to every authenticated caller — personal API keys,
+    # OAuth access tokens (the MCP OAuth flow forwards bearer tokens that are
+    # not personal API keys), and session-cookie UI users. The sibling
+    # throttles only target PATs because they gate expensive read work; for
+    # this endpoint the real-world side-effect blast radius means we want
+    # every auth method covered.
+    scope = "subscription_test_delivery"
+    rate = "10/minute"
+
+    def get_cache_key(self, request, view):
+        team_id = self.safely_get_team_id_from_view(view)
+        if team_id:
+            return self.cache_format % {"scope": self.scope, "ident": f"team_{team_id}"}
+        return super().get_cache_key(request, view)
+
+
 class ToolbarOAuthRefreshThrottle(IPThrottle):
     """Rate limit the unauthenticated toolbar OAuth refresh endpoint by IP."""
 
     scope = "toolbar_oauth_refresh"
     rate = "30/minute"
+
+
+class EmailVerifyDomainThrottle(UserRateThrottle):
+    scope = "email_verify_domain"
+    rate = "6/minute"
+
+
+class EmailSendTestThrottle(UserRateThrottle):
+    scope = "email_send_test"
+    rate = "6/minute"

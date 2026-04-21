@@ -42,12 +42,13 @@ on:
     pull_request:
     push:
         tags:
-            - '**[0-9]+.[0-9]+.[0-9]+*'
+            - 'posthog-cli/v[0-9]+.[0-9]+.[0-9]+*'
 
 jobs:
     # Run 'dist plan' (or host) to determine what tasks we need to do
     plan:
         runs-on: 'ubuntu-22.04'
+        timeout-minutes: 10
         outputs:
             val: ${{ steps.plan.outputs.manifest }}
             tag: ${{ !github.event.pull_request && github.ref_name || '' }}
@@ -109,6 +110,7 @@ jobs:
             # - N "local" tasks that build each platform's binaries and platform-specific installers
             matrix: ${{ fromJson(needs.plan.outputs.val).ci.github.artifacts_matrix }}
         runs-on: ${{ matrix.runner }}
+        timeout-minutes: 30
         container: ${{ matrix.container && matrix.container.image || null }}
         env:
             GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -172,6 +174,7 @@ jobs:
             - plan
             - build-local-artifacts
         runs-on: 'ubuntu-22.04'
+        timeout-minutes: 15
         env:
             GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
             BUILD_MANIFEST_NAME: target/distrib/global-dist-manifest.json
@@ -221,14 +224,15 @@ jobs:
         # Only run if we're "publishing", and only if local and global didn't fail (skipped is fine)
         if: ${{ always() && needs.plan.outputs.publishing == 'true' && (needs.build-global-artifacts.result == 'skipped' || needs.build-global-artifacts.result == 'success') && (needs.build-local-artifacts.result == 'skipped' || needs.build-local-artifacts.result == 'success') }}
         runs-on: 'ubuntu-22.04'
+        timeout-minutes: 15
         outputs:
             val: ${{ steps.host.outputs.manifest }}
         steps:
             - name: Get app token
               id: app-token
-              uses: actions/create-github-app-token@29824e69f54612133e76f7eaac726eef6c875baf # v2.2.1
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
               with:
-                  app-id: ${{ secrets.GH_APP_POSTHOG_RELEASER_APP_ID }}
+                  client-id: ${{ secrets.GH_APP_POSTHOG_RELEASER_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_RELEASER_PRIVATE_KEY }}
 
             - uses: actions/checkout@v6
@@ -289,6 +293,7 @@ jobs:
             - plan
             - host
         runs-on: 'ubuntu-22.04'
+        timeout-minutes: 10
         env:
             GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
             PLAN: ${{ needs.plan.outputs.val }}
@@ -296,6 +301,10 @@ jobs:
         permissions:
             id-token: write
         steps:
+            - uses: actions/checkout@v6
+              with:
+                  sparse-checkout: .nvmrc
+                  sparse-checkout-cone-mode: false
             - name: Fetch npm packages
               uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
               with:
@@ -304,7 +313,7 @@ jobs:
                   merge-multiple: true
             - uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
               with:
-                  node-version: '22.x'
+                  node-version-file: .nvmrc
                   registry-url: 'https://registry.npmjs.org'
             - name: Ensure modern npm (OIDC support)
               run: npm install -g npm@11.6.4

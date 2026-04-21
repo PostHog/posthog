@@ -3,8 +3,8 @@ import { BindLogic, useActions, useValues } from 'kea'
 import type { editor as importedEditor } from 'monaco-editor'
 import { useEffect, useMemo, useRef, useState } from 'react'
 
-import { IconBook, IconChevronDown, IconDownload } from '@posthog/icons'
-import { Spinner } from '@posthog/lemon-ui'
+import { IconBook, IconChevronDown, IconDownload, IconX } from '@posthog/icons'
+import { LemonModal, Spinner } from '@posthog/lemon-ui'
 
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -25,10 +25,12 @@ import {
     dataVisualizationLogic,
 } from '~/queries/nodes/DataVisualization/dataVisualizationLogic'
 import { displayLogic } from '~/queries/nodes/DataVisualization/displayLogic'
+import { applyDataVisualizationQueryUpdate } from '~/queries/nodes/DataVisualization/queryUpdateUtils'
 
 import { dataWarehouseViewsLogic } from '../saved_queries/dataWarehouseViewsLogic'
 import { ViewLinkModal } from '../ViewLinkModal'
 import { editorSizingLogic } from './editorSizingLogic'
+import { QueryInfo } from './output-pane-tabs/QueryInfo'
 import { outputPaneLogic } from './outputPaneLogic'
 import { QueryHistoryModal } from './QueryHistoryModal'
 import { QueryWindow } from './QueryWindow'
@@ -109,6 +111,8 @@ export function SQLEditor({
 
     const { sourceQuery, dataLogicKey } = useValues(logic)
     const { setSourceQuery } = useActions(logic)
+    const sourceQueryRef = useRef(sourceQuery)
+    sourceQueryRef.current = sourceQuery
 
     const dataVisualizationLogicProps: DataVisualizationLogicProps = {
         key: dataLogicKey,
@@ -119,7 +123,7 @@ export function SQLEditor({
         loadPriority: undefined,
         cachedResults: undefined,
         variablesOverride: undefined,
-        setQuery: (setter) => setSourceQuery(setter(sourceQuery)),
+        setQuery: (setter) => applyDataVisualizationQueryUpdate(sourceQueryRef, setter, setSourceQuery),
     }
 
     const dataNodeLogicProps: DataNodeLogicProps = {
@@ -191,6 +195,7 @@ export function SQLEditor({
                                                 </div>
                                             </div>
                                         </div>
+                                        <MaterializationModal tabId={tabId || ''} />
                                         {!mode || mode === SQLEditorMode.FullScene ? <ViewLinkModal /> : null}
                                     </BindLogic>
                                 </BindLogic>
@@ -200,6 +205,34 @@ export function SQLEditor({
                 </BindLogic>
             </BindLogic>
         </BindLogic>
+    )
+}
+
+function MaterializationModal({ tabId }: { tabId: string }): JSX.Element {
+    const { materializationModalOpen, materializationModalView, viewLoading } = useValues(sqlEditorLogic)
+    const { closeMaterializationModal } = useActions(sqlEditorLogic)
+
+    return (
+        <LemonModal
+            title={materializationModalView ? `Materialize ${materializationModalView.name}` : 'Materialize view'}
+            isOpen={materializationModalOpen}
+            onClose={closeMaterializationModal}
+            width={960}
+        >
+            <div className="max-h-[75vh] overflow-auto">
+                {viewLoading ? (
+                    <div className="flex min-h-64 items-center justify-center">
+                        <Spinner className="text-2xl" />
+                    </div>
+                ) : materializationModalView ? (
+                    <QueryInfo tabId={tabId} view={materializationModalView} />
+                ) : (
+                    <div className="flex min-h-64 items-center justify-center">
+                        <Spinner className="text-2xl" />
+                    </div>
+                )}
+            </div>
+        </LemonModal>
     )
 }
 
@@ -217,10 +250,12 @@ function SQLEditorSceneTitle(): JSX.Element | null {
         updateInsightButtonEnabled,
         saveAsMenuItems,
         isSourceQueryLastRun,
+        isMultiQuery,
     } = useValues(sqlEditorLogic)
     const {
         updateView,
         updateInsight,
+        closeEditingObject,
         saveAsInsight,
         saveAsView,
         saveAsEndpoint,
@@ -262,6 +297,10 @@ function SQLEditorSceneTitle(): JSX.Element | null {
     }
 
     const saveAsDisabledReason = useMemo(() => {
+        if (insightLoading) {
+            return 'Loading insight...'
+        }
+
         if (!isSourceQueryLastRun) {
             return 'Run latest query changes before saving'
         }
@@ -275,11 +314,15 @@ function SQLEditorSceneTitle(): JSX.Element | null {
         }
 
         return undefined
-    }, [isSourceQueryLastRun, responseLoading, responseError, response])
+    }, [insightLoading, isSourceQueryLastRun, responseLoading, responseError, response])
 
     const [editingViewDisabledReason, EditingViewButtonIcon] = useMemo(() => {
         if (updatingDataWarehouseSavedQuery) {
             return ['Saving...', Spinner]
+        }
+
+        if (isMultiQuery) {
+            return ['Views must be a single query — remove extra statements to update', IconDownload]
         }
 
         if (!response) {
@@ -291,13 +334,18 @@ function SQLEditorSceneTitle(): JSX.Element | null {
         }
 
         return [undefined, IconDownload]
-    }, [updatingDataWarehouseSavedQuery, changesToSave, response])
+    }, [updatingDataWarehouseSavedQuery, changesToSave, response, isMultiQuery])
 
     if (isEmbeddedMode) {
         return null
     }
 
     const isMaterializedView = editingView?.is_materialized === true
+    const closeObjectTooltip = editingInsight
+        ? 'Close this insight and reset the SQL editor to an unsaved query without clearing your SQL or visualization settings.'
+        : editingView
+          ? 'Close this view and reset the SQL editor to an unsaved query without clearing your SQL or visualization settings.'
+          : 'Reset the SQL editor to an unsaved query without clearing your SQL or visualization settings.'
 
     return (
         <>
@@ -386,50 +434,69 @@ function SQLEditorSceneTitle(): JSX.Element | null {
                                 >
                                     {isMaterializedView ? 'Update and re-materialize view' : 'Update view'}
                                 </LemonButton>
+                                <LemonButton
+                                    onClick={() => closeEditingObject()}
+                                    icon={<IconX />}
+                                    type="tertiary"
+                                    size="small"
+                                    aria-label="close"
+                                    tooltip={closeObjectTooltip}
+                                />
                             </>
                         ) : editingInsight ? (
-                            <LemonButton
-                                disabledReason={
-                                    !isSourceQueryLastRun
-                                        ? 'Run latest query changes before saving'
-                                        : !updateInsightButtonEnabled
-                                          ? 'No updates to save'
-                                          : undefined
-                                }
-                                loading={insightLoading}
-                                type="primary"
-                                size="small"
-                                onClick={() => updateInsight()}
-                                sideAction={{
-                                    icon: <IconChevronDown />,
-                                    dropdown: {
-                                        placement: 'bottom-end',
-                                        overlay: (
-                                            <LemonMenuOverlay
-                                                items={[
-                                                    {
-                                                        label: 'Save as new insight...',
-                                                        disabledReason: saveAsDisabledReason,
-                                                        onClick: () => saveAsInsight(),
-                                                    },
-                                                    {
-                                                        label: 'Save as new view...',
-                                                        disabledReason: saveAsDisabledReason,
-                                                        onClick: () => saveAsView(),
-                                                    },
-                                                    {
-                                                        label: 'Save as endpoint...',
-                                                        disabledReason: saveAsDisabledReason,
-                                                        onClick: () => saveAsEndpoint(),
-                                                    },
-                                                ]}
-                                            />
-                                        ),
-                                    },
-                                }}
-                            >
-                                Update insight
-                            </LemonButton>
+                            <>
+                                <LemonButton
+                                    disabledReason={
+                                        !isSourceQueryLastRun
+                                            ? 'Run latest query changes before saving'
+                                            : !updateInsightButtonEnabled
+                                              ? 'No updates to save'
+                                              : undefined
+                                    }
+                                    loading={insightLoading}
+                                    type="primary"
+                                    size="small"
+                                    onClick={() => updateInsight()}
+                                    sideAction={{
+                                        icon: <IconChevronDown />,
+                                        dropdown: {
+                                            placement: 'bottom-end',
+                                            overlay: (
+                                                <LemonMenuOverlay
+                                                    items={[
+                                                        {
+                                                            label: 'Save as new insight...',
+                                                            disabledReason: saveAsDisabledReason,
+                                                            onClick: () => saveAsInsight(),
+                                                        },
+                                                        {
+                                                            label: 'Save as new view...',
+                                                            disabledReason: saveAsDisabledReason,
+                                                            onClick: () => saveAsView(),
+                                                        },
+                                                        {
+                                                            label: 'Save as endpoint...',
+                                                            disabledReason: saveAsDisabledReason,
+                                                            onClick: () => saveAsEndpoint(),
+                                                        },
+                                                    ]}
+                                                />
+                                            ),
+                                        },
+                                    }}
+                                >
+                                    Update insight
+                                </LemonButton>
+                                <LemonButton
+                                    onClick={() => closeEditingObject()}
+                                    icon={<IconX />}
+                                    type="secondary"
+                                    size="small"
+                                    noPadding
+                                    aria-label="close"
+                                    tooltip={closeObjectTooltip}
+                                />
+                            </>
                         ) : (
                             <LemonButton
                                 type="primary"

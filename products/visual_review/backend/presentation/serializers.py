@@ -8,6 +8,8 @@ from rest_framework import serializers
 from rest_framework_dataclasses.serializers import DataclassSerializer
 
 from ..facade.contracts import (
+    AddSnapshotsInput,
+    AddSnapshotsResult,
     ApproveRunRequestInput,
     ApproveSnapshotInput,
     Artifact,
@@ -21,6 +23,7 @@ from ..facade.contracts import (
     Snapshot,
     SnapshotHistoryEntry,
     SnapshotManifestItem,
+    ToleratedHashEntry,
     UpdateRepoRequestInput,
     UploadTarget,
 )
@@ -93,6 +96,16 @@ class CreateRunInputSerializer(DataclassSerializer):
         dataclass = CreateRunInput
 
 
+class AddSnapshotsInputSerializer(DataclassSerializer):
+    class Meta:
+        dataclass = AddSnapshotsInput
+
+
+class AddSnapshotsResultSerializer(DataclassSerializer):
+    class Meta:
+        dataclass = AddSnapshotsResult
+
+
 class UpdateRepoInputSerializer(DataclassSerializer):
     class Meta:
         dataclass = UpdateRepoRequestInput
@@ -111,6 +124,15 @@ class ApproveRunInputSerializer(DataclassSerializer):
 class SnapshotHistoryEntrySerializer(DataclassSerializer):
     class Meta:
         dataclass = SnapshotHistoryEntry
+
+
+class ToleratedHashEntrySerializer(DataclassSerializer):
+    class Meta:
+        dataclass = ToleratedHashEntry
+
+
+class MarkToleratedInputSerializer(serializers.Serializer):
+    snapshot_id = serializers.UUIDField()
 
 
 class CreateRepoInputSerializer(DataclassSerializer):

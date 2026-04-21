@@ -7,4 +7,4 @@ export {
 } from './batch-pipeline-builders'
 export { BatchRetryOptions } from '../batch-retry'
 export { BranchingPipelineBuilder, PipelineBuilder, StartPipelineBuilder } from './pipeline-builders'
-export { newBatchPipelineBuilder, newPipelineBuilder } from './helpers'
+export { newBatchPipelineBuilder, newBatchingPipeline, newPipelineBuilder } from './helpers'

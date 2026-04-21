@@ -23,7 +23,6 @@ import { GeoIPService } from './utils/geoip'
 import { PubSub } from './utils/pubsub'
 import { TeamManager } from './utils/team-manager'
 import { GroupTypeManager } from './worker/ingestion/group-type-manager'
-import { ClickhouseGroupRepository } from './worker/ingestion/groups/repositories/clickhouse-group-repository'
 import { GroupRepository } from './worker/ingestion/groups/repositories/group-repository.interface'
 import { PersonRepository } from './worker/ingestion/persons/repositories/person-repository'
 
@@ -128,10 +127,10 @@ export interface HubServices {
     posthogRedisPool: GenericPool<Redis>
     cookielessRedisPool: GenericPool<Redis>
     kafkaProducer: KafkaProducerWrapper
+    monitoringProducer: KafkaProducerWrapper
     teamManager: TeamManager
     groupTypeManager: GroupTypeManager
     groupRepository: GroupRepository
-    clickhouseGroupRepository: ClickhouseGroupRepository
     personRepository: PersonRepository
     geoipService: GeoIPService
     encryptedFields: EncryptedFields
@@ -150,8 +149,6 @@ export interface PluginServerCapabilities {
     // and the shouldSetupPluginInServer() test accordingly.
     ingestionV2Combined?: boolean
     ingestionV2?: boolean
-    logsIngestion?: boolean
-    tracesIngestion?: boolean
     errorTrackingIngestion?: boolean
     sessionRecordingBlobIngestionV2?: boolean
     sessionRecordingBlobIngestionV2Overflow?: boolean
@@ -169,6 +166,7 @@ export interface PluginServerCapabilities {
     appManagementSingleton?: boolean
     evaluationScheduler?: boolean
     cdpCyclotronV2Janitor?: boolean
+    cdpHogflowScheduler?: boolean
     recordingApi?: boolean
     ingestionV2Testing?: boolean
 }
@@ -273,6 +271,7 @@ export interface EventSchemaEnforcement {
 export interface LogsSettings {
     capture_console_logs?: boolean
     json_parse_logs?: boolean
+    pii_scrub_logs?: boolean
     retention_days?: number
     retention_last_updated?: string
 }
@@ -286,7 +285,6 @@ export interface Team {
     anonymize_ips: boolean
     api_token: string
     secret_api_token: string | null
-    slack_incoming_webhook: string | null
     session_recording_opt_in: boolean
     person_processing_opt_out: boolean | null
     heatmaps_opt_in: boolean | null

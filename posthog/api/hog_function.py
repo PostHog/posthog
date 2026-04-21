@@ -253,6 +253,11 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
         return super().to_internal_value(data)
 
     def validate_type(self, value):
+        if value == HogFunctionType.WAREHOUSE_SOURCE_WEBHOOK.value:
+            raise serializers.ValidationError(
+                "Cannot create or modify warehouse source webhook functions via this API."
+            )
+
         # Ensure it is only set when creating a new function
         if self.context.get("view") and self.context["view"].action == "create":
             return value
@@ -458,6 +463,7 @@ class HogFunctionViewSet(
     viewsets.ModelViewSet,
 ):
     scope_object = "hog_function"
+    scope_object_read_actions = ["list", "retrieve", "logs", "metrics", "metrics_totals"]
     scope_object_write_actions = ["create", "update", "partial_update", "invocations", "rearrange"]
     queryset = HogFunction.objects.all()
     filter_backends = [DjangoFilterBackend, filters.SearchFilter]
@@ -475,6 +481,8 @@ class HogFunctionViewSet(
         return HogFunctionSerializer
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
+        queryset = queryset.exclude(type=HogFunctionType.WAREHOUSE_SOURCE_WEBHOOK.value)
+
         if not (self.action == "partial_update" and self.request.data.get("deleted") is False):
             # We only want to include deleted functions if we are un-deleting them
             queryset = queryset.filter(deleted=False)
@@ -683,6 +691,19 @@ class HogFunctionViewSet(
         if hog_function.batch_export_id:
             return Response({"error": "Backfills already enabled for this function"}, status=400)
 
+        # Only event-sourced destinations support backfills
+        if hog_function.type != HogFunctionType.DESTINATION:
+            return Response(
+                {"error": "Backfills are only supported for destination functions."},
+                status=400,
+            )
+        source = (hog_function.filters or {}).get("source", "events")
+        if source != "events":
+            return Response(
+                {"error": "Backfills are only supported for event-sourced destinations."},
+                status=400,
+            )
+
         # Check feature flag for backfill-workflows-destination
         team = Team.objects.get(id=self.team_id)
         if not posthoganalytics.feature_enabled(
@@ -703,7 +724,7 @@ class HogFunctionViewSet(
         batch_export_data = {
             "name": hog_function.name,
             "paused": True,
-            "interval": "day",
+            "interval": "hour",
             "model": "events",
             "filters": hog_function.filters.get("events", []) if hog_function.filters else [],
             "destination": {

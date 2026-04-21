@@ -10,6 +10,7 @@ import { Lettermark, LettermarkColor } from 'lib/lemon-ui/Lettermark'
 import { Link } from 'lib/lemon-ui/Link'
 import { alphabet } from 'lib/utils'
 import { JSONEditorInput } from 'scenes/feature-flags/JSONEditorInput'
+import { PercentageInput } from 'scenes/feature-flags/PercentageInput'
 import { getSurveyForFeatureFlagVariant } from 'scenes/surveys/utils'
 import { urls } from 'scenes/urls'
 
@@ -254,20 +255,10 @@ export function FeatureFlagVariantsForm({
                     </div>
                     <div className="col-span-3">
                         <div>
-                            <LemonInput
-                                type="number"
-                                min={0}
-                                max={100}
-                                value={variant.rollout_percentage || 0}
-                                onChange={(changedValue) => {
-                                    const valueInt =
-                                        changedValue !== undefined && !isNaN(Number(changedValue))
-                                            ? parseInt(changedValue.toString())
-                                            : 0
-
-                                    onVariantChange?.(index, 'rollout_percentage', valueInt)
-                                }}
-                                suffix={<span>%</span>}
+                            <PercentageInput
+                                value={variant.rollout_percentage}
+                                onChange={(value) => onVariantChange?.(index, 'rollout_percentage', value)}
+                                step={0.01}
                                 data-attr="feature-flag-variant-rollout-percentage-input"
                             />
                             {filterGroups.filter((group) => group.variant === variant.key).length > 0 && (

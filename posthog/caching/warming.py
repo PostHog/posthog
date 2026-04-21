@@ -1,7 +1,7 @@
 import itertools
 from collections.abc import Generator
 from datetime import UTC, datetime, timedelta
-from typing import Optional
+from typing import Any, Optional, cast
 
 from django.db.models import Q
 
@@ -21,10 +21,12 @@ from posthog.event_usage import EventSource
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.query_cache_base import QueryCacheManagerBase
 from posthog.hogql_queries.query_runner import ExecutionMode
-from posthog.models import DashboardTile, Insight, Team
+from posthog.models import Insight, Team
 from posthog.ph_client import ph_scoped_capture
 from posthog.schema_migrations.upgrade_manager import upgrade_query
 from posthog.tasks.utils import CeleryQueue
+
+from products.dashboards.backend.models.dashboard_tile import DashboardTile
 
 logger = structlog.get_logger(__name__)
 
@@ -225,7 +227,7 @@ def warm_insight_cache_task(insight_id: int, dashboard_id: Optional[int]):
         try:
             results = process_query_dict(
                 insight.team,
-                insight.query,
+                cast(dict[str, Any], insight.query),
                 dashboard_filters_json=dashboard.filters if dashboard is not None else None,
                 # We need an execution mode with recent cache:
                 # - in case someone refreshed after this task was triggered

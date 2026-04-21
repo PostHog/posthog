@@ -6,6 +6,7 @@ import * as monacoModule from 'monaco-editor'
 import { IDisposable, editor, editor as importedEditor } from 'monaco-editor'
 import { useEffect, useMemo, useRef, useState } from 'react'
 
+import 'lib/monaco/monacoEnvironment'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { usePageVisibility } from 'lib/hooks/usePageVisibility'
 import { Spinner } from 'lib/lemon-ui/Spinner'
@@ -30,6 +31,8 @@ export interface CodeEditorProps extends Omit<EditorProps, 'loading' | 'theme'> 
     queryKey?: string
     autocompleteContext?: string
     onPressCmdEnter?: (value: string, selectionType: 'selection' | 'full') => void
+    /** Run the innermost subquery at cursor (Cmd+Shift+Enter) */
+    onPressCmdShiftEnter?: () => void
     /** Pressed up in an empty code editor, likely to edit the previous message in a list */
     onPressUpNoValue?: () => void
     autoFocus?: boolean
@@ -38,7 +41,12 @@ export interface CodeEditorProps extends Omit<EditorProps, 'loading' | 'theme'> 
     schema?: Record<string, any> | null
     onMetadata?: (metadata: HogQLMetadataResponse | null) => void
     onMetadataLoading?: (loading: boolean) => void
+    onFixWithAI?: (prompt: string) => void
     onError?: (error: string | null) => void
+    /** Override the query sent for metadata validation (e.g. active query in multi-query mode) */
+    metadataQuery?: string
+    /** Character offset of metadataQuery within the full editor text, for correct marker positioning */
+    metadataQueryOffset?: number
     /** The original value to compare against - renders it in diff mode */
     originalValue?: string
     /** Enable vim keybindings */
@@ -126,6 +134,7 @@ export function CodeEditor({
     onMount,
     value,
     onPressCmdEnter,
+    onPressCmdShiftEnter,
     autoFocus,
     globals,
     sourceQuery,
@@ -133,6 +142,9 @@ export function CodeEditor({
     onError,
     onMetadata,
     onMetadataLoading,
+    onFixWithAI,
+    metadataQuery,
+    metadataQueryOffset,
     originalValue,
     enableVimMode,
     ...editorProps
@@ -154,6 +166,8 @@ export function CodeEditor({
     const builtCodeEditorLogic = codeEditorLogic({
         key: queryKey ?? `new/${realKey}`,
         query: value ?? '',
+        metadataQuery: metadataQuery,
+        metadataQueryOffset: metadataQueryOffset,
         language: editorProps.language ?? 'text',
         globals,
         sourceQuery,
@@ -162,6 +176,7 @@ export function CodeEditor({
         onError,
         onMetadata,
         onMetadataLoading,
+        onFixWithAI,
         metadataFilters: sourceQuery?.kind === NodeKind.HogQLQuery ? sourceQuery.filters : undefined,
     })
     useMountedLogic(builtCodeEditorLogic)
@@ -342,6 +357,14 @@ export function CodeEditor({
             dispose: () => observer.disconnect(),
         })
 
+        monacoDisposables.current.push(
+            monaco.editor.registerCommand('posthog.hogql.fixWithAI', (_, prompt) => {
+                if (typeof prompt === 'string' && prompt.length > 0) {
+                    onFixWithAI?.(prompt)
+                }
+            })
+        )
+
         if (onPressCmdEnter) {
             monacoDisposables.current.push(
                 editor.addAction({
@@ -358,6 +381,18 @@ export function CodeEditor({
                         }
 
                         onPressCmdEnter(editor.getValue(), 'full')
+                    },
+                })
+            )
+        }
+        if (onPressCmdShiftEnter) {
+            monacoDisposables.current.push(
+                editor.addAction({
+                    id: 'runSubqueryPostHog',
+                    label: 'Run subquery at cursor',
+                    keybindings: [monaco.KeyMod.CtrlCmd | monaco.KeyMod.Shift | monaco.KeyCode.Enter],
+                    run: () => {
+                        onPressCmdShiftEnter()
                     },
                 })
             )

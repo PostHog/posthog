@@ -23,11 +23,6 @@
         list-style-type: disc;
     }
 
-    strong[level] {
-        // Low-key headings
-        display: block;
-    }
-
     p {
         margin-bottom: 0.5em;
     }
@@ -143,5 +138,10 @@
         p:last-child {
             margin-bottom: 0;
         }
+    }
+
+    .LemonMarkdown__low-key-heading {
+        // Low-key headings
+        display: block;
     }
 }

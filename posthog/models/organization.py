@@ -115,7 +115,7 @@ def default_anonymize_ips():
     return getattr(settings, "CLOUD_DEPLOYMENT", None) == "EU"
 
 
-class Organization(ModelActivityMixin, UUIDTModel):
+class Organization(ModelActivityMixin, UUIDTModel):  # type: ignore[django-manager-missing]
     class Meta:
         constraints = [
             models.UniqueConstraint(
@@ -178,8 +178,11 @@ class Organization(ModelActivityMixin, UUIDTModel):
         blank=True,
         help_text="Custom session cookie age in seconds. If not set, the global setting SESSION_COOKIE_AGE will be used.",
     )
-    is_member_join_email_enabled = models.BooleanField(default=True)
-    is_ai_data_processing_approved = models.BooleanField(null=True, blank=True, default=True)
+
+    is_member_join_email_enabled = models.BooleanField(
+        default=True
+    )  # DEPRECATED in favor of User.partial_notification_settings
+    is_ai_data_processing_approved = models.BooleanField(null=True, blank=True, default=False)
     enforce_2fa = models.BooleanField(null=True, blank=True)
     members_can_invite = models.BooleanField(default=True, null=True, blank=True)
     members_can_use_personal_api_keys = models.BooleanField(default=True)
@@ -212,6 +215,12 @@ class Organization(ModelActivityMixin, UUIDTModel):
         help_text="Default setting for 'Discard client IP data' for new projects in this organization.",
     )
     is_hipaa = models.BooleanField(default=False, null=True, blank=True)
+    is_pending_deletion = models.BooleanField(
+        default=False,
+        null=True,
+        blank=True,
+        help_text="Set to True when org deletion has been initiated. Blocks all UI access until the async task completes.",
+    )
 
     ## Managed by Billing
     customer_id = models.CharField(max_length=200, null=True, blank=True)
@@ -229,6 +238,9 @@ class Organization(ModelActivityMixin, UUIDTModel):
     # Also currently indicates if the organization is on billing V2 or not
     usage = models.JSONField(null=True, blank=True)
     never_drop_data = models.BooleanField(default=False, null=True, blank=True)
+
+    if TYPE_CHECKING:
+        oauth_applications: models.Manager[Any]
     # Scoring levels defined in billing::customer::TrustScores
     customer_trust_scores = models.JSONField(default=dict, null=True, blank=True)
 
@@ -498,11 +510,20 @@ class OrganizationMembership(ModelActivityMixin, UUIDTModel):
     joined_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
+    # Transient flag set by the pre_save signal to communicate level changes to post_save.
+    _level_changed: bool = False
+
     class Meta:
         constraints = [
             models.UniqueConstraint(
                 fields=["organization_id", "user_id"],
                 name="unique_organization_membership",
+            ),
+        ]
+        indexes = [
+            models.Index(
+                fields=["organization", "-joined_at"],
+                name="org_membership_org_joined_idx",
             ),
         ]
 
@@ -649,16 +670,39 @@ def sync_billing_on_membership_removal(sender, instance: OrganizationMembership,
 def organization_membership_saved(sender: Any, instance: OrganizationMembership, **kwargs: Any) -> None:
     from posthog.event_usage import report_user_organization_membership_level_changed
 
+    instance._level_changed = False
     try:
         old_instance = OrganizationMembership.objects.get(id=instance.id)
         if old_instance.level != instance.level:
-            # the level has been changed
+            instance._level_changed = True
             report_user_organization_membership_level_changed(
                 instance.user, instance.organization, instance.level, old_instance.level
             )
     except OrganizationMembership.DoesNotExist:
         # The instance is new, or we are setting up test data
         pass
+
+
+@receiver(post_save, sender=OrganizationMembership)
+def sync_billing_on_membership_save(sender, instance: OrganizationMembership, created: bool, **kwargs):
+    # Covers any path that creates a membership or changes its level, including
+    # Organization.bootstrap, the Vercel integration, and direct ORM saves that
+    # bypass OrganizationMemberSerializer. Mirrors sync_billing_on_membership_removal.
+    from posthog.tasks.sync_billing import sync_members_to_billing
+
+    if not is_cloud():
+        return
+
+    if not created and not getattr(instance, "_level_changed", False):
+        return
+
+    organization_id = str(instance.organization_id)
+
+    def _sync_if_org_exists():
+        if Organization.objects.filter(id=organization_id).exists():
+            sync_members_to_billing.delay(organization_id)
+
+    transaction.on_commit(_sync_if_org_exists)
 
 
 @receiver(post_save, sender=Organization)

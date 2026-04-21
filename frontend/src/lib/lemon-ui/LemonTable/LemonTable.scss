@@ -126,6 +126,16 @@
         letter-spacing: 0.03125rem;
         background: var(--lemon-table-background-color);
 
+        > tr.LemonTable__loader-row > th.LemonTable__loader-host {
+            position: relative;
+            height: 0;
+            padding: 0 !important;
+            overflow: visible;
+            line-height: 0;
+            border: none !important;
+            box-shadow: none !important;
+        }
+
         > tr {
             > th {
                 padding-top: 0.5rem;

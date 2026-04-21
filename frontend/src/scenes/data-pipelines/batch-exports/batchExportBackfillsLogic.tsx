@@ -1,3 +1,4 @@
+// Loads and manages batch export backfills — listing, cancellation, and polling for estimates.
 import { actions, afterMount, connect, kea, key, listeners, path, props, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
@@ -6,37 +7,39 @@ import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { BatchExportBackfill, BatchExportConfiguration, RawBatchExportBackfill } from '~/types'
+import { BatchExportBackfill, RawBatchExportBackfill } from '~/types'
 
+import { batchExportBackfillModalLogic } from './batchExportBackfillModalLogic'
 import type { batchExportBackfillsLogicType } from './batchExportBackfillsLogicType'
+import { batchExportDataLogic } from './batchExportDataLogic'
+import { BatchExportContext } from './types'
 
 export interface BatchExportBackfillsLogicProps {
     id: string
-    batchExportConfig?: BatchExportConfiguration | null
+    context?: BatchExportContext
 }
 
 export const batchExportBackfillsLogic = kea<batchExportBackfillsLogicType>([
     props({} as BatchExportBackfillsLogicProps),
     key(({ id }) => id),
     path((key) => ['scenes', 'pipeline', 'batchExportBackfillsLogic', key]),
-    connect(() => ({
-        values: [teamLogic(), ['currentTeamId']],
+    connect((props: BatchExportBackfillsLogicProps) => ({
+        values: [
+            teamLogic(),
+            ['currentTeamId'],
+            batchExportDataLogic({ id: props.id }),
+            ['batchExportConfig', 'batchExportConfigLoading'],
+        ],
+        actions: [
+            batchExportBackfillModalLogic(props),
+            ['submitBackfillFormSuccess', 'openBackfillModal', 'backfillCreated'],
+        ],
     })),
     actions({
         loadBackfills: true,
         cancelBackfill: (backfill: BatchExportBackfill) => ({ backfill }),
-        openBackfillModal: true,
-        backfillCreated: (backfillId: string) => ({ backfillId }),
     }),
     loaders(({ props, values }) => ({
-        batchExportConfig: [
-            (props.batchExportConfig ?? null) as BatchExportConfiguration | null,
-            {
-                loadBatchExportConfig: async () => {
-                    return await api.batchExports.get(props.id)
-                },
-            },
-        ],
         backfillsPaginatedResponse: [
             null as PaginatedResponse<RawBatchExportBackfill> | null,
             {
@@ -70,6 +73,10 @@ export const batchExportBackfillsLogic = kea<batchExportBackfillsLogicType>([
         ],
     })),
     selectors({
+        recordLabel: [
+            () => [(_, props) => props],
+            (props: BatchExportBackfillsLogicProps): string => (props.context === 'hog_function' ? 'events' : 'rows'),
+        ],
         hasMoreBackfillsToLoad: [
             (s) => [s.backfillsPaginatedResponse],
             (backfillsPaginatedResponse) => !!backfillsPaginatedResponse?.next,
@@ -102,7 +109,7 @@ export const batchExportBackfillsLogic = kea<batchExportBackfillsLogicType>([
             },
         ],
     }),
-    listeners(({ actions, props }) => ({
+    listeners(({ actions, props, values }) => ({
         cancelBackfill: async ({ backfill }) => {
             try {
                 await api.batchExports.cancelBackfill(props.id, backfill.id)
@@ -111,6 +118,11 @@ export const batchExportBackfillsLogic = kea<batchExportBackfillsLogicType>([
             } catch {
                 lemonToast.error('Failed to cancel backfill. Please try again.')
             }
+        },
+        submitBackfillFormSuccess: () => {
+            setTimeout(() => {
+                actions.loadBackfills()
+            }, 1000)
         },
         backfillCreated: async ({ backfillId }, breakpoint) => {
             const MAX_POLL_ATTEMPTS = 10
@@ -127,11 +139,11 @@ export const batchExportBackfillsLogic = kea<batchExportBackfillsLogicType>([
                     if (backfill?.total_records_count != null) {
                         if (backfill.total_records_count === 0) {
                             lemonToast.warning(
-                                'No rows found to export for the selected time range. The backfill will finish with nothing to export.'
+                                `No ${values.recordLabel} found to export for the selected time range. The backfill will finish with nothing to export.`
                             )
                         } else {
                             lemonToast.info(
-                                `Estimated ~${backfill.total_records_count.toLocaleString()} rows to export`,
+                                `Estimated ~${backfill.total_records_count.toLocaleString()} ${values.recordLabel} to export`,
                                 {
                                     button: {
                                         label: 'Cancel backfill',
@@ -157,10 +169,7 @@ export const batchExportBackfillsLogic = kea<batchExportBackfillsLogicType>([
             }
         },
     })),
-    afterMount(({ actions, props }) => {
-        if (!props.batchExportConfig) {
-            actions.loadBatchExportConfig()
-        }
+    afterMount(({ actions }) => {
         actions.loadBackfills()
     }),
 ])

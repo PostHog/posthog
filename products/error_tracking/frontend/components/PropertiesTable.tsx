@@ -133,14 +133,14 @@ function getFilterableValue(value: unknown): string | number | boolean | null {
     return null
 }
 
-function renderValue(value: unknown): React.ReactNode {
+function renderValue(value: unknown, level = 0): React.ReactNode {
     if (Array.isArray(value)) {
-        return '[' + value.map(renderValue).join(', ') + ']'
+        return '[' + value.map((v) => renderValue(v, level + 1)).join(', ') + ']'
     } else if (value && typeof value === 'object') {
         return (
             '{' +
             Object.entries(value)
-                .map(([k, v]) => `${k}: ${renderValue(v)}`)
+                .map(([k, v]) => `${k}: ${renderValue(v, level + 1)}`)
                 .join(', ') +
             '}'
         )
@@ -178,6 +178,9 @@ function renderValue(value: unknown): React.ReactNode {
             )
         }
         if (/^https?:\/\/.+/.test(value)) {
+            if (level > 0) {
+                return value
+            }
             return (
                 <Link to={value as string} target="_blank">
                     {value}

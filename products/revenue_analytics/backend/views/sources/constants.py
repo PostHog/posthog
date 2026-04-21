@@ -1,0 +1,2 @@
+POSTHOG_PERSON_DISTINCT_ID_METADATA_KEY = "posthog_person_distinct_id"
+POSTHOG_PERSON_DISTINCT_ID_SOURCE_METADATA_KEY = "posthog_person_distinct_id_source"

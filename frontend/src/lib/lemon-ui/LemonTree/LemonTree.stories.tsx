@@ -1,4 +1,4 @@
-import { Meta, StoryFn, StoryObj } from '@storybook/react'
+import type { Meta, StoryObj } from '@storybook/react'
 import { useRef } from 'react'
 
 import { IconArchive, IconShieldPeople } from '@posthog/icons'
@@ -6,10 +6,10 @@ import { Link } from '@posthog/lemon-ui'
 
 import { LemonTree, LemonTreeProps } from './LemonTree'
 
-type Story = StoryObj<typeof LemonTree>
-const meta: Meta<typeof LemonTree> = {
+type Story = StoryObj<LemonTreeProps>
+const meta: Meta<LemonTreeProps> = {
     title: 'Lemon UI/Lemon Tree',
-    component: LemonTree,
+    component: LemonTree as any,
     args: {
         defaultNodeIcon: <IconArchive />,
         onFolderClick: (item) => {
@@ -197,40 +197,40 @@ const meta: Meta<typeof LemonTree> = {
         ],
     },
     tags: ['autodocs'],
+    render: (props: LemonTreeProps) => {
+        const ref = useRef<HTMLDivElement>(null)
+        return (
+            <div className="deprecated-space-y-4">
+                <Link to="https://posthog.com">PostHog</Link>
+                <div className="deprecated-space-y-1">
+                    <p>
+                        Keyboard navigation: when focused inside the tree, try [up] [right] [down] [left] [enter] [home]
+                        [end]
+                    </p>
+                    <p>
+                        Type-ahead search: when focused inside the tree, try typing the first few letters of a item and
+                        it will focus it
+                    </p>
+                </div>
+
+                <div className="w-full h-full grid grid-cols-[250px_1fr]">
+                    <LemonTree {...props} contentRef={ref} />
+                    <main
+                        className="p-4 focus-visible:ring-2 ring-accent ring-offset-1"
+                        ref={ref}
+                        role="main"
+                        tabIndex={-1}
+                    >
+                        <h1>Your scene here</h1>
+                        <Link to="https://posthog.com">some content link</Link>
+                    </main>
+                </div>
+            </div>
+        )
+    },
 }
 export default meta
 
-const BasicTemplate: StoryFn<typeof LemonTree> = (props: LemonTreeProps) => {
-    const ref = useRef<HTMLDivElement>(null)
-    return (
-        <div className="deprecated-space-y-4">
-            <Link to="https://posthog.com">PostHog</Link>
-            <div className="deprecated-space-y-1">
-                <p>
-                    Keyboard navigation: when focused inside the tree, try [up] [right] [down] [left] [enter] [home]
-                    [end]
-                </p>
-                <p>
-                    Type-ahead search: when focused inside the tree, try typing the first few letters of a item and it
-                    will focus it
-                </p>
-            </div>
-
-            <div className="w-full h-full grid grid-cols-[250px_1fr]">
-                <LemonTree {...props} contentRef={ref} />
-                <main
-                    className="p-4 focus-visible:ring-2 ring-accent ring-offset-1"
-                    ref={ref}
-                    role="main"
-                    tabIndex={-1}
-                >
-                    <h1>Your scene here</h1>
-                    <Link to="https://posthog.com">some content link</Link>
-                </main>
-            </div>
-        </div>
-    )
+export const Default: Story = {
+    args: {},
 }
-
-export const Default: Story = BasicTemplate.bind({})
-Default.args = {}

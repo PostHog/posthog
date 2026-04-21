@@ -9,13 +9,16 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 import { signupLogic } from '../signupLogic'
+import { TurnstileChallenge } from '../TurnstileChallenge'
 
 const UTM_TAGS = 'utm_campaign=in-product&utm_tag=signup-header'
 
 export function SignupPanelOnboarding(): JSX.Element | null {
     const { preflight } = useValues(preflightLogic)
     const { setSignupPanelOnboardingManualErrors } = useActions(signupLogic)
-    const { isSignupPanelOnboardingSubmitting } = useValues(signupLogic)
+    const { isSignupPanelOnboardingSubmitting, challengeRequired, turnstileSiteKey, turnstileToken, signupPanelEmail } =
+        useValues(signupLogic)
+    const { setTurnstileToken } = useActions(signupLogic)
 
     return (
         <div className="deprecated-space-y-4 Signup__panel__onboarding">
@@ -45,24 +48,33 @@ export function SignupPanelOnboarding(): JSX.Element | null {
                 <SignupReferralSource disabled={isSignupPanelOnboardingSubmitting} />
                 <div className="divider" />
 
-                <LemonButton
-                    fullWidth
-                    type="primary"
-                    center
-                    htmlType="submit"
-                    data-attr="signup-submit"
-                    onClick={() => setSignupPanelOnboardingManualErrors({})}
-                    loading={isSignupPanelOnboardingSubmitting}
-                    disabled={isSignupPanelOnboardingSubmitting}
-                    status="alt"
-                    size="large"
-                >
-                    {!preflight?.demo
-                        ? 'Create account'
-                        : !isSignupPanelOnboardingSubmitting
-                          ? 'Enter the demo environment'
-                          : 'Preparing demo data…'}
-                </LemonButton>
+                {challengeRequired && turnstileSiteKey ? (
+                    <TurnstileChallenge
+                        siteKey={turnstileSiteKey}
+                        onSuccess={setTurnstileToken}
+                        tokenReceived={!!turnstileToken}
+                        email={signupPanelEmail.email}
+                    />
+                ) : (
+                    <LemonButton
+                        fullWidth
+                        type="primary"
+                        center
+                        htmlType="submit"
+                        data-attr="signup-submit"
+                        onClick={() => setSignupPanelOnboardingManualErrors({})}
+                        loading={isSignupPanelOnboardingSubmitting}
+                        disabled={isSignupPanelOnboardingSubmitting}
+                        status="alt"
+                        size="large"
+                    >
+                        {!preflight?.demo
+                            ? 'Create account'
+                            : !isSignupPanelOnboardingSubmitting
+                              ? 'Enter the demo environment'
+                              : 'Preparing demo data…'}
+                    </LemonButton>
+                )}
             </Form>
 
             <div className="text-center text-secondary">

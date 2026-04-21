@@ -4,17 +4,34 @@ This module contains unit tests covering activities, workflows, and helper funct
 
 ## Testing BigQuery batch exports
 
-BigQuery batch exports can be tested against a real BigQuery instance, but doing so requires additional setup. For this reason, these tests are skipped unless an environment variable pointing to a BigQuery credentials file (`GOOGLE_APPLICATION_CREDENTIALS=/path/to/my/project-credentials.json`) is set.
+BigQuery batch exports can be tested against a real BigQuery instance, but doing so requires additional setup. BigQuery currently supports multiple authentication mechanisms:
+
+1. Authenticating directly with a JSON key file
+2. Using an integration populated with a JSON key file
+3. Using an integration without any keys to impersonate the account using our own credentials
+
+All tests still require a JSON key file for setup so, regardless of which authentication method is being tested, all these tests are skipped unless an environment variable pointing to a BigQuery credentials file (`GOOGLE_APPLICATION_CREDENTIALS=/path/to/my/project-credentials.json`) is set.
+
+Additionally, any tests that are specific to the 3rd authentication method in the list (impersonation) require AWS credentials to be available to `boto3`, and the following settings to be configured:
+
+- `BATCH_EXPORT_BIGQUERY_SERVICE_ACCOUNT`
+- `BATCH_EXPORT_BIGQUERY_STS_AUDIENCE_FIELD`
+
+For PostHog employees, development values for these settings are available in the PostHog password manager.
 
 > [!WARNING]
 > Since BigQuery batch export tests require additional setup, we skip them by default and will not be ran by automated CI pipelines. Please ensure these tests pass when making changes that affect BigQuery batch exports.
 
-To enable testing for BigQuery batch exports, we require:
+When starting from scratch, to enable testing for BigQuery batch exports, we require:
 
-1. A BigQuery project and dataset
-2. A BigQuery ServiceAccount with access to said project and dataset. See the [BigQuery batch export documentation](https://posthog.com/docs/cdp/batch-exports/bigquery#setting-up-bigquery-access) on detailed steps to setup a ServiceAccount.
+1. A BigQuery project
+2. A Google Cloud service account with BigQuery access in said project. See the [BigQuery batch export documentation](https://posthog.com/docs/cdp/batch-exports/bigquery#setting-up-bigquery-access) on detailed steps to setup a service account.
+3. A [JSON key file](https://cloud.google.com/iam/docs/keys-create-delete#creating) for the service account, saved to a local file.
+4. If testing impersonation:
+   - Another Google Cloud service account that can be used to impersonate the service account from the previous step is required.
+   - A workload identity federation provider and pool setup to grant access to this other service account.
 
-Then, a [key](https://cloud.google.com/iam/docs/keys-create-delete#creating) can be created for the BigQuery ServiceAccount and saved to a local file. For PostHog employees, this file should already be available under the PostHog password manager.
+For PostHog employees, all of this is already setup for you. You can obtain a JSON key file, and the necessary values for the settings detailed above from the PostHog password manager.
 
 Tests for BigQuery batch exports can be then run from the root of the `posthog` repo:
 

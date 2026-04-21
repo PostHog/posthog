@@ -9,6 +9,7 @@ import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
 import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
 import { isEmptyObject, isObject } from 'lib/utils'
 import { InsightEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { isDashboardFilterEmpty } from 'scenes/dashboard/dashboardFilterEmpty'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { createEmptyInsight, insightLogic } from 'scenes/insights/insightLogic'
 import { insightLogicType } from 'scenes/insights/insightLogicType'
@@ -24,7 +25,7 @@ import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePane
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
 import { getDefaultQuery } from '~/queries/nodes/InsightViz/utils'
 import { DashboardFilter, FileSystemIconType, HogQLVariable, Node, TileFilters } from '~/queries/schema/schema-general'
-import { checkLatestVersionsOnQuery } from '~/queries/utils'
+import { checkLatestVersionsOnQuery, convertDataTableNodeToDataVisualizationNode } from '~/queries/utils'
 import {
     ActivityScope,
     Breadcrumb,
@@ -49,16 +50,6 @@ export type InsightId = InsightShortId | typeof NEW_INSIGHT | null
 
 export interface InsightSceneLogicProps {
     tabId?: string
-}
-
-function isDashboardFilterEmpty(filter: DashboardFilter | null): boolean {
-    return (
-        !filter ||
-        (filter.date_from == null &&
-            filter.date_to == null &&
-            (filter.properties == null || (Array.isArray(filter.properties) && filter.properties.length === 0)) &&
-            filter.breakdown_filter == null)
-    )
 }
 
 function normalizeItemId(itemId: string | undefined): string | number | null {
@@ -347,26 +338,19 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                           },
                           access_control_resource: 'insight',
                           access_control_resource_id: `${insight.id}`,
+                          settings_section: 'project-product-analytics',
                       }
-                    : null
+                    : { settings_section: 'project-product-analytics' }
             },
         ],
         maxContext: [
-            (s) => [s.insight, s.filtersOverride, s.variablesOverride, s.insightData],
-            (
-                insight: Partial<QueryBasedInsightModel>,
-                filtersOverride,
-                variablesOverride,
-                insightData
-            ): MaxContextInput[] => {
+            (s) => [s.insight, s.filtersOverride, s.variablesOverride],
+            (insight: Partial<QueryBasedInsightModel>, filtersOverride, variablesOverride): MaxContextInput[] => {
                 if (!insight || !insight.short_id || !insight.query) {
                     return []
                 }
-                // Merge the latest result from insightDataLogic (more up-to-date than insight.result)
-                const insightWithResult =
-                    insightData?.result != null ? { ...insight, result: insightData.result } : insight
                 return [
-                    createMaxContextHelpers.insight(insightWithResult, {
+                    createMaxContextHelpers.insight(insight, {
                         filtersOverride: filtersOverride ?? undefined,
                         variablesOverride: variablesOverride ?? undefined,
                     }),
@@ -376,17 +360,25 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
         hasOverrides: [
             (s) => [s.filtersOverride, s.variablesOverride, s.tileFiltersOverride],
             (filtersOverride, variablesOverride, tileFiltersOverride) =>
-                (isObject(filtersOverride) && !isEmptyObject(filtersOverride)) ||
+                !isDashboardFilterEmpty(filtersOverride) ||
                 (isObject(variablesOverride) && !isEmptyObject(variablesOverride)) ||
-                (isObject(tileFiltersOverride) && !isEmptyObject(tileFiltersOverride)),
+                !isDashboardFilterEmpty(tileFiltersOverride),
         ],
     }),
     sharedListeners(({ actions, values }) => ({
+        /**
+         * The editor must show the insight in the URL and the tile the user opened—not a different saved insight.
+         * After "Save as" from a dashboard, the tile still belongs to the original; if we kept the wrong editor
+         * state, going back and editing that tile could show the copy instead. Remount when those disagree, and
+         * when the URL insight does not match which insight this editor was opened from.
+         */
         reloadInsightLogic: () => {
             const logicInsightId = values.insight?.short_id ?? null
             const insightId = values.insightId ?? null
+            const mountedDashboardItemId = values.insightLogicRef?.logic.props.dashboardItemId ?? null
+            const propsMismatch = Boolean(insightId && mountedDashboardItemId && mountedDashboardItemId !== insightId)
 
-            if (logicInsightId !== insightId) {
+            if (logicInsightId !== insightId || propsMismatch) {
                 const oldRef = values.insightLogicRef // free old logic after mounting new one
                 const oldRef2 = values.insightDataLogicRef // free old logic after mounting new one
                 if (insightId) {
@@ -444,6 +436,8 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
             } else {
                 upgradedQuery = query
             }
+
+            upgradedQuery = convertDataTableNodeToDataVisualizationNode(upgradedQuery)
 
             if (values.insightId === 'new' || values.insightId?.startsWith('new-')) {
                 values.insightLogicRef?.logic.actions.setInsight(

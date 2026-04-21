@@ -1,9 +1,10 @@
 from products.data_warehouse.backend.types import ExternalDataSourceType
-from products.signals.eval.data_spec import EvalGroupSpec, EvalSignalSpec
+from products.signals.eval.data_spec import ERROR_TRACKING, EvalGroupSpec, EvalSignalSpec
 
 Z = ExternalDataSourceType.ZENDESK
 G = ExternalDataSourceType.GITHUB
 L = ExternalDataSourceType.LINEAR
+E = ERROR_TRACKING
 
 GROUP_DATA = [
     # --- Group 0: Date picker timezone bug (3 signals, mixed sources) ---
@@ -1450,6 +1451,372 @@ GROUP_DATA = [
                     "This gives us a 10x throughput improvement. The permission bypass on cache hits is "
                     "safe because the data was authorized when originally cached."
                 ),
+            ),
+        ],
+    ),
+    # ==================================================================================
+    # ERROR TRACKING SIGNALS — groups 41–46
+    # ==================================================================================
+    # ==================================================================================
+    # --- Group 41: ClickHouse query memory limit exceeded in marketing analytics (3 signals, error tracking only) ---
+    EvalGroupSpec(
+        scenario="Marketing analytics queries hit ClickHouse memory limits during ArrayJoinTransform execution",
+        signals=[
+            EvalSignalSpec(
+                source=E,
+                title="ServerException: DB::Exception: Query memory limit exceeded",
+                body=(
+                    "ServerException: DB::Exception: Query memory limit exceeded: would use 44.51 GiB "
+                    "(attempt to allocate chunk of 42.23 GiB), maximum: 42.00 GiB: While executing "
+                    "ArrayJoinTransform. Stack trace:\n\n"
+                    "0. DB::Exception::Exception(DB::Exception::MessageMasked&&, int, bool) @ 0x0000000012c10790\n"
+                    "1. DB::Exception::Exception(Stri\n"
+                    "sync_execute in posthog/clickhouse/client/execute.py line 350\n"
+                    "execute in clickhouse_driver/client.py line 382\n"
+                    "process_ordinary_query in clickhouse_driver/client.py line 580\n"
+                    "receive_result in clickhouse_driver/client.py line 212\n"
+                    "ClickHouseQueryMemoryLimitExceeded: Query has reached the max memory limit before completing.\n"
+                    "new_context in posthoganalytics/contexts.py line 169\n"
+                    "run in posthog/hogql_queries/query_runner.py line 1340\n"
+                    "calculate in posthog/hogql_queries/query_runner.py line 1819\n"
+                    "_calculate in products/marketing_analytics/backend/hogql_queries/"
+                    "marketing_analytics_aggregated_query_runner.py line 138\n"
+                    "execute_hogql_query in posthog/hogql/query.py line 681\n"
+                    "sync_execute in posthog/clickhouse/client/execute.py line 372"
+                ),
+                source_type_override="issue_created",
+            ),
+            EvalSignalSpec(
+                source=E,
+                title="ServerException: DB::Exception: Query memory limit exceeded",
+                body=(
+                    "ServerException: DB::Exception: Query memory limit exceeded: would use 44.66 GiB "
+                    "(attempt to allocate chunk of 42.23 GiB), maximum: 42.00 GiB: While executing "
+                    "ArrayJoinTransform. Stack trace:\n\n"
+                    "0. DB::Exception::Exception(DB::Exception::MessageMasked&&, int, bool) @ 0x0000000012c10790\n"
+                    "1. DB::Exception::Exception(Stri\n"
+                    "sync_execute in posthog/clickhouse/client/execute.py line 350\n"
+                    "execute in clickhouse_driver/client.py line 382\n"
+                    "process_ordinary_query in clickhouse_driver/client.py line 580\n"
+                    "receive_result in clickhouse_driver/client.py line 212\n"
+                    "ClickHouseQueryMemoryLimitExceeded: Query has reached the max memory limit before completing.\n"
+                    "new_context in posthoganalytics/contexts.py line 169\n"
+                    "run in posthog/hogql_queries/query_runner.py line 1340\n"
+                    "calculate in posthog/hogql_queries/query_runner.py line 1819\n"
+                    "_calculate in products/marketing_analytics/backend/hogql_queries/"
+                    "marketing_analytics_table_query_runner.py line 66\n"
+                    "execute_hogql_query in posthog/hogql/query.py line 681\n"
+                    "sync_execute in posthog/clickhouse/client/execute.py line 372"
+                ),
+                source_type_override="issue_spiking",
+            ),
+            EvalSignalSpec(
+                source=E,
+                title="ServerException: DB::Exception: Query memory limit exceeded",
+                body=(
+                    "ServerException: DB::Exception: Query memory limit exceeded: would use 45.69 GiB "
+                    "(attempt to allocate chunk of 42.23 GiB), maximum: 42.00 GiB: While executing "
+                    "ArrayJoinTransform. Stack trace:\n\n"
+                    "0. DB::Exception::Exception(DB::Exception::MessageMasked&&, int, bool) @ 0x0000000012c10790\n"
+                    "1. DB::Exception::Exception(Stri\n"
+                    "sync_execute in posthog/clickhouse/client/execute.py line 350\n"
+                    "execute in clickhouse_driver/client.py line 382\n"
+                    "process_ordinary_query in clickhouse_driver/client.py line 580\n"
+                    "receive_result in clickhouse_driver/client.py line 212\n"
+                    "ClickHouseQueryMemoryLimitExceeded: Query has reached the max memory limit before completing.\n"
+                    "new_context in posthoganalytics/contexts.py line 169\n"
+                    "run in posthog/hogql_queries/query_runner.py line 1340\n"
+                    "calculate in posthog/hogql_queries/query_runner.py line 1819\n"
+                    "_calculate in products/marketing_analytics/backend/hogql_queries/"
+                    "non_integrated_conversions_table_query_runner.py line 81\n"
+                    "execute_hogql_query in posthog/hogql/query.py line 681\n"
+                    "sync_execute in posthog/clickhouse/client/execute.py line 372"
+                ),
+                source_type_override="issue_spiking",
+            ),
+        ],
+    ),
+    # --- Group 42: Missing/unknown logs infrastructure tables (3 signals, error tracking only) ---
+    EvalGroupSpec(
+        scenario="Logs infrastructure ClickHouse tables are missing or unrecognized, breaking log queries and metrics",
+        signals=[
+            EvalSignalSpec(
+                source=E,
+                title="ServerException: DB::Exception: Unknown table expression identifier 'log_attributes'",
+                body=(
+                    "ServerException: DB::Exception: Unknown table expression identifier 'log_attributes' "
+                    "in scope (SELECT log_attributes.resource_fingerprint AS resource_fingerprint FROM "
+                    "log_attributes WHERE and(equals(log_attributes.team_id, 1), greaterOrEquals("
+                    "log_attributes.time_bucket, toStartOfInterval(assumeNotNull(toDateTime('20\n"
+                    "sync_execute in posthog/clickhouse/client/execute.py line 350\n"
+                    "execute in clickhouse_driver/client.py line 382\n"
+                    "CHQueryErrorUnknownTable: DB::Exception: Unknown table expression identifier 'log_attributes'\n"
+                    "new_context in posthoganalytics/contexts.py line 169\n"
+                    "run in posthog/hogql_queries/query_runner.py line 1340\n"
+                    "calculate in posthog/hogql_queries/query_runner.py line 1819\n"
+                    "_calculate in products/logs/backend/sparkline_query_runner.py line 22\n"
+                    "execute_hogql_query in posthog/hogql/query.py line 681\n"
+                    "sync_execute in posthog/clickhouse/client/execute.py line 372"
+                ),
+                source_type_override="issue_created",
+            ),
+            EvalSignalSpec(
+                source=E,
+                title="ServerException: DB::Exception: Table default.log_attributes does not exist",
+                body=(
+                    "ServerException: DB::Exception: Table default.log_attributes does not exist. "
+                    "Maybe you meant default.log_attributes_old?. Stack trace:\n\n"
+                    "0. DB::Exception::Exception(DB::Exception::MessageMasked&&, int, bool) @ 0x000000001652152a\n"
+                    "1. DB::Exception::Exception(String&&, int, String, bool) @ 0x000000000deab98e\n"
+                    "sync_execute in posthog/clickhouse/client/execute.py line 350\n"
+                    "CHQueryErrorUnknownTable: DB::Exception: Table default.log_attributes does not exist.\n"
+                    "dispatch in rest_framework/views.py line 512\n"
+                    "attributes in products/logs/backend/api.py line 300\n"
+                    "calculate in posthog/hogql_queries/query_runner.py line 1819\n"
+                    "_calculate in products/logs/backend/log_attributes_query_runner.py line 95\n"
+                    "execute_hogql_query in posthog/hogql/query.py line 681\n"
+                    "sync_execute in posthog/clickhouse/client/execute.py line 372"
+                ),
+                source_type_override="issue_spiking",
+            ),
+            EvalSignalSpec(
+                source=E,
+                title="ServerException: DB::Exception: Unknown table expression identifier 'logs_kafka_metrics'",
+                body=(
+                    "ServerException: DB::Exception: Unknown table expression identifier 'logs_kafka_metrics' "
+                    "in scope (SELECT min(logs_kafka_metrics.max_observed_timestamp) AS "
+                    "`min(max_observed_timestamp)` FROM logs_kafka_metrics) AS live_logs_checkpoint. "
+                    "Stack trace:\n\n"
+                    "0. DB::Exception::Exception(DB::Exception::MessageMasked&&, int, bool)\n"
+                    "sync_execute in posthog/clickhouse/client/execute.py line 350\n"
+                    "CHQueryErrorUnknownTable: DB::Exception: Unknown table expression identifier "
+                    "'logs_kafka_metrics'\n"
+                    "new_context in posthoganalytics/contexts.py line 169\n"
+                    "run in posthog/hogql_queries/query_runner.py line 1340\n"
+                    "calculate in posthog/hogql_queries/query_runner.py line 1819\n"
+                    "_calculate in products/logs/backend/logs_query_runner.py line 418\n"
+                    "execute_hogql_query in posthog/hogql/query.py line 681\n"
+                    "sync_execute in posthog/clickhouse/client/execute.py line 372"
+                ),
+                source_type_override="issue_created",
+            ),
+        ],
+    ),
+    # --- Group 43: Toolbar Failed to fetch (2 signals, error tracking only) ---
+    EvalGroupSpec(
+        scenario="PostHog toolbar network requests fail with TypeError across different ingestion hosts",
+        signals=[
+            EvalSignalSpec(
+                source=E,
+                title="TypeError: Failed to fetch (eu.i.posthog.com)",
+                body=(
+                    "TypeError: Failed to fetch (eu.i.posthog.com)\n"
+                    "MessagePort.rst in /ph/static/toolbar.js line 7 column 52804\n"
+                    "lst in /ph/static/toolbar.js line 7 column 52393\n"
+                    "MKt in /ph/static/toolbar.js line 14 column 35276\n"
+                    "AEe in /ph/static/toolbar.js line 14 column 40328\n"
+                    "yli in /ph/static/toolbar.js line 14 column 40481\n"
+                    "GKt in /ph/static/toolbar.js line 14 column 40558\n"
+                    "DKt in /ph/static/toolbar.js line 14 column 45007\n"
+                    "$lt in /ph/static/toolbar.js line 12 column 17276\n"
+                    "DPr in /ph/static/toolbar.js line 3761 column 30678\n"
+                    "Pii in /ph/static/toolbar.js line 3 column 7763\n"
+                    "sie in /ph/static/toolbar.js line 3 column 8385\n"
+                    "oie in /ph/static/toolbar.js line 3 column 8820\n"
+                    "? in /ph/static/toolbar.js line 3 column 8412\n"
+                    "Object.mount in /ph/static/toolbar.js line 3 column 28425\n"
+                    "hoi in /ph/static/toolbar.js line 3 column 26593\n"
+                    "t.events.<computed> [as afterMount] in /ph/static/toolbar.js line 3 column 11762\n"
+                    "afterMount in /ph/static/toolbar.js line 3 column 11910"
+                ),
+                source_type_override="issue_created",
+            ),
+            EvalSignalSpec(
+                source=E,
+                title="TypeError: Failed to fetch (eu.posthog.com)",
+                body=(
+                    "TypeError: Failed to fetch (eu.posthog.com)\n"
+                    "MessagePort.rst in /ingest/static/toolbar.js line 7 column 52804\n"
+                    "lst in /ingest/static/toolbar.js line 7 column 52393\n"
+                    "MKt in /ingest/static/toolbar.js line 14 column 35276\n"
+                    "AEe in /ingest/static/toolbar.js line 14 column 40328\n"
+                    "yli in /ingest/static/toolbar.js line 14 column 40481\n"
+                    "GKt in /ingest/static/toolbar.js line 14 column 40558\n"
+                    "DKt in /ingest/static/toolbar.js line 14 column 45007\n"
+                    "$lt in /ingest/static/toolbar.js line 12 column 17276\n"
+                    "DPr in /ingest/static/toolbar.js line 3761 column 30678\n"
+                    "Pii in /ingest/static/toolbar.js line 3 column 7763\n"
+                    "sie in /ingest/static/toolbar.js line 3 column 8385\n"
+                    "oie in /ingest/static/toolbar.js line 3 column 8820\n"
+                    "? in /ingest/static/toolbar.js line 3 column 8412\n"
+                    "Object.mount in /ingest/static/toolbar.js line 3 column 28425\n"
+                    "hoi in /ingest/static/toolbar.js line 3 column 26593\n"
+                    "t.events.<computed> [as afterMount] in /ingest/static/toolbar.js line 3 column 11762\n"
+                    "afterMount in /ingest/static/toolbar.js line 3 column 11910"
+                ),
+                source_type_override="issue_spiking",
+            ),
+        ],
+    ),
+    # --- Group 44: HogQL field resolution errors (3 signals, mixed error tracking + Zendesk) ---
+    EvalGroupSpec(
+        scenario="HogQL resolver fails to resolve field references, returning 'Unable to resolve field' errors across different query contexts",
+        signals=[
+            EvalSignalSpec(
+                source=E,
+                title="QueryError: Unable to resolve field: properties_group_custom",
+                body=(
+                    "QueryError: Unable to resolve field: properties_group_custom\n"
+                    "new_context in posthoganalytics/contexts.py line 169\n"
+                    "run in posthog/hogql_queries/query_runner.py line 1340\n"
+                    "execute_blocking in posthog/hogql_queries/query_runner.py line 1328\n"
+                    "calculate in posthog/hogql_queries/query_runner.py line 1819\n"
+                    "_calculate in posthog/hogql_queries/insights/trends/trends_query_runner.py line 412\n"
+                    "run in posthog/hogql_queries/insights/trends/trends_query_runner.py line 362\n"
+                    "execute_hogql_query in posthog/hogql/query.py line 681\n"
+                    "_prepare_execution in posthog/hogql/query.py line 576\n"
+                    "_generate_clickhouse_sql in posthog/hogql/query.py line 529\n"
+                    "resolve_types in posthog/hogql/resolver.py line 103\n"
+                    "visit_field in posthog/hogql/resolver.py line 985"
+                ),
+                source_type_override="issue_created",
+            ),
+            EvalSignalSpec(
+                source=E,
+                title="QueryError: Unable to resolve field: person",
+                body=(
+                    "QueryError: Unable to resolve field: person\n"
+                    "new_context in posthoganalytics/contexts.py line 169\n"
+                    "run in posthog/hogql_queries/query_runner.py line 1340\n"
+                    "execute_blocking in posthog/hogql_queries/query_runner.py line 1328\n"
+                    "calculate in posthog/hogql_queries/query_runner.py line 1819\n"
+                    "_calculate in posthog/hogql_queries/groups/groups_query_runner.py line 139\n"
+                    "execute_hogql_query in posthog/hogql/query.py line 681\n"
+                    "_prepare_execution in posthog/hogql/query.py line 569\n"
+                    "_generate_hogql in posthog/hogql/query.py line 287\n"
+                    "resolve_types in posthog/hogql/resolver.py line 103\n"
+                    "visit_field in posthog/hogql/resolver.py line 1017\n"
+                    "get_child in posthog/hogql/ast.py line 628"
+                ),
+                source_type_override="issue_spiking",
+            ),
+            EvalSignalSpec(
+                source=Z,
+                title="Custom property filters not working in insights",
+                body=(
+                    "We created custom group properties (like 'company_plan' and 'company_region') and "
+                    "they show up correctly in the property filter dropdown. But when we apply them to a "
+                    "trends insight, we get an error: 'Unable to resolve field'. This happens for all our "
+                    "custom group properties but built-in properties like 'name' work fine. We're using "
+                    "group analytics on the Scale plan. Our group type is 'company' (group type index 0)."
+                ),
+            ),
+        ],
+    ),
+    # --- Group 45: DataVisualizationNode query kind errors (2 signals, error tracking only) ---
+    EvalGroupSpec(
+        scenario="DataVisualizationNode and InsightVizNode queries fail because the query runner doesn't recognize the node type",
+        signals=[
+            EvalSignalSpec(
+                source=E,
+                title="ValueError: Can't get a runner for an unknown query kind: DataVisualizationNode",
+                body=(
+                    "ValueError: Can't get a runner for an unknown query kind: DataVisualizationNode\n"
+                    "process_query_model in posthog/api/services/query.py line 181\n"
+                    "get_query_runner in posthog/hogql_queries/query_runner.py line 888\n"
+                    "QueryError: Aggregation 'minIf' cannot be nested inside another aggregation 'countIf'.\n"
+                    "new_context in posthoganalytics/contexts.py line 169\n"
+                    "run in posthog/hogql_queries/query_runner.py line 1340\n"
+                    "calculate in posthog/hogql_queries/query_runner.py line 1819\n"
+                    "_calculate in posthog/hogql_queries/hogql_query_runner.py line 112\n"
+                    "execute_hogql_query in posthog/hogql/query.py line 681\n"
+                    "visit_select_query in posthog/hogql/printer/base.py line 193\n"
+                    "visit_call in posthog/hogql/printer/base.py line 652\n"
+                    "visit_call in posthog/hogql/printer/base.py line 648"
+                ),
+                source_type_override="issue_spiking",
+            ),
+            EvalSignalSpec(
+                source=E,
+                title="ValueError: Can't get a runner for an unknown query kind: InsightVizNode",
+                body=(
+                    "ValueError: Can't get a runner for an unknown query kind: InsightVizNode\n"
+                    "process_query_model in posthog/api/services/query.py line 181\n"
+                    "get_query_runner in posthog/hogql_queries/query_runner.py line 888\n"
+                    "new_context in posthoganalytics/contexts.py line 169\n"
+                    "run in posthog/hogql_queries/query_runner.py line 1340\n"
+                    "execute_blocking in posthog/hogql_queries/query_runner.py line 1328\n"
+                    "_execute_and_cache_blocking in posthog/hogql_queries/query_runner.py line 1369\n"
+                    "_call_with_rate_limits in posthog/hogql_queries/query_runner.py line 1192\n"
+                    "calculate in posthog/hogql_queries/query_runner.py line 1819"
+                ),
+                source_type_override="issue_created",
+            ),
+        ],
+    ),
+    # --- Group 46: Visual review DB connection timeouts (3 signals, error tracking only) ---
+    EvalGroupSpec(
+        scenario="Visual review backend hits PostgreSQL connection timeouts across multiple API endpoints due to database unreachability",
+        signals=[
+            EvalSignalSpec(
+                source=E,
+                title="ConnectionTimeout: connection timeout expired",
+                body=(
+                    "ConnectionTimeout: connection timeout expired\n"
+                    "ensure_connection in django/db/backends/base/base.py line 288\n"
+                    "inner in django/utils/asyncio.py line 26\n"
+                    "connect in django/db/backends/base/base.py line 269\n"
+                    "get_new_connection in django/db/backends/postgresql/base.py line 275\n"
+                    "OperationalError: connection timeout expired\n"
+                    "dispatch in rest_framework/views.py line 512\n"
+                    "list in products/visual_review/backend/presentation/views.py line 136\n"
+                    "list_runs in products/visual_review/backend/facade/api.py line 138\n"
+                    "__iter__ in django/db/models/query.py line 400\n"
+                    "_fetch_all in django/db/models/query.py line 1886\n"
+                    "execute_sql in django/db/models/sql/compiler.py line 1560\n"
+                    "ensure_connection in django/db/backends/base/base.py line 287"
+                ),
+                source_type_override="issue_spiking",
+            ),
+            EvalSignalSpec(
+                source=E,
+                title="ConnectionTimeout: connection timeout expired",
+                body=(
+                    "ConnectionTimeout: connection timeout expired\n"
+                    "ensure_connection in django/db/backends/base/base.py line 288\n"
+                    "inner in django/utils/asyncio.py line 26\n"
+                    "connect in django/db/backends/base/base.py line 269\n"
+                    "get_new_connection in django/db/backends/postgresql/base.py line 275\n"
+                    "OperationalError: connection timeout expired\n"
+                    "dispatch in rest_framework/views.py line 512\n"
+                    "counts in products/visual_review/backend/presentation/views.py line 147\n"
+                    "get_review_state_counts in products/visual_review/backend/facade/api.py line 142\n"
+                    "get_review_state_counts in products/visual_review/backend/logic.py line 208\n"
+                    "aggregate in django/db/models/query.py line 594\n"
+                    "execute_sql in django/db/models/sql/compiler.py line 1560\n"
+                    "ensure_connection in django/db/backends/base/base.py line 287"
+                ),
+                source_type_override="issue_spiking",
+            ),
+            EvalSignalSpec(
+                source=E,
+                title="ConnectionTimeout: connection timeout expired",
+                body=(
+                    "ConnectionTimeout: connection timeout expired\n"
+                    "ensure_connection in django/db/backends/base/base.py line 288\n"
+                    "inner in django/utils/asyncio.py line 26\n"
+                    "connect in django/db/backends/base/base.py line 269\n"
+                    "get_new_connection in django/db/backends/postgresql/base.py line 275\n"
+                    "OperationalError: connection timeout expired\n"
+                    "dispatch in rest_framework/views.py line 512\n"
+                    "list in products/visual_review/backend/presentation/views.py line 66\n"
+                    "list_repos in products/visual_review/backend/facade/api.py line 115\n"
+                    "list_repos_for_team in products/visual_review/backend/logic.py line 80\n"
+                    "__iter__ in django/db/models/query.py line 400\n"
+                    "execute_sql in django/db/models/sql/compiler.py line 1560\n"
+                    "ensure_connection in django/db/backends/base/base.py line 287"
+                ),
+                source_type_override="issue_created",
             ),
         ],
     ),

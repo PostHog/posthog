@@ -119,31 +119,36 @@ const Component = ({
         return null
     }
 
+    const isInsightViz = isInsightVizNode(modifiedQuery) || isSavedInsightNode(modifiedQuery)
+
+    const queryComponent = (
+        <Query
+            uniqueKey={nodeId + '-component'}
+            query={modifiedQuery}
+            attachTo={notebookLogic}
+            setQuery={(t) => {
+                updateAttributes({
+                    query: {
+                        ...attributes.query,
+                        source: (t as DataTableNode | InsightVizNode).source,
+                    } as QuerySchema,
+                })
+            }}
+            embedded
+            readOnly
+        />
+    )
+
     return (
         <div className="flex flex-1 flex-col h-full" data-attr="notebook-node-query">
             <BindLogic logic={insightLogic} props={insightLogicProps}>
-                <ScrollableShadows
-                    direction="vertical"
-                    className="flex-1"
-                    hideScrollbars={isInsightVizNode(modifiedQuery) || isSavedInsightNode(modifiedQuery)}
-                >
-                    <Query
-                        // use separate keys for the settings and visualization to avoid conflicts with insightProps
-                        uniqueKey={nodeId + '-component'}
-                        query={modifiedQuery}
-                        attachTo={notebookLogic}
-                        setQuery={(t) => {
-                            updateAttributes({
-                                query: {
-                                    ...attributes.query,
-                                    source: (t as DataTableNode | InsightVizNode).source,
-                                } as QuerySchema,
-                            })
-                        }}
-                        embedded
-                        readOnly
-                    />
-                </ScrollableShadows>
+                {isInsightViz ? (
+                    <div className="flex flex-1 flex-col overflow-hidden">{queryComponent}</div>
+                ) : (
+                    <ScrollableShadows direction="vertical" className="flex-1">
+                        {queryComponent}
+                    </ScrollableShadows>
+                )}
             </BindLogic>
         </div>
     )

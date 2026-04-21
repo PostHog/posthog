@@ -1,5 +1,5 @@
 import dataclasses
-from typing import Optional, TypeVar
+from typing import Optional, TypeVar, cast
 
 from dateutil.parser import isoparse
 
@@ -7,12 +7,15 @@ from posthog.schema import HogQLFilters, SessionPropertyFilter
 
 from posthog.hogql import ast
 from posthog.hogql.database.database import Database
+from posthog.hogql.database.models import Table
+from posthog.hogql.database.schema.ai_events import AiEventsTable
 from posthog.hogql.database.schema.events import EventsTable
 from posthog.hogql.database.schema.groups import GroupsTable
 from posthog.hogql.database.schema.logs import LogAttributesTable, LogsTable
 from posthog.hogql.database.schema.sessions_v1 import SessionsTableV1
 from posthog.hogql.database.schema.sessions_v2 import SessionsTableV2
 from posthog.hogql.database.schema.sessions_v3 import SessionsTableV3
+from posthog.hogql.database.schema.spans import TraceSpansTable
 from posthog.hogql.errors import QueryError
 from posthog.hogql.property import property_to_expr
 from posthog.hogql.visitor import CloningVisitor
@@ -21,6 +24,7 @@ from posthog.models import Team
 from posthog.utils import relative_date_parse
 
 T = TypeVar("T", bound=ast.Expr)
+DEFAULT_TEAM = cast(Team, None)
 
 
 @dataclasses.dataclass
@@ -36,7 +40,12 @@ def replace_filters(node: T, filters: Optional[HogQLFilters], team: Team, databa
 
 
 class ReplaceFilters(CloningVisitor):
-    def __init__(self, filters: Optional[HogQLFilters], team: Team = None, database: Optional[Database] = None):
+    def __init__(
+        self,
+        filters: Optional[HogQLFilters],
+        team: Team = DEFAULT_TEAM,
+        database: Optional[Database] = None,
+    ):
         super().__init__()
         self.filters = filters
         self.team = team
@@ -44,7 +53,7 @@ class ReplaceFilters(CloningVisitor):
         self.selects: list[ast.SelectQuery] = []
         self.compare_operations: list[CompareOperationWrapper] = []
 
-    def _resolve_table(self, chain: list) -> Optional[object]:
+    def _resolve_table(self, chain: list) -> Optional[Table]:
         """Resolve an AST field chain to the underlying database table, or None if not found."""
         if self.database is None:
             return None
@@ -80,25 +89,28 @@ class ReplaceFilters(CloningVisitor):
             found_events = False
             found_sessions = False
             found_logs = False
+            found_traces = False
             found_groups = False
             while last_join is not None:
                 if isinstance(last_join.table, ast.Field):
                     resolved = self._resolve_table(last_join.table.chain)
-                    if isinstance(resolved, EventsTable):
+                    if isinstance(resolved, (EventsTable, AiEventsTable)):
                         found_events = True
                     if isinstance(resolved, SessionsTableV1 | SessionsTableV2 | SessionsTableV3):
                         found_sessions = True
                     if isinstance(resolved, (LogsTable, LogAttributesTable)):
                         found_logs = True
+                    if isinstance(resolved, TraceSpansTable):
+                        found_traces = True
                     if isinstance(resolved, GroupsTable):
                         found_groups = True
                     if found_events and found_sessions or found_groups:
                         break
                 last_join = last_join.next_join
 
-            if not any([found_events, found_sessions, found_logs, found_groups]):
+            if not any([found_events, found_sessions, found_logs, found_traces, found_groups]):
                 raise QueryError(
-                    "Cannot use 'filters' placeholder in a SELECT clause that does not select from the events, sessions, logs or groups table."
+                    f"Cannot use 'filters' placeholder in a SELECT clause that does not select from the events, sessions, logs, traces or groups table."
                 )
 
             if no_filters:
@@ -125,7 +137,7 @@ class ReplaceFilters(CloningVisitor):
                     exprs.append(property_to_expr(self.filters.properties, self.team, scope="event"))
 
             timestamp_field = ast.Field(chain=["$start_timestamp"])
-            if found_events or found_logs:
+            if found_events or found_logs or found_traces:
                 timestamp_field = ast.Field(chain=["timestamp"])
             if found_groups:
                 timestamp_field = ast.Field(chain=["created_at"])

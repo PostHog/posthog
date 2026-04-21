@@ -1,4 +1,4 @@
-import { Meta, StoryFn, StoryObj } from '@storybook/react'
+import type { Meta, StoryObj } from '@storybook/react'
 import { useMountedLogic } from 'kea'
 
 import { SeriesLetter } from 'lib/components/SeriesGlyph'
@@ -57,8 +57,8 @@ const data = {
     ],
 }
 
-type Story = StoryObj<typeof InsightTooltip>
-const meta: Meta<typeof InsightTooltip> = {
+type Story = StoryObj<InsightTooltipProps>
+const meta: Meta<InsightTooltipProps> = {
     title: 'Components/InsightTooltip',
     component: InsightTooltip,
     args: {
@@ -71,151 +71,152 @@ const meta: Meta<typeof InsightTooltip> = {
         groupTypeLabel: 'people',
     },
     tags: ['test-skip'], // FIXME: The InWrapper story fails at locator.screenshot() for some reason
+    render: (props) => {
+        useMountedLogic(cohortsModel)
+
+        return <InsightTooltip {...props} />
+    },
 }
 export default meta
 
-const BasicTemplate: StoryFn<typeof InsightTooltip> = (props: InsightTooltipProps) => {
-    useMountedLogic(cohortsModel)
-
-    return <InsightTooltip {...props} />
+export const Default: Story = {
+    args: {},
 }
 
-export const Default: Story = BasicTemplate.bind({})
-Default.args = {}
-
-export const Columns: Story = BasicTemplate.bind({})
-Columns.args = {
-    seriesData: [
-        {
-            id: 0,
-            dataIndex: 3,
-            datasetIndex: 2,
-            order: 1,
-            dotted: false,
-            breakdown_value: 'Safari',
-            action: {
-                days: [
-                    '2025-05-29T00:00:00Z',
-                    '2025-05-30T00:00:00Z',
-                    '2025-05-31T00:00:00Z',
-                    '2025-06-01T00:00:00Z',
-                    '2025-06-02T00:00:00Z',
-                    '2025-06-03T00:00:00Z',
-                    '2025-06-04T00:00:00Z',
-                    '2025-06-05T00:00:00Z',
-                ],
-                id: '$autocapture',
-                type: 'events',
+export const Columns: Story = {
+    args: {
+        seriesData: [
+            {
+                id: 0,
+                dataIndex: 3,
+                datasetIndex: 2,
                 order: 1,
-                name: '$autocapture',
-                custom_name: null,
-                math: 'total',
-                math_property: null,
-                math_hogql: null,
-                math_group_type_index: null,
+                dotted: false,
+                breakdown_value: 'Safari',
+                action: {
+                    days: [
+                        '2025-05-29T00:00:00Z',
+                        '2025-05-30T00:00:00Z',
+                        '2025-05-31T00:00:00Z',
+                        '2025-06-01T00:00:00Z',
+                        '2025-06-02T00:00:00Z',
+                        '2025-06-03T00:00:00Z',
+                        '2025-06-04T00:00:00Z',
+                        '2025-06-05T00:00:00Z',
+                    ],
+                    id: '$autocapture',
+                    type: 'events',
+                    order: 1,
+                    name: '$autocapture',
+                    custom_name: null,
+                    math: 'total',
+                    math_property: null,
+                    math_hogql: null,
+                    math_group_type_index: null,
+                },
+                label: '$autocapture - Safari',
+                color: '#42827e',
+                count: 0,
+                filter: {
+                    insight: InsightType.TRENDS,
+                    properties: [],
+                    filter_test_accounts: true,
+                    date_to: '2025-06-05T23:59:59.999999Z',
+                    date_from: '2025-05-29T00:00:00Z',
+                    entity_type: 'events',
+                    interval: 'day',
+                    breakdown: '$browser',
+                    breakdown_type: 'event',
+                },
             },
-            label: '$autocapture - Safari',
-            color: '#42827e',
-            count: 0,
-            filter: {
-                insight: InsightType.TRENDS,
-                properties: [],
-                filter_test_accounts: true,
-                date_to: '2025-06-05T23:59:59.999999Z',
-                date_from: '2025-05-29T00:00:00Z',
-                entity_type: 'events',
-                interval: 'day',
-                breakdown: '$browser',
-                breakdown_type: 'event',
-            },
-        },
-        {
-            id: 1,
-            dataIndex: 3,
-            datasetIndex: 0,
-            order: 0,
-            dotted: false,
-            breakdown_value: 'Chrome',
-            action: {
-                days: [
-                    '2025-05-29T00:00:00Z',
-                    '2025-05-30T00:00:00Z',
-                    '2025-05-31T00:00:00Z',
-                    '2025-06-01T00:00:00Z',
-                    '2025-06-02T00:00:00Z',
-                    '2025-06-03T00:00:00Z',
-                    '2025-06-04T00:00:00Z',
-                    '2025-06-05T00:00:00Z',
-                ],
-                id: '$pageview',
-                type: 'events',
+            {
+                id: 1,
+                dataIndex: 3,
+                datasetIndex: 0,
                 order: 0,
-                name: '$pageview',
-                custom_name: 'Pageview of people with very long names like this text',
-                math: 'total',
-                math_property: null,
-                math_hogql: null,
-                math_group_type_index: null,
+                dotted: false,
+                breakdown_value: 'Chrome',
+                action: {
+                    days: [
+                        '2025-05-29T00:00:00Z',
+                        '2025-05-30T00:00:00Z',
+                        '2025-05-31T00:00:00Z',
+                        '2025-06-01T00:00:00Z',
+                        '2025-06-02T00:00:00Z',
+                        '2025-06-03T00:00:00Z',
+                        '2025-06-04T00:00:00Z',
+                        '2025-06-05T00:00:00Z',
+                    ],
+                    id: '$pageview',
+                    type: 'events',
+                    order: 0,
+                    name: '$pageview',
+                    custom_name: 'Pageview of people with very long names like this text',
+                    math: 'total',
+                    math_property: null,
+                    math_hogql: null,
+                    math_group_type_index: null,
+                },
+                label: '$pageview - Chrome',
+                color: '#1d4aff',
+                count: 0,
+                filter: {
+                    insight: InsightType.TRENDS,
+                    properties: [],
+                    filter_test_accounts: true,
+                    date_to: '2025-06-05T23:59:59.999999Z',
+                    date_from: '2025-05-29T00:00:00Z',
+                    entity_type: 'events',
+                    interval: 'day',
+                    breakdown: '$browser',
+                    breakdown_type: 'event',
+                },
             },
-            label: '$pageview - Chrome',
-            color: '#1d4aff',
-            count: 0,
-            filter: {
-                insight: InsightType.TRENDS,
-                properties: [],
-                filter_test_accounts: true,
-                date_to: '2025-06-05T23:59:59.999999Z',
-                date_from: '2025-05-29T00:00:00Z',
-                entity_type: 'events',
-                interval: 'day',
-                breakdown: '$browser',
-                breakdown_type: 'event',
-            },
-        },
-        {
-            id: 2,
-            dataIndex: 3,
-            datasetIndex: 1,
-            order: 0,
-            dotted: false,
-            breakdown_value: 'Safari',
-            action: {
-                days: [
-                    '2025-05-29T00:00:00Z',
-                    '2025-05-30T00:00:00Z',
-                    '2025-05-31T00:00:00Z',
-                    '2025-06-01T00:00:00Z',
-                    '2025-06-02T00:00:00Z',
-                    '2025-06-03T00:00:00Z',
-                    '2025-06-04T00:00:00Z',
-                    '2025-06-05T00:00:00Z',
-                ],
-                id: '$pageview',
-                type: 'events',
+            {
+                id: 2,
+                dataIndex: 3,
+                datasetIndex: 1,
                 order: 0,
-                name: '$pageview',
-                custom_name: 'Pageview of people with very long names like this text',
-                math: 'total',
-                math_property: null,
-                math_hogql: null,
-                math_group_type_index: null,
+                dotted: false,
+                breakdown_value: 'Safari',
+                action: {
+                    days: [
+                        '2025-05-29T00:00:00Z',
+                        '2025-05-30T00:00:00Z',
+                        '2025-05-31T00:00:00Z',
+                        '2025-06-01T00:00:00Z',
+                        '2025-06-02T00:00:00Z',
+                        '2025-06-03T00:00:00Z',
+                        '2025-06-04T00:00:00Z',
+                        '2025-06-05T00:00:00Z',
+                    ],
+                    id: '$pageview',
+                    type: 'events',
+                    order: 0,
+                    name: '$pageview',
+                    custom_name: 'Pageview of people with very long names like this text',
+                    math: 'total',
+                    math_property: null,
+                    math_hogql: null,
+                    math_group_type_index: null,
+                },
+                label: '$pageview - Safari',
+                color: '#621da6',
+                count: 0,
+                filter: {
+                    insight: InsightType.TRENDS,
+                    properties: [],
+                    filter_test_accounts: true,
+                    date_to: '2025-06-05T23:59:59.999999Z',
+                    date_from: '2025-05-29T00:00:00Z',
+                    entity_type: 'events',
+                    interval: 'day',
+                    breakdown: '$browser',
+                    breakdown_type: 'event',
+                },
             },
-            label: '$pageview - Safari',
-            color: '#621da6',
-            count: 0,
-            filter: {
-                insight: InsightType.TRENDS,
-                properties: [],
-                filter_test_accounts: true,
-                date_to: '2025-06-05T23:59:59.999999Z',
-                date_from: '2025-05-29T00:00:00Z',
-                entity_type: 'events',
-                interval: 'day',
-                breakdown: '$browser',
-                breakdown_type: 'event',
-            },
-        },
-    ],
+        ],
+    },
 }
 
 export function InWrapper(): JSX.Element {

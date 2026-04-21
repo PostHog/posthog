@@ -1,7 +1,7 @@
 from datetime import timedelta
 from enum import Enum
 from functools import cached_property
-from typing import Optional, Union
+from typing import Any, Optional, Union, cast
 
 from django.core.paginator import Paginator
 from django.utils.timezone import now
@@ -12,12 +12,13 @@ from prometheus_client import Counter
 from posthog.caching.calculate_results import calculate_cache_key
 from posthog.caching.utils import active_teams
 from posthog.hogql_queries.query_runner import get_query_runner_or_none
-from posthog.models.dashboard_tile import DashboardTile
 from posthog.models.insight import Insight, InsightViewed
 from posthog.models.insight_caching_state import InsightCachingState
 from posthog.models.team import Team
 from posthog.models.utils import UUIDT
 from posthog.schema_migrations.upgrade_manager import upgrade_query
+
+from products.dashboards.backend.models.dashboard_tile import DashboardTile
 
 VERY_RECENTLY_VIEWED_THRESHOLD = timedelta(hours=48)
 GENERALLY_VIEWED_THRESHOLD = timedelta(weeks=2)
@@ -283,5 +284,5 @@ def _execute_insert(states: list[Optional[InsightCachingState]]):
 
     with connection.cursor() as cursor:
         query = INSERT_INSIGHT_CACHING_STATES_QUERY.format(values=", ".join(values))
-        cursor.execute(query, params=params)
+        cursor.execute(query, params=cast(list[Any], params))
         INSIGHT_CACHING_STATES_UPSERTED_COUNT.inc(cursor.rowcount)

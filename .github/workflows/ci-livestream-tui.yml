@@ -12,6 +12,7 @@ permissions:
 jobs:
     lint-and-test:
         runs-on: ubuntu-24.04
+        timeout-minutes: 10
 
         steps:
             - name: Checkout code
@@ -34,6 +35,7 @@ jobs:
 
     build:
         runs-on: ${{ matrix.runner }}
+        timeout-minutes: 10
         strategy:
             matrix:
                 include:

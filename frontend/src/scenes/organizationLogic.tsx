@@ -1,6 +1,7 @@
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
+import posthog from 'posthog-js'
 
 import api, { ApiConfig, ApiError } from 'lib/api'
 import { timeSensitiveAuthenticationLogic } from 'lib/components/TimeSensitiveAuthentication/timeSensitiveAuthenticationLogic'
@@ -22,7 +23,6 @@ export type OrganizationUpdatePayload = Partial<
         OrganizationType,
         | 'name'
         | 'logo_media_id'
-        | 'is_member_join_email_enabled'
         | 'enforce_2fa'
         | 'members_can_invite'
         | 'members_can_use_personal_api_keys'
@@ -113,7 +113,13 @@ export const organizationLogic = kea<organizationLogicType>([
             (s) => [s.currentOrganization],
             (currentOrganization): string => {
                 if (!currentOrganization || !currentOrganization.id) {
-                    throw new Error('currentOrganizationId accessed before organization loaded')
+                    // TODO: Fix callers that access currentOrganizationId before the organization is loaded,
+                    // then restore the throw. Temporarily falling back to "@current" to avoid crashes.
+                    posthog.captureException(new Error('currentOrganizationId accessed before organization loaded'), {
+                        severity: 'warning',
+                        tag: 'selector_accessed_before_loaded',
+                    })
+                    return '@current'
                 }
                 return currentOrganization.id
             },
@@ -160,6 +166,11 @@ export const organizationLogic = kea<organizationLogicType>([
             }
         },
         locationChanged: ({ pathname }) => {
+            // Redirect to pending deletion page if organization deletion is in progress
+            if (values.currentOrganization?.is_pending_deletion && pathname !== urls.organizationPendingDeletion()) {
+                router.actions.replace(urls.organizationPendingDeletion())
+                return
+            }
             // Redirect to deactivated page if organization is inactive (client-side navigation)
             if (values.currentOrganization?.is_active === false && pathname !== urls.organizationDeactivated()) {
                 router.actions.replace(urls.organizationDeactivated())
@@ -182,7 +193,7 @@ export const organizationLogic = kea<organizationLogicType>([
             }
         },
         deleteOrganizationSuccess: ({ redirectPath }) => {
-            lemonToast.success('Organization has been deleted', {
+            lemonToast.success('Organization deletion has been initiated', {
                 toastId: 'deleteOrganization',
             })
 
@@ -193,10 +204,7 @@ export const organizationLogic = kea<organizationLogicType>([
                 return
             }
 
-            router.actions.replace(redirectPath ?? router.values.currentLocation.pathname, {
-                ...router.values.searchParams,
-                organizationDeleted: true,
-            })
+            // Reload the page — the middleware will redirect to the pending deletion screen
             location.reload()
         },
         deleteOrganizationFailure: ({ error }) => {

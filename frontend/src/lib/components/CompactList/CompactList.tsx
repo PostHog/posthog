@@ -11,7 +11,7 @@ import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 
 import { EmptyMessage, EmptyMessageProps } from '../EmptyMessage/EmptyMessage'
 
-interface CompactListProps {
+export interface CompactListProps {
     title?: string | JSX.Element
     viewAllURL?: string
     viewAllDataAttr?: string

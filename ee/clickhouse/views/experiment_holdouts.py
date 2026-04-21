@@ -101,7 +101,7 @@ class ExperimentHoldoutSerializer(serializers.ModelSerializer):
         return super().update(instance, validated_data)
 
 
-@extend_schema(tags=["experiments"])
+@extend_schema(tags=["experiments"], extensions={"x-swagger-tag": "experiment_holdouts"})
 class ExperimentHoldoutViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "experiment"
     queryset = ExperimentHoldout.objects.prefetch_related("created_by").all()

@@ -35,6 +35,7 @@ export function createTooltipData(
                 count: pointDataset?.data?.[dp.dataIndex] || 0,
                 filter: pointDataset?.filter ?? {},
                 hideTooltip: (pointDataset as any).hideTooltip,
+                anomalyScore: (pointDataset as any).anomalyScores?.[dp.dataIndex],
             }
         })
         .sort((a, b) => {

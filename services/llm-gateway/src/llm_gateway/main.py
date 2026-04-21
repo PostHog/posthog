@@ -7,6 +7,7 @@ from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
 import asyncpg
+import httpx
 import structlog
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -30,6 +31,7 @@ from llm_gateway.rate_limiting.cost_throttles import (
 )
 from llm_gateway.rate_limiting.runner import ThrottleRunner
 from llm_gateway.request_context import RequestContext, set_request_context
+from llm_gateway.services.plan_resolver import PlanResolver
 
 
 def configure_logging(debug: bool = False) -> None:
@@ -110,12 +112,12 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
     if settings.anthropic_api_key:
         os.environ["ANTHROPIC_API_KEY"] = settings.anthropic_api_key
+    if settings.bedrock_region_name:
+        os.environ["AWS_REGION"] = settings.bedrock_region_name
     if settings.openai_api_key:
         os.environ["OPENAI_API_KEY"] = settings.openai_api_key
     if settings.openai_api_base_url:
         os.environ["OPENAI_BASE_URL"] = settings.openai_api_base_url
-    if settings.gemini_api_key:
-        os.environ["GEMINI_API_KEY"] = settings.gemini_api_key
     if settings.openrouter_api_key:
         os.environ["OPENROUTER_API_KEY"] = settings.openrouter_api_key
     if settings.fireworks_api_key:
@@ -142,6 +144,13 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     )
     logger.info("Throttle runner initialized")
 
+    app.state.http_client = httpx.AsyncClient()
+    app.state.plan_resolver = PlanResolver(
+        redis=app.state.redis,
+        http_client=app.state.http_client,
+    )
+    logger.info("Plan resolver initialized", posthog_api_base_url=settings.posthog_api_base_url or "(not configured)")
+
     logger.info(
         "rate_limits_configured",
         product_cost_limits={
@@ -167,6 +176,9 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
     yield
 
+    if app.state.http_client:
+        await app.state.http_client.aclose()
+        logger.info("HTTP client closed")
     if app.state.redis:
         await app.state.redis.aclose()
         logger.info("Redis closed")

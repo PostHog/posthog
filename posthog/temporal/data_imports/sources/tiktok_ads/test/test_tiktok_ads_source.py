@@ -108,6 +108,7 @@ class TestTikTokAdsSource:
         inputs = SourceInputs(
             schema_name="campaigns",
             schema_id="campaigns_schema",
+            source_id="source-id",
             team_id=self.team_id,
             should_use_incremental_field=True,
             db_incremental_field_last_value=datetime.now() - timedelta(days=1),
@@ -143,6 +144,7 @@ class TestTikTokAdsSource:
         inputs = SourceInputs(
             schema_name="campaigns",
             schema_id="campaigns_schema",
+            source_id="source-id",
             team_id=self.team_id,
             should_use_incremental_field=False,
             db_incremental_field_last_value=None,

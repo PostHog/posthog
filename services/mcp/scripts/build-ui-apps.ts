@@ -13,12 +13,12 @@
  */
 import { exec } from 'child_process'
 import { config as dotenvConfig } from 'dotenv'
-import { existsSync, readdirSync, rmSync } from 'fs'
+import { existsSync, rmSync } from 'fs'
 import { join, resolve } from 'path'
 
-const MCP_ROOT_DIR = resolve(__dirname, '..')
-const ROOT_DIR = resolve(MCP_ROOT_DIR, '..', '..')
-const APPS_DIR = resolve(MCP_ROOT_DIR, 'src/ui-apps/apps')
+import { discoverApps, MCP_ROOT_DIR, ROOT_DIR } from './utils'
+
+// Where to store the built files
 const OUT_DIR = resolve(MCP_ROOT_DIR, 'public/ui-apps')
 
 // Load environment variables from .dev.vars (Cloudflare convention)
@@ -29,15 +29,11 @@ if (existsSync(devVarsPath)) {
     console.info('📝 Loaded environment from .dev.vars', loadedKeys)
 }
 
-function discoverApps(): string[] {
-    return readdirSync(APPS_DIR)
-        .filter((f) => f.endsWith('.tsx'))
-        .map((f) => f.replace(/\.tsx$/, ''))
-}
-
 function buildAppAsync(appName: string): Promise<void> {
-    if (!/^[a-z_-]+$/.test(appName)) {
-        return Promise.reject(new Error(`Invalid app name "${appName}": must only contain a-z, underscore, or hyphen`))
+    if (!/^(?:generated\/)?[a-z_-]+$/.test(appName)) {
+        return Promise.reject(
+            new Error(`Invalid app name "${appName}": must only contain a-z, underscore, hyphen, or generated/ prefix`)
+        )
     }
 
     return new Promise((resolve, reject) => {
@@ -134,7 +130,7 @@ async function watchApps(apps: string[]): Promise<void> {
         const watcher = chokidar.watch(
             [
                 join(MCP_ROOT_DIR, 'src/ui-apps/**/*.{ts,tsx,css}'),
-                join(ROOT_DIR, 'products/**/mcp-apps/**/*.{ts,tsx,css}'),
+                join(ROOT_DIR, 'products/**/mcp/apps/**/*.{ts,tsx,css}'),
                 join(ROOT_DIR, 'common/mosaic/src/**/*.{ts,tsx,css}'),
             ],
             {

@@ -192,6 +192,8 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
         call_kwargs = mock_execute_workflow.call_args.kwargs
         assert call_kwargs["task_id"] == str(self.task.id)
         assert call_kwargs["user_id"] == self.user.id
+        assert call_kwargs["create_pr"] is True
+        assert call_kwargs["posthog_mcp_scopes"] == "full"
 
         new_run_id = call_kwargs["run_id"]
         assert new_run_id != str(self.task_run.id)
@@ -203,13 +205,14 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
         assert mapping.task_id == self.task.id
 
         new_run = self.TaskRun.objects.get(id=new_run_id)
-        assert "pending_user_message" not in new_run.state
+        assert new_run.state.get("pending_user_message") == "do something"
+        assert new_run.state.get("pending_user_message_ts") == "1234.5679"
         assert new_run.state.get("initial_prompt_override") == "do something"
 
         mock_slack_instance.client.reactions_add.assert_called_once_with(
             channel="C123", timestamp="1234.5679", name="eyes"
         )
-        assert any("restarting" in str(call) for call in mock_slack_instance.client.chat_postMessage.call_args_list)
+        mock_slack_instance.client.chat_postMessage.assert_not_called()
 
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     @patch("posthog.models.integration.SlackIntegration")
@@ -230,6 +233,7 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
         assert new_run.state.get("slack_pr_opened_notified") is True
         assert new_run.state.get("slack_notified_pr_url") == "https://github.com/org/repo/pull/1"
         assert "gh pr checkout https://github.com/org/repo/pull/1" in new_run.state.get("initial_prompt_override", "")
+        assert "gh pr checkout https://github.com/org/repo/pull/1" in new_run.state.get("pending_user_message", "")
 
     @patch("posthog.models.integration.SlackIntegration")
     def test_terminal_run_unauthorized_user_returns_true_with_error(self, mock_slack_cls):
@@ -347,63 +351,8 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
         mock_slack_instance.client.reactions_remove.assert_any_call(
             channel="C123", timestamp="1234.5679", name="seedling"
         )
-        mock_slack_instance.client.chat_postMessage.assert_called_once()
-        assert "thanks" in mock_slack_instance.client.chat_postMessage.call_args.kwargs["text"]
-
-    @patch("posthog.temporal.ai.posthog_code_slack_mention._resolve_followup_reply_text", return_value=None)
-    @patch("products.tasks.backend.services.connection_token.create_sandbox_connection_token", return_value="jwt-token")
-    @patch("products.tasks.backend.services.agent_command.send_user_message")
-    @patch("posthog.models.integration.SlackIntegration")
-    def test_successful_forwarding_without_reply_posts_fallback(
-        self,
-        mock_slack_cls,
-        mock_send,
-        mock_token,
-        _mock_resolve_reply,
-    ):
-        self._create_mapping()
-        mock_slack_instance = MagicMock()
-        mock_slack_cls.return_value = mock_slack_instance
-        mock_send.return_value = _command_result(success=True, status_code=200)
-
-        inputs = _make_inputs(self.integration.id)
-        result = forward_posthog_code_followup_activity(
-            inputs, "C123", "1234.5678", "U_ALICE", "<@BOT> do something", "1234.5679"
-        )
-
-        assert result is True
-        mock_slack_instance.client.chat_postMessage.assert_called_once()
-        assert "couldn't fetch the reply text" in mock_slack_instance.client.chat_postMessage.call_args.kwargs["text"]
-
-    @patch(
-        "posthog.temporal.ai.posthog_code_slack_mention._extract_recent_assistant_text_from_logs",
-        return_value="Which license would you like to add?",
-    )
-    @patch("products.tasks.backend.services.connection_token.create_sandbox_connection_token", return_value="jwt-token")
-    @patch("products.tasks.backend.services.agent_command.send_user_message")
-    @patch("posthog.models.integration.SlackIntegration")
-    def test_successful_forwarding_uses_log_reply_when_command_has_no_reply(
-        self,
-        mock_slack_cls,
-        mock_send,
-        mock_token,
-        _mock_extract_reply,
-    ):
-        self._create_mapping()
-        mock_slack_instance = MagicMock()
-        mock_slack_cls.return_value = mock_slack_instance
-        mock_send.return_value = _command_result(
-            success=True, status_code=200, data={"result": {"stopReason": "end_turn"}}
-        )
-
-        inputs = _make_inputs(self.integration.id)
-        result = forward_posthog_code_followup_activity(
-            inputs, "C123", "1234.5678", "U_ALICE", "<@BOT> add a license file", "1234.5679"
-        )
-
-        assert result is True
-        call_kwargs = mock_slack_instance.client.chat_postMessage.call_args.kwargs
-        assert "Which license would you like to add?" in call_kwargs["text"]
+        # Response is delivered by relayAgentResponse from the agent-server, not by this activity.
+        mock_slack_instance.client.chat_postMessage.assert_not_called()
 
     @patch("products.tasks.backend.services.connection_token.create_sandbox_connection_token", return_value="jwt-token")
     @patch("products.tasks.backend.services.agent_command.send_user_message")
@@ -425,7 +374,7 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
     @patch("products.tasks.backend.services.connection_token.create_sandbox_connection_token", return_value="jwt-token")
     @patch("products.tasks.backend.services.agent_command.send_user_message")
     @patch("posthog.models.integration.SlackIntegration")
-    def test_timeout_skips_retry_to_avoid_duplicate_delivery(self, mock_slack_cls, mock_send, mock_token):
+    def test_timeout_delegates_to_relay_without_posting(self, mock_slack_cls, mock_send, mock_token):
         self._create_mapping()
         mock_slack_instance = MagicMock()
         mock_slack_cls.return_value = mock_slack_instance
@@ -440,42 +389,12 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
 
         assert result is True
         mock_send.assert_called_once()
-        call_kwargs = mock_slack_instance.client.chat_postMessage.call_args.kwargs
-        assert "timed out" in call_kwargs["text"]
-        assert "may still be processing" in call_kwargs["text"]
-
-    @patch(
-        "posthog.temporal.ai.posthog_code_slack_mention._extract_recent_assistant_text_from_logs",
-        return_value="Which license would you like to add?",
-    )
-    @patch("products.tasks.backend.services.connection_token.create_sandbox_connection_token", return_value="jwt-token")
-    @patch("products.tasks.backend.services.agent_command.send_user_message")
-    @patch("posthog.models.integration.SlackIntegration")
-    def test_retryable_timeout_posts_log_reply_when_available(
-        self,
-        mock_slack_cls,
-        mock_send,
-        mock_token,
-        _mock_extract_reply,
-    ):
-        self._create_mapping()
-        mock_slack_instance = MagicMock()
-        mock_slack_cls.return_value = mock_slack_instance
-        mock_send.return_value = _command_result(
-            success=False,
-            status_code=504,
-            error="Sandbox request timed out",
-            retryable=True,
+        # Agent is still processing — relayAgentResponse delivers the response.
+        mock_slack_instance.client.chat_postMessage.assert_not_called()
+        mock_slack_instance.client.reactions_remove.assert_any_call(channel="C123", timestamp="1234.5679", name="eyes")
+        mock_slack_instance.client.reactions_remove.assert_any_call(
+            channel="C123", timestamp="1234.5679", name="seedling"
         )
-
-        inputs = _make_inputs(self.integration.id)
-        result = forward_posthog_code_followup_activity(
-            inputs, "C123", "1234.5678", "U_ALICE", "<@BOT> add a license file", "1234.5679"
-        )
-
-        assert result is True
-        call_kwargs = mock_slack_instance.client.chat_postMessage.call_args.kwargs
-        assert "Which license would you like to add?" in call_kwargs["text"]
 
     @patch("products.tasks.backend.services.connection_token.create_sandbox_connection_token", return_value="jwt-token")
     @patch("products.tasks.backend.services.agent_command.send_user_message")
@@ -500,8 +419,8 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
         mock_slack_instance.client.reactions_remove.assert_any_call(
             channel="C123", timestamp="1234.5679", name="seedling"
         )
-        mock_slack_instance.client.chat_postMessage.assert_called_once()
-        assert "couldn't fetch the reply text" in mock_slack_instance.client.chat_postMessage.call_args.kwargs["text"]
+        # Response is delivered by relayAgentResponse, not by this activity.
+        mock_slack_instance.client.chat_postMessage.assert_not_called()
 
 
 class TestEventLevelDedupe(TestCase):

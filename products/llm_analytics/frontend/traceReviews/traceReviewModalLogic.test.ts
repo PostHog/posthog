@@ -209,6 +209,30 @@ describe('traceReviewModalLogic', () => {
         })
     })
 
+    it('includes queue context in the save payload when opened from a queue', async () => {
+        mockTraceReviewsApi.getByTraceId.mockResolvedValue(null)
+        mockLlmAnalyticsScoreDefinitionsList.mockResolvedValue({
+            results: [booleanDefinition],
+            count: 1,
+            next: null,
+            previous: null,
+        })
+
+        const logic = traceReviewModalLogic({ traceId: 'trace_1', queueId: 'queue_1' })
+        logic.mount()
+
+        await expectLogic(logic, () => {
+            logic.actions.openModal()
+        }).toFinishAllListeners()
+
+        expect(logic.values.submitPayload).toEqual({
+            trace_id: 'trace_1',
+            queue_id: 'queue_1',
+            comment: null,
+            scores: [],
+        })
+    })
+
     it('keeps selected scorers pinned while the picker search results change', async () => {
         mockTraceReviewsApi.getByTraceId.mockResolvedValue(null)
         mockLlmAnalyticsScoreDefinitionsList

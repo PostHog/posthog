@@ -12,6 +12,7 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 
+import { MarketingAnalyticsSourceStatusBanner } from '../../web-analytics/tabs/marketing-analytics/frontend/components/MarketingAnalyticsSourceStatusBanner'
 import { ConversionGoalsConfiguration } from '../../web-analytics/tabs/marketing-analytics/frontend/components/settings/ConversionGoalsConfiguration'
 import { marketingAnalyticsLogic } from '../../web-analytics/tabs/marketing-analytics/frontend/logic/marketingAnalyticsLogic'
 import { marketingAnalyticsSettingsLogic } from '../../web-analytics/tabs/marketing-analytics/frontend/logic/marketingAnalyticsSettingsLogic'
@@ -74,7 +75,12 @@ export function Onboarding({ completeOnboarding }: OnboardingProps): JSX.Element
 
             {currentStep === 'welcome' && <WelcomeStep onContinue={() => setStep('add-source')} />}
 
-            {currentStep === 'add-source' && <AddSourceStep onContinue={handleNextStep} hasSources={hasSources} />}
+            {currentStep === 'add-source' && (
+                <>
+                    <MarketingAnalyticsSourceStatusBanner />
+                    <AddSourceStep onContinue={handleNextStep} hasSources={hasSources} />
+                </>
+            )}
 
             {currentStep === 'conversion-goals' && (
                 <ConversionGoalsStep onContinue={handleComplete} onSkip={handleComplete} />

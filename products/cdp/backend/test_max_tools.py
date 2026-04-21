@@ -13,7 +13,7 @@ class TestParseOutput:
             (
                 "slice_syntax",
                 "let x := content[1:2000]",
-                "no viable alternative at input",
+                "The Hog code failed to compile",
             ),
             (
                 "double_ampersand",

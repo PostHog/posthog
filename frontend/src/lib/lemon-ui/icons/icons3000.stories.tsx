@@ -50,8 +50,8 @@ const IconTemplate = ({ icons }: { icons: { name: string; icon: any }[] }): JSX.
     )
 }
 
-export function Alphabetical(): JSX.Element {
-    return <IconTemplate icons={posthogIcons} />
+export const Alphabetical: StoryObj = {
+    render: () => <IconTemplate icons={posthogIcons} />,
 }
 
 const GroupBase = ({ group }: { group: Record<string, IconCollection> }): JSX.Element => {
@@ -75,22 +75,22 @@ const GroupBase = ({ group }: { group: Record<string, IconCollection> }): JSX.El
     )
 }
 
-export const Elements: StoryObj = (): JSX.Element => {
-    return <GroupBase group={ELEMENTS} />
+export const Elements: StoryObj = {
+    render: () => <GroupBase group={ELEMENTS} />,
+    name: 'Category - Elements',
 }
-Elements.storyName = 'Category - Elements'
 
-export const TeamsAndCompanies: StoryObj = (): JSX.Element => {
-    return <GroupBase group={TEAMS_AND_COMPANIES} />
+export const TeamsAndCompanies: StoryObj = {
+    render: () => <GroupBase group={TEAMS_AND_COMPANIES} />,
+    name: 'Category - Teams & Companies',
 }
-TeamsAndCompanies.storyName = 'Category - Teams & Companies'
 
-export const Technology: StoryObj = (): JSX.Element => {
-    return <GroupBase group={TECHNOLOGY} />
+export const Technology: StoryObj = {
+    render: () => <GroupBase group={TECHNOLOGY} />,
+    name: 'Category - Technology',
 }
-Technology.storyName = 'Category - Technology'
 
-export const Objects: StoryObj = (): JSX.Element => {
-    return <GroupBase group={OBJECTS} />
+export const Objects: StoryObj = {
+    render: () => <GroupBase group={OBJECTS} />,
+    name: 'Category - Objects',
 }
-Objects.storyName = 'Category - Objects'

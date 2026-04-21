@@ -17,6 +17,11 @@ indent_size = 4
 indent_style = space
 indent_size = 4
 
+# TypeScript/JavaScript → 4 spaces
+[*.{ts,tsx,js,jsx}]
+indent_style = space
+indent_size = 4
+
 # Markdown specific rules
 [*.md]
 trim_trailing_whitespace = false

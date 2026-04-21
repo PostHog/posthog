@@ -54,18 +54,13 @@ class BaseHyperCacheCommand(BaseCommand):
         """
         Add arguments specific to warming commands.
 
-        Includes: --batch-size, --invalidate-first, --no-stagger, --min-ttl-days, --max-ttl-days
+        Includes: --batch-size, --no-stagger, --min-ttl-days, --max-ttl-days
         """
         parser.add_argument(
             "--batch-size",
             type=int,
             default=1000,
             help="Number of teams to process at a time (default: 1000)",
-        )
-        parser.add_argument(
-            "--invalidate-first",
-            action="store_true",
-            help="Invalidate all existing caches before warming (use when schema changes)",
         )
         parser.add_argument(
             "--no-stagger",
@@ -702,30 +697,10 @@ class BaseHyperCacheCommand(BaseCommand):
 
         return teams if teams else None
 
-    def _confirm_invalidate(self, cache_name: str) -> bool:
-        """
-        Get user confirmation for invalidating all caches.
-
-        Returns:
-            True if user confirmed, False otherwise
-        """
-        self.stdout.write(
-            self.style.WARNING(
-                f"WARNING: This will invalidate ALL existing {cache_name} caches before warming.\n"
-                "This should only be used when the cache schema has changed.\n"
-            )
-        )
-        confirm = input("Are you sure? Type 'yes' to continue: ")
-        if confirm.lower() != "yes":
-            self.stdout.write(self.style.ERROR("Aborted."))
-            return False
-        return True
-
     def run_warm(
         self,
         team_ids: list[int] | None,
         batch_size: int,
-        invalidate_first: bool,
         stagger_ttl: bool,
         min_ttl_days: int,
         max_ttl_days: int,
@@ -739,7 +714,6 @@ class BaseHyperCacheCommand(BaseCommand):
         Args:
             team_ids: Specific team IDs to warm, or None for all teams
             batch_size: Number of teams to process at a time
-            invalidate_first: Whether to invalidate all caches before warming
             stagger_ttl: Whether to randomize TTLs
             min_ttl_days: Minimum TTL in days (when staggering)
             max_ttl_days: Maximum TTL in days (when staggering)
@@ -758,7 +732,6 @@ class BaseHyperCacheCommand(BaseCommand):
 
             # Process all specific teams at once (small batch)
             actual_batch_size = len(teams)
-            actual_invalidate_first = False  # Never invalidate for specific teams
         else:
             # Get current cache stats for upfront reporting
             total_teams = Team.objects.count()
@@ -772,16 +745,11 @@ class BaseHyperCacheCommand(BaseCommand):
                 f"  Teams to warm: {scoped_teams:,}\n"
                 f"  Current cache coverage: {cache_stats.get('cache_coverage', 'unknown')}\n"
                 f"  Batch size: {batch_size}\n"
-                f"  Invalidate first: {invalidate_first}\n"
                 f"  Stagger TTL: {stagger_ttl}\n"
                 f"  TTL range: {min_ttl_days}-{max_ttl_days} days\n"
             )
 
-            if invalidate_first and not self._confirm_invalidate(cache_name):
-                return
-
             actual_batch_size = batch_size
-            actual_invalidate_first = invalidate_first
 
         # Callbacks to write progress to stdout
         last_percent_reported = [0]  # Use list to allow mutation in closure
@@ -805,7 +773,6 @@ class BaseHyperCacheCommand(BaseCommand):
         successful, failed = warm_caches(
             config,
             batch_size=actual_batch_size,
-            invalidate_first=actual_invalidate_first,
             stagger_ttl=stagger_ttl,
             min_ttl_days=min_ttl_days,
             max_ttl_days=max_ttl_days,

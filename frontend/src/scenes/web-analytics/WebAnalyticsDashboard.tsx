@@ -461,12 +461,12 @@ const healthTab = (featureFlags: FeatureFlagsSet): { key: ProductTab; label: JSX
         {
             key: ProductTab.HEALTH,
             label: <HealthTabLabel />,
-            link: '/web/health',
+            link: urls.webAnalyticsHealth(),
         },
     ]
 }
 
-const liveTab = (featureFlags: FeatureFlagsSet): { key: ProductTab; label: string; link: string }[] => {
+const liveTab = (featureFlags: FeatureFlagsSet): { key: ProductTab; label: string | JSX.Element; link: string }[] => {
     if (!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_LIVE_METRICS]) {
         return []
     }
@@ -474,8 +474,38 @@ const liveTab = (featureFlags: FeatureFlagsSet): { key: ProductTab; label: strin
     return [
         {
             key: ProductTab.LIVE,
-            label: 'Live',
+            label: (
+                <div className="flex items-center gap-1">
+                    Live
+                    <LemonTag type="highlight" className="uppercase">
+                        Alpha
+                    </LemonTag>
+                </div>
+            ),
             link: '/web/live',
+        },
+    ]
+}
+
+const botAnalyticsTab = (
+    featureFlags: FeatureFlagsSet
+): { key: ProductTab; label: string | JSX.Element; link: string }[] => {
+    if (!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_BOT_ANALYSIS]) {
+        return []
+    }
+
+    return [
+        {
+            key: ProductTab.BOT_ANALYTICS,
+            label: (
+                <div className="flex items-center gap-1">
+                    Bot analytics
+                    <LemonTag type="warning" className="uppercase">
+                        Beta
+                    </LemonTag>
+                </div>
+            ),
+            link: urls.webAnalyticsBotAnalytics(),
         },
     ]
 }
@@ -596,6 +626,7 @@ const WebAnalyticsTabs = (): JSX.Element => {
                 },
                 ...liveTab(featureFlags),
                 ...healthTab(featureFlags),
+                ...botAnalyticsTab(featureFlags),
             ]}
             sceneInset
             className="-mt-4"

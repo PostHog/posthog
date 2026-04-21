@@ -1,14 +1,10 @@
 package tui
 
 import (
-	"strings"
-
 	"charm.land/lipgloss/v2"
-	"github.com/charmbracelet/x/ansi"
-	"github.com/posthog/posthog/phrocs/internal/process"
 )
 
-// Recomputes searchMatches from current process output
+// recomputeSearch fetches lines and delegates to recomputeSearchWith.
 func (m *Model) recomputeSearch() {
 	if m.searchQuery == "" {
 		m.searchMatches = nil
@@ -16,15 +12,20 @@ func (m *Model) recomputeSearch() {
 		m.viewport.StyleLineFunc = nil
 		return
 	}
-	lines := m.searchableLines()
+	m.recomputeSearchWith(m.searchableLines())
+}
+
+// recomputeSearchWith scans the provided lines for the current query.
+// Use this when lines are already available to avoid a redundant copy.
+func (m *Model) recomputeSearchWith(lines []string) {
 	if len(lines) == 0 {
 		m.searchMatches = nil
 		return
 	}
-	query := strings.ToLower(m.searchQuery)
+	tokens := parseMatchTokens(m.searchQuery)
 	m.searchMatches = nil
 	for i, line := range lines {
-		if strings.Contains(strings.ToLower(ansi.Strip(line)), query) {
+		if lineMatchesTokens(line, tokens) {
 			m.searchMatches = append(m.searchMatches, i)
 		}
 	}
@@ -56,13 +57,8 @@ func (m *Model) applySearchStyle() {
 	}
 }
 
-// Incrementally maintains searchMatches when a single new line arrives.
-// Adjusts existing indices for scrollback eviction, then checks the new line.
-// This keeps search O(M) per incoming line rather than O(N).
-func (m *Model) updateSearchForNewLine(msg process.OutputMsg) {
-	m.updateSearchForLine(msg.Line, msg.LineIndex, msg.Evicted)
-}
-
+// Incrementally maintains searchMatches when a single new line arrives
+// (used by docker container log streaming which still delivers individual lines).
 func (m *Model) updateSearchForLine(line string, lineIndex int, evicted bool) {
 	if evicted && len(m.searchMatches) > 0 {
 		// The line at index 0 was dropped; remove it from matches if present.
@@ -79,7 +75,7 @@ func (m *Model) updateSearchForLine(line string, lineIndex int, evicted bool) {
 			m.searchMatches[i]--
 		}
 	}
-	if strings.Contains(strings.ToLower(ansi.Strip(line)), strings.ToLower(m.searchQuery)) {
+	if lineMatchesQuery(line, m.searchQuery) {
 		m.searchMatches = append(m.searchMatches, lineIndex)
 	}
 	m.applySearchStyle()

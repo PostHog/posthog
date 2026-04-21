@@ -6,9 +6,8 @@ from unittest.mock import patch
 
 from django.utils import timezone
 
-from posthog.models.dashboard import Dashboard
-from posthog.models.dashboard_tile import DashboardTile
-
+from products.dashboards.backend.models.dashboard import Dashboard
+from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.data_warehouse.backend.models import (
     DataWarehouseTable,
     ExternalDataJob,

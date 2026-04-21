@@ -36,18 +36,19 @@ import structlog
 from posthoganalytics import capture_exception
 from prometheus_client import Counter
 
-from posthog.models.cohort.cohort import Cohort, CohortOrEmpty
+from posthog.models.cohort.cohort import Cohort, CohortOrEmpty, is_cohort_recalculation_only_save
 from posthog.models.cohort.util import get_nested_cohort_ids
 from posthog.models.evaluation_context import EvaluationContext, FeatureFlagEvaluationContext
 from posthog.models.feature_flag import FeatureFlag
 from posthog.models.feature_flag.flags_cache import _compare_flag_fields, get_teams_with_flags_queryset
 from posthog.models.feature_flag.types import FlagFilters, FlagProperty, PropertyFilterType
 from posthog.models.group_type_mapping import GroupTypeMapping
-from posthog.models.surveys.survey import Survey
 from posthog.models.team import Team
 from posthog.person_db_router import PERSONS_DB_FOR_READ
 from posthog.storage.hypercache import HyperCache, emit_cache_sync_metrics
 from posthog.storage.hypercache_manager import HyperCacheManagementConfig
+
+from products.surveys.backend.models import Survey
 
 logger = structlog.get_logger(__name__)
 
@@ -861,6 +862,9 @@ def feature_flag_changed(sender, instance: "FeatureFlag", **kwargs):
 @receiver(post_save, sender=Cohort)
 @receiver(post_delete, sender=Cohort)
 def cohort_changed(sender, instance: "Cohort", **kwargs):
+    if is_cohort_recalculation_only_save(kwargs):
+        return
+
     from posthog.tasks.feature_flags import update_team_flags_cache
 
     transaction.on_commit(lambda: update_team_flags_cache.delay(instance.team_id))

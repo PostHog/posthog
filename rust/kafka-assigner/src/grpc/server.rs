@@ -9,6 +9,8 @@ use tokio::sync::{mpsc, Mutex};
 use tokio_stream::wrappers::ReceiverStream;
 use tonic::{Request, Response, Status};
 
+use k8s_awareness::K8sAwareness;
+
 use crate::consumer_registry::{ConsumerConnection, ConsumerRegistry};
 use crate::grpc::convert;
 use crate::store::KafkaAssignerStore;
@@ -34,6 +36,8 @@ pub struct KafkaAssignerService {
     stream_channel_size: usize,
     consumer_lease_ttl: i64,
     consumer_keepalive_interval: Duration,
+    /// Optional K8s awareness for controller discovery and departure classification.
+    k8s_awareness: Option<Arc<K8sAwareness>>,
 }
 
 impl KafkaAssignerService {
@@ -50,6 +54,7 @@ impl KafkaAssignerService {
             1024,
             30,
             Duration::from_secs(10),
+            None,
         )
     }
 
@@ -57,6 +62,7 @@ impl KafkaAssignerService {
         store: Arc<KafkaAssignerStore>,
         registry: Arc<ConsumerRegistry>,
         config: &crate::config::Config,
+        k8s_awareness: Option<Arc<K8sAwareness>>,
     ) -> Self {
         let kafka_config = KafkaConfig {
             hosts: config.kafka_hosts.clone(),
@@ -70,6 +76,7 @@ impl KafkaAssignerService {
             config.stream_channel_size,
             config.consumer_lease_ttl_secs,
             config.consumer_keepalive_interval(),
+            k8s_awareness,
         )
     }
 
@@ -80,6 +87,7 @@ impl KafkaAssignerService {
         stream_channel_size: usize,
         consumer_lease_ttl: i64,
         consumer_keepalive_interval: Duration,
+        k8s_awareness: Option<Arc<K8sAwareness>>,
     ) -> Self {
         Self {
             registry,
@@ -89,6 +97,7 @@ impl KafkaAssignerService {
             stream_channel_size,
             consumer_lease_ttl,
             consumer_keepalive_interval,
+            k8s_awareness,
         }
     }
 
@@ -182,10 +191,38 @@ impl KafkaAssigner for KafkaAssignerService {
 
         // Register the consumer in etcd (keyed to the lease).
         let now = assignment_coordination::util::now_seconds();
+        // If K8s awareness is enabled, discover the consumer's controller
+        // and generation hash. This is a one-time lookup per consumer.
+        let (generation, controller) = if let Some(k8s) = &self.k8s_awareness {
+            match k8s.discover_controller(&consumer_name).await {
+                Ok(pod_info) => {
+                    tracing::info!(
+                        consumer = %consumer_name,
+                        controller = %pod_info.controller,
+                        generation = %pod_info.generation,
+                        "discovered K8s controller for consumer"
+                    );
+                    (pod_info.generation, Some(pod_info.controller))
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        consumer = %consumer_name,
+                        error = %e,
+                        "failed to discover K8s controller, proceeding without"
+                    );
+                    (String::new(), None)
+                }
+            }
+        } else {
+            (String::new(), None)
+        };
+
         let consumer = RegisteredConsumer {
             consumer_name: consumer_name.clone(),
             status: ConsumerStatus::Ready,
             registered_at: now,
+            generation,
+            controller,
         };
         self.store
             .register_consumer(&consumer, lease_id)
@@ -404,6 +441,93 @@ impl KafkaAssigner for KafkaAssignerService {
         );
 
         Ok(Response::new(proto::PartitionReleasedResponse {}))
+    }
+
+    async fn deregister(
+        &self,
+        request: Request<proto::DeregisterRequest>,
+    ) -> Result<Response<proto::DeregisterResponse>, Status> {
+        let req = request.into_inner();
+        let consumer_name = &req.consumer_name;
+
+        assignment_coordination::util::validate_identifier(consumer_name)
+            .map_err(|e| Status::invalid_argument(format!("invalid consumer_name: {e}")))?;
+
+        // Look up the consumer's lease ID from the local registry.
+        let lease_id = self
+            .registry
+            .get_lease_id(consumer_name)
+            .ok_or_else(|| Status::not_found(format!("consumer {consumer_name} not connected")))?;
+
+        // Transition the consumer to Draining in etcd. The assigner's
+        // consumer watch loop will see this change and exclude the consumer
+        // from new partition assignments. On the next rebalance (triggered
+        // when all in-flight handoffs complete), the consumer's partitions
+        // will be handed off to other Ready consumers.
+        self.store
+            .update_consumer_status(consumer_name, ConsumerStatus::Draining, lease_id)
+            .await
+            .map_err(|e| {
+                Status::internal(format!("failed to update consumer status to Draining: {e}"))
+            })?;
+
+        // Determine the appropriate action based on K8s awareness.
+        let action = if let Some(k8s) = &self.k8s_awareness {
+            // Look up this consumer's controller and generation from etcd.
+            let consumer = self
+                .store
+                .get_consumer(consumer_name)
+                .await
+                .map_err(|e| Status::internal(format!("failed to get consumer: {e}")))?
+                .ok_or_else(|| {
+                    Status::not_found(format!("consumer {consumer_name} not found in etcd"))
+                })?;
+
+            match &consumer.controller {
+                Some(controller) => {
+                    let reason = k8s
+                        .classify_departure(controller, &consumer.generation)
+                        .await;
+                    tracing::info!(
+                        consumer = %consumer_name,
+                        controller = %controller,
+                        generation = %consumer.generation,
+                        reason = %reason,
+                        "classified departure reason via K8s awareness"
+                    );
+                    match reason {
+                        // StatefulSet rollout: same pod name comes back, shut down immediately
+                        k8s_awareness::DepartureReason::Rollout
+                            if controller.kind
+                                == k8s_awareness::types::ControllerKind::StatefulSet =>
+                        {
+                            proto::DeregisterAction::ShutdownNow
+                        }
+                        // Deployment rollout or downscale: drain partitions first
+                        k8s_awareness::DepartureReason::Rollout
+                        | k8s_awareness::DepartureReason::Downscale => {
+                            proto::DeregisterAction::WaitForDrain
+                        }
+                        // Crash or unknown: shut down immediately
+                        _ => proto::DeregisterAction::ShutdownNow,
+                    }
+                }
+                // No controller info: fall back to default
+                None => proto::DeregisterAction::ShutdownNow,
+            }
+        } else {
+            proto::DeregisterAction::ShutdownNow
+        };
+
+        tracing::info!(
+            consumer = %consumer_name,
+            action = ?action,
+            "consumer deregistered via gRPC, status set to Draining"
+        );
+
+        Ok(Response::new(proto::DeregisterResponse {
+            action: action.into(),
+        }))
     }
 }
 

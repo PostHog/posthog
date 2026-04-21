@@ -13,7 +13,6 @@ use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::{EnvFilter, Layer};
 
 use capture::config::Config;
-use capture::error_tracking_sampler;
 use capture::server::serve;
 use capture::setup;
 
@@ -111,18 +110,6 @@ async fn main() {
     // Root span with pod hostname for Loki/Grafana filtering
     let pod = std::env::var("HOSTNAME").unwrap_or_else(|_| "unknown".to_string());
     let _root_span = tracing::info_span!("service", pod = %pod).entered();
-
-    // Initialize feature flag configs
-    error_tracking_sampler::init_dual_write(
-        config.error_tracking_dual_write_enabled,
-        config.error_tracking_dual_write_sample_rate,
-    );
-    if config.error_tracking_dual_write_enabled {
-        tracing::info!(
-            sample_rate = config.error_tracking_dual_write_sample_rate,
-            "Error tracking dual-write enabled"
-        );
-    }
 
     let mut manager = lifecycle::Manager::builder("capture")
         .with_trap_signals(true)

@@ -1,3 +1,3 @@
-from ee.hogai.sandbox.types import TURN_COMPLETE_METHOD
+from ee.hogai.sandbox.types import STOP_REASON_END_TURN, TURN_COMPLETE_METHOD, is_turn_complete
 
-__all__ = ["TURN_COMPLETE_METHOD"]
+__all__ = ["STOP_REASON_END_TURN", "TURN_COMPLETE_METHOD", "is_turn_complete"]

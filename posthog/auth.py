@@ -1,7 +1,10 @@
 import re
 import hmac
+import time
+import hashlib
 import logging
 import functools
+from abc import abstractmethod
 from datetime import timedelta
 from typing import TYPE_CHECKING, Any, Optional, TypedDict, Union
 from urllib.parse import parse_qs, urlparse
@@ -29,13 +32,14 @@ from posthog.helpers.two_factor_session import enforce_two_factor
 from posthog.jwt import PosthogJwtAudience, decode_jwt
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthApplicationAuthBrand
 from posthog.models.personal_api_key import (
+    LEGACY_PERSONAL_API_KEY_SALT,
     PERSONAL_API_KEY_AUTH_COUNTER,
     PERSONAL_API_KEY_MODES_TO_TRY,
     PersonalAPIKey,
-    hash_key_value,
 )
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.user import User
+from posthog.models.utils import hash_key_value
 from posthog.models.webauthn_credential import WebauthnCredential
 from posthog.passkey import verify_passkey_authentication_response
 from posthog.settings import LOCAL_DEV_INTERNAL_API_SECRET
@@ -55,6 +59,13 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 structlog_logger = structlog.get_logger(__name__)
+
+_SECRET_API_KEY_RE = re.compile(r"^phs_[a-zA-Z0-9]+$")
+
+SECRET_API_KEY_BODY_COUNTER = Counter(
+    "api_auth_secret_api_key_body",
+    "Requests where the secret API key is provided in the request body instead of the Authorization header",
+)
 
 PERSONAL_API_KEY_QUERY_PARAM_COUNTER = Counter(
     "api_auth_personal_api_key_query_param",
@@ -232,7 +243,9 @@ class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):
         mode_used = None
 
         for mode, iterations in PERSONAL_API_KEY_MODES_TO_TRY:
-            secure_value = hash_key_value(personal_api_key, mode=mode, iterations=iterations)
+            secure_value = hash_key_value(
+                personal_api_key, mode=mode, legacy_salt=LEGACY_PERSONAL_API_KEY_SALT, iterations=iterations
+            )
             try:
                 personal_api_key_object = (
                     PersonalAPIKey.objects.select_related("user")
@@ -319,9 +332,11 @@ class ProjectSecretAPIKeyAuthentication(authentication.BaseAuthentication):
     ) -> Optional[str]:
         """Try to find project secret API key in request and return it"""
         if "authorization" in request.headers:
-            authorization_match = re.match(rf"^{cls.keyword}\s+(phs_[a-zA-Z0-9]+)$", request.headers["authorization"])
+            authorization_match = re.match(rf"^{cls.keyword}\s+(.+)$", request.headers["authorization"])
             if authorization_match:
-                return authorization_match.group(1).strip()
+                token = authorization_match.group(1).strip()
+                if _SECRET_API_KEY_RE.match(token):
+                    return token
 
         # Wrap HttpRequest in DRF Request if needed
         if not isinstance(request, Request):
@@ -330,7 +345,10 @@ class ProjectSecretAPIKeyAuthentication(authentication.BaseAuthentication):
         data = request.data
 
         if data and "secret_api_key" in data:
-            return data["secret_api_key"]
+            secret_api_key = data["secret_api_key"]
+            if isinstance(secret_api_key, str) and _SECRET_API_KEY_RE.match(secret_api_key):
+                SECRET_API_KEY_BODY_COUNTER.inc()
+                return secret_api_key
 
         return None
 
@@ -408,6 +426,35 @@ class JwtAuthentication(authentication.BaseAuthentication):
     @classmethod
     def authenticate_header(cls, request) -> str:
         return cls.keyword
+
+
+class ExportRendererAuthentication(authentication.BaseAuthentication):
+    """
+    Scoped JWT auth for the export renderer. Only accepted on viewsets that opt in.
+    """
+
+    keyword = "Bearer"
+
+    def authenticate(self, request: Union[HttpRequest, Request]) -> Optional[tuple[Any, None]]:
+        if request.method not in ("GET", "HEAD"):
+            return None
+        if "authorization" not in request.headers:
+            return None
+        authorization_match = re.match(rf"^Bearer\s+(\S.+)$", request.headers["authorization"])
+        if not authorization_match:
+            return None
+        try:
+            token = authorization_match.group(1).strip()
+            info = decode_jwt(token, PosthogJwtAudience.EXPORT_RENDERER)
+            user = User.objects.get(pk=info["id"])
+            return user, None
+        except (jwt.DecodeError, jwt.InvalidAudienceError):
+            return None
+        except Exception:
+            raise AuthenticationFailed(detail="Token invalid.")
+
+    def authenticate_header(self, request) -> str:
+        return self.keyword
 
 
 class SharingAccessTokenAuthentication(authentication.BaseAuthentication):
@@ -830,3 +877,93 @@ class WebauthnBackend(BaseBackend):
             return User.objects.get(pk=user_id)
         except User.DoesNotExist:
             return None
+
+
+class WebhookSignatureAuthentication(authentication.BaseAuthentication):
+    """
+    Base HMAC-SHA256 webhook signature authentication.
+
+    Subclass and implement the abstract methods to support a specific provider.
+    On success, sets request.auth to whatever `get_auth_context` returns.
+
+    Typical provider differences:
+      - Customer.io: signature header "X-Cio-Signature", input format "v0:{ts}:{body}"
+      - Stripe:      signature header "Stripe-Signature",  input format "{ts}.{body}"
+    """
+
+    timestamp_tolerance: int = 300  # seconds
+
+    @abstractmethod
+    def get_signature_header(self) -> str:
+        """Return the HTTP header name containing the HMAC signature."""
+        ...
+
+    @abstractmethod
+    def get_timestamp_header(self) -> str:
+        """Return the HTTP header name containing the request timestamp."""
+        ...
+
+    @abstractmethod
+    def build_hmac_input(self, timestamp: str, body: str) -> str:
+        """Build the string that was signed. Provider-specific format."""
+        ...
+
+    @abstractmethod
+    def get_signing_secret(self, request: Request) -> str | None:
+        """
+        Look up the signing secret for this request.
+        Return None if the webhook integration doesn't exist or is disabled.
+        """
+        ...
+
+    def get_auth_context(self, request: Request) -> Any:
+        """
+        Return the object to set as ``request.auth`` after successful verification.
+        Override to return an Integration, team, or other context.
+        Defaults to the team_id from URL kwargs.
+        """
+        return self._get_team_id(request)
+
+    def _get_team_id(self, request: Request) -> int | None:
+        """Extract team_id from URL kwargs (works for both DRF and Django requests)."""
+        django_request = getattr(request, "_request", request)
+        resolver_match = getattr(django_request, "resolver_match", None)
+        if resolver_match and resolver_match.kwargs:
+            tid = resolver_match.kwargs.get("team_id")
+            if tid is not None:
+                return int(tid)
+        return None
+
+    def authenticate(self, request: Request) -> tuple[None, Any] | None:
+        signature = request.headers.get(self.get_signature_header())
+        timestamp = request.headers.get(self.get_timestamp_header())
+        if not signature or not timestamp:
+            raise AuthenticationFailed("Missing webhook signature headers.")
+
+        signing_secret = self.get_signing_secret(request)
+        if not signing_secret:
+            raise AuthenticationFailed("Webhook integration not found or disabled.")
+
+        django_request = getattr(request, "_request", request)
+        raw_body = django_request.body.decode()
+
+        hmac_input = self.build_hmac_input(timestamp, raw_body)
+        expected = hmac.new(
+            signing_secret.encode(),
+            hmac_input.encode(),
+            hashlib.sha256,
+        ).hexdigest()
+        if not hmac.compare_digest(signature, expected):
+            raise AuthenticationFailed("Invalid webhook signature.")
+
+        try:
+            ts = int(timestamp)
+        except (ValueError, TypeError):
+            raise AuthenticationFailed("Invalid webhook timestamp.")
+        if abs(time.time() - ts) > self.timestamp_tolerance:
+            raise AuthenticationFailed("Webhook timestamp too old.")
+
+        return (None, self.get_auth_context(request))
+
+    def authenticate_header(self, request: Request) -> str:
+        return "WebhookSignature"

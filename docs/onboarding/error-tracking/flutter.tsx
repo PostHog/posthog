@@ -36,6 +36,7 @@ export const getFlutterSteps = (ctx: OnboardingComponentsContext): StepDefinitio
                               config.errorTrackingConfig.captureFlutterErrors = true;
                               config.errorTrackingConfig.capturePlatformDispatcherErrors = true;
                               config.errorTrackingConfig.captureIsolateErrors = true;
+                              // Requires SDK version 5.22.0 or higher
                               config.errorTrackingConfig.captureNativeExceptions = true;
                               config.errorTrackingConfig.captureSilentFlutterErrors = false;
                               await Posthog().setup(config);
@@ -52,7 +53,7 @@ export const getFlutterSteps = (ctx: OnboardingComponentsContext): StepDefinitio
                         | \`captureFlutterErrors\` | Captures Flutter framework errors (\`FlutterError.onError\`) |
                         | \`capturePlatformDispatcherErrors\` | Captures Dart runtime errors (\`PlatformDispatcher.onError\`). Web not supported. |
                         | \`captureIsolateErrors\` | Captures errors from main isolate. Web not supported. |
-                        | \`captureNativeExceptions\` | Captures native exceptions (Java/Kotlin exceptions). Android only. |
+                        | \`captureNativeExceptions\` | Captures native exceptions. Android (Java/Kotlin) and Apple platforms (iOS, macOS, tvOS). |
                         | \`captureSilentFlutterErrors\` | Captures Flutter errors that are marked as silent. Default: false. |
                     `}
                 </Markdown>
@@ -169,11 +170,11 @@ export const getFlutterSteps = (ctx: OnboardingComponentsContext): StepDefinitio
                       We currently don't support the following features:
 
                       - No de-obfuscating stacktraces from obfuscated builds ([\\--obfuscate](https://docs.flutter.dev/deployment/obfuscate) and [\\--split-debug-info](https://docs.flutter.dev/deployment/obfuscate)) for Dart code
-                      - No de-obfuscating stacktraces when [isMinifyEnabled](https://developer.android.com/topic/performance/app-optimization/enable-app-optimization) is enabled for Java/Kotlin code
-                      - No [Source code context](/docs/error-tracking/stack-traces.md) associated with an exception
-                      - No native iOS exception capture
+                      - No [Source code context](/docs/error-tracking/stack-traces.md) associated with an exception (native Android Java/Kotlin errors and Flutter web only)
                       - No native C/C++ exception capture on Android (Java/Kotlin only)
                       - No background isolate error capture
+
+                      For symbolicated stack traces on native platforms, see the [Flutter debug symbols guide](/docs/error-tracking/upload-source-maps/flutter).
 
                       These features will be added in future releases. We recommend you stay 
                       up to date with the latest version of the PostHog Flutter SDK.

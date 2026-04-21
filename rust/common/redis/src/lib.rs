@@ -231,6 +231,13 @@ pub trait Client: Send + Sync {
         format: RedisValueFormat,
     ) -> Result<(), CustomRedisError>;
     async fn setex(&self, k: String, v: String, seconds: u64) -> Result<(), CustomRedisError>;
+    async fn setex_with_format(
+        &self,
+        k: String,
+        v: String,
+        seconds: u64,
+        format: RedisValueFormat,
+    ) -> Result<(), CustomRedisError>;
     async fn set_nx_ex(&self, k: String, v: String, seconds: u64)
         -> Result<bool, CustomRedisError>;
     async fn set_nx_ex_with_format(

@@ -2,7 +2,6 @@ use crate::{
     error::{FrameError, JsResolveErr, ResolveError, UnhandledError},
     frames::{Context, ContextLine, Frame},
     langs::CommonFrameMetadata,
-    metric_consts::{FRAME_NOT_RESOLVED, FRAME_RESOLVED},
     sanitize_string,
     symbol_store::{chunk_id::OrChunkId, sourcemap::OwnedSourceMapCache, SymbolCatalog},
 };
@@ -130,6 +129,7 @@ impl RawNodeFrame {
         let before = self
             .pre_context
             .iter()
+            .rev()
             .enumerate()
             .map(|(i, line)| ContextLine::new_rel(lineno, -(i as i32) - 1, line.clone()))
             .collect();
@@ -160,6 +160,7 @@ impl From<&RawNodeFrame> for Frame {
             lang: "javascript".to_string(),
             resolved: true,
             resolve_failure: None,
+
             junk_drawer: None,
             context: raw.get_context(),
             release: None,
@@ -173,8 +174,6 @@ impl From<&RawNodeFrame> for Frame {
 
 impl From<(&RawNodeFrame, SourceLocation<'_>)> for Frame {
     fn from((raw_frame, location): (&RawNodeFrame, SourceLocation)) -> Self {
-        metrics::counter!(FRAME_RESOLVED, "lang" => "javascript").increment(1);
-
         let resolved_name = match location.scope() {
             ScopeLookupResult::NamedScope(name) => Some(sanitize_string(name.to_string())),
             ScopeLookupResult::AnonymousScope => Some("<anonymous>".to_string()),
@@ -204,6 +203,7 @@ impl From<(&RawNodeFrame, SourceLocation<'_>)> for Frame {
             lang: "javascript".to_string(),
             resolved: true,
             resolve_failure: None,
+
             junk_drawer: None,
             code_variables: None,
             context: get_sourcelocation_context(&location),
@@ -221,8 +221,6 @@ impl From<(&RawNodeFrame, SourceLocation<'_>)> for Frame {
 
 impl From<(&RawNodeFrame, JsResolveErr)> for Frame {
     fn from((raw_frame, resolve_err): (&RawNodeFrame, JsResolveErr)) -> Self {
-        metrics::counter!(FRAME_NOT_RESOLVED, "lang" => "javascript").increment(1);
-
         let was_minified = raw_frame
             .get_context()
             .as_ref()
@@ -248,7 +246,7 @@ impl From<(&RawNodeFrame, JsResolveErr)> for Frame {
             // Regardless of whather we think this was a minified frame or not, we still put
             // the error message in resolve_failure, so if a user comes along and want to know
             // why we thought a frame wasn't minified, they can see the error message
-            resolve_failure: Some(resolve_err.to_string()),
+            resolve_failure: Some(FrameError::from(resolve_err)),
             junk_drawer: None,
             code_variables: None,
             context: raw_frame.get_context(),

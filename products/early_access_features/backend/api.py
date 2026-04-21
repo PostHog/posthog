@@ -63,6 +63,21 @@ class EarlyAccessFeatureSerializer(serializers.ModelSerializer):
         max_length=200,
         help_text="The name of the early access feature.",
     )
+    description = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text="A longer description of what this early access feature does, shown to users in the opt-in UI.",
+    )
+    stage = serializers.ChoiceField(
+        choices=EarlyAccessFeature.Stage.choices,
+        help_text="Lifecycle stage. Valid values: draft, concept, alpha, beta, general-availability, archived. Moving to an active stage (alpha/beta/general-availability) enables the feature flag for opted-in users.",
+    )
+    documentation_url = serializers.URLField(
+        max_length=800,
+        required=False,
+        allow_blank=True,
+        help_text="URL to external documentation for this feature. Shown to users in the opt-in UI.",
+    )
     payload = serializers.SerializerMethodField()
 
     class Meta:
@@ -107,6 +122,7 @@ class EarlyAccessFeatureSerializer(serializers.ModelSerializer):
                 serialized_data_filters = {
                     **related_feature_flag.filters,
                     "super_groups": None,
+                    "feature_enrollment": None,
                     "groups": [{"properties": [], "rollout_percentage": 100}],
                 }
 
@@ -139,6 +155,7 @@ class EarlyAccessFeatureSerializer(serializers.ModelSerializer):
                 serialized_data_filters = {
                     **related_feature_flag.filters,
                     "super_groups": super_conditions(related_feature_flag_key),
+                    "feature_enrollment": True,
                 }
 
                 serializer = FeatureFlagSerializer(
@@ -150,12 +167,13 @@ class EarlyAccessFeatureSerializer(serializers.ModelSerializer):
                 serializer.is_valid(raise_exception=True)
                 serializer.save()
         elif stage is not None and (stage not in EarlyAccessFeature.ActiveStage):
-            # Remove super_groups when leaving an active stage (including moving to CONCEPT)
+            # Remove super_groups and feature_enrollment when leaving an active stage (including moving to CONCEPT)
             related_feature_flag = instance.feature_flag
             if related_feature_flag:
                 related_feature_flag.filters = {
                     **related_feature_flag.filters,
                     "super_groups": None,
+                    "feature_enrollment": None,
                 }
                 related_feature_flag.save()
 
@@ -186,11 +204,20 @@ class EarlyAccessFeatureSerializer(serializers.ModelSerializer):
 
 
 class EarlyAccessFeatureSerializerCreateOnly(EarlyAccessFeatureSerializer):
-    feature_flag_id = serializers.IntegerField(required=False, write_only=True)
+    feature_flag_id = serializers.IntegerField(
+        required=False,
+        write_only=True,
+        help_text="Optional ID of an existing feature flag to link. If omitted, a new flag is auto-created from the feature name. The flag must not already be linked to another feature, must not be group-based, and must not be multivariate.",
+    )
     _create_in_folder = serializers.CharField(required=False, allow_blank=True, write_only=True)
 
     # Override payload to allow writing (parent uses SerializerMethodField which is read-only)
-    payload = serializers.JSONField(required=False, allow_null=False, default=dict)  # type: ignore
+    payload = serializers.JSONField(
+        required=False,
+        allow_null=False,
+        default=dict,
+        help_text="Arbitrary JSON metadata associated with this feature.",
+    )  # type: ignore
 
     class Meta:
         model = EarlyAccessFeature
@@ -266,6 +293,7 @@ class EarlyAccessFeatureSerializerCreateOnly(EarlyAccessFeatureSerializer):
                 serialized_data_filters = {
                     **feature_flag.filters,
                     "super_groups": super_conditions(feature_flag_key),
+                    "feature_enrollment": True,
                 }
 
                 serializer = FeatureFlagSerializer(
@@ -279,12 +307,13 @@ class EarlyAccessFeatureSerializerCreateOnly(EarlyAccessFeatureSerializer):
         else:
             feature_flag_key = slugify(validated_data["name"])
 
-            filters = {
+            filters: dict[str, Any] = {
                 "groups": default_condition,
             }
 
             if validated_data.get("stage") in EarlyAccessFeature.ActiveStage:
                 filters["super_groups"] = super_conditions(feature_flag_key)
+                filters["feature_enrollment"] = True
 
             feature_flag_serializer = FeatureFlagSerializer(
                 data={
@@ -323,6 +352,7 @@ class EarlyAccessFeatureViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             related_feature_flag.filters = {
                 **related_feature_flag.filters,
                 "super_groups": None,
+                "feature_enrollment": None,
             }
             related_feature_flag.save()
 

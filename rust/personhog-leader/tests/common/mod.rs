@@ -4,12 +4,17 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use async_trait::async_trait;
+use common_kafka::config::KafkaConfig;
+use common_kafka::kafka_producer::{create_kafka_producer, KafkaContext};
+use health::HealthRegistry;
 use personhog_coordination::coordinator::{Coordinator, CoordinatorConfig};
 use personhog_coordination::error::Result;
 use personhog_coordination::pod::{PodConfig, PodHandle};
 use personhog_coordination::routing_table::{CutoverHandler, RoutingTable, RoutingTableConfig};
 use personhog_coordination::store::PersonhogStore;
 use personhog_coordination::strategy::AssignmentStrategy;
+use rdkafka::mocking::MockCluster;
+use rdkafka::producer::{DefaultProducerContext, FutureProducer};
 
 use assignment_coordination::store::{EtcdStore, StoreConfig};
 use personhog_leader::cache::{CachedPerson, PartitionedCache, PersonCacheKey};
@@ -24,6 +29,7 @@ use tokio_util::sync::CancellationToken;
 use tonic::transport::{Channel, Server};
 
 pub const ETCD_ENDPOINT: &str = "http://localhost:2379";
+pub const KAFKA_BOOTSTRAP: &str = "localhost:9092";
 pub const WAIT_TIMEOUT: Duration = Duration::from_secs(10);
 pub const POLL_INTERVAL: Duration = Duration::from_millis(100);
 pub const NUM_PARTITIONS: u32 = 4;
@@ -72,6 +78,7 @@ pub fn start_coordinator(
             rebalance_debounce_interval: Duration::from_millis(100),
         },
         strategy,
+        None,
     );
     let token = cancel.child_token();
     tokio::spawn(async move { coordinator.run(token).await })
@@ -132,17 +139,54 @@ pub fn start_router(
             lease_ttl: 10,
             heartbeat_interval: Duration::from_secs(3),
         },
-        Arc::new(handler),
     );
     let token = cancel.child_token();
-    tokio::spawn(async move { router.run(token).await })
+    tokio::spawn(async move { router.run(token, Arc::new(handler)).await })
 }
 
 // ── Leader pod ──────────────────────────────────────────────
 
+pub const CHANGELOG_TOPIC: &str = "personhog_updates";
+
 pub struct LeaderPodHandles {
     pub cache: Arc<PartitionedCache>,
     pub leader_addr: SocketAddr,
+    // Kept alive so the mock Kafka cluster stays running for the test duration
+    pub _mock_cluster: MockCluster<'static, DefaultProducerContext>,
+}
+
+/// Create a producer against local Kafka for e2e tests.
+pub async fn create_local_kafka_producer() -> FutureProducer<KafkaContext> {
+    let registry = HealthRegistry::new("test");
+    let handle = registry
+        .register("kafka".to_string(), Duration::from_secs(30))
+        .await;
+    let config = KafkaConfig {
+        kafka_producer_linger_ms: 0,
+        kafka_producer_queue_mib: 50,
+        kafka_message_timeout_ms: 5000,
+        kafka_compression_codec: "none".to_string(),
+        kafka_hosts: KAFKA_BOOTSTRAP.to_string(),
+        kafka_tls: false,
+        kafka_producer_queue_messages: 1000,
+        kafka_client_rack: String::new(),
+        kafka_client_id: String::new(),
+    };
+    create_kafka_producer(&config, handle)
+        .await
+        .expect("failed to connect to local Kafka")
+}
+
+/// Create a mock Kafka cluster and producer for tests.
+pub async fn create_test_kafka() -> (
+    MockCluster<'static, DefaultProducerContext>,
+    FutureProducer<KafkaContext>,
+) {
+    let (cluster, producer) = common_kafka::test::create_mock_kafka().await;
+    cluster
+        .create_topic(CHANGELOG_TOPIC, 1, 1)
+        .expect("failed to create mock topic");
+    (cluster, producer)
 }
 
 /// Start a leader pod with real `LeaderHandoffHandler` + `PersonHogLeaderService`
@@ -154,6 +198,7 @@ pub async fn start_leader_pod(
     cancel: CancellationToken,
 ) -> LeaderPodHandles {
     let cache = Arc::new(PartitionedCache::new(cache_capacity));
+    let (mock_cluster, kafka_producer) = create_test_kafka().await;
 
     // Pod with real handoff handler
     let handler = LeaderHandoffHandler::new(Arc::clone(&cache));
@@ -164,12 +209,17 @@ pub async fn start_leader_pod(
             ..Default::default()
         },
         Arc::new(handler),
+        None,
     );
     let pod_token = cancel.child_token();
     tokio::spawn(async move { pod.run(pod_token).await });
 
     // gRPC leader service sharing the same cache
-    let service = PersonHogLeaderService::new(Arc::clone(&cache));
+    let service = PersonHogLeaderService::new(
+        Arc::clone(&cache),
+        kafka_producer,
+        CHANGELOG_TOPIC.to_string(),
+    );
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let leader_addr = listener.local_addr().unwrap();
 
@@ -187,7 +237,11 @@ pub async fn start_leader_pod(
 
     tokio::time::sleep(Duration::from_millis(10)).await;
 
-    LeaderPodHandles { cache, leader_addr }
+    LeaderPodHandles {
+        cache,
+        leader_addr,
+        _mock_cluster: mock_cluster,
+    }
 }
 
 pub async fn start_leader_pod_with_lease_ttl(
@@ -198,6 +252,7 @@ pub async fn start_leader_pod_with_lease_ttl(
     cancel: CancellationToken,
 ) -> LeaderPodHandles {
     let cache = Arc::new(PartitionedCache::new(cache_capacity));
+    let (mock_cluster, kafka_producer) = create_test_kafka().await;
 
     let heartbeat_secs = (lease_ttl as u64 / 3).max(1);
     let handler = LeaderHandoffHandler::new(Arc::clone(&cache));
@@ -210,11 +265,16 @@ pub async fn start_leader_pod_with_lease_ttl(
             ..Default::default()
         },
         Arc::new(handler),
+        None,
     );
     let pod_token = cancel.child_token();
     tokio::spawn(async move { pod.run(pod_token).await });
 
-    let service = PersonHogLeaderService::new(Arc::clone(&cache));
+    let service = PersonHogLeaderService::new(
+        Arc::clone(&cache),
+        kafka_producer,
+        CHANGELOG_TOPIC.to_string(),
+    );
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let leader_addr = listener.local_addr().unwrap();
 
@@ -232,7 +292,11 @@ pub async fn start_leader_pod_with_lease_ttl(
 
     tokio::time::sleep(Duration::from_millis(10)).await;
 
-    LeaderPodHandles { cache, leader_addr }
+    LeaderPodHandles {
+        cache,
+        leader_addr,
+        _mock_cluster: mock_cluster,
+    }
 }
 
 // ── Helpers ─────────────────────────────────────────────────

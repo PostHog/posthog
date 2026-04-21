@@ -43,19 +43,41 @@ function resolveForcedTheme(theme?: 'light' | 'dark' | 'system'): 'light' | 'dar
 function ExportHeatmap(): JSX.Element {
     const { exportedData, isLoading, screenshotUrl } = useValues(exporterViewLogic)
     const { exportToken } = exportedData
+    const width = exportedData.heatmap_context?.width
 
     return (
-        <div className="flex justify-center h-screen w-screen overflow-scroll heatmap-exporter relative">
-            <HeatmapCanvas positioning="absolute" widthOverride={null} context="in-app" exportToken={exportToken} />
+        <div
+            className="heatmap-exporter relative"
+            // eslint-disable-next-line react/forbid-dom-props
+            style={{
+                width: width ? `${width}px` : '100%',
+                minHeight: '100vh',
+                overflow: 'hidden',
+            }}
+        >
+            <HeatmapCanvas
+                positioning="absolute"
+                widthOverride={width ?? null}
+                context="in-app"
+                exportToken={exportToken}
+            />
             {exportedData.heatmap_context?.heatmap_type === 'screenshot' ? (
-                <>{isLoading ? null : <img src={screenshotUrl ?? ''} alt="Heatmap" />}</>
+                isLoading ? null : (
+                    <img
+                        src={screenshotUrl ?? ''}
+                        alt="Heatmap"
+                        // eslint-disable-next-line react/forbid-dom-props
+                        style={{ width: '100%', height: 'auto', display: 'block' }}
+                    />
+                )
             ) : (
                 <iframe
                     id="heatmap-iframe"
                     ref={null}
                     title="Heatmap export"
-                    className="h-screen bg-white w-screen"
+                    className="bg-white"
                     // eslint-disable-next-line react/forbid-dom-props
+                    style={{ width: '100%', height: '100vh', display: 'block' }}
                     src={exportedData.heatmap_url ?? ''}
                     onLoad={() => {}}
                     // these two sandbox values are necessary so that the site and toolbar can run

@@ -1,21 +1,35 @@
 """Celery tasks for the conversations product."""
 
+import html as html_mod
+from email.utils import formataddr, make_msgid
 from typing import Any, cast
 from urllib.parse import urlparse
 from uuid import UUID
 
+from django.core import mail
 from django.core.cache import cache
 
 import requests
 import structlog
 from celery import shared_task
 
+from posthog.models.comment import Comment as CommentModel
+from posthog.models.instance_setting import get_instance_setting
 from posthog.models.team import Team
 from posthog.models.uploaded_media import UploadedMedia
 from posthog.storage import object_storage
 
-from products.conversations.backend.formatting import extract_images_from_rich_content, rich_content_to_slack_payload
-from products.conversations.backend.slack import get_slack_client
+from products.conversations.backend.formatting import (
+    extract_images_from_rich_content,
+    rich_content_to_html,
+    rich_content_to_markdown,
+    rich_content_to_slack_payload,
+)
+from products.conversations.backend.mailgun import get_smtp_connection
+from products.conversations.backend.models import EmailMessageMapping
+from products.conversations.backend.models.constants import Status
+from products.conversations.backend.models.ticket import Ticket
+from products.conversations.backend.slack import get_slack_client, resolve_slack_avatar_by_email
 
 from .support_slack import SUPPORT_SLACK_ALLOWED_HOST_SUFFIXES, SUPPORT_SLACK_MAX_IMAGE_BYTES
 
@@ -88,6 +102,7 @@ def post_reply_to_slack(
     author_name: str,
     slack_channel_id: str,
     slack_thread_ts: str,
+    author_email: str = "",
 ) -> None:
     """Post a support agent's reply to the corresponding Slack thread."""
 
@@ -117,13 +132,24 @@ def post_reply_to_slack(
         image_count=len(rich_images),
     )
 
-    # Build message kwargs with optional avatar
+    support_settings = team.conversations_settings or {}
+    bot_display_name = support_settings.get("slack_bot_display_name")
+    bot_icon_url = support_settings.get("slack_bot_icon_url")
+
+    # Resolve the replying user's Slack profile picture
+    author_icon_url: str | None = None
+    if author_email:
+        author_icon_url = resolve_slack_avatar_by_email(client, author_email)
+
+    icon_url = author_icon_url or bot_icon_url
     message_kwargs: dict = {
         "channel": slack_channel_id,
         "thread_ts": slack_thread_ts,
         "text": slack_text,
-        "username": author_name or "Support",
+        "username": author_name or bot_display_name or "Support",
     }
+    if icon_url:
+        message_kwargs["icon_url"] = icon_url
     if slack_blocks:
         message_kwargs["blocks"] = slack_blocks
 
@@ -190,12 +216,15 @@ def post_reply_to_slack(
             unique_urls = [url for url in dict.fromkeys(failed_image_urls) if url]
             if unique_urls:
                 fallback_text = "Images:\n" + "\n".join(unique_urls)
-                client.chat_postMessage(
-                    channel=slack_channel_id,
-                    thread_ts=slack_thread_ts,
-                    text=fallback_text,
-                    username=author_name or "Support",
-                )
+                fallback_kwargs: dict = {
+                    "channel": slack_channel_id,
+                    "thread_ts": slack_thread_ts,
+                    "text": fallback_text,
+                    "username": author_name or bot_display_name or "Support",
+                }
+                if icon_url:
+                    fallback_kwargs["icon_url"] = icon_url
+                client.chat_postMessage(**fallback_kwargs)
                 logger.warning(
                     "🖼️ slack_reply_image_upload_fallback_links_posted",
                     ticket_id=ticket_id,
@@ -348,3 +377,163 @@ def _read_image_bytes_for_slack_upload(team_id: int, image_url: str) -> bytes | 
         bytes_size=len(payload),
     )
     return payload
+
+
+@shared_task(ignore_result=True, max_retries=3, default_retry_delay=10)
+def send_email_reply(
+    ticket_id: str,
+    team_id: int,
+    comment_id: str,
+    content: str,
+    rich_content: dict | None,
+    author_name: str,
+) -> None:
+    """Send a team member's reply to the customer via SMTP email."""
+    try:
+        team = Team.objects.get(id=team_id)
+    except Team.DoesNotExist:
+        logger.warning("email_reply_team_not_found", team_id=team_id)
+        return
+
+    try:
+        ticket = Ticket.objects.select_related("email_config").get(id=ticket_id, team=team)
+    except Ticket.DoesNotExist:
+        logger.warning("email_reply_ticket_not_found", ticket_id=ticket_id)
+        return
+
+    config = ticket.email_config
+    if not config:
+        logger.warning("email_reply_no_config", team_id=team_id, ticket_id=ticket_id)
+        return
+
+    if not config.domain_verified:
+        logger.warning("email_reply_domain_not_verified", team_id=team_id, domain=config.domain)
+        return
+
+    if not ticket.email_from:
+        logger.warning("email_reply_no_customer_email", ticket_id=ticket_id)
+        return
+
+    # Build threading headers from the latest inbound message on this ticket
+    latest_mapping = EmailMessageMapping.objects.filter(ticket=ticket, team=team).order_by("-created_at").first()
+    headers: dict[str, str] = {}
+    if latest_mapping:
+        headers["In-Reply-To"] = latest_mapping.message_id
+        # Collect all message IDs for References header
+        all_ids = list(
+            EmailMessageMapping.objects.filter(ticket=ticket, team=team)
+            .order_by("created_at")
+            .values_list("message_id", flat=True)
+        )
+        if all_ids:
+            headers["References"] = " ".join(all_ids)
+
+    # Generate a new Message-ID for the outbound email
+    inbound_domain = get_instance_setting("CONVERSATIONS_EMAIL_INBOUND_DOMAIN") or config.domain
+    outbound_message_id = make_msgid(domain=inbound_domain)
+    headers["Message-ID"] = outbound_message_id
+
+    # Build email body
+    if rich_content:
+        html_body = rich_content_to_html(rich_content)
+        txt_body = rich_content_to_markdown(rich_content, include_images=False)
+    else:
+        txt_body = content
+        html_body = f"<p>{html_mod.escape(content)}</p>"
+
+    subject = ticket.email_subject or "Re: Your support request"
+    if not subject.lower().startswith("re:"):
+        subject = f"Re: {subject}"
+
+    from_email = formataddr((config.from_name or author_name, config.from_email))
+
+    email_message = mail.EmailMultiAlternatives(
+        subject=subject,
+        body=txt_body,
+        from_email=from_email,
+        to=[ticket.email_from],
+        cc=ticket.cc_participants or [],
+        headers=headers,
+    )
+    email_message.attach_alternative(html_body, "text/html")
+
+    connection = None
+    try:
+        connection = get_smtp_connection()
+        connection.open()
+        connection.send_messages([email_message])
+    except Exception as e:
+        logger.exception("email_reply_send_failed", ticket_id=ticket_id, error=str(e))
+        raise cast(Any, send_email_reply).retry(exc=e)
+    finally:
+        if connection:
+            try:
+                connection.close()
+            except Exception:
+                pass
+
+    # Record the outbound message mapping for threading (best-effort, don't retry on failure)
+    try:
+        comment_obj = CommentModel.objects.get(id=comment_id, team=team)
+        EmailMessageMapping.objects.create(
+            message_id=outbound_message_id,
+            team=team,
+            ticket=ticket,
+            comment=comment_obj,
+        )
+    except Exception:
+        logger.exception("email_reply_mapping_failed", ticket_id=ticket_id, message_id=outbound_message_id)
+
+    logger.info(
+        "email_reply_sent",
+        ticket_id=ticket_id,
+        team_id=team_id,
+        to=ticket.email_from,
+        message_id=outbound_message_id,
+    )
+
+
+WAKE_SNOOZE_BATCH_SIZE = 100
+
+
+@shared_task(ignore_result=True)
+def wake_snoozed_tickets() -> None:
+    """Reopen tickets whose snooze period has expired, in batches."""
+    from django.db import transaction
+    from django.utils import timezone
+
+    from products.conversations.backend.events import capture_ticket_status_changed
+
+    now = timezone.now()
+    total = 0
+
+    while True:
+        with transaction.atomic():
+            batch = list(
+                Ticket.objects.select_for_update(skip_locked=True)
+                .filter(snoozed_until__isnull=False, snoozed_until__lte=now)
+                .order_by("snoozed_until")[:WAKE_SNOOZE_BATCH_SIZE]
+            )
+            if not batch:
+                break
+
+            for ticket in batch:
+                old_status = ticket.status
+                ticket.snoozed_until = None
+
+                if old_status == Status.ON_HOLD:
+                    ticket.status = Status.OPEN
+                    ticket.save(update_fields=["status", "snoozed_until", "updated_at"])
+                    try:
+                        capture_ticket_status_changed(ticket, old_status, Status.OPEN)
+                    except Exception:
+                        logger.exception("wake_snoozed_ticket_event_failed", ticket_id=str(ticket.id))
+                else:
+                    ticket.save(update_fields=["snoozed_until", "updated_at"])
+
+            total += len(batch)
+            if len(batch) < WAKE_SNOOZE_BATCH_SIZE:
+                break
+
+    if total:
+        logger.info("wake_snoozed_tickets_completed", count=total)

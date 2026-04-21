@@ -9,7 +9,7 @@ import { Scene } from 'scenes/sceneTypes'
 import { PRODUCT_KEY, PRODUCT_THING_NAME } from '../RevenueAnalyticsScene'
 import { InlineSetup, InlineSetupView } from './InlineSetup'
 
-interface OnboardingProps {
+export interface OnboardingProps {
     completeOnboarding: () => void
     initialSetupView?: InlineSetupView // NOTE: This should NOT be used except for testing purposes (storybook)
 }

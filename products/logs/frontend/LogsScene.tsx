@@ -14,7 +14,10 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 
+import { LogsAlertingSection } from 'products/logs/frontend/components/LogsAlerting/LogsAlertingSection'
+import { LogsServices } from 'products/logs/frontend/components/LogsServices/LogsServices'
 import { LogsViewer } from 'products/logs/frontend/components/LogsViewer'
+import { LogsViewerModal } from 'products/logs/frontend/components/LogsViewer/LogsViewerModal'
 import { logsIngestionLogic } from 'products/logs/frontend/components/SetupPrompt/logsIngestionLogic'
 import { LogsSetupPrompt } from 'products/logs/frontend/components/SetupPrompt/SetupPrompt'
 
@@ -76,7 +79,7 @@ const LogsSceneContent = (): JSX.Element => {
             )}
             <LogsSetupPrompt>
                 <div className="flex flex-col gap-2 py-2 flex-1 min-h-0">
-                    <LogsViewer id={tabId} />
+                    <LogsViewer id={tabId} showSavedViewsButton />
                 </div>
             </LogsSetupPrompt>
         </>
@@ -87,6 +90,15 @@ const LogsSceneTabbedContent = (): JSX.Element => {
     const { tabId, activeTab } = useValues(logsSceneLogic)
     const { setActiveTab } = useActions(logsSceneLogic)
     const { hasLogs, teamHasLogsCheckFailed } = useValues(logsIngestionLogic)
+    const showServicesView = useFeatureFlag('LOGS_SERVICES_VIEW')
+    const showAlerting = useFeatureFlag('LOGS_ALERTING')
+
+    const tabs: { key: LogsSceneActiveTab; label: string }[] = [
+        { key: 'viewer', label: 'Viewer' },
+        ...(showServicesView ? [{ key: 'services' as const, label: 'Services' }] : []),
+        ...(showAlerting ? [{ key: 'alerts' as const, label: 'Alerts' }] : []),
+        { key: 'configuration', label: 'Configuration' },
+    ]
 
     return (
         <>
@@ -113,19 +125,23 @@ const LogsSceneTabbedContent = (): JSX.Element => {
             <LemonTabs<LogsSceneActiveTab>
                 activeKey={activeTab}
                 onChange={(key) => setActiveTab(key)}
-                tabs={[
-                    { key: 'viewer', label: 'Viewer' },
-                    { key: 'configuration', label: 'Configuration' },
-                ]}
+                tabs={tabs}
                 sceneInset
             />
             {activeTab === 'viewer' && (
                 <LogsSetupPrompt>
                     <div className="flex flex-col gap-2 py-2 flex-1 min-h-0">
-                        <LogsViewer id={tabId} />
+                        <LogsViewer id={tabId} showSavedViewsButton />
                     </div>
                 </LogsSetupPrompt>
             )}
+            {activeTab === 'services' && showServicesView && (
+                <>
+                    <LogsServices />
+                    <LogsViewerModal />
+                </>
+            )}
+            {activeTab === 'alerts' && showAlerting && <LogsAlertingSection />}
             {activeTab === 'configuration' && (
                 <Settings logicKey={LOGS_LOGIC_KEY} sectionId="environment-logs" settingId="logs" handleLocally />
             )}

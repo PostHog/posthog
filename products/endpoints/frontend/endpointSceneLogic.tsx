@@ -1,4 +1,4 @@
-import { actions, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, connect, events, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 
@@ -7,12 +7,14 @@ import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
 import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
 import { getTabSceneParams, updateTabUrl } from 'lib/logic/scenes/tabSceneUtils'
+import { sqlEditorLogic } from 'scenes/data-warehouse/editor/sqlEditorLogic'
+import { SQLEditorMode } from 'scenes/data-warehouse/editor/sqlEditorModes'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { DataTableNode, EndpointRunRequest, InsightVizNode, Node, NodeKind } from '~/queries/schema/schema-general'
 import { isHogQLQuery, isInsightQueryNode } from '~/queries/utils'
-import { Breadcrumb, DataWarehouseSyncInterval, EndpointType, EndpointVersionType } from '~/types'
+import { Breadcrumb, DataModelingSyncInterval, EndpointType, EndpointVersionType } from '~/types'
 
 import { endpointLogic } from './endpointLogic'
 import type { endpointSceneLogicType } from './endpointSceneLogicType'
@@ -22,7 +24,7 @@ export interface EndpointSceneLogicProps {
 }
 
 // Query types that support user-configurable breakdown filtering
-const BREAKDOWN_SUPPORTED_QUERY_TYPES = new Set([NodeKind.TrendsQuery, NodeKind.FunnelsQuery, NodeKind.RetentionQuery])
+const BREAKDOWN_SUPPORTED_QUERY_TYPES = new Set([NodeKind.TrendsQuery, NodeKind.RetentionQuery])
 
 function getSingleBreakdownProperty(breakdownFilter: any): string | null {
     if (breakdownFilter?.breakdown) {
@@ -100,6 +102,16 @@ export enum EndpointTab {
     HISTORY = 'history',
 }
 
+export interface MaterializationPreview {
+    can_materialize: boolean
+    reason: string | null
+    transformed_query: string | null
+    execution_query: string | null
+    display_execution_query: string | null
+    range_pairs: { column: string; variables: string[]; bucket_fn: string }[]
+    aggregates: { expression: string; reaggregate_fn: string | null }[]
+}
+
 export const endpointSceneLogic = kea<endpointSceneLogicType>([
     props({} as EndpointSceneLogicProps),
     path(['products', 'endpoints', 'frontend', 'endpointSceneLogic']),
@@ -124,10 +136,15 @@ export const endpointSceneLogic = kea<endpointSceneLogicType>([
         setPayloadJson: (value: string) => ({ value }),
         setPayloadJsonError: (error: string | null) => ({ error }),
         setCacheAge: (cacheAge: number | null) => ({ cacheAge }),
-        setSyncFrequency: (syncFrequency: DataWarehouseSyncInterval | null) => ({ syncFrequency }),
+        setSyncFrequency: (syncFrequency: DataModelingSyncInterval | null) => ({ syncFrequency }),
         setIsMaterialized: (isMaterialized: boolean | null) => ({ isMaterialized }),
         setEndpointName: (name: string | null) => ({ name }),
         setViewingVersion: (version: EndpointVersionType | null) => ({ version }),
+        setBucketOverride: (column: string, bucketFn: string) => ({ column, bucketFn }),
+        resetBucketOverrides: (overrides: Record<string, string>) => ({ overrides }),
+        setDebugMode: (debugMode: boolean) => ({ debugMode }),
+        loadMaterializationPreview: true,
+        keepSqlEditorMounted: (editorTabId: string) => ({ editorTabId }),
     }),
     reducers({
         localQuery: [
@@ -141,12 +158,14 @@ export const endpointSceneLogic = kea<endpointSceneLogicType>([
             EndpointTab.QUERY as EndpointTab,
             {
                 setActiveTab: (_, { tab }) => tab,
+                loadEndpoint: () => EndpointTab.QUERY,
             },
         ],
         payloadJson: [
             '' as string,
             {
                 setPayloadJson: (_, { value }) => value,
+                loadEndpoint: () => '',
             },
         ],
         payloadJsonError: [
@@ -154,18 +173,22 @@ export const endpointSceneLogic = kea<endpointSceneLogicType>([
             {
                 setPayloadJsonError: (_, { error }) => error,
                 setPayloadJson: () => null,
+                loadEndpoint: () => null,
+                updateEndpointSuccess: () => null,
             },
         ],
         cacheAge: [
             null as number | null,
             {
                 setCacheAge: (_, { cacheAge }) => cacheAge,
+                loadEndpoint: () => null,
             },
         ],
         syncFrequency: [
-            '24hour' as DataWarehouseSyncInterval | null,
+            '24hour' as DataModelingSyncInterval | null,
             {
                 setSyncFrequency: (_, { syncFrequency }) => syncFrequency,
+                loadEndpoint: () => null,
             },
         ],
         isMaterialized: [
@@ -173,6 +196,7 @@ export const endpointSceneLogic = kea<endpointSceneLogicType>([
             {
                 setIsMaterialized: (_, { isMaterialized }) => isMaterialized,
                 loadEndpointSuccess: (_, { endpoint }) => endpoint?.is_materialized ?? null,
+                loadEndpoint: () => null,
             },
         ],
         endpointName: [
@@ -185,11 +209,54 @@ export const endpointSceneLogic = kea<endpointSceneLogicType>([
             null as EndpointVersionType | null,
             {
                 setViewingVersion: (_, { version }) => version,
-                // Note: Don't reset on loadEndpointSuccess - the listener handles restoring from URL
+                // Reset when switching endpoints; loadEndpointSuccess listener restores from URL if needed
+                loadEndpoint: () => null,
+            },
+        ],
+        debugMode: [
+            false,
+            {
+                setDebugMode: (_, { debugMode }: { debugMode: boolean }) => debugMode,
+                loadEndpoint: () => false,
+            },
+        ],
+        bucketOverrides: [
+            {} as Record<string, string>,
+            {
+                setBucketOverride: (state, { column, bucketFn }) => ({ ...state, [column]: bucketFn }),
+                resetBucketOverrides: (_, { overrides }) => overrides,
+                loadEndpointSuccess: (_, { endpoint }) => endpoint?.bucket_overrides ?? {},
+            },
+        ],
+        // Clear stale playground results when switching endpoints
+        endpointResult: [
+            null as string | null,
+            {
+                loadEndpoint: () => null,
+                updateEndpointSuccess: () => null,
+            },
+        ],
+        // Clear stale materialization preview when switching endpoints
+        materializationPreview: [
+            null as MaterializationPreview | null,
+            {
+                loadEndpoint: () => null,
             },
         ],
     }),
-    loaders(() => ({
+    loaders(({ values }) => ({
+        materializationPreview: {
+            __default: null as MaterializationPreview | null,
+            loadMaterializationPreview: async () => {
+                const endpoint = values.endpoint
+                if (!endpoint?.name) {
+                    return null
+                }
+                const version = values.viewingVersion?.version
+                const overrides = Object.keys(values.bucketOverrides).length > 0 ? values.bucketOverrides : undefined
+                return await api.endpoint.getMaterializationPreview(endpoint.name, version, overrides)
+            },
+        },
         endpointResult: {
             __default: null as string | null,
             loadEndpointResult: async ({ name, data }: { name: string; data: EndpointRunRequest }) => {
@@ -263,7 +330,21 @@ export const endpointSceneLogic = kea<endpointSceneLogicType>([
             ],
         ],
     }),
-    listeners(({ actions, values, props }) => ({
+    listeners(({ actions, values, props, cache }) => ({
+        keepSqlEditorMounted: ({ editorTabId }) => {
+            // Already holding a mount for this editor
+            if (cache.sqlEditorTabId === editorTabId) {
+                return
+            }
+            cache.unmountSqlEditor?.()
+            cache.sqlEditorTabId = editorTabId
+            cache.unmountSqlEditor = sqlEditorLogic({ tabId: editorTabId, mode: SQLEditorMode.Embedded }).mount()
+        },
+        loadEndpoint: () => {
+            cache.unmountSqlEditor?.()
+            cache.unmountSqlEditor = null
+            cache.sqlEditorTabId = null
+        },
         loadEndpointSuccess: async ({ endpoint }: { endpoint: EndpointVersionType | null; payload?: string }) => {
             const initialPayload = generateInitialPayloadJson(endpoint)
             actions.setPayloadJson(initialPayload)
@@ -272,9 +353,12 @@ export const endpointSceneLogic = kea<endpointSceneLogicType>([
 
             const { searchParams, hashParams } = getTabSceneParams(props.tabId)
 
-            // Load versions if on versions tab
+            // Load tab-specific data
             if (searchParams.tab === EndpointTab.VERSIONS && endpoint?.name) {
                 actions.loadVersions(endpoint.name)
+            }
+            if (searchParams.tab === EndpointTab.CONFIGURATION && endpoint?.name) {
+                actions.loadMaterializationPreview()
             }
 
             // Handle version param from URL
@@ -303,6 +387,12 @@ export const endpointSceneLogic = kea<endpointSceneLogicType>([
             if (tab === EndpointTab.VERSIONS && values.endpoint?.name) {
                 actions.loadVersions(values.endpoint.name)
             }
+            if (tab === EndpointTab.CONFIGURATION && values.endpoint?.name) {
+                actions.loadMaterializationPreview()
+            }
+        },
+        setBucketOverride: () => {
+            actions.loadMaterializationPreview()
         },
         setViewingVersion: ({ version }) => {
             // Reset local state so viewed version's data shows through
@@ -311,6 +401,9 @@ export const endpointSceneLogic = kea<endpointSceneLogicType>([
             actions.setSyncFrequency(null)
             actions.setIsMaterialized(null)
             actions.clearMaterializationStatus()
+
+            // Reset bucket overrides to viewed version's values
+            actions.resetBucketOverrides(version?.bucket_overrides ?? values.endpoint?.bucket_overrides ?? {})
 
             // Reset description to viewed version's description (or endpoint's if going back to current)
             if (version) {
@@ -417,6 +510,13 @@ export const endpointSceneLogic = kea<endpointSceneLogicType>([
                     }
                 }
             }
+        },
+    })),
+    events(({ cache }) => ({
+        beforeUnmount: () => {
+            cache.unmountSqlEditor?.()
+            cache.unmountSqlEditor = null
+            cache.sqlEditorTabId = null
         },
     })),
 ])

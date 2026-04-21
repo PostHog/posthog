@@ -1,9 +1,11 @@
 import { Message } from 'node-rdkafka'
 
+import { createMockPipeline } from '../../../tests/helpers/mock-pipeline'
 import { logger } from '../../utils/logger'
+import { OVERFLOW_OUTPUT } from '../common/outputs'
 import { BatchPipelineUnwrapper } from './batch-pipeline-unwrapper'
-import { BatchPipelineResultWithContext } from './batch-pipeline.interface'
-import { DefaultContext, createContext, createNewBatchPipeline } from './helpers'
+import { BatchPipeline } from './batch-pipeline.interface'
+import { DefaultContext, createContext, createNewBatchPipeline, createOkContext } from './helpers'
 import { dlq, drop, ok, redirect } from './results'
 
 // Mock the logger
@@ -36,9 +38,9 @@ describe('BatchPipelineUnwrapper', () => {
             const batchPipeline = createNewBatchPipeline<{ message: Message }>().build()
             const unwrapper = new BatchPipelineUnwrapper(batchPipeline)
 
-            const batchResults: BatchPipelineResultWithContext<DefaultContext, DefaultContext> = [
-                createContext(ok({ message, processed: 'test1' }), { message }),
-                createContext(ok({ message, processed: 'test2' }), { message }),
+            const batchResults = [
+                createOkContext({ message, processed: 'test1' }, { message }),
+                createOkContext({ message, processed: 'test2' }, { message }),
             ]
 
             unwrapper.feed(batchResults)
@@ -62,15 +64,14 @@ describe('BatchPipelineUnwrapper', () => {
         })
 
         it('should return empty array when no successful results', async () => {
-            const batchPipeline = createNewBatchPipeline<{ message: Message }>().build()
-            const unwrapper = new BatchPipelineUnwrapper(batchPipeline)
-
-            const batchResults: BatchPipelineResultWithContext<DefaultContext, DefaultContext> = [
-                createContext(drop('dropped'), { message }),
-                createContext(dlq('failed', new Error('test')), { message }),
+            const batchResults = [
+                createContext(drop<{ message: Message }>('dropped'), { message }),
+                createContext(dlq<{ message: Message }>('failed', new Error('test')), { message }),
             ]
 
-            unwrapper.feed(batchResults)
+            const mockBatchPipeline = createMockPipeline<{ message: Message }>(batchResults)
+            const unwrapper = new BatchPipelineUnwrapper(mockBatchPipeline)
+
             const results = await unwrapper.next()
 
             expect(results).toEqual([])
@@ -80,23 +81,31 @@ describe('BatchPipelineUnwrapper', () => {
 
     describe('filtering behavior', () => {
         it('should filter out non-OK results and return only successful values', async () => {
-            const batchPipeline = createNewBatchPipeline<{ message: Message }>().build()
-            const unwrapper = new BatchPipelineUnwrapper(batchPipeline)
-
             const message2 = { ...message, offset: 2 } as Message
             const message3 = { ...message, offset: 3 } as Message
             const message4 = { ...message, offset: 4 } as Message
             const message5 = { ...message, offset: 5 } as Message
 
-            const batchResults: BatchPipelineResultWithContext<DefaultContext, DefaultContext> = [
+            const batchResults = [
                 createContext(ok({ message, processed: 'success1' }), { message }),
                 createContext(drop('dropped item'), { message: message2 }),
                 createContext(ok({ message, processed: 'success2' }), { message: message3 }),
-                createContext(redirect('redirected', 'overflow-topic'), { message: message4 }),
+                createContext(redirect('redirected', OVERFLOW_OUTPUT), { message: message4 }),
                 createContext(dlq('failed item', new Error('processing error')), { message: message5 }),
             ]
 
-            unwrapper.feed(batchResults)
+            const mockBatchPipeline: BatchPipeline<
+                { message: Message },
+                { message: Message },
+                DefaultContext,
+                DefaultContext,
+                typeof OVERFLOW_OUTPUT
+            > = {
+                feed: jest.fn(),
+                next: jest.fn().mockResolvedValueOnce(batchResults).mockResolvedValueOnce(null),
+            }
+            const unwrapper = new BatchPipelineUnwrapper(mockBatchPipeline)
+
             const results = await unwrapper.next()
 
             expect(results).toEqual([
@@ -110,11 +119,10 @@ describe('BatchPipelineUnwrapper', () => {
             const batchPipeline = createNewBatchPipeline<{ message: Message }>().build()
             const unwrapper = new BatchPipelineUnwrapper(batchPipeline)
 
-            const batchResults: BatchPipelineResultWithContext<DefaultContext, DefaultContext> = [
-                createContext(ok({ message, value: 'string-value' }), { message }),
-                createContext(ok({ message, value: 42 }), { message }),
-                createContext(drop('dropped'), { message }),
-                createContext(ok({ message, complex: 'object' }), { message }),
+            const batchResults = [
+                createOkContext({ message, value: 'string-value' }, { message }),
+                createOkContext({ message, value: 42 }, { message }),
+                createOkContext({ message, complex: 'object' }, { message }),
             ]
 
             unwrapper.feed(batchResults)
@@ -137,9 +145,9 @@ describe('BatchPipelineUnwrapper', () => {
             const sideEffect1 = Promise.resolve('effect1')
             const sideEffect2 = Promise.resolve('effect2')
 
-            const batchResults: BatchPipelineResultWithContext<DefaultContext, DefaultContext> = [
-                createContext(ok({ message, processed: 'test1' }), { message, sideEffects: [sideEffect1] }),
-                createContext(ok({ message, processed: 'test2' }), { message, sideEffects: [sideEffect2] }),
+            const batchResults = [
+                createOkContext({ message, processed: 'test1' }, { message, sideEffects: [sideEffect1] }),
+                createOkContext({ message, processed: 'test2' }, { message, sideEffects: [sideEffect2] }),
             ]
 
             unwrapper.feed(batchResults)
@@ -155,20 +163,22 @@ describe('BatchPipelineUnwrapper', () => {
         })
 
         it('should count side effects from all results including non-OK ones', async () => {
-            const batchPipeline = createNewBatchPipeline<{ message: Message }>().build()
-            const unwrapper = new BatchPipelineUnwrapper(batchPipeline)
-
             const sideEffect1 = Promise.resolve('effect1')
             const sideEffect2 = Promise.resolve('effect2')
             const sideEffect3 = Promise.resolve('effect3')
 
-            const batchResults: BatchPipelineResultWithContext<DefaultContext, DefaultContext> = [
-                createContext(ok({ message, processed: 'success' }), { message, sideEffects: [sideEffect1] }),
-                createContext(drop('dropped'), { message, sideEffects: [sideEffect2] }),
-                createContext(dlq('failed', new Error('test')), { message, sideEffects: [sideEffect3] }),
+            const batchResults = [
+                createOkContext({ message, processed: 'success' }, { message, sideEffects: [sideEffect1] }),
+                createContext(drop<{ message: Message }>('dropped'), { message, sideEffects: [sideEffect2] }),
+                createContext(dlq<{ message: Message }>('failed', new Error('test')), {
+                    message,
+                    sideEffects: [sideEffect3],
+                }),
             ]
 
-            unwrapper.feed(batchResults)
+            const mockBatchPipeline = createMockPipeline<{ message: Message }>(batchResults)
+            const unwrapper = new BatchPipelineUnwrapper(mockBatchPipeline)
+
             const results = await unwrapper.next()
 
             expect(results).toEqual([{ message, processed: 'success' }])
@@ -185,11 +195,14 @@ describe('BatchPipelineUnwrapper', () => {
             const sideEffect2 = Promise.resolve('effect2')
             const sideEffect3 = Promise.resolve('effect3')
 
-            const batchResults: BatchPipelineResultWithContext<DefaultContext, DefaultContext> = [
-                createContext(ok({ message, processed: 'test' }), {
-                    message,
-                    sideEffects: [sideEffect1, sideEffect2, sideEffect3],
-                }),
+            const batchResults = [
+                createOkContext(
+                    { message, processed: 'test' },
+                    {
+                        message,
+                        sideEffects: [sideEffect1, sideEffect2, sideEffect3],
+                    }
+                ),
             ]
 
             unwrapper.feed(batchResults)
@@ -205,10 +218,9 @@ describe('BatchPipelineUnwrapper', () => {
             const batchPipeline = createNewBatchPipeline<{ message: Message }>().build()
             const unwrapper = new BatchPipelineUnwrapper(batchPipeline)
 
-            const batchResults: BatchPipelineResultWithContext<DefaultContext, DefaultContext> = [
-                createContext(ok({ message, processed: 'test1' }), { message }),
-                createContext(ok({ message, processed: 'test2' }), { message }),
-                createContext(drop('dropped'), { message }),
+            const batchResults = [
+                createOkContext({ message, processed: 'test1' }, { message }),
+                createOkContext({ message, processed: 'test2' }, { message }),
             ]
 
             unwrapper.feed(batchResults)
@@ -225,9 +237,7 @@ describe('BatchPipelineUnwrapper', () => {
             const batchPipeline = createNewBatchPipeline<{ message: Message }>().build()
             const unwrapper = new BatchPipelineUnwrapper(batchPipeline)
 
-            const batchResults: BatchPipelineResultWithContext<DefaultContext, DefaultContext> = [
-                createContext(ok({ message, processed: 'test' }), { message, sideEffects: [] }),
-            ]
+            const batchResults = [createOkContext({ message, processed: 'test' }, { message, sideEffects: [] })]
 
             unwrapper.feed(batchResults)
             const results = await unwrapper.next()
@@ -243,9 +253,7 @@ describe('BatchPipelineUnwrapper', () => {
             const feedSpy = jest.spyOn(batchPipeline, 'feed')
             const unwrapper = new BatchPipelineUnwrapper(batchPipeline)
 
-            const batchResults: BatchPipelineResultWithContext<DefaultContext, DefaultContext> = [
-                createContext(ok({ message, processed: 'test' }), { message }),
-            ]
+            const batchResults = [createOkContext({ message, processed: 'test' }, { message })]
 
             unwrapper.feed(batchResults)
 
@@ -282,9 +290,7 @@ describe('BatchPipelineUnwrapper', () => {
                 },
             }
 
-            const batchResults: BatchPipelineResultWithContext<DefaultContext, DefaultContext> = [
-                createContext(ok(complexValue), { message }),
-            ]
+            const batchResults = [createOkContext(complexValue, { message })]
 
             unwrapper.feed(batchResults)
             const results = await unwrapper.next()
@@ -294,18 +300,17 @@ describe('BatchPipelineUnwrapper', () => {
         })
 
         it('should preserve result ordering', async () => {
-            const batchPipeline = createNewBatchPipeline<{ message: Message }>().build()
-            const unwrapper = new BatchPipelineUnwrapper(batchPipeline)
-
-            const batchResults: BatchPipelineResultWithContext<DefaultContext, DefaultContext> = [
-                createContext(ok({ message, value: 'first' }), { message }),
-                createContext(drop('dropped'), { message }),
-                createContext(ok({ message, value: 'second' }), { message }),
-                createContext(dlq('failed', new Error('test')), { message }),
-                createContext(ok({ message, value: 'third' }), { message }),
+            const batchResults = [
+                createOkContext({ message, value: 'first' }, { message }),
+                createContext(drop<{ message: Message }>('dropped'), { message }),
+                createOkContext({ message, value: 'second' }, { message }),
+                createContext(dlq<{ message: Message }>('failed', new Error('test')), { message }),
+                createOkContext({ message, value: 'third' }, { message }),
             ]
 
-            unwrapper.feed(batchResults)
+            const mockBatchPipeline = createMockPipeline<{ message: Message }>(batchResults)
+            const unwrapper = new BatchPipelineUnwrapper(mockBatchPipeline)
+
             const results = await unwrapper.next()
 
             expect(results).toEqual([

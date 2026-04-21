@@ -1,4 +1,4 @@
-import { Meta } from '@storybook/react'
+import { Meta, StoryObj } from '@storybook/react'
 import { useActions, useMountedLogic } from 'kea'
 import { router } from 'kea-router'
 
@@ -8,7 +8,7 @@ import { urls } from 'scenes/urls'
 
 import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
 import { billingJson } from '~/mocks/fixtures/_billing'
-import billingUnsubscribedJson from '~/mocks/fixtures/_billing_unsubscribed.json'
+import { billingUnsubscribedJson } from '~/mocks/fixtures/_billing_unsubscribed'
 import domainConnectJson from '~/mocks/fixtures/_domain_connect_check.json'
 import preflightJson from '~/mocks/fixtures/_preflight.json'
 import { ProductKey } from '~/queries/schema/schema-general'
@@ -105,219 +105,251 @@ const meta: Meta = {
 }
 export default meta
 
+type Story = StoryObj<{}>
+
 // ==========================================
 // SDK Install (one example)
 // ==========================================
 
-export const SDKInstall = (): JSX.Element => {
-    useMountedLogic(onboardingLogic)
-    const { setProduct } = useActions(onboardingLogic)
+export const SDKInstall: Story = {
+    render: () => {
+        useMountedLogic(onboardingLogic)
+        const { setProduct } = useActions(onboardingLogic)
 
-    useDelayedOnMountEffect(() => {
-        setProduct(availableOnboardingProducts[ProductKey.PRODUCT_ANALYTICS])
-        router.actions.push(
-            urls.onboarding({ productKey: ProductKey.PRODUCT_ANALYTICS, stepKey: OnboardingStepKey.INSTALL })
-        )
-    })
+        useDelayedOnMountEffect(() => {
+            setProduct(availableOnboardingProducts[ProductKey.PRODUCT_ANALYTICS])
+            router.actions.push(
+                urls.onboarding({ productKey: ProductKey.PRODUCT_ANALYTICS, stepKey: OnboardingStepKey.INSTALL })
+            )
+        })
 
-    return <App />
+        return <App />
+    },
+    parameters: {
+        testOptions: { waitForSelector: '[data-attr="sdk-continue"]' },
+    },
 }
-SDKInstall.parameters = {
-    testOptions: { waitForSelector: '[data-attr="sdk-continue"]' },
-}
 
-export const LLMAnalyticsSDKInstall = (): JSX.Element => {
-    useMountedLogic(onboardingLogic)
-    const { setProduct } = useActions(onboardingLogic)
+export const LLMAnalyticsSDKInstall: Story = {
+    render: () => {
+        useMountedLogic(onboardingLogic)
+        const { setProduct } = useActions(onboardingLogic)
 
-    useDelayedOnMountEffect(() => {
-        setProduct(availableOnboardingProducts[ProductKey.LLM_ANALYTICS])
-        router.actions.push(
-            urls.onboarding({ productKey: ProductKey.LLM_ANALYTICS, stepKey: OnboardingStepKey.INSTALL })
-        )
-    })
+        useDelayedOnMountEffect(() => {
+            setProduct(availableOnboardingProducts[ProductKey.LLM_ANALYTICS])
+            router.actions.push(
+                urls.onboarding({ productKey: ProductKey.LLM_ANALYTICS, stepKey: OnboardingStepKey.INSTALL })
+            )
+        })
 
-    return <App />
-}
-LLMAnalyticsSDKInstall.parameters = {
-    testOptions: { waitForSelector: '[data-attr="sdk-continue"]' },
+        return <App />
+    },
+    parameters: {
+        testOptions: { waitForSelector: '[data-attr="sdk-continue"]' },
+    },
 }
 
 // ==========================================
 // Product Configuration Steps
 // ==========================================
 
-export const ProductAnalyticsConfiguration = (): JSX.Element => {
-    useMountedLogic(onboardingLogic)
-    const { setProduct } = useActions(onboardingLogic)
+export const ProductAnalyticsConfiguration: Story = {
+    render: () => {
+        useMountedLogic(onboardingLogic)
+        const { setProduct } = useActions(onboardingLogic)
 
-    useDelayedOnMountEffect(() => {
-        setProduct(availableOnboardingProducts[ProductKey.PRODUCT_ANALYTICS])
-        router.actions.push(
-            urls.onboarding({
-                productKey: ProductKey.PRODUCT_ANALYTICS,
-                stepKey: OnboardingStepKey.PRODUCT_CONFIGURATION,
-            })
-        )
-    })
+        useDelayedOnMountEffect(() => {
+            setProduct(availableOnboardingProducts[ProductKey.PRODUCT_ANALYTICS])
+            router.actions.push(
+                urls.onboarding({
+                    productKey: ProductKey.PRODUCT_ANALYTICS,
+                    stepKey: OnboardingStepKey.PRODUCT_CONFIGURATION,
+                })
+            )
+        })
 
-    return <App />
+        return <App />
+    },
 }
 
-export const SessionReplayConfiguration = (): JSX.Element => {
-    useMountedLogic(onboardingLogic)
-    const { setProduct } = useActions(onboardingLogic)
+export const SessionReplayConfiguration: Story = {
+    render: () => {
+        useMountedLogic(onboardingLogic)
+        const { setProduct } = useActions(onboardingLogic)
 
-    useDelayedOnMountEffect(() => {
-        setProduct(availableOnboardingProducts[ProductKey.SESSION_REPLAY])
-        router.actions.push(
-            urls.onboarding({ productKey: ProductKey.SESSION_REPLAY, stepKey: OnboardingStepKey.PRODUCT_CONFIGURATION })
-        )
-    })
+        useDelayedOnMountEffect(() => {
+            setProduct(availableOnboardingProducts[ProductKey.SESSION_REPLAY])
+            router.actions.push(
+                urls.onboarding({
+                    productKey: ProductKey.SESSION_REPLAY,
+                    stepKey: OnboardingStepKey.PRODUCT_CONFIGURATION,
+                })
+            )
+        })
 
-    return <App />
+        return <App />
+    },
 }
 
-export const SessionReplayOptIn = (): JSX.Element => {
-    useMountedLogic(onboardingLogic)
-    const { setProduct } = useActions(onboardingLogic)
+export const SessionReplayOptIn: Story = {
+    render: () => {
+        useMountedLogic(onboardingLogic)
+        const { setProduct } = useActions(onboardingLogic)
 
-    useDelayedOnMountEffect(() => {
-        setProduct(availableOnboardingProducts[ProductKey.PRODUCT_ANALYTICS])
-        router.actions.push(
-            urls.onboarding({ productKey: ProductKey.PRODUCT_ANALYTICS, stepKey: OnboardingStepKey.SESSION_REPLAY })
-        )
-    })
+        useDelayedOnMountEffect(() => {
+            setProduct(availableOnboardingProducts[ProductKey.PRODUCT_ANALYTICS])
+            router.actions.push(
+                urls.onboarding({ productKey: ProductKey.PRODUCT_ANALYTICS, stepKey: OnboardingStepKey.SESSION_REPLAY })
+            )
+        })
 
-    return <App />
+        return <App />
+    },
 }
 
 // ==========================================
 // Web Analytics
 // ==========================================
 
-export const AuthorizedDomains = (): JSX.Element => {
-    useMountedLogic(onboardingLogic)
-    const { setProduct } = useActions(onboardingLogic)
+export const AuthorizedDomains: Story = {
+    render: () => {
+        useMountedLogic(onboardingLogic)
+        const { setProduct } = useActions(onboardingLogic)
 
-    useDelayedOnMountEffect(() => {
-        setProduct(availableOnboardingProducts[ProductKey.WEB_ANALYTICS])
-        router.actions.push(
-            urls.onboarding({ productKey: ProductKey.WEB_ANALYTICS, stepKey: OnboardingStepKey.AUTHORIZED_DOMAINS })
-        )
-    })
+        useDelayedOnMountEffect(() => {
+            setProduct(availableOnboardingProducts[ProductKey.WEB_ANALYTICS])
+            router.actions.push(
+                urls.onboarding({ productKey: ProductKey.WEB_ANALYTICS, stepKey: OnboardingStepKey.AUTHORIZED_DOMAINS })
+            )
+        })
 
-    return <App />
+        return <App />
+    },
 }
 
 // ==========================================
 // Data Warehouse
 // ==========================================
 
-export const LinkData = (): JSX.Element => {
-    useMountedLogic(onboardingLogic)
-    const { setProduct } = useActions(onboardingLogic)
+export const LinkData: Story = {
+    render: () => {
+        useMountedLogic(onboardingLogic)
+        const { setProduct } = useActions(onboardingLogic)
 
-    useDelayedOnMountEffect(() => {
-        setProduct(availableOnboardingProducts[ProductKey.DATA_WAREHOUSE])
-        router.actions.push(
-            urls.onboarding({ productKey: ProductKey.DATA_WAREHOUSE, stepKey: OnboardingStepKey.LINK_DATA })
-        )
-    })
+        useDelayedOnMountEffect(() => {
+            setProduct(availableOnboardingProducts[ProductKey.DATA_WAREHOUSE])
+            router.actions.push(
+                urls.onboarding({ productKey: ProductKey.DATA_WAREHOUSE, stepKey: OnboardingStepKey.LINK_DATA })
+            )
+        })
 
-    return <App />
+        return <App />
+    },
 }
 
 // ==========================================
 // Error Tracking
 // ==========================================
 
-export const SourceMaps = (): JSX.Element => {
-    useMountedLogic(onboardingLogic)
-    const { setProduct } = useActions(onboardingLogic)
+export const SourceMaps: Story = {
+    render: () => {
+        useMountedLogic(onboardingLogic)
+        const { setProduct } = useActions(onboardingLogic)
 
-    useDelayedOnMountEffect(() => {
-        setProduct(availableOnboardingProducts[ProductKey.ERROR_TRACKING])
-        router.actions.push(
-            urls.onboarding({ productKey: ProductKey.ERROR_TRACKING, stepKey: OnboardingStepKey.SOURCE_MAPS })
-        )
-    })
+        useDelayedOnMountEffect(() => {
+            setProduct(availableOnboardingProducts[ProductKey.ERROR_TRACKING])
+            router.actions.push(
+                urls.onboarding({ productKey: ProductKey.ERROR_TRACKING, stepKey: OnboardingStepKey.SOURCE_MAPS })
+            )
+        })
 
-    return <App />
+        return <App />
+    },
 }
 
-export const Alerts = (): JSX.Element => {
-    useMountedLogic(onboardingLogic)
-    const { setProduct } = useActions(onboardingLogic)
+export const Alerts: Story = {
+    render: () => {
+        useMountedLogic(onboardingLogic)
+        const { setProduct } = useActions(onboardingLogic)
 
-    useDelayedOnMountEffect(() => {
-        setProduct(availableOnboardingProducts[ProductKey.ERROR_TRACKING])
-        router.actions.push(
-            urls.onboarding({ productKey: ProductKey.ERROR_TRACKING, stepKey: OnboardingStepKey.ALERTS })
-        )
-    })
+        useDelayedOnMountEffect(() => {
+            setProduct(availableOnboardingProducts[ProductKey.ERROR_TRACKING])
+            router.actions.push(
+                urls.onboarding({ productKey: ProductKey.ERROR_TRACKING, stepKey: OnboardingStepKey.ALERTS })
+            )
+        })
 
-    return <App />
+        return <App />
+    },
 }
 
 // ==========================================
 // Workflows
 // ==========================================
 
-export const WorkflowsCustomInstallationInstructions = (): JSX.Element => {
-    useMountedLogic(onboardingLogic)
-    const { setProduct } = useActions(onboardingLogic)
+export const WorkflowsCustomInstallationInstructions: Story = {
+    render: () => {
+        useMountedLogic(onboardingLogic)
+        const { setProduct } = useActions(onboardingLogic)
 
-    useDelayedOnMountEffect(() => {
-        setProduct(availableOnboardingProducts[ProductKey.WORKFLOWS])
-        router.actions.push(
-            urls.onboarding({
-                productKey: ProductKey.WORKFLOWS,
-                stepKey: OnboardingStepKey.INSTALL,
-            })
-        )
-    })
+        useDelayedOnMountEffect(() => {
+            setProduct(availableOnboardingProducts[ProductKey.WORKFLOWS])
+            router.actions.push(
+                urls.onboarding({
+                    productKey: ProductKey.WORKFLOWS,
+                    stepKey: OnboardingStepKey.INSTALL,
+                })
+            )
+        })
 
-    return <App />
+        return <App />
+    },
 }
 
 // ==========================================
 // Shared Steps
 // ==========================================
 
-export const BillingPlans = (): JSX.Element => {
-    useMountedLogic(onboardingLogic)
+export const BillingPlans: Story = {
+    render: () => {
+        useMountedLogic(onboardingLogic)
 
-    useStorybookMocks({
-        get: {
-            '/api/billing/': {
-                ...billingUnsubscribedJson,
+        useStorybookMocks({
+            get: {
+                '/api/billing/': {
+                    ...billingUnsubscribedJson,
+                },
             },
-        },
-    })
+        })
 
-    const { setProduct } = useActions(onboardingLogic)
+        const { setProduct } = useActions(onboardingLogic)
 
-    useDelayedOnMountEffect(() => {
-        setProduct(availableOnboardingProducts[ProductKey.PRODUCT_ANALYTICS])
-        router.actions.push(
-            urls.onboarding({ productKey: ProductKey.PRODUCT_ANALYTICS, stepKey: OnboardingStepKey.PLANS })
-        )
-    })
+        useDelayedOnMountEffect(() => {
+            setProduct(availableOnboardingProducts[ProductKey.PRODUCT_ANALYTICS])
+            router.actions.push(
+                urls.onboarding({ productKey: ProductKey.PRODUCT_ANALYTICS, stepKey: OnboardingStepKey.PLANS })
+            )
+        })
 
-    return <App />
+        return <App />
+    },
 }
 
-export const InviteTeammates = (): JSX.Element => {
-    useMountedLogic(onboardingLogic)
-    const { setProduct } = useActions(onboardingLogic)
+export const InviteTeammates: Story = {
+    render: () => {
+        useMountedLogic(onboardingLogic)
+        const { setProduct } = useActions(onboardingLogic)
 
-    useDelayedOnMountEffect(() => {
-        setProduct(availableOnboardingProducts[ProductKey.PRODUCT_ANALYTICS])
-        router.actions.push(
-            urls.onboarding({ productKey: ProductKey.PRODUCT_ANALYTICS, stepKey: OnboardingStepKey.INVITE_TEAMMATES })
-        )
-    })
+        useDelayedOnMountEffect(() => {
+            setProduct(availableOnboardingProducts[ProductKey.PRODUCT_ANALYTICS])
+            router.actions.push(
+                urls.onboarding({
+                    productKey: ProductKey.PRODUCT_ANALYTICS,
+                    stepKey: OnboardingStepKey.INVITE_TEAMMATES,
+                })
+            )
+        })
 
-    return <App />
+        return <App />
+    },
 }

@@ -1,15 +1,23 @@
 use std::fmt::Display;
 
 use async_trait::async_trait;
-use posthog_symbol_data::{read_symbol_data, ProguardMapping};
+use posthog_symbol_data::{read_symbol_data_with_byte_count, ProguardMapping};
 
 use crate::{
     error::{ProguardError, ResolveError},
-    symbol_store::{Fetcher, Parser},
+    symbol_store::{caching::Countable, Fetcher, Parser},
 };
 
 pub struct FetchedMapping {
     inner: ProguardMapping,
+    /// Decompressed byte count from the symbol_data container, used for cache memory accounting.
+    decompressed_bytes: usize,
+}
+
+impl Countable for FetchedMapping {
+    fn byte_count(&self) -> usize {
+        self.decompressed_bytes
+    }
 }
 
 pub struct ProguardProvider {}
@@ -40,20 +48,24 @@ impl Parser for ProguardProvider {
     type Err = ResolveError;
 
     async fn parse(&self, source: Self::Source) -> Result<FetchedMapping, ResolveError> {
-        let map: ProguardMapping = read_symbol_data(source).map_err(ProguardError::DataError)?;
-        Ok(FetchedMapping::new(map)?)
+        let (map, decompressed_bytes): (ProguardMapping, usize) =
+            read_symbol_data_with_byte_count(source).map_err(ProguardError::DataError)?;
+        Ok(FetchedMapping::new(map, decompressed_bytes)?)
     }
 }
 
 impl FetchedMapping {
-    pub fn new(inner: ProguardMapping) -> Result<Self, ProguardError> {
+    pub fn new(inner: ProguardMapping, decompressed_bytes: usize) -> Result<Self, ProguardError> {
         // Map construction is basically free, so we hold onto the underlying data
         // and re-construct it as needed
         let mapping = proguard::ProguardMapping::new(inner.content.as_bytes());
         if !mapping.is_valid() {
             return Err(ProguardError::InvalidMapping);
         }
-        Ok(Self { inner })
+        Ok(Self {
+            inner,
+            decompressed_bytes,
+        })
     }
 
     pub fn get_mapper<'a>(&'a self) -> proguard::ProguardMapper<'a> {

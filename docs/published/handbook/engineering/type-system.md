@@ -48,7 +48,8 @@ This prevents name collisions between generated and manual types.
 Run after changing serializers, viewsets, or `@extend_schema` decorators:
 
 ```bash
-hogli build:openapi
+hogli build            # auto-detects what changed and rebuilds
+hogli build:openapi    # or run this pipeline explicitly
 ```
 
 CI will fail if generated types are stale.
@@ -118,7 +119,8 @@ Query types like `TrendsQuery`, `FunnelsQuery`, and HogQL filters are defined in
 ### Regenerating
 
 ```bash
-hogli build:schema
+hogli build            # auto-detects what changed and rebuilds
+hogli build:schema     # or run this pipeline explicitly
 ```
 
 This runs:

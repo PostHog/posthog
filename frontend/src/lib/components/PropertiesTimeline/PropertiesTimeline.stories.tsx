@@ -6,9 +6,9 @@ import { useStorybookMocks } from '~/mocks/browser'
 import { ChartDisplayType, PersonActorType } from '~/types'
 
 import { PropertiesTimeline } from '.'
-import { RawPropertiesTimelineResult } from './propertiesTimelineLogic'
+import { PropertiesTimelineProps, RawPropertiesTimelineResult } from './propertiesTimelineLogic'
 
-const meta: Meta<typeof PropertiesTimeline> = {
+const meta: Meta<PropertiesTimelineProps> = {
     title: 'Components/Properties Timeline',
     component: PropertiesTimeline,
 }

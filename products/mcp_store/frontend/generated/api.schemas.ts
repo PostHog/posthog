@@ -85,7 +85,6 @@ export interface InstallCustomApi {
     auth_type: InstallCustomAuthTypeEnumApi
     api_key?: string
     description?: string
-    oauth_provider_kind?: string
     install_source?: InstallSourceEnumApi
     posthog_code_callback_url?: string
 }
@@ -113,7 +112,6 @@ export interface RecommendedServerApi {
     url: string
     description: string
     auth_type: RecommendedServerAuthTypeEnumApi
-    oauth_provider_kind?: string
 }
 
 export interface PaginatedRecommendedServerListApi {

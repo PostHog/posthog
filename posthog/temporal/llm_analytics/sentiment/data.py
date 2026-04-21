@@ -7,7 +7,7 @@ results by trace_id for downstream processing.
 import json
 from dataclasses import dataclass, field
 
-from posthog.clickhouse.query_tagging import Product, tags_context
+from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.temporal.llm_analytics.sentiment.constants import (
     GENERATIONS_BY_UUID_QUERY,
     GENERATIONS_QUERY,
@@ -44,7 +44,7 @@ def fetch_generations(
 
     team = Team.objects.get(id=team_id)
     query = parse_select(GENERATIONS_QUERY)
-    with tags_context(product=Product.LLM_ANALYTICS, team_id=team_id):
+    with tags_context(product=Product.LLM_ANALYTICS, feature=Feature.QUERY, team_id=team_id):
         result = execute_hogql_query(
             query_type="SentimentOnDemand",
             query=query,
@@ -96,7 +96,7 @@ def fetch_generations_by_uuid(
 
     team = Team.objects.get(id=team_id)
     query = parse_select(GENERATIONS_BY_UUID_QUERY)
-    with tags_context(product=Product.LLM_ANALYTICS, team_id=team_id):
+    with tags_context(product=Product.LLM_ANALYTICS, feature=Feature.QUERY, team_id=team_id):
         result = execute_hogql_query(
             query_type="SentimentOnDemandGeneration",
             query=query,

@@ -2,7 +2,7 @@ import { LookupAddress } from 'dns'
 import dns from 'dns/promises'
 import * as ipaddr from 'ipaddr.js'
 import net from 'node:net'
-import { Counter } from 'prom-client'
+import { Counter, Gauge } from 'prom-client'
 // eslint-disable-next-line no-restricted-imports
 import {
     Agent,
@@ -18,9 +18,11 @@ import {
 } from 'undici'
 import { URL } from 'url'
 
-import { defaultConfig } from '../config/config'
+import { getExternalRequestConfig } from '../common/config'
 import { isProdEnv } from './env-utils'
 import { parseJSON } from './json-parse'
+
+const requestConfig = getExternalRequestConfig()
 
 // eslint-disable-next-line no-restricted-imports
 export { Response } from 'undici'
@@ -29,6 +31,15 @@ const unsafeRequestCounter = new Counter({
     name: 'node_request_unsafe',
     help: 'Total number of unsafe requests detected and blocked',
     labelNames: ['reason'],
+})
+
+// Gauge tracking the number of external HTTP requests currently in flight.
+// This is the primary scaling signal for the cdp-cyclotron-worker: it directly
+// measures I/O saturation rather than CPU (which stays low while waiting on responses)
+// or batch utilization (which measures demand, not capacity).
+const inflightExternalRequests = new Gauge({
+    name: 'cdp_http_inflight_requests',
+    help: 'Number of currently inflight external HTTP requests (undici). Use as HPA scaling metric for cdp-cyclotron-worker.',
 })
 
 // NOTE: This isn't exactly fetch - it's meant to be very close but limited to only options we actually want to expose
@@ -73,7 +84,7 @@ function validateUrl(url: string): URL {
     let parsedUrl: URL
     try {
         parsedUrl = new URL(url)
-    } catch (err) {
+    } catch {
         throw new InvalidRequestError('Invalid URL')
     }
     const { hostname, protocol } = parsedUrl
@@ -161,7 +172,7 @@ async function staticLookupAsync(hostname: string): Promise<LookupAddress[]> {
     const validAddrinfo: LookupAddress[] = []
     try {
         addrinfo = await dns.lookup(hostname, { all: true })
-    } catch (err) {
+    } catch {
         throw new ResolutionError('Invalid hostname')
     }
     for (const addrInfo of addrinfo) {
@@ -223,11 +234,11 @@ export async function raiseIfUserProvidedUrlUnsafe(url: string): Promise<void> {
 class SecureAgent extends Agent {
     constructor() {
         super({
-            keepAliveTimeout: Number(defaultConfig.EXTERNAL_REQUEST_KEEP_ALIVE_TIMEOUT_MS),
-            connections: defaultConfig.EXTERNAL_REQUEST_CONNECTIONS,
+            keepAliveTimeout: Number(requestConfig.EXTERNAL_REQUEST_KEEP_ALIVE_TIMEOUT_MS),
+            connections: requestConfig.EXTERNAL_REQUEST_CONNECTIONS,
             connect: {
                 lookup: httpStaticLookup,
-                timeout: defaultConfig.EXTERNAL_REQUEST_CONNECT_TIMEOUT_MS,
+                timeout: requestConfig.EXTERNAL_REQUEST_CONNECT_TIMEOUT_MS,
             },
         })
     }
@@ -237,10 +248,10 @@ class SecureAgent extends Agent {
 class InsecureAgent extends Agent {
     constructor() {
         super({
-            keepAliveTimeout: defaultConfig.EXTERNAL_REQUEST_KEEP_ALIVE_TIMEOUT_MS,
-            connections: defaultConfig.EXTERNAL_REQUEST_CONNECTIONS,
+            keepAliveTimeout: requestConfig.EXTERNAL_REQUEST_KEEP_ALIVE_TIMEOUT_MS,
+            connections: requestConfig.EXTERNAL_REQUEST_CONNECTIONS,
             connect: {
-                timeout: defaultConfig.EXTERNAL_REQUEST_CONNECT_TIMEOUT_MS,
+                timeout: requestConfig.EXTERNAL_REQUEST_CONNECT_TIMEOUT_MS,
             },
         })
     }
@@ -256,8 +267,8 @@ function makeSecureDispatcher(): Dispatcher {
     if (proxyUrl) {
         return new ProxyAgent({
             uri: proxyUrl,
-            keepAliveTimeout: defaultConfig.EXTERNAL_REQUEST_KEEP_ALIVE_TIMEOUT_MS,
-            connections: defaultConfig.EXTERNAL_REQUEST_CONNECTIONS,
+            keepAliveTimeout: requestConfig.EXTERNAL_REQUEST_KEEP_ALIVE_TIMEOUT_MS,
+            connections: requestConfig.EXTERNAL_REQUEST_CONNECTIONS,
             requestTls: {},
         })
     }
@@ -266,6 +277,25 @@ function makeSecureDispatcher(): Dispatcher {
 
 const sharedSecureAgent = makeSecureDispatcher()
 const sharedInsecureAgent = new InsecureAgent()
+
+/**
+ * Reads a response body stream and destroys it immediately after to release
+ * the underlying socket and its off-heap buffers. Without explicit destruction,
+ * undici holds onto these buffers until GC, and V8 never returns the ~64MB
+ * ArrayBuffer arenas they live in to the OS.
+ */
+async function readAndDestroyBody(body: Dispatcher.ResponseData['body']): Promise<string> {
+    const text = await body.text()
+    // After text() fully consumes the stream, destroy to release socket buffers.
+    // At this point the stream is already ended so destroy is a cleanup no-op,
+    // but it signals undici to release the underlying socket immediately.
+    try {
+        body.destroy()
+    } catch {
+        // Ignore destroy errors — the body is already fully consumed
+    }
+    return text
+}
 
 export async function _fetch(url: string, options: FetchOptions = {}, dispatcher: Dispatcher): Promise<FetchResponse> {
     let parsed: URL
@@ -279,7 +309,7 @@ export async function _fetch(url: string, options: FetchOptions = {}, dispatcher
         throw new Error('URL must have HTTP or HTTPS protocol and a valid hostname')
     }
 
-    options.timeoutMs = options.timeoutMs ?? defaultConfig.EXTERNAL_REQUEST_TIMEOUT_MS
+    options.timeoutMs = options.timeoutMs ?? requestConfig.EXTERNAL_REQUEST_TIMEOUT_MS
 
     const result = await request(parsed.toString(), {
         method: options.method ?? 'GET',
@@ -298,28 +328,36 @@ export async function _fetch(url: string, options: FetchOptions = {}, dispatcher
         }
     }
 
-    let consumed = false
+    // On first .text()/.json() call, read the full body and destroy the
+    // stream immediately after. This releases undici's socket buffers
+    // without waiting for GC.
+    let bodyPromise: Promise<string> | undefined
 
-    const returnValue = {
+    const readBody = (): Promise<string> => {
+        if (!bodyPromise) {
+            bodyPromise = readAndDestroyBody(result.body)
+        }
+        return bodyPromise
+    }
+
+    return {
         status: result.statusCode,
         headers,
-        json: async () => {
-            consumed = true
-            return parseJSON(await result.body.text())
-        },
-        text: async () => {
-            consumed = true
-            return await result.body.text()
-        },
-        dump: async () => {
-            if (consumed) {
-                return
+        json: async () => parseJSON(await readBody()),
+        text: async () => await readBody(),
+        dump: () => {
+            if (!bodyPromise) {
+                bodyPromise = Promise.resolve('')
+                try {
+                    result.body.on('error', () => {})
+                    result.body.destroy()
+                } catch {
+                    // Ignore destroy errors
+                }
             }
-            consumed = true
-            await result.body.dump()
+            return Promise.resolve()
         },
     }
-    return returnValue
 }
 
 export async function internalFetch(url: string, options: FetchOptions = {}): Promise<FetchResponse> {
@@ -329,7 +367,12 @@ export async function internalFetch(url: string, options: FetchOptions = {}): Pr
 export async function fetch(url: string, options: FetchOptions = {}): Promise<FetchResponse> {
     const parsed = new URL(url)
     validateHostnameIPLiteral(parsed.hostname, !isProdEnv())
-    return await _fetch(url, options, sharedSecureAgent)
+    inflightExternalRequests.inc()
+    try {
+        return await _fetch(url, options, sharedSecureAgent)
+    } finally {
+        inflightExternalRequests.dec()
+    }
 }
 
 // Legacy fetch implementation that exposes the entire fetch implementation
@@ -349,7 +392,7 @@ export function legacyFetch(input: RequestInfo, options?: RequestInit): Promise<
 
     const requestOptions = options ?? {}
     requestOptions.dispatcher = sharedSecureAgent
-    requestOptions.signal = AbortSignal.timeout(defaultConfig.EXTERNAL_REQUEST_TIMEOUT_MS)
+    requestOptions.signal = AbortSignal.timeout(requestConfig.EXTERNAL_REQUEST_TIMEOUT_MS)
 
     return undiciFetch(parsed.toString(), requestOptions)
 }

@@ -90,6 +90,10 @@ class PipelineV3(Generic[ResumableData]):
         self._resource = source_response
         self._resource_name = source_response.name
 
+        # Allow user-specified primary keys to override auto-detected ones
+        if schema.primary_key_columns:
+            self._resource.primary_keys = schema.primary_key_columns
+
         self._job = job
         self._reset_pipeline = reset_pipeline
         self._logger = logger
@@ -98,7 +102,7 @@ class PipelineV3(Generic[ResumableData]):
         self._schema = schema
         self._source = source
         self._table = table
-        self._is_incremental = schema.is_incremental
+        self._is_incremental = schema.is_incremental or schema.is_webhook
 
         self._delta_table_helper = DeltaTableHelper(self._resource_name, self._job, self._logger)
 
@@ -107,7 +111,7 @@ class PipelineV3(Generic[ResumableData]):
         )
 
         sync_type: SyncTypeLiteral = "full_refresh"
-        if self._schema.is_incremental:
+        if self._schema.is_incremental or self._schema.is_webhook:
             sync_type = "incremental"
         elif self._schema.is_append:
             sync_type = "append"

@@ -217,7 +217,7 @@ export const getNextJSSteps = (ctx: OnboardingComponentsContext): StepDefinition
                                 export function getPostHogServer() {
                                   if (!posthogInstance) {
                                     posthogInstance = new PostHog(
-                                      process.env.NEXT_PUBLIC_TOKEN,
+                                      process.env.NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN,
                                       {
                                         host: process.env.NEXT_PUBLIC_POSTHOG_HOST,
                                         flushAt: 1,

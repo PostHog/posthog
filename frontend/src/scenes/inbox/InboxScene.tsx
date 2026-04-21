@@ -34,7 +34,6 @@ import {
 } from '@posthog/lemon-ui'
 
 import { GraphsHog, PopUpBinocularsHog } from 'lib/components/hedgehogs'
-import { NotFound } from 'lib/components/NotFound'
 import { ResizableElement } from 'lib/components/ResizeElement/ResizeElement'
 import { TZLabel } from 'lib/components/TZLabel'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
@@ -42,8 +41,10 @@ import { IconArrowDown } from 'lib/lemon-ui/icons'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
+import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture/ProfilePicture'
 import { statusBadgeColor } from 'scenes/debug/signals/helpers'
 import type { SignalNode } from 'scenes/debug/signals/types'
+import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -57,7 +58,7 @@ import { SignalCard } from './SignalCard'
 import { SignalGraphTab } from './SignalGraphTab'
 import { signalSourcesLogic } from './signalSourcesLogic'
 import { SourcesModal } from './SourcesModal'
-import { SignalReport, SignalReportArtefact, SignalReportStatus } from './types'
+import { EnrichedReviewer, SignalReport, SignalReportArtefact, SignalReportStatus } from './types'
 
 export const scene: SceneExport = {
     component: InboxScene,
@@ -82,12 +83,19 @@ function ReportListItem({ report }: { report: SignalReport }): JSX.Element {
                     : undefined
             }
             className={clsx(
-                `w-full text-left px-3 py-2.5 flex items-start gap-2 cursor-pointer rounded border border-primary overflow-hidden`,
-                isSelected ? 'bg-surface-primary' : 'bg-surface-secondary hover:bg-surface-tertiary'
+                `w-full text-left px-3 py-2.5 flex items-start gap-2 cursor-pointer rounded border overflow-hidden`,
+                report.is_suggested_reviewer
+                    ? 'border-primary bg-primary-alt-highlight'
+                    : isSelected
+                      ? 'border-primary bg-surface-primary'
+                      : 'border-primary bg-surface-secondary hover:bg-surface-tertiary'
             )}
         >
             <div className="flex-1 min-w-0">
-                <h4 className="text-sm font-medium m-0 truncate flex-1">{report.title || <i>Untitled report</i>}</h4>
+                <h4 className="text-sm font-medium m-0 truncate flex-1 flex items-center gap-1.5">
+                    {report.is_suggested_reviewer && <ProfilePicture size="xs" showName={false} />}
+                    {report.title || <i>Untitled report</i>}
+                </h4>
 
                 {report.summary && (
                     <p
@@ -442,6 +450,75 @@ function JudgmentBadges({ artefacts }: { artefacts: SignalReportArtefact[] }): J
     )
 }
 
+function SuggestedReviewers({ reviewers }: { reviewers: EnrichedReviewer[] }): JSX.Element | null {
+    if (reviewers.length === 0) {
+        return null
+    }
+
+    return (
+        <div className="border rounded bg-surface-primary mb-3 px-3 py-2 space-y-1.5">
+            <div className="text-xs font-medium text-tertiary">Suggested reviewers</div>
+            <div className="flex flex-col gap-1.5">
+                {reviewers.map((reviewer) => {
+                    const displayName = reviewer.user?.first_name || reviewer.github_name || reviewer.github_login
+
+                    return (
+                        <div key={reviewer.github_login} className="flex items-center gap-1.5">
+                            <Tooltip
+                                title={
+                                    reviewer.user
+                                        ? undefined
+                                        : `${displayName} hasn't connected their GitHub account to PostHog. Ask them to do so in Settings!`
+                                }
+                            >
+                                <span className={!reviewer.user ? 'opacity-75' : undefined}>
+                                    <PersonDisplay
+                                        person={{
+                                            properties: {
+                                                email: reviewer.user?.email,
+                                                name: displayName,
+                                            },
+                                        }}
+                                        displayName={displayName}
+                                        withIcon="xs"
+                                        noLink
+                                        noPopover
+                                    />
+                                </span>
+                            </Tooltip>
+                            <Link
+                                to={`https://github.com/${reviewer.github_login}`}
+                                target="_blank"
+                                className="text-xs text-muted hover:text-primary shrink-0"
+                            >
+                                @{reviewer.github_login}
+                            </Link>
+                            {reviewer.relevant_commits.length > 0 && (
+                                <span className="text-[0.6875rem] text-tertiary">
+                                    {reviewer.relevant_commits.map((commit, i) => (
+                                        <span key={commit.sha}>
+                                            {i > 0 && ', '}
+                                            <Tooltip title={commit.reason || undefined}>
+                                                <Link
+                                                    to={commit.url}
+                                                    target="_blank"
+                                                    className="font-mono text-tertiary hover:text-primary"
+                                                >
+                                                    {commit.sha.slice(0, 7)}
+                                                </Link>
+                                            </Tooltip>
+                                        </span>
+                                    ))}
+                                </span>
+                            )}
+                        </div>
+                    )
+                })}
+            </div>
+        </div>
+    )
+}
+
 function ReportDetailPane(): JSX.Element {
     const {
         selectedReport,
@@ -450,6 +527,7 @@ function ReportDetailPane(): JSX.Element {
         activeDetailTab,
         selectedReportSignals,
         reportSignalsLoading,
+        selectedReportReviewers,
     } = useValues(inboxSceneLogic)
     const { deleteReport, reingestReport, setActiveDetailTab } = useActions(inboxSceneLogic)
     const { user } = useValues(userLogic)
@@ -609,11 +687,12 @@ function ReportDetailPane(): JSX.Element {
                             label: 'Overview',
                             content: (
                                 <div className="p-6 max-w-200 w-full">
-                                    {/* Judgment badges from artefacts */}
                                     {reportArtefacts && reportArtefacts.length > 0 && (
                                         <JudgmentBadges artefacts={reportArtefacts} />
                                     )}
-
+                                    {selectedReportReviewers && selectedReportReviewers.length > 0 && (
+                                        <SuggestedReviewers reviewers={selectedReportReviewers} />
+                                    )}
                                     {/* Signal cards as primary content */}
                                     {reportSignalsLoading && !selectedReportSignals ? (
                                         <div className="items-center gap-2 text-sm text-tertiary py-4">
@@ -666,7 +745,24 @@ export function InboxScene(): JSX.Element {
     const isProductAutonomyEnabled = useFeatureFlag('PRODUCT_AUTONOMY')
 
     if (!isProductAutonomyEnabled) {
-        return <NotFound object="page" caption="Check back later." />
+        return (
+            <div className="flex flex-col items-center justify-center max-w-[50rem] px-4 mx-auto text-center text-balance h-full">
+                <GraphsHog className="w-36 mb-2" />
+                <h1 className="text-2xl font-bold mt-4 mb-0">Inbox is now available in the PostHog Code desktop app</h1>
+                <p className="text-sm font-semibold italic mt-3 mb-0">
+                    PostHog Code brings Inbox and agentic development right to your desktop.
+                </p>
+                <div className="flex justify-center mt-4">
+                    <LemonButton
+                        type="primary"
+                        to="https://posthog.com/code?utm_source=app&utm_medium=in-product&utm_campaign=inbox-cta"
+                        targetBlank
+                    >
+                        Download here
+                    </LemonButton>
+                </div>
+            </div>
+        )
     }
 
     return (

@@ -87,13 +87,25 @@ pub fn read_as<T>(data: Vec<u8>) -> Result<T, Error>
 where
     T: SymbolData,
 {
+    read_as_with_byte_count(data).map(|(v, _)| v)
+}
+
+/// Like `read_as`, but also returns the decompressed payload byte count.
+/// This is useful for cache memory accounting when the container uses compression,
+/// since the compressed size can be much smaller than the actual data in memory.
+pub fn read_as_with_byte_count<T>(data: Vec<u8>) -> Result<(T, usize), Error>
+where
+    T: SymbolData,
+{
     let version = read_version(&data)?;
 
     match version {
         V1_VERSION => {
             assert_at_least_as_long_as(v1_header_len(), data.len())?;
             assert_data_type_impl(&data, T::data_type())?;
-            T::from_bytes(data[v1_header_len()..].to_vec())
+            let payload = data[v1_header_len()..].to_vec();
+            let byte_count = payload.len();
+            T::from_bytes(payload).map(|v| (v, byte_count))
         }
         VERSION => {
             assert_at_least_as_long_as(v2_header_len(), data.len())?;
@@ -112,7 +124,8 @@ where
                     out
                 }
             };
-            T::from_bytes(decompressed)
+            let byte_count = decompressed.len();
+            T::from_bytes(decompressed).map(|v| (v, byte_count))
         }
         other => Err(Error::WrongVersion(other, VERSION)),
     }

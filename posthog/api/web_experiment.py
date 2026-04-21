@@ -210,8 +210,13 @@ class WebExperimentsAPISerializer(serializers.ModelSerializer):
         feature_flag = feature_flag_serializer.save()
 
         # Get team's default stats method setting
+        from posthog.models.team.extensions import get_or_create_team_extension
+
+        from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
+
         team = Team.objects.get(id=self.context["team_id"])
-        default_method = team.default_experiment_stats_method or "bayesian"
+        config = get_or_create_team_extension(team, TeamExperimentsConfig)
+        default_method = config.default_experiment_stats_method or "bayesian"
         stats_config = {
             "method": default_method,
         }
@@ -223,7 +228,7 @@ class WebExperimentsAPISerializer(serializers.ModelSerializer):
         report_user_action(
             self.context["request"].user,
             "experiment created",
-            experiment.get_analytics_metadata(),
+            {**experiment.get_analytics_metadata(), "creation_mode": "new"},
             team=team,
             request=self.context["request"],
         )

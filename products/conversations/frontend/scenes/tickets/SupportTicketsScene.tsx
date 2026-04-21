@@ -2,12 +2,13 @@ import clsx from 'clsx'
 import { useActions, useMountedLogic, useValues } from 'kea'
 import { router } from 'kea-router'
 
-import { IconChevronDown, IconRefresh, IconX } from '@posthog/icons'
+import { IconChevronDown, IconClock, IconRefresh, IconX } from '@posthog/icons'
 import {
     LemonBadge,
     LemonButton,
     LemonCheckbox,
     LemonDropdown,
+    LemonInput,
     LemonInputSelect,
     LemonTable,
     LemonTableColumns,
@@ -17,7 +18,6 @@ import {
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { TZLabel } from 'lib/components/TZLabel'
-import { dayjs } from 'lib/dayjs'
 import { newInternalTab } from 'lib/utils/newInternalTab'
 import { stripMarkdown } from 'lib/utils/stripMarkdown'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
@@ -39,6 +39,7 @@ import {
 } from '../../components/Assignee'
 import { ChannelsTag } from '../../components/Channels/ChannelsTag'
 import { ConversationsDisabledBanner } from '../../components/ConversationsDisabledBanner'
+import { SavedViewsButton } from '../../components/SavedViews/SavedViewsButton'
 import { ScenesTabs } from '../../components/ScenesTabs'
 import { SlaDisplay } from '../../components/SlaDisplay'
 import {
@@ -60,8 +61,9 @@ export const scene: SceneExport = {
 export const SUPPORT_TICKETS_TABLE_COLUMNS: LemonTableColumns<Ticket> = [
     {
         title: 'Ticket',
-        key: 'key',
+        key: 'ticket_number',
         width: 80,
+        sorter: true,
         render: (_, ticket) => <span className="text-xs font-mono text-muted-alt">{ticket.ticket_number}</span>,
     },
     {
@@ -119,9 +121,18 @@ export const SUPPORT_TICKETS_TABLE_COLUMNS: LemonTableColumns<Ticket> = [
         title: 'Status',
         key: 'status',
         render: (_, ticket) => (
-            <LemonTag type={ticket.status === 'resolved' ? 'success' : ticket.status === 'new' ? 'primary' : 'default'}>
-                {ticket.status === 'on_hold' ? 'On hold' : ticket.status}
-            </LemonTag>
+            <span className="flex items-center gap-1">
+                <LemonTag
+                    type={ticket.status === 'resolved' ? 'success' : ticket.status === 'new' ? 'primary' : 'default'}
+                >
+                    {ticket.status === 'on_hold' ? 'On hold' : ticket.status}
+                </LemonTag>
+                {ticket.snoozed_until && (
+                    <span title={`Snoozed until ${new Date(ticket.snoozed_until).toLocaleString()}`}>
+                        <IconClock className="text-muted-alt text-base" />
+                    </span>
+                )}
+            </span>
         ),
     },
     {
@@ -141,18 +152,7 @@ export const SUPPORT_TICKETS_TABLE_COLUMNS: LemonTableColumns<Ticket> = [
     {
         title: 'SLA',
         key: 'sla_due_at',
-        sorter: (a, b) => {
-            if (!a.sla_due_at && !b.sla_due_at) {
-                return 0
-            }
-            if (!a.sla_due_at) {
-                return 1
-            }
-            if (!b.sla_due_at) {
-                return -1
-            }
-            return dayjs(a.sla_due_at).unix() - dayjs(b.sla_due_at).unix()
-        },
+        sorter: true,
         render: (_, ticket) =>
             ticket.sla_due_at ? (
                 <SlaDisplay slaDueAt={ticket.sla_due_at} className="text-xs" />
@@ -187,6 +187,7 @@ export const SUPPORT_TICKETS_TABLE_COLUMNS: LemonTableColumns<Ticket> = [
     {
         title: 'Created',
         key: 'created_at',
+        sorter: true,
         render: (_, ticket) => {
             return (
                 <span className="text-xs text-muted-alt">
@@ -198,6 +199,7 @@ export const SUPPORT_TICKETS_TABLE_COLUMNS: LemonTableColumns<Ticket> = [
     {
         title: 'Updated',
         key: 'updated_at',
+        sorter: true,
         align: 'right',
         render: (_, ticket) => {
             return (
@@ -215,16 +217,19 @@ interface SupportTicketsTableProps {
 
 export function SupportTicketsTable({ embedded = false }: SupportTicketsTableProps): JSX.Element {
     const logic = useMountedLogic(supportTicketsSceneLogic)
-    const { filteredTickets, ticketsLoading, currentPage, totalCount } = useValues(logic)
-    const { setCurrentPage } = useActions(logic)
+    const { tickets, ticketsLoading, currentPage, totalCount, sorting } = useValues(logic)
+    const { setCurrentPage, setSorting } = useActions(logic)
     const { push } = useActions(router)
 
     return (
         <LemonTable<Ticket>
-            dataSource={filteredTickets}
+            dataSource={tickets}
             rowKey="id"
             loading={ticketsLoading}
             embedded={embedded}
+            sorting={sorting}
+            onSort={(newSorting) => setSorting(newSorting)}
+            noSortingCancellation
             pagination={{
                 controlled: true,
                 currentPage,
@@ -274,6 +279,7 @@ export function SupportTicketsTable({ embedded = false }: SupportTicketsTablePro
 export function SupportTicketsTableFilters(): JSX.Element {
     const logic = useMountedLogic(supportTicketsSceneLogic)
     const {
+        searchQuery,
         statusFilter,
         priorityFilter,
         channelFilter,
@@ -285,6 +291,7 @@ export function SupportTicketsTableFilters(): JSX.Element {
         ticketsLoading,
     } = useValues(logic)
     const {
+        setSearchQuery,
         setStatusFilter,
         setPriorityFilter,
         setChannelFilter,
@@ -299,6 +306,14 @@ export function SupportTicketsTableFilters(): JSX.Element {
     return (
         <div className="flex flex-wrap gap-3 items-center justify-between">
             <div className="flex flex-wrap gap-3 items-center">
+                <LemonInput
+                    type="search"
+                    placeholder="Search by ticket #, name, email, or message..."
+                    value={searchQuery}
+                    onChange={setSearchQuery}
+                    size="small"
+                    className="min-w-64"
+                />
                 <DateFilter
                     dateFrom={dateFrom}
                     dateTo={dateTo}
@@ -480,17 +495,20 @@ export function SupportTicketsTableFilters(): JSX.Element {
                     label="Unassigned only"
                 />
             </div>
-            <LemonButton
-                type="secondary"
-                icon={<IconRefresh />}
-                loading={ticketsLoading}
-                disabledReason={ticketsLoading ? 'Loading tickets...' : undefined}
-                onClick={loadTickets}
-                size="small"
-                data-attr="refresh-tickets"
-            >
-                Refresh
-            </LemonButton>
+            <div className="flex items-center gap-2">
+                <SavedViewsButton id="SupportTicketsScene" />
+                <LemonButton
+                    type="secondary"
+                    icon={<IconRefresh />}
+                    loading={ticketsLoading}
+                    disabledReason={ticketsLoading ? 'Loading tickets...' : undefined}
+                    onClick={loadTickets}
+                    size="small"
+                    data-attr="refresh-tickets"
+                >
+                    Refresh
+                </LemonButton>
+            </div>
         </div>
     )
 }

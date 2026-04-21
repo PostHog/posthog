@@ -15,6 +15,7 @@ export interface RepoApi {
     repo_external_id: number
     repo_full_name: string
     baseline_file_paths: RepoApiBaselineFilePaths
+    enable_pr_comments: boolean
     created_at: string
 }
 
@@ -41,6 +42,8 @@ export type PatchedUpdateRepoRequestInputApiBaselineFilePaths = { [key: string]:
 export interface PatchedUpdateRepoRequestInputApi {
     /** @nullable */
     baseline_file_paths?: PatchedUpdateRepoRequestInputApiBaselineFilePaths
+    /** @nullable */
+    enable_pr_comments?: boolean | null
 }
 
 export interface RunSummaryApi {
@@ -49,6 +52,7 @@ export interface RunSummaryApi {
     new: number
     removed: number
     unchanged: number
+    tolerated_matched?: number
 }
 
 export type RunApiMetadata = { [key: string]: unknown }
@@ -72,6 +76,8 @@ export interface RunApi {
     /** @nullable */
     completed_at: string | null
     is_stale?: boolean
+    /** @nullable */
+    superseded_by_id?: string | null
     metadata?: RunApiMetadata
 }
 
@@ -109,6 +115,9 @@ export interface CreateRunInputApi {
     /** @nullable */
     pr_number?: number | null
     baseline_hashes?: CreateRunInputApiBaselineHashes
+    unchanged_count?: number
+    removed_identifiers?: string[]
+    purpose?: string
     metadata?: CreateRunInputApiMetadata
 }
 
@@ -125,13 +134,26 @@ export interface CreateRunResultApi {
     uploads: UploadTargetApi[]
 }
 
+export type AddSnapshotsInputApiBaselineHashes = { [key: string]: string }
+
+export interface AddSnapshotsInputApi {
+    snapshots: SnapshotManifestItemApi[]
+    baseline_hashes?: AddSnapshotsInputApiBaselineHashes
+}
+
+export interface AddSnapshotsResultApi {
+    added: number
+    uploads: UploadTargetApi[]
+}
+
 export interface ApproveSnapshotInputApi {
     identifier: string
     new_hash: string
 }
 
 export interface ApproveRunRequestInputApi {
-    snapshots: ApproveSnapshotInputApi[]
+    snapshots?: ApproveSnapshotInputApi[]
+    approve_all?: boolean
     commit_to_github?: boolean
 }
 
@@ -177,6 +199,7 @@ export interface SnapshotApi {
     id: string
     identifier: string
     result: string
+    classification_reason: string
     /** @nullable */
     diff_percentage: number | null
     /** @nullable */
@@ -185,6 +208,8 @@ export interface SnapshotApi {
     /** @nullable */
     reviewed_at: string | null
     approved_hash: string
+    /** @nullable */
+    tolerated_hash_id?: string | null
     metadata?: SnapshotApiMetadata
 }
 
@@ -195,6 +220,29 @@ export interface PaginatedSnapshotListApi {
     /** @nullable */
     previous?: string | null
     results: SnapshotApi[]
+}
+
+export interface MarkToleratedInputApi {
+    snapshot_id: string
+}
+
+export interface ToleratedHashEntryApi {
+    id: string
+    alternate_hash: string
+    baseline_hash: string
+    reason: string
+    created_at: string
+    /** @nullable */
+    source_run_id: string | null
+}
+
+export interface PaginatedToleratedHashEntryListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: ToleratedHashEntryApi[]
 }
 
 export interface ReviewStateCountsApi {
@@ -246,6 +294,21 @@ export type VisualReviewRunsSnapshotHistoryListParams = {
 }
 
 export type VisualReviewRunsSnapshotsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type VisualReviewRunsToleratedHashesListParams = {
+    /**
+     * Snapshot identifier
+     */
+    identifier: string
     /**
      * Number of results to return per page.
      */

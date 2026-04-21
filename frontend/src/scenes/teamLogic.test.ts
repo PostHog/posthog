@@ -40,12 +40,12 @@ describe('teamLogic', () => {
             logic.mount()
         })
 
-        it('currentTeamIdStrict throws', () => {
-            expect(() => logic.values.currentTeamIdStrict).toThrow('accessed before')
+        it('currentTeamIdStrict returns @current fallback', () => {
+            expect(logic.values.currentTeamIdStrict).toBe('@current')
         })
 
-        it('currentProjectId throws', () => {
-            expect(() => logic.values.currentProjectId).toThrow('accessed before')
+        it('currentProjectId returns @current fallback', () => {
+            expect(logic.values.currentProjectId).toBe('@current')
         })
 
         it('currentTeamId returns null (non-breaking)', () => {

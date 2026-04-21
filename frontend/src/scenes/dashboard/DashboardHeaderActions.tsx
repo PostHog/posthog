@@ -7,6 +7,7 @@ import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
 import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 import { MaxTool } from 'scenes/max/MaxTool'
 import { Scene } from 'scenes/sceneTypes'
@@ -89,7 +90,7 @@ export function FullscreenModeActions(): JSX.Element {
 }
 
 export function ViewModeActions(): JSX.Element {
-    const { dashboard, canEditDashboard } = useValues(dashboardLogic)
+    const { dashboard, canEditDashboard, tiles } = useValues(dashboardLogic)
     const { setDashboardMode, loadDashboard } = useActions(dashboardLogic)
     const { showAddInsightToDashboardModal } = useActions(addInsightToDashboardLogic)
     const { push } = useActions(router)
@@ -105,36 +106,10 @@ export function ViewModeActions(): JSX.Element {
                 onClick={() => push(urls.dashboardSharing(dashboard.id))}
                 size="small"
                 icon={<IconShare fontSize="16" />}
+                disabledReason={tiles.length === 0 ? 'Add at least one tile before sharing this dashboard' : undefined}
             >
                 Share
             </LemonButton>
-            <AccessControlAction
-                resourceType={AccessControlResourceType.Dashboard}
-                minAccessLevel={AccessControlLevel.Editor}
-                userAccessLevel={dashboard.user_access_level}
-            >
-                <AppShortcut
-                    name="AddTextTileToDashboard"
-                    scope={Scene.Dashboard}
-                    keybind={[keyBinds.dashboardAddTextTile]}
-                    intent="Add text card"
-                    interaction="click"
-                >
-                    <LemonButton
-                        onClick={() => {
-                            push(urls.dashboardTextTile(dashboard.id, 'new'))
-                        }}
-                        data-attr="add-text-tile-to-dashboard"
-                        type="secondary"
-                        size="small"
-                        tooltip="Add text card"
-                        tooltipPlacement="top"
-                        icon={<IconPlusSmall />}
-                    >
-                        Text card
-                    </LemonButton>
-                </AppShortcut>
-            </AccessControlAction>
             {canEditDashboard && (
                 <AppShortcut
                     name="EnterEditMode"
@@ -142,6 +117,7 @@ export function ViewModeActions(): JSX.Element {
                     keybind={[keyBinds.edit]}
                     intent="Enter edit mode"
                     interaction="click"
+                    disabled={tiles.length === 0}
                 >
                     <LemonButton
                         type="secondary"
@@ -151,6 +127,7 @@ export function ViewModeActions(): JSX.Element {
                         icon={<IconGridMasonry fontSize="16" />}
                         tooltip="Edit layout"
                         tooltipPlacement="top"
+                        disabledReason={tiles.length === 0 ? 'Add at least one tile to edit layout' : undefined}
                     >
                         Edit layout
                     </LemonButton>
@@ -179,14 +156,34 @@ export function ViewModeActions(): JSX.Element {
                     minAccessLevel={AccessControlLevel.Editor}
                     userAccessLevel={dashboard.user_access_level}
                 >
-                    <LemonButton
-                        onClick={showAddInsightToDashboardModal}
-                        type="primary"
-                        data-attr="dashboard-add-graph-header"
-                        size="small"
+                    <LemonMenu
+                        items={[
+                            {
+                                label: 'Insight',
+                                onClick: showAddInsightToDashboardModal,
+                                'data-attr': 'dashboard-add-insight',
+                            },
+                            {
+                                label: 'Text card',
+                                onClick: () => push(urls.dashboardTextTile(dashboard.id, 'new')),
+                                'data-attr': 'dashboard-add-text-tile',
+                            },
+                            {
+                                label: 'Button',
+                                onClick: () => push(urls.dashboardButtonTile(dashboard.id, 'new')),
+                                'data-attr': 'dashboard-add-button-tile',
+                            },
+                        ]}
                     >
-                        Add insight
-                    </LemonButton>
+                        <LemonButton
+                            type="primary"
+                            data-attr="dashboard-add-tile"
+                            size="small"
+                            icon={<IconPlusSmall />}
+                        >
+                            Add
+                        </LemonButton>
+                    </LemonMenu>
                 </AccessControlAction>
             </MaxTool>
         </>

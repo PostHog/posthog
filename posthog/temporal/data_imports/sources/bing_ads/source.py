@@ -6,11 +6,16 @@ from posthog.schema import (
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
     SourceFieldOauthConfig,
+    SuggestedTable,
 )
 
 from posthog.exceptions_capture import capture_exception
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
-from posthog.temporal.data_imports.sources.common.base import FieldType, SimpleSource
+from posthog.temporal.data_imports.sources.common.base import (
+    MARKETING_ANALYTICS_SUGGESTED_TABLE_TOOLTIP,
+    FieldType,
+    SimpleSource,
+)
 from posthog.temporal.data_imports.sources.common.mixins import OAuthMixin
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
@@ -34,7 +39,6 @@ class BingAdsSource(SimpleSource[BingAdsSourceConfig], OAuthMixin):
             label="Bing Ads",
             caption="Ensure you have granted PostHog access to your Bing Ads account, learn how to do this in [the documentation](https://posthog.com/docs/cdp/sources/bing-ads).",
             betaSource=True,
-            featureFlag="bing-ads-source",
             iconPath="/static/services/bing-ads.svg",
             docsUrl="https://posthog.com/docs/cdp/sources/bing-ads",
             fields=cast(
@@ -55,6 +59,16 @@ class BingAdsSource(SimpleSource[BingAdsSourceConfig], OAuthMixin):
                     ),
                 ],
             ),
+            suggestedTables=[
+                SuggestedTable(
+                    table="campaigns",
+                    tooltip=MARKETING_ANALYTICS_SUGGESTED_TABLE_TOOLTIP,
+                ),
+                SuggestedTable(
+                    table="campaign_performance_report",
+                    tooltip=MARKETING_ANALYTICS_SUGGESTED_TABLE_TOOLTIP,
+                ),
+            ],
         )
 
     def validate_credentials(

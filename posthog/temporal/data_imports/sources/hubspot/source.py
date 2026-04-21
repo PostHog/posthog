@@ -3,7 +3,10 @@ from typing import cast
 from posthog.schema import (
     ExternalDataSourceType as SchemaExternalDataSourceType,
     SourceConfig,
+    SourceFieldInputConfig,
+    SourceFieldInputConfigType,
     SourceFieldOauthConfig,
+    SourceFieldSwitchGroupConfig,
 )
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
@@ -14,9 +17,15 @@ from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 from posthog.temporal.data_imports.sources.generated_configs import HubspotSourceConfig
-from posthog.temporal.data_imports.sources.hubspot.auth import hubspot_refresh_access_token
+from posthog.temporal.data_imports.sources.hubspot.auth import (
+    hubspot_access_token_is_valid,
+    hubspot_refresh_access_token,
+)
 from posthog.temporal.data_imports.sources.hubspot.hubspot import HubspotResumeConfig, hubspot_source
-from posthog.temporal.data_imports.sources.hubspot.settings import ENDPOINTS as HUBSPOT_ENDPOINTS
+from posthog.temporal.data_imports.sources.hubspot.settings import (
+    DEFAULT_PROPS,
+    ENDPOINTS as HUBSPOT_ENDPOINTS,
+)
 
 from products.data_warehouse.backend.types import ExternalDataSourceType
 
@@ -46,7 +55,26 @@ class HubspotSource(ResumableSource[HubspotSourceConfig | HubspotSourceOldConfig
                 [
                     SourceFieldOauthConfig(
                         name="hubspot_integration_id", label="Hubspot account", required=True, kind="hubspot"
-                    )
+                    ),
+                    SourceFieldSwitchGroupConfig(
+                        name="custom_properties",
+                        label="Customize synced properties",
+                        caption="Specify which properties to sync for each schema. Leave empty to use defaults. Changing properties requires a full resync.",
+                        default=False,
+                        fields=cast(
+                            list[FieldType],
+                            [
+                                SourceFieldInputConfig(
+                                    name=f"{schema_name}_properties",
+                                    label=f"{schema_name.capitalize()} properties",
+                                    type=SourceFieldInputConfigType.TEXTAREA,
+                                    required=False,
+                                    placeholder=", ".join(default_props),
+                                )
+                                for schema_name, default_props in DEFAULT_PROPS.items()
+                            ],
+                        ),
+                    ),
                 ],
             ),
         )
@@ -113,10 +141,17 @@ class HubspotSource(ResumableSource[HubspotSourceConfig | HubspotSourceOldConfig
             else:
                 refresh_token = config_refresh_token
 
-            if not config_hubspot_access_code:
-                hubspot_access_code = hubspot_refresh_access_token(refresh_token)
+            if not config_hubspot_access_code or not hubspot_access_token_is_valid(config_hubspot_access_code):
+                hubspot_access_code = hubspot_refresh_access_token(refresh_token, source_id=inputs.source_id)
             else:
                 hubspot_access_code = config_hubspot_access_code
+
+        selected_properties = None
+        if isinstance(config, HubspotSourceConfig) and config.custom_properties and config.custom_properties.enabled:
+            prop_field = f"{inputs.schema_name}_properties"
+            properties_str = getattr(config.custom_properties, prop_field, None)
+            if properties_str and properties_str.strip():
+                selected_properties = [p.strip() for p in properties_str.split(",") if p.strip()]
 
         return hubspot_source(
             api_key=hubspot_access_code,
@@ -124,4 +159,6 @@ class HubspotSource(ResumableSource[HubspotSourceConfig | HubspotSourceOldConfig
             endpoint=inputs.schema_name,
             logger=inputs.logger,
             resumable_source_manager=resumable_source_manager,
+            selected_properties=selected_properties,
+            source_id=inputs.source_id,
         )

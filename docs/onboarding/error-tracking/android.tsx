@@ -36,7 +36,7 @@ export const getAndroidSteps = (ctx: OnboardingComponentsContext): StepDefinitio
                             code: dedent`
                               import com.posthog.android.PostHogAndroidConfig
                               val config = PostHogAndroidConfig(
-                                  apiKey = POSTHOG_API_KEY,
+                                  apiKey = POSTHOG_PROJECT_TOKEN,
                                   host = POSTHOG_HOST
                               ).apply {
                                   ...

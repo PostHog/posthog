@@ -1,5 +1,4 @@
 import numpy as np
-from scipy.special import erf
 
 from posthog.schema import DetectorType
 
@@ -7,13 +6,20 @@ from posthog.tasks.alerts.detectors.base import BaseDetector, DetectionResult
 from posthog.tasks.alerts.detectors.registry import register_detector
 
 
-def _zscore_to_probability(z_score: float) -> float:
-    """Convert a z-score to a [0, 1] anomaly probability using the error function.
+def _zscore_to_probability(z_score: float, window_zscores: np.ndarray) -> float:
+    """Normalize a z-score to a [0, 1] anomaly probability.
 
-    Uses the same erf-based approach as pyod's predict_proba so that
-    probability scores are comparable across all detector types.
+    Uses min-max normalization against the training window z-scores,
+    consistent with PyOD's default ``linear`` method. The score represents
+    where the current z-score falls relative to the range observed in the
+    training window: 0 means at or below the minimum, 1 means at or above
+    the maximum.
     """
-    return float(erf(z_score / np.sqrt(2)))
+    min_z = float(window_zscores.min())
+    max_z = float(window_zscores.max())
+    if max_z == min_z:
+        return 1.0 if z_score > max_z else 0.0
+    return float(np.clip((z_score - min_z) / (max_z - min_z), 0.0, 1.0))
 
 
 @register_detector(DetectorType.ZSCORE)
@@ -24,17 +30,18 @@ class ZScoreDetector(BaseDetector):
     Detects anomalies by calculating how many standard deviations
     a value is from the rolling mean.
 
-    Scores are normalized to [0, 1] probabilities using the error
-    function (same approach as pyod's predict_proba).
+    Scores are normalized to [0, 1] using min-max normalization against
+    the training window z-scores (consistent with PyOD's default ``linear``
+    method).
 
     Config:
-        threshold: float - Anomaly probability threshold (default: 0.9)
+        threshold: float - Anomaly probability threshold (default: 0.95)
         window: int - Rolling window size (default: 30)
     """
 
     def detect(self, data: np.ndarray) -> DetectionResult:
         """Check if the most recent point is an anomaly based on z-score."""
-        threshold = self.config.get("threshold", 0.9)
+        threshold = self.config.get("threshold", self.DEFAULT_THRESHOLD)
         window = self.config.get("window", 30)
 
         if not self._validate_data(data, min_length=window + 1):
@@ -61,7 +68,8 @@ class ZScoreDetector(BaseDetector):
             )
 
         z_score = abs((current_value - mean) / std)
-        prob = _zscore_to_probability(z_score)
+        window_zscores = np.abs((window_data - mean) / std)
+        prob = _zscore_to_probability(z_score, window_zscores)
 
         return DetectionResult(
             is_anomaly=prob > threshold,
@@ -78,7 +86,7 @@ class ZScoreDetector(BaseDetector):
 
     def detect_batch(self, data: np.ndarray) -> DetectionResult:
         """Check all points for z-score anomalies."""
-        threshold = self.config.get("threshold", 0.9)
+        threshold = self.config.get("threshold", self.DEFAULT_THRESHOLD)
         window = self.config.get("window", 30)
 
         if not self._validate_data(data, min_length=window + 1):
@@ -106,7 +114,8 @@ class ZScoreDetector(BaseDetector):
                 continue
 
             z_score = abs((current_val - mean) / std)
-            prob = _zscore_to_probability(z_score)
+            window_zscores = np.abs((window_data - mean) / std)
+            prob = _zscore_to_probability(z_score, window_zscores)
             scores.append(prob)
 
             if prob > threshold:
@@ -124,6 +133,7 @@ class ZScoreDetector(BaseDetector):
     def get_default_config(cls) -> dict:
         return {
             "type": DetectorType.ZSCORE.value,
-            "threshold": 0.9,
+            "threshold": cls.DEFAULT_THRESHOLD,
             "window": 30,
+            "preprocessing": {"diffs_n": 1},
         }

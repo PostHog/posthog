@@ -11,12 +11,19 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 import type {
     CodeInviteRedeemRequestApi,
     ConnectionTokenResponseApi,
+    PaginatedSandboxEnvironmentListListApi,
+    PaginatedTaskAutomationListApi,
     PaginatedTaskListApi,
     PaginatedTaskRunDetailListApi,
     PatchedTaskApi,
+    PatchedTaskRunSetOutputRequestApi,
     PatchedTaskRunUpdateApi,
     RepositoryReadinessResponseApi,
+    SandboxEnvironmentApi,
+    SandboxListParams,
     TaskApi,
+    TaskAutomationApi,
+    TaskAutomationsListParams,
     TaskRunAppendLogRequestApi,
     TaskRunArtifactPresignRequestApi,
     TaskRunArtifactPresignResponseApi,
@@ -24,7 +31,7 @@ import type {
     TaskRunArtifactsUploadResponseApi,
     TaskRunCommandRequestApi,
     TaskRunCommandResponseApi,
-    TaskRunCreateRequestApi,
+    TaskRunCreateRequestSchemaApi,
     TaskRunDetailApi,
     TaskRunRelayMessageRequestApi,
     TaskRunRelayMessageResponseApi,
@@ -83,6 +90,100 @@ export const codeInvitesRedeemCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(codeInviteRedeemRequestApi),
+    })
+}
+
+/**
+ * API for managing sandbox environments that control network access for task runs.
+ */
+export const getSandboxListUrl = (projectId: string, params?: SandboxListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/sandbox_environments/?${stringifiedParams}`
+        : `/api/projects/${projectId}/sandbox_environments/`
+}
+
+export const sandboxList = async (
+    projectId: string,
+    params?: SandboxListParams,
+    options?: RequestInit
+): Promise<PaginatedSandboxEnvironmentListListApi> => {
+    return apiMutator<PaginatedSandboxEnvironmentListListApi>(getSandboxListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+/**
+ * API for managing sandbox environments that control network access for task runs.
+ */
+export const getSandboxCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/sandbox_environments/`
+}
+
+export const sandboxCreate = async (
+    projectId: string,
+    sandboxEnvironmentApi: NonReadonly<SandboxEnvironmentApi>,
+    options?: RequestInit
+): Promise<SandboxEnvironmentApi> => {
+    return apiMutator<SandboxEnvironmentApi>(getSandboxCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(sandboxEnvironmentApi),
+    })
+}
+
+export const getTaskAutomationsListUrl = (projectId: string, params?: TaskAutomationsListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/task_automations/?${stringifiedParams}`
+        : `/api/projects/${projectId}/task_automations/`
+}
+
+export const taskAutomationsList = async (
+    projectId: string,
+    params?: TaskAutomationsListParams,
+    options?: RequestInit
+): Promise<PaginatedTaskAutomationListApi> => {
+    return apiMutator<PaginatedTaskAutomationListApi>(getTaskAutomationsListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getTaskAutomationsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/task_automations/`
+}
+
+export const taskAutomationsCreate = async (
+    projectId: string,
+    taskAutomationApi: NonReadonly<TaskAutomationApi>,
+    options?: RequestInit
+): Promise<TaskAutomationApi> => {
+    return apiMutator<TaskAutomationApi>(getTaskAutomationsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(taskAutomationApi),
     })
 }
 
@@ -214,14 +315,14 @@ export const getTasksRunCreateUrl = (projectId: string, id: string) => {
 export const tasksRunCreate = async (
     projectId: string,
     id: string,
-    taskRunCreateRequestApi: TaskRunCreateRequestApi,
+    taskRunCreateRequestSchemaApi: TaskRunCreateRequestSchemaApi,
     options?: RequestInit
 ): Promise<TaskApi> => {
     return apiMutator<TaskApi>(getTasksRunCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(taskRunCreateRequestApi),
+        body: JSON.stringify(taskRunCreateRequestSchemaApi),
     })
 }
 
@@ -388,7 +489,7 @@ export const tasksRunsArtifactsPresignCreate = async (
 }
 
 /**
- * Forward a JSON-RPC command to the agent server running in the sandbox. Supports user_message, cancel, and close commands.
+ * Forward a JSON-RPC command to the agent server running in the sandbox. Supports user_message, cancel, close, permission_response, and set_config_option commands.
  * @summary Send command to agent server
  */
 export const getTasksRunsCommandCreateUrl = (projectId: string, taskId: string, id: string) => {
@@ -503,11 +604,14 @@ export const tasksRunsSetOutputPartialUpdate = async (
     projectId: string,
     taskId: string,
     id: string,
+    patchedTaskRunSetOutputRequestApi: PatchedTaskRunSetOutputRequestApi,
     options?: RequestInit
 ): Promise<TaskRunDetailApi> => {
     return apiMutator<TaskRunDetailApi>(getTasksRunsSetOutputPartialUpdateUrl(projectId, taskId, id), {
         ...options,
         method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedTaskRunSetOutputRequestApi),
     })
 }
 

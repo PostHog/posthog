@@ -1,14 +1,15 @@
-import { Meta, StoryFn, StoryObj } from '@storybook/react'
+import type { Meta, StoryObj } from '@storybook/react'
 
 import { mswDecorator } from '~/mocks/browser'
 import { examples } from '~/queries/examples'
-import { Query } from '~/queries/Query/Query'
+import { Query, QueryProps } from '~/queries/Query/Query'
+import { Node } from '~/queries/schema/schema-general'
 
 import events from './__mocks__/EventsNode.json'
 import persons from './__mocks__/PersonsNode.json'
 
-type Story = StoryObj<typeof Query>
-const meta: Meta<typeof Query> = {
+type Story = StoryObj<QueryProps<Node>>
+const meta: Meta<QueryProps<Node>> = {
     title: 'Queries/DataNode',
     component: Query,
     tags: ['test-skip'],
@@ -24,13 +25,14 @@ const meta: Meta<typeof Query> = {
             },
         }),
     ],
+    render: (args) => <Query {...args} context={{ showQueryEditor: true }} />,
 }
 export default meta
 
-const QueryTemplate: StoryFn<typeof Query> = (args) => <Query {...args} context={{ showQueryEditor: true }} />
+export const Events: Story = {
+    args: { query: examples['Events'] },
+}
 
-export const Events: Story = QueryTemplate.bind({})
-Events.args = { query: examples['Events'] }
-
-export const Persons: Story = QueryTemplate.bind({})
-Persons.args = { query: examples['Persons'] }
+export const Persons: Story = {
+    args: { query: examples['Persons'] },
+}

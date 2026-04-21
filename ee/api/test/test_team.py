@@ -38,7 +38,10 @@ def team_enterprise_api_test_factory():
 
             starting_log_response = self.client.get(f"/api/environments/{team_id}/activity")
             assert starting_log_response.status_code == 200, starting_log_response.json()
-            assert starting_log_response.json()["results"] == expected
+            activity = starting_log_response.json()["results"]
+            for item in activity:
+                item.pop("id", None)
+            assert activity == expected
 
         # Deleting projects
 
@@ -249,7 +252,7 @@ def team_enterprise_api_test_factory():
     return TestTeamEnterpriseAPI
 
 
-class TestTeamEnterpriseAPI(team_enterprise_api_test_factory()):
+class TestTeamEnterpriseAPI(team_enterprise_api_test_factory()):  # type: ignore[misc]
     def test_cannot_create_team_not_under_project(self):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()

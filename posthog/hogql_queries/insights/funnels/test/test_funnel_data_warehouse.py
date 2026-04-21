@@ -3,15 +3,24 @@ from pathlib import Path
 
 import pytest
 from freezegun import freeze_time
-from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_person, snapshot_clickhouse_queries
+from posthog.test.base import (
+    BaseTest,
+    ClickhouseTestMixin,
+    _create_event,
+    _create_person,
+    flush_persons_and_events,
+    snapshot_clickhouse_queries,
+)
 
 from posthog.schema import (
+    DataWarehousePersonPropertyFilter,
     DataWarehousePropertyFilter,
     DateRange,
     EventsNode,
     FunnelsDataWarehouseNode,
     FunnelsFilter,
     FunnelsQuery,
+    PropertyOperator,
     StepOrderValue,
 )
 
@@ -20,6 +29,7 @@ from posthog.hogql_queries.insights.funnels.funnels_query_runner import FunnelsQ
 from posthog.test.test_journeys import journeys_for
 from posthog.types import AnyPropertyFilter
 
+from products.data_warehouse.backend.models import DataWarehouseJoin
 from products.data_warehouse.backend.test.utils import create_data_warehouse_table_from_csv
 
 TEST_BUCKET = "test_storage_bucket-posthog.hogql_queries.insights.funnels.funnel_data_warehouse"
@@ -365,6 +375,65 @@ class TestFunnelDataWarehouse(ClickhouseTestMixin, BaseTest):
 
         results = response.results
         assert results[0]["count"] == 4
+        assert results[1]["count"] == 1
+
+    def test_funnels_event_step_filtering_on_warehouse_person_property(self):
+        table_name = self.setup_data_warehouse()
+
+        DataWarehouseJoin.objects.create(
+            team=self.team,
+            source_table_name="persons",
+            source_table_key="properties.email",
+            joining_table_name=table_name,
+            joining_table_key="user_id",
+            field_name=table_name,
+        )
+
+        matching_user_id = "bc53b62b-7cc4-b3b8-0688-c6ee3dfb8539"
+        non_matching_user_id = "8cadb28f-1825-f158-73fa-3f228865b540"
+
+        _create_person(
+            distinct_ids=["person1"],
+            team_id=self.team.pk,
+            properties={"email": matching_user_id},
+        )
+        _create_person(
+            distinct_ids=["person2"],
+            team_id=self.team.pk,
+            properties={"email": non_matching_user_id},
+        )
+
+        _create_event(team=self.team, event="$pageview", distinct_id="person1", timestamp="2025-11-04T10:00:00Z")
+        _create_event(team=self.team, event="$checkout", distinct_id="person1", timestamp="2025-11-04T11:00:00Z")
+        _create_event(team=self.team, event="$pageview", distinct_id="person2", timestamp="2025-11-05T10:00:00Z")
+        _create_event(team=self.team, event="$checkout", distinct_id="person2", timestamp="2025-11-05T11:00:00Z")
+        flush_persons_and_events()
+
+        funnels_query = FunnelsQuery(
+            kind="FunnelsQuery",
+            dateRange=DateRange(date_from="all"),
+            series=[
+                EventsNode(
+                    event="$pageview",
+                    properties=[
+                        DataWarehousePersonPropertyFilter(
+                            key=f"{table_name}.event_name",
+                            operator=PropertyOperator.EXACT,
+                            value="payment_succeeded",
+                        )
+                    ],
+                ),
+                EventsNode(event="$checkout"),
+            ],
+        )
+
+        response = FunnelsQueryRunner(
+            query=funnels_query,
+            team=self.team,
+        ).calculate()
+
+        results = response.results
+        assert results[0]["count"] == 1
         assert results[1]["count"] == 1
 
     @snapshot_clickhouse_queries

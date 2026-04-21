@@ -7,6 +7,7 @@
 category: Reverse proxy
 feature: reverse_proxy
 url_prefix: /settings/organization-proxy
+ui_apps: {}
 tools:
     proxy-list:
         operation: proxy_records_list
@@ -20,10 +21,9 @@ tools:
         list: true
         title: List reverse proxies
         description: >
-            List all managed reverse proxies configured for the current organization.
-            Returns each proxy's domain, CNAME target, provisioning status, and the
-            maximum number of proxies allowed by the current plan.
-            Use this to check whether a reverse proxy is set up before recommending one.
+            List all managed reverse proxies configured for the current organization. Returns each proxy's domain, CNAME
+            target, provisioning status, and the maximum number of proxies allowed by the current plan. Use this to
+            check whether a reverse proxy is set up before recommending one.
     proxy-get:
         operation: proxy_records_retrieve
         enabled: true
@@ -35,10 +35,9 @@ tools:
             idempotent: true
         title: Get reverse proxy details
         description: >
-            Get full details of a specific reverse proxy by ID. Returns the domain,
-            CNAME target (the DNS record value the user needs to configure),
-            current provisioning status, and any error or warning messages.
-            Use this to debug why a proxy isn't working or to check DNS verification status.
+            Get full details of a specific reverse proxy by ID. Returns the domain, CNAME target (the DNS record value
+            the user needs to configure), current provisioning status, and any error or warning messages. Use this to
+            debug why a proxy isn't working or to check DNS verification status.
     proxy-create:
         operation: proxy_records_create
         enabled: true
@@ -50,12 +49,10 @@ tools:
             idempotent: false
         title: Create reverse proxy
         description: >
-            Create a new managed reverse proxy for a custom domain.
-            Provide the domain (e.g. 'e.example.com') that will proxy requests to PostHog.
-            The response includes the CNAME target — the user must add a CNAME DNS record
-            pointing their domain to this target. Once DNS propagates, the proxy is
-            automatically verified and an SSL certificate is issued.
-            The proxy starts in 'waiting' status until DNS is verified.
+            Create a new managed reverse proxy for a custom domain. Provide the domain (e.g. 'e.example.com') that will
+            proxy requests to PostHog. The response includes the CNAME target — the user must add a CNAME DNS record
+            pointing their domain to this target. Once DNS propagates, the proxy is automatically verified and an SSL
+            certificate is issued. The proxy starts in 'waiting' status until DNS is verified.
         exclude_params:
             - target_cname
             - status
@@ -74,9 +71,9 @@ tools:
             idempotent: false
         title: Retry reverse proxy provisioning
         description: >
-            Retry provisioning a reverse proxy that has failed. Only works for proxies
-            in 'erroring' or 'timed_out' status. Resets the proxy to 'waiting' and
-            restarts the DNS verification and certificate provisioning workflow.
+            Retry provisioning a reverse proxy that has failed. Only works for proxies in 'erroring' or 'timed_out'
+            status. Resets the proxy to 'waiting' and restarts the DNS verification and certificate provisioning
+            workflow.
     proxy-delete:
         operation: proxy_records_destroy
         enabled: true
@@ -88,6 +85,6 @@ tools:
             idempotent: true
         title: Delete reverse proxy
         description: >
-            Delete a managed reverse proxy. For proxies still being set up (waiting,
-            erroring, timed_out), the record is removed immediately. For active proxies,
-            a cleanup workflow is started to remove the provisioned infrastructure.
+            Delete a managed reverse proxy. For proxies still being set up (waiting, erroring, timed_out), the record is
+            removed immediately. For active proxies, a cleanup workflow is started to remove the provisioned
+            infrastructure.

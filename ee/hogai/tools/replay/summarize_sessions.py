@@ -10,16 +10,16 @@ from pydantic import BaseModel, Field
 from posthog.schema import MaxRecordingUniversalFilters, RecordingsQuery
 
 from posthog.clickhouse.query_tagging import Product, tags_context
-from posthog.session_recordings.playlist_counters import convert_filters_to_recordings_query
 from posthog.sync import database_sync_to_async
-from posthog.temporal.ai.session_summary.summarize_session import execute_summarize_session
-from posthog.temporal.ai.session_summary.summarize_session_group import execute_summarize_session_group
-from posthog.temporal.ai.session_summary.types.group import (
+from posthog.temporal.common.heartbeat import Heartbeater
+from posthog.temporal.session_replay.count_playlist_items import convert_filters_to_recordings_query
+from posthog.temporal.session_replay.session_summary.summarize_session import execute_summarize_session
+from posthog.temporal.session_replay.session_summary.summarize_session_group import execute_summarize_session_group
+from posthog.temporal.session_replay.session_summary.types.group import (
     SessionProgressStreamData,
     SessionStatusChange,
     SessionSummaryStreamUpdate,
 )
-from posthog.temporal.common.heartbeat import Heartbeater
 
 from ee.hogai.session_summaries.constants import (
     GROUP_SUMMARIES_MIN_SESSIONS,
@@ -303,11 +303,16 @@ class SummarizeSessionsTool(MaxTool):
         session_ids = [recording["session_id"] for recording in results.results]
         return session_ids if session_ids else None
 
+    def _get_trigger_session_id(self) -> str | None:
+        """Get the session ID of the user who triggered the summarization."""
+        return self._get_session_id(self._config)
+
     async def _summarize_sessions_individually(self, session_ids: list[str]) -> str:
         """Summarize sessions individually with progress updates."""
         total = len(session_ids)
         completed = 0
         video_validation_enabled = self._determine_video_validation_enabled()
+        trigger_session_id = self._get_trigger_session_id()
 
         async def _summarize(session_id: str) -> dict[str, Any] | None:
             nonlocal completed
@@ -319,6 +324,7 @@ class SummarizeSessionsTool(MaxTool):
                     team=self._team,
                     model_to_use=SESSION_SUMMARIES_SYNC_MODEL,
                     video_validation_enabled=video_validation_enabled,
+                    trigger_session_id=trigger_session_id,
                 )
                 completed += 1
                 self._dispatch_session_progress(session_id, "summarized", completed, total)
@@ -362,6 +368,7 @@ class SummarizeSessionsTool(MaxTool):
         )
         # Check if the summaries should be validated with videos
         video_validation_enabled = self._determine_video_validation_enabled()
+        trigger_session_id = self._get_trigger_session_id()
         async with Heartbeater():
             async for update_type, data in execute_summarize_session_group(
                 session_ids=session_ids,
@@ -372,6 +379,7 @@ class SummarizeSessionsTool(MaxTool):
                 summary_title=summary_title,
                 extra_summary_context=None,
                 video_validation_enabled=video_validation_enabled,
+                trigger_session_id=trigger_session_id,
             ):
                 # Max "reasoning" text update message
                 if update_type == SessionSummaryStreamUpdate.UI_STATUS:

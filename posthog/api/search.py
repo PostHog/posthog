@@ -11,12 +11,14 @@ from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.helpers.full_text_search import build_rank, process_query
-from posthog.models import Action, Cohort, Dashboard, EventDefinition, FeatureFlag, Insight, PropertyDefinition, Survey
+from posthog.models import Action, Cohort, EventDefinition, FeatureFlag, Insight, PropertyDefinition
 from posthog.models.hog_flow.hog_flow import HogFlow
 
+from products.dashboards.backend.models.dashboard import Dashboard
 from products.early_access_features.backend.models import EarlyAccessFeature
 from products.experiments.backend.models.experiment import Experiment
 from products.notebooks.backend.models import Notebook
+from products.surveys.backend.models import Survey
 
 LIMIT = 25
 
@@ -194,7 +196,7 @@ def class_queryset(
     entity_type = class_to_entity_name(klass)
     values = ["type", "result_id", "extra_fields", "_sort_name"]
 
-    qs: QuerySet[Any] = klass.objects.filter(team__project_id=project_id)  # filter team
+    qs: QuerySet[Any] = cast(Any, klass).objects.filter(team__project_id=project_id)  # filter team
     qs = view.user_access_control.filter_queryset_by_access_level(qs)  # filter access level
 
     # Apply entity-specific filters

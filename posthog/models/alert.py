@@ -27,6 +27,21 @@ ALERT_STATE_CHOICES = [
 ]
 
 
+def derive_detector_event_fields(detector_config: dict | None) -> dict:
+    """Shared derivation of alert_mode/detector_type/ensemble_operator from a detector config.
+
+    Used by both `alert created`/`alert updated` user-action events and the
+    `$insight_alert_firing` internal event so the taxonomy stays in one place.
+    """
+    detector_config = detector_config or {}
+    detector_type = detector_config.get("type")
+    return {
+        "alert_mode": "detector" if detector_type else "threshold",
+        "detector_type": detector_type,
+        "ensemble_operator": detector_config.get("operator") if detector_type == "ensemble" else None,
+    }
+
+
 # TODO: Enable `@deprecated` once we move to Python 3.13
 # @deprecated("AlertConfiguration should be used instead.")
 class Alert(models.Model):
@@ -115,6 +130,8 @@ class AlertConfiguration(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
 
     skip_weekend = models.BooleanField(null=True, blank=True, default=False)
 
+    schedule_restriction = models.JSONField(null=True, blank=True, default=None)
+
     def __str__(self):
         return f"{self.name} (Team: {self.team})"
 
@@ -145,11 +162,35 @@ class AlertConfiguration(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
         super().save(*args, **kwargs)
 
     def _get_event_properties(self) -> dict:
+        detector_config = self.detector_config or {}
+        detector_type = detector_config.get("type")
+
+        ensemble_detector_types: list[str] | None = None
+        has_preprocessing = False
+
+        if detector_type == "ensemble":
+            sub_detectors = detector_config.get("detectors") or []
+            ensemble_detector_types = [sub.get("type") for sub in sub_detectors if sub.get("type")]
+            has_preprocessing = any(sub.get("preprocessing") for sub in sub_detectors)
+        elif detector_type:
+            has_preprocessing = bool(detector_config.get("preprocessing"))
+
+        schedule_restriction = self.schedule_restriction
+        blocked_window_count: int | None = None
+        if isinstance(schedule_restriction, dict):
+            windows = schedule_restriction.get("blocked_windows")
+            if isinstance(windows, list):
+                blocked_window_count = len(windows)
+
         return {
             "alert_id": self.id,
             "alert_name": self.name,
             "condition_type": self.condition.get("type") if self.condition else None,
             "calculation_interval": self.calculation_interval,
+            **derive_detector_event_fields(detector_config),
+            "ensemble_detector_types": ensemble_detector_types,
+            "has_preprocessing": has_preprocessing,
+            "schedule_restriction_blocked_window_count": blocked_window_count,
         }
 
     def report_created(self, user: User, analytics_props: AnalyticsProps | None = None) -> None:
@@ -216,6 +257,9 @@ class AlertCheck(UUIDTModel):
     triggered_points = models.JSONField(null=True, blank=True)  # Indices of detected anomalies
     triggered_dates = models.JSONField(null=True, blank=True)  # Dates for chart alignment
     interval = models.CharField(max_length=10, null=True, blank=True)  # Insight interval when check was created
+    triggered_metadata = models.JSONField(
+        null=True, blank=True
+    )  # Additional trigger context (e.g. series_index, breakdown_value)
 
     def __str__(self):
         return f"AlertCheck for {self.alert_configuration.name} at {self.created_at}"

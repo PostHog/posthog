@@ -24,7 +24,7 @@ operations = [
     ),
     run_sql_with_exceptions(
         DROP_PERSON_ID.format(table_name=DISTRIBUTED_RAW_SESSIONS_TABLE_V3()),
-        node_roles=[NodeRole.DATA, NodeRole.COORDINATOR],
+        node_roles=[NodeRole.DATA],
         sharded=False,
         is_alter_on_replicated_table=False,
     ),
@@ -43,7 +43,7 @@ operations = [
     ),
     run_sql_with_exceptions(
         ADD_HAS_REPLAY_EVENTS.format(table_name=DISTRIBUTED_RAW_SESSIONS_TABLE_V3()),
-        node_roles=[NodeRole.DATA, NodeRole.COORDINATOR],
+        node_roles=[NodeRole.DATA],
         sharded=False,
         is_alter_on_replicated_table=False,
     ),

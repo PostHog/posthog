@@ -7,9 +7,7 @@ import { instrumentFn } from '~/common/tracing/tracing-utils'
 import { PluginEvent } from '~/plugin-scaffold'
 
 import { TransformationResult } from '../../cdp/hog-transformations/hog-transformer.service'
-import { KAFKA_CLICKHOUSE_TOPHOG } from '../../config/kafka-topics'
 import { KafkaConsumer } from '../../kafka/consumer'
-import { KafkaProducerWrapper } from '../../kafka/producer'
 import { HealthCheckResult, IngestionLane, PluginServerService } from '../../types'
 import { EventIngestionRestrictionManager } from '../../utils/event-ingestion-restrictions'
 import { logger } from '../../utils/logger'
@@ -17,6 +15,7 @@ import { PromiseScheduler } from '../../utils/promise-scheduler'
 import { TeamManager } from '../../utils/team-manager'
 import { GroupTypeManager } from '../../worker/ingestion/group-type-manager'
 import { PersonRepository } from '../../worker/ingestion/persons/repositories/person-repository'
+import { OverflowOutput } from '../common/outputs'
 import { BatchPipelineUnwrapper } from '../pipelines/batch-pipeline-unwrapper'
 import { TopHog } from '../tophog'
 import { MainLaneOverflowRedirect } from '../utils/overflow-redirect/main-lane-overflow-redirect'
@@ -25,6 +24,7 @@ import { OverflowRedirectService } from '../utils/overflow-redirect/overflow-red
 import { RedisOverflowRepository } from '../utils/overflow-redirect/overflow-redis-repository'
 import { CymbalClient } from './cymbal'
 import {
+    ErrorTrackingOutputs,
     ErrorTrackingPipelineOutput,
     createErrorTrackingPipeline,
     runErrorTrackingPipeline,
@@ -37,12 +37,11 @@ import {
 export interface ErrorTrackingConsumerOptions {
     groupId: string
     topic: string
-    dlqTopic: string
-    overflowTopic: string
-    outputTopic: string
     cymbalBaseUrl: string
     cymbalTimeoutMs: number
+    cymbalMaxBodyBytes: number
     lane: IngestionLane
+    overflowEnabled: boolean
     overflowBucketCapacity: number
     overflowBucketReplenishRate: number
     statefulOverflowEnabled: boolean
@@ -59,6 +58,7 @@ export interface ErrorTrackingHogTransformer {
     start(): Promise<void>
     stop(): Promise<void>
     transformEventAndProduceMessages(event: PluginEvent): Promise<TransformationResult>
+    processInvocationResults(): Promise<void>
 }
 
 /**
@@ -66,8 +66,7 @@ export interface ErrorTrackingHogTransformer {
  * These are services and clients that are injected.
  */
 export interface ErrorTrackingConsumerDeps {
-    kafkaProducer: KafkaProducerWrapper
-    kafkaMetricsProducer: KafkaProducerWrapper
+    outputs: ErrorTrackingOutputs
     teamManager: TeamManager
     hogTransformer: ErrorTrackingHogTransformer
     groupTypeManager: GroupTypeManager
@@ -93,7 +92,12 @@ const latestOffsetTimestampGauge = new Gauge({
 export class ErrorTrackingConsumer {
     protected name = 'error-tracking-consumer'
     protected kafkaConsumer: KafkaConsumer
-    protected pipeline!: BatchPipelineUnwrapper<{ message: Message }, ErrorTrackingPipelineOutput, { message: Message }>
+    protected pipeline!: BatchPipelineUnwrapper<
+        { message: Message },
+        ErrorTrackingPipelineOutput,
+        { message: Message },
+        OverflowOutput
+    >
     protected cymbalClient: CymbalClient
     protected promiseScheduler: PromiseScheduler
     protected eventIngestionRestrictionManager: EventIngestionRestrictionManager
@@ -113,6 +117,7 @@ export class ErrorTrackingConsumer {
         this.cymbalClient = new CymbalClient({
             baseUrl: config.cymbalBaseUrl,
             timeoutMs: config.cymbalTimeoutMs,
+            maxBodyBytes: config.cymbalMaxBodyBytes,
         })
 
         this.promiseScheduler = new PromiseScheduler()
@@ -128,7 +133,7 @@ export class ErrorTrackingConsumer {
         })
 
         // Create overflow redirect service for main lane (rate limiting)
-        if (this.overflowEnabled() && config.lane === 'main') {
+        if (config.overflowEnabled && config.lane === 'main') {
             this.overflowRedirectService = new MainLaneOverflowRedirect({
                 redisRepository: overflowRedisRepository,
                 localCacheTTLSeconds: config.statefulOverflowLocalCacheTTLSeconds,
@@ -158,10 +163,7 @@ export class ErrorTrackingConsumer {
         logger.info('🚀', `${this.name} - starting`, {
             groupId: this.config.groupId,
             topic: this.config.topic,
-            outputTopic: this.config.outputTopic,
-            dlqTopic: this.config.dlqTopic,
-            overflowTopic: this.config.overflowTopic,
-            overflowEnabled: this.overflowEnabled(),
+            overflowEnabled: this.config.overflowEnabled,
             lane: this.config.lane,
             statefulOverflowEnabled: this.config.statefulOverflowEnabled,
             cymbalUrl: this.config.cymbalBaseUrl,
@@ -185,17 +187,14 @@ export class ErrorTrackingConsumer {
 
         // Initialize TopHog for metrics
         this.topHog = new TopHog({
-            kafkaProducer: this.deps.kafkaMetricsProducer,
-            topic: KAFKA_CLICKHOUSE_TOPHOG,
+            outputs: this.deps.outputs,
             pipeline: this.config.pipeline,
             lane: this.config.lane,
         })
         this.topHog.start()
 
         this.pipeline = createErrorTrackingPipeline({
-            kafkaProducer: this.deps.kafkaProducer,
-            dlqTopic: this.config.dlqTopic,
-            outputTopic: this.config.outputTopic,
+            outputs: this.deps.outputs,
             groupId: this.config.groupId,
             promiseScheduler: this.promiseScheduler,
             teamManager: this.deps.teamManager,
@@ -204,23 +203,13 @@ export class ErrorTrackingConsumer {
             cymbalClient: this.cymbalClient,
             groupTypeManager: this.deps.groupTypeManager,
             eventIngestionRestrictionManager: this.eventIngestionRestrictionManager,
-            overflowEnabled: this.overflowEnabled(),
-            overflowTopic: this.config.overflowTopic,
-            ingestionWarningProducer: this.deps.kafkaProducer,
+            overflowEnabled: this.config.overflowEnabled,
             overflowRedirectService: this.overflowRedirectService,
             overflowLaneTTLRefreshService: this.overflowLaneTTLRefreshService,
             topHog: this.topHog,
         })
 
         logger.info('✅', `${this.name} - pipeline initialized`)
-    }
-
-    /**
-     * Overflow is enabled when the overflow topic is configured and different from the consume topic.
-     * When consuming from the overflow topic itself, overflow is disabled to prevent redirect loops.
-     */
-    private overflowEnabled(): boolean {
-        return !!this.config.overflowTopic && this.config.overflowTopic !== this.config.topic
     }
 
     public async stop(): Promise<void> {
@@ -268,6 +257,9 @@ export class ErrorTrackingConsumer {
                 size: messages.length,
             })
             throw error
+        } finally {
+            // Flush scheduled work and invocation results to prevent memory accumulation
+            await Promise.all([this.promiseScheduler.waitForAll(), this.deps.hogTransformer.processInvocationResults()])
         }
     }
 }

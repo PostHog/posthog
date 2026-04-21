@@ -59,6 +59,8 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
         activity_response = self._get_plugin_activity()
 
         activity: list[dict] = activity_response["results"]
+        for item in activity:
+            item.pop("id", None)
         self.maxDiff = None
         self.assertEqual(activity, expected)
 

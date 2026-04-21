@@ -2,7 +2,7 @@ import { Meta } from '@storybook/react'
 
 import { AnyPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
 
-import { PropertyFilterButton } from './PropertyFilterButton'
+import { PropertyFilterButton, PropertyFilterButtonProps } from './PropertyFilterButton'
 
 const propertyFilters = [
     {
@@ -73,7 +73,7 @@ const propertyFilters = [
     {},
 ] as AnyPropertyFilter[]
 
-const meta: Meta<typeof PropertyFilterButton> = {
+const meta: Meta<PropertyFilterButtonProps> = {
     title: 'Filters/Property Filter Button',
     component: PropertyFilterButton,
     tags: ['autodocs'],

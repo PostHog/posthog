@@ -11,6 +11,8 @@ import { parseJSON } from '~/utils/json-parse'
 import { UUIDT } from '~/utils/utils'
 import { PersonRepository } from '~/worker/ingestion/persons/repositories/person-repository'
 
+import { IngestionOutputs } from '../outputs/ingestion-outputs'
+import { SingleIngestionOutput } from '../outputs/single-ingestion-output'
 import { ErrorTrackingConsumer, ErrorTrackingHogTransformer } from './error-tracking-consumer'
 
 /** Creates a mock KafkaConsumer for tests that don't need actual Kafka connections */
@@ -74,17 +76,17 @@ const createMockPersonRepository = (): jest.Mocked<PersonRepository> => ({
 // Cymbal receives event properties and returns them with fingerprint/issue_id added
 jest.mock('./cymbal', () => ({
     CymbalClient: jest.fn().mockImplementation(() => ({
-        processExceptions: jest.fn().mockImplementation((requests) =>
-            // Return a valid response for each request, preserving input properties
-            requests.map((req: any) => ({
-                uuid: req.uuid,
-                event: req.event,
-                team_id: req.team_id,
-                timestamp: req.timestamp,
+        processExceptions: jest.fn().mockImplementation((items) =>
+            // Return a valid response for each item, preserving input properties
+            items.map((item: any) => ({
+                uuid: item.request.uuid,
+                event: item.request.event,
+                team_id: item.request.team_id,
+                timestamp: item.request.timestamp,
                 properties: {
-                    ...req.properties,
-                    $exception_fingerprint: `fingerprint-${req.uuid}`,
-                    $exception_issue_id: `issue-${req.uuid}`,
+                    ...item.request.properties,
+                    $exception_fingerprint: `fingerprint-${item.request.uuid}`,
+                    $exception_issue_id: `issue-${item.request.uuid}`,
                 },
             }))
         ),
@@ -98,6 +100,7 @@ const createMockHogTransformer = (): jest.Mocked<ErrorTrackingHogTransformer> =>
     transformEventAndProduceMessages: jest
         .fn()
         .mockImplementation((event) => Promise.resolve({ event, invocationResults: [] })),
+    processInvocationResults: jest.fn().mockResolvedValue(undefined),
 })
 
 let offsetIncrementer = 0
@@ -140,12 +143,13 @@ describe('ErrorTrackingConsumer', () => {
         const config = {
             groupId: hub.ERROR_TRACKING_CONSUMER_GROUP_ID,
             topic: hub.ERROR_TRACKING_CONSUMER_CONSUME_TOPIC,
-            dlqTopic: hub.ERROR_TRACKING_CONSUMER_DLQ_TOPIC,
-            overflowTopic: hub.ERROR_TRACKING_CONSUMER_OVERFLOW_TOPIC,
-            outputTopic: hub.ERROR_TRACKING_CONSUMER_OUTPUT_TOPIC,
             cymbalBaseUrl: hub.ERROR_TRACKING_CYMBAL_BASE_URL,
             cymbalTimeoutMs: hub.ERROR_TRACKING_CYMBAL_TIMEOUT_MS,
+            cymbalMaxBodyBytes: hub.ERROR_TRACKING_CYMBAL_MAX_BODY_BYTES,
             lane: hub.INGESTION_LANE ?? ('main' as const),
+            overflowEnabled:
+                !!hub.ERROR_TRACKING_CONSUMER_OVERFLOW_TOPIC &&
+                hub.ERROR_TRACKING_CONSUMER_OVERFLOW_TOPIC !== hub.ERROR_TRACKING_CONSUMER_CONSUME_TOPIC,
             overflowBucketCapacity: hub.ERROR_TRACKING_OVERFLOW_BUCKET_CAPACITY,
             overflowBucketReplenishRate: hub.ERROR_TRACKING_OVERFLOW_BUCKET_REPLENISH_RATE,
             statefulOverflowEnabled: hub.ERROR_TRACKING_STATEFUL_OVERFLOW_ENABLED,
@@ -156,8 +160,28 @@ describe('ErrorTrackingConsumer', () => {
         // Create and store the mock so tests can configure it
         mockHogTransformer = createMockHogTransformer()
         const deps = {
-            kafkaProducer: hub.kafkaProducer,
-            kafkaMetricsProducer: hub.kafkaProducer,
+            outputs: new IngestionOutputs({
+                events: new SingleIngestionOutput(
+                    'events',
+                    hub.ERROR_TRACKING_CONSUMER_OUTPUT_TOPIC,
+                    hub.kafkaProducer,
+                    'test'
+                ),
+                ingestion_warnings: new SingleIngestionOutput(
+                    'ingestion_warnings',
+                    'clickhouse_ingestion_warnings_test',
+                    hub.kafkaProducer,
+                    'test'
+                ),
+                dlq: new SingleIngestionOutput('dlq', hub.ERROR_TRACKING_CONSUMER_DLQ_TOPIC, hub.kafkaProducer, 'test'),
+                overflow: new SingleIngestionOutput(
+                    'overflow',
+                    hub.ERROR_TRACKING_CONSUMER_OVERFLOW_TOPIC || '',
+                    hub.kafkaProducer,
+                    'test'
+                ),
+                tophog: new SingleIngestionOutput('tophog', 'clickhouse_tophog_test', hub.kafkaProducer, 'test'),
+            }),
             teamManager: hub.teamManager,
             hogTransformer: mockHogTransformer,
             groupTypeManager: hub.groupTypeManager,
@@ -225,10 +249,8 @@ describe('ErrorTrackingConsumer', () => {
     describe('configuration', () => {
         it('should have correct config defaults', () => {
             expect(consumer['name']).toBe('error-tracking-consumer')
-            expect(consumer['config'].groupId).toBe('ingestion-error-tracking')
-            expect(consumer['config'].topic).toBe('ingestion-error_tracking-main_test')
-            expect(consumer['config'].dlqTopic).toBe('ingestion-error_tracking-main-dlq_test')
-            expect(consumer['config'].outputTopic).toBe('clickhouse_events_json_test')
+            expect(consumer['config'].groupId).toBe('ingestion-errortracking')
+            expect(consumer['config'].topic).toBe('ingestion-errortracking-main_test')
         })
     })
 
@@ -332,6 +354,24 @@ describe('ErrorTrackingConsumer', () => {
             const properties = parseJSON(producedMessages[0].value.properties as string)
             expect(properties.$geoip_country_code).toBe('SE')
             expect(properties.$geoip_city_name).toBe('Linköping')
+        })
+
+        it('should flush invocation results after batch processing', async () => {
+            const messages = createKafkaMessages([createEvent()])
+            await consumer.handleKafkaBatch(messages)
+
+            expect(mockHogTransformer.processInvocationResults).toHaveBeenCalledTimes(1)
+        })
+
+        it('should flush invocation results even when batch processing fails', async () => {
+            // Make the pipeline throw an error
+            mockHogTransformer.transformEventAndProduceMessages.mockRejectedValueOnce(new Error('Test error'))
+
+            const messages = createKafkaMessages([createEvent()])
+            await expect(consumer.handleKafkaBatch(messages)).rejects.toThrow('Test error')
+
+            // processInvocationResults should still be called via finally block
+            expect(mockHogTransformer.processInvocationResults).toHaveBeenCalledTimes(1)
         })
     })
 

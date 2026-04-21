@@ -1,12 +1,15 @@
-import { screen, waitFor } from '@testing-library/react'
+import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 
+import { clickAtIndex, hoverAtIndex } from 'lib/hog-charts/test-helpers'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
 import { TrendsQuery } from '~/queries/schema/schema-general'
 import { InsightLogicProps } from '~/types'
 
 import { INSIGHT_TEST_ID } from './render-insight'
+import { trendsSeries } from './test-data'
+import { type TooltipAccessor, createTooltipAccessor } from './tooltip-helpers'
 
 const DEBOUNCE_TIMEOUT = 3000
 
@@ -23,7 +26,7 @@ async function clickSelect(dataAttr: string, optionText: string | RegExp): Promi
     await userEvent.click(options[0])
 }
 
-async function searchAndSelect(triggerAttr: string, searchText: string, resultAttr: string): Promise<void> {
+export async function searchAndSelect(triggerAttr: string, searchText: string, resultAttr: string): Promise<void> {
     await userEvent.click(screen.getByTestId(triggerAttr))
 
     const searchInput = await screen.findByTestId('taxonomic-filter-searchfield')
@@ -33,7 +36,7 @@ async function searchAndSelect(triggerAttr: string, searchText: string, resultAt
     await waitFor(
         () => {
             const el = screen.getByTestId(resultAttr)
-            expect(el.textContent).toContain(searchText)
+            expect(el.textContent?.toLowerCase()).toContain(searchText.toLowerCase())
         },
         { timeout: DEBOUNCE_TIMEOUT }
     )
@@ -99,4 +102,46 @@ export const compare = {
 
 export function getQuerySource(): TrendsQuery {
     return getLogic().values.querySource as TrendsQuery
+}
+
+const HOG_CHARTS_TOOLTIP_SELECTOR = '[data-hog-charts-tooltip]'
+
+export const chart = {
+    /** Current chart tooltip element, or null if none is rendered. */
+    getTooltip(): HTMLElement | null {
+        return document.querySelector(HOG_CHARTS_TOOLTIP_SELECTOR)
+    },
+    async hoverTooltip(index: number, totalLabels = trendsSeries.pageviews.labels.length): Promise<TooltipAccessor> {
+        const canvas = await screen.findByRole('img', { name: /chart with/i })
+        const wrapper = canvas.parentElement!
+
+        hoverAtIndex(wrapper, index, totalLabels)
+
+        let tooltip!: HTMLElement
+        await waitFor(() => {
+            const el = chart.getTooltip()
+            expect(el).not.toBeNull()
+            tooltip = el as HTMLElement
+        })
+        return createTooltipAccessor(tooltip)
+    },
+    async clickAtIndex(index: number, totalLabels = trendsSeries.pageviews.labels.length): Promise<void> {
+        const canvas = await screen.findByRole('img', { name: /chart with/i })
+        const wrapper = canvas.parentElement!
+        await clickAtIndex(wrapper, index, totalLabels)
+    },
+    /** Click a row inside the pinned tooltip by matching its label text. Use
+     *  after `clickAtIndex` has pinned a multi-series tooltip. */
+    async clickTooltipRow(label: string | RegExp): Promise<void> {
+        const tooltip = await waitFor(() => {
+            const el = chart.getTooltip()
+            if (!el) {
+                throw new Error('tooltip not pinned')
+            }
+            return el
+        })
+        const row = within(tooltip).getByText(label)
+        const clickable = row.closest('tr') ?? row
+        fireEvent.click(clickable)
+    },
 }

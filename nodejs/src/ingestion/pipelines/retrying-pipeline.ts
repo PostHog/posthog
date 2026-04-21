@@ -1,7 +1,7 @@
 import { logger } from '../../utils/logger'
 import { captureException } from '../../utils/posthog'
 import { retryIfRetriable } from '../../utils/retries'
-import { Pipeline, PipelineResultWithContext } from './pipeline.interface'
+import { OkResultWithContext, Pipeline, PipelineResultWithContext } from './pipeline.interface'
 import { dlq } from './results'
 
 export interface RetryingPipelineOptions {
@@ -12,13 +12,13 @@ export interface RetryingPipelineOptions {
 /**
  * A pipeline that wraps another pipeline with retry logic
  */
-export class RetryingPipeline<TInput, TOutput, C> implements Pipeline<TInput, TOutput, C> {
+export class RetryingPipeline<TInput, TOutput, C, R extends string = never> implements Pipeline<TInput, TOutput, C, R> {
     constructor(
-        private readonly innerPipeline: Pipeline<TInput, TOutput, C>,
+        private readonly innerPipeline: Pipeline<TInput, TOutput, C, R>,
         private readonly options: RetryingPipelineOptions = {}
     ) {}
 
-    async process(input: PipelineResultWithContext<TInput, C>): Promise<PipelineResultWithContext<TOutput, C>> {
+    async process(input: OkResultWithContext<TInput, C>): Promise<PipelineResultWithContext<TOutput, C, R>> {
         try {
             const result = await retryIfRetriable(
                 async () => {

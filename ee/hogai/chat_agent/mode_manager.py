@@ -17,8 +17,6 @@ from ee.hogai.core.agent_modes.mode_manager import AgentModeManager
 from ee.hogai.core.agent_modes.presets.error_tracking import chat_agent_plan_error_tracking_agent, error_tracking_agent
 from ee.hogai.core.agent_modes.presets.flags import chat_agent_plan_flags_agent, flags_agent
 from ee.hogai.core.agent_modes.presets.llm_analytics import chat_agent_plan_llm_analytics_agent, llm_analytics_agent
-from ee.hogai.core.agent_modes.presets.onboarding import onboarding_agent
-from ee.hogai.core.agent_modes.presets.onboarding_prompt_builder import OnboardingPromptBuilder
 from ee.hogai.core.agent_modes.presets.product_analytics import (
     chat_agent_plan_product_analytics_agent,
     product_analytics_agent,
@@ -134,8 +132,6 @@ class ChatAgentModeManager(AgentModeManager):
         registry = get_execution_mode_registry(self._team, self._user)
         if has_plan_mode_feature_flag(self._team, self._user):
             registry[AgentMode.PLAN] = plan_agent
-        if self._mode == AgentMode.ONBOARDING:
-            registry[AgentMode.ONBOARDING] = onboarding_agent
         return registry
 
     @property
@@ -144,8 +140,6 @@ class ChatAgentModeManager(AgentModeManager):
 
     @property
     def prompt_builder_class(self) -> type[AgentPromptBuilder]:
-        if self._mode == AgentMode.ONBOARDING:
-            return OnboardingPromptBuilder
         if self._supermode == AgentMode.PLAN:
             return ChatAgentPlanPromptBuilder
         return ChatAgentPromptBuilder

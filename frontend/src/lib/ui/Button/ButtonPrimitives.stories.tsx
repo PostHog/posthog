@@ -14,13 +14,13 @@ import {
 } from 'lib/ui/DropdownMenu/DropdownMenu'
 
 // import { Button } from './Button'
-import { ButtonGroupPrimitive, ButtonPrimitive } from './ButtonPrimitives'
+import { ButtonGroupPrimitive, ButtonPrimitive, ButtonPrimitiveProps } from './ButtonPrimitives'
 
 const meta = {
     title: 'UI/ButtonPrimitive',
     component: ButtonPrimitive as any,
     tags: ['autodocs'],
-} satisfies Meta<typeof ButtonPrimitive>
+} satisfies Meta<ButtonPrimitiveProps>
 
 export default meta
 

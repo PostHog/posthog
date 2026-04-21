@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{borrow::Cow, collections::HashMap};
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -97,6 +97,32 @@ impl EmbeddingModel {
         match self {
             EmbeddingModel::OpenAITextEmbeddingSmall => 8192,
             EmbeddingModel::OpenAITextEmbeddingLarge => 8192,
+        }
+    }
+
+    /// Apply model-specific escaping/sanitisation to input text before tokenisation.
+    pub fn escape_input<'a>(&self, content: &'a str) -> std::borrow::Cow<'a, str> {
+        match self {
+            EmbeddingModel::OpenAITextEmbeddingSmall | EmbeddingModel::OpenAITextEmbeddingLarge => {
+                const OPENAI_SPECIAL_TOKENS: [(&str, &str); 6] = [
+                    ("<|endoftext|>", ">|endoftext|<"),
+                    ("<|fim_prefix|>", ">|fim_prefix|<"),
+                    ("<|fim_middle|>", ">|fim_middle|<"),
+                    ("<|fim_suffix|>", ">|fim_suffix|<"),
+                    ("<|endofprompt|>", ">|endofprompt|<"),
+                    ("<|diff_marker|>", ">|diff_marker|<"),
+                ];
+
+                let mut escaped: Cow<'a, str> = Cow::Borrowed(content);
+
+                for (token, replacement) in OPENAI_SPECIAL_TOKENS {
+                    if escaped.contains(token) {
+                        escaped = Cow::Owned(escaped.replace(token, replacement));
+                    }
+                }
+
+                escaped
+            }
         }
     }
 
@@ -222,5 +248,30 @@ impl From<EmbeddingResponse> for Vec<EmbeddingRecord> {
         }
 
         records
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_escape_input() {
+        let model = EmbeddingModel::default();
+
+        // Normal text passes through borrowed
+        let normal = "hello world";
+        let result = model.escape_input(normal);
+        assert!(matches!(result, std::borrow::Cow::Borrowed(_)));
+        assert_eq!(result, "hello world");
+
+        // All unsupported OpenAI special tokens get escaped
+        let bad = "a <|endoftext|> b <|fim_prefix|> c <|fim_middle|> d <|fim_suffix|> e <|endofprompt|> f";
+        let result = model.escape_input(bad);
+        assert!(matches!(result, std::borrow::Cow::Owned(_)));
+        assert_eq!(
+            result,
+            "a >|endoftext|< b >|fim_prefix|< c >|fim_middle|< d >|fim_suffix|< e >|endofprompt|< f"
+        );
     }
 }

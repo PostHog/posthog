@@ -5,7 +5,7 @@ import { MouseEvent } from 'react'
 
 import { ErrorTrackingException } from 'lib/components/Errors/types'
 import { Dayjs, dayjs } from 'lib/dayjs'
-import { componentsToDayJs, dateStringToComponents, isStringDateRegex } from 'lib/utils'
+import { componentsToDayJs, dateStringToComponents, dateStringToDayJs, isStringDateRegex } from 'lib/utils'
 import { Params } from 'scenes/sceneTypes'
 
 import { DateRange, ErrorTrackingIssue } from '~/queries/schema/schema-general'
@@ -102,6 +102,21 @@ const customOptions: Record<string, string> = {
     mStart: 'Month',
     yStart: 'Year',
     all: 'All',
+}
+
+export function dateRangeToIsoBounds(dateRange: DateRange | undefined): {
+    dateFrom: string | undefined
+    dateTo: string | undefined
+} {
+    if (!dateRange?.date_from) {
+        return { dateFrom: undefined, dateTo: undefined }
+    }
+    const from = dateStringToDayJs(dateRange.date_from)
+    const to = dateStringToDayJs(dateRange.date_to ?? new Date().toISOString())
+    if (!from || !to) {
+        return { dateFrom: undefined, dateTo: undefined }
+    }
+    return { dateFrom: from.toISOString(), dateTo: to.toISOString() }
 }
 
 export function generateDateRangeLabel(dateRange: DateRange): string | undefined {

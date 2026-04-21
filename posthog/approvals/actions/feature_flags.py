@@ -224,12 +224,9 @@ class UpdateFeatureFlagAction(BaseAction):
 
     # Each path is (keys_to_container..., field_name). The container can be a list of dicts
     # (e.g. groups) or a single dict (e.g. holdout). Both are handled by _extract_rollout_percentages.
-    # TODO(Phase 5): remove holdout_groups path once legacy writing is dropped — during dual-write
-    # both paths detect the same holdout percentage change, producing redundant approval diff entries.
     ROLLOUT_PERCENTAGE_PATHS = [
         ("groups", "rollout_percentage"),
         ("super_groups", "rollout_percentage"),
-        ("holdout_groups", "rollout_percentage"),
         ("holdout", "exclusion_percentage"),
         ("multivariate", "variants", "rollout_percentage"),
     ]

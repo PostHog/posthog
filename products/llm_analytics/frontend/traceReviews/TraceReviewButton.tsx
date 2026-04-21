@@ -1,5 +1,6 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
 import { combineUrl } from 'kea-router'
+import { useEffect, useRef } from 'react'
 
 import {
     LemonButton,
@@ -290,7 +291,7 @@ function DefinitionPicker({
                 placeholder="Add scorer"
                 fullWidth
                 size="small"
-                data-attr="trace-review-definition-picker"
+                data-attr="llma-trace-review-definition-picker"
                 emptyStateComponent={
                     <div className="px-2 py-1 text-sm text-muted">
                         {loading
@@ -305,7 +306,13 @@ function DefinitionPicker({
                 <div className="flex items-center justify-between gap-2">
                     <div className="text-xs text-muted">{resultsLabel}</div>
                     {hasMoreDefinitions ? (
-                        <LemonButton type="tertiary" size="xsmall" onClick={onLoadMore} disabled={loading}>
+                        <LemonButton
+                            type="tertiary"
+                            size="xsmall"
+                            onClick={onLoadMore}
+                            disabled={loading}
+                            data-attr="llma-trace-review-load-more-definitions"
+                        >
                             Load more
                         </LemonButton>
                     ) : null}
@@ -315,8 +322,24 @@ function DefinitionPicker({
     )
 }
 
-export function TraceReviewButton({ traceId }: { traceId: string }): JSX.Element {
-    const logic = useMountedLogic(traceReviewModalLogic({ traceId }))
+export function TraceReviewButton({
+    traceId,
+    queueId,
+    buttonType = 'tertiary',
+    buttonSize = 'xsmall',
+    buttonClassName,
+    buttonLabel,
+    onReviewSaved,
+}: {
+    traceId: string
+    queueId?: string | null
+    buttonType?: 'primary' | 'secondary' | 'tertiary'
+    buttonSize?: 'xsmall' | 'small' | 'medium'
+    buttonClassName?: string
+    buttonLabel?: string
+    onReviewSaved?: () => void
+}): JSX.Element {
+    const logic = useMountedLogic(traceReviewModalLogic({ traceId, queueId }))
     const { featureFlags } = useValues(featureFlagLogic)
     const { getTraceReview } = useValues(traceReviewsLazyLoaderLogic)
     const {
@@ -350,11 +373,20 @@ export function TraceReviewButton({ traceId }: { traceId: string }): JSX.Element
     } = useValues(logic)
     const cachedReview = typeof getTraceReview === 'function' ? getTraceReview(traceId) : undefined
     const effectiveReview = cachedReview === undefined ? currentReview : cachedReview
-    const buttonLabel = effectiveReview ? 'Edit review' : 'Review trace'
+    const resolvedButtonLabel = buttonLabel ?? (effectiveReview ? 'Edit review' : 'Review trace')
     const modalTitle = effectiveReview ? 'Edit review' : 'Review trace'
     const scorersUrl = combineUrl(urls.llmAnalyticsReviews(), { human_reviews_tab: 'scorers' }).url
     const showEmptyDefinitionsState =
         !definitionSearch.trim() && loadedDefinitions.length === 0 && selectedDefinitions.length === 0
+    const wasSavingRef = useRef(false)
+
+    useEffect(() => {
+        if (wasSavingRef.current && !saving && !isOpen && effectiveReview) {
+            onReviewSaved?.()
+        }
+
+        wasSavingRef.current = saving
+    }, [effectiveReview, isOpen, onReviewSaved, saving])
 
     if (!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_TRACE_REVIEW]) {
         return <></>
@@ -368,15 +400,15 @@ export function TraceReviewButton({ traceId }: { traceId: string }): JSX.Element
             >
                 {({ disabled, disabledReason }: AccessControlActionChildrenProps) => (
                     <LemonButton
-                        type="tertiary"
-                        size="xsmall"
+                        type={buttonType}
+                        size={buttonSize}
                         onClick={openModal}
                         disabled={disabled}
                         disabledReason={disabledReason}
-                        className="shrink-0"
-                        data-attr="review-trace-button"
+                        className={buttonClassName || 'shrink-0'}
+                        data-attr="llma-trace-review-button"
                     >
-                        {buttonLabel}
+                        {resolvedButtonLabel}
                     </LemonButton>
                 )}
             </AccessControlAction>
@@ -392,7 +424,12 @@ export function TraceReviewButton({ traceId }: { traceId: string }): JSX.Element
                             <div className="text-sm text-muted">
                                 There are no active scorers yet. You can still mark this trace as reviewed and add
                                 reasoning.{' '}
-                                <Link to={scorersUrl} target="_blank" targetBlankIcon>
+                                <Link
+                                    to={scorersUrl}
+                                    target="_blank"
+                                    targetBlankIcon
+                                    data-attr="llma-trace-review-open-scorers"
+                                >
                                     Open scorers
                                 </Link>
                             </div>
@@ -451,6 +488,7 @@ export function TraceReviewButton({ traceId }: { traceId: string }): JSX.Element
                                                         type="tertiary"
                                                         size="xsmall"
                                                         onClick={() => removeSelectedDefinition(definition.id)}
+                                                        data-attr="llma-trace-review-remove-definition"
                                                     >
                                                         Remove
                                                     </LemonButton>
@@ -474,6 +512,7 @@ export function TraceReviewButton({ traceId }: { traceId: string }): JSX.Element
                                 onChange={setComment}
                                 placeholder="Add optional reasoning or notes"
                                 rows={4}
+                                data-attr="llma-trace-review-comment"
                             />
                             <div className="text-xs text-muted">
                                 Leave this blank if you only want to mark the trace as reviewed.
@@ -489,14 +528,19 @@ export function TraceReviewButton({ traceId }: { traceId: string }): JSX.Element
                                         onClick={removeCurrentReview}
                                         loading={removing}
                                         disabled={saving}
-                                        data-attr="remove-trace-review-button"
+                                        data-attr="llma-trace-review-remove-button"
                                     >
                                         Remove review
                                     </LemonButton>
                                 ) : null}
                             </div>
                             <div className="flex items-center gap-2">
-                                <LemonButton type="secondary" onClick={closeModal} disabled={saving || removing}>
+                                <LemonButton
+                                    type="secondary"
+                                    onClick={closeModal}
+                                    disabled={saving || removing}
+                                    data-attr="llma-trace-review-cancel-button"
+                                >
                                     Cancel
                                 </LemonButton>
                                 <LemonButton
@@ -504,7 +548,7 @@ export function TraceReviewButton({ traceId }: { traceId: string }): JSX.Element
                                     onClick={saveCurrentReview}
                                     loading={saving}
                                     disabled={!canSave || removing}
-                                    data-attr="save-trace-review-button"
+                                    data-attr="llma-trace-review-save-button"
                                 >
                                     Save review
                                 </LemonButton>

@@ -145,7 +145,7 @@ class TestSyncHogFunctionTemplates:
         output = stdout.getvalue()
 
         # Just check that the command ran successfully
-        assert "Sync completed" in output
+        assert "Hog function template sync complete" in output
 
     @patch("posthog.plugins.plugin_server_api.get_hog_function_templates")
     def test_template_contents(self, mock_get_hog_function_templates):

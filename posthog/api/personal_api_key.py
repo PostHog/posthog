@@ -18,10 +18,10 @@ from posthog.models.activity_logging.personal_api_key_utils import (
     log_personal_api_key_activity,
     log_personal_api_key_scope_change,
 )
-from posthog.models.personal_api_key import LEGACY_HASH_PREFIX, hash_key_value
+from posthog.models.personal_api_key import LEGACY_HASH_PREFIX
 from posthog.models.signals import model_activity_signal, mutable_receiver
 from posthog.models.team.team import Team
-from posthog.models.utils import generate_random_token_personal, mask_key_value
+from posthog.models.utils import generate_random_token_personal, hash_key_value, mask_key_value
 from posthog.permissions import TimeSensitiveActionPermission
 from posthog.scopes import API_SCOPE_ACTIONS, API_SCOPE_OBJECTS
 from posthog.user_permissions import UserPermissions
@@ -91,7 +91,7 @@ class PersonalAPIKeySerializer(serializers.ModelSerializer):
             # Check feature flag for llm_gateway scope - block if newly adding this scope
             if scope_parts[0] == "llm_gateway":
                 existing_has_llm_gateway = self.instance is not None and any(
-                    s.startswith("llm_gateway:") for s in (self.instance.scopes or [])
+                    s.startswith("llm_gateway:") for s in self.instance.scopes
                 )
                 if not existing_has_llm_gateway:
                     organization_id = requesting_user.current_organization_id
@@ -143,11 +143,6 @@ class PersonalAPIKeySerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("Invalid organization UUID")
 
         return scoped_organizations
-
-    def to_representation(self, instance):
-        ret = super().to_representation(instance)
-        ret["scopes"] = ret["scopes"] or []
-        return ret
 
     def create(self, validated_data: dict, **kwargs) -> PersonalAPIKey:
         user = self.context["request"].user

@@ -2,6 +2,7 @@ import { MOCK_TEAM_ID } from 'lib/api.mock'
 
 import '@testing-library/jest-dom'
 
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import { featureFlagsActivityResponseJson } from 'lib/components/ActivityLog/__mocks__/activityLogMocks'
@@ -114,6 +115,38 @@ describe('the activity log logic', () => {
             expect(JSON.stringify(logic.values.humanizedActivity)).toEqual(
                 JSON.stringify(humanize(featureFlagsActivityResponseJson, describerFor))
             )
+        })
+    })
+
+    describe('highlighted activity ID from URL', () => {
+        beforeEach(() => {
+            useMocks({
+                get: {
+                    [`/api/projects/${MOCK_TEAM_ID}/feature_flags/activity/`]: {
+                        results: featureFlagsActivityResponseJson,
+                        next: null,
+                    },
+                },
+            })
+            initKeaTests()
+            logic = activityLogLogic({ scope: ActivityScope.FEATURE_FLAG })
+            logic.mount()
+        })
+
+        it('sets highlightedActivityId when activity param is in the URL', async () => {
+            await expectLogic(logic).toDispatchActions(['fetchActivitySuccess'])
+
+            router.actions.push('/project/1/feature_flags', { tab: 'history', activity: 'test-uuid-1234' }, {})
+
+            await expectLogic(logic).toMatchValues({
+                highlightedActivityId: 'test-uuid-1234',
+            })
+        })
+
+        it('starts with no highlighted activity', async () => {
+            await expectLogic(logic).toMatchValues({
+                highlightedActivityId: null,
+            })
         })
     })
 

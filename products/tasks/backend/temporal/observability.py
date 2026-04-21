@@ -144,6 +144,7 @@ def track_event(
     event_name: str,
     distinct_id: str,
     properties: Optional[dict[str, Any]] = None,
+    groups: Optional[dict[str, str]] = None,
 ) -> None:
     try:
         enriched_properties = {**(properties or {})}
@@ -173,6 +174,7 @@ def track_event(
             distinct_id=distinct_id,
             event=event_name,
             properties=enriched_properties,
+            groups=groups or {},
         )
 
         logger.debug(f"Tracked event: {event_name}", **enriched_properties)

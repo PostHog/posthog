@@ -329,7 +329,17 @@ impl Client for RedisClient {
     }
 
     async fn setex(&self, k: String, v: String, seconds: u64) -> Result<(), CustomRedisError> {
-        let final_bytes = self.serialize_and_compress(v, self.format)?;
+        self.setex_with_format(k, v, seconds, self.format).await
+    }
+
+    async fn setex_with_format(
+        &self,
+        k: String,
+        v: String,
+        seconds: u64,
+        format: RedisValueFormat,
+    ) -> Result<(), CustomRedisError> {
+        let final_bytes = self.serialize_and_compress(v, format)?;
 
         let mut conn = self.connection.clone();
         conn.set_ex::<_, _, ()>(k, final_bytes, seconds).await?;

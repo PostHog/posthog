@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 # PostHog flox on-activate hook
 # Sourced (not executed) from manifest.toml — env vars persist into profile scripts.
+#
+# IMPORTANT: This script must NEVER use sudo. It runs automatically on every
+# shell activation, so requiring elevated privileges would condition developers
+# to blindly grant root access to code that changes without notice.
 
 set -euo pipefail
 
@@ -151,8 +155,15 @@ warn_step() {
   printf "  ${C_YELLOW}⚠${C_RESET} %s\n" "$label"
 }
 
+# ── Interactive mode detection ────────────────────────────────────
+# Skip all interactive prompts in non-interactive terminals or when running under PostHog Code (automated agent).
+_interactive=false
+if [[ -t 0 ]] && [[ -z "${POSTHOG_CODE:-}" ]]; then
+  _interactive=true
+fi
+
 # ── Direnv first-time setup (interactive only) ─────────────────────
-if [[ -t 0 ]] && ! command -v direnv >/dev/null 2>&1 && [[ ! -f "$FLOX_ENV_CACHE/.hush-direnv" ]]; then
+if [[ "$_interactive" == true ]] && ! command -v direnv >/dev/null 2>&1 && [[ ! -f "$FLOX_ENV_CACHE/.hush-direnv" ]]; then
   read -p "$(echo -e "${C_BOLD}direnv${C_RESET} recommended for auto-activation. Set up now? (Y/n) ")" -n 1 -r
   echo
   if [[ $REPLY =~ ^[Yy]$ || -z $REPLY ]]; then
@@ -170,7 +181,7 @@ fi
 if [[ "$(uname -s)" == "Darwin" ]] && command -v xcodebuild >/dev/null 2>&1 \
    && [[ "$(xcode-select -p 2>/dev/null)" == /Applications/Xcode*.app/* ]]; then
   if ! xcodebuild -license check >/dev/null 2>&1; then
-    if [[ -t 0 ]] && [[ ! -f "$FLOX_ENV_CACHE/.hush-xcode-license" ]]; then
+    if [[ "$_interactive" == true ]] && [[ ! -f "$FLOX_ENV_CACHE/.hush-xcode-license" ]]; then
       warn_step "Xcode license not accepted. Native builds may fail."
       read -p "$(echo -e "   Accept Xcode license now? (Y/n) ")" -n 1 -r
       echo
@@ -228,15 +239,33 @@ if [[ -d "$UV_PROJECT_ENVIRONMENT/bin" ]]; then
   ) || true
 fi
 
+# ── Step 1b: Build phrocs from source ─────────────────────────────
+run_step "Build phrocs" make -C "$FLOX_ENV_PROJECT/tools/phrocs" build
+if [[ -f "$FLOX_ENV_PROJECT/tools/phrocs/dist/phrocs" && -d "$UV_PROJECT_ENVIRONMENT/bin" ]]; then
+  ln -sf "$FLOX_ENV_PROJECT/tools/phrocs/dist/phrocs" "$UV_PROJECT_ENVIRONMENT/bin/phrocs"
+fi
+
 # ── Step 2: Node packages ──────────────────────────────────────────
 run_step "Node packages" pnpm install
 
 # ── Step 3: /etc/hosts ──────────────────────────────────────────────
-if grep -q "127.0.0.1 kafka clickhouse clickhouse-coordinator objectstorage" /etc/hosts; then
+POSTHOG_HOSTS="127.0.0.1 db redis7 kafka clickhouse clickhouse-coordinator objectstorage seaweedfs temporal # posthog"
+if grep -qF "$POSTHOG_HOSTS" /etc/hosts; then
   done_step "System hosts"
 else
-  echo "127.0.0.1 kafka clickhouse clickhouse-coordinator objectstorage" | sudo tee -a /etc/hosts 1>/dev/null
-  done_step "System hosts (updated)"
+  echo ""
+  echo -e "  ${C_YELLOW}┃${C_RESET} ${C_YELLOW}${C_BOLD}Action required${C_RESET}"
+  echo -e "  ${C_YELLOW}┃${C_RESET}"
+  echo -e "  ${C_YELLOW}┃${C_RESET} PostHog services need hostnames in /etc/hosts."
+  echo -e "  ${C_YELLOW}┃${C_RESET} Copy and run this to update them:"
+  echo -e "  ${C_YELLOW}┃${C_RESET}"
+  echo -e "  ${C_YELLOW}┃${C_RESET}   ${C_DIM}sudo sed -i.bak '/clickhouse-coordinator objectstorage/d' /etc/hosts; echo '${POSTHOG_HOSTS}' | sudo tee -a /etc/hosts${C_RESET}"
+  echo -e "  ${C_YELLOW}┃${C_RESET}"
+  echo ""
+  if [[ "$_interactive" == true ]]; then
+    read -n 1 -s -r -p "  Press any key to continue..."
+    echo ""
+  fi
 fi
 
 # ── Step 4: Environment variables ───────────────────────────────────
@@ -269,13 +298,16 @@ elif [[ -n "$_flox_rustc_ver" ]]; then
   done_step "Rust toolchain (rustc ${_flox_rustc_ver})"
 fi
 
+# Share a single Cargo target dir so worktrees skip redundant linking
+export CARGO_TARGET_DIR="$HOME/.cargo/target"
+
 # ── Summary ─────────────────────────────────────────────────────────
 _activation_end=$(date +%s)
 _activation_time=$(( _activation_end - _activation_start ))
 echo -e "\n${C_DIM}Ready in ${_activation_time}s${C_RESET}"
 
 # ── Interactive welcome ─────────────────────────────────────────────
-if [[ -t 0 ]]; then
+if [[ "$_interactive" == true ]]; then
   quotes=(
     "At PostHog, we don't follow trends, we set them, like records."
     "Be bold, be fearless, and let's lead the way in tech innovation with beast mode."
@@ -301,7 +333,7 @@ ${C_GREEN}${C_BOLD}hogli start${C_RESET}
 ${C_DIM}Interactive wizard to configure which services to run:${C_RESET}
 ${C_GREEN}hogli dev:setup${C_RESET}
 
-${C_ITALIC}Useful processes available in hogli start (mprocs)${C_RESET}
+${C_ITALIC}Useful processes available in hogli start (phrocs)${C_RESET}
 ${C_DIM}  press ${C_BOLD}r${C_RESET}${C_DIM} to start manually:${C_RESET}
 ${C_DIM}  generate-demo-data${C_RESET}          Create a user with demo data
 ${C_DIM}  storybook${C_RESET}                   Run storybook locally
@@ -314,7 +346,7 @@ ${C_DIM}  hogli --help${C_RESET}                Browse all available commands
 ${C_DIM}  hogli migrations:run${C_RESET}        Run pending migrations
 ${C_DIM}  hogli dev:reset${C_RESET}             Wipe volumes, migrate, load demo data
 ${C_DIM}  hogli doctor:disk${C_RESET}           Free up disk space from dev bloat
-${C_DIM}  ${C_BOLD}q${C_RESET}${C_DIM} / ${C_BOLD}r${C_RESET}${C_DIM} in mprocs${C_RESET}             Quit / restart a process
+${C_DIM}  ${C_BOLD}q${C_RESET}${C_DIM} / ${C_BOLD}r${C_RESET}${C_DIM} in phrocs${C_RESET}             Quit / restart a process
 "
 fi
 

@@ -1,7 +1,4 @@
-import time
-import asyncio
 import datetime
-import threading
 from typing import Union
 
 from django.conf import settings
@@ -9,15 +6,11 @@ from django.conf import settings
 import structlog
 from celery import chain
 from prometheus_client import Histogram
-from temporalio import activity, workflow
-from temporalio.common import MetricCounter, MetricHistogramTimedelta, MetricMeter
 
-from posthog.event_usage import EventSource
 from posthog.models.exported_asset import ExportedAsset
 from posthog.models.insight import Insight
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.subscription import Subscription
-from posthog.sync import database_sync_to_async
 from posthog.tasks import exporter
 from posthog.utils import wait_for_parallel_celery_group
 
@@ -38,57 +31,6 @@ SUBSCRIPTION_ASSET_GENERATION_TIMER = Histogram(
 
 def _has_asset_failed(asset: ExportedAsset) -> bool:
     return (not asset.content and not asset.content_location) or asset.exception is not None
-
-
-def _get_failed_asset_info(assets: list[ExportedAsset], resource: Union[Subscription, SharingConfiguration]) -> dict:
-    failed_assets = [a for a in assets if _has_asset_failed(a)]
-    failed_insight_ids = [a.insight_id for a in failed_assets if a.insight_id]
-    failed_insight_urls = [
-        f"/project/{resource.team_id}/insights/{a.insight.short_id}"
-        for a in failed_assets
-        if a.insight and hasattr(a.insight, "short_id")
-    ]
-
-    dashboard_url = f"/project/{resource.team_id}/dashboard/{resource.dashboard_id}" if resource.dashboard else None
-
-    return {
-        "failed_asset_count": len(failed_assets),
-        "failed_insight_ids": failed_insight_ids,
-        "failed_insight_urls": failed_insight_urls,
-        "dashboard_url": dashboard_url,
-    }
-
-
-# Temporal metrics for temporal workers
-def get_metric_meter() -> MetricMeter:
-    if activity.in_activity():
-        return activity.metric_meter()
-    elif workflow.in_workflow():
-        return workflow.metric_meter()
-    else:
-        raise RuntimeError("Not within workflow or activity context")
-
-
-def get_asset_generation_duration_metric(execution_path: str) -> MetricHistogramTimedelta:
-    return (
-        get_metric_meter()
-        .with_additional_attributes({"execution_path": execution_path})
-        .create_histogram_timedelta(
-            "subscription_asset_generation_duration",
-            "Time spent generating assets for a subscription",
-        )
-    )
-
-
-def get_asset_generation_timeout_metric(execution_path: str) -> MetricCounter:
-    return (
-        get_metric_meter()
-        .with_additional_attributes({"execution_path": execution_path})
-        .create_counter(
-            "subscription_asset_generation_timeout",
-            "Number of times asset generation timed out during subscription delivery",
-        )
-    )
 
 
 def generate_assets(
@@ -143,155 +85,3 @@ def generate_assets(
         )
 
         return insights, assets
-
-
-async def generate_assets_async(
-    resource: Union[Subscription, SharingConfiguration],
-    max_asset_count: int = DEFAULT_MAX_ASSET_COUNT,
-) -> tuple[list[Insight], list[ExportedAsset]]:
-    """
-    Async version of generate_assets that creates assets with bulk_create then exports them concurrently.
-    This function requires "created_by", "insight", "dashboard", "team" be prefetched on the resource
-    """
-    logger.info("generate_assets_async.starting", resource_id=getattr(resource, "id", None))
-    start_time = time.time()
-    try:
-        if resource.dashboard:
-            # Fetch tiles asynchronously
-            dashboard = resource.dashboard  # Capture reference for lambda
-            tiles = await database_sync_to_async(
-                lambda: list(
-                    dashboard.tiles.select_related("insight")
-                    .filter(insight__isnull=False, insight__deleted=False)
-                    .all()
-                ),
-                thread_sensitive=False,
-            )()
-            tiles.sort(key=lambda x: (x.layouts.get("sm", {}).get("y", 100), x.layouts.get("sm", {}).get("x", 100)))
-            insights = [tile.insight for tile in tiles if tile.insight]
-
-            if isinstance(resource, Subscription):
-                selected_ids = await database_sync_to_async(
-                    lambda: set(resource.dashboard_export_insights.values_list("id", flat=True))
-                    if resource.dashboard_export_insights.exists()
-                    else None,
-                    thread_sensitive=False,
-                )()
-                if selected_ids:
-                    insights = [i for i in insights if i.id in selected_ids]
-        elif resource.insight:
-            insights = [resource.insight]
-        else:
-            raise Exception("There are no insights to be sent for this Subscription")
-
-        # Create all the assets we need
-        expiry = ExportedAsset.compute_expires_after(ExportedAsset.ExportFormat.PNG)
-        assets = [
-            ExportedAsset(
-                team=resource.team,
-                export_format=ExportedAsset.ExportFormat.PNG,
-                insight=insight,
-                dashboard=resource.dashboard,
-                expires_after=expiry,
-            )
-            for insight in insights[:max_asset_count]
-        ]
-        await database_sync_to_async(ExportedAsset.objects.bulk_create, thread_sensitive=False)(assets)
-
-        if not assets:
-            return insights, assets
-
-        # Track cancellation events for each asset so we can signal them on timeout
-        cancellation_events: dict[int, threading.Event] = {}
-
-        # Create async tasks for each asset export
-        # Retries and failure recording are handled inside export_asset_direct
-        async def export_single_asset(asset: ExportedAsset) -> None:
-            subscription_id = getattr(resource, "id", None)
-            logger.info(
-                "generate_assets_async.exporting_asset",
-                asset_id=asset.id,
-                insight_id=asset.insight_id,
-                subscription_id=subscription_id,
-                team_id=resource.team_id,
-            )
-
-            cancellation_event = threading.Event()
-            cancellation_events[asset.id] = cancellation_event
-
-            try:
-                source = EventSource.SUBSCRIPTION if isinstance(resource, Subscription) else None
-                await database_sync_to_async(exporter.export_asset_direct, thread_sensitive=False)(
-                    asset, cancellation_event=cancellation_event, source=source
-                )
-
-                logger.info(
-                    "generate_assets_async.asset_exported",
-                    asset_id=asset.id,
-                    insight_id=asset.insight_id,
-                    subscription_id=subscription_id,
-                    team_id=resource.team_id,
-                )
-                # Export completed successfully, remove from cancellation tracking
-                cancellation_events.pop(asset.id, None)
-            except Exception as e:
-                # The failure is already recorded on the asset by export_asset_direct so we just log it here.
-                logger.warning(
-                    "generate_assets_async.asset_export_failed",
-                    asset_id=asset.id,
-                    insight_id=asset.insight_id,
-                    subscription_id=subscription_id,
-                    team_id=resource.team_id,
-                    failure_type=asset.failure_type,
-                    error=str(e),
-                )
-                # Export failed, remove from cancellation tracking
-                cancellation_events.pop(asset.id, None)
-
-        # Reserve buffer time for email/Slack delivery after exports
-        buffer_seconds = 120  # 2 minutes
-        export_timeout_seconds = (settings.TEMPORAL_TASK_TIMEOUT_MINUTES * 60) - buffer_seconds
-
-        subscription_id = getattr(resource, "id", None)
-
-        logger.info(
-            "generate_assets_async.starting_exports",
-            asset_count=len(assets),
-            subscription_id=subscription_id,
-            team_id=resource.team_id,
-        )
-
-        try:
-            await asyncio.wait_for(
-                asyncio.gather(*[export_single_asset(asset) for asset in assets]), timeout=export_timeout_seconds
-            )
-            logger.info(
-                "generate_assets_async.exports_complete",
-                asset_count=len(assets),
-                subscription_id=subscription_id,
-                team_id=resource.team_id,
-            )
-        except TimeoutError:
-            get_asset_generation_timeout_metric("temporal").add(1)
-
-            # Signal all running exports to cancel so orphaned threads don't update assets
-            for event in cancellation_events.values():
-                event.set()
-
-            # Get failure info for logging
-            failure_info = _get_failed_asset_info(assets, resource)
-
-            logger.warning(
-                "generate_assets_async.exports_timeout",
-                asset_count=len(assets),
-                subscription_id=subscription_id,
-                dashboard_id=resource.dashboard_id if resource.dashboard else None,
-                team_id=resource.team_id,
-                **failure_info,
-            )
-            # Continue with partial results - some assets may not have content
-
-        return insights, assets
-    finally:
-        duration = datetime.timedelta(seconds=time.time() - start_time)
-        get_asset_generation_duration_metric("temporal").record(duration)

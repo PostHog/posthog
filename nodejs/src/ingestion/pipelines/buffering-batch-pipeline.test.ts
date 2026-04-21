@@ -1,9 +1,8 @@
 import { Message } from 'node-rdkafka'
 
-import { BatchPipelineResultWithContext } from './batch-pipeline.interface'
 import { BufferingBatchPipeline } from './buffering-batch-pipeline'
-import { DefaultContext, createContext } from './helpers'
-import { dlq, drop, ok, redirect } from './results'
+import { DefaultContext, createContext, createOkContext } from './helpers'
+import { ok } from './results'
 
 describe('BufferingBatchPipeline', () => {
     let message1: Message
@@ -62,10 +61,7 @@ describe('BufferingBatchPipeline', () => {
     describe('feed', () => {
         it('should add elements to buffer', async () => {
             const pipeline = new BufferingBatchPipeline<string, DefaultContext>()
-            const batch: BatchPipelineResultWithContext<string, DefaultContext> = [
-                createContext(ok('hello'), context1),
-                createContext(ok('world'), context2),
-            ]
+            const batch = [createOkContext('hello', context1), createOkContext('world', context2)]
 
             pipeline.feed(batch)
 
@@ -76,12 +72,8 @@ describe('BufferingBatchPipeline', () => {
 
         it('should accumulate multiple feeds', async () => {
             const pipeline = new BufferingBatchPipeline<string, DefaultContext>()
-            const batch1: BatchPipelineResultWithContext<string, DefaultContext> = [
-                createContext(ok('hello'), context1),
-            ]
-            const batch2: BatchPipelineResultWithContext<string, DefaultContext> = [
-                createContext(ok('world'), context2),
-            ]
+            const batch1 = [createOkContext('hello', context1)]
+            const batch2 = [createOkContext('world', context2)]
 
             pipeline.feed(batch1)
             pipeline.feed(batch2)
@@ -92,7 +84,7 @@ describe('BufferingBatchPipeline', () => {
 
         it('should handle empty batch', async () => {
             const pipeline = new BufferingBatchPipeline<string, DefaultContext>()
-            const emptyBatch: BatchPipelineResultWithContext<string, DefaultContext> = []
+            const emptyBatch: [] = []
 
             pipeline.feed(emptyBatch)
 
@@ -110,10 +102,7 @@ describe('BufferingBatchPipeline', () => {
 
         it('should return all buffered elements and clear buffer', async () => {
             const pipeline = new BufferingBatchPipeline<string, DefaultContext>()
-            const batch: BatchPipelineResultWithContext<string, DefaultContext> = [
-                createContext(ok('hello'), context1),
-                createContext(ok('world'), context2),
-            ]
+            const batch = [createOkContext('hello', context1), createOkContext('world', context2)]
 
             pipeline.feed(batch)
 
@@ -126,42 +115,23 @@ describe('BufferingBatchPipeline', () => {
 
         it('should handle mixed result types', async () => {
             const pipeline = new BufferingBatchPipeline<string, DefaultContext>()
-            const dropResult = drop<string>('test drop')
-            const dlqResult = dlq<string>('test dlq', new Error('test error'))
-            const redirectResult = redirect<string>('test redirect', 'test-topic')
 
-            const batch: BatchPipelineResultWithContext<string, DefaultContext> = [
-                createContext(ok('hello'), context1),
-                createContext(dropResult, context2),
-                createContext(dlqResult, context3),
-                createContext(redirectResult, context1),
-            ]
+            const batch = [createOkContext('hello', context1)]
 
             pipeline.feed(batch)
 
             const result = await pipeline.next()
             const result2 = await pipeline.next()
 
-            expect(result).toEqual([
-                createContext(ok('hello'), context1),
-                createContext(dropResult, context2),
-                createContext(dlqResult, context3),
-                createContext(redirectResult, context1),
-            ])
+            expect(result).toEqual([createContext(ok('hello'), context1)])
             expect(result2).toBeNull()
         })
 
         it('should preserve order of fed elements', async () => {
             const pipeline = new BufferingBatchPipeline<string, DefaultContext>()
-            const batch1: BatchPipelineResultWithContext<string, DefaultContext> = [
-                createContext(ok('first'), context1),
-            ]
-            const batch2: BatchPipelineResultWithContext<string, DefaultContext> = [
-                createContext(ok('second'), context2),
-            ]
-            const batch3: BatchPipelineResultWithContext<string, DefaultContext> = [
-                createContext(ok('third'), context3),
-            ]
+            const batch1 = [createOkContext('first', context1)]
+            const batch2 = [createOkContext('second', context2)]
+            const batch3 = [createOkContext('third', context3)]
 
             pipeline.feed(batch1)
             pipeline.feed(batch2)
@@ -180,10 +150,10 @@ describe('BufferingBatchPipeline', () => {
 
         it('should handle large number of elements', async () => {
             const pipeline = new BufferingBatchPipeline<string, DefaultContext>()
-            const batch: BatchPipelineResultWithContext<string, DefaultContext> = []
+            const batch = []
 
             for (let i = 0; i < 100; i++) {
-                batch.push(createContext(ok(`item${i}`), context1))
+                batch.push(createOkContext(`item${i}`, context1))
             }
 
             pipeline.feed(batch)
@@ -201,9 +171,7 @@ describe('BufferingBatchPipeline', () => {
             const pipeline = new BufferingBatchPipeline<string, DefaultContext>()
 
             // First round: feed and process
-            const batch1: BatchPipelineResultWithContext<string, DefaultContext> = [
-                createContext(ok('first'), context1),
-            ]
+            const batch1 = [createOkContext('first', context1)]
             pipeline.feed(batch1)
 
             const result1 = await pipeline.next()
@@ -214,9 +182,7 @@ describe('BufferingBatchPipeline', () => {
             expect(result2).toBeNull()
 
             // Feed more elements
-            const batch2: BatchPipelineResultWithContext<string, DefaultContext> = [
-                createContext(ok('second'), context2),
-            ]
+            const batch2 = [createOkContext('second', context2)]
             pipeline.feed(batch2)
 
             // Should resume processing

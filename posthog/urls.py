@@ -32,10 +32,11 @@ from posthog.api import (
     uploaded_media,
     user,
 )
+from posthog.api.oauth.connected_apps import ConnectedAppsViewSet
+from posthog.api.oauth.wizard_metadata import WIZARD_METADATA_PATH, WizardClientMetadataView
 from posthog.api.query import progress
 from posthog.api.sdk_doctor import sdk_doctor
 from posthog.api.slack import slack_interactivity_callback
-from posthog.api.survey import public_survey_page, surveys
 from posthog.api.two_factor_qrcode import CacheAwareQRGeneratorView
 from posthog.api.utils import hostname_in_allowed_url_list
 from posthog.api.web_experiment import web_experiments
@@ -47,13 +48,18 @@ from posthog.models.instance_setting import get_instance_setting
 from posthog.oauth2_urls import urlpatterns as oauth2_urls
 from posthog.temporal.codec_server import decode_payloads
 
+from products.data_warehouse.backend.api.public_source_configs import PublicSourceConfigViewSet
 from products.early_access_features.backend.api import early_access_features
+from products.messaging.backend.api.customerio_webhook import CustomerIOWebhookView
 from products.product_tours.backend.api import product_tours
+from products.signals.backend import views as signals_views
+from products.signals.backend.views import SignalUserAutonomyConfigView as signals_user_autonomy_view
 from products.slack_app.backend.api import (
     posthog_code_event_handler,
     posthog_code_interactivity_handler,
     slack_event_handler,
 )
+from products.surveys.backend.api.survey import public_survey_page, surveys
 from products.tasks.backend.webhooks import github_pr_webhook
 
 from .utils import opt_slash_path, render_template
@@ -197,8 +203,18 @@ urlpatterns = [
     path("api/environments/<int:team_id>/query/<str:query_uuid>/progress", progress),
     path("api/unsubscribe", unsubscribe.unsubscribe),
     path("api/alerts/github", github.SecretAlert.as_view()),
+    path(
+        "api/users/<str:user_id>/signal_autonomy/",
+        signals_user_autonomy_view.as_view(),
+        name="user_signal_autonomy",
+    ),
+    path("api/environments/<int:team_id>/messaging/customerio/webhook/", csrf_exempt(CustomerIOWebhookView.as_view())),
     path("api/sdk_doctor/", sdk_doctor),
     path("api/conversations/", include("products.conversations.backend.api.urls")),
+    path(
+        "api/environments/<int:parent_lookup_team_id>/mcp_analytics/",
+        include("products.mcp_analytics.backend.presentation.urls"),
+    ),
     opt_slash_path("api/support/ensure-zendesk-organization", csrf_exempt(ensure_zendesk_organization)),
     path("api/", include(router.urls)),
     # Override the tf_urls QRGeneratorView to use the cache-aware version (handles session race conditions)
@@ -212,7 +228,6 @@ urlpatterns = [
     path("toolbar_oauth/check", user.toolbar_oauth_check),
     opt_slash_path("api/user/redirect_to_site", user.redirect_to_site),
     opt_slash_path("api/user/redirect_to_website", user.redirect_to_website),
-    opt_slash_path("api/user/test_slack_webhook", user.test_slack_webhook),
     opt_slash_path("api/early_access_features", early_access_features),
     opt_slash_path("api/web_experiments", web_experiments),
     opt_slash_path("api/surveys", surveys),
@@ -238,6 +253,10 @@ urlpatterns = [
         "api/public_hog_flow_templates",
         hog_flow_template.PublicHogFlowTemplateViewSet.as_view({"get": "list"}),
     ),
+    opt_slash_path(
+        "api/public_source_configs",
+        PublicSourceConfigViewSet.as_view({"get": "list"}),
+    ),
     # Internal service-to-service endpoints (authenticated with POSTHOG_INTERNAL_SERVICE_TOKEN)
     path(
         "api/projects/<str:team_id>/internal/hog_flows/user_blast_radius",
@@ -247,8 +266,29 @@ urlpatterns = [
         "api/projects/<str:team_id>/internal/hog_flows/user_blast_radius_persons",
         csrf_exempt(hog_flow.InternalHogFlowViewSet.as_view({"post": "internal_user_blast_radius_persons"})),
     ),
+    path(
+        "api/internal/hog_flows/process_due_schedules",
+        csrf_exempt(hog_flow.InternalHogFlowViewSet.as_view({"post": "internal_process_due_schedules"})),
+    ),
+    path(
+        "api/projects/<str:team_id>/internal/signals/emit",
+        csrf_exempt(signals_views.InternalSignalViewSet.as_view({"post": "emit"})),
+    ),
     # Test setup endpoint (only available in TEST mode)
     path("api/setup_test/<str:test_name>/", csrf_exempt(playwright_setup.setup_test)),
+    opt_slash_path(
+        "api/oauth/connected-apps",
+        ConnectedAppsViewSet.as_view({"get": "list"}),
+    ),
+    path(
+        "api/oauth/connected-apps/<uuid:pk>/revoke/",
+        ConnectedAppsViewSet.as_view({"post": "revoke"}),
+    ),
+    path(
+        WIZARD_METADATA_PATH,
+        WizardClientMetadataView.as_view(),
+        name="wizard-client-metadata",
+    ),
     re_path(r"^api.+", api_not_found),
     path("authorize_and_redirect/", login_required(authorize_and_redirect)),
     path(

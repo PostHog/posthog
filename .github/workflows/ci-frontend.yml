@@ -26,6 +26,7 @@ jobs:
         name: Determine need to run frontend checks
         outputs:
             frontend: ${{ steps.filter.outputs.frontend || 'true' }}
+            frontend_code: ${{ steps.filter.outputs.frontend_code || 'true' }}
         steps:
             # For pull requests it's not necessary to check out the code, but we
             # also want this to run on master, so we need to check out
@@ -47,6 +48,7 @@ jobs:
                         - 'products/**/*.tsx'
                         - 'products/**/*.json'
                         - 'playwright/**'
+                        - 'docs/**/*.tsx'
                         # Make sure we run if someone is explicitly change the workflow
                         - .github/workflows/ci-frontend.yml
                         # various JS config files
@@ -65,12 +67,36 @@ jobs:
                         - '**/*.yaml'
                         - '**/*.yml'
                         - .config/.markdownlint-cli2.jsonc
+                      # Like `frontend` but excludes doc/config-only files that don't affect
+                      # compiled output — used to skip Jest, bundle-size, and TypeScript checks
+                      # when only markdown or YAML files change.
+                      frontend_code:
+                        - 'bin/**'
+                        - 'frontend/**'
+                        - 'ee/frontend/**'
+                        - 'common/esbuilder/**'
+                        - 'products/**/*.ts'
+                        - 'products/**/*.tsx'
+                        - 'products/**/*.json'
+                        - 'playwright/**'
+                        - .github/workflows/ci-frontend.yml
+                        - .oxlintrc.json
+                        - .oxfmtrc*
+                        - babel.config.js
+                        - package.json
+                        - pnpm-lock.yaml
+                        - jest.*.ts
+                        - tsconfig.json
+                        - tsconfig.*.json
+                        - webpack.config.js
+                        - stylelint*
 
     frontend-format:
         name: Frontend formatting
         needs: changes
         if: needs.changes.outputs.frontend == 'true'
         runs-on: ubuntu-latest
+        timeout-minutes: 10
         steps:
             - uses: actions/checkout@v6
 
@@ -83,7 +109,7 @@ jobs:
             - name: Set up Node.js
               uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
               with:
-                  node-version: 24.13.0
+                  node-version-file: .nvmrc
                   cache: pnpm
                   cache-dependency-path: |
                       pnpm-lock.yaml
@@ -115,7 +141,7 @@ jobs:
     frontend-bundle-size:
         name: Frontend bundle size
         needs: [changes]
-        if: needs.changes.outputs.frontend == 'true' && github.event_name != 'merge_group'
+        if: needs.changes.outputs.frontend_code == 'true' && github.event_name != 'merge_group'
         runs-on: ubuntu-latest
         timeout-minutes: 10
         steps:
@@ -131,7 +157,7 @@ jobs:
             - name: Set up Node.js
               uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
               with:
-                  node-version: 24.13.0
+                  node-version-file: .nvmrc
                   cache: pnpm
                   cache-dependency-path: |
                       pnpm-lock.yaml
@@ -186,12 +212,30 @@ jobs:
                         "pr_number": ${{ github.event.pull_request.number || 'null' }},
                         "event_type": ${{ toJSON(github.event_name) }}
                       }
+            - name: Capture bundle size to DevEx PostHog
+              if: |
+                  (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog') ||
+                  (github.event_name != 'pull_request' && github.repository == 'PostHog/posthog')
+              continue-on-error: true
+              uses: PostHog/posthog-github-action@8c42e50f2c52e002eabb9bee3f69b152ee8fc1dd # v1.0.1
+              with:
+                  posthog-token: ${{ secrets.POSTHOG_DEVEX_PROJECT_API_TOKEN }}
+                  event: 'posthog-ci-frontend-bundle-size'
+                  properties: |
+                      {
+                        "size_bytes": ${{ steps.dist-size.outputs.size_bytes }},
+                        "branch": ${{ toJSON(github.head_ref || github.ref_name) }},
+                        "sha": ${{ toJSON(github.sha) }},
+                        "pr_number": ${{ github.event.pull_request.number || 'null' }},
+                        "event_type": ${{ toJSON(github.event_name) }}
+                      }
 
     frontend-typescript-checks:
         name: Frontend typechecking
         needs: [changes]
-        if: needs.changes.outputs.frontend == 'true'
+        if: needs.changes.outputs.frontend_code == 'true'
         runs-on: ubuntu-latest
+        timeout-minutes: 15
         steps:
             - uses: actions/checkout@v6
 
@@ -204,7 +248,7 @@ jobs:
             - name: Set up Node.js
               uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
               with:
-                  node-version: 24.13.0
+                  node-version-file: .nvmrc
                   cache: pnpm
                   cache-dependency-path: |
                       pnpm-lock.yaml
@@ -259,8 +303,9 @@ jobs:
 
     jest:
         runs-on: ubuntu-latest
+        timeout-minutes: 15
         needs: changes
-        if: needs.changes.outputs.frontend == 'true'
+        if: needs.changes.outputs.frontend_code == 'true'
         name: Jest test (${{ matrix.segment }} - ${{ matrix.chunk }})
 
         strategy:
@@ -286,7 +331,7 @@ jobs:
             - name: Set up Node.js
               uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
               with:
-                  node-version: 24.13.0
+                  node-version-file: .nvmrc
                   cache: pnpm
                   cache-dependency-path: |
                       pnpm-lock.yaml
@@ -306,9 +351,10 @@ jobs:
         name: Calculate running time
         needs: [jest, frontend-typescript-checks, frontend-format, frontend-bundle-size, changes]
         runs-on: ubuntu-latest
+        timeout-minutes: 5
         if: # Run on pull requests to PostHog/posthog + on PostHog/posthog outside of PRs - but never on forks or Dependabot (no secrets access)
             always() && github.actor != 'dependabot[bot]' &&
-            needs.changes.outputs.frontend == 'true' && (
+            needs.changes.outputs.frontend_code == 'true' && (
             (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog') ||
             (github.event_name != 'pull_request' && github.repository == 'PostHog/posthog'))
         steps:
@@ -322,11 +368,23 @@ jobs:
                   github-token: ${{ secrets.GITHUB_TOKEN }}
                   status-job: 'Frontend Tests Pass'
                   runner: 'github'
+            - name: Capture running time to DevEx PostHog
+              continue-on-error: true
+              uses: PostHog/posthog-github-action@eea1405eeb2d1d2259f0ee0b44d7b152869e6840 # v1.1.1
+              with:
+                  posthog-token: ${{ secrets.POSTHOG_DEVEX_PROJECT_API_TOKEN }}
+                  event: 'posthog-ci-running-time'
+                  capture-run-duration: true
+                  capture-job-durations: true
+                  github-token: ${{ secrets.GITHUB_TOKEN }}
+                  status-job: 'Frontend Tests Pass'
+                  runner: 'github'
 
     frontend_tests:
         needs: [jest, frontend-format, frontend-bundle-size, frontend-typescript-checks]
         name: Frontend Tests Pass
         runs-on: ubuntu-latest
+        timeout-minutes: 5
         if: always()
         steps:
             - run: exit 0

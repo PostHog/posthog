@@ -27,15 +27,27 @@ func TestLoadConfig(t *testing.T) {
 				MMDB:             MMDBConfig{Path: "mmdb.db"},
 				Parallelism:      7,
 				CORSAllowOrigins: []string{"https://example.com", "https://sub.example.com"},
-				Kafka: KafkaConfig{
-					Brokers:                          "localhost:9092,localhost:9093",
-					Topic:                            "topic",
-					SecurityProtocol:                 "PLAINTEXT",
-					SessionRecordingEnabled:          true,
-					SessionRecordingTopic:            "session_recording_snapshot_item_events",
-					SessionRecordingBrokers:          "localhost:9092,localhost:9093",
-					SessionRecordingSecurityProtocol: "SSL",
-					GroupID:                          "livestream-dev",
+				Consumers: ConsumersConfig{
+					Event: ConsumerConfig{
+						Enabled:          true,
+						Brokers:          "localhost:9092,localhost:9093",
+						Topic:            "events_topic",
+						SecurityProtocol: "PLAINTEXT",
+						GroupID:          "livestream-dev",
+					},
+					SessionRecording: ConsumerConfig{
+						Enabled:          true,
+						Brokers:          "localhost:9092,localhost:9093",
+						Topic:            "session_recording_snapshot_item_events",
+						SecurityProtocol: "SSL",
+						GroupID:          "livestream-dev-session-recordings",
+					},
+					Notification: ConsumerConfig{
+						Brokers:          "localhost:9092,localhost:9093",
+						Topic:            "notification_events",
+						SecurityProtocol: "PLAINTEXT",
+						GroupID:          "livestream-dev-notifications",
+					},
 				},
 				Postgres: PostgresConfig{
 					URL: "pg url",
@@ -69,6 +81,87 @@ func TestLoadConfig(t *testing.T) {
 			assert.Equal(t, tt.want, got)
 			assert.Equal(t, tt.want.Postgres.URL, viper.GetString("postgres.url"))
 			assert.Equal(t, tt.want.JWT.Secret, viper.GetString("jwt.secret"))
+		})
+	}
+}
+
+func TestValidateConsumerConfig(t *testing.T) {
+	tests := []struct {
+		name       string
+		consumerName string
+		config     ConsumerConfig
+		wantErr    string
+	}{
+		{
+			name:       "disabled consumer skips validation",
+			consumerName: "event",
+			config:     ConsumerConfig{Enabled: false},
+		},
+		{
+			name:       "valid config passes",
+			consumerName: "event",
+			config: ConsumerConfig{
+				Enabled:          true,
+				Brokers:          "localhost:9092",
+				Topic:            "events_topic",
+				SecurityProtocol: "PLAINTEXT",
+				GroupID:          "livestream-dev",
+			},
+		},
+		{
+			name:       "missing brokers",
+			consumerName: "event",
+			config: ConsumerConfig{
+				Enabled:          true,
+				Topic:            "events_topic",
+				SecurityProtocol: "PLAINTEXT",
+				GroupID:          "livestream-dev",
+			},
+			wantErr: "consumers.event.brokers must be set",
+		},
+		{
+			name:       "missing topic",
+			consumerName: "session_recording",
+			config: ConsumerConfig{
+				Enabled:          true,
+				Brokers:          "localhost:9092",
+				SecurityProtocol: "SSL",
+				GroupID:          "livestream-dev",
+			},
+			wantErr: "consumers.session_recording.topic must be set",
+		},
+		{
+			name:       "missing security_protocol",
+			consumerName: "notification",
+			config: ConsumerConfig{
+				Enabled: true,
+				Brokers: "localhost:9092",
+				Topic:   "notification_events",
+				GroupID: "livestream-dev",
+			},
+			wantErr: "consumers.notification.security_protocol must be set",
+		},
+		{
+			name:       "missing group_id",
+			consumerName: "event",
+			config: ConsumerConfig{
+				Enabled:          true,
+				Brokers:          "localhost:9092",
+				Topic:            "events_topic",
+				SecurityProtocol: "PLAINTEXT",
+			},
+			wantErr: "consumers.event.group_id must be set",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := validateConsumerConfig(tt.consumerName, tt.config)
+			if tt.wantErr != "" {
+				assert.EqualError(t, err, tt.wantErr)
+			} else {
+				assert.NoError(t, err)
+			}
 		})
 	}
 }

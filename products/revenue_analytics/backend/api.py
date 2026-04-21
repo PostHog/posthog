@@ -1,21 +1,24 @@
 from typing import cast
 
 from posthoganalytics import capture_exception
+from rest_framework import serializers, status
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.viewsets import GenericViewSet
 
-from posthog.schema import DatabaseSchemaManagedViewTableKind
+from posthog.schema import DatabaseSchemaManagedViewTableKind, ProductKey
 
 from posthog.hogql import ast
 from posthog.hogql.database.database import Database
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.models.team.team import Team
 
+from products.revenue_analytics.backend.joins import ensure_person_join_for_team, remove_person_join_for_team
 from products.revenue_analytics.backend.views import RevenueAnalyticsBaseView
 from products.revenue_analytics.backend.views.schemas import SCHEMAS as VIEW_SCHEMAS
 
@@ -61,6 +64,7 @@ def find_values_for_revenue_analytics_property(key: str, team: Team) -> list[str
 
     values = []
     try:
+        tag_queries(product=ProductKey.REVENUE_ANALYTICS, feature=Feature.QUERY)
         result = execute_hogql_query(query, team=team)
         values = [row[0] for row in result.results]
     except Exception as e:
@@ -82,3 +86,25 @@ class RevenueAnalyticsTaxonomyViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
 
         values = find_values_for_revenue_analytics_property(key, self.team)
         return Response({"results": [{"name": value} for value in values], "refreshing": False})
+
+
+class RevenueAnalyticsJoinSerializer(serializers.Serializer):
+    enabled = serializers.BooleanField(required=True)
+
+
+class RevenueAnalyticsJoinViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
+    scope_object = "INTERNAL"
+    permission_classes = [IsAuthenticated]
+
+    def create(self, request: Request, **kwargs):
+        serializer = RevenueAnalyticsJoinSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        if serializer.validated_data["enabled"]:
+            ensure_person_join_for_team(self.team.pk)
+            msg = "Joins created successfully"
+        else:
+            remove_person_join_for_team(self.team.pk)
+            msg = "Joins removed successfully"
+
+        return Response({"detail": msg}, status=status.HTTP_200_OK)

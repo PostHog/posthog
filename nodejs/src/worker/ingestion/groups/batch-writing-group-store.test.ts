@@ -11,12 +11,13 @@ import { ClickhouseGroupRepository } from './repositories/clickhouse-group-repos
 import { GroupRepository } from './repositories/group-repository.interface'
 
 // Mock the module before importing
-jest.mock('../utils', () => ({
-    captureIngestionWarning: jest.fn().mockResolvedValue(undefined),
+jest.mock('../../../ingestion/common/ingestion-warnings', () => ({
+    emitIngestionWarning: jest.fn().mockResolvedValue(undefined),
 }))
 
-import { KafkaProducerWrapper } from '~/kafka/producer'
-import { captureIngestionWarning } from '../utils'
+import { GroupsOutput, IngestionWarningsOutput } from '../../../ingestion/common/outputs'
+import { emitIngestionWarning } from '../../../ingestion/common/ingestion-warnings'
+import { IngestionOutputs } from '../../../ingestion/outputs/ingestion-outputs'
 
 // Mock the DB class
 
@@ -27,6 +28,7 @@ describe('BatchWritingGroupStore', () => {
     let teamId: TeamId
     let projectId: ProjectId
     let group: Group
+    let mockOutputs: IngestionOutputs<GroupsOutput | IngestionWarningsOutput>
 
     beforeEach(() => {
         teamId = 1
@@ -105,11 +107,8 @@ describe('BatchWritingGroupStore', () => {
         clickhouseGroupRepository = {
             upsertGroup: jest.fn().mockResolvedValue(undefined),
         } as unknown as ClickhouseGroupRepository
-        groupStore = new BatchWritingGroupStore(
-            {} as unknown as KafkaProducerWrapper,
-            groupRepository,
-            clickhouseGroupRepository
-        )
+        mockOutputs = {} as unknown as IngestionOutputs<GroupsOutput | IngestionWarningsOutput>
+        groupStore = new BatchWritingGroupStore(mockOutputs, groupRepository, clickhouseGroupRepository)
     })
 
     afterEach(() => {
@@ -298,7 +297,10 @@ describe('BatchWritingGroupStore', () => {
         expect(groupRepository.updateGroup).toHaveBeenCalledTimes(0)
         expect(groupRepository.inTransaction).toHaveBeenCalledTimes(0)
         // No transaction calls expected since optimistic update failed
-        expect(captureIngestionWarning).toHaveBeenCalledTimes(1)
+        expect(emitIngestionWarning).toHaveBeenCalledWith(mockOutputs, teamId, 'group_upsert_message_size_too_large', {
+            groupTypeIndex: 1,
+            groupKey: 'test',
+        })
     })
 
     it('should retry on race condition error and clear cache', async () => {

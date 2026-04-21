@@ -8,14 +8,36 @@
         .PlayerFrame {
             position: relative;
             display: flex;
-            align-items: center;
-            justify-content: center;
+            flex-direction: column;
             width: 100%;
             height: 100%;
             overflow: hidden;
             background-color: #1d1f27;
         }
-        .PlayerFrame__content { position: absolute; }
+        .PlayerFrame__content-wrapper {
+            flex: 1;
+            position: relative;
+            overflow: hidden;
+        }
+        .PlayerFrame__content { position: absolute; top: 0; left: 0; }
+        #metadata-footer {
+            display: none;
+            height: 32px;
+            background: #000;
+            color: #fff;
+            font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+            font-size: 14px;
+            padding: 4px 8px 8px 8px;
+            align-items: center;
+            justify-content: center;
+            gap: 16px;
+            white-space: nowrap;
+            overflow: hidden;
+        }
+        #metadata-footer .label { font-weight: bold; }
+        #metadata-footer .url { overflow: hidden; text-overflow: ellipsis; }
+        #metadata-footer .status-ended { font-weight: bold; color: #4ade80; }
+        #metadata-footer .status-idle { font-weight: bold; color: #facc15; }
         .PlayerFrame__content .replayer-wrapper { position: relative; }
         .PlayerFrame__content iframe { background-color: white; border: 0; }
         .replayer-mouse { position: absolute; width: 20px; height: 20px; background-size: contain; background-position: center center; background-repeat: no-repeat; background-image: url(data:image/svg+xml;base64,PHN2ZyBoZWlnaHQ9JzMwMHB4JyB3aWR0aD0nMzAwcHgnICBmaWxsPSIjMDAwMDAwIiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIGRhdGEtbmFtZT0iTGF5ZXIgMSIgdmlld0JveD0iMCAwIDUwIDUwIiB4PSIwcHgiIHk9IjBweCI+PHRpdGxlPkRlc2lnbl90bnA8L3RpdGxlPjxwYXRoIGQ9Ik00OC43MSw0Mi45MUwzNC4wOCwyOC4yOSw0NC4zMywxOEExLDEsMCwwLDAsNDQsMTYuMzlMMi4zNSwxLjA2QTEsMSwwLDAsMCwxLjA2LDIuMzVMMTYuMzksNDRhMSwxLDAsMCwwLDEuNjUuMzZMMjguMjksMzQuMDgsNDIuOTEsNDguNzFhMSwxLDAsMCwwLDEuNDEsMGw0LjM4LTQuMzhBMSwxLDAsMCwwLDQ4LjcxLDQyLjkxWm0tNS4wOSwzLjY3TDI5LDMyYTEsMSwwLDAsMC0xLjQxLDBsLTkuODUsOS44NUwzLjY5LDMuNjlsMzguMTIsMTRMMzIsMjcuNThBMSwxLDAsMCwwLDMyLDI5TDQ2LjU5LDQzLjYyWiI+PC9wYXRoPjwvc3ZnPg==); border-color: transparent; transition: left .05s linear, top .05s linear; }
@@ -26,7 +48,14 @@
     </style>
 </head>
 <body>
-    <div class="PlayerFrame"><div class="PlayerFrame__content"></div></div>
+    <div class="PlayerFrame">
+        <div class="PlayerFrame__content-wrapper"><div class="PlayerFrame__content"></div></div>
+        <div id="metadata-footer">
+            <span class="url"><span class="label">URL:</span> <span id="meta-url"></span></span>
+            <span><span class="label">REC_T:</span> <span id="meta-rect"></span></span>
+            <span id="meta-status"></span>
+        </div>
+    </div>
     <!-- INLINE_JS -->
 </body>
 </html>

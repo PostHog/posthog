@@ -9,9 +9,7 @@ use dashmap::DashMap;
 use personhog_proto::personhog::leader::v1::person_hog_leader_server::{
     PersonHogLeader, PersonHogLeaderServer,
 };
-use personhog_proto::personhog::leader::v1::{
-    LeaderGetPersonRequest, UpdatePersonPropertiesRequest, UpdatePersonPropertiesResponse,
-};
+use personhog_proto::personhog::leader::v1::LeaderGetPersonRequest;
 use personhog_proto::personhog::replica::v1::person_hog_replica_server::{
     PersonHogReplica, PersonHogReplicaServer,
 };
@@ -19,18 +17,20 @@ use personhog_proto::personhog::service::v1::person_hog_service_client::PersonHo
 use personhog_proto::personhog::service::v1::person_hog_service_server::PersonHogServiceServer;
 use personhog_proto::personhog::types::v1::{
     CheckCohortMembershipRequest, CohortMembershipResponse, DeleteHashKeyOverridesByTeamsRequest,
-    DeleteHashKeyOverridesByTeamsResponse, GetDistinctIdsForPersonRequest,
-    GetDistinctIdsForPersonResponse, GetDistinctIdsForPersonsRequest,
-    GetDistinctIdsForPersonsResponse, GetGroupRequest, GetGroupResponse,
-    GetGroupTypeMappingsByProjectIdRequest, GetGroupTypeMappingsByProjectIdsRequest,
-    GetGroupTypeMappingsByTeamIdRequest, GetGroupTypeMappingsByTeamIdsRequest,
-    GetGroupsBatchRequest, GetGroupsBatchResponse, GetGroupsRequest,
-    GetHashKeyOverrideContextRequest, GetHashKeyOverrideContextResponse,
+    DeleteHashKeyOverridesByTeamsResponse, DeletePersonsBatchForTeamRequest,
+    DeletePersonsBatchForTeamResponse, DeletePersonsRequest, DeletePersonsResponse,
+    GetDistinctIdsForPersonRequest, GetDistinctIdsForPersonResponse,
+    GetDistinctIdsForPersonsRequest, GetDistinctIdsForPersonsResponse, GetGroupRequest,
+    GetGroupResponse, GetGroupTypeMappingsByProjectIdRequest,
+    GetGroupTypeMappingsByProjectIdsRequest, GetGroupTypeMappingsByTeamIdRequest,
+    GetGroupTypeMappingsByTeamIdsRequest, GetGroupsBatchRequest, GetGroupsBatchResponse,
+    GetGroupsRequest, GetHashKeyOverrideContextRequest, GetHashKeyOverrideContextResponse,
     GetPersonByDistinctIdRequest, GetPersonByUuidRequest, GetPersonRequest, GetPersonResponse,
     GetPersonsByDistinctIdsInTeamRequest, GetPersonsByDistinctIdsRequest, GetPersonsByUuidsRequest,
     GetPersonsRequest, GroupTypeMappingsBatchResponse, GroupTypeMappingsResponse, GroupsResponse,
     Person, PersonsByDistinctIdsInTeamResponse, PersonsByDistinctIdsResponse, PersonsResponse,
-    UpsertHashKeyOverridesRequest, UpsertHashKeyOverridesResponse,
+    UpdatePersonPropertiesRequest, UpdatePersonPropertiesResponse, UpsertHashKeyOverridesRequest,
+    UpsertHashKeyOverridesResponse,
 };
 use personhog_router::backend::{LeaderBackend, ReplicaBackend};
 use personhog_router::config::RetryConfig;
@@ -291,6 +291,22 @@ impl PersonHogReplica for TestReplicaService {
             results: vec![],
         }))
     }
+
+    async fn delete_persons(
+        &self,
+        _request: Request<DeletePersonsRequest>,
+    ) -> Result<Response<DeletePersonsResponse>, Status> {
+        Ok(Response::new(DeletePersonsResponse { deleted_count: 0 }))
+    }
+
+    async fn delete_persons_batch_for_team(
+        &self,
+        _request: Request<DeletePersonsBatchForTeamRequest>,
+    ) -> Result<Response<DeletePersonsBatchForTeamResponse>, Status> {
+        Ok(Response::new(DeletePersonsBatchForTeamResponse {
+            deleted_count: 0,
+        }))
+    }
 }
 
 /// Start a test replica server on a random port and return its address
@@ -323,7 +339,16 @@ pub async fn start_test_router(replica_addr: SocketAddr) -> SocketAddr {
         initial_backoff_ms: 1,
         max_backoff_ms: 1,
     };
-    let backend = ReplicaBackend::new(&replica_url, Duration::from_secs(5), retry_config).unwrap();
+    let backend = ReplicaBackend::new(
+        &replica_url,
+        Duration::from_secs(5),
+        retry_config,
+        None,
+        None,
+        4 * 1024 * 1024,
+        4 * 1024 * 1024,
+    )
+    .unwrap();
     let router = PersonHogRouter::new(Arc::new(backend));
     let service = PersonHogRouterService::new(Arc::new(router));
 
@@ -486,7 +511,16 @@ pub async fn start_test_router_with_leader(
 
     // Replica backend
     let replica_url = format!("http://{}", replica_addr);
-    let replica = ReplicaBackend::new(&replica_url, Duration::from_secs(5), retry_config).unwrap();
+    let replica = ReplicaBackend::new(
+        &replica_url,
+        Duration::from_secs(5),
+        retry_config,
+        None,
+        None,
+        4 * 1024 * 1024,
+        4 * 1024 * 1024,
+    )
+    .unwrap();
 
     // Leader backend: all partitions → "leader-0", resolver → leader_addr
     let mut routing = HashMap::new();
@@ -503,6 +537,8 @@ pub async fn start_test_router_with_leader(
         num_partitions,
         Duration::from_secs(5),
         retry_config,
+        4 * 1024 * 1024,
+        4 * 1024 * 1024,
     );
 
     let router = PersonHogRouter::new(Arc::new(replica)).with_leader(Arc::new(leader));

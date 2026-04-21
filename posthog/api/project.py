@@ -6,6 +6,7 @@ from django.conf import settings
 from django.db import transaction
 from django.shortcuts import get_object_or_404
 
+import structlog
 from drf_spectacular.utils import extend_schema, extend_schema_field
 from loginas.utils import is_impersonated_session
 from rest_framework import exceptions, filters, request, response, serializers, viewsets
@@ -22,8 +23,8 @@ from posthog.api.team import (
     handle_conversations_token_on_update,
     validate_team_attrs,
 )
-from posthog.api.utils import raise_if_user_provided_url_unsafe
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication
+from posthog.cloud_utils import get_cached_instance_license, is_cloud
 from posthog.constants import AvailableFeature
 from posthog.decorators import disallow_if_impersonated
 from posthog.event_usage import report_user_action
@@ -67,6 +68,8 @@ from products.signals.backend.models import SignalSourceConfig
 
 from ee.api.rbac.access_control import AccessControlViewSetMixin
 
+logger = structlog.get_logger(__name__)
+
 MAX_ALLOWED_PROJECTS_PER_ORG = 1500
 
 
@@ -103,18 +106,6 @@ class ProjectBackwardCompatSerializer(ProjectBackwardCompatBasicSerializer, User
             value["widget_domains"] = [domain for domain in value["widget_domains"] if domain]
         return value
 
-    def validate_slack_incoming_webhook(self, value: str | None) -> str | None:
-        if value is None or value == "":
-            return None
-        if not settings.DEBUG:
-            try:
-                raise_if_user_provided_url_unsafe(value)
-            except ValueError:
-                raise exceptions.ValidationError(
-                    "Invalid webhook URL. Ensure the URL is valid and points to an external server."
-                )
-        return value
-
     class Meta:
         model = Project
         fields = (
@@ -131,7 +122,6 @@ class ProjectBackwardCompatSerializer(ProjectBackwardCompatBasicSerializer, User
             "uuid",  # Compat with TeamSerializer
             "api_token",  # Compat with TeamSerializer
             "app_urls",  # Compat with TeamSerializer
-            "slack_incoming_webhook",  # Compat with TeamSerializer
             "anonymize_ips",  # Compat with TeamSerializer
             "completed_snippet_onboarding",  # Compat with TeamSerializer
             "ingested_event",  # Compat with TeamSerializer
@@ -156,6 +146,12 @@ class ProjectBackwardCompatSerializer(ProjectBackwardCompatBasicSerializer, User
             "session_recording_linked_flag",  # Compat with TeamSerializer
             "session_recording_network_payload_capture_config",  # Compat with TeamSerializer
             "session_recording_masking_config",  # Compat with TeamSerializer
+            "session_recording_url_trigger_config",  # Compat with TeamSerializer
+            "session_recording_url_blocklist_config",  # Compat with TeamSerializer
+            "session_recording_event_trigger_config",  # Compat with TeamSerializer
+            "session_recording_trigger_match_type_config",  # Compat with TeamSerializer
+            "session_recording_trigger_groups",  # Compat with TeamSerializer
+            "session_recording_retention_period",  # Compat with TeamSerializer
             "session_replay_config",  # Compat with TeamSerializer
             "survey_config",  # Compat with TeamSerializer
             "access_control",  # Compat with TeamSerializer
@@ -208,7 +204,6 @@ class ProjectBackwardCompatSerializer(ProjectBackwardCompatBasicSerializer, User
             "uuid",
             "api_token",
             "app_urls",
-            "slack_incoming_webhook",
             "anonymize_ips",
             "completed_snippet_onboarding",
             "ingested_event",
@@ -233,6 +228,12 @@ class ProjectBackwardCompatSerializer(ProjectBackwardCompatBasicSerializer, User
             "session_recording_linked_flag",
             "session_recording_network_payload_capture_config",
             "session_recording_masking_config",
+            "session_recording_url_trigger_config",
+            "session_recording_url_blocklist_config",
+            "session_recording_event_trigger_config",
+            "session_recording_trigger_match_type_config",
+            "session_recording_trigger_groups",
+            "session_recording_retention_period",
             "session_replay_config",
             "survey_config",
             "access_control",
@@ -271,8 +272,16 @@ class ProjectBackwardCompatSerializer(ProjectBackwardCompatBasicSerializer, User
 
     def get_live_events_token(self, project: Project) -> Optional[str]:
         team = project.teams.get(pk=project.pk)
+        request = self.context.get("request")
+        user_id = request.user.id if request and hasattr(request, "user") and request.user.is_authenticated else None
+        claims = {
+            "team_id": team.id,
+            "api_token": team.api_token,
+            "user_id": user_id,
+            "organization_id": str(team.organization_id),
+        }
         return encode_jwt(
-            {"team_id": team.id, "api_token": team.api_token},
+            claims,
             timedelta(days=7),
             PosthogJwtAudience.LIVESTREAM,
         )
@@ -319,6 +328,10 @@ class ProjectBackwardCompatSerializer(ProjectBackwardCompatBasicSerializer, User
     @staticmethod
     def validate_session_recording_masking_config(value) -> dict | None:
         return TeamSerializer.validate_session_recording_masking_config(value)
+
+    @staticmethod
+    def validate_session_recording_trigger_groups(value) -> dict | None:
+        return TeamSerializer.validate_session_recording_trigger_groups(value)
 
     @staticmethod
     def validate_session_replay_config(value) -> dict | None:
@@ -644,11 +657,34 @@ class ProjectViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets
         return project.teams.get(id=project.id)
 
     def perform_destroy(self, project: Project):
+        from ee.billing.billing_manager import BillingManager
+
         # Check if bulk deletion operations are disabled via environment variable
         # Projects contain teams, so we need to block project deletion too
         if settings.DISABLE_BULK_DELETES:
             raise exceptions.ValidationError(
                 "Project deletion is temporarily disabled during database migration. Please try again later."
+            )
+
+        # Block deletion of the last project in an org with an active subscription (cloud only).
+        # Fail open if the billing service is unreachable — a 500 here would create a worse stuck state.
+        is_last_project = project.organization.projects.count() == 1
+        license = get_cached_instance_license()
+        try:
+            has_active_subscription = (
+                settings.EE_AVAILABLE
+                and is_cloud()
+                and license
+                and BillingManager(license).get_billing(project.organization).get("has_active_subscription")
+            )
+        except Exception:
+            logger.exception("Failed to check billing status before project deletion; allowing deletion to proceed")
+            has_active_subscription = False
+
+        if is_last_project and has_active_subscription:
+            raise exceptions.ValidationError(
+                "Cannot delete the last project in an organization with an active subscription. "
+                "Please cancel your subscription first in the billing page."
             )
 
         project_id = project.pk

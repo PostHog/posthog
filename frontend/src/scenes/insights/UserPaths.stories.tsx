@@ -3,12 +3,11 @@ import { samplePersonProperties, sampleRetentionPeopleResponse } from 'scenes/in
 import { Meta, StoryObj } from '@storybook/react'
 import { waitFor } from '@storybook/testing-library'
 
-import { App } from 'scenes/App'
 import { createInsightStory } from 'scenes/insights/__mocks__/createInsightScene'
 
 import { mswDecorator } from '~/mocks/browser'
 
-type Story = StoryObj<typeof App>
+type Story = StoryObj<{}>
 const meta: Meta = {
     title: 'Scenes-App/Insights/User Paths',
     parameters: {
@@ -111,6 +110,7 @@ UserPathsEditViewports.parameters = {
     testOptions: {
         waitForSelector: ['[data-attr=path-node-card-button]:nth-child(7)', '[data-attr=paths-viz][data-stable]'],
         viewportWidths: ['medium', 'wide', 'superwide'],
+        snapshotBrowsers: [],
     },
 }
 UserPathsEditViewports.play = waitForPathsCanvasToStabilize

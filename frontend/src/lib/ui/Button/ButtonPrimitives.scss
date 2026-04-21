@@ -71,6 +71,7 @@
         &[data-active='true'],
         &[data-current='true'],
         &[data-state='open'],
+        [data-state='open'] > &, // Specifically for <Link> where this attribute is applied to the parent div instead of the button
         &[data-state='checked'],
         &[aria-expanded='true'],
         &.button-primitive--active {

@@ -8,9 +8,8 @@ from autoevals.llm import LLMClassifier
 from braintrust import EvalCase, Score
 from langchain_core.runnables import RunnableConfig
 
-from posthog.models import Survey
-
 from products.surveys.backend.max_tools import SurveyAnalysisTool
+from products.surveys.backend.models import Survey
 
 from ee.hogai.utils.types.base import AssistantState
 

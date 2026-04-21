@@ -1,3 +1,4 @@
+// Form logic for the backfill creation modal — date range selection, schedule display, and submission.
 import { actions, connect, kea, key, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 
@@ -12,11 +13,13 @@ import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-genera
 import { BatchExportConfiguration } from '~/types'
 
 import type { batchExportBackfillModalLogicType } from './batchExportBackfillModalLogicType'
-import { batchExportBackfillsLogic } from './batchExportBackfillsLogic'
+import { batchExportDataLogic } from './batchExportDataLogic'
+import { BatchExportContext } from './types'
 import { dayOptions } from './utils'
 
 export interface BatchExportBackfillModalLogicProps {
     id: string
+    context?: BatchExportContext
 }
 
 /**
@@ -120,13 +123,14 @@ export const batchExportBackfillModalLogic = kea<batchExportBackfillModalLogicTy
     key(({ id }) => id),
     path((key) => ['scenes', 'pipeline', 'batchExportBackfillModalLogic', key]),
     connect((props: BatchExportBackfillModalLogicProps) => ({
-        values: [teamLogic, ['timezone as teamTimezone'], batchExportBackfillsLogic(props), ['batchExportConfig']],
-        actions: [batchExportBackfillsLogic(props), ['openBackfillModal', 'backfillCreated']],
+        values: [batchExportDataLogic({ id: props.id }), ['batchExportConfig']],
     })),
     actions({
+        openBackfillModal: true,
         closeBackfillModal: true,
         setEarliestBackfill: true,
         unsetEarliestBackfill: true,
+        backfillCreated: (backfillId: string) => ({ backfillId }),
     }),
     reducers({
         isBackfillModalOpen: [
@@ -145,12 +149,16 @@ export const batchExportBackfillModalLogic = kea<batchExportBackfillModalLogicTy
         ],
     }),
     selectors({
+        isHogFunction: [
+            () => [(_, props) => props],
+            (props: BatchExportBackfillModalLogicProps): boolean => props.context === 'hog_function',
+        ],
         interval: [
             (s) => [s.batchExportConfig],
             (batchExportConfig: BatchExportConfiguration | null): string | undefined => batchExportConfig?.interval,
         ],
         timezone: [
-            (s) => [s.batchExportConfig, s.teamTimezone],
+            (s) => [s.batchExportConfig, teamLogic.selectors.timezone],
             (batchExportConfig: BatchExportConfiguration | null, teamTimezone: string): string => {
                 // How timezones are handled:
                 // - If the batch export's interval is day or week, we use the timezone from the batch export config.

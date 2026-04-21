@@ -15,9 +15,10 @@ from products.visual_review.backend.facade.contracts import (
     UpdateRepoInput,
 )
 from products.visual_review.backend.facade.enums import RunType, SnapshotResult
+from products.visual_review.backend.tests.conftest import PRODUCT_DATABASES
 
 
-@pytest.mark.django_db
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
 class TestProjectAPI:
     def test_create_repo_returns_dto(self, team):
         result = api.create_repo(team_id=team.id, repo_external_id=12345, repo_full_name="org/my-repo")
@@ -67,7 +68,7 @@ class TestProjectAPI:
         assert result.repo_full_name == "org/test"  # unchanged
 
 
-@pytest.mark.django_db
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
 class TestRunAPI:
     @pytest.fixture
     def repo(self, team):
@@ -185,7 +186,7 @@ class TestRunAPI:
         mock_delay.assert_called_once_with(str(create_result.run_id))
 
 
-@pytest.mark.django_db
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
 class TestApproveRunAPI:
     @pytest.fixture
     def repo(self, team):
@@ -212,6 +213,18 @@ class TestApproveRunAPI:
             team_id=repo.team_id,
         )
 
+        # Classification happens at complete_run time
+        with (
+            patch(
+                "products.visual_review.backend.logic._resolve_baselines",
+                return_value={"Button": "old_hash"},
+            ),
+            patch("products.visual_review.backend.tasks.tasks.process_run_diffs.delay"),
+        ):
+            logic.complete_run(create_result.run_id)
+        logic.mark_run_completed(create_result.run_id)
+
+        # Per-snapshot approval is DB only — no run-level finalization
         result = api.approve_run(
             ApproveRunInput(
                 run_id=create_result.run_id,
@@ -220,11 +233,12 @@ class TestApproveRunAPI:
             )
         )
 
-        assert result.approved is True
-        assert result.approved_at is not None
+        assert result.approved is False  # Run not finalized
+        assert result.approved_at is None
 
-        # Check snapshot approval fields were set but result was NOT mutated
+        # Snapshot-level approval fields were set, result preserved
         snapshots = api.get_run_snapshots(create_result.run_id)
         button_snap = next(s for s in snapshots if s.identifier == "Button")
-        assert button_snap.result == SnapshotResult.CHANGED  # Result preserved
-        assert button_snap.approved_hash == "new_hash"  # Approval recorded
+        assert button_snap.result == SnapshotResult.CHANGED
+        assert button_snap.approved_hash == "new_hash"
+        assert button_snap.review_state == "approved"

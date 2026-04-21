@@ -477,6 +477,7 @@ def _group_aggregation_filter(filter: dict):
 
 
 def _insight_filter(filter: dict, allow_variables: bool = False):
+    insight_filter: dict[str, Any]
     if _insight_type(filter) == "TRENDS":
         insight_filter = {
             "trendsFilter": TrendsFilter(
@@ -561,7 +562,7 @@ def _insight_filter(filter: dict, allow_variables: bool = False):
                 minEdgeWeight=filter.get("min_edge_weight"),
                 maxEdgeWeight=filter.get("max_edge_weight"),
             ),
-            "funnelPathsFilter": filters_to_funnel_paths_query(filter),  # type: ignore
+            "funnelPathsFilter": filters_to_funnel_paths_query(filter),
         }
     elif _insight_type(filter) == "LIFECYCLE":
         insight_filter = {
@@ -638,15 +639,3 @@ def filter_to_query(filter: dict, allow_variables: bool = False) -> InsightQuery
     # :KLUDGE: We do this dance to have default values instead of None, when setting
     # values from a filter above.
     return Query(**Query(**data).model_dump(exclude_none=True))
-
-
-def filter_str_to_query(filters: str) -> InsightQueryNode:
-    filter = json.loads(filters)
-    # we have insights that have been serialized to json twice in the database
-    # due to people misunderstanding our api
-    if isinstance(filter, str):
-        filter = json.loads(filter)
-    # we also have insights wrapped in an additional array
-    elif isinstance(filter, list):
-        filter = filter[0]
-    return filter_to_query(filter)

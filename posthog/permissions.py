@@ -1,3 +1,4 @@
+import os
 import time
 from typing import Optional, cast
 
@@ -472,7 +473,7 @@ class APIScopePermission(ScopeBasePermission):
         # API Scopes apply to PersonalAPIKeyAuthentication and OAuthAccessTokenAuthentication
 
         if isinstance(request.successful_authenticator, PersonalAPIKeyAuthentication):
-            key_scopes = request.successful_authenticator.personal_api_key.scopes or []
+            key_scopes = request.successful_authenticator.personal_api_key.scopes
         elif isinstance(request.successful_authenticator, OAuthAccessTokenAuthentication):
             # OAuth tokens store scopes as space-separated string
             token_scope_string = request.successful_authenticator.access_token.scope
@@ -548,6 +549,10 @@ class APIScopePermission(ScopeBasePermission):
         Check if the organization being accessed allows personal API keys.
         Admins can always use personal API keys regardless of the organization setting.
         """
+        # Only applies to personal API keys — OAuth tokens are exempt.
+        if not isinstance(request.successful_authenticator, PersonalAPIKeyAuthentication):
+            return
+
         try:
             org = get_organization_from_view(view)
         except ValueError:
@@ -695,6 +700,10 @@ class AccessControlPermission(ScopeBasePermission):
         return False
 
 
+_raw = os.environ.get("POSTHOG_FEATURE_FLAGS_FORCE_ENABLED", "")
+_FORCE_ENABLED_FLAGS: frozenset[str] = frozenset(f.strip() for f in _raw.split(",") if f.strip())
+
+
 class PostHogFeatureFlagPermission(BasePermission):
     def has_permission(self, request, view) -> bool:
         user = cast(User, request.user)
@@ -715,11 +724,14 @@ class PostHogFeatureFlagPermission(BasePermission):
 
         for required_flag, actions in config.items():
             if "*" in actions or view.action in actions:
+                if required_flag in _FORCE_ENABLED_FLAGS:
+                    return True
+
                 org_id = str(organization.id)
 
                 enabled = posthoganalytics.feature_enabled(
                     required_flag,
-                    user.distinct_id,
+                    str(user.distinct_id),
                     groups={"organization": org_id},
                     group_properties={"organization": {"id": org_id}},
                     only_evaluate_locally=False,

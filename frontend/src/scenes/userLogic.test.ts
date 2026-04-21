@@ -13,6 +13,11 @@ describe('userLogic', () => {
     const userWithLightTheme = { ...MOCK_DEFAULT_USER, theme_mode: 'light' as const }
 
     beforeEach(() => {
+        // Set current_user before initKeaTests so userLogic bootstraps with theme_mode: 'light'
+        window.POSTHOG_APP_CONTEXT = {
+            ...window.POSTHOG_APP_CONTEXT,
+            current_user: userWithLightTheme,
+        } as any
         initKeaTests()
         useMocks({
             get: {

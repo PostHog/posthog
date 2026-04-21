@@ -61,9 +61,7 @@ jobs:
             migrations: ${{ steps.filter.outputs.migrations || 'true' }}
             migrations_files: ${{ steps.filter.outputs.migrations_files }}
             tasks_temporal: ${{ steps.filter.outputs.tasks_temporal || 'true' }}
-            llm_gateway: ${{ steps.filter.outputs.llm_gateway || 'true' }}
             openapi_types: ${{ steps.filter.outputs.openapi_types || 'true' }}
-            products: ${{ steps.filter.outputs.products || 'true' }}
             legacy: ${{ steps.filter.outputs.legacy || 'true' }}
         steps:
             # For pull requests it's not necessary to checkout the code, but we
@@ -93,10 +91,21 @@ jobs:
                         # including the negated rule appears to work
                         # but makes it always match because the checked file always isn't `ee/frontend/**` 🙈
                         - 'ee/**/*'
-                        - 'common/**/*'
+                        - 'common/__init__.py'
+                        - 'common/hogli/**'
+                        - 'common/hogql_parser/**'
+                        - 'common/hogvm/**'
+                        - 'common/ingestion/**'
+                        - 'common/migration_utils/**'
+                        - 'common/plugin_transpiler/**'
                         - 'posthog/**/*'
                         - 'products/**/backend/**/*'
-                        - 'bin/*.py'
+                        - bin/build-schema-latest-versions.py
+                        - bin/build-taxonomy-json.py
+                        - bin/check_uv_python_compatibility.py
+                        - bin/find_python_dependencies.py
+                        - bin/granian_metrics.py
+                        - bin/unit_metrics.py
                         - pyproject.toml
                         - uv.lock
                         - requirements.txt
@@ -104,9 +113,12 @@ jobs:
                         - mypy.ini
                         - pytest.ini
                         - .test_durations # Used for pytest-split sharding
-                        - frontend/src/queries/schema.json # Used for generating schema.py
-                        - rust/feature-flags/src/properties/property_models.rs # Operator parity check
-                        - common/plugin_transpiler/src # Used for transpiling plugins
+                        # generates posthog/schema.py
+                        - frontend/src/queries/schema.json
+                        # Operator parity check
+                        - rust/feature-flags/src/properties/property_models.rs
+                        - frontend/src/products.json # Loaded at runtime by posthog/products.py
+                        - 'products/*/manifest.tsx' # Generates products.json
                         # Make sure we run if someone is explicitly changing the workflow
                         - .github/workflows/ci-backend.yml
                         - .github/clickhouse-versions.json
@@ -119,16 +131,27 @@ jobs:
                         - bin/wait-for-docker
                         - bin/ci-wait-for-docker
                         - frontend/public/email/*
-                        - docker/clickhouse
+                        - 'docker/clickhouse/**'
                       legacy:
                         # Non-product backend code — when only products/ change,
                         # turbo-discover diffs backend:test vs backend:contract-check
                         # to detect isolated products and decide whether Django runs.
                         # Everything from backend: EXCEPT products/**/backend/**/*
                         - 'ee/**/*'
-                        - 'common/**/*'
+                        - 'common/__init__.py'
+                        - 'common/hogli/**'
+                        - 'common/hogql_parser/**'
+                        - 'common/hogvm/**'
+                        - 'common/ingestion/**'
+                        - 'common/migration_utils/**'
+                        - 'common/plugin_transpiler/**'
                         - 'posthog/**/*'
-                        - 'bin/*.py'
+                        - bin/build-schema-latest-versions.py
+                        - bin/build-taxonomy-json.py
+                        - bin/check_uv_python_compatibility.py
+                        - bin/find_python_dependencies.py
+                        - bin/granian_metrics.py
+                        - bin/unit_metrics.py
                         - pyproject.toml
                         - uv.lock
                         - requirements.txt
@@ -137,8 +160,9 @@ jobs:
                         - pytest.ini
                         - .test_durations
                         - frontend/src/queries/schema.json
+                        - frontend/src/products.json
+                        - 'products/*/manifest.tsx'
                         - rust/feature-flags/src/properties/property_models.rs
-                        - common/plugin_transpiler/src
                         - .github/workflows/ci-backend.yml
                         - .github/clickhouse-versions.json
                         - docker-compose.dev.yml
@@ -147,9 +171,9 @@ jobs:
                         - bin/wait-for-docker
                         - bin/ci-wait-for-docker
                         - frontend/public/email/*
-                        - docker/clickhouse
+                        - 'docker/clickhouse/**'
                       migrations:
-                        - docker/clickhouse
+                        - 'docker/clickhouse/**'
                         - 'posthog/migrations/*.py'
                         - 'products/*/backend/migrations/*.py'
                         - 'products/*/migrations/*.py'  # Legacy structure
@@ -157,8 +181,6 @@ jobs:
                         - 'rust/bin/migrate-persons'
                       tasks_temporal:
                         - 'products/tasks/backend/temporal/**/*'
-                      llm_gateway:
-                        - 'services/llm-gateway/**/*'
                       openapi_types:
                         # Generated OpenAPI types - validate they match schema
                         - 'frontend/src/generated/**/*'
@@ -180,6 +202,7 @@ jobs:
     detect-snapshot-mode:
         name: Detect snapshot mode
         runs-on: ubuntu-latest
+        timeout-minutes: 5
         needs: [changes]
         if: needs.changes.outputs.backend == 'true'
         outputs:
@@ -220,7 +243,7 @@ jobs:
         needs: changes
         if: needs.changes.outputs.backend == 'true'
         runs-on: depot-ubuntu-latest
-        timeout-minutes: 5
+        timeout-minutes: 20
         name: Discover product tests
         outputs:
             run_legacy: ${{ steps.discover.outputs.run_legacy }}
@@ -233,9 +256,9 @@ jobs:
               uses: pnpm/action-setup@a7487c7e89a18df4991f7f222e4898a00d66ddda # v4.1.0
 
             - name: Setup Node.js
-              uses: actions/setup-node@v6
+              uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
               with:
-                  node-version: 20
+                  node-version-file: .nvmrc
                   cache: pnpm
                   cache-dependency-path: |
                       pnpm-lock.yaml
@@ -295,18 +318,20 @@ jobs:
               env:
                   COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
                   COMPOSE_PROFILES: temporal,azure
-                  CLICKHOUSE_SERVER_IMAGE: clickhouse/clickhouse-server:25.8.12.129
+                  CLICKHOUSE_SERVER_IMAGE: clickhouse/clickhouse-server:26.3.9.8
               run: |
                   cp posthog/user_scripts/latest_user_defined_function.xml docker/clickhouse/user_defined_function.xml
-                  bin/ci-wait-for-docker launch --background --down
+                  bin/ci-wait-for-docker launch --background --down \
+                    db redis7 clickhouse zookeeper kafka objectstorage feature-flags \
+                    temporal elasticsearch objectstorage-azure
 
             - name: Setup pnpm
               uses: pnpm/action-setup@a7487c7e89a18df4991f7f222e4898a00d66ddda # v4.1.0
 
             - name: Setup Node.js
-              uses: actions/setup-node@v6
+              uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
               with:
-                  node-version: 20
+                  node-version-file: .nvmrc
                   cache: pnpm
                   cache-dependency-path: |
                       pnpm-lock.yaml
@@ -353,8 +378,8 @@ jobs:
             - name: Install Python dependencies
               run: UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
 
-            - name: Add Kafka and ClickHouse to /etc/hosts
-              run: echo "127.0.0.1 kafka clickhouse" | sudo tee -a /etc/hosts
+            - name: Add service hostnames to /etc/hosts
+              run: echo "127.0.0.1 db redis7 kafka clickhouse clickhouse-coordinator objectstorage temporal" | sudo tee -a /etc/hosts
 
             - name: Set up needed files
               run: |
@@ -366,7 +391,7 @@ jobs:
               env:
                   COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
                   COMPOSE_PROFILES: temporal,azure
-                  CLICKHOUSE_SERVER_IMAGE: clickhouse/clickhouse-server:25.8.12.129
+                  CLICKHOUSE_SERVER_IMAGE: clickhouse/clickhouse-server:26.3.9.8
               run: bin/ci-wait-for-docker wait
 
             - name: Register Temporal search attributes
@@ -384,7 +409,7 @@ jobs:
                   # On master, also collect timing data for pytest-split sharding.
                   PYTEST_ADDOPTS: >-
                       --reuse-db
-                      ${{ needs.detect-snapshot-mode.outputs.mode == 'update' && '--snapshot-update' || '' }}
+                      ${{ needs.detect-snapshot-mode.outputs.mode == 'update' && '--snapshot-update --snapshot-warn-unused' || '' }}
                       ${{ github.ref == 'refs/heads/master' && '--store-durations --durations-path ../../.test_durations' || '' }}
               run: pnpm turbo run backend:test ${{ matrix.filters }} --concurrency=1 --output-logs=full --force --log-order=stream ${{ matrix.pytest_args }}
 
@@ -431,8 +456,13 @@ jobs:
         needs: [changes]
         if: needs.changes.outputs.backend == 'true'
         timeout-minutes: 10
-        name: Repo checks
-        runs-on: depot-ubuntu-latest
+        name: Repo checks (${{ matrix.runner }})
+        strategy:
+            fail-fast: false
+            matrix:
+                include: ${{ vars.BLACKSMITH_SHADOW_ENABLED == 'true' && fromJson('[{"runner":"depot-ubuntu-latest","is_shadow":false},{"runner":"blacksmith-2vcpu-ubuntu-2404","is_shadow":true}]') || fromJson('[{"runner":"depot-ubuntu-latest","is_shadow":false}]') }}
+        runs-on: ${{ matrix.runner }}
+        continue-on-error: ${{ matrix.is_shadow }}
         steps:
             - uses: actions/checkout@v6
 
@@ -459,7 +489,10 @@ jobs:
               run: python .github/scripts/check-operator-parity.py
 
             - name: Check module boundaries (tach)
-              run: tach check
+              run: tach check --dependencies --interfaces
+
+            - name: Check product facade enforcement (import-linter)
+              run: lint-imports
 
     # Migration validation and OpenAPI type generation.
     # This job needs Docker + DB — it checks out master first to run baseline
@@ -576,10 +609,10 @@ jobs:
             - name: Get app token for OpenAPI type commits
               if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog'
               id: openapi-app-token
-              uses: getsentry/action-github-app-token@d4b5da6c5e37703f8c3b3e43abb5705b46e159cc # v3.0.0
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
               with:
-                  app_id: ${{ secrets.GH_APP_POSTHOG_TESTS_APP_ID }}
-                  private_key: ${{ secrets.GH_APP_POSTHOG_TESTS_PRIVATE_KEY }}
+                  client-id: ${{ secrets.GH_APP_POSTHOG_TESTS_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_TESTS_PRIVATE_KEY }}
 
             # Now we can consider this PR's migrations
             - name: Checkout this PR
@@ -603,6 +636,7 @@ jobs:
               env:
                   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
                   CHANGED_FILES: ${{ needs.changes.outputs.migrations_files }}
+                  BASE_SHA: ${{ github.event.pull_request.base.sha }}
               run: |
                   # If no migration files changed, exit
                   if [ -z "$CHANGED_FILES" ]; then
@@ -610,8 +644,16 @@ jobs:
                     exit 0
                   fi
 
+                  if [ -z "$BASE_SHA" ]; then
+                    echo "::warning::BASE_SHA is empty — all changed migrations will be treated as new"
+                  else
+                    # Ensure the base commit is available for comparison
+                    git fetch --no-tags --prune --depth=1 origin "$BASE_SHA" || echo "::warning::Could not fetch base SHA $BASE_SHA — all changed migrations will be shown as new"
+                  fi
+
                   # Initialize comment body for SQL changes
                   COMMENT_BODY="## Migration SQL Changes\n\nHey 👋, we've detected some migrations on this PR. Here's the SQL output for each migration, make sure they make sense:\n\n"
+                  HAS_NEW_MIGRATIONS=false
 
                   # Process each changed migration file (excluding Rust migrations)
                   for file in $CHANGED_FILES; do
@@ -629,7 +671,15 @@ jobs:
                       else
                         app_name=$(echo $file | sed -E 's|^([^/]+/)*([^/]+)/migrations/.*|\2|')
                       fi
-                        echo "Checking migration $migration_number for app $app_name"
+
+                      # Only show SQL for new migrations, not modifications to existing ones
+                      if git cat-file -e "$BASE_SHA:$file" 2>/dev/null; then
+                        echo "Skipping $file (already exists on base branch)"
+                        continue
+                      fi
+
+                      HAS_NEW_MIGRATIONS=true
+                      echo "Checking migration $migration_number for app $app_name"
 
                       # Get SQL output
                       SQL_OUTPUT=$(python manage.py sqlmigrate $app_name $migration_number)
@@ -639,13 +689,26 @@ jobs:
                     fi
                   done
 
-                  # Get existing comments
+                  # Get existing comments (needed for both update and cleanup)
                   COMMENTS=$(curl -s -H "Authorization: token $GITHUB_TOKEN" \
                     -H "Accept: application/vnd.github.v3+json" \
                     "https://api.github.com/repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments")
 
                   # Extract comment ID if exists
                   SQL_COMMENT_ID=$(echo "$COMMENTS" | jq -r '.[] | select(.body | startswith("## Migration SQL Changes")) | .id' | head -1)
+
+                  # If no new migrations, clean up any stale comment and exit
+                  if [ "$HAS_NEW_MIGRATIONS" = false ]; then
+                    echo "No new migrations to show (all changed files already exist on base branch)"
+                    if [ -n "$SQL_COMMENT_ID" ]; then
+                      echo "Deleting stale SQL comment $SQL_COMMENT_ID"
+                      curl -X DELETE \
+                        -H "Authorization: token $GITHUB_TOKEN" \
+                        -H "Accept: application/vnd.github.v3+json" \
+                        "https://api.github.com/repos/${{ github.repository }}/issues/comments/$SQL_COMMENT_ID"
+                    fi
+                    exit 0
+                  fi
 
                   # Add timestamp and commit SHA to SQL changes
                   TIMESTAMP=$(date -u '+%Y-%m-%d %H:%M UTC')
@@ -764,7 +827,7 @@ jobs:
                   set -o pipefail
                   # Dump schema + django_migrations data so Django knows which migrations are applied
                   # Run pg_dump inside container to ensure version match (host has pg_dump 16, container has 15)
-                  (docker compose -f docker-compose.dev.yml exec -T db pg_dump --schema-only --clean -U posthog posthog && \
+                  (docker compose -f docker-compose.dev.yml exec -T db pg_dump --schema-only --clean --if-exists -U posthog posthog && \
                    docker compose -f docker-compose.dev.yml exec -T db pg_dump --data-only --table=django_migrations -U posthog posthog) | gzip > schema.sql.gz
                   # Verify the dump is valid
                   gunzip -t schema.sql.gz
@@ -786,9 +849,6 @@ jobs:
                   DATABASE_URL="postgres://posthog:posthog@localhost:5432/posthog_persons" \
                     sqlx migrate info --source rust/persons_migrations/
                   python manage.py makemigrations --check --dry-run
-                  git fetch origin master
-                  # Check migration safety using old SQL-based checker (still uses stdin from git diff)
-                  echo "$MIGRATIONS_FILES" | grep -v migrations/0001_ | grep -v 'rust/persons_migrations' | python manage.py test_migrations_are_safe
 
             - name: Check CH migrations
               run: |
@@ -802,9 +862,9 @@ jobs:
               run: chmod +x ~/setup-pnpm/node_modules/.pnpm/pnpm@*/node_modules/pnpm/dist/node_modules/node-gyp/gyp/gyp_main.py
 
             - name: Set up Node.js
-              uses: actions/setup-node@v6
+              uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
               with:
-                  node-version: 24.13.0
+                  node-version-file: .nvmrc
                   cache: pnpm
                   cache-dependency-path: |
                       pnpm-lock.yaml
@@ -821,20 +881,20 @@ jobs:
               run: echo "::add-matcher::.github/openapi-problem-matcher.json"
 
             - name: Check and update OpenAPI types
+              id: openapi-check
               env:
                   EVENT_NAME: ${{ github.event_name }}
                   HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
                   BRANCH: ${{ github.event.pull_request.head.ref }}
                   HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-                  REPOSITORY: ${{ github.repository }}
                   PR_NUMBER: ${{ github.event.pull_request.number }}
-                  APP_TOKEN: ${{ steps.openapi-app-token.outputs.token }}
                   GH_TOKEN: ${{ steps.openapi-app-token.outputs.token }}
               run: |
                   ./bin/hogli build:openapi
                   pnpm --filter=@posthog/mcp run scaffold-yaml -- --sync-all
                   if git diff --exit-code; then
                       echo "OpenAPI types are up to date"
+                      echo "needs-commit=false" >> $GITHUB_OUTPUT
                       exit 0
                   fi
 
@@ -864,39 +924,40 @@ jobs:
                   # Verify branch hasn't advanced since CI started
                   CURRENT_SHA=$(git ls-remote origin "refs/heads/$BRANCH" | cut -f1)
                   if [ "$CURRENT_SHA" != "$HEAD_SHA" ]; then
-                      echo "::warning::Branch advanced during workflow ($HEAD_SHA -> $CURRENT_SHA) — skipping auto-commit"
-                      echo "The new commit will trigger its own workflow run."
-                      exit 0
+                      echo "::error::Branch advanced during workflow ($HEAD_SHA -> $CURRENT_SHA) — cannot auto-commit OpenAPI types."
+                      echo ""
+                      echo "OpenAPI types are out of date and could not be auto-committed because the branch"
+                      echo "was updated while this workflow was running. Please run locally and push:"
+                      echo ""
+                      echo "  hogli build:openapi"
+                      echo ""
+                      echo "Then commit the updated generated files."
+                      echo "needs-commit=false" >> $GITHUB_OUTPUT
+                      exit 1
                   fi
 
                   # Disable auto-merge before pushing to prevent unreviewed code from merging
                   gh pr merge --disable-auto "$PR_NUMBER" || echo "Auto-merge was not enabled"
 
-                  # Unset any lingering extraheader so the app token in the remote URL
-                  # is definitely used for the push.
-                  git config --unset-all http.https://github.com/.extraheader || true
-                  git remote set-url origin "https://x-access-token:${APP_TOKEN}@github.com/${REPOSITORY}.git"
-                  git config user.name "github-actions[bot]"
-                  git config user.email "github-actions[bot]@users.noreply.github.com"
+                  echo "needs-commit=true" >> $GITHUB_OUTPUT
 
-                  git add frontend/src/generated/
-                  git add products/*/frontend/generated/ 2>/dev/null || true
-                  git add products/*/mcp/*.yaml 2>/dev/null || true
-                  git add services/mcp/definitions/*.yaml 2>/dev/null || true
-                  git add services/mcp/src/api/generated.ts 2>/dev/null || true
-                  git add services/mcp/src/generated/ 2>/dev/null || true
-                  git add services/mcp/schema/generated-tool-definitions.json 2>/dev/null || true
-                  git add services/mcp/schema/tool-definitions-all.json 2>/dev/null || true
-                  git add services/mcp/src/tools/generated/ 2>/dev/null || true
-                  git commit -m "chore: update OpenAPI generated types"
-                  git push origin "$BRANCH"
-                  echo "::notice::Pushed updated OpenAPI types to $BRANCH"
+            - name: Commit OpenAPI types via GitHub API (signed)
+              if: steps.openapi-check.outputs.needs-commit == 'true'
+              uses: planetscale/ghcommit-action@25309d8005ac7c3bcd61d3fe19b69e0fe47dbdde # v0.2.20
+              with:
+                  commit_message: 'chore: update OpenAPI generated types'
+                  repo: ${{ github.repository }}
+                  branch: ${{ github.event.pull_request.head.ref }}
+                  file_pattern: 'frontend/src/generated/** products/*/frontend/generated/** products/*/mcp/*.yaml services/mcp/definitions/*.yaml services/mcp/src/api/generated.ts services/mcp/src/generated/** services/mcp/schema/generated-tool-definitions.json services/mcp/schema/tool-definitions-all.json services/mcp/src/tools/generated/**'
+              env:
+                  GITHUB_TOKEN: ${{ steps.openapi-app-token.outputs.token }}
 
     build_django_matrix:
         name: Build Django matrix
         needs: [changes, get_clickhouse_versions]
         if: needs.changes.outputs.backend == 'true'
         runs-on: ubuntu-latest
+        timeout-minutes: 5
         outputs:
             include: ${{ steps.build.outputs.include }}
         steps:
@@ -1038,9 +1099,9 @@ jobs:
                   cp posthog/user_scripts/latest_user_defined_function.xml docker/clickhouse/user_defined_function.xml
                   bin/ci-wait-for-docker launch --background --down-all-profiles
 
-            - name: Add Kafka and ClickHouse to /etc/hosts
+            - name: Add service hostnames to /etc/hosts
               shell: bash
-              run: echo "127.0.0.1 kafka clickhouse" | sudo tee -a /etc/hosts
+              run: echo "127.0.0.1 db redis7 kafka clickhouse clickhouse-coordinator objectstorage seaweedfs temporal" | sudo tee -a /etc/hosts
 
             - name: Set up Python
               uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
@@ -1114,7 +1175,7 @@ jobs:
               # changed (requirements.txt has the already-published version)
               run: |
                   sudo apt-get install unzip cmake curl uuid pkg-config
-                  curl https://www.antlr.org/download/antlr4-cpp-runtime-4.13.1-source.zip --output antlr4-source.zip
+                  curl --fail --location https://www.antlr.org/download/antlr4-cpp-runtime-4.13.1-source.zip --output antlr4-source.zip || curl --fail --location https://raw.githubusercontent.com/antlr/website-antlr4/gh-pages/download/antlr4-cpp-runtime-4.13.1-source.zip --output antlr4-source.zip
                   # Check that the downloaded archive is the expected runtime - a security measure
                   anltr_known_md5sum="c875c148991aacd043f733827644a76f"
                   antlr_found_ms5sum="$(md5sum antlr4-source.zip | cut -d' ' -f1)"
@@ -1160,7 +1221,11 @@ jobs:
               # persons-on-events: always update (we ignore snapshot divergence there)
               if: ${{ needs.changes.outputs.backend == 'true' && (needs.detect-snapshot-mode.outputs.mode == 'update' || matrix.person-on-events) }}
               shell: bash
-              run: echo "PYTEST_ARGS=--snapshot-update" >> $GITHUB_ENV
+              # --snapshot-warn-unused: pytest-split shards individual tests across
+              # runners, so each shard only exercises a subset of snapshots per file.
+              # Without this flag, --snapshot-update deletes "unused" snapshots that
+              # belong to other shards, causing cross-shard data loss.
+              run: echo "PYTEST_ARGS=--snapshot-update --snapshot-warn-unused" >> $GITHUB_ENV
 
             - name: Add snapshot flags for compat subset runs
               # Compat runs a subset and doesn't own snapshots (main Django rows do).
@@ -1355,6 +1420,7 @@ jobs:
         needs: [changes]
         if: needs.changes.outputs.backend == 'true'
         runs-on: ubuntu-latest
+        timeout-minutes: 5
         outputs:
             # Oldest supported version for main Django tests (JSON array for matrix)
             oldest_supported: ${{ steps.read-versions.outputs.oldest_supported }}
@@ -1424,6 +1490,7 @@ jobs:
         # Run even if some matrix jobs failed (to commit snapshots from passing jobs)
         if: ${{ always() && needs.detect-snapshot-mode.outputs.mode == 'update' && needs.changes.outputs.backend == 'true' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog' }}
         runs-on: ubuntu-latest
+        timeout-minutes: 5
         permissions:
             contents: write
             pull-requests: write
@@ -1431,10 +1498,10 @@ jobs:
             # Use GitHub app token so Actions run after commiting updated snapshots
             - name: Get app token
               id: app-token
-              uses: getsentry/action-github-app-token@d4b5da6c5e37703f8c3b3e43abb5705b46e159cc # v3.0.0
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
               with:
-                  app_id: ${{ secrets.GH_APP_POSTHOG_TESTS_APP_ID }}
-                  private_key: ${{ secrets.GH_APP_POSTHOG_TESTS_PRIVATE_KEY }}
+                  client-id: ${{ secrets.GH_APP_POSTHOG_TESTS_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_TESTS_PRIVATE_KEY }}
 
             - name: Checkout
               uses: actions/checkout@v6
@@ -1491,6 +1558,7 @@ jobs:
         needs: [django, check-migrations, async-migrations, turbo-discover, turbo-tests, handle-snapshots, repo-checks]
         name: Django Tests Pass
         runs-on: ubuntu-latest
+        timeout-minutes: 5
         if: always()
         steps:
             - name: Check matrix outcome
@@ -1541,12 +1609,13 @@ jobs:
                   echo "All checks passed."
 
     async-migrations:
-        name: Async migrations tests -  ${{ matrix.clickhouse-server-image }}
+        name: Async migrations tests -  ${{ matrix.clickhouse-server-image }} (${{ matrix.runner }})
         needs: [changes, turbo-discover, get_clickhouse_versions]
         strategy:
             fail-fast: false
             matrix:
                 clickhouse-server-image: ${{ fromJson(needs.get_clickhouse_versions.outputs.oldest_supported) }}
+                runner: ${{ vars.BLACKSMITH_SHADOW_ENABLED == 'true' && fromJson('["depot-ubuntu-latest","blacksmith-2vcpu-ubuntu-2404"]') || fromJson('["depot-ubuntu-latest"]') }}
         # Run if legacy code changed, product changes affect legacy, or turbo-discover failed
         if: |
             always() &&
@@ -1554,7 +1623,9 @@ jobs:
             (needs.changes.outputs.legacy == 'true' ||
              needs.turbo-discover.outputs.run_legacy == 'true' ||
              (needs.turbo-discover.result != 'success' && needs.turbo-discover.result != 'skipped'))
-        runs-on: depot-ubuntu-latest
+        runs-on: ${{ matrix.runner }}
+        continue-on-error: ${{ startsWith(matrix.runner, 'blacksmith') }}
+        timeout-minutes: 30
         steps:
             - name: 'Checkout repo'
               uses: actions/checkout@v6
@@ -1616,8 +1687,8 @@ jobs:
               run: |
                   UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
 
-            - name: Add Kafka and ClickHouse to /etc/hosts
-              run: sudo echo "127.0.0.1 kafka clickhouse" | sudo tee -a /etc/hosts
+            - name: Add service hostnames to /etc/hosts
+              run: sudo echo "127.0.0.1 db redis7 kafka clickhouse clickhouse-coordinator objectstorage seaweedfs temporal" | sudo tee -a /etc/hosts
 
             - name: Set up needed files
               run: |
@@ -1640,7 +1711,7 @@ jobs:
 
             - name: Upload test results
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
-              if: always()
+              if: always() && !startsWith(matrix.runner, 'blacksmith')
               with:
                   name: junit-results-async-migrations
                   path: junit.xml
@@ -1649,6 +1720,7 @@ jobs:
         name: Calculate running time
         needs: [django_tests, async-migrations]
         runs-on: ubuntu-latest
+        timeout-minutes: 5
         if: # Run on pull requests to PostHog/posthog + on PostHog/posthog outside of PRs - but never on forks or Dependabot (no secrets access)
             always() && github.actor != 'dependabot[bot]' && (
             (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog') ||
@@ -1664,44 +1736,14 @@ jobs:
                   github-token: ${{ secrets.GITHUB_TOKEN }}
                   status-job: 'Django Tests Pass'
                   runner: 'depot'
-
-    llm-gateway:
-        name: LLM Gateway Tests
-        needs: changes
-        if: needs.changes.outputs.llm_gateway == 'true'
-        runs-on: ubuntu-latest
-        timeout-minutes: 10
-        defaults:
-            run:
-                working-directory: services/llm-gateway
-
-        steps:
-            - uses: actions/checkout@v6
-
-            - name: Set up Python
-              uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+            - name: Capture running time to DevEx PostHog
+              continue-on-error: true
+              uses: PostHog/posthog-github-action@eea1405eeb2d1d2259f0ee0b44d7b152869e6840 # v1.1.1
               with:
-                  python-version: '3.12'
-
-            - name: Install uv
-              uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b # v7.3.0
-              with:
-                  version: '0.10.2' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
-
-            - name: Install dependencies
-              run: uv sync --frozen --dev
-
-            - name: Run tests
-              env:
-                  OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-                  ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-                  OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
-                  FIREWORKS_API_KEY: ${{ secrets.FIREWORKS_API_KEY }}
-              run: uv run pytest tests/ -v --tb=short --junitxml=junit.xml
-
-            - name: Upload test results
-              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
-              if: always()
-              with:
-                  name: junit-results-llm-gateway
-                  path: junit.xml
+                  posthog-token: ${{ secrets.POSTHOG_DEVEX_PROJECT_API_TOKEN }}
+                  event: 'posthog-ci-running-time'
+                  capture-run-duration: true
+                  capture-job-durations: true
+                  github-token: ${{ secrets.GITHUB_TOKEN }}
+                  status-job: 'Django Tests Pass'
+                  runner: 'depot'

@@ -8,11 +8,11 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 
 import { cohortsModel } from '~/models/cohortsModel'
 
-import { TaxonomicPopover, TaxonomicStringPopover } from './TaxonomicPopover'
+import { TaxonomicPopover, TaxonomicPopoverProps, TaxonomicStringPopover } from './TaxonomicPopover'
 
-const meta: Meta<typeof TaxonomicPopover> = {
+const meta: Meta<TaxonomicPopoverProps<any>> = {
     title: 'Filters/TaxonomicPopover',
-    component: TaxonomicPopover,
+    component: TaxonomicPopover as any,
     decorators: [taxonomicFilterMocksDecorator],
 }
 export default meta

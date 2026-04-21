@@ -17,6 +17,18 @@ jest.mock('../../../src/kafka/producer', () => {
         flush: jest.fn((...args) => args[args.length - 1]?.()),
         disconnect: jest.fn((...args) => args[args.length - 1]?.()),
         connect: jest.fn((...args) => args[args.length - 1]?.()),
+        on: jest.fn(),
+        removeAllListeners: jest.fn(),
+        getMetadata: jest.fn((opts: any, cb: any) =>
+            cb(null, {
+                topics: opts?.topic
+                    ? [{ name: opts.topic, partitions: [{ id: 0, leader: 0, replicas: [0], isrs: [0] }] }]
+                    : [],
+                brokers: [{ id: 0, host: 'mock', port: 9092 }],
+                orig_broker_id: 0,
+                orig_broker_name: 'mock',
+            })
+        ),
     } as any
 
     // Rather than calling create we just create a new instance with the underlying node-rdkafka producer mocked.

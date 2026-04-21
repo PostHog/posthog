@@ -2,7 +2,6 @@ import { DateTime } from 'luxon'
 
 import { Properties } from '~/plugin-scaffold'
 
-import { TopicMessage } from '../../../../kafka/producer'
 import {
     InternalPerson,
     PersonUpdateFields,
@@ -12,8 +11,11 @@ import {
     TeamId,
 } from '../../../../types'
 import { CreatePersonResult } from '../../../../utils/db/db'
+import { PersonMessage } from '../person-message'
 import { PersonUpdate } from '../person-update-batch'
 import { PersonRepositoryTransaction } from './person-repository-transaction'
+
+export { PersonMessage }
 
 export type InternalPersonWithDistinctId = InternalPerson & {
     distinct_id: string
@@ -66,9 +68,9 @@ export interface PersonRepository {
         person: InternalPerson,
         update: PersonUpdateFields,
         tag?: string
-    ): Promise<[InternalPerson, TopicMessage[], boolean]>
+    ): Promise<[InternalPerson, PersonMessage[], boolean]>
 
-    updatePersonAssertVersion(personUpdate: PersonUpdate): Promise<[number | undefined, TopicMessage[]]>
+    updatePersonAssertVersion(personUpdate: PersonUpdate): Promise<[number | undefined, PersonMessage[]]>
 
     /**
      * Batch update multiple persons in a single query using UNNEST.
@@ -80,11 +82,11 @@ export interface PersonRepository {
      */
     updatePersonsBatch(
         personUpdates: PersonUpdate[]
-    ): Promise<Map<string, { success: boolean; version?: number; kafkaMessage?: TopicMessage; error?: Error }>>
+    ): Promise<Map<string, { success: boolean; version?: number; kafkaMessage?: PersonMessage; error?: Error }>>
 
-    deletePerson(person: InternalPerson): Promise<TopicMessage[]>
+    deletePerson(person: InternalPerson): Promise<PersonMessage[]>
 
-    addDistinctId(person: InternalPerson, distinctId: string, version: number): Promise<TopicMessage[]>
+    addDistinctId(person: InternalPerson, distinctId: string, version: number): Promise<PersonMessage[]>
 
     addPersonlessDistinctId(teamId: Team['id'], distinctId: string): Promise<boolean>
     addPersonlessDistinctIdForMerge(teamId: Team['id'], distinctId: string): Promise<boolean>

@@ -103,6 +103,7 @@
          "posthog_team"."session_recording_url_blocklist_config",
          "posthog_team"."session_recording_event_trigger_config",
          "posthog_team"."session_recording_trigger_match_type_config",
+         "posthog_team"."session_recording_trigger_groups",
          "posthog_team"."session_replay_config",
          "posthog_team"."session_recording_retention_period",
          "posthog_team"."conversations_enabled",
@@ -323,6 +324,7 @@
          "posthog_organization"."default_experiment_stats_method",
          "posthog_organization"."default_anonymize_ips",
          "posthog_organization"."is_hipaa",
+         "posthog_organization"."is_pending_deletion",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",
          "posthog_organization"."usage",
@@ -368,6 +370,7 @@
          "posthog_team"."session_recording_url_blocklist_config",
          "posthog_team"."session_recording_event_trigger_config",
          "posthog_team"."session_recording_trigger_match_type_config",
+         "posthog_team"."session_recording_trigger_groups",
          "posthog_team"."session_replay_config",
          "posthog_team"."session_recording_retention_period",
          "posthog_team"."conversations_enabled",
@@ -462,6 +465,7 @@
          "posthog_organization"."default_experiment_stats_method",
          "posthog_organization"."default_anonymize_ips",
          "posthog_organization"."is_hipaa",
+         "posthog_organization"."is_pending_deletion",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",
          "posthog_organization"."usage",
@@ -553,6 +557,7 @@
          "posthog_organization"."default_experiment_stats_method",
          "posthog_organization"."default_anonymize_ips",
          "posthog_organization"."is_hipaa",
+         "posthog_organization"."is_pending_deletion",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",
          "posthog_organization"."usage",
@@ -662,6 +667,7 @@
          "posthog_team"."session_recording_url_blocklist_config",
          "posthog_team"."session_recording_event_trigger_config",
          "posthog_team"."session_recording_trigger_match_type_config",
+         "posthog_team"."session_recording_trigger_groups",
          "posthog_team"."session_replay_config",
          "posthog_team"."session_recording_retention_period",
          "posthog_team"."conversations_enabled",
@@ -873,7 +879,10 @@
          "posthog_datawarehousesavedquery"."is_materialized",
          "posthog_datawarehousesavedquery"."deleted_name",
          "posthog_datawarehousesavedquery"."managed_viewset_id",
+         "posthog_datawarehousesavedquery"."folder_id",
          "posthog_datawarehousesavedquery"."origin",
+         "posthog_datawarehousesavedquery"."is_test",
+         "posthog_datawarehousesavedquery"."expires_at",
          "posthog_datawarehousetable"."created_by_id",
          "posthog_datawarehousetable"."created_at",
          "posthog_datawarehousetable"."updated_at",
@@ -935,7 +944,10 @@
          "posthog_datawarehousesavedquery"."is_materialized",
          "posthog_datawarehousesavedquery"."deleted_name",
          "posthog_datawarehousesavedquery"."managed_viewset_id",
+         "posthog_datawarehousesavedquery"."folder_id",
          "posthog_datawarehousesavedquery"."origin",
+         "posthog_datawarehousesavedquery"."is_test",
+         "posthog_datawarehousesavedquery"."expires_at",
          "posthog_datawarehousetable"."created_by_id",
          "posthog_datawarehousetable"."created_at",
          "posthog_datawarehousetable"."updated_at",
@@ -984,6 +996,7 @@
          "posthog_externaldatasource"."status",
          "posthog_externaldatasource"."source_type",
          "posthog_externaldatasource"."job_inputs",
+         "posthog_externaldatasource"."connection_metadata",
          "posthog_externaldatasource"."are_tables_created",
          "posthog_externaldatasource"."prefix",
          "posthog_externaldatasource"."description",
@@ -1076,17 +1089,20 @@
          "posthog_externaldatasource"."status",
          "posthog_externaldatasource"."source_type",
          "posthog_externaldatasource"."job_inputs",
+         "posthog_externaldatasource"."connection_metadata",
          "posthog_externaldatasource"."are_tables_created",
          "posthog_externaldatasource"."prefix",
          "posthog_externaldatasource"."description",
          "posthog_externaldatasource"."access_method",
          "posthog_externaldatasource"."revenue_analytics_enabled"
   FROM "posthog_datawarehousetable"
-  LEFT OUTER JOIN "posthog_datawarehousecredential" ON ("posthog_datawarehousetable"."credential_id" = "posthog_datawarehousecredential"."id")
   LEFT OUTER JOIN "posthog_externaldatasource" ON ("posthog_datawarehousetable"."external_data_source_id" = "posthog_externaldatasource"."id")
+  LEFT OUTER JOIN "posthog_datawarehousecredential" ON ("posthog_datawarehousetable"."credential_id" = "posthog_datawarehousecredential"."id")
   WHERE ("posthog_datawarehousetable"."team_id" = 99999
          AND NOT ("posthog_datawarehousetable"."deleted"
-                  AND "posthog_datawarehousetable"."deleted" IS NOT NULL))
+                  AND "posthog_datawarehousetable"."deleted" IS NOT NULL)
+         AND NOT ("posthog_externaldatasource"."access_method" = 'direct'
+                  AND "posthog_externaldatasource"."access_method" IS NOT NULL))
   '''
 # ---
 # name: TestSessionRecordingPlaylist.test_filters_playlist_by_type.31
@@ -1210,6 +1226,7 @@
          "posthog_organization"."default_experiment_stats_method",
          "posthog_organization"."default_anonymize_ips",
          "posthog_organization"."is_hipaa",
+         "posthog_organization"."is_pending_deletion",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",
          "posthog_organization"."usage",
@@ -1255,6 +1272,7 @@
          "posthog_team"."session_recording_url_blocklist_config",
          "posthog_team"."session_recording_event_trigger_config",
          "posthog_team"."session_recording_trigger_match_type_config",
+         "posthog_team"."session_recording_trigger_groups",
          "posthog_team"."session_replay_config",
          "posthog_team"."session_recording_retention_period",
          "posthog_team"."conversations_enabled",
@@ -1343,6 +1361,7 @@
          "posthog_organization"."default_experiment_stats_method",
          "posthog_organization"."default_anonymize_ips",
          "posthog_organization"."is_hipaa",
+         "posthog_organization"."is_pending_deletion",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",
          "posthog_organization"."usage",
@@ -1386,6 +1405,7 @@
          "posthog_organization"."default_experiment_stats_method",
          "posthog_organization"."default_anonymize_ips",
          "posthog_organization"."is_hipaa",
+         "posthog_organization"."is_pending_deletion",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",
          "posthog_organization"."usage",
@@ -1477,6 +1497,7 @@
          "posthog_organization"."default_experiment_stats_method",
          "posthog_organization"."default_anonymize_ips",
          "posthog_organization"."is_hipaa",
+         "posthog_organization"."is_pending_deletion",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",
          "posthog_organization"."usage",
@@ -1560,6 +1581,7 @@
          "posthog_team"."session_recording_url_blocklist_config",
          "posthog_team"."session_recording_event_trigger_config",
          "posthog_team"."session_recording_trigger_match_type_config",
+         "posthog_team"."session_recording_trigger_groups",
          "posthog_team"."session_replay_config",
          "posthog_team"."session_recording_retention_period",
          "posthog_team"."conversations_enabled",
@@ -1779,6 +1801,7 @@
          "posthog_team"."session_recording_url_blocklist_config",
          "posthog_team"."session_recording_event_trigger_config",
          "posthog_team"."session_recording_trigger_match_type_config",
+         "posthog_team"."session_recording_trigger_groups",
          "posthog_team"."session_replay_config",
          "posthog_team"."session_recording_retention_period",
          "posthog_team"."conversations_enabled",
@@ -1865,7 +1888,10 @@
          "posthog_datawarehousesavedquery"."is_materialized",
          "posthog_datawarehousesavedquery"."deleted_name",
          "posthog_datawarehousesavedquery"."managed_viewset_id",
+         "posthog_datawarehousesavedquery"."folder_id",
          "posthog_datawarehousesavedquery"."origin",
+         "posthog_datawarehousesavedquery"."is_test",
+         "posthog_datawarehousesavedquery"."expires_at",
          "posthog_datawarehousetable"."created_by_id",
          "posthog_datawarehousetable"."created_at",
          "posthog_datawarehousetable"."updated_at",
@@ -1927,7 +1953,10 @@
          "posthog_datawarehousesavedquery"."is_materialized",
          "posthog_datawarehousesavedquery"."deleted_name",
          "posthog_datawarehousesavedquery"."managed_viewset_id",
+         "posthog_datawarehousesavedquery"."folder_id",
          "posthog_datawarehousesavedquery"."origin",
+         "posthog_datawarehousesavedquery"."is_test",
+         "posthog_datawarehousesavedquery"."expires_at",
          "posthog_datawarehousetable"."created_by_id",
          "posthog_datawarehousetable"."created_at",
          "posthog_datawarehousetable"."updated_at",
@@ -1976,6 +2005,7 @@
          "posthog_externaldatasource"."status",
          "posthog_externaldatasource"."source_type",
          "posthog_externaldatasource"."job_inputs",
+         "posthog_externaldatasource"."connection_metadata",
          "posthog_externaldatasource"."are_tables_created",
          "posthog_externaldatasource"."prefix",
          "posthog_externaldatasource"."description",
@@ -2031,17 +2061,20 @@
          "posthog_externaldatasource"."status",
          "posthog_externaldatasource"."source_type",
          "posthog_externaldatasource"."job_inputs",
+         "posthog_externaldatasource"."connection_metadata",
          "posthog_externaldatasource"."are_tables_created",
          "posthog_externaldatasource"."prefix",
          "posthog_externaldatasource"."description",
          "posthog_externaldatasource"."access_method",
          "posthog_externaldatasource"."revenue_analytics_enabled"
   FROM "posthog_datawarehousetable"
-  LEFT OUTER JOIN "posthog_datawarehousecredential" ON ("posthog_datawarehousetable"."credential_id" = "posthog_datawarehousecredential"."id")
   LEFT OUTER JOIN "posthog_externaldatasource" ON ("posthog_datawarehousetable"."external_data_source_id" = "posthog_externaldatasource"."id")
+  LEFT OUTER JOIN "posthog_datawarehousecredential" ON ("posthog_datawarehousetable"."credential_id" = "posthog_datawarehousecredential"."id")
   WHERE ("posthog_datawarehousetable"."team_id" = 99999
          AND NOT ("posthog_datawarehousetable"."deleted"
-                  AND "posthog_datawarehousetable"."deleted" IS NOT NULL))
+                  AND "posthog_datawarehousetable"."deleted" IS NOT NULL)
+         AND NOT ("posthog_externaldatasource"."access_method" = 'direct'
+                  AND "posthog_externaldatasource"."access_method" IS NOT NULL))
   '''
 # ---
 # name: TestSessionRecordingPlaylist.test_filters_playlist_by_type.54
@@ -2134,6 +2167,7 @@
          "posthog_organization"."default_experiment_stats_method",
          "posthog_organization"."default_anonymize_ips",
          "posthog_organization"."is_hipaa",
+         "posthog_organization"."is_pending_deletion",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",
          "posthog_organization"."usage",
@@ -2250,6 +2284,7 @@
          "posthog_organization"."default_experiment_stats_method",
          "posthog_organization"."default_anonymize_ips",
          "posthog_organization"."is_hipaa",
+         "posthog_organization"."is_pending_deletion",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",
          "posthog_organization"."usage",

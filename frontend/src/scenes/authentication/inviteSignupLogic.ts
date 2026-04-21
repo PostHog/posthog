@@ -44,6 +44,11 @@ export const inviteSignupLogic = kea<inviteSignupLogicType>([
         setPasskeyRegistered: (registered: boolean) => ({ registered }),
         setPasskeyRegistering: (registering: boolean) => ({ registering }),
         setPasskeyError: (error: string | null) => ({ error }),
+        setChallengeRequired: (required: boolean) => ({ required }),
+        setChallengeNonce: (nonce: string | null) => ({ nonce }),
+        setTurnstileSiteKey: (siteKey: string | null) => ({ siteKey }),
+        setTurnstileToken: (token: string | null) => ({ token }),
+        resetChallenge: true,
     }),
     reducers({
         error: [
@@ -69,6 +74,33 @@ export const inviteSignupLogic = kea<inviteSignupLogicType>([
             {
                 setPasskeyError: (_, { error }) => error,
                 registerPasskey: () => null,
+            },
+        ],
+        challengeRequired: [
+            false,
+            {
+                setChallengeRequired: (_, { required }) => required,
+                resetChallenge: () => false,
+            },
+        ],
+        challengeNonce: [
+            null as string | null,
+            {
+                setChallengeNonce: (_, { nonce }) => nonce,
+                resetChallenge: () => null,
+            },
+        ],
+        turnstileSiteKey: [
+            null as string | null,
+            {
+                setTurnstileSiteKey: (_, { siteKey }) => siteKey,
+            },
+        ],
+        turnstileToken: [
+            null as string | null,
+            {
+                setTurnstileToken: (_, { token }) => token,
+                resetChallenge: () => null,
             },
         ],
     }),
@@ -131,19 +163,35 @@ export const inviteSignupLogic = kea<inviteSignupLogicType>([
                 }
 
                 try {
-                    const submitPayload = { ...payload }
+                    const submitPayload: Record<string, any> = { ...payload }
                     if (values.passkeyRegistered) {
                         delete submitPayload.password
+                    }
+
+                    if (values.turnstileToken && values.challengeNonce) {
+                        submitPayload.turnstile_token = values.turnstileToken
+                        submitPayload.challenge_nonce = values.challengeNonce
                     }
 
                     const res = await api.create(`api/signup/${values.invite.id}/`, submitPayload)
                     location.href = res.redirect_url || '/' // hard refresh because the current_organization changed
                 } catch (e) {
+                    const error = e as Record<string, any>
+
+                    if (error.code === 'challenge_required') {
+                        actions.setTurnstileToken(null)
+                        actions.setChallengeNonce(error.data?.extra?.challenge_nonce)
+                        actions.setTurnstileSiteKey(error.data?.extra?.turnstile_site_key)
+                        actions.setChallengeRequired(true)
+                        return
+                    }
+
+                    actions.resetChallenge()
                     posthog.captureException(e)
                     actions.setSignupManualErrors({
                         generic: {
-                            code: (e as Record<string, any>).code,
-                            detail: (e as Record<string, any>).detail,
+                            code: error.code,
+                            detail: error.detail,
                         },
                     })
                     throw e
@@ -166,6 +214,11 @@ export const inviteSignupLogic = kea<inviteSignupLogicType>([
         ],
     }),
     listeners(({ actions, values }) => ({
+        setTurnstileToken: ({ token }) => {
+            if (token && values.challengeNonce) {
+                actions.submitSignup()
+            }
+        },
         prevalidateInviteSuccess: ({ invite }) => {
             if (invite?.first_name) {
                 actions.setSignupValue('first_name', invite.first_name)

@@ -1,6 +1,6 @@
 # LLM Gateway
 
-A standalone microservice for proxying LLM requests to Anthropic, OpenAI, Google Gemini, OpenRouter, and Fireworks AI APIs.
+A standalone microservice for proxying LLM requests to Anthropic, OpenAI, OpenRouter, and Fireworks AI APIs.
 
 ## Quick start
 
@@ -38,7 +38,7 @@ The gateway supports two authentication methods:
 
 ### Local development key
 
-When running via mprocs, a personal API key with the `llm_gateway:read` scope is **automatically provisioned** on startup.
+When running via phrocs, a personal API key with the `llm_gateway:read` scope is **automatically provisioned** on startup.
 The key is deterministic and survives database resets:
 
 ```text
@@ -135,7 +135,8 @@ The gateway supports capturing additional event properties to PostHog via the `X
 
 ### Anthropic-compatible
 
-- `POST /v1/messages` - Anthropic Messages API
+- `POST /v1/messages` - Anthropic Messages API (supports Bedrock via `X-PostHog-Provider`)
+- `POST /v1/messages/count_tokens` - Anthropic token counting API (supports Bedrock via `X-PostHog-Provider`)
 
 ### Product-scoped endpoints
 
@@ -148,7 +149,44 @@ The product name is extracted from the first path segment and recorded as `ai_pr
 
 ## Supported models
 
-All OpenAI, Anthropic, Gemini, OpenRouter, and Fireworks AI chat models are supported. OpenRouter and Fireworks models use the OpenAI-compatible `/v1/chat/completions` endpoint with model prefixes (`openrouter/` and `fireworks_ai/`).
+All OpenAI, Anthropic, OpenRouter, and Fireworks AI chat models are supported.
+OpenRouter and Fireworks models use the OpenAI-compatible `/v1/chat/completions` endpoint with model prefixes (`openrouter/` and `fireworks_ai/`).
+The `/v1/models` endpoint returns provider-specific model IDs from LiteLLM's model map.
+
+## Bedrock provider
+
+AWS Bedrock is available as an alternative provider for the Anthropic endpoints.
+Instead of dedicated routes, set the `X-PostHog-Provider: bedrock` header:
+
+```http
+X-PostHog-Provider: bedrock
+```
+
+Anthropic model names (e.g. `claude-sonnet-4-6`) are automatically mapped to Bedrock model IDs.
+The gateway chooses the US or EU Bedrock profile based on `LLM_GATEWAY_BEDROCK_REGION_NAME` or the ambient AWS region.
+You can also pass a Bedrock model ID directly (e.g. `us.anthropic.claude-sonnet-4-6`).
+
+### Bedrock fallback
+
+Set `X-PostHog-Use-Bedrock-Fallback: true` to automatically retry via Bedrock when the Anthropic provider returns a 5xx error:
+
+```http
+X-PostHog-Use-Bedrock-Fallback: true
+```
+
+The fallback only triggers on server errors (5xx), not client errors (4xx).
+If both Anthropic and Bedrock fail, the original Anthropic error is returned.
+
+### Configuration
+
+To use Bedrock (either via `X-PostHog-Provider` or `X-PostHog-Use-Bedrock-Fallback`), configure one of:
+
+- `LLM_GATEWAY_BEDROCK_REGION_NAME`
+- `AWS_REGION`
+- `AWS_DEFAULT_REGION`
+
+Credentials are intentionally not loaded through `LLM_GATEWAY_*` settings in the gateway.
+Use your runtime's standard AWS authentication mechanism (e.g. IAM role, IRSA, ECS task role, or pre-existing `AWS_*` env vars provisioned by deployment).
 
 ## Products
 
@@ -158,17 +196,19 @@ Every request is scoped to a **product**. The product determines which models an
 
 Defined in `src/llm_gateway/products/config.py`:
 
+OAuth access is permitted only for products with an explicit `allowed_application_ids` allowlist. All other products are API-key-only by default.
+
 | Product              | Auth            | Models                     | Notes                           |
 | -------------------- | --------------- | -------------------------- | ------------------------------- |
-| `llm_gateway`        | API key + OAuth | All                        | Default when no product in path |
+| `llm_gateway`        | API key only    | All                        | Default when no product in path |
 | `posthog_code`       | OAuth only      | Restricted set             | Desktop coding agent            |
 | `background_agents`  | OAuth only      | Restricted set             | Cloud background agents         |
-| `wizard`             | OAuth only      | All                        | Max AI assistant                |
-| `django`             | API key + OAuth | All                        | Server-side Django calls        |
-| `growth`             | API key + OAuth | All                        | Growth team                     |
-| `llma_translation`   | API key + OAuth | gpt-4.1-mini               | LLM analytics translation       |
-| `llma_summarization` | API key + OAuth | gpt-4.1-nano, gpt-4.1-mini | LLM analytics summarization     |
-| `llma_eval_summary`  | API key + OAuth | gpt-5-mini                 | LLM analytics eval summary      |
+| `wizard`             | API key + OAuth | All                        | Max AI assistant                |
+| `django`             | API key only    | All                        | Server-side Django calls        |
+| `growth`             | API key only    | All                        | Growth team                     |
+| `llma_translation`   | API key only    | gpt-4.1-mini               | LLM analytics translation       |
+| `llma_summarization` | API key only    | gpt-4.1-nano, gpt-4.1-mini | LLM analytics summarization     |
+| `llma_eval_summary`  | API key only    | gpt-5-mini                 | LLM analytics eval summary      |
 
 Aliases: `twig`, `array` resolve to `posthog_code`; `slack-twig` resolves to `slack-posthog-code`.
 
@@ -178,9 +218,9 @@ Aliases: `twig`, `array` resolve to `posthog_code`; `slack-twig` resolves to `sl
 
    ```python
    "my_product": ProductConfig(
-       allowed_application_ids=None,  # None = any OAuth app, or frozenset({...}) to restrict
-       allowed_models=None,           # None = all models, or frozenset({...}) to restrict
-       allow_api_keys=True,           # False = OAuth only
+       allowed_application_ids=frozenset({...}),  # empty/None = no OAuth apps allowed; list IDs to permit OAuth
+       allowed_models=None,                       # None = all models, or frozenset({...}) to restrict
+       allow_api_keys=True,                       # False = OAuth only
    ),
    ```
 
@@ -252,7 +292,7 @@ from posthog.llm.gateway_client import get_llm_client
 
 client = get_llm_client()
 response = client.chat.completions.create(
-    model="claude-opus-4-5",  # or any supported OpenAI, Anthropic, Gemini, OpenRouter, or Fireworks AI model
+    model="claude-opus-4-5",  # or any supported OpenAI, Anthropic, OpenRouter, or Fireworks AI model
     messages=[...],
     user=request.user.distinct_id,  # user for analytics and rate limiting
 )

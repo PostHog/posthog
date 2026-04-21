@@ -1,8 +1,8 @@
-import { useValues } from 'kea'
-import { PropsWithChildren, useState } from 'react'
+import { useActions, useValues } from 'kea'
+import { PropsWithChildren, useCallback } from 'react'
 import { match } from 'ts-pattern'
 
-import { IconChevronRight } from '@posthog/icons'
+import { IconChevronRight, IconTrending } from '@posthog/icons'
 import { LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
@@ -12,98 +12,83 @@ import { ErrorTrackingIssueAggregations } from '~/queries/schema/schema-general'
 
 import { useSparklineDataIssueScene } from '../hooks/use-sparkline-data'
 import { useSparklineEvents } from '../hooks/use-sparkline-events'
-import { useSparklineOptions } from '../hooks/use-sparkline-options'
 import { errorTrackingIssueSceneLogic } from '../scenes/ErrorTrackingIssueScene/errorTrackingIssueSceneLogic'
 import { cancelEvent } from '../utils'
-import { SparklineChart, SparklineDatum, SparklineEvent } from './SparklineChart/SparklineChart'
 import { TimeBoundary } from './TimeBoundary'
-
-type SelectedDataType =
-    | {
-          type: 'datum'
-          data: SparklineDatum
-      }
-    | {
-          type: 'event'
-          data: SparklineEvent<string>
-      }
-    | null
+import { errorTrackingVolumeSparklineLogic } from './VolumeSparkline/errorTrackingVolumeSparklineLogic'
+import type { SparklineDatum, SparklineEvent, VolumeSparklineHoverSelection } from './VolumeSparkline/types'
+import { VolumeSparkline } from './VolumeSparkline/VolumeSparkline'
 
 export const Metadata = ({ children, className }: PropsWithChildren<{ className?: string }>): JSX.Element => {
-    const { aggregations, summaryLoading, issueLoading, firstSeen, lastSeen } = useValues(errorTrackingIssueSceneLogic)
-    const [hoveredDatum, setHoveredDatum] = useState<SelectedDataType>(null)
+    const { aggregations, summaryLoading, issueLoading, firstSeen, lastSeen, issueId } =
+        useValues(errorTrackingIssueSceneLogic)
+    const { setDateRange } = useActions(errorTrackingIssueSceneLogic)
+    const sparklineKey = issueId || 'issue-unknown'
+    const { hoverSelection } = useValues(errorTrackingVolumeSparklineLogic({ sparklineKey }))
     const sparklineData = useSparklineDataIssueScene()
     const sparklineEvents = useSparklineEvents()
-    const sparklineOptions = useSparklineOptions(
-        {
-            onDatumMouseEnter: (d: SparklineDatum) => {
-                setHoveredDatum({ type: 'datum', data: d })
-            },
-            onDatumMouseLeave: () => {
-                setHoveredDatum(null)
-            },
-            onEventMouseEnter: (d: SparklineEvent<string>) => {
-                setHoveredDatum({ type: 'event', data: d })
-            },
-            onEventMouseLeave: () => {
-                setHoveredDatum(null)
-            },
+
+    const handleRangeSelect = useCallback(
+        (startDate: Date, endDate: Date) => {
+            setDateRange({
+                date_from: startDate.toISOString(),
+                date_to: endDate.toISOString(),
+            })
         },
-        [setHoveredDatum]
+        [setDateRange]
     )
 
     return (
         <div className={className}>
-            <div className="flex justify-between items-center h-[40px] px-2 shrink-0">
+            <div className="flex justify-between items-center h-[40px] px-4 shrink-0">
                 <div className="flex justify-end items-center h-full">
-                    {match(hoveredDatum)
+                    {match(hoverSelection)
                         .when(
                             (data) => shouldRenderIssueMetrics(data),
                             () => <IssueMetrics aggregations={aggregations} summaryLoading={summaryLoading} />
                         )
-                        .with({ type: 'datum' }, (data) => renderDataPoint(data.data))
-                        .with({ type: 'event' }, (data) => renderEventPoint(data.data))
+                        .with({ kind: 'bin' }, (data) => renderDataPoint(data.datum))
+                        .with({ kind: 'event' }, (data) => renderEventPoint(data.event))
                         .otherwise(() => null)}
                 </div>
                 <div className="flex justify-end items-center h-full">
-                    {match(hoveredDatum)
-                        .when(
-                            (data) => shouldRenderIssueMetrics(data),
-                            () => (
-                                <>
-                                    <TimeBoundary
-                                        time={firstSeen}
-                                        loading={issueLoading}
-                                        label="First Seen"
-                                        updateDateRange={(dateRange) => {
-                                            dateRange.date_from = firstSeen?.toISOString()
-                                            return dateRange
-                                        }}
-                                    />
-                                    <IconChevronRight />
-                                    <TimeBoundary
-                                        time={lastSeen}
-                                        loading={summaryLoading}
-                                        label="Last Seen"
-                                        updateDateRange={(dateRange) => {
-                                            dateRange.date_to = lastSeen?.endOf('minute').toISOString()
-                                            return dateRange
-                                        }}
-                                    />
-                                </>
-                            )
-                        )
-                        .with({ type: 'datum' }, (data) => renderDate(data.data.date))
-                        .with({ type: 'event' }, (data) => renderDate(data.data.date))
-                        .otherwise(() => null)}
+                    {match(hoverSelection)
+                        .with({ kind: 'bin' }, (data) => renderDate(data.datum.date))
+                        .with({ kind: 'event' }, (data) => renderDate(data.event.date))
+                        .otherwise(() => (
+                            <>
+                                <TimeBoundary
+                                    time={firstSeen}
+                                    loading={issueLoading}
+                                    label="First Seen"
+                                    updateDateRange={(dateRange) => {
+                                        dateRange.date_from = firstSeen?.toISOString()
+                                        return dateRange
+                                    }}
+                                />
+                                <IconChevronRight />
+                                <TimeBoundary
+                                    time={lastSeen}
+                                    loading={summaryLoading}
+                                    label="Last Seen"
+                                    updateDateRange={(dateRange) => {
+                                        dateRange.date_to = lastSeen?.endOf('minute').toISOString()
+                                        return dateRange
+                                    }}
+                                />
+                            </>
+                        ))}
                 </div>
             </div>
-            <div onClick={cancelEvent} className="shrink-0">
-                <SparklineChart
+            <div onClick={cancelEvent} className="relative w-full min-h-[160px] shrink-0 flex flex-col px-4">
+                <VolumeSparkline
                     data={sparklineData}
+                    layout="detailed"
+                    xAxis="full"
                     events={sparklineEvents}
-                    options={sparklineOptions}
-                    className="h-full pt-0"
+                    sparklineKey={sparklineKey}
+                    className="h-full min-h-[160px]"
+                    onRangeSelect={handleRangeSelect}
                 />
             </div>
             <div className="flex-1 min-h-0 overflow-y-auto">{children}</div>
@@ -111,11 +96,11 @@ export const Metadata = ({ children, className }: PropsWithChildren<{ className?
     )
 }
 
-function shouldRenderIssueMetrics(data: SelectedDataType): boolean {
+function shouldRenderIssueMetrics(data: VolumeSparklineHoverSelection | null): boolean {
     if (data == null) {
         return true
     }
-    if (data.type == 'datum' && data.data.value == 0) {
+    if (data.kind === 'bin' && data.datum.value == 0) {
         return true
     }
     return false
@@ -147,7 +132,7 @@ function renderMetric(name: string, value: number | undefined, loading: boolean,
     return (
         <>
             {match([loading])
-                .with([true], () => <LemonSkeleton className="w-[80px] h-2" />)
+                .with([true], () => <LemonSkeleton className="w-[50px] h-2" />)
                 .with([false], () => (
                     <Tooltip title={tooltip} delayMs={0} placement="right">
                         <div className="flex items-center gap-1">
@@ -170,7 +155,17 @@ function renderDate(date: Date): JSX.Element {
 }
 
 function renderDataPoint(d: SparklineDatum): JSX.Element {
-    return renderMetric('Occurrences', d.value, false)
+    return (
+        <div className="flex items-center h-full gap-3">
+            {renderMetric('Occurrences', d.value, false)}
+            {d.animated && (
+                <div className="flex items-center gap-1.5 text-warning-dark">
+                    <IconTrending className="text-base" />
+                    <span className="text-xs font-semibold">Spike</span>
+                </div>
+            )}
+        </div>
+    )
 }
 
 function renderEventPoint(d: SparklineEvent<string>): JSX.Element {

@@ -1,7 +1,7 @@
 import '~/styles'
 import '~/toolbar/styles.scss'
 
-import { Meta, StoryFn } from '@storybook/react'
+import { Meta, StoryObj } from '@storybook/react'
 import { useActions, useMountedLogic } from 'kea'
 import { useEffect } from 'react'
 
@@ -34,159 +34,163 @@ function useToolbarStyles(): void {
     })
 }
 
-const meta: Meta = {
-    title: 'Scenes-Other/Toolbar',
-    tags: ['test-skip-webkit'],
-    parameters: {
-        layout: 'fullscreen',
-        viewMode: 'story',
-    },
-}
-export default meta
-
-type ToolbarStoryProps = {
+type StoryArgs = {
     menu?: MenuState
     minimized?: boolean
     unauthenticated?: boolean
     theme?: 'light' | 'dark'
 }
 
-const BasicTemplate: StoryFn<ToolbarStoryProps> = (props) => {
-    const toolbarParams: ToolbarParams = {
-        accessToken: props.unauthenticated ? undefined : 'UExb1dCsoqBtrhrZYxzmxXQ7XdjVH5Ea_zbQjTFuJqk',
-        actionId: undefined,
-        userIntent: undefined,
-        dataAttributes: ['data-attr'],
-        apiURL: '/',
-        userEmail: 'foobar@posthog.com',
-    }
-    useToolbarStyles()
+const meta: Meta<StoryArgs> = {
+    title: 'Scenes-Other/Toolbar',
+    tags: ['test-skip-webkit'],
+    parameters: {
+        layout: 'fullscreen',
+        viewMode: 'story',
+    },
+    render: (props) => {
+        const toolbarParams: ToolbarParams = {
+            accessToken: props.unauthenticated ? undefined : 'UExb1dCsoqBtrhrZYxzmxXQ7XdjVH5Ea_zbQjTFuJqk',
+            actionId: undefined,
+            userIntent: undefined,
+            dataAttributes: ['data-attr'],
+            apiURL: '/',
+            userEmail: 'foobar@posthog.com',
+        }
+        useToolbarStyles()
 
-    useStorybookMocks({
-        get: {
-            '/decide': {
-                config: {
-                    enable_collect_everything: true,
+        useStorybookMocks({
+            get: {
+                '/decide': {
+                    config: {
+                        enable_collect_everything: true,
+                    },
+                    toolbarParams: {
+                        toolbarVersion: 'toolbar',
+                    },
+                    isAuthenticated: props.unauthenticated ?? true,
+                    supportedCompression: ['gzip', 'gzip-js', 'lz64'],
+                    featureFlags: {
+                        'web-experiments': true,
+                        'web-vitals': true,
+                        'web-vitals-toolbar': true,
+                    },
+                    sessionRecording: {
+                        endpoint: '/s/',
+                    },
                 },
-                toolbarParams: {
-                    toolbarVersion: 'toolbar',
-                },
-                isAuthenticated: props.unauthenticated ?? true,
-                supportedCompression: ['gzip', 'gzip-js', 'lz64'],
-                featureFlags: {
-                    'web-experiments': true,
-                    'web-vitals': true,
-                    'web-vitals-toolbar': true,
-                },
-                sessionRecording: {
-                    endpoint: '/s/',
-                },
+                '/api/element/stats/': listHeatmapStatsAPIResponse,
+                '/api/projects/@current/feature_flags/my_flags': listMyFlagsAPIResponse,
+                '/api/projects/@current/actions/': listActionsAPIResponse,
+                '/api/projects/@current/web_experiments/': listExperimentsAPIResponse,
+                '/api/environments/@current/web_vitals/': listWebVitalsAPIResponse,
+                '/api/users/@me/hedgehog_config/': {},
             },
-            '/api/element/stats/': listHeatmapStatsAPIResponse,
-            '/api/projects/@current/feature_flags/my_flags': listMyFlagsAPIResponse,
-            '/api/projects/@current/actions/': listActionsAPIResponse,
-            '/api/projects/@current/web_experiments/': listExperimentsAPIResponse,
-            '/api/environments/@current/web_vitals/': listWebVitalsAPIResponse,
-            '/api/users/@me/hedgehog_config/': {},
+        })
+
+        useMountedLogic(toolbarConfigLogic(toolbarParams))
+        const theToolbarLogic = toolbarLogic()
+
+        const { setVisibleMenu, setDragPosition, toggleMinimized, toggleTheme } = useActions(theToolbarLogic)
+
+        useEffect(() => {
+            setDragPosition(50, 50)
+            setVisibleMenu(props.menu || 'none')
+            toggleMinimized(props.minimized ?? false)
+            toggleTheme(props.theme || 'light')
+        }, [Object.values(props)]) // oxlint-disable-line react-hooks/exhaustive-deps
+
+        return (
+            <div className="min-h-[32rem]">
+                <div>The toolbar should show up now! Click it to open.</div>
+                <button>Click Me</button>
+                <ToolbarApp {...toolbarParams} disableExternalStyles />
+            </div>
+        )
+    },
+}
+export default meta
+
+type Story = StoryObj<StoryArgs>
+
+export const Default: Story = {}
+
+export const Unauthenticated: Story = {
+    args: { unauthenticated: true },
+}
+
+export const Minimized: Story = {
+    args: { minimized: true },
+}
+
+export const Heatmap: Story = {
+    args: { menu: 'heatmap' },
+}
+
+export const Inspect: Story = {
+    args: { menu: 'inspect' },
+}
+
+export const Actions: Story = {
+    args: { menu: 'actions' },
+}
+
+export const FeatureFlags: Story = {
+    args: { menu: 'flags' },
+}
+
+export const EventsDebuggerEmpty: Story = {
+    args: { menu: 'debugger' },
+}
+
+export const Experiments: Story = {
+    args: { menu: 'experiments' },
+}
+
+export const ExperimentsDisabledInParent: Story = {
+    args: { menu: 'experiments' },
+    decorators: [
+        (Story) => {
+            // fake that the host site posthog config disables web experiments
+            window.parent.posthog = { config: { disable_web_experiments: true } }
+            return <Story />
         },
-    })
-
-    useMountedLogic(toolbarConfigLogic(toolbarParams))
-    const theToolbarLogic = toolbarLogic()
-
-    const { setVisibleMenu, setDragPosition, toggleMinimized, toggleTheme } = useActions(theToolbarLogic)
-
-    useEffect(() => {
-        setDragPosition(50, 50)
-        setVisibleMenu(props.menu || 'none')
-        toggleMinimized(props.minimized ?? false)
-        toggleTheme(props.theme || 'light')
-    }, [Object.values(props)]) // oxlint-disable-line react-hooks/exhaustive-deps
-
-    return (
-        <div className="min-h-[32rem]">
-            <div>The toolbar should show up now! Click it to open.</div>
-            <button>Click Me</button>
-            <ToolbarApp {...toolbarParams} disableExternalStyles />
-        </div>
-    )
+    ],
 }
 
-export const Default = (): JSX.Element => {
-    return <BasicTemplate />
-}
-
-export const Unauthenticated = (): JSX.Element => {
-    return <BasicTemplate unauthenticated />
-}
-
-export const Minimized = (): JSX.Element => {
-    return <BasicTemplate minimized />
-}
-
-export const Heatmap = (): JSX.Element => {
-    return <BasicTemplate menu="heatmap" />
-}
-
-export const Inspect = (): JSX.Element => {
-    return <BasicTemplate menu="inspect" />
-}
-
-export const Actions = (): JSX.Element => {
-    return <BasicTemplate menu="actions" />
-}
-
-export const FeatureFlags = (): JSX.Element => {
-    return <BasicTemplate menu="flags" />
-}
-
-export const EventsDebuggerEmpty = (): JSX.Element => {
-    return <BasicTemplate menu="debugger" />
-}
-
-export const Experiments = (): JSX.Element => {
-    return <BasicTemplate menu="experiments" />
-}
-
-export const ExperimentsDisabledInParent = (): JSX.Element => {
-    // fake that the host site posthog config disables web experiments
-    window.parent.posthog = { config: { disable_web_experiments: true } }
-    return <BasicTemplate menu="experiments" />
-}
-
-export const WebVitals = (): JSX.Element => {
-    return <BasicTemplate menu="web-vitals" />
+export const WebVitals: Story = {
+    args: { menu: 'web-vitals' },
 }
 
 // Dark theme
-export const DefaultDark = (): JSX.Element => {
-    return <BasicTemplate theme="dark" />
+export const DefaultDark: Story = {
+    args: { theme: 'dark' },
 }
 
-export const MinimizedDark = (): JSX.Element => {
-    return <BasicTemplate theme="dark" minimized />
+export const MinimizedDark: Story = {
+    args: { theme: 'dark', minimized: true },
 }
 
-export const HeatmapDark = (): JSX.Element => {
-    return <BasicTemplate theme="dark" menu="heatmap" />
+export const HeatmapDark: Story = {
+    args: { theme: 'dark', menu: 'heatmap' },
 }
 
-export const InspectDark = (): JSX.Element => {
-    return <BasicTemplate theme="dark" menu="inspect" />
+export const InspectDark: Story = {
+    args: { theme: 'dark', menu: 'inspect' },
 }
 
-export const ActionsDark = (): JSX.Element => {
-    return <BasicTemplate theme="dark" menu="actions" />
+export const ActionsDark: Story = {
+    args: { theme: 'dark', menu: 'actions' },
 }
 
-export const FeatureFlagsDark = (): JSX.Element => {
-    return <BasicTemplate theme="dark" menu="flags" />
+export const FeatureFlagsDark: Story = {
+    args: { theme: 'dark', menu: 'flags' },
 }
 
-export const EventsDebuggerEmptyDark = (): JSX.Element => {
-    return <BasicTemplate theme="dark" menu="debugger" />
+export const EventsDebuggerEmptyDark: Story = {
+    args: { theme: 'dark', menu: 'debugger' },
 }
 
-export const WebVitalsDark = (): JSX.Element => {
-    return <BasicTemplate theme="dark" menu="web-vitals" />
+export const WebVitalsDark: Story = {
+    args: { theme: 'dark', menu: 'web-vitals' },
 }

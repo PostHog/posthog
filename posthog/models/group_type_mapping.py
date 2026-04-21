@@ -49,7 +49,9 @@ class GroupTypeMapping(RootTeamMixin, models.Model):
 
     # DO_NOTHING + db_constraint=False: Dashboard deletion handled manually, may be cross-database
     detail_dashboard = field_access_control(
-        models.ForeignKey("Dashboard", on_delete=models.DO_NOTHING, db_constraint=False, null=True, blank=True),
+        models.ForeignKey(
+            "dashboards.Dashboard", on_delete=models.DO_NOTHING, db_constraint=False, null=True, blank=True
+        ),
         "project",
         "admin",
     )

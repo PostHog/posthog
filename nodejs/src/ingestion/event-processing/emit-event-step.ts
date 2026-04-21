@@ -7,10 +7,11 @@ import { MessageSizeTooLarge } from '../../utils/db/error'
 import { safeClickhouseString } from '../../utils/db/utils'
 import { castTimestampOrNow, castTimestampToClickhouseFormat } from '../../utils/utils'
 import { eventProcessedAndIngestedCounter } from '../../worker/ingestion/event-pipeline/metrics'
-import { captureIngestionWarning } from '../../worker/ingestion/utils'
+import { emitIngestionWarning } from '../common/ingestion-warnings'
+import { IngestionWarningsOutput } from '../common/outputs'
+import { IngestionOutputs } from '../outputs/ingestion-outputs'
 import { ok } from '../pipelines/results'
 import { ProcessingStep } from '../pipelines/steps'
-import { IngestionOutputs } from './ingestion-outputs'
 
 export interface EventToEmit<O extends string> {
     event: ProcessedEvent
@@ -18,7 +19,7 @@ export interface EventToEmit<O extends string> {
 }
 
 export interface EmitEventStepConfig<O extends string> {
-    outputs: IngestionOutputs<O>
+    outputs: IngestionOutputs<O | IngestionWarningsOutput>
     groupId: string
 }
 
@@ -46,15 +47,13 @@ export function createEmitEventStep<O extends string, T extends EmitEventStepInp
         const sideEffects: Promise<void>[] = []
 
         for (const { event, output } of eventsToEmit) {
-            const { topic, producer } = outputs.resolve(output)
             const serialized = serializeEvent(event)
 
             // TODO: It's not great that we put the produce outcome in side effects, we should probably await it here
             //       but it might slow the pipeline down. Historically, it has always been like that.
             //       We should investigate this later.
-            const emitPromise = producer
-                .produce({
-                    topic,
+            const emitPromise = outputs
+                .produce(output, {
                     key: serialized.uuid,
                     value: Buffer.from(JSON.stringify(serialized)),
                     headers: { productTrack: productTrackHeader(event) },
@@ -69,7 +68,7 @@ export function createEmitEventStep<O extends string, T extends EmitEventStepInp
                     // Some messages end up significantly larger than the original
                     // after plugin processing, person & group enrichment, etc.
                     if (error instanceof MessageSizeTooLarge) {
-                        await captureIngestionWarning(producer, serialized.team_id, 'message_size_too_large', {
+                        await emitIngestionWarning(outputs, serialized.team_id, 'message_size_too_large', {
                             eventUuid: serialized.uuid,
                             distinctId: serialized.distinct_id,
                         })

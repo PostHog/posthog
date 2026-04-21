@@ -7,8 +7,11 @@ from django.db.models.functions import TruncDay
 
 from rest_framework import mixins, request, response, viewsets
 
+from posthog.schema import ProductKey
+
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
+from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.models import BatchExportRun
 from posthog.models.plugin import PluginConfig
 from posthog.queries.app_metrics.app_metrics import AppMetricsErrorDetailsQuery, AppMetricsErrorsQuery, AppMetricsQuery
@@ -23,6 +26,7 @@ class AppMetricsViewSet(TeamAndOrgViewSetMixin, mixins.RetrieveModelMixin, views
 
     def retrieve(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         try:
+            tag_queries(product=ProductKey.PIPELINE_BATCH_EXPORTS, feature=Feature.QUERY)
             dates, successes, failures = self.get_batch_export_runs_app_metrics_queryset(batch_export_id=kwargs["pk"])
 
             return response.Response(
@@ -58,6 +62,7 @@ class AppMetricsViewSet(TeamAndOrgViewSetMixin, mixins.RetrieveModelMixin, views
             }
             errors = []
         else:
+            tag_queries(product=ProductKey.PIPELINE_DESTINATIONS, feature=Feature.QUERY)
             metric_results = AppMetricsQuery(self.team, kwargs["pk"], filter).run()
             errors = AppMetricsErrorsQuery(self.team, kwargs["pk"], filter).run()
         return response.Response({"metrics": metric_results, "errors": errors})
@@ -67,6 +72,7 @@ class AppMetricsViewSet(TeamAndOrgViewSetMixin, mixins.RetrieveModelMixin, views
         filter = AppMetricsErrorsRequestSerializer(data=request.query_params)
         filter.is_valid(raise_exception=True)
 
+        tag_queries(product=ProductKey.PIPELINE_DESTINATIONS, feature=Feature.QUERY)
         error_details = AppMetricsErrorDetailsQuery(self.team, kwargs["pk"], filter).run()
         return response.Response({"result": error_details})
 
@@ -137,6 +143,7 @@ class HistoricalExportsAppMetricsViewSet(
         )
 
     def retrieve(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
+        tag_queries(product=ProductKey.PIPELINE_DESTINATIONS, feature=Feature.QUERY)
         job_id = kwargs["pk"]
         plugin_config_id = self.parents_query_dict["plugin_config_id"]
         return response.Response(historical_export_metrics(self.team, plugin_config_id, job_id))

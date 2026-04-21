@@ -1,7 +1,15 @@
 import { Menu } from '@base-ui/react/menu'
 import { useActions, useValues } from 'kea'
 
-import { IconGear, IconLeave, IconPlusSmall, IconReceipt } from '@posthog/icons'
+import {
+    IconDatabase,
+    IconGear,
+    IconLeave,
+    IconPlusSmall,
+    IconReceipt,
+    IconServer,
+    IconShieldLock,
+} from '@posthog/icons'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
@@ -15,6 +23,7 @@ import { Label } from 'lib/ui/Label/Label'
 import { MenuOpenIndicator } from 'lib/ui/Menus/Menus'
 import { cn } from 'lib/utils/css-classes'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { billingLogic } from 'scenes/billing/billingLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
@@ -51,6 +60,7 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
     const { setAccountMenuOpen } = useActions(newAccountMenuLogic)
     const { preflight } = useValues(preflightLogic)
     const { currentOrganization } = useValues(organizationLogic)
+    const { canAccessBilling } = useValues(billingLogic)
     const { guardAvailableFeature } = useValues(upgradeModalLogic)
     const { showCreateProjectModal } = useActions(globalModalsLogic)
     const { showCreateOrganizationModal } = useActions(globalModalsLogic)
@@ -87,30 +97,24 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
                                 </div>
                             }
                         >
-                            {isAuthenticatedTeam(currentTeam) && (
-                                <>
-                                    {currentOrganization ? (
-                                        <UploadedLogo
-                                            name={currentOrganization.name}
-                                            entityId={currentOrganization.id}
-                                            mediaId={currentOrganization.logo_media_id}
-                                            size="small"
-                                        />
-                                    ) : (
-                                        <UploadedLogo name="?" entityId="" mediaId="" size="xsmall" />
-                                    )}
-
-                                    {!isLayoutNavCollapsed && (
-                                        <span
-                                            className={cn(
-                                                'truncate',
-                                                isAiFirst && 'text-secondary group-hover:text-primary'
-                                            )}
-                                        >
-                                            {projectNameWithoutFirstEmoji ?? 'Project'}
-                                        </span>
-                                    )}
-                                </>
+                            {currentOrganization ? (
+                                <UploadedLogo
+                                    name={currentOrganization.name}
+                                    entityId={currentOrganization.id}
+                                    mediaId={currentOrganization.logo_media_id}
+                                    size="small"
+                                />
+                            ) : (
+                                <UploadedLogo name="?" entityId="" mediaId="" size="xsmall" />
+                            )}
+                            {!isLayoutNavCollapsed && (
+                                <span
+                                    className={cn('truncate', isAiFirst && 'text-secondary group-hover:text-primary')}
+                                >
+                                    {isAuthenticatedTeam(currentTeam)
+                                        ? (projectNameWithoutFirstEmoji ?? 'Project')
+                                        : 'Account menu'}
+                                </span>
                             )}
                             {!isLayoutNavCollapsed && !isAiFirst && <MenuOpenIndicator />}
                         </ButtonPrimitive>
@@ -293,7 +297,7 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
                                     </Menu.Portal>
                                 </Menu.SubmenuRoot>
 
-                                {isCloudOrDev ? (
+                                {isCloudOrDev && canAccessBilling ? (
                                     <Menu.Item
                                         render={(props) => (
                                             <Link
@@ -335,6 +339,61 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
                                         </Link>
                                     )}
                                 />
+
+                                {user?.is_staff && (
+                                    <>
+                                        <Label intent="menu" className="px-2 mt-2">
+                                            Staff
+                                        </Label>
+                                        <DropdownMenuSeparator />
+                                        <Menu.Item
+                                            render={(props) => (
+                                                <Link
+                                                    {...props}
+                                                    to="/admin/"
+                                                    buttonProps={{
+                                                        menuItem: true,
+                                                    }}
+                                                    data-attr="new-account-menu-django-admin"
+                                                    disableClientSideRouting
+                                                >
+                                                    <IconShieldLock />
+                                                    Django admin
+                                                </Link>
+                                            )}
+                                        />
+                                        <Menu.Item
+                                            render={(props) => (
+                                                <Link
+                                                    {...props}
+                                                    to={urls.instanceStatus()}
+                                                    buttonProps={{
+                                                        menuItem: true,
+                                                    }}
+                                                    data-attr="new-account-menu-instance-panel"
+                                                >
+                                                    <IconServer />
+                                                    Instance panel
+                                                </Link>
+                                            )}
+                                        />
+                                        <Menu.Item
+                                            render={(props) => (
+                                                <Link
+                                                    {...props}
+                                                    to={urls.queryPerformance()}
+                                                    buttonProps={{
+                                                        menuItem: true,
+                                                    }}
+                                                    data-attr="new-account-menu-query-performance"
+                                                >
+                                                    <IconDatabase />
+                                                    Query performance
+                                                </Link>
+                                            )}
+                                        />
+                                    </>
+                                )}
 
                                 <Label intent="menu" className="px-2 mt-2">
                                     Account

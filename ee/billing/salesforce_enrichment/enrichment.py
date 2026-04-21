@@ -307,17 +307,26 @@ def prepare_salesforce_update_data(account_id: str, harmonic_data: dict[str, Any
     return filtered_update_data
 
 
-def bulk_update_salesforce_accounts(sf, update_records):
+def bulk_update_salesforce_accounts(
+    sf,
+    update_records,
+    *,
+    raise_on_batch_error: bool = False,
+) -> tuple[int, int]:
     """Update Salesforce accounts in batches of 200 using sObject Collections API.
 
     Args:
         sf: simple_salesforce.Salesforce client
         update_records: List of dicts with Id + field updates
+        raise_on_batch_error: When True, re-raise exceptions from the batch HTTP call
+
+    Returns:
+        Tuple of (succeeded, failed) counts.
     """
     logger = LOGGER.bind(function="bulk_update_salesforce_accounts")
 
     if not update_records:
-        return
+        return 0, 0
 
     # Split records into batches of 200 (Salesforce sObject Collections API limit)
     batches = [
@@ -366,6 +375,8 @@ def bulk_update_salesforce_accounts(sf, update_records):
         except Exception as e:
             logger.exception("Batch processing failed", batch_number=batch_idx + 1, error=str(e))
             capture_exception(e)
+            if raise_on_batch_error:
+                raise
             total_errors += len(batch)
 
     success_rate = (total_success / len(update_records) * 100) if len(update_records) > 0 else 0
@@ -375,6 +386,8 @@ def bulk_update_salesforce_accounts(sf, update_records):
         total_records=len(update_records),
         success_rate=round(success_rate, 1),
     )
+
+    return total_success, total_errors
 
 
 def get_salesforce_accounts_by_domain(domain: str) -> list[dict[str, Any]]:

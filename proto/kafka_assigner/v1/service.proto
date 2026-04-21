@@ -27,6 +27,18 @@ service KafkaAssigner {
   // PartitionReleased signals that the consumer has released a
   // partition after a handoff completion.
   rpc PartitionReleased(PartitionReleasedRequest) returns (PartitionReleasedResponse);
+
+  // Deregister signals that a consumer is shutting down gracefully.
+  //
+  // The coordinator transitions the consumer to Draining status,
+  // which excludes it from new partition assignments and triggers
+  // handoffs for its current partitions.
+  //
+  // The response tells the consumer whether to wait for all Release
+  // events to complete (WAIT_FOR_DRAIN) or to exit immediately
+  // (SHUTDOWN_NOW). For example, during a StatefulSet rollout the
+  // same pod name will come back, so waiting is unnecessary.
+  rpc Deregister(DeregisterRequest) returns (DeregisterResponse);
 }
 
 // ── Register ─────────────────────────────────────────────
@@ -97,3 +109,27 @@ message PartitionReleasedRequest {
 }
 
 message PartitionReleasedResponse {}
+
+// ── Deregister ──────────────────────────────────────────
+
+message DeregisterRequest {
+  // The consumer name that is shutting down.
+  string consumer_name = 1;
+}
+
+message DeregisterResponse {
+  DeregisterAction action = 1;
+}
+
+enum DeregisterAction {
+  // Unspecified / default. Treated the same as SHUTDOWN_NOW.
+  DEREGISTER_ACTION_UNSPECIFIED = 0;
+  // Exit immediately. Used when the coordinator expects the pod to
+  // come back under the same name (e.g., StatefulSet rollout) or
+  // when K8s awareness is unavailable.
+  DEREGISTER_ACTION_SHUTDOWN_NOW = 1;
+  // Keep the gRPC stream open and wait for all Release events to
+  // complete before exiting. Used when partitions must be drained
+  // to other consumers (e.g., Deployment rollout or downscale).
+  DEREGISTER_ACTION_WAIT_FOR_DRAIN = 2;
+}

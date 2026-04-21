@@ -24,10 +24,98 @@ use axum::{
 };
 use common_hypercache::{HyperCacheError, KeyType};
 use common_metrics::inc;
+use common_types::TeamId;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use sqlx::PgPool;
+use std::collections::HashSet;
 use std::sync::Arc;
 use tracing::{info, warn};
+
+const ALLOWLIST_TTL_SECS: u64 = 60;
+const CONSTANCE_KEY: &str = "constance:posthog:RATE_LIMITING_ALLOW_LIST_TEAMS";
+
+/// Refresh the rate limit allowlist from the database if stale, then update the limiter.
+/// Matches Django's `get_team_allow_list(round(time.time() / 60))` pattern.
+/// The cache is per-instance (stored on the rate limiter), not global.
+///
+/// To avoid stampeding the database at the TTL boundary (10k+ req/s),
+/// `claim_allowlist_refresh` atomically checks staleness and marks as refreshed,
+/// so only one request triggers the DB query. If the query fails, we serve stale
+/// data for another TTL cycle.
+async fn refresh_rate_limit_allowlist_if_stale(state: &AppState) {
+    if !state
+        .flag_definitions_limiter
+        .claim_allowlist_refresh(ALLOWLIST_TTL_SECS)
+    {
+        return;
+    }
+
+    match fetch_allowlist_from_db(&state.database_pools.non_persons_reader).await {
+        Ok(Some(new_allowlist)) => {
+            state
+                .flag_definitions_limiter
+                .update_allowlist(new_allowlist);
+        }
+        Ok(None) => {
+            // Row not in DB — keep the env var default
+        }
+        Err(e) => {
+            warn!(error = %e, "Failed to refresh rate limit allowlist from database, using cached value");
+        }
+    }
+}
+
+/// Query the posthog_instancesetting table for the rate limit allowlist.
+/// The key is stored with the constance prefix: "constance:posthog:RATE_LIMITING_ALLOW_LIST_TEAMS"
+/// Returns None if the row doesn't exist (env var default should be kept),
+/// Some(set) if the row exists (overrides the env var).
+pub async fn fetch_allowlist_from_db(pool: &PgPool) -> Result<Option<HashSet<TeamId>>, String> {
+    let row: Option<(String,)> =
+        sqlx::query_as("SELECT raw_value FROM posthog_instancesetting WHERE key = $1")
+            .bind(CONSTANCE_KEY)
+            .fetch_optional(pool)
+            .await
+            .map_err(|e| format!("DB query failed: {e}"))?;
+
+    let raw_value = match row {
+        Some((val,)) => val,
+        None => return Ok(None),
+    };
+
+    // Match Django's InstanceSetting.value: try json.loads first, fall back to raw string.
+    // Handles JSON strings ("\"23047,12345\""), null, and bare strings ("23047,12345").
+    let value = match serde_json::from_str::<serde_json::Value>(&raw_value) {
+        Ok(serde_json::Value::String(s)) => s,
+        Ok(serde_json::Value::Null) => return Ok(Some(HashSet::new())),
+        _ => raw_value, // non-string JSON or invalid JSON, treat as bare string (like Django)
+    };
+    let value = value.trim();
+    if value.is_empty() {
+        return Ok(Some(HashSet::new()));
+    }
+
+    let mut team_ids = HashSet::new();
+    for part in value.split(',').map(|p| p.trim()) {
+        if part.is_empty() {
+            continue;
+        }
+        match part.parse::<TeamId>() {
+            Ok(id) => {
+                team_ids.insert(id);
+            }
+            Err(e) => {
+                warn!(
+                    part = part,
+                    error = %e,
+                    "Skipping invalid team ID in RATE_LIMITING_ALLOW_LIST_TEAMS"
+                );
+            }
+        }
+    }
+
+    Ok(Some(team_ids))
+}
 
 /// Response for flag definitions endpoint
 /// This is returned as raw JSON from cache to avoid deserialization overhead
@@ -36,8 +124,11 @@ pub type FlagDefinitionsResponse = Value;
 /// Query parameters for the flag definitions endpoint
 #[derive(Debug, Deserialize, Serialize)]
 pub struct FlagDefinitionsQueryParams {
-    /// Team API token - required to specify which team's flags to return
-    pub token: String,
+    /// Team API token. Required when authenticating with a personal API key (which
+    /// can access multiple teams). Optional when authenticating with a `phs_` secret
+    /// token or project secret API key, since those are team-scoped and the team can
+    /// be derived from the token itself.
+    pub token: Option<String>,
 }
 
 /// Flag definitions endpoint handler
@@ -73,7 +164,7 @@ pub async fn flags_definitions(
 ) -> Result<Response, FlagError> {
     info!(
         method = %method,
-        token = %params.token,
+        token = ?params.token,
         "Processing flag definitions request"
     );
 
@@ -83,19 +174,28 @@ pub async fn flags_definitions(
         return Ok(handle_non_get_method(&method));
     }
 
-    // Fetch team using the token from query parameter
-    let team = fetch_team_by_token(&state, &params.token).await?;
+    // Resolve the team. Two flows:
+    // 1. Token provided: look up team by token, then authenticate against it (standard SDK flow)
+    // 2. Token absent: authenticate with phs_ secret token first, derive team_id from it
+    //    (supports direct API callers who authenticate with Bearer phs_<key> only)
+    let team = if let Some(ref token) = params.token {
+        let team = fetch_team_by_token(&state, token).await?;
+        authenticate_flag_definitions(&state, &team, &headers).await?;
+        team
+    } else {
+        resolve_team_from_auth(&state, &headers).await?
+    };
 
-    // Authenticate against the specified team
-    authenticate_flag_definitions(&state, &team, &headers).await?;
+    // Refresh the rate limit allowlist from the database if stale (every ~60s)
+    refresh_rate_limit_allowlist_if_stale(&state).await;
 
     // Check rate limit for this team
     state.flag_definitions_limiter.check_rate_limit(team.id)?;
 
-    // Check billing quota — matches Django's DECIDE_FEATURE_FLAG_QUOTA_CHECK behavior
+    // Check billing quota — matches Django's DECIDE_FEATURE_FLAG_QUOTA_CHECK behavior.
     if state
         .feature_flags_billing_limiter
-        .is_limited(&params.token)
+        .is_limited(&team.api_token)
         .await
     {
         return Err(FlagError::ClientFacing(ClientFacingError::BillingLimit));
@@ -278,17 +378,63 @@ fn handle_non_get_method(method: &Method) -> Response {
     }
 }
 
-/// Fetches a team by its API token, delegating to FlagService for consistent
-/// negative caching, metrics, and error handling across all endpoints.
-async fn fetch_team_by_token(state: &AppState, token: &str) -> Result<Team, FlagError> {
-    let flag_service = FlagService::new(
+fn flag_service(state: &AppState) -> FlagService {
+    FlagService::new(
         state.redis_client.clone(),
         state.database_pools.non_persons_reader.clone(),
         state.team_hypercache_reader.clone(),
         state.flags_hypercache_reader.clone(),
         state.team_negative_cache.clone(),
-    );
-    flag_service.verify_token_and_get_team(token).await
+        *state.config.skip_pg_team_fallback,
+    )
+}
+
+/// Fetches a team by its API token, delegating to FlagService for consistent
+/// negative caching, metrics, and error handling across all endpoints.
+async fn fetch_team_by_token(state: &AppState, token: &str) -> Result<Team, FlagError> {
+    flag_service(state).verify_token_and_get_team(token).await
+}
+
+/// Resolves a team from the Authorization header when no `?token=` param is provided.
+///
+/// Only works with `phs_` secret tokens and project secret API keys, which are
+/// team-scoped. Personal API keys can access multiple teams and require an explicit
+/// `?token=` param to disambiguate — returns an error in that case.
+async fn resolve_team_from_auth(state: &AppState, headers: &HeaderMap) -> Result<Team, FlagError> {
+    if let Some(token) = auth::extract_team_secret_token(headers) {
+        let (team_id, api_token, is_project_secret) =
+            auth::validate_secret_api_token(state, &token).await?;
+
+        let method = if is_project_secret {
+            "project_secret_api_key"
+        } else {
+            "secret_api_key"
+        };
+        inc(
+            FLAG_DEFINITIONS_AUTH_COUNTER,
+            &[("method".to_string(), method.to_string())],
+            1,
+        );
+
+        // Prefer HyperCache via api_token (new cache entries include it).
+        // Fall back to PG for old cache entries that predate the field.
+        let svc = flag_service(state);
+        return match api_token {
+            Some(t) => svc.verify_token_and_get_team(&t).await,
+            None => svc.get_team_by_id(team_id).await,
+        };
+    }
+
+    // Non-phs_ auth (e.g. personal API key) can't derive team without a token param
+    if auth::extract_personal_api_key(headers)?.is_some() {
+        return Err(FlagError::ClientFacing(ClientFacingError::BadRequest(
+            "The 'token' query parameter is required unless authenticating with a \
+             phs_-prefixed token."
+                .to_string(),
+        )));
+    }
+
+    Err(FlagError::NoAuthenticationProvided)
 }
 
 /// Retrieves the cached response using the pre-initialized HyperCacheReader
@@ -330,6 +476,7 @@ async fn get_from_cache(
                 HyperCacheError::S3(_) => "s3_error",
                 HyperCacheError::Redis(_) => "redis_error",
                 HyperCacheError::Json(_) => "json_parse_error",
+                HyperCacheError::Pickle(_) => "pickle_parse_error",
                 HyperCacheError::Timeout(_) => "timeout",
             };
             inc(
@@ -364,33 +511,22 @@ async fn authenticate_flag_definitions(
     team: &Team,
     headers: &HeaderMap,
 ) -> Result<(), FlagError> {
-    // Try team secret token first (from Authorization header only)
-    // Secret tokens have priority over personal API keys
+    // Try team secret token or project secret API key (from Authorization header only)
+    // Both use phs_ prefix and share the same cache; the unified loader handles both.
     if let Some(token) = auth::extract_team_secret_token(headers) {
-        // Try managed project secret API key (posthog_projectsecretapikey) first
-        // TODO: track last_used_at for project secret API keys (similar to PAK path below)
-        if auth::validate_project_secret_api_key_for_team(state, &token, team.id)
-            .await
-            .is_ok()
-        {
-            inc(
-                FLAG_DEFINITIONS_AUTH_COUNTER,
-                &[("method".to_string(), "project_secret_api_key".to_string())],
-                1,
-            );
-            return Ok(());
-        }
-
-        // Fall back to legacy secret_api_token on posthog_team
-        let result = auth::validate_secret_api_token_for_team(state, &token, team.id).await;
-        if result.is_ok() {
-            inc(
-                FLAG_DEFINITIONS_AUTH_COUNTER,
-                &[("method".to_string(), "secret_api_key".to_string())],
-                1,
-            );
-        }
-        return result;
+        let (_, _, is_project_secret) =
+            auth::validate_secret_api_token_for_team(state, &token, team.id).await?;
+        let method = if is_project_secret {
+            "project_secret_api_key"
+        } else {
+            "secret_api_key"
+        };
+        inc(
+            FLAG_DEFINITIONS_AUTH_COUNTER,
+            &[("method".to_string(), method.to_string())],
+            1,
+        );
+        return Ok(());
     }
 
     // Try personal API key (with scope validation)

@@ -46,6 +46,7 @@ class SourceInputs:
 
     schema_name: str
     schema_id: str
+    source_id: str
     team_id: int
     should_use_incremental_field: bool
     db_incremental_field_last_value: Optional[Any]
@@ -60,3 +61,4 @@ class SourceInputs:
 class PipelineResult(TypedDict):
     should_trigger_cdp_producer: bool
     consumer_manages_job_status: NotRequired[bool]
+    skip_post_import_activities: NotRequired[bool]

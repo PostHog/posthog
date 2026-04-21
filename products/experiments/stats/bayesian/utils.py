@@ -18,6 +18,7 @@ def calculate_effect_size_and_variance(
     treatment_stat: SampleMeanStatistic | ProportionStatistic | RatioStatistic,
     control_stat: SampleMeanStatistic | ProportionStatistic | RatioStatistic,
     difference_type: DifferenceType,
+    unadjusted_mean: float | None = None,
 ) -> tuple[float, float]:
     """
     Calculate effect size and its variance for Bayesian analysis.
@@ -26,6 +27,9 @@ def calculate_effect_size_and_variance(
         treatment_stat: Treatment group statistic
         control_stat: Control group statistic
         difference_type: Type of difference to calculate
+        unadjusted_mean: Optional override for the denominator in relative calculations.
+            When provided, used instead of the control mean. This is useful for CUPED
+            where the adjusted control mean differs from the original control mean.
 
     Returns:
         Tuple of (effect_size, effect_variance)
@@ -46,17 +50,18 @@ def calculate_effect_size_and_variance(
         effect_variance = treatment_var / treatment_n + control_var / control_n
 
     elif difference_type == DifferenceType.RELATIVE:
-        if control_mean <= 0:
+        denominator = unadjusted_mean if unadjusted_mean is not None else control_mean
+        if denominator <= 0:
             raise StatisticError("Control mean must be positive for relative difference calculation")
 
         # Direct relative difference: (μ_T - μ_C) / μ_C
-        effect = (treatment_mean - control_mean) / control_mean
+        effect = (treatment_mean - control_mean) / denominator
 
         # Using delta method for ratios
         effect_variance = variance_of_ratios(
             mean_numerator=treatment_mean,
             var_numerator=treatment_var / treatment_n,
-            mean_denominator=control_mean,
+            mean_denominator=denominator,
             var_denominator=control_var / control_n,
             covariance=0,  # No covariance between treatment and control
         )

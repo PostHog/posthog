@@ -151,6 +151,12 @@ func CopyComposeFiles() error {
 		return err
 	}
 
+	// Copy the shared env file that docker-compose.base.yml references via env_file.
+	if err := copyFile("posthog/dev-services.env", "dev-services.env"); err != nil {
+		logger.Debug("Failed to copy dev-services.env: %v", err)
+		return err
+	}
+
 	// Copy as-is — Docker Compose reads REGISTRY_URL, POSTHOG_APP_TAG, and
 	// POSTHOG_NODE_TAG from .env at runtime, so no substitution needed here.
 	return copyFile("posthog/docker-compose.hobby.yml", "docker-compose.yml")

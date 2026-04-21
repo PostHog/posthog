@@ -1,12 +1,12 @@
 import type { Meta } from '@storybook/react'
 
-import ViewRecordingButton, { ViewRecordingButtonVariant } from './ViewRecordingButton'
+import ViewRecordingButton, { ViewRecordingButtonProps, ViewRecordingButtonVariant } from './ViewRecordingButton'
 
 const meta = {
     title: 'UI/ViewRecordingButton',
     component: ViewRecordingButton,
     tags: ['autodocs'],
-} satisfies Meta<typeof ViewRecordingButton>
+} satisfies Meta<ViewRecordingButtonProps>
 
 export default meta
 

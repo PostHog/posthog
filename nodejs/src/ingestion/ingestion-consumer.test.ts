@@ -14,12 +14,14 @@ import { createTeam, getFirstTeam, getTeam, resetTestDatabase } from '~/tests/he
 
 import { CookielessServerHashMode, Hub, PipelineEvent, Team } from '../../src/types'
 import { closeHub, createHub } from '../../src/utils/db/hub'
+import { createTestIngestionOutputs, createTestMonitoringOutputs } from '../../tests/helpers/ingestion-outputs'
 import { createHogTransformerService } from '../cdp/hog-transformations/hog-transformer.service'
 import { HogFunctionType } from '../cdp/types'
 import { PostgresUse } from '../utils/db/postgres'
 import { parseJSON } from '../utils/json-parse'
 import { logger } from '../utils/logger'
 import { UUIDT } from '../utils/utils'
+import { ClickhouseGroupRepository } from '../worker/ingestion/groups/repositories/clickhouse-group-repository'
 import { createPrepareEventStep } from './event-processing/prepare-event-step'
 import { IngestionConsumer } from './ingestion-consumer'
 
@@ -101,9 +103,18 @@ describe('IngestionConsumer', () => {
         hub: Hub,
         overrides?: ConstructorParameters<typeof IngestionConsumer>[2]
     ) => {
+        const outputs = createTestIngestionOutputs(hub.kafkaProducer)
         const ingester = new IngestionConsumer(
             hub,
-            { ...hub, kafkaMetricsProducer: hub.kafkaProducer, hogTransformer: createHogTransformerService(hub, hub) },
+            {
+                ...hub,
+                outputs,
+                clickhouseGroupRepository: new ClickhouseGroupRepository(outputs),
+                hogTransformer: createHogTransformerService(hub, {
+                    ...hub,
+                    monitoringOutputs: createTestMonitoringOutputs(hub.kafkaProducer),
+                }),
+            },
             overrides
         )
         // NOTE: We don't actually use kafka so we skip instantiation for faster tests
@@ -189,8 +200,6 @@ describe('IngestionConsumer', () => {
             expect(ingester['name']).toMatchInlineSnapshot(`"ingestion-consumer-events_plugin_ingestion_test"`)
             expect(ingester['groupId']).toMatchInlineSnapshot(`"events-ingestion-consumer"`)
             expect(ingester['topic']).toMatchInlineSnapshot(`"events_plugin_ingestion_test"`)
-            expect(ingester['dlqTopic']).toMatchInlineSnapshot(`"events_plugin_ingestion_dlq_test"`)
-            expect(ingester['overflowTopic']).toMatchInlineSnapshot(`"events_plugin_ingestion_overflow_test"`)
         })
 
         it('should process a standard event', async () => {
@@ -804,7 +813,7 @@ describe('IngestionConsumer', () => {
             expect(recentEventMessage?.value.historical_migration).toBeUndefined()
         })
 
-        it('should drop AI events with invalid token properties', async () => {
+        it('should process AI events with invalid token properties by nulling the bad values', async () => {
             const events = [
                 createEvent({
                     distinct_id: 'user-valid-ai',
@@ -833,6 +842,16 @@ describe('IngestionConsumer', () => {
                     },
                 }),
                 createEvent({
+                    distinct_id: 'user-nested-token-objects',
+                    event: '$ai_generation',
+                    properties: {
+                        $ai_input_tokens: { total: 10585, noCache: 10585, cacheRead: 0, cacheWrite: 0 },
+                        $ai_output_tokens: { total: 163, text: 163, reasoning: 0 },
+                        $ai_provider: 'amazon-bedrock',
+                        $ai_model: 'anthropic.claude-sonnet-4-6',
+                    },
+                }),
+                createEvent({
                     distinct_id: 'user-non-ai',
                     event: '$pageview',
                     properties: {
@@ -847,19 +866,30 @@ describe('IngestionConsumer', () => {
             const producedMessages = mockProducerObserver.getProducedKafkaMessages()
             const eventsTopicMessages = producedMessages.filter((m) => m.topic === 'clickhouse_events_json_test')
 
-            // Valid AI event should be processed
-            const validAiEvent = eventsTopicMessages.find((m) => m.value.event === '$ai_generation')
+            // Valid AI event should be processed with tokens intact
+            const validAiEvent = eventsTopicMessages.find((m) => m.value.distinct_id === 'user-valid-ai')
             expect(validAiEvent).toBeDefined()
-            expect(validAiEvent?.value.distinct_id).toBe('user-valid-ai')
 
-            // Invalid AI events should be dropped (not in the output)
+            // AI event with invalid string token should be processed with token nulled
             const invalidAiEvent = eventsTopicMessages.find((m) => m.value.distinct_id === 'user-invalid-ai')
-            expect(invalidAiEvent).toBeUndefined()
+            expect(invalidAiEvent).toBeDefined()
+            expect(parseJSON(invalidAiEvent?.value.properties as any).$ai_input_tokens).toBeNull()
 
+            // AI event with non-normalizable object token should be processed with token nulled
             const invalidCacheEvent = eventsTopicMessages.find((m) => m.value.distinct_id === 'user-invalid-ai-cache')
-            expect(invalidCacheEvent).toBeUndefined()
+            expect(invalidCacheEvent).toBeDefined()
+            expect(parseJSON(invalidCacheEvent?.value.properties as any).$ai_cache_read_input_tokens).toBeNull()
+            expect(parseJSON(invalidCacheEvent?.value.properties as any).$ai_input_tokens).toBe(100)
 
-            // Non-AI event with invalid token property should still be processed (validation only applies to AI events)
+            // AI event with nested token objects (Bedrock/Vercel V3) should be normalized
+            const nestedTokenEvent = eventsTopicMessages.find(
+                (m) => m.value.distinct_id === 'user-nested-token-objects'
+            )
+            expect(nestedTokenEvent).toBeDefined()
+            expect(parseJSON(nestedTokenEvent?.value.properties as any).$ai_input_tokens).toBe(10585)
+            expect(parseJSON(nestedTokenEvent?.value.properties as any).$ai_output_tokens).toBe(163)
+
+            // Non-AI event with invalid token property should still be processed unchanged
             const nonAiEvent = eventsTopicMessages.find((m) => m.value.event === '$pageview')
             expect(nonAiEvent).toBeDefined()
             expect(nonAiEvent?.value.distinct_id).toBe('user-non-ai')
@@ -869,6 +899,7 @@ describe('IngestionConsumer', () => {
             await ingester.stop()
             hub.INGESTION_AI_EVENT_SPLITTING_ENABLED = true
             hub.INGESTION_AI_EVENT_SPLITTING_TEAMS = '*'
+            hub.INGESTION_AI_EVENT_SPLITTING_STRIP_HEAVY = true
             ingester = await createIngestionConsumer(hub)
 
             const events = [

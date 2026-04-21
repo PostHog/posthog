@@ -1,17 +1,17 @@
 """Tests for session recording person loading via the personhog path.
 
-Mirrors test_get_session_recordings_includes_person_data from test_session_recordings.py
-to ensure the personhog code path returns identical results.
+TestLoadPersonRouting — Pattern A routing test (gate/fallback logic).
+TestLoadPersonIntegration — parameterized integration test (ORM + personhog).
 """
 
+from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
-from django.test import SimpleTestCase, TestCase
+from django.test import SimpleTestCase
 
-from parameterized import parameterized
+from parameterized import parameterized, parameterized_class
 
-from posthog.models import Person
-from posthog.personhog_client.fake_client import fake_personhog_client
+from posthog.personhog_client.test_helpers import PersonhogTestMixin
 from posthog.session_recordings.models.session_recording import SessionRecording
 
 
@@ -115,67 +115,31 @@ class TestLoadPersonRouting(SimpleTestCase):
             mock_errors_counter.labels.assert_called_once()
 
 
-class TestLoadPersonPersonhogIntegration(TestCase):
-    def test_person_found(self) -> None:
-        from posthog.models import Organization, Team
+@parameterized_class(("personhog",), [(False,), (True,)])
+class TestLoadPersonIntegration(PersonhogTestMixin, BaseTest):
+    def test_person_found(self):
+        person = self._seed_person(team=self.team, distinct_ids=["test_user"], properties={"email": "test@example.com"})
 
-        org, _, _ = Organization.objects.bootstrap(None, name="Test Org")
-        team = Team.objects.create(organization=org, name="Test Team")
-        person = Person.objects.create(team=team, distinct_ids=["test_user"], properties={"email": "test@example.com"})
+        recording = SessionRecording(team=self.team, session_id="test_session", distinct_id="test_user")
+        recording.load_person()
 
-        with fake_personhog_client() as fake:
-            fake.add_person(
-                team_id=team.pk,
-                person_id=person.pk,
-                uuid=str(person.uuid),
-                properties={"email": "test@example.com"},
-                distinct_ids=["test_user"],
-                is_identified=person.is_identified,
-                created_at=int(person.created_at.timestamp() * 1000) if person.created_at else 0,
-            )
+        assert recording._person is not None
+        assert str(recording._person.uuid) == str(person.uuid)
+        assert recording._person.properties == {"email": "test@example.com"}
+        self._assert_personhog_called("get_person_by_distinct_id")
 
-            recording = SessionRecording(team=team, session_id="test_session", distinct_id="test_user")
-            recording.load_person()
+    def test_person_not_found(self):
+        recording = SessionRecording(team=self.team, session_id="test_session", distinct_id="nonexistent_user")
+        recording.load_person()
 
-            assert recording._person is not None
-            assert str(recording._person.uuid) == str(person.uuid)
-            assert recording._person.properties == {"email": "test@example.com"}
-            assert recording._person.distinct_ids == ["test_user"]
-            fake.assert_called("get_person_by_distinct_id")
+        assert recording._person is None
+        self._assert_personhog_called("get_person_by_distinct_id")
 
-    def test_person_not_found(self) -> None:
-        from posthog.models import Organization, Team
+    def test_cross_team_isolation(self):
+        other_team = self.organization.teams.create(name="Other Team")
+        self._seed_person(team=other_team, distinct_ids=["shared_did"], properties={"email": "b@example.com"})
 
-        org, _, _ = Organization.objects.bootstrap(None, name="Test Org")
-        team = Team.objects.create(organization=org, name="Test Team")
+        recording = SessionRecording(team=self.team, session_id="test_session", distinct_id="shared_did")
+        recording.load_person()
 
-        with fake_personhog_client() as fake:
-            recording = SessionRecording(team=team, session_id="test_session", distinct_id="nonexistent_user")
-            recording.load_person()
-
-            assert recording._person is None
-            fake.assert_called("get_person_by_distinct_id")
-
-    def test_cross_team_isolation(self) -> None:
-        from posthog.models import Organization, Team
-
-        org, _, _ = Organization.objects.bootstrap(None, name="Test Org")
-        team_a = Team.objects.create(organization=org, name="Team A")
-        team_b = Team.objects.create(organization=org, name="Team B")
-        person = Person.objects.create(team=team_b, distinct_ids=["shared_did"], properties={"email": "b@example.com"})
-
-        with fake_personhog_client() as fake:
-            # Seed person only in team_b
-            fake.add_person(
-                team_id=team_b.pk,
-                person_id=person.pk,
-                uuid=str(person.uuid),
-                properties={"email": "b@example.com"},
-                distinct_ids=["shared_did"],
-            )
-
-            # Try to load from team_a — should not find person
-            recording = SessionRecording(team=team_a, session_id="test_session", distinct_id="shared_did")
-            recording.load_person()
-
-            assert recording._person is None
+        assert recording._person is None

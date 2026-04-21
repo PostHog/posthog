@@ -1,8 +1,7 @@
-import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 
 import { IconRefresh } from '@posthog/icons'
-import { LemonButton, LemonDialog, LemonTable, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonDialog, LemonTable, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { NotFound } from 'lib/components/NotFound'
 import { TZLabel } from 'lib/components/TZLabel'
@@ -13,23 +12,25 @@ import { BatchExportBackfill } from '~/types'
 
 import { BatchExportBackfillModal } from './BatchExportBackfillModal'
 import { BatchExportBackfillsLogicProps, batchExportBackfillsLogic } from './batchExportBackfillsLogic'
+import { BatchExportLoadingSkeleton } from './BatchExportLoadingSkeleton'
+import { statusToLemonTagType, statusToProgressStrokeColor } from './utils'
 
-export function BatchExportBackfills({
-    id,
-    batchExportConfig: initialConfig,
-}: BatchExportBackfillsLogicProps): JSX.Element {
-    const logic = batchExportBackfillsLogic({ id, batchExportConfig: initialConfig })
-    const { batchExportConfig } = useValues(logic)
+export function BatchExportBackfills({ id, context }: BatchExportBackfillsLogicProps): JSX.Element {
+    const logic = batchExportBackfillsLogic({ id, context })
+    const { batchExportConfig, batchExportConfigLoading } = useValues(logic)
 
     if (!batchExportConfig) {
+        if (batchExportConfigLoading) {
+            return <BatchExportLoadingSkeleton />
+        }
         return <NotFound object="batch export" />
     }
 
     return (
         <div className="flex flex-col gap-2">
             <BatchExportBackfillsControls id={id} />
-            <BatchExportLatestBackfills id={id} />
-            <BatchExportBackfillModal id={id} />
+            <BatchExportLatestBackfills id={id} context={context} />
+            <BatchExportBackfillModal id={id} context={context} />
         </div>
     )
 }
@@ -52,9 +53,9 @@ function BatchExportBackfillsControls({ id }: BatchExportBackfillsLogicProps): J
     )
 }
 
-function BatchExportLatestBackfills({ id }: BatchExportBackfillsLogicProps): JSX.Element {
-    const logic = batchExportBackfillsLogic({ id })
-    const { latestBackfills, loading, hasMoreBackfillsToLoad, batchExportConfig } = useValues(logic)
+function BatchExportLatestBackfills({ id, context }: BatchExportBackfillsLogicProps): JSX.Element {
+    const logic = batchExportBackfillsLogic({ id, context })
+    const { latestBackfills, loading, hasMoreBackfillsToLoad, batchExportConfig, recordLabel } = useValues(logic)
     const { cancelBackfill, loadOlderBackfills, openBackfillModal } = useActions(logic)
 
     if (!batchExportConfig) {
@@ -63,7 +64,7 @@ function BatchExportLatestBackfills({ id }: BatchExportBackfillsLogicProps): JSX
 
     return (
         <>
-            <LemonTable
+            <LemonTable<BatchExportBackfill>
                 dataSource={latestBackfills}
                 loading={loading}
                 loadingSkeletonRows={5}
@@ -83,23 +84,10 @@ function BatchExportLatestBackfills({ id }: BatchExportBackfillsLogicProps): JSX
                         width: 0,
                         render: (_, backfill) => {
                             const status = backfill.status
-                            const color = colorForStatus(status)
-                            const statusStyles = {
-                                success: 'border-success text-success-dark',
-                                'color-accent': 'border-accent text-accent',
-                                warning: 'border-warning text-warning-dark',
-                                danger: 'border-danger text-danger-dark',
-                                default: 'border-default text-default-dark',
-                            } as const
                             return (
-                                <span
-                                    className={clsx(
-                                        'flex justify-center items-center p-2 h-6 text-xs font-semibold rounded-full border-2 select-none',
-                                        statusStyles[color]
-                                    )}
-                                >
-                                    <span className="text-center">{status}</span>
-                                </span>
+                                <LemonTag type={statusToLemonTagType(status)} size="medium">
+                                    {status}
+                                </LemonTag>
                             )
                         },
                     },
@@ -108,7 +96,6 @@ function BatchExportLatestBackfills({ id }: BatchExportBackfillsLogicProps): JSX
                         key: 'progress',
                         render: (_, backfill) => {
                             const status = backfill.status
-                            const color = colorForStatus(status)
                             const progress = backfill.progress
                             if (progress && progress.progress != null) {
                                 let label = ''
@@ -125,7 +112,7 @@ function BatchExportLatestBackfills({ id }: BatchExportBackfillsLogicProps): JSX
                                     <span className="flex gap-2 items-center">
                                         <LemonProgress
                                             percent={progress.progress * 100}
-                                            strokeColor={`var(--${color})`}
+                                            strokeColor={statusToProgressStrokeColor(status)}
                                             className="min-w-[80px]"
                                         />
                                         <span className="flex-shrink-0 whitespace-nowrap">{label}</span>
@@ -141,7 +128,7 @@ function BatchExportLatestBackfills({ id }: BatchExportBackfillsLogicProps): JSX
                         render: (_, backfill) => backfill.id,
                     },
                     {
-                        title: 'Total rows',
+                        title: `Total ${recordLabel}`,
                         key: 'total_records_count',
                         render: (_, backfill) => {
                             if (backfill.total_records_count == null) {
@@ -188,13 +175,13 @@ function BatchExportLatestBackfills({ id }: BatchExportBackfillsLogicProps): JSX
                     {
                         title: 'Started',
                         key: 'started',
-                        tooltip: 'Date and time when this BatchExport backfill started',
+                        tooltip: 'Date and time when this backfill started',
                         render: (_, backfill) => (backfill.created_at ? <TZLabel time={backfill.created_at} /> : ''),
                     },
                     {
                         title: 'Finished',
                         key: 'finished',
-                        tooltip: 'Date and time when this BatchExport backfill finished',
+                        tooltip: 'Date and time when this backfill finished',
                         render: (_, backfill) => (backfill.finished_at ? <TZLabel time={backfill.finished_at} /> : ''),
                     },
                     {
@@ -259,28 +246,6 @@ function BackfillCancelButton({
             />
         </span>
     )
-}
-
-const colorForStatus = (
-    status: BatchExportBackfill['status']
-): 'success' | 'color-accent' | 'warning' | 'danger' | 'default' => {
-    switch (status) {
-        case 'Completed':
-            return 'success'
-        case 'ContinuedAsNew':
-        case 'Running':
-        case 'Starting':
-            return 'color-accent'
-        case 'Cancelled':
-        case 'Terminated':
-        case 'TimedOut':
-            return 'warning'
-        case 'Failed':
-        case 'FailedRetryable':
-            return 'danger'
-        default:
-            return 'default'
-    }
 }
 
 const backfillIsCancelable = (status: BatchExportBackfill['status']): boolean => {

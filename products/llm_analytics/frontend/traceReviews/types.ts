@@ -1,7 +1,7 @@
 import type { UserBasicType } from '~/types'
 
 import type {
-    Kind01eEnumApi as ScoreDefinitionKind,
+    KindD08EnumApi as ScoreDefinitionKind,
     ScoreDefinitionConfigApi as ScoreDefinitionConfig,
 } from '../generated/api.schemas'
 
@@ -45,6 +45,7 @@ export interface TraceReviewScoreUpsertPayload {
 
 export interface TraceReviewUpsertPayload {
     trace_id: string
+    queue_id?: string | null
     comment?: string | null
     scores: TraceReviewScoreUpsertPayload[]
 }

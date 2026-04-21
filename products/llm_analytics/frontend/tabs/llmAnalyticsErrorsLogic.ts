@@ -3,8 +3,8 @@ import { actions, connect, kea, key, path, props, reducers, selectors } from 'ke
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 
 import { groupsModel } from '~/models/groupsModel'
-import { DataTableNode, NodeKind } from '~/queries/schema/schema-general'
-import { AnyPropertyFilter } from '~/types'
+import { DataTableNode, InsightVizNode, NodeKind, TrendsQuery } from '~/queries/schema/schema-general'
+import { AnyPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
 
 import errorsQueryTemplate from '../../backend/queries/errors.sql?raw'
 import { SortDirection, SortState, llmAnalyticsSharedLogic } from '../llmAnalyticsSharedLogic'
@@ -98,6 +98,106 @@ export const llmAnalyticsErrorsLogic = kea<llmAnalyticsErrorsLogicType>([
                     allowSorting: true,
                 }
             },
+        ],
+        buildErrorTrendQuery: [
+            (s) => [s.dateFilter, s.shouldFilterTestAccounts, s.propertyFilters],
+            (
+                dateFilter: { dateFrom: string | null; dateTo: string | null },
+                shouldFilterTestAccounts: boolean,
+                propertyFilters: AnyPropertyFilter[]
+            ): ((errorName: string) => TrendsQuery) => {
+                return (errorName: string): TrendsQuery => ({
+                    kind: NodeKind.TrendsQuery,
+                    dateRange: {
+                        date_from: dateFilter.dateFrom || null,
+                        date_to: dateFilter.dateTo || null,
+                    },
+                    filterTestAccounts: shouldFilterTestAccounts,
+                    properties: [
+                        ...propertyFilters,
+                        {
+                            key: '$ai_is_error',
+                            operator: PropertyOperator.Exact,
+                            value: 'true',
+                            type: PropertyFilterType.Event,
+                        },
+                        {
+                            key: '$ai_error_normalized',
+                            operator: PropertyOperator.Exact,
+                            value: errorName,
+                            type: PropertyFilterType.Event,
+                        },
+                    ],
+                    series: [
+                        {
+                            kind: NodeKind.EventsNode,
+                            event: '$ai_generation',
+                        },
+                        {
+                            kind: NodeKind.EventsNode,
+                            event: '$ai_span',
+                        },
+                        {
+                            kind: NodeKind.EventsNode,
+                            event: '$ai_trace',
+                        },
+                        {
+                            kind: NodeKind.EventsNode,
+                            event: '$ai_embedding',
+                        },
+                    ],
+                })
+            },
+        ],
+        buildAllErrorsTrendQuery: [
+            (s) => [s.dateFilter, s.shouldFilterTestAccounts, s.propertyFilters],
+            (
+                dateFilter: { dateFrom: string | null; dateTo: string | null },
+                shouldFilterTestAccounts: boolean,
+                propertyFilters: AnyPropertyFilter[]
+            ): InsightVizNode => ({
+                kind: NodeKind.InsightVizNode,
+                source: {
+                    kind: NodeKind.TrendsQuery,
+                    dateRange: {
+                        date_from: dateFilter.dateFrom || null,
+                        date_to: dateFilter.dateTo || null,
+                    },
+                    filterTestAccounts: shouldFilterTestAccounts,
+                    properties: [
+                        ...propertyFilters,
+                        {
+                            key: '$ai_is_error',
+                            operator: PropertyOperator.Exact,
+                            value: 'true',
+                            type: PropertyFilterType.Event,
+                        },
+                    ],
+                    series: [
+                        {
+                            kind: NodeKind.EventsNode,
+                            event: '$ai_generation',
+                        },
+                        {
+                            kind: NodeKind.EventsNode,
+                            event: '$ai_span',
+                        },
+                        {
+                            kind: NodeKind.EventsNode,
+                            event: '$ai_trace',
+                        },
+                        {
+                            kind: NodeKind.EventsNode,
+                            event: '$ai_embedding',
+                        },
+                    ],
+                    breakdownFilter: {
+                        breakdown: '$ai_error_normalized',
+                        breakdown_type: 'event',
+                        breakdown_limit: 10,
+                    },
+                },
+            }),
         ],
     }),
 ])

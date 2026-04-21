@@ -196,6 +196,7 @@ class TestBackfillThreadReplies(BaseTest):
         assert comment.item_context == {
             "author_type": "customer",
             "is_private": False,
+            "from_slack": True,
             "slack_user_id": "U_BOB",
             "slack_author_name": "Bob",
             "slack_author_email": "b@x.com",

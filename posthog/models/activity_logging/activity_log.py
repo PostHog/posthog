@@ -17,6 +17,7 @@ from django.utils import timezone
 import structlog
 
 from posthog.exceptions_capture import capture_exception
+from posthog.models.activity_logging.utils import ACTIVITY_LOG_CLIENT_MAX_LENGTH, activity_storage
 from posthog.models.utils import ActivityDetailEncoder, UUIDTModel
 
 if TYPE_CHECKING:
@@ -66,6 +67,7 @@ ActivityScope = Literal[
     "TaggedItem",
     "Subscription",
     "PersonalAPIKey",
+    "ProjectSecretAPIKey",
     "User",
     "Action",
     "AlertConfiguration",
@@ -182,6 +184,8 @@ class ActivityLog(UUIDTModel):
     was_impersonated = models.BooleanField(null=True)
     # If truthy, user can be unset and this indicates a 'system' user made activity asynchronously
     is_system = models.BooleanField(null=True)
+    # Value of the x-posthog-client request header captured when the activity was logged
+    client = models.CharField(max_length=ACTIVITY_LOG_CLIENT_MAX_LENGTH, null=True, blank=True)
 
     activity = models.fields.CharField(max_length=79, null=False)
     # if scoped to a model this activity log holds the id of the model being logged
@@ -365,6 +369,7 @@ field_exclusions: dict[ActivityScope, list[str]] = {
         "featureflagoverride",
         "usage_dashboard",
         "analytics_dashboards",
+        "flag_evaluation_contexts",
     ],
     "Experiment": [
         "feature_flag",
@@ -376,6 +381,9 @@ field_exclusions: dict[ActivityScope, list[str]] = {
     "ExperimentSavedMetric": [
         "experiments",
         "experimenttosavedmetric_set",
+    ],
+    "ProjectSecretAPIKey": [
+        "secure_value",
     ],
     "Person": [
         "distinct_ids",
@@ -578,8 +586,8 @@ field_exclusions: dict[ActivityScope, list[str]] = {
 
 def describe_change(m: Any) -> Union[str, dict]:
     # Use lazy imports to avoid circular dependencies
-    from posthog.models.dashboard import Dashboard
-    from posthog.models.dashboard_tile import DashboardTile
+    from products.dashboards.backend.models.dashboard import Dashboard
+    from products.dashboards.backend.models.dashboard_tile import DashboardTile
 
     if isinstance(m, Dashboard):
         return {"id": m.id, "name": m.name}
@@ -790,9 +798,12 @@ def log_activity(
     activity: str,
     detail: Detail,
     was_impersonated: bool,
+    client: Optional[str] = None,
     force_save: bool = False,
     instance_only: bool = False,
 ) -> ActivityLog | None:
+    if client is None:
+        client = activity_storage.get_client()
     if was_impersonated and user is None:
         logger.warn(
             "activity_log.failed_to_write_to_activity_log",
@@ -825,6 +836,7 @@ def log_activity(
                 scope=scope,
                 activity=activity,
                 detail=detail,
+                client=client,
             )
 
         def _do_log_activity():
@@ -839,6 +851,7 @@ def log_activity(
                 scope=log.scope,
                 activity=log.activity,
                 detail=log.detail,
+                client=log.client,
             )
 
         if instance_only:
@@ -878,6 +891,7 @@ class LogActivityEntry(TypedDict, total=False):
     activity: Required[str]
     detail: Required[Detail]
     was_impersonated: Required[bool]
+    client: Optional[str]
     force_save: bool
 
 

@@ -33,10 +33,11 @@ Table | Description
 `system.exports` | Export jobs
 `system.feature_flags` | Feature flags for controlling rollouts
 `system.groups` | Group entities
-`system.group_type_mappings` | Group type definitions
 `system.ingestion_warnings` | Data ingestion issues
 `system.insight_variables` | SQL, dashboard, and insight variables for dynamic query filtering
 `system.insights` | Visual and textual representations of aggregated data
+`system.logs_alerts` | Log alert configurations and their states
+`system.logs_views` | Saved log filter views
 `system.notebooks` | Collaborative documents with embedded insights
 `system.surveys` | Questionnaires and feedback forms
 `system.teams` | Team/project settings
@@ -56,8 +57,8 @@ Schema reference for PostHog's core system models, organized by domain:
 - [Dashboards, Tiles & Insights](references/models-dashboards-insights.md)
 - [Data Warehouse](references/models-data-warehouse.md)
 - [Error Tracking](references/models-error-tracking.md)
+- [Logs](references/models-logs.md)
 - [Flags & Experiments](references/models-flags-experiments.md)
-- [Groups](references/models-groups.md)
 - [Notebooks](references/models-notebooks.md)
 - [Surveys](references/models-surveys.md)
 - [SQL Variables](references/models-variables.md)
@@ -69,7 +70,6 @@ Experiment | 1:1 | FeatureFlag | `feature_flag_id`
 Experiment | N:1 | Cohort | `exposure_cohort_id`
 Survey | N:1 | FeatureFlag | `linked_flag_id`, `targeting_flag_id`
 Survey | N:1 | Insight | `linked_insight_id`
-Group | N:1 | GroupTypeMapping | `group_type_index` (logical)
 Cohort | M:N | Person | via `cohortpeople`
 Person | 1:N | PersonDistinctId | `person_id`
 
@@ -93,6 +93,7 @@ Use `posthog:read-data-warehouse-schema` to retrieve the full schema of the tabl
 - **Events**: Standardized events/properties start with `$` (e.g., `$pageview`). Custom ones start with any other character.
 - **Properties**: Key-value metadata accessed via `properties.foo.bar` or `properties.foo['bar']` for special characters
 - **Person properties**: Access via `events.person.properties.foo` or `persons.properties.foo`
+- **Person property modes**: `person.properties.*` behavior depends on the project's person-on-events setting. Check the project metadata to determine if values are event-time (value at ingestion) or query-time (current value). See [Person property modes](references/person-property-modes.md) for details.
 - **Unique users**: Use `events.person_id` for counting unique users
 
 **Example - Weekly active users:**

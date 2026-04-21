@@ -63,7 +63,6 @@ class ShopifySource(SimpleSource[ShopifySourceConfig]):
                 ],
             ),
             betaSource=True,
-            featureFlag="shopify-dwh",
         )
 
     def validate_credentials(

@@ -26,12 +26,14 @@ from .chargebee.source import ChargebeeSource
 from .chartmogul.source import ChartMogulSource
 from .circleci.source import CircleCISource
 from .clerk.source import ClerkSource
+from .clickhouse.source import ClickHouseSource
 from .clickup.source import ClickUpSource
 from .close.source import CloseSource
 from .cockroachdb.source import CockroachDBSource
 from .common.registry import SourceRegistry
 from .confluence.source import ConfluenceSource
 from .convertkit.source import ConvertKitSource
+from .convex.source import ConvexSource
 from .copper.source import CopperSource
 from .customer_io.source import CustomerIOSource
 from .datadog.source import DatadogSource
@@ -169,11 +171,13 @@ __all__ = [
     "ChartMogulSource",
     "CircleCISource",
     "ClerkSource",
+    "ClickHouseSource",
     "ClickUpSource",
     "CloseSource",
     "CockroachDBSource",
     "ConfluenceSource",
     "ConvertKitSource",
+    "ConvexSource",
     "CopperSource",
     "CustomerIOSource",
     "DatadogSource",

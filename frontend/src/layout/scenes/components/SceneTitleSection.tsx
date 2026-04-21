@@ -195,14 +195,12 @@ type SceneMainTitleProps = {
      */
     className?: string
 
+    /** Optional callback to generate metadata (name + description) using AI — only shown on the title field. */
+    onGenerateMetadata?: () => void
     /**
-     * Optional callback to generate a name using AI
+     * Whether metadata generation is currently in progress
      */
-    onGenerateName?: () => void
-    /**
-     * Whether name generation is currently in progress
-     */
-    isGeneratingName?: boolean
+    isGeneratingMetadata?: boolean
     /**
      * Props for MaxTool registration - when provided,
      * the AI button in the title section registers the tool with Max
@@ -229,8 +227,8 @@ export function SceneTitleSection({
     actions,
     forceBackTo,
     className,
-    onGenerateName,
-    isGeneratingName,
+    onGenerateMetadata,
+    isGeneratingMetadata,
     maxToolProps,
     descriptionMaxLength,
 }: SceneMainTitleProps): JSX.Element | null {
@@ -333,8 +331,8 @@ export function SceneTitleSection({
                                     forceEdit={forceEdit}
                                     renameDebounceMs={renameDebounceMs}
                                     saveOnBlur={saveOnBlur}
-                                    onGenerateName={onGenerateName}
-                                    isGeneratingName={isGeneratingName}
+                                    onGenerateMetadata={onGenerateMetadata}
+                                    isGeneratingMetadata={isGeneratingMetadata}
                                     suffix={
                                         hasDescription ? (
                                             <ButtonPrimitive
@@ -366,7 +364,7 @@ export function SceneTitleSection({
                         <div
                             className={cn(
                                 'flex gap-1.5 justify-end items-end @2xl/main-content:items-start ml-4 @max-2xl:order-first',
-                                'gap-1 self-start @max-2xl:self-end'
+                                'gap-1 self-start @max-2xl:self-end flex-wrap'
                             )}
                         >
                             {effectiveActions}
@@ -388,6 +386,7 @@ export function SceneTitleSection({
                         renameDebounceMs={renameDebounceMs}
                         saveOnBlur={saveOnBlur}
                         maxLength={descriptionMaxLength}
+                        isGeneratingMetadata={isGeneratingMetadata}
                     />
                 </div>
             )}
@@ -403,8 +402,8 @@ type SceneNameProps = {
     forceEdit?: boolean
     renameDebounceMs?: number
     saveOnBlur?: boolean
-    onGenerateName?: () => void
-    isGeneratingName?: boolean
+    onGenerateMetadata?: () => void
+    isGeneratingMetadata?: boolean
     suffix?: React.ReactNode
 }
 
@@ -416,8 +415,8 @@ export function SceneName({
     forceEdit = false,
     renameDebounceMs = 100,
     saveOnBlur = false,
-    onGenerateName,
-    isGeneratingName = false,
+    onGenerateMetadata,
+    isGeneratingMetadata = false,
     suffix,
 }: SceneNameProps): JSX.Element {
     const [name, setName] = useState(initialName)
@@ -449,12 +448,19 @@ export function SceneName({
         onChange?.(value)
     }, renameDebounceMs)
 
+    useEffect(() => {
+        return () => {
+            debouncedOnBlurSave.flush()
+            debouncedOnChange.flush()
+        }
+    }, [debouncedOnBlurSave, debouncedOnChange])
+
     const handleBlur = (e: React.FocusEvent): void => {
         const relatedTarget = e.relatedTarget as HTMLElement | null
         if (relatedTarget && containerRef.current && containerRef.current.contains(relatedTarget)) {
             return
         }
-        if (saveOnBlur && !forceEdit && name !== initialName) {
+        if (saveOnBlur && !isGeneratingMetadata && name !== initialName) {
             debouncedOnBlurSave(name || '')
         }
         if (!forceEdit) {
@@ -473,9 +479,10 @@ export function SceneName({
                             variant="default"
                             name="name"
                             value={name || ''}
+                            readOnly={isGeneratingMetadata}
                             onChange={(e) => {
                                 setName(e.target.value)
-                                if (forceEdit) {
+                                if (forceEdit && !saveOnBlur) {
                                     onChange?.(e.target.value)
                                 } else if (!saveOnBlur) {
                                     debouncedOnChange(e.target.value)
@@ -488,7 +495,8 @@ export function SceneName({
                                     className: `${textClasses} w-full hover:bg-fill-input py-0`,
                                     autoHeight: true,
                                 }),
-                                '[&_.LemonIcon]:size-4 input-like'
+                                '[&_.LemonIcon]:size-4 input-like',
+                                isGeneratingMetadata && 'cursor-not-allowed opacity-80'
                             )}
                             wrapperClassName="flex-1 min-w-0"
                             placeholder="Enter name"
@@ -497,23 +505,26 @@ export function SceneName({
                             onKeyDown={(e) => {
                                 if (e.key === 'Enter') {
                                     e.preventDefault()
+                                    if (saveOnBlur && e.currentTarget.value !== initialName) {
+                                        onChange?.(e.currentTarget.value || '')
+                                    }
                                 }
                             }}
                         />
-                        {onGenerateName && (
-                            <Tooltip title={isGeneratingName ? 'Thinking...' : 'Name this insight'}>
+                        {onGenerateMetadata && (
+                            <Tooltip title={isGeneratingMetadata ? 'Thinking...' : 'Generate name and description'}>
                                 <button
                                     type="button"
                                     onClick={() => {
-                                        if (!isGeneratingName) {
-                                            onGenerateName()
+                                        if (!isGeneratingMetadata) {
+                                            onGenerateMetadata()
                                         }
                                     }}
-                                    disabled={isGeneratingName}
+                                    disabled={isGeneratingMetadata}
                                     className="shrink-0 transition duration-50 cursor-pointer hover:scale-110 rounded-md border border-dashed border-accent size-7 backdrop-blur-[2px] bg-[rgba(255,255,255,0.5)] dark:bg-[rgba(0,0,0,0.5)] disabled:opacity-50 disabled:cursor-not-allowed"
                                 >
                                     <AnimatedSparkles
-                                        triggerAnimation={isGeneratingName}
+                                        triggerAnimation={isGeneratingMetadata}
                                         className="relative size-full pl-0.5 pb-0.5"
                                     />
                                 </button>
@@ -522,7 +533,13 @@ export function SceneName({
                     </div>
                 ) : (
                     <Tooltip
-                        title={canEdit && !forceEdit ? 'Edit name' : undefined}
+                        title={
+                            isGeneratingMetadata
+                                ? 'Finish generating before editing'
+                                : canEdit && !forceEdit
+                                  ? 'Edit name'
+                                  : undefined
+                        }
                         placement="top-start"
                         arrowOffset={10}
                     >
@@ -531,7 +548,12 @@ export function SceneName({
                                 buttonPrimitiveVariants({ size: 'fit', className: textClasses }),
                                 'flex text-left [&_.LemonIcon]:size-4 focus-visible:z-50'
                             )}
-                            onClick={() => setIsEditing(true)}
+                            onClick={() => {
+                                if (!isGeneratingMetadata) {
+                                    setIsEditing(true)
+                                }
+                            }}
+                            disabled={isGeneratingMetadata}
                             truncate
                         >
                             <span className="truncate">{name || <span className="text-tertiary">Unnamed</span>}</span>
@@ -582,6 +604,8 @@ type SceneDescriptionProps = {
     renameDebounceMs?: number
     saveOnBlur?: boolean
     maxLength?: number
+    /** When true, description field is read-only (title AI control may be generating body copy too). */
+    isGeneratingMetadata?: boolean
 }
 
 function SceneDescription({
@@ -594,6 +618,7 @@ function SceneDescription({
     renameDebounceMs = 100,
     saveOnBlur = false,
     maxLength,
+    isGeneratingMetadata = false,
 }: SceneDescriptionProps): JSX.Element | null {
     const [description, setDescription] = useState(initialDescription)
     const [prevInitialDescription, setPrevInitialDescription] = useState(initialDescription)
@@ -624,8 +649,15 @@ function SceneDescription({
         onChange?.(value)
     }, renameDebounceMs)
 
+    useEffect(() => {
+        return () => {
+            debouncedOnBlurSaveDescription.flush()
+            debouncedOnDescriptionChange.flush()
+        }
+    }, [debouncedOnBlurSaveDescription, debouncedOnDescriptionChange])
+
     const handleBlur = (): void => {
-        if (saveOnBlur && !forceEdit && description !== initialDescription) {
+        if (saveOnBlur && !isGeneratingMetadata && description !== initialDescription) {
             debouncedOnBlurSaveDescription(description || '')
         }
         if (!forceEdit) {
@@ -642,9 +674,10 @@ function SceneDescription({
                         name="description"
                         value={description || ''}
                         maxLength={maxLength}
+                        readOnly={isGeneratingMetadata}
                         onChange={(e) => {
                             setDescription(e.target.value)
-                            if (forceEdit) {
+                            if (forceEdit && !saveOnBlur) {
                                 onChange?.(e.target.value)
                             } else if (!saveOnBlur) {
                                 debouncedOnDescriptionChange(e.target.value)
@@ -657,7 +690,8 @@ function SceneDescription({
                                 className: `${textClasses} w-full hover:bg-fill-input px-[var(--button-padding-x-sm)]`,
                                 autoHeight: true,
                             }),
-                            '[&_.LemonIcon]:size-4 input-like'
+                            '[&_.LemonIcon]:size-4 input-like',
+                            isGeneratingMetadata && 'cursor-not-allowed opacity-80'
                         )}
                         wrapperClassName="w-full"
                         markdown={markdown}
@@ -667,12 +701,23 @@ function SceneDescription({
                     />
                 ) : (
                     <Tooltip
-                        title={canEdit && !forceEdit ? 'Edit description' : undefined}
+                        title={
+                            isGeneratingMetadata
+                                ? 'Finish generating before editing'
+                                : canEdit && !forceEdit
+                                  ? 'Edit description'
+                                  : undefined
+                        }
                         placement="bottom"
                         arrowOffset={10}
                     >
                         <ButtonPrimitive
-                            onClick={() => setIsEditing(true)}
+                            onClick={() => {
+                                if (!isGeneratingMetadata) {
+                                    setIsEditing(true)
+                                }
+                            }}
+                            disabled={isGeneratingMetadata}
                             className="flex text-start px-[var(--button-padding-x-sm)] py-[var(--button-padding-y-base)] [&_.LemonIcon]:size-4 focus-visible:z-50"
                             autoHeight
                             size="base"

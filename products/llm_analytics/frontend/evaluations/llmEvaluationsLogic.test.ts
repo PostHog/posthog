@@ -48,6 +48,8 @@ const evaluationWithKey = (id: string, providerKeyId: string | null): Evaluation
     name: `Evaluation ${id}`,
     description: '',
     enabled: true,
+    status: 'active',
+    status_reason: null,
     evaluation_type: 'llm_judge',
     evaluation_config: { prompt: 'Prompt' },
     output_type: 'boolean',
@@ -116,6 +118,39 @@ describe('llmEvaluationsLogic', () => {
                 expect.objectContaining({ id: 'key-invalid', state: 'invalid' }),
                 expect.objectContaining({ id: 'key-error', state: 'error' }),
             ])
+        })
+
+        it('optimistic toggle keeps status in sync with enabled', async () => {
+            const errored = evaluationWithKey('eval-errored', 'key-ok')
+            errored.enabled = false
+            errored.status = 'error'
+            errored.status_reason = 'trial_limit_reached'
+            logic.actions.loadEvaluationsSuccess([errored])
+
+            logic.actions.toggleEvaluationEnabledSuccess('eval-errored')
+
+            await expectLogic(logic).toMatchValues({
+                evaluations: [expect.objectContaining({ enabled: true, status: 'active', status_reason: null })],
+            })
+        })
+
+        it('dispatches toggleEvaluationEnabledFailure when the API rejects the toggle', async () => {
+            useMocks({
+                patch: {
+                    '/api/environments/:teamId/evaluations/:id/': (_, __, ctx) => [
+                        ctx.status(400),
+                        ctx.json({
+                            enabled: ['Trial evaluation limit reached. Add a provider API key to re-enable.'],
+                        }),
+                    ],
+                },
+            })
+
+            logic.actions.loadEvaluationsSuccess([evaluationWithKey('eval-default', null)])
+
+            logic.actions.toggleEvaluationEnabled('eval-default')
+
+            await expectLogic(logic).toDispatchActions(['toggleEvaluationEnabled', 'toggleEvaluationEnabledFailure'])
         })
 
         it('returns an empty array when all used keys are healthy', async () => {

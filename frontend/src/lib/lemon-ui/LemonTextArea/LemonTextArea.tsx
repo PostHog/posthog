@@ -37,13 +37,13 @@ interface LemonTextAreaPropsBase extends Pick<
     rightFooter?: ReactElement
 }
 
-interface LemonTextAreaWithCmdEnterProps extends LemonTextAreaPropsBase {
+export interface LemonTextAreaWithCmdEnterProps extends LemonTextAreaPropsBase {
     /** Callback for when Cmd/Ctrl + Enter is pressed. In this case, the user adds new lines with Enter like always. */
     onPressCmdEnter?: (currentValue: string) => void
     onPressEnter?: never
 }
 
-interface LemonTextAreaWithEnterProps extends LemonTextAreaPropsBase {
+export interface LemonTextAreaWithEnterProps extends LemonTextAreaPropsBase {
     /** Callback for when Enter is pressed. In this case, to add a new line the user must press Cmd + Enter. */
     onPressEnter: (currentValue: string) => void
     onPressCmdEnter?: never

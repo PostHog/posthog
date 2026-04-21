@@ -1,15 +1,18 @@
+import asyncio
 from dataclasses import dataclass
 from typing import Any
 
 import pytest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from dlt.sources.helpers.rest_client.paginators import BasePaginator
 
+from posthog.temporal.data_imports.sources.common.rest_source import _make_paginate_dependent_resource
 from posthog.temporal.data_imports.sources.common.rest_source.fanout import (
     DependentEndpointConfig,
     build_dependent_resource,
 )
+from posthog.temporal.data_imports.sources.common.rest_source.typing import ResolvedParam
 
 
 @dataclass
@@ -166,3 +169,64 @@ def test_build_dependent_resource_rejects_params_in_endpoint_extras(mock_rest_ap
             db_incremental_field_last_value=None,
             child_endpoint_extra={"params": {"limit": 1}},
         )
+
+
+def test_paginate_dependent_resource_does_not_leak_params_across_parents() -> None:
+    captured_initial_params: list[dict[str, Any]] = []
+
+    def fake_paginate(**kwargs):
+        params = kwargs["params"]
+        # Snapshot the params as they arrive for the first page of each parent
+        captured_initial_params.append(dict(params))
+        # Page 1: return data with original params
+        yield [{"id": "child_1", "token": "tok_page1"}]
+        # Between pages the real paginator mutates params (removes since/until, adds before)
+        params.pop("since", None)
+        params.pop("until", None)
+        params["before"] = "tok_page1"
+        # Page 2: return data with mutated params
+        yield [{"id": "child_2", "token": "tok_page2"}]
+
+    mock_client = Mock()
+    mock_client.paginate = fake_paginate
+
+    resolved_param = ResolvedParam(
+        param_name="parent_id",
+        resolve_config={"type": "resolve", "resource": "parents", "field": "id"},
+    )
+
+    paginate_fn = _make_paginate_dependent_resource(
+        client=mock_client,
+        resolved_param=resolved_param,
+        include_from_parent=[],
+        default_columns_config=None,
+        incremental_object=None,
+        incremental_param=None,
+        incremental_cursor_transform=None,
+        db_incremental_field_last_value=None,
+    )
+
+    async def run():
+        results = []
+        async for page in paginate_fn(
+            items=[{"id": "parent_a"}, {"id": "parent_b"}],
+            method="get",
+            path="/parents/{parent_id}/children",
+            params={"page_size": 100, "since": "2026-01-01", "until": "2026-03-01"},
+            paginator=None,
+            data_selector="items",
+            hooks=None,
+        ):
+            if isinstance(page, list):
+                results.append(page)
+        return results
+
+    asyncio.run(run())
+
+    assert len(captured_initial_params) == 2
+    # Parent B's first request must have the original since/until,
+    # not the before token left over from parent A's page 2
+    for params_snapshot in captured_initial_params:
+        assert params_snapshot["since"] == "2026-01-01"
+        assert params_snapshot["until"] == "2026-03-01"
+        assert "before" not in params_snapshot

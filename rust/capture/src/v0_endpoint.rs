@@ -74,6 +74,8 @@ pub async fn event(
                 state.token_dropper.clone(),
                 state.event_restriction_service.clone(),
                 state.historical_cfg.clone(),
+                state.global_rate_limiter_token_distinctid.clone(),
+                state.overflow_limiter.clone(),
                 &events,
                 &context,
             )
@@ -138,6 +140,7 @@ pub async fn recording(
             if let Err(err) = process_replay_events(
                 state.sink.clone(),
                 state.event_restriction_service.clone(),
+                state.replay_overflow_limiter.clone(),
                 events,
                 &context,
             )

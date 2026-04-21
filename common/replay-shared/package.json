@@ -19,6 +19,7 @@
     "devDependencies": {
         "@swc/core": "^1.11.29",
         "@swc/jest": "^0.2.37",
+        "@types/jest": "catalog:",
         "jest": "^29.7.0"
     }
 }

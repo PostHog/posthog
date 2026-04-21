@@ -9,32 +9,32 @@ import {
     AlertsPartialUpdateBody,
     AlertsPartialUpdateParams,
     AlertsRetrieveParams,
+    AlertsRetrieveQueryParams,
+    AlertsSimulateCreateBody,
 } from '@/generated/alerts/api'
+import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const AlertsListSchema = AlertsListQueryParams
 
-const alertsList = (): ToolBase<typeof AlertsListSchema, Schemas.PaginatedAlertList & { _posthogUrl: string }> => ({
+const alertsList = (): ToolBase<typeof AlertsListSchema, WithPostHogUrl<Schemas.PaginatedAlertList>> => ({
     name: 'alerts-list',
     schema: AlertsListSchema,
     handler: async (context: Context, params: z.infer<typeof AlertsListSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.PaginatedAlertList>({
             method: 'GET',
-            path: `/api/projects/${projectId}/alerts/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/alerts/`,
             query: {
                 limit: params.limit,
                 offset: params.offset,
             },
         })
-        return {
-            ...(result as any),
-            _posthogUrl: `${context.api.getProjectBaseUrl(projectId)}/insights`,
-        }
+        return await withPostHogUrl(context, result, '/insights?tab=alerts')
     },
 })
 
-const AlertGetSchema = AlertsRetrieveParams.omit({ project_id: true })
+const AlertGetSchema = AlertsRetrieveParams.omit({ project_id: true }).extend(AlertsRetrieveQueryParams.shape)
 
 const alertGet = (): ToolBase<typeof AlertGetSchema, Schemas.Alert> => ({
     name: 'alert-get',
@@ -43,7 +43,13 @@ const alertGet = (): ToolBase<typeof AlertGetSchema, Schemas.Alert> => ({
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.Alert>({
             method: 'GET',
-            path: `/api/projects/${projectId}/alerts/${params.id}/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/alerts/${encodeURIComponent(String(params.id))}/`,
+            query: {
+                checks_date_from: params.checks_date_from,
+                checks_date_to: params.checks_date_to,
+                checks_limit: params.checks_limit,
+                checks_offset: params.checks_offset,
+            },
         })
         return result
     },
@@ -90,9 +96,12 @@ const alertCreate = (): ToolBase<typeof AlertCreateSchema, Schemas.Alert> => ({
         if (params.skip_weekend !== undefined) {
             body['skip_weekend'] = params.skip_weekend
         }
+        if (params.schedule_restriction !== undefined) {
+            body['schedule_restriction'] = params.schedule_restriction
+        }
         const result = await context.api.request<Schemas.Alert>({
             method: 'POST',
-            path: `/api/projects/${projectId}/alerts/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/alerts/`,
             body,
         })
         return result
@@ -140,9 +149,12 @@ const alertUpdate = (): ToolBase<typeof AlertUpdateSchema, Schemas.Alert> => ({
         if (params.skip_weekend !== undefined) {
             body['skip_weekend'] = params.skip_weekend
         }
+        if (params.schedule_restriction !== undefined) {
+            body['schedule_restriction'] = params.schedule_restriction
+        }
         const result = await context.api.request<Schemas.Alert>({
             method: 'PATCH',
-            path: `/api/projects/${projectId}/alerts/${params.id}/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/alerts/${encodeURIComponent(String(params.id))}/`,
             body,
         })
         return result
@@ -158,7 +170,36 @@ const alertDelete = (): ToolBase<typeof AlertDeleteSchema, unknown> => ({
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<unknown>({
             method: 'DELETE',
-            path: `/api/projects/${projectId}/alerts/${params.id}/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/alerts/${encodeURIComponent(String(params.id))}/`,
+        })
+        return result
+    },
+})
+
+const AlertSimulateSchema = AlertsSimulateCreateBody
+
+const alertSimulate = (): ToolBase<typeof AlertSimulateSchema, Schemas.AlertSimulateResponse> => ({
+    name: 'alert-simulate',
+    schema: AlertSimulateSchema,
+    handler: async (context: Context, params: z.infer<typeof AlertSimulateSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.insight !== undefined) {
+            body['insight'] = params.insight
+        }
+        if (params.detector_config !== undefined) {
+            body['detector_config'] = params.detector_config
+        }
+        if (params.series_index !== undefined) {
+            body['series_index'] = params.series_index
+        }
+        if (params.date_from !== undefined) {
+            body['date_from'] = params.date_from
+        }
+        const result = await context.api.request<Schemas.AlertSimulateResponse>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/alerts/simulate/`,
+            body,
         })
         return result
     },
@@ -170,4 +211,5 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'alert-create': alertCreate,
     'alert-update': alertUpdate,
     'alert-delete': alertDelete,
+    'alert-simulate': alertSimulate,
 }

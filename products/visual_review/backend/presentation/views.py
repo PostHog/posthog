@@ -22,8 +22,9 @@ from rest_framework.response import Response
 from posthog.api.mixins import TypedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 
-from ..facade import api
+from ..facade import api, contracts
 from ..facade.contracts import (
+    AddSnapshotsInput,
     ApproveRunInput,
     ApproveRunRequestInput,
     CreateRepoInput,
@@ -31,17 +32,22 @@ from ..facade.contracts import (
     UpdateRepoInput,
     UpdateRepoRequestInput,
 )
+from ..facade.enums import ReviewDecision
 from .serializers import (
+    AddSnapshotsInputSerializer,
+    AddSnapshotsResultSerializer,
     ApproveRunInputSerializer,
     AutoApproveResultSerializer,
     CreateRepoInputSerializer,
     CreateRunInputSerializer,
     CreateRunResultSerializer,
+    MarkToleratedInputSerializer,
     RepoSerializer,
     ReviewStateCountsSerializer,
     RunSerializer,
     SnapshotHistoryEntrySerializer,
     SnapshotSerializer,
+    ToleratedHashEntrySerializer,
     UpdateRepoInputSerializer,
 )
 
@@ -105,6 +111,7 @@ class RepoViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         input_dto = UpdateRepoInput(
             repo_id=UUID(pk),
             baseline_file_paths=body.baseline_file_paths,
+            enable_pr_comments=body.enable_pr_comments,
         )
 
         try:
@@ -123,7 +130,7 @@ class RunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     """
 
     scope_object = "visual_review"
-    scope_object_write_actions = ["create", "complete", "approve", "auto_approve"]
+    scope_object_write_actions = ["create", "complete", "approve", "auto_approve", "add_snapshots"]
     scope_object_read_actions = ["list", "retrieve", "snapshots", "counts"]
 
     @extend_schema(
@@ -178,6 +185,63 @@ class RunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             return self.get_paginated_response(serializer.data)
         return Response(SnapshotSerializer(instance=snapshots, many=True).data)
 
+    @validated_request(
+        request_serializer=MarkToleratedInputSerializer,
+        responses={200: OpenApiResponse(response=SnapshotSerializer)},
+    )
+    @action(detail=True, methods=["post"], url_path="tolerate")
+    def mark_tolerated(self, request: TypedRequest, pk: str, **kwargs) -> Response:
+        """Mark a changed snapshot as a known tolerated alternate."""
+        try:
+            snapshot = api.mark_snapshot_as_tolerated(
+                run_id=UUID(pk),
+                snapshot_id=request.validated_data["snapshot_id"],
+                user_id=cast(int, request.user.id),
+                team_id=self.team_id,
+            )
+        except api.RunNotFoundError:
+            return Response({"detail": "Snapshot or run not found"}, status=status.HTTP_404_NOT_FOUND)
+        except ValueError:
+            return Response({"detail": "Snapshot cannot be marked as tolerated"}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(SnapshotSerializer(instance=snapshot).data)
+
+    @extend_schema(
+        parameters=[OpenApiParameter("identifier", str, required=True, description="Snapshot identifier")],
+        responses={200: ToleratedHashEntrySerializer(many=True)},
+    )
+    @action(detail=True, methods=["get"], url_path="tolerated-hashes")
+    def tolerated_hashes(self, request: Request, pk: str, **kwargs) -> Response:
+        """List known tolerated hashes for a snapshot identifier."""
+        identifier = request.query_params.get("identifier")
+        if not identifier:
+            return Response({"detail": "identifier query param required"}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            run = api.get_run(UUID(pk), team_id=self.team_id)
+        except api.RunNotFoundError:
+            return Response({"detail": "Run not found"}, status=status.HTTP_404_NOT_FOUND)
+        entries = api.get_tolerated_hashes(run.repo_id, identifier)
+        page = self.paginate_queryset(entries)
+        if page is not None:
+            return self.get_paginated_response(ToleratedHashEntrySerializer(instance=page, many=True).data)
+        return Response(ToleratedHashEntrySerializer(instance=entries, many=True).data)
+
+    @extend_schema(request=AddSnapshotsInputSerializer, responses={200: AddSnapshotsResultSerializer})
+    @action(detail=True, methods=["post"], url_path="add-snapshots")
+    @validated_request(AddSnapshotsInputSerializer)
+    def add_snapshots(self, request: TypedRequest[AddSnapshotsInput], pk: str, **kwargs) -> Response:
+        """Add a batch of snapshots to a pending run (shard-based flow)."""
+        try:
+            result = api.add_snapshots(
+                input=request.validated_data,
+                run_id=UUID(pk),
+                team_id=self.team_id,
+            )
+        except api.RunNotFoundError:
+            return Response({"detail": "Run not found"}, status=status.HTTP_404_NOT_FOUND)
+        except ValueError:
+            return Response({"detail": "Invalid request"}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(AddSnapshotsResultSerializer(instance=result).data)
+
     @extend_schema(
         parameters=[OpenApiParameter("identifier", str, required=True, description="Snapshot identifier")],
         responses={200: SnapshotHistoryEntrySerializer(many=True)},
@@ -200,7 +264,7 @@ class RunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     @extend_schema(responses={200: RunSerializer})
     @action(detail=True, methods=["post"])
     def complete(self, request: Request, pk: str, **kwargs) -> Response:
-        """Signal that all artifacts have been uploaded. Triggers diff processing."""
+        """Complete a run: detect removals, verify uploads, trigger diff processing."""
         try:
             run = api.complete_run(UUID(pk), team_id=self.team_id)
         except api.RunNotFoundError:
@@ -209,28 +273,39 @@ class RunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
     @validated_request(
         request_serializer=ApproveRunInputSerializer,
-        responses={200: OpenApiResponse(response=RunSerializer)},
+        responses={200: OpenApiResponse(response=AutoApproveResultSerializer)},
     )
     @action(detail=True, methods=["post"])
     def approve(self, request: TypedRequest[ApproveRunRequestInput], pk: str, **kwargs) -> Response:
-        """Approve visual changes for snapshots in this run."""
+        """Approve visual changes for snapshots in this run.
+
+        With approve_all=true, approves all changed+new snapshots and returns
+        signed baseline YAML. With specific snapshots, approves only those.
+        """
         body = request.validated_data
-        input_dto = ApproveRunInput(
-            run_id=UUID(pk),
-            user_id=cast(int, request.user.id),
-            snapshots=body.snapshots,
-            commit_to_github=body.commit_to_github,
-        )
+        run_id = UUID(pk)
+        user_id = cast(int, request.user.id)
 
         try:
+            if body.approve_all:
+                result = api.approve_all(run_id=run_id, user_id=user_id, team_id=self.team_id)
+                return Response(AutoApproveResultSerializer(instance=result).data)
+
+            input_dto = ApproveRunInput(
+                run_id=run_id,
+                user_id=user_id,
+                snapshots=body.snapshots,
+                commit_to_github=body.commit_to_github,
+            )
             run = api.approve_run(input_dto, team_id=self.team_id)
+            return Response(
+                AutoApproveResultSerializer(instance=contracts.AutoApproveResult(run=run, baseline_content="")).data
+            )
+
         except api.RunNotFoundError:
             return Response({"detail": "Run not found"}, status=status.HTTP_404_NOT_FOUND)
         except api.StaleRunError as e:
-            return Response(
-                {"detail": str(e), "code": "stale_run"},
-                status=status.HTTP_409_CONFLICT,
-            )
+            return Response({"detail": str(e), "code": "stale_run"}, status=status.HTTP_409_CONFLICT)
         except api.ArtifactNotFoundError as e:
             return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
         except api.GitHubIntegrationNotFoundError:
@@ -239,43 +314,33 @@ class RunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
         except api.PRSHAMismatchError as e:
-            return Response(
-                {"detail": str(e), "code": "sha_mismatch"},
-                status=status.HTTP_409_CONFLICT,
-            )
+            return Response({"detail": str(e), "code": "sha_mismatch"}, status=status.HTTP_409_CONFLICT)
         except api.GitHubCommitError as e:
-            return Response(
-                {"detail": f"GitHub commit failed: {e}"},
-                status=status.HTTP_502_BAD_GATEWAY,
-            )
+            return Response({"detail": f"GitHub commit failed: {e}"}, status=status.HTTP_502_BAD_GATEWAY)
         except api.BaselineFilePathNotConfiguredError as e:
-            return Response(
-                {"detail": str(e)},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+            return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        except ValueError:
+            return Response({"detail": "Invalid request"}, status=status.HTTP_400_BAD_REQUEST)
 
-        return Response(RunSerializer(instance=run).data)
-
-    @extend_schema(responses={200: AutoApproveResultSerializer})
+    @extend_schema(responses={200: AutoApproveResultSerializer}, deprecated=True)
     @action(detail=True, methods=["post"], url_path="auto-approve")
     def auto_approve(self, request: Request, pk: str, **kwargs) -> Response:
-        """Auto-approve all changes and return signed baseline YAML."""
+        """CLI auto-approve: approve all and return baseline YAML for local write."""
         try:
-            result = api.auto_approve_run(
+            result = api.approve_all(
                 run_id=UUID(pk),
                 user_id=cast(int, request.user.id),
                 team_id=self.team_id,
+                review_decision=ReviewDecision.AUTO_APPROVED,
+                commit_to_github=False,
             )
         except api.RunNotFoundError:
             return Response({"detail": "Run not found"}, status=status.HTTP_404_NOT_FOUND)
         except api.StaleRunError as e:
-            return Response(
-                {"detail": str(e), "code": "stale_run"},
-                status=status.HTTP_409_CONFLICT,
-            )
+            return Response({"detail": str(e), "code": "stale_run"}, status=status.HTTP_409_CONFLICT)
         except api.ArtifactNotFoundError as e:
             return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
-        except ValueError as e:
-            return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        except ValueError:
+            return Response({"detail": "Invalid request"}, status=status.HTTP_400_BAD_REQUEST)
 
         return Response(AutoApproveResultSerializer(instance=result).data)

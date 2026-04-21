@@ -1,4 +1,4 @@
-import { Meta, StoryFn } from '@storybook/react'
+import { Meta, StoryObj } from '@storybook/react'
 
 import { IconX } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
@@ -65,41 +65,47 @@ const meta: Meta = {
 }
 export default meta
 
-export const WithEventAndData: StoryFn = () => (
-    <BuilderNodeStory step={makeStep('Sign up', 0, 100, 100)} stepIndex={0} />
-)
+type Story = StoryObj<{}>
 
-export const WithEventNoData: StoryFn = () => (
-    <BuilderNodeStory step={makeStep('First action', 2, 0, 100)} stepIndex={2} />
-)
-
-export const NoEvent: StoryFn = () => {
-    const emptyStep = {
-        ...makeStep('Select an event', 0, 0, 0),
-        action_id: null,
-        count: null,
-    } as unknown as FunnelStepWithConversionMetrics
-    return <BuilderNodeStory step={emptyStep} stepIndex={0} hasEvent={false} />
+export const WithEventAndData: Story = {
+    render: () => <BuilderNodeStory step={makeStep('Sign up', 0, 100, 100)} stepIndex={0} />,
 }
 
-export const SingleStep: StoryFn = () => (
-    <BuilderNodeStory step={makeStep('Sign up', 0, 100, 100)} stepIndex={0} canRemove={false} />
-)
+export const WithEventNoData: Story = {
+    render: () => <BuilderNodeStory step={makeStep('First action', 2, 0, 100)} stepIndex={2} />,
+}
 
-export const AllVariants: StoryFn = () => {
-    const spacing = NODE_WIDTH + 20
-    const emptyStep = {
-        ...makeStep('Select an event', 0, 0, 0),
-        action_id: null,
-        count: null,
-    } as unknown as FunnelStepWithConversionMetrics
+export const NoEvent: Story = {
+    render: () => {
+        const emptyStep = {
+            ...makeStep('Select an event', 0, 0, 0),
+            action_id: null,
+            count: null,
+        } as unknown as FunnelStepWithConversionMetrics
+        return <BuilderNodeStory step={emptyStep} stepIndex={0} hasEvent={false} />
+    },
+}
 
-    return (
-        <div className="flex flex-wrap gap-4" style={{ maxWidth: spacing * 3 }}>
-            <BuilderNodeStory step={makeStep('Sign up', 0, 100, 100)} stepIndex={0} />
-            <BuilderNodeStory step={makeStep('First action', 2, 0, 100)} stepIndex={2} />
-            <BuilderNodeStory step={emptyStep} stepIndex={0} hasEvent={false} />
-            <BuilderNodeStory step={makeStep('Sign up', 0, 100, 100)} stepIndex={0} canRemove={false} />
-        </div>
-    )
+export const SingleStep: Story = {
+    render: () => <BuilderNodeStory step={makeStep('Sign up', 0, 100, 100)} stepIndex={0} canRemove={false} />,
+}
+
+export const AllVariants: Story = {
+    render: () => {
+        const spacing = NODE_WIDTH + 20
+        const emptyStep = {
+            ...makeStep('Select an event', 0, 0, 0),
+            action_id: null,
+            count: null,
+        } as unknown as FunnelStepWithConversionMetrics
+
+        return (
+            <div className="flex flex-wrap gap-4" style={{ maxWidth: spacing * 3 }}>
+                <BuilderNodeStory step={makeStep('Sign up', 0, 100, 100)} stepIndex={0} />
+                <BuilderNodeStory step={makeStep('First action', 2, 0, 100)} stepIndex={2} />
+                <BuilderNodeStory step={emptyStep} stepIndex={0} hasEvent={false} />
+                <BuilderNodeStory step={makeStep('Sign up', 0, 100, 100)} stepIndex={0} canRemove={false} />
+            </div>
+        )
+    },
 }

@@ -1,4 +1,4 @@
-from typing import Optional, Union, cast
+from typing import Literal, Optional, Union, cast
 
 from django.conf import settings
 
@@ -12,6 +12,7 @@ from posthog.hogql.database.database import Database
 from posthog.hogql.direct_connection import get_direct_connection_source
 from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.filters import replace_filters
+from posthog.hogql.metadata_heuristics import run_metadata_heuristics
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_expr, parse_program, parse_select, parse_string_template
 from posthog.hogql.placeholders import find_placeholders, replace_placeholders
@@ -57,6 +58,9 @@ def get_hogql_metadata(
             connection_id=str(source.id),
         )
 
+    heuristic_warnings: list[HogQLNotice] = []
+    context: Optional[HogQLContext] = None
+
     try:
         context = HogQLContext(
             team_id=team.pk,
@@ -92,6 +96,7 @@ def get_hogql_metadata(
                     )
                     hogql_ast = cast(ast.SelectQuery, replace_placeholders(hogql_ast, query.globals))
 
+            heuristic_warnings.extend(run_metadata_heuristics(hogql_ast))
             hogql_table_names = get_table_names(hogql_ast)
             response.table_names = hogql_table_names
 
@@ -106,10 +111,6 @@ def get_hogql_metadata(
                 response.ch_table_names = get_table_names(prepared_ast)
         else:
             raise ValueError(f"Unsupported language: {query.language}")
-        response.warnings = context.warnings
-        response.notices = context.notices
-        response.errors = context.errors
-        response.isValid = len(response.errors) == 0
     except Exception as e:
         response.isValid = False
         if isinstance(e, ExposedHogQLError):
@@ -126,6 +127,15 @@ def get_hogql_metadata(
             response.errors.append(HogQLNotice(message=f"Unexpected {e.__class__.__name__}: {str(e)}"))
         else:
             response.errors.append(HogQLNotice(message=f"Unexpected {e.__class__.__name__}"))
+    finally:
+        if context is not None:
+            response.warnings = [*context.warnings, *heuristic_warnings]
+            response.notices = context.notices
+            if response.errors:
+                response.errors = [*context.errors, *response.errors]
+            else:
+                response.errors = context.errors
+            response.isValid = len(response.errors) == 0
 
     # We add a magic "F'" start prefix to get Antlr into the right parsing mode, subtract it now
     if query.language == HogLanguage.HOG_TEMPLATE:
@@ -150,7 +160,10 @@ def process_expr_on_table(
             select_query = ast.SelectQuery(select=[node], select_from=ast.JoinExpr(table=ast.Field(chain=["events"])))
 
         # Nothing to return, we just make sure it doesn't throw
-        prepare_and_print_ast(select_query, context, "clickhouse")
+        dialect: Literal["clickhouse", "postgres"] = (
+            "postgres" if getattr(context.database, "_connection_id", None) else "clickhouse"
+        )
+        prepare_and_print_ast(select_query, context, dialect)
     except (NotImplementedError, SyntaxError):
         raise
 

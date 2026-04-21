@@ -5,6 +5,7 @@ import { IntegrationKind } from '~/types'
 import IconAzureBlob from 'public/services/azure-blob-storage.png'
 import IconBingAds from 'public/services/bing-ads.svg'
 import IconClickUp from 'public/services/clickup.svg'
+import IconCustomerIO from 'public/services/customer-io.png'
 import IconDatabricks from 'public/services/databricks.png'
 import IconFirebase from 'public/services/firebase.png'
 import IconGitHub from 'public/services/github.png'
@@ -36,6 +37,7 @@ export const ICONS: Record<IntegrationKind, any> = {
     hubspot: IconHubspot,
     'google-pubsub': IconGoogleCloud,
     'google-cloud-storage': IconGoogleCloudStorage,
+    'google-cloud-service-account': IconGoogleCloud,
     'google-ads': IconGoogleAds,
     'google-sheets': IconGoogleSheets,
     snapchat: IconSnapchat,
@@ -57,6 +59,9 @@ export const ICONS: Record<IntegrationKind, any> = {
     firebase: IconFirebase,
     jira: IconJira,
     'pinterest-ads': IconPinterest,
+    'customerio-app': IconCustomerIO,
+    'customerio-webhook': IconCustomerIO,
+    'customerio-track': IconCustomerIO,
 }
 
 export const getIntegrationNameFromKind = (kind: string): string => {
@@ -69,6 +74,8 @@ export const getIntegrationNameFromKind = (kind: string): string => {
             return 'Google Cloud Storage'
         case 'google-ads':
             return 'Google Ads'
+        case 'google-cloud-service-account':
+            return 'Google Cloud service account'
         case 'linkedin-ads':
             return 'LinkedIn Ads'
         case 'reddit-ads':

@@ -24,6 +24,7 @@ from posthog.schema import (
     EventsNode,
     ExperimentFunnelMetric,
     ExperimentQuery,
+    ExperimentQueryResponse,
     FunnelConversionWindowTimeUnit,
     PersonsOnEventsMode,
     PropertyOperator,
@@ -143,9 +144,7 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
 
         flush_persons_and_events()
 
-        query_runner = ExperimentQueryRunner(
-            query=experiment_query, team=self.team, force_precomputation=use_precomputation
-        )
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
         result = query_runner.calculate()
 
         assert result.variant_results is not None
@@ -167,6 +166,89 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
         self.assertEqual(control_variant.step_counts, [8])  # contains data for funnel chart
         control_sampled_success_events = [s.event_uuid for s in control_variant.step_sessions[1]]
         self.assertEqual(sorted(control_success_events), sorted(control_sampled_success_events))
+
+    @freeze_time("2020-01-01T12:00:00Z")
+    @snapshot_clickhouse_queries
+    def test_funnel_metric_with_steps_data_disabled(self):
+        feature_flag = self.create_feature_flag()
+        experiment = self.create_experiment(feature_flag=feature_flag)
+        experiment.parameters = {"funnel_steps_data_disabled": True}
+        experiment.save()
+
+        feature_flag_property = f"$feature/{feature_flag.key}"
+
+        metric = ExperimentFunnelMetric(
+            series=[EventsNode(event="purchase")],
+        )
+
+        experiment_query = ExperimentQuery(
+            experiment_id=experiment.id,
+            kind="ExperimentQuery",
+            metric=metric,
+        )
+
+        experiment.metrics = [metric.model_dump(mode="json")]
+        experiment.save()
+
+        for i in range(15):
+            _create_person(distinct_ids=[f"user_control_{i}"], team_id=self.team.pk)
+            _create_event(
+                team=self.team,
+                event="$feature_flag_called",
+                distinct_id=f"user_control_{i}",
+                timestamp="2020-01-02T12:00:00Z",
+                properties={
+                    feature_flag_property: "control",
+                    "$feature_flag_response": "control",
+                    "$feature_flag": feature_flag.key,
+                },
+            )
+            if i < 8:
+                _create_event(
+                    team=self.team,
+                    event="purchase",
+                    distinct_id=f"user_control_{i}",
+                    timestamp="2020-01-02T12:01:00Z",
+                    properties={feature_flag_property: "control"},
+                )
+
+        for i in range(15):
+            _create_person(distinct_ids=[f"user_test_{i}"], team_id=self.team.pk)
+            _create_event(
+                team=self.team,
+                event="$feature_flag_called",
+                distinct_id=f"user_test_{i}",
+                timestamp="2020-01-02T12:00:00Z",
+                properties={
+                    feature_flag_property: "test",
+                    "$feature_flag_response": "test",
+                    "$feature_flag": feature_flag.key,
+                },
+            )
+            if i < 10:
+                _create_event(
+                    team=self.team,
+                    event="purchase",
+                    distinct_id=f"user_test_{i}",
+                    timestamp="2020-01-02T12:01:00Z",
+                    properties={feature_flag_property: "test"},
+                )
+
+        flush_persons_and_events()
+
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
+        result = query_runner.calculate()
+
+        control_variant = result.baseline
+        test_variant = result.variant_results[0]
+
+        # Step counts should still be present
+        self.assertEqual(control_variant.step_counts, [8])
+        self.assertEqual(test_variant.step_counts, [10])
+
+        # Step sessions should be absent
+        self.assertIsNone(control_variant.step_sessions)
+        self.assertIsNone(test_variant.step_sessions)
 
     @parameterized.expand(
         [
@@ -289,9 +371,7 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
 
         flush_persons_and_events()
 
-        query_runner = ExperimentQueryRunner(
-            query=experiment_query, team=self.team, force_precomputation=use_precomputation
-        )
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
         result = query_runner.calculate()
 
         assert result.variant_results is not None
@@ -611,7 +691,7 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
             self.team.test_account_filters = [filters]
         self.team.save()
 
-        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team, force_precomputation=False)
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
         if expected_results is None:
             with self.assertRaises(ValidationError) as context:
                 query_runner.calculate()
@@ -713,9 +793,7 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
 
         flush_persons_and_events()
 
-        query_runner = ExperimentQueryRunner(
-            query=experiment_query, team=self.team, force_precomputation=use_precomputation
-        )
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
         with freeze_time("2023-01-07"):
             result = query_runner.calculate()
 
@@ -966,9 +1044,7 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
         experiment.metrics = [metric.model_dump(mode="json")]
         self._save_experiment_with_precomputation(experiment, use_precomputation)
 
-        query_runner = ExperimentQueryRunner(
-            query=experiment_query, team=self.team, force_precomputation=use_precomputation
-        )
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
         result = query_runner.calculate()
 
         assert result.variant_results is not None
@@ -1084,9 +1160,7 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
         experiment.metrics = [metric.model_dump(mode="json")]
         self._save_experiment_with_precomputation(experiment, use_precomputation)
 
-        query_runner = ExperimentQueryRunner(
-            query=experiment_query, team=self.team, force_precomputation=use_precomputation
-        )
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
         result = query_runner.calculate()
 
         assert result.variant_results is not None
@@ -1568,9 +1642,7 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
         experiment.metrics = [metric.model_dump(mode="json")]
         self._save_experiment_with_precomputation(experiment, use_precomputation)
 
-        query_runner = ExperimentQueryRunner(
-            query=experiment_query, team=self.team, force_precomputation=use_precomputation
-        )
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
         result = query_runner.calculate()
 
         assert result.variant_results is not None
@@ -1840,9 +1912,7 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
         experiment.metrics = [metric.model_dump(mode="json")]
         self._save_experiment_with_precomputation(experiment, use_precomputation)
 
-        query_runner = ExperimentQueryRunner(
-            query=experiment_query, team=self.team, force_precomputation=use_precomputation
-        )
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
         result = query_runner.calculate()
 
         assert result.variant_results is not None
@@ -2006,9 +2076,7 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
         experiment.metrics = [ordered_metric.model_dump(mode="json")]
         experiment.save()
 
-        query_runner = ExperimentQueryRunner(
-            query=experiment_query, team=self.team, force_precomputation=use_precomputation
-        )
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
         ordered_result = query_runner.calculate()
 
         # Test with unordered funnel (should succeed)
@@ -2024,9 +2092,7 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
         experiment.metrics = [unordered_metric.model_dump(mode="json")]
         experiment.save()
 
-        query_runner = ExperimentQueryRunner(
-            query=experiment_query, team=self.team, force_precomputation=use_precomputation
-        )
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
         unordered_result = query_runner.calculate()
 
         # With ordered funnel, the out-of-order events should not be counted as success
@@ -2230,9 +2296,7 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
         experiment.metrics = [metric.model_dump(mode="json")]
         self._save_experiment_with_precomputation(experiment, use_precomputation)
 
-        query_runner = ExperimentQueryRunner(
-            query=experiment_query, team=self.team, force_precomputation=use_precomputation
-        )
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
         result = query_runner.calculate()
 
         assert result.variant_results is not None
@@ -2358,9 +2422,7 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
         experiment.metrics = [metric.model_dump(mode="json")]
         self._save_experiment_with_precomputation(experiment, use_precomputation)
 
-        query_runner = ExperimentQueryRunner(
-            query=experiment_query, team=self.team, force_precomputation=use_precomputation
-        )
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
         result = query_runner.calculate()
 
         assert result.variant_results is not None
@@ -2573,7 +2635,7 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
         experiment.metrics = [metric.model_dump(mode="json")]
         experiment.save()
 
-        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team, force_precomputation=False)
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
         result = query_runner.calculate()
 
         assert result.variant_results is not None
@@ -2592,3 +2654,141 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
         # Test: 6 successes (events after exposure), 7 failures (4 before exposure + 3 incomplete)
         self.assertEqual(test_variant.sum, 6)
         self.assertEqual(test_variant.number_of_samples - test_variant.sum, 7)
+
+    @parameterized.expand(
+        [
+            ("direct", False),
+            ("precomputed", True),
+        ]
+    )
+    @freeze_time("2020-01-15T12:00:00Z")
+    @snapshot_clickhouse_queries
+    def test_only_count_matured_users(self, name, use_precomputation):
+        self._setup_precomputation_test(use_precomputation)
+
+        feature_flag = self.create_feature_flag()
+        experiment = self.create_experiment(
+            feature_flag=feature_flag,
+            start_date=datetime(2020, 1, 1, 0, 0, 0),
+            end_date=datetime(2020, 1, 15, 0, 0, 0),
+        )
+
+        metric = ExperimentFunnelMetric(
+            series=[
+                EventsNode(event="$pageview"),
+                EventsNode(event="purchase"),
+            ],
+            conversion_window=7,
+            conversion_window_unit=FunnelConversionWindowTimeUnit.DAY,
+        )
+
+        experiment_query = ExperimentQuery(
+            experiment_id=experiment.id,
+            kind="ExperimentQuery",
+            metric=metric,
+        )
+
+        experiment.only_count_matured_users = True
+        experiment.metrics = [metric.model_dump(mode="json")]
+        self._save_experiment_with_precomputation(experiment, use_precomputation)
+
+        feature_flag_property = f"$feature/{feature_flag.key}"
+
+        # Mature control user: exposed Jan 2 (window ends Jan 9, before now=Jan 15)
+        _create_person(distinct_ids=["user_mature_control"], team_id=self.team.pk)
+        _create_event(
+            team=self.team,
+            event="$feature_flag_called",
+            distinct_id="user_mature_control",
+            timestamp="2020-01-02T12:00:00Z",
+            properties={
+                feature_flag_property: "control",
+                "$feature_flag_response": "control",
+                "$feature_flag": feature_flag.key,
+            },
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="user_mature_control",
+            timestamp="2020-01-03T12:00:00Z",
+            properties={feature_flag_property: "control"},
+        )
+        _create_event(
+            team=self.team,
+            event="purchase",
+            distinct_id="user_mature_control",
+            timestamp="2020-01-03T13:00:00Z",
+            properties={feature_flag_property: "control"},
+        )
+
+        # Immature control user: exposed Jan 10 (window ends Jan 17, after now=Jan 15)
+        _create_person(distinct_ids=["user_immature_control"], team_id=self.team.pk)
+        _create_event(
+            team=self.team,
+            event="$feature_flag_called",
+            distinct_id="user_immature_control",
+            timestamp="2020-01-10T12:00:00Z",
+            properties={
+                feature_flag_property: "control",
+                "$feature_flag_response": "control",
+                "$feature_flag": feature_flag.key,
+            },
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="user_immature_control",
+            timestamp="2020-01-10T13:00:00Z",
+            properties={feature_flag_property: "control"},
+        )
+        _create_event(
+            team=self.team,
+            event="purchase",
+            distinct_id="user_immature_control",
+            timestamp="2020-01-10T14:00:00Z",
+            properties={feature_flag_property: "control"},
+        )
+
+        # Mature test user: exposed Jan 2
+        _create_person(distinct_ids=["user_mature_test"], team_id=self.team.pk)
+        _create_event(
+            team=self.team,
+            event="$feature_flag_called",
+            distinct_id="user_mature_test",
+            timestamp="2020-01-02T12:00:00Z",
+            properties={
+                feature_flag_property: "test",
+                "$feature_flag_response": "test",
+                "$feature_flag": feature_flag.key,
+            },
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="user_mature_test",
+            timestamp="2020-01-03T12:00:00Z",
+            properties={feature_flag_property: "test"},
+        )
+        _create_event(
+            team=self.team,
+            event="purchase",
+            distinct_id="user_mature_test",
+            timestamp="2020-01-03T13:00:00Z",
+            properties={feature_flag_property: "test"},
+        )
+
+        flush_persons_and_events()
+
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
+        result = cast(ExperimentQueryResponse, query_runner.calculate())
+
+        # Only mature users should be counted (1 control, 1 test)
+        assert result.baseline is not None
+        self.assertEqual(result.baseline.number_of_samples, 1)
+        self.assertEqual(result.baseline.sum, 1)
+
+        assert result.variant_results is not None
+        assert len(result.variant_results) == 1
+        self.assertEqual(result.variant_results[0].number_of_samples, 1)
+        self.assertEqual(result.variant_results[0].sum, 1)

@@ -1,4 +1,4 @@
-import { Meta, StoryFn } from '@storybook/react'
+import { Meta, StoryObj } from '@storybook/react'
 
 import { LemonButton, LemonModal } from '@posthog/lemon-ui'
 
@@ -16,6 +16,8 @@ const meta: Meta = {
     },
 }
 export default meta
+
+type Story = StoryObj<{}>
 
 const mockPersons = [
     { id: '017cf78e-a849-0000-0000-01fe9b8d7233', display_name: 'Jane Doe' },
@@ -43,6 +45,31 @@ const DEFAULT_QUERY = {
 }
 
 const noop = (): void => {}
+const actorsQueryHandler = (req: {
+    body?: { query?: { kind?: string; source?: { kind?: string } } }
+}): [number, typeof mockQueryResponse] | undefined => {
+    const queryKind = req.body?.query?.source?.kind ?? req.body?.query?.kind
+
+    if (queryKind === 'ActorsQuery') {
+        return [200, mockQueryResponse]
+    }
+}
+
+const emptyActorsQueryHandler = (req: {
+    body?: { query?: { kind?: string; source?: { kind?: string } } }
+}): [number, typeof mockQueryResponse] | undefined => {
+    const queryKind = req.body?.query?.source?.kind ?? req.body?.query?.kind
+
+    if (queryKind === 'ActorsQuery') {
+        return [
+            200,
+            {
+                ...mockQueryResponse,
+                results: [],
+            },
+        ]
+    }
+}
 
 function ModalShell({
     children,
@@ -79,70 +106,73 @@ function ModalShell({
     )
 }
 
-export const ModalInline: StoryFn = () => {
-    useStorybookMocks({
-        post: { '/api/environments/:team_id/query/': mockQueryResponse },
-    })
+export const ModalInline: Story = {
+    render: () => {
+        useStorybookMocks({
+            post: { '/api/environments/:team_id/query/:kind/': actorsQueryHandler },
+        })
 
-    return (
-        <ModalShell>
-            <PersonSelectList
-                query={DEFAULT_QUERY}
-                setQuery={noop}
-                selectedPersons={{
-                    [mockPersons[1].id]: true,
-                    [mockPersons[3].id]: true,
-                }}
-                onAddPerson={noop}
-                onRemovePerson={noop}
-                existingPersonsSet={new Set([mockPersons[0].id, mockPersons[4].id])}
-                dataNodeKey="story-modal-inline"
-            />
-        </ModalShell>
-    )
+        return (
+            <ModalShell>
+                <PersonSelectList
+                    query={DEFAULT_QUERY}
+                    setQuery={noop}
+                    selectedPersons={{
+                        [mockPersons[1].id]: true,
+                        [mockPersons[3].id]: true,
+                    }}
+                    onAddPerson={noop}
+                    onRemovePerson={noop}
+                    existingPersonsSet={new Set([mockPersons[0].id, mockPersons[4].id])}
+                    dataNodeKey="story-modal-inline"
+                />
+            </ModalShell>
+        )
+    },
 }
 
-export const ModalWithAllSelected: StoryFn = () => {
-    useStorybookMocks({
-        post: { '/api/environments/:team_id/query/': mockQueryResponse },
-    })
+export const ModalWithAllSelected: Story = {
+    render: () => {
+        useStorybookMocks({
+            post: { '/api/environments/:team_id/query/:kind/': actorsQueryHandler },
+        })
 
-    const allSelected = Object.fromEntries(mockPersons.map((p) => [p.id, true]))
+        const allSelected = Object.fromEntries(mockPersons.map((p) => [p.id, true]))
 
-    return (
-        <ModalShell>
-            <PersonSelectList
-                query={DEFAULT_QUERY}
-                setQuery={noop}
-                selectedPersons={allSelected}
-                onAddPerson={noop}
-                onRemovePerson={noop}
-                dataNodeKey="story-modal-all-selected"
-            />
-        </ModalShell>
-    )
+        return (
+            <ModalShell>
+                <PersonSelectList
+                    query={DEFAULT_QUERY}
+                    setQuery={noop}
+                    selectedPersons={allSelected}
+                    onAddPerson={noop}
+                    onRemovePerson={noop}
+                    dataNodeKey="story-modal-all-selected"
+                />
+            </ModalShell>
+        )
+    },
 }
 
-export const ModalEmpty: StoryFn = () => {
-    useStorybookMocks({
-        post: {
-            '/api/environments/:team_id/query/': {
-                ...mockQueryResponse,
-                results: [],
+export const ModalEmpty: Story = {
+    render: () => {
+        useStorybookMocks({
+            post: {
+                '/api/environments/:team_id/query/:kind/': emptyActorsQueryHandler,
             },
-        },
-    })
+        })
 
-    return (
-        <ModalShell saveDisabledReason="Select at least one user">
-            <PersonSelectList
-                query={DEFAULT_QUERY}
-                setQuery={noop}
-                selectedPersons={{}}
-                onAddPerson={noop}
-                onRemovePerson={noop}
-                dataNodeKey="story-modal-empty"
-            />
-        </ModalShell>
-    )
+        return (
+            <ModalShell saveDisabledReason="Select at least one user">
+                <PersonSelectList
+                    query={DEFAULT_QUERY}
+                    setQuery={noop}
+                    selectedPersons={{}}
+                    onAddPerson={noop}
+                    onRemovePerson={noop}
+                    dataNodeKey="story-modal-empty"
+                />
+            </ModalShell>
+        )
+    },
 }

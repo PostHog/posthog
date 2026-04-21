@@ -93,7 +93,7 @@ class ChargebeeSource(SimpleSource[ChargebeeSourceConfig]):
                     SourceFieldInputConfig(
                         name="api_key",
                         label="API key",
-                        type=SourceFieldInputConfigType.TEXT,
+                        type=SourceFieldInputConfigType.PASSWORD,
                         required=True,
                         placeholder="",
                     ),

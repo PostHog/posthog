@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta
+from typing import Any
 
 import pytest
 import unittest
@@ -46,7 +47,9 @@ def _make_event_sequence(
                 event=event,
                 properties=properties,
                 distinct_id=distinct_id,
-                timestamp=datetime.now() - timedelta(days=interval_days * period_index, hours=1, minutes=i),
+                # Use midpoint of each period to avoid flakiness from clock drift
+                # between Python's datetime.now() and ClickHouse's now()
+                timestamp=datetime.now() - timedelta(days=interval_days * period_index, hours=12, minutes=i),
             )
 
 
@@ -1062,7 +1065,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
             # Filter for:
             # Regularly completed [$pageview] [at least] [1] times per
             # [3][day] period for at least [3] of the last [3] periods
-            data = {
+            data: dict[str, Any] = {
                 "properties": {
                     "type": "AND",
                     "values": [

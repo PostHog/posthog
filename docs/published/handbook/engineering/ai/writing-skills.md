@@ -55,6 +55,13 @@ and describe the desired outcome for the customer.
 This separation matters because agents are good at composing simple tools
 but need guidance on _which_ tools to use, in _what order_, with _what constraints_.
 
+### Referencing MCP tools in skills
+
+When a skill references an MCP tool, use the `posthog:` namespace prefix
+(e.g. `posthog:execute-sql`, `posthog:feature-flag-get-all`).
+This matches how tools appear to agents consuming the PostHog MCP server
+and helps agents resolve tool names unambiguously.
+
 ## Skill structure
 
 Skills live in `products/*/skills/` and come in two forms.
@@ -123,7 +130,7 @@ Use lowercase kebab-case. Prefer gerund form (verb + -ing):
 
 | Pattern                   | Examples                                                                  |
 | ------------------------- | ------------------------------------------------------------------------- |
-| Gerund form (preferred)   | `analyzing-llm-traces`, `writing-hogql-queries`, `managing-feature-flags` |
+| Gerund form (preferred)   | `exploring-llm-traces`, `writing-hogql-queries`, `managing-feature-flags` |
 | Noun phrases (acceptable) | `query-examples`, `error-tracking-guide`                                  |
 
 Skills **must not** be prefixed with `posthog-*`.
@@ -158,9 +165,11 @@ description: >
   experiments, surveys, data warehouse).
 
 description: >
-  Step-by-step guide for analyzing LLM traces in PostHog.
-  Use when inspecting AI generation latency, token usage,
-  human feedback, or trace hierarchies.
+  Debug and inspect LLM/AI agent traces using PostHog's MCP tools.
+  Use when the user pastes a trace URL (e.g. /llm-observability/traces/<id>),
+  asks to debug a trace, figure out what went wrong, check if an agent used a tool correctly,
+  verify context/files were surfaced, inspect subagent behavior, investigate LLM decisions,
+  or analyze token usage and costs.
 ```
 
 **Bad descriptions:**
@@ -175,17 +184,27 @@ description: 'Everything about PostHog AI features'
 
 ## Good and bad skill examples
 
-### Good: `analyzing-llm-traces`
+### Good: `exploring-llm-traces`
 
-A focused skill that guides the agent through a specific workflow:
+A focused skill that guides the agent through a specific workflow –
+see [`exploring-llm-traces/SKILL.md`](https://github.com/PostHog/posthog/blob/master/products/llm_analytics/skills/exploring-llm-traces/SKILL.md):
 
-- Starts by verifying that `$ai_trace`, `$ai_generation`, `$ai_feedback` events exist.
-- Provides HogQL queries to retrieve trace data with the right properties.
-- Explains how to join generations to traces via `$ai_trace_id`.
-- Describes the desired outcome (latency analysis, feedback summary, cost breakdown).
+- Declares the exact MCP tools it relies on (`posthog:query-llm-traces-list`, `posthog:query-llm-trace`, `posthog:execute-sql`).
+- Explains the `$ai_trace` / `$ai_span` / `$ai_generation` / `$ai_embedding` event hierarchy
+  and how events link via `$ai_parent_id`.
+- Walks through concrete workflows (debugging a trace from a URL, cost analysis, tool-use verification)
+  rather than listing generic instructions.
+- Uses progressive disclosure – details like the full event schema live in `references/`
+  so the entry point stays focused.
+- Ships with pre-written Python helpers in
+  [`scripts/`](https://github.com/PostHog/posthog/tree/master/products/llm_analytics/skills/exploring-llm-traces/scripts)
+  that cover the common workflows.
+  The agent runs these instead of re-deriving the shape of the trace JSON,
+  slicing nested payloads by hand, or burning tokens on exploratory parsing –
+  which streamlines its trajectory and keeps the context window clean.
 
-The agent knows what tools to use (execute-sql, read-data-schema),
-in what order, and what a successful result looks like.
+The agent knows _which_ tools to use, _in what order_, and what a successful result looks like –
+which is exactly what separates a skill from a generic prompt.
 
 ### Good: `query-examples`
 
@@ -320,15 +339,22 @@ and packaged into `dist/skills.zip` with deterministic timestamps for reproducib
 
 ## Distribution
 
-Distribution is automatic.
-Built skills are published through the [posthog/skills](https://github.com/PostHog/skills) repo
-and consumed via plugins for coding agents at [PostHog/ai-plugin](https://github.com/PostHog/ai-plugin).
+Distribution is automatic – once a skill lands on `master`,
+CI builds the `dist/skills.zip` artifact and publishes it to two downstream repositories:
 
-PostHog Code already consumes skills automatically.
-PostHog AI will consume the same set of skills.
+- [`PostHog/skills`](https://github.com/PostHog/skills) –
+  the canonical distribution repo.
+  Each built skill is pushed as a standalone directory so it can be synced directly into
+  any agent that follows Anthropic's skills layout (Claude Code, Claude Desktop, etc.).
+- [`PostHog/ai-plugin`](https://github.com/PostHog/ai-plugin) –
+  the plugin distribution used by coding agents that consume PostHog capabilities
+  (PostHog Code, PostHog AI). The plugin bundles the skills alongside the MCP tool definitions
+  so agents get the "how" and the "what" together.
 
-Product teams don't need to handle distribution –
-the pipeline and CI take care of it.
+PostHog Code already consumes skills automatically, and PostHog AI consumes the same set.
+Because both repositories are updated from the same `dist/skills.zip` on every merge to `master`,
+you don't need to handle distribution yourself –
+merge your skill and it shows up in both places on the next CI run.
 
 ## Testing
 

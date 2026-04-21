@@ -9,7 +9,6 @@ import { ActivityTab, AnnotationType, CommentType, OnboardingStepKey, SDKKey } f
 import type { BillingSectionId } from './billing/types'
 import { DataPipelinesNewSceneKind } from './data-pipelines/DataPipelinesNewScene'
 import { OutputTab } from './data-warehouse/editor/outputPaneLogic'
-import type { DataWarehouseSourceSceneTab } from './data-warehouse/settings/DataWarehouseSourceScene'
 import type { HogFunctionSceneTab } from './hog-functions/HogFunctionScene'
 import type { SettingId, SettingLevelId, SettingSectionId } from './settings/types'
 
@@ -45,7 +44,6 @@ export const urls = {
     webScriptsNew: (): string => '/web-scripts/new',
     destinations: (): string => '/data-management/destinations',
     models: (): string => '/models',
-    sources: (): string => '/data-management/sources',
     transformations: (): string => '/data-management/transformations',
     activity: (tab: ActivityTab | ':tab' = ActivityTab.ExploreEvents): string => `/activity/${tab}`,
     event: (id: string, timestamp: string): string =>
@@ -53,7 +51,6 @@ export const urls = {
     ingestionWarnings: (): string => '/data-management/ingestion-warnings',
     revenueSettings: (): string => '/data-management/revenue',
     coreEvents: (): string => '/data-management/core-events',
-    marketingAnalytics: (): string => '/data-management/marketing-analytics',
     marketingAnalyticsApp: (): string => '/marketing',
     customCss: (): string => '/themes/custom-css',
     sqlEditor: ({
@@ -65,6 +62,7 @@ export const urls = {
         endpointName,
         source,
         connectionId,
+        dashboard,
     }: {
         query?: string
         view_id?: string
@@ -74,6 +72,7 @@ export const urls = {
         endpointName?: string
         source?: string
         connectionId?: string
+        dashboard?: number
     } = {}): string => {
         const params = new URLSearchParams()
 
@@ -97,6 +96,10 @@ export const urls = {
 
         if (source) {
             params.set('source', source)
+        }
+
+        if (dashboard) {
+            params.set('dashboard', String(dashboard))
         }
 
         const queryString = params.toString()
@@ -132,6 +135,8 @@ export const urls = {
     login: (): string => '/login',
     login2FA: (): string => '/login/2fa',
     login2FASetup: (): string => '/login/2fa_setup',
+    /** After linking a social provider to an existing session (OAuth `next`; see posthog/api/authentication.py sso_login). */
+    accountSocialConnected: (): string => '/account/social-connected',
     cliAuthorize: (): string => '/cli/authorize',
     cliLive: (): string => '/cli/live',
     emailMFAVerify: (): string => '/login/verify',
@@ -190,6 +195,7 @@ export const urls = {
     asyncMigrationsFuture: (): string => '/instance/async_migrations/future',
     asyncMigrationsSettings: (): string => '/instance/async_migrations/settings',
     deadLetterQueue: (): string => '/instance/dead_letter_queue',
+    queryPerformance: (): string => '/instance/query_performance',
     materializedColumns: (): string => '/data-management/materialized-columns',
     unsubscribe: (): string => '/unsubscribe',
     integrationsRedirect: (kind: string): string => `/integrations/${kind}/callback`,
@@ -236,9 +242,6 @@ export const urls = {
     agenticAuthorize: (): string => '/agentic/authorize',
     oauthAuthorize: (): string => '/oauth/authorize',
     dataPipelinesNew: (kind?: DataPipelinesNewSceneKind): string => `/pipeline/new/${kind ?? ''}`,
-    dataWarehouseSource: (id: string, tab?: DataWarehouseSourceSceneTab): string =>
-        `/data-management/sources/${id}/${tab ?? 'schemas'}`,
-    dataWarehouseSourceNew: (kind?: string): string => `/data-warehouse/new-source${kind ? `?kind=${kind}` : ''}`,
     batchExportNew: (service: string): string => `/pipeline/batch-exports/new/${service}`,
     batchExport: (id: string): string => `/pipeline/batch-exports/${id}`,
     legacyPlugin: (id: string): string => `/pipeline/plugins/${id}`,
@@ -248,13 +251,19 @@ export const urls = {
     productTour: (id: string, params?: string): string =>
         `/product_tours/${id}${params ? `?${params.startsWith('?') ? params.slice(1) : params}` : ''}`,
     organizationDeactivated: (): string => '/organization-deactivated',
+    organizationPendingDeletion: (): string => '/organization-pending-deletion',
     approvals: (): string => '/settings/environment-approvals#change-requests',
     approval: (id: string): string => `/approvals/${id}`,
     health: (): string => '/health',
+    healthCategory: (category: string): string => `/health/${category}`,
     inbox: (reportId?: string): string => `/inbox${reportId ? `/${reportId}` : ''}`,
+    webAnalyticsBotAnalytics: (): string => '/web/bot-analytics',
+    webAnalyticsHealth: (): string => '/web/health',
     pipelineStatus: (): string => '/health/pipeline-status',
     sdkDoctor: (): string => '/health/sdk-doctor',
     exports: (): string => '/exports',
+    subscriptions: (): string => '/subscriptions',
+    subscription: (id: string | number): string => `/subscriptions/${id}`,
 }
 
 export interface UrlMatcher {
