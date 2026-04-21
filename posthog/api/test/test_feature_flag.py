@@ -1,3 +1,4 @@
+import os
 import json
 from datetime import UTC, datetime, timedelta
 from typing import Any, Optional, cast
@@ -8211,6 +8212,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(status_response.status_code, status.HTTP_403_FORBIDDEN)
 
     @patch("posthog.api.feature_flag.get_flags_from_service")
+    @patch.dict(os.environ, {"INTERNAL_REQUEST_TOKEN": "test-token"})
     def test_test_evaluation_happy_path(self, mock_get_flags):
         """Test successful evaluation of a feature flag."""
         flag = FeatureFlag.objects.create(
@@ -8248,6 +8250,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.assertIsInstance(data["person_properties"], dict)
 
     @patch("posthog.api.feature_flag.get_flags_from_service")
+    @patch.dict(os.environ, {"INTERNAL_REQUEST_TOKEN": "test-token"})
     def test_test_evaluation_with_timestamp(self, mock_get_flags):
         """Test historical evaluation with timestamp."""
         flag = FeatureFlag.objects.create(
@@ -8270,8 +8273,12 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             }
         }
 
-        with patch("posthog.api.feature_flag.build_person_properties_at_time") as mock_build_props:
+        with (
+            patch("posthog.api.feature_flag.build_person_properties_at_time") as mock_build_props,
+            patch("posthog.api.feature_flag.person_existed_at_timestamp") as mock_person_existed,
+        ):
             mock_build_props.return_value = {"email": "historical@example.com"}
+            mock_person_existed.return_value = True
 
             response = self.client.post(
                 f"/api/projects/{self.team.pk}/feature_flags/{flag.id}/test_evaluation/",
@@ -8362,6 +8369,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(response.json()["error"], "Failed to build person properties at specified timestamp.")
 
     @patch("posthog.api.feature_flag.get_flags_from_service")
+    @patch.dict(os.environ, {"INTERNAL_REQUEST_TOKEN": "test-token"})
     def test_test_evaluation_filters_person_properties(self, mock_get_flags):
         """Test that person_properties are filtered to only flag-referenced keys."""
         flag = FeatureFlag.objects.create(
@@ -8399,6 +8407,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(data["person_properties"], {"email": "test@example.com"})
 
     @patch("posthog.api.feature_flag.get_flags_from_service")
+    @patch.dict(os.environ, {"INTERNAL_REQUEST_TOKEN": "test-token"})
     def test_test_evaluation_unexpected_response_type(self, mock_get_flags):
         """Test 502 when flag service returns unexpected response format."""
         flag = FeatureFlag.objects.create(team=self.team, key="test-flag")
