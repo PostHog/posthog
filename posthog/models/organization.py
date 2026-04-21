@@ -466,26 +466,24 @@ class Organization(ModelActivityMixin, UUIDTModel):  # type: ignore[django-manag
         redis_client = get_client()
         now = timezone.now().timestamp()
 
-        # Use ZMSCORE to fetch scores for all team tokens in a single command per resource,
-        # instead of issuing one ZSCORE per (resource, token) pair. For large organizations
-        # this reduces the pipeline from (N_resources * N_teams) commands down to N_resources.
         pipe = redis_client.pipeline()
-        resources: list[QuotaResource] = []
+        checks: list[tuple[QuotaResource, str]] = []
+
         for resource in QuotaResource:
             cache_key = f"{QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY.value}{resource.value}"
-            pipe.zmscore(cache_key, team_tokens)
-            resources.append(resource)
+            for token in team_tokens:
+                pipe.zscore(cache_key, token)
+                checks.append((resource, token))
 
-        scores_per_resource = pipe.execute()
+        scores = pipe.execute()
 
-        for resource, scores in zip(resources, scores_per_resource):
-            for token, score in zip(team_tokens, scores):
-                if score is not None and score >= now:
-                    result[resource.value]["is_limited_in_redis"] = True
-                    result[resource.value]["limited_teams"].append(token)
-                    current_max = result[resource.value]["redis_quota_limited_until"]
-                    if current_max is None or score > current_max:
-                        result[resource.value]["redis_quota_limited_until"] = int(score)
+        for (resource, token), score in zip(checks, scores):
+            if score is not None and score >= now:
+                result[resource.value]["is_limited_in_redis"] = True
+                result[resource.value]["limited_teams"].append(token)
+                current_max = result[resource.value]["redis_quota_limited_until"]
+                if current_max is None or score > current_max:
+                    result[resource.value]["redis_quota_limited_until"] = int(score)
 
         return result
 

@@ -375,12 +375,9 @@ class TestOrganization(BaseTest):
 
     @patch("ee.billing.quota_limiting.get_client")
     def test_get_limited_products_no_limits(self, mock_get_client):
-        from ee.billing.quota_limiting import QuotaResource
-
         mock_redis = mock_get_client.return_value
         mock_pipe = mock_redis.pipeline.return_value
-        # zmscore returns one list of scores per resource; one team → one-element list
-        mock_pipe.execute.return_value = [[None] for _ in QuotaResource]
+        mock_pipe.execute.return_value = [None] * 10
 
         self.organization.usage = {
             "period": ["2024-01-01T00:00:00Z", "2024-02-01T00:00:00Z"],
@@ -405,13 +402,12 @@ class TestOrganization(BaseTest):
         mock_redis = mock_get_client.return_value
         mock_pipe = mock_redis.pipeline.return_value
 
-        # zmscore returns one list of scores per resource; one team → one-element list
-        scores: list[list[float | None]] = []
+        scores: list[float | None] = []
         for resource in QuotaResource:
             if resource == QuotaResource.EVENTS:
-                scores.append([future_timestamp])
+                scores.append(future_timestamp)
             else:
-                scores.append([None])
+                scores.append(None)
 
         mock_pipe.execute.return_value = scores
 
@@ -437,13 +433,12 @@ class TestOrganization(BaseTest):
         mock_redis = mock_get_client.return_value
         mock_pipe = mock_redis.pipeline.return_value
 
-        # zmscore returns one list of scores per resource; one team → one-element list
-        scores: list[list[float | None]] = []
+        scores: list[float | None] = []
         for resource in QuotaResource:
             if resource == QuotaResource.EVENTS:
-                scores.append([future_timestamp])
+                scores.append(future_timestamp)
             else:
-                scores.append([None])
+                scores.append(None)
 
         mock_pipe.execute.return_value = scores
 
@@ -470,13 +465,14 @@ class TestOrganization(BaseTest):
         mock_redis = mock_get_client.return_value
         mock_pipe = mock_redis.pipeline.return_value
 
-        # zmscore returns one list of scores per resource, one entry per team token
-        scores: list[list[float | None]] = []
+        scores: list[float | None] = []
         for resource in QuotaResource:
             if resource == QuotaResource.EVENTS:
-                scores.append([future_timestamp_1, future_timestamp_2])
+                scores.append(future_timestamp_1)
+                scores.append(future_timestamp_2)
             else:
-                scores.append([None, None])
+                scores.append(None)
+                scores.append(None)
 
         mock_pipe.execute.return_value = scores
 
