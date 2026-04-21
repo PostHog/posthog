@@ -28,9 +28,9 @@ export interface EvaluationRunRequestApi {
  * `paused` - Paused
  * `error` - Error
  */
-export type StatusCbbEnumApi = (typeof StatusCbbEnumApi)[keyof typeof StatusCbbEnumApi]
+export type EvaluationStatusEnumApi = (typeof EvaluationStatusEnumApi)[keyof typeof EvaluationStatusEnumApi]
 
-export const StatusCbbEnumApi = {
+export const EvaluationStatusEnumApi = {
     Active: 'active',
     Paused: 'paused',
     Error: 'error',
@@ -72,73 +72,6 @@ export type OutputTypeEnumApi = (typeof OutputTypeEnumApi)[keyof typeof OutputTy
 export const OutputTypeEnumApi = {
     Boolean: 'boolean',
 } as const
-
-/**
- * List serializer — drops heavy per-item fields for token efficiency in MCP and API list responses.
- */
-export interface EvaluationListApi {
-    readonly id: string
-    /**
-     * Name of the evaluation.
-     * @maxLength 400
-     */
-    name: string
-    /** Optional description of what this evaluation checks. */
-    description?: string
-    /** Whether the evaluation runs automatically on new $ai_generation events. */
-    enabled?: boolean
-    readonly status: StatusCbbEnumApi
-    readonly status_reason: StatusReasonEnumApi | NullEnumApi | null
-    /** 'llm_judge' uses an LLM to score outputs against a prompt; 'hog' runs deterministic Hog code.
-
-* `llm_judge` - LLM as a judge
-* `hog` - Hog */
-    evaluation_type: EvaluationTypeEnumApi
-    /** Output format. Currently only 'boolean' is supported.
-
-* `boolean` - Boolean (Pass/Fail) */
-    output_type: OutputTypeEnumApi
-    readonly created_at: string
-    readonly updated_at: string
-    /** Set to true to soft-delete the evaluation. */
-    deleted?: boolean
-}
-
-export interface PaginatedEvaluationListListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: EvaluationListApi[]
-}
-
-/**
- * Configuration dict. For 'llm_judge': {prompt}. For 'hog': {source}.
- */
-export type EvaluationApiEvaluationConfig =
-    | {
-          /**
-           * Evaluation criteria for the LLM judge. Describe what makes a good vs bad response.
-           * @minLength 1
-           */
-          prompt: string
-      }
-    | {
-          /**
-           * Hog source code. Must return true (pass), false (fail), or null for N/A.
-           * @minLength 1
-           */
-          source: string
-      }
-
-/**
- * Output config. For 'boolean' output_type: {allows_na} to permit N/A results.
- */
-export type EvaluationApiOutputConfig = {
-    /** Whether the evaluation can return N/A for non-applicable generations. */
-    allows_na?: boolean
-}
 
 /**
  * * `openai` - Openai
@@ -225,6 +158,33 @@ export interface UserBasicApi {
     role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | NullEnumApi | null
 }
 
+/**
+ * Configuration dict. For 'llm_judge': {prompt}. For 'hog': {source}.
+ */
+export type EvaluationApiEvaluationConfig =
+    | {
+          /**
+           * Evaluation criteria for the LLM judge. Describe what makes a good vs bad response.
+           * @minLength 1
+           */
+          prompt: string
+      }
+    | {
+          /**
+           * Hog source code. Must return true (pass), false (fail), or null for N/A.
+           * @minLength 1
+           */
+          source: string
+      }
+
+/**
+ * Output config. For 'boolean' output_type: {allows_na} to permit N/A results.
+ */
+export type EvaluationApiOutputConfig = {
+    /** Whether the evaluation can return N/A for non-applicable generations. */
+    allows_na?: boolean
+}
+
 export interface EvaluationApi {
     readonly id: string
     /**
@@ -236,7 +196,7 @@ export interface EvaluationApi {
     description?: string
     /** Whether the evaluation runs automatically on new $ai_generation events. */
     enabled?: boolean
-    readonly status: StatusCbbEnumApi
+    readonly status: EvaluationStatusEnumApi
     readonly status_reason: StatusReasonEnumApi | NullEnumApi | null
     /** 'llm_judge' uses an LLM to score outputs against a prompt; 'hog' runs deterministic Hog code.
 
@@ -259,6 +219,15 @@ export interface EvaluationApi {
     readonly created_by: UserBasicApi
     /** Set to true to soft-delete the evaluation. */
     deleted?: boolean
+}
+
+export interface PaginatedEvaluationListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: EvaluationApi[]
 }
 
 /**
@@ -299,7 +268,7 @@ export interface PatchedEvaluationApi {
     description?: string
     /** Whether the evaluation runs automatically on new $ai_generation events. */
     enabled?: boolean
-    readonly status?: StatusCbbEnumApi
+    readonly status?: EvaluationStatusEnumApi
     readonly status_reason?: StatusReasonEnumApi | NullEnumApi | null
     /** 'llm_judge' uses an LLM to score outputs against a prompt; 'hog' runs deterministic Hog code.
 
@@ -559,49 +528,13 @@ export interface ClusteringRunRequestApi {
  * * `scheduled` - Scheduled
  * `every_n` - Every N
  */
-export type Frequency162EnumApi = (typeof Frequency162EnumApi)[keyof typeof Frequency162EnumApi]
+export type EvaluationReportFrequencyEnumApi =
+    (typeof EvaluationReportFrequencyEnumApi)[keyof typeof EvaluationReportFrequencyEnumApi]
 
-export const Frequency162EnumApi = {
+export const EvaluationReportFrequencyEnumApi = {
     Scheduled: 'scheduled',
     EveryN: 'every_n',
 } as const
-
-/**
- * List serializer — drops heavy per-item fields (delivery targets, rrule, prompt guidance) for token efficiency.
- */
-export interface EvaluationReportListApi {
-    readonly id: string
-    /** UUID of the evaluation this report config belongs to. */
-    evaluation: string
-    /** 'every_n' triggers a report after N evaluations run; 'scheduled' uses an rrule schedule.
-
-* `scheduled` - Scheduled
-* `every_n` - Every N */
-    frequency?: Frequency162EnumApi
-    /** @nullable */
-    readonly next_delivery_date: string | null
-    /** Whether report delivery is active. */
-    enabled?: boolean
-    /** @nullable */
-    readonly last_delivered_at: string | null
-    /**
-     * Number of evaluation runs that trigger a report (every_n mode). Min 10, max 1000.
-     * @minimum -2147483648
-     * @maximum 2147483647
-     * @nullable
-     */
-    trigger_threshold?: number | null
-    readonly created_at: string
-}
-
-export interface PaginatedEvaluationReportListListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: EvaluationReportListApi[]
-}
 
 export interface EvaluationReportApi {
     readonly id: string
@@ -611,7 +544,7 @@ export interface EvaluationReportApi {
 
 * `scheduled` - Scheduled
 * `every_n` - Every N */
-    frequency?: Frequency162EnumApi
+    frequency?: EvaluationReportFrequencyEnumApi
     /** RFC 5545 recurrence rule string. Required when frequency is 'scheduled'. */
     rrule?: string
     /**
@@ -666,6 +599,15 @@ export interface EvaluationReportApi {
     readonly created_at: string
 }
 
+export interface PaginatedEvaluationReportListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: EvaluationReportApi[]
+}
+
 export interface PatchedEvaluationReportApi {
     readonly id?: string
     /** UUID of the evaluation this report config belongs to. */
@@ -674,7 +616,7 @@ export interface PatchedEvaluationReportApi {
 
 * `scheduled` - Scheduled
 * `every_n` - Every N */
-    frequency?: Frequency162EnumApi
+    frequency?: EvaluationReportFrequencyEnumApi
     /** RFC 5545 recurrence rule string. Required when frequency is 'scheduled'. */
     rrule?: string
     /**

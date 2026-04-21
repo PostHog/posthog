@@ -320,13 +320,25 @@ class EvaluationFilter(django_filters.FilterSet):
 
 
 class EvaluationListSerializer(EvaluationSerializer):
-    """List serializer — drops heavy per-item fields for token efficiency in MCP and API list responses."""
+    """Slim list serializer for MCP callers — drops heavy per-item fields to save tokens.
+
+    Gated on the ``X-PostHog-Client: mcp`` header so the web UI keeps the full shape
+    it relies on (see `EvaluationViewSet.get_serializer_class`).
+    """
 
     class Meta(EvaluationSerializer.Meta):
         fields = [
             f
             for f in EvaluationSerializer.Meta.fields
-            if f not in ("evaluation_config", "output_config", "conditions", "model_configuration", "created_by")
+            if f
+            not in (
+                "evaluation_config",
+                "output_config",
+                "conditions",
+                "model_configuration",
+                "created_by",
+                "deleted",
+            )
         ]
         read_only_fields = [f for f in EvaluationSerializer.Meta.read_only_fields if f != "created_by"]
 
@@ -381,14 +393,21 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbi
     filter_backends = [DjangoFilterBackend]
     filterset_class = EvaluationFilter
 
+    @staticmethod
+    def _is_mcp_request(request: Request) -> bool:
+        return request.META.get("HTTP_X_POSTHOG_CLIENT") == "mcp"
+
+    def _wants_slim_list(self) -> bool:
+        return self.action == "list" and self._is_mcp_request(self.request)
+
     def get_serializer_class(self):
-        if self.action == "list":
+        if self._wants_slim_list():
             return EvaluationListSerializer
         return super().get_serializer_class()
 
     def safely_get_queryset(self, queryset: QuerySet[Evaluation]) -> QuerySet[Evaluation]:
         queryset = queryset.filter(team_id=self.team_id).order_by("-created_at")
-        if self.action != "list":
+        if not self._wants_slim_list():
             queryset = queryset.select_related("created_by", "model_configuration", "model_configuration__provider_key")
         if not self.action.endswith("update"):
             queryset = queryset.filter(deleted=False)

@@ -187,7 +187,12 @@ class EvaluationReportSerializer(serializers.ModelSerializer):
 
 
 class EvaluationReportListSerializer(EvaluationReportSerializer):
-    """List serializer — drops heavy per-item fields (delivery targets, rrule, prompt guidance) for token efficiency."""
+    """Slim list serializer for MCP callers — drops heavy per-item fields to save tokens.
+
+    Gated on the ``X-PostHog-Client: mcp`` header so the web UI keeps the full shape
+    it relies on for draft seeding and schedule editing (see
+    `EvaluationReportViewSet.get_serializer_class`).
+    """
 
     class Meta(EvaluationReportSerializer.Meta):
         fields = [
@@ -246,8 +251,12 @@ class EvaluationReportViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewse
     serializer_class = EvaluationReportSerializer
     queryset = EvaluationReport.objects.all()
 
+    @staticmethod
+    def _is_mcp_request(request: Request) -> bool:
+        return request.META.get("HTTP_X_POSTHOG_CLIENT") == "mcp"
+
     def get_serializer_class(self):
-        if self.action == "list":
+        if self.action == "list" and self._is_mcp_request(self.request):
             return EvaluationReportListSerializer
         return super().get_serializer_class()
 

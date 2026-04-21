@@ -51,8 +51,8 @@ import type {
     PaginatedClusteringJobListApi,
     PaginatedDatasetItemListApi,
     PaginatedDatasetListApi,
-    PaginatedEvaluationListListApi,
-    PaginatedEvaluationReportListListApi,
+    PaginatedEvaluationListApi,
+    PaginatedEvaluationReportListApi,
     PaginatedEvaluationReportRunListApi,
     PaginatedLLMPromptListListApi,
     PaginatedLLMProviderKeyListApi,
@@ -152,8 +152,8 @@ export const evaluationsList = async (
     projectId: string,
     params?: EvaluationsListParams,
     options?: RequestInit
-): Promise<PaginatedEvaluationListListApi> => {
-    return apiMutator<PaginatedEvaluationListListApi>(getEvaluationsListUrl(projectId, params), {
+): Promise<PaginatedEvaluationListApi> => {
+    return apiMutator<PaginatedEvaluationListApi>(getEvaluationsListUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
@@ -503,14 +503,11 @@ export const llmAnalyticsEvaluationReportsList = async (
     projectId: string,
     params?: LlmAnalyticsEvaluationReportsListParams,
     options?: RequestInit
-): Promise<PaginatedEvaluationReportListListApi> => {
-    return apiMutator<PaginatedEvaluationReportListListApi>(
-        getLlmAnalyticsEvaluationReportsListUrl(projectId, params),
-        {
-            ...options,
-            method: 'GET',
-        }
-    )
+): Promise<PaginatedEvaluationReportListApi> => {
+    return apiMutator<PaginatedEvaluationReportListApi>(getLlmAnalyticsEvaluationReportsListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
 }
 
 /**

@@ -14870,10 +14870,10 @@ export namespace Schemas {
     * `paused` - Paused
     * `error` - Error
      */
-    export type StatusCbbEnum = typeof StatusCbbEnum[keyof typeof StatusCbbEnum];
+    export type EvaluationStatusEnum = typeof EvaluationStatusEnum[keyof typeof EvaluationStatusEnum];
 
 
-    export const StatusCbbEnum = {
+    export const EvaluationStatusEnum = {
       Active: 'active',
       Paused: 'paused',
       Error: 'error',
@@ -14957,7 +14957,7 @@ export namespace Schemas {
       description?: string;
       /** Whether the evaluation runs automatically on new $ai_generation events. */
       enabled?: boolean;
-      readonly status: StatusCbbEnum;
+      readonly status: EvaluationStatusEnum;
       readonly status_reason: StatusReasonEnum | NullEnum | null;
       /** 'llm_judge' uses an LLM to score outputs against a prompt; 'hog' runs deterministic Hog code.
 
@@ -14982,37 +14982,6 @@ export namespace Schemas {
       deleted?: boolean;
     }
 
-    /**
-     * List serializer — drops heavy per-item fields for token efficiency in MCP and API list responses.
-     */
-    export interface EvaluationList {
-      readonly id: string;
-      /**
-       * Name of the evaluation.
-       * @maxLength 400
-       */
-      name: string;
-      /** Optional description of what this evaluation checks. */
-      description?: string;
-      /** Whether the evaluation runs automatically on new $ai_generation events. */
-      enabled?: boolean;
-      readonly status: StatusCbbEnum;
-      readonly status_reason: StatusReasonEnum | NullEnum | null;
-      /** 'llm_judge' uses an LLM to score outputs against a prompt; 'hog' runs deterministic Hog code.
-
-    * `llm_judge` - LLM as a judge
-    * `hog` - Hog */
-      evaluation_type: EvaluationTypeEnum;
-      /** Output format. Currently only 'boolean' is supported.
-
-    * `boolean` - Boolean (Pass/Fail) */
-      output_type: OutputTypeEnum;
-      readonly created_at: string;
-      readonly updated_at: string;
-      /** Set to true to soft-delete the evaluation. */
-      deleted?: boolean;
-    }
-
     export interface EvaluationPattern {
       title: string;
       description: string;
@@ -15024,10 +14993,10 @@ export namespace Schemas {
      * * `scheduled` - Scheduled
     * `every_n` - Every N
      */
-    export type Frequency162Enum = typeof Frequency162Enum[keyof typeof Frequency162Enum];
+    export type EvaluationReportFrequencyEnum = typeof EvaluationReportFrequencyEnum[keyof typeof EvaluationReportFrequencyEnum];
 
 
-    export const Frequency162Enum = {
+    export const EvaluationReportFrequencyEnum = {
       Scheduled: 'scheduled',
       EveryN: 'every_n',
     } as const;
@@ -15040,7 +15009,7 @@ export namespace Schemas {
 
     * `scheduled` - Scheduled
     * `every_n` - Every N */
-      frequency?: Frequency162Enum;
+      frequency?: EvaluationReportFrequencyEnum;
       /** RFC 5545 recurrence rule string. Required when frequency is 'scheduled'. */
       rrule?: string;
       /**
@@ -15092,34 +15061,6 @@ export namespace Schemas {
       daily_run_cap?: number;
       /** @nullable */
       readonly created_by: number | null;
-      readonly created_at: string;
-    }
-
-    /**
-     * List serializer — drops heavy per-item fields (delivery targets, rrule, prompt guidance) for token efficiency.
-     */
-    export interface EvaluationReportList {
-      readonly id: string;
-      /** UUID of the evaluation this report config belongs to. */
-      evaluation: string;
-      /** 'every_n' triggers a report after N evaluations run; 'scheduled' uses an rrule schedule.
-
-    * `scheduled` - Scheduled
-    * `every_n` - Every N */
-      frequency?: Frequency162Enum;
-      /** @nullable */
-      readonly next_delivery_date: string | null;
-      /** Whether report delivery is active. */
-      enabled?: boolean;
-      /** @nullable */
-      readonly last_delivered_at: string | null;
-      /**
-       * Number of evaluation runs that trigger a report (every_n mode). Min 10, max 1000.
-       * @minimum -2147483648
-       * @maximum 2147483647
-       * @nullable
-       */
-      trigger_threshold?: number | null;
       readonly created_at: string;
     }
 
@@ -21657,22 +21598,22 @@ export namespace Schemas {
       results: ErrorTrackingSymbolSet[];
     }
 
-    export interface PaginatedEvaluationListList {
+    export interface PaginatedEvaluationList {
       count: number;
       /** @nullable */
       next?: string | null;
       /** @nullable */
       previous?: string | null;
-      results: EvaluationList[];
+      results: Evaluation[];
     }
 
-    export interface PaginatedEvaluationReportListList {
+    export interface PaginatedEvaluationReportList {
       count: number;
       /** @nullable */
       next?: string | null;
       /** @nullable */
       previous?: string | null;
-      results: EvaluationReportList[];
+      results: EvaluationReport[];
     }
 
     export interface PaginatedEvaluationReportRunList {
@@ -25383,7 +25324,7 @@ export namespace Schemas {
       description?: string;
       /** Whether the evaluation runs automatically on new $ai_generation events. */
       enabled?: boolean;
-      readonly status?: StatusCbbEnum;
+      readonly status?: EvaluationStatusEnum;
       readonly status_reason?: StatusReasonEnum | NullEnum | null;
       /** 'llm_judge' uses an LLM to score outputs against a prompt; 'hog' runs deterministic Hog code.
 
@@ -25416,7 +25357,7 @@ export namespace Schemas {
 
     * `scheduled` - Scheduled
     * `every_n` - Every N */
-      frequency?: Frequency162Enum;
+      frequency?: EvaluationReportFrequencyEnum;
       /** RFC 5545 recurrence rule string. Required when frequency is 'scheduled'. */
       rrule?: string;
       /**

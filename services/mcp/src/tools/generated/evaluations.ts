@@ -16,12 +16,12 @@ import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const EvaluationsGetSchema = EvaluationsListQueryParams
 
-const evaluationsGet = (): ToolBase<typeof EvaluationsGetSchema, Schemas.PaginatedEvaluationListList> => ({
+const evaluationsGet = (): ToolBase<typeof EvaluationsGetSchema, Schemas.PaginatedEvaluationList> => ({
     name: 'evaluations-get',
     schema: EvaluationsGetSchema,
     handler: async (context: Context, params: z.infer<typeof EvaluationsGetSchema>) => {
         const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.PaginatedEvaluationListList>({
+        const result = await context.api.request<Schemas.PaginatedEvaluationList>({
             method: 'GET',
             path: `/api/environments/${encodeURIComponent(String(projectId))}/evaluations/`,
             query: {
