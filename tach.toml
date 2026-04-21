@@ -519,3 +519,11 @@ expose = [
 from = [
     "products.tracing",
 ]
+
+[[modules]]
+path = "products.legal_documents"
+depends_on = [
+    "ee",
+    "posthog",
+]
+layer = "modules"
