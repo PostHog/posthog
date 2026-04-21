@@ -33,6 +33,7 @@ class PlainSource(SimpleSource[PlainSourceConfig]):
             name=SchemaExternalDataSourceType.PLAIN,
             label="Plain",
             betaSource=True,
+            featureFlag="dwh_plain",
             caption="""Enter your Plain API key to automatically pull your Plain customer support data into the PostHog Data warehouse.
 
 You can create an API key in your [Plain workspace settings](https://app.plain.com/settings/api-keys).
@@ -42,7 +43,7 @@ Make sure to grant the following read permissions:
 - thread:read
 - timeline:read
 """,
-            iconPath="/static/services/plain.svg",
+            iconPath="/static/services/plain.png",
             fields=cast(
                 list[FieldType],
                 [
