@@ -29,6 +29,8 @@ interface BillingProductAddonActionsProps {
     align?: 'left' | 'right'
     /** Skip rendering the trial status tag when the caller already shows it elsewhere. */
     hideTrialTag?: boolean
+    /** Collapse pricing into the CTA: hide the paragraph below and swap the next-to-button flat rate for the prorated amount when it applies. */
+    hidePricingNote?: boolean
 }
 
 export const BillingProductAddonActions = ({
@@ -38,6 +40,7 @@ export const BillingProductAddonActions = ({
     ctaTextOverride,
     align = 'right',
     hideTrialTag = false,
+    hidePricingNote = false,
 }: BillingProductAddonActionsProps): JSX.Element => {
     const { billing, billingError, currentPlatformAddon, unusedPlatformAddonAmount, switchPlanLoading } =
         useValues(billingLogic)
@@ -124,18 +127,24 @@ export const BillingProductAddonActions = ({
     )
 
     const renderPurchaseActions = (): JSX.Element => {
-        const showPricing = currentAndUpgradePlans?.upgradePlan?.flat_rate
+        const hasFlatRate = !!currentAndUpgradePlans?.upgradePlan?.flat_rate
+        // Drop the flat-rate label when the caller already shows the headline price, unless proration or trial applies.
+        const showLabel = hasFlatRate && !(hidePricingNote && !isTrialEligible && !isProrated)
 
         return (
             <>
-                {showPricing ? (
-                    <h4 className="leading-5 font-bold mb-0 flex gap-x-0.5">
-                        {isTrialEligible ? (
-                            <span>{addon.trial?.length} day free trial</span>
-                        ) : (
-                            <span>{formatFlatRate(Number(upgradePlan?.unit_amount_usd), upgradePlan?.unit)}</span>
-                        )}
-                    </h4>
+                {hasFlatRate ? (
+                    showLabel ? (
+                        <h4 className="leading-5 font-bold mb-0 flex gap-x-0.5">
+                            {isTrialEligible ? (
+                                <span>{addon.trial?.length} day free trial</span>
+                            ) : hidePricingNote && isProrated ? (
+                                <span>${proratedAmount.toFixed(2)} today (prorated)</span>
+                            ) : (
+                                <span>{formatFlatRate(Number(upgradePlan?.unit_amount_usd), upgradePlan?.unit)}</span>
+                            )}
+                        </h4>
+                    ) : null
                 ) : (
                     <LemonButton type="secondary" onClick={toggleIsPricingModalOpen}>
                         View pricing
@@ -167,18 +176,13 @@ export const BillingProductAddonActions = ({
     }
 
     const renderPricingInfo = (): JSX.Element | null => {
-        // Don't render if
-        // - the product is inclusion only (it's automatically included and can't be subscribed to)
-        // - the plan requires contacting support
-        // - the customer is on a trial
-        // - the customer is already subscribed to the product
-        // - the product is included with the main product
         if (
             addon.inclusion_only ||
             addon.contact_support ||
             billing?.trial ||
             addon.subscribed ||
-            addon.included_with_main_product
+            addon.included_with_main_product ||
+            hidePricingNote
         ) {
             return null
         }

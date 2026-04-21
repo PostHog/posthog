@@ -1,5 +1,6 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+import { useState } from 'react'
 
 import {
     IconActivity,
@@ -13,7 +14,7 @@ import {
     IconShieldLock,
     IconShieldPeople,
 } from '@posthog/icons'
-import { LemonButton, LemonTag, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { UNSUBSCRIBE_SURVEY_ID } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
@@ -31,8 +32,14 @@ import { UnsubscribeSurveyModal } from './UnsubscribeSurveyModal'
 
 export const COMPARISON_ADDONS: BillingPlan[] = [BillingPlan.Boost, BillingPlan.Scale, BillingPlan.Enterprise]
 
+const PLAN_DESCRIPTION: Partial<Record<BillingPlan, string>> = {
+    [BillingPlan.Boost]: 'Essentials for security and compliance',
+    [BillingPlan.Scale]: 'Everything in Boost plus',
+    [BillingPlan.Enterprise]: 'Everything in Scale plus',
+}
+
 type CoreFeature = { icon: JSX.Element; label: string }
-const CORE_FEATURES: Record<string, CoreFeature[]> = {
+const CORE_FEATURES: Partial<Record<BillingPlan, CoreFeature[]>> = {
     [BillingPlan.Boost]: [
         { icon: <IconLock />, label: 'Access control' },
         { icon: <IconInfinity />, label: 'Unlimited projects' },
@@ -84,65 +91,85 @@ const buildComparisonFeatures = (addons: BillingProductV2AddonType[]): Compariso
     return Array.from(features.values())
 }
 
-const PlanCard = ({ addon }: { addon: BillingProductV2AddonType }): JSX.Element => {
+const PlanCard = ({
+    addon,
+    onExpandCompare,
+}: {
+    addon: BillingProductV2AddonType
+    onExpandCompare: () => void
+}): JSX.Element => {
     const { billing } = useValues(billingLogic)
     const { currentAndUpgradePlans } = useValues(billingProductLogic({ product: addon }))
-    const upgradePlan = currentAndUpgradePlans?.upgradePlan
-    const coreFeatures = CORE_FEATURES[addon.type] || []
+    // Fall back to currentPlan when the addon is subscribed — upgradePlan is null on the current tier.
+    const pricedPlan = currentAndUpgradePlans?.upgradePlan ?? currentAndUpgradePlans?.currentPlan
+    const coreFeatures = CORE_FEATURES[addon.type as BillingPlan] || []
+    const description = PLAN_DESCRIPTION[addon.type as BillingPlan]
     const isOnTrial = billing?.trial?.target === addon.type
 
     return (
         <div
             className={clsx(
                 'flex flex-col gap-3 p-5 rounded bg-surface-secondary',
-                (addon.subscribed || isOnTrial) && 'ring-2 ring-brand-red'
+                (addon.subscribed || isOnTrial) && 'ring-1 ring-accent'
             )}
         >
-            <div className="flex items-center gap-2">
-                <h4 className="mb-0 font-bold">{addon.name}</h4>
-                {addon.subscribed && (
-                    <LemonTag type="primary" icon={<IconCheckCircle />}>
-                        Subscribed
-                    </LemonTag>
-                )}
-                {isOnTrial && (
-                    <Tooltip
-                        title={
-                            <p>
-                                You are currently on a free trial for{' '}
-                                <b>{toSentenceCase(billing?.trial?.target || '')}</b> until{' '}
-                                <b>{dayjs(billing?.trial?.expires_at).format('LL')}</b>. At the end of the trial{' '}
-                                {billing?.trial?.type === 'autosubscribe'
-                                    ? 'you will be automatically subscribed to the plan.'
-                                    : 'you will be asked to subscribe. If you choose not to, you will lose access to the features.'}
-                            </p>
-                        }
-                    >
-                        <LemonTag type="completion" icon={<IconCheckCircle />}>
-                            You're on a trial
+            <div>
+                <h4 className="font-bold mb-0 flex items-center gap-x-2">
+                    {addon.name}
+                    {addon.subscribed && (
+                        <LemonTag type="primary" icon={<IconCheckCircle />}>
+                            Subscribed
                         </LemonTag>
-                    </Tooltip>
-                )}
+                    )}
+                    {isOnTrial && (
+                        <Tooltip
+                            title={
+                                <p>
+                                    You are currently on a free trial for{' '}
+                                    <b>{toSentenceCase(billing?.trial?.target || '')}</b> until{' '}
+                                    <b>{dayjs(billing?.trial?.expires_at).format('LL')}</b>. At the end of the trial{' '}
+                                    {billing?.trial?.type === 'autosubscribe'
+                                        ? 'you will be automatically subscribed to the plan.'
+                                        : 'you will be asked to subscribe. If you choose not to, you will lose access to the features.'}
+                                </p>
+                            }
+                        >
+                            <LemonTag type="completion" icon={<IconCheckCircle />}>
+                                You're on a trial
+                            </LemonTag>
+                        </Tooltip>
+                    )}
+                </h4>
+                {description && <div>{description}</div>}
             </div>
             {coreFeatures.length > 0 && (
-                <div className="flex flex-wrap gap-1">
+                <div className="flex flex-wrap items-center gap-1">
                     {coreFeatures.map((feature) => (
                         <LemonTag key={feature.label} icon={feature.icon}>
                             {feature.label}
                         </LemonTag>
                     ))}
+                    <Link className="text-xs ml-1" onClick={onExpandCompare}>
+                        + More
+                    </Link>
                 </div>
             )}
-            {upgradePlan?.flat_rate && (
+            {pricedPlan?.flat_rate && (
                 <div className="flex items-baseline gap-x-1 mt-1">
                     <span className="font-bold text-3xl leading-none">
-                        {humanFriendlyCurrency(Number(upgradePlan.unit_amount_usd), 0)}
+                        {humanFriendlyCurrency(Number(pricedPlan.unit_amount_usd), 0)}
                     </span>
-                    {upgradePlan.unit && <span className="text-secondary">/ {upgradePlan.unit}</span>}
+                    {pricedPlan.unit && <span className="text-secondary">/ {pricedPlan.unit}</span>}
                 </div>
             )}
             <div className="-mt-2">
-                <BillingProductAddonActions addon={addon} buttonSize="small" align="left" hideTrialTag />
+                <BillingProductAddonActions
+                    addon={addon}
+                    buttonSize="small"
+                    align="left"
+                    hideTrialTag
+                    hidePricingNote
+                />
             </div>
         </div>
     )
@@ -154,20 +181,20 @@ const LegacyPlanHero = ({ addon }: { addon: BillingProductV2AddonType }): JSX.El
     const currentPlan = currentAndUpgradePlans?.currentPlan
 
     return (
-        <div className="flex flex-col gap-3 p-5 rounded bg-surface-secondary ring-2 ring-brand-red">
+        <div className="flex flex-col gap-3 p-5 rounded bg-surface-secondary ring-1 ring-accent">
             <div className="flex items-start justify-between gap-4">
-                <div className="flex flex-col gap-2">
-                    <div className="flex items-center gap-2">
-                        <h4 className="mb-0 font-bold">{addon.name}</h4>
+                <div>
+                    <h4 className="font-bold mb-0 flex items-center gap-x-2">
+                        {addon.name}
                         <LemonTag type="primary" icon={<IconCheckCircle />}>
                             Subscribed
                         </LemonTag>
                         <LemonTag type="warning">Legacy</LemonTag>
-                    </div>
-                    <p className="text-sm text-secondary m-0">
+                    </h4>
+                    <div>
                         You're subscribed to our legacy {addon.name} plan. Compare plans to see if it makes sense to
                         switch.
-                    </p>
+                    </div>
                 </div>
                 <div className="flex items-center gap-2 shrink-0 self-center">
                     {currentPlan?.flat_rate && (
@@ -202,15 +229,16 @@ export const PlatformAddonComparison = ({ product }: { product: BillingProductV2
     const comparableAddons = COMPARISON_ADDONS.map((type) =>
         product.addons?.find((addon) => addon.type === type && !addon.legacy_product)
     ).filter((addon): addon is BillingProductV2AddonType => !!addon)
+    const legacyAddon = product.addons?.find((addon) => addon.legacy_product && addon.subscribed) ?? null
+    const hasPlatformAddon = comparableAddons.some((addon) => addon.subscribed)
+    const [isCompareOpen, setIsCompareOpen] = useState(hasPlatformAddon || !!legacyAddon)
 
     if (comparableAddons.length === 0) {
         return null
     }
 
-    const legacyAddon = product.addons?.find((addon) => addon.legacy_product && addon.subscribed) ?? null
     const tableAddons = legacyAddon ? [legacyAddon, ...comparableAddons] : comparableAddons
     const features = buildComparisonFeatures(tableAddons)
-    const hasPlatformAddon = comparableAddons.some((addon) => addon.subscribed)
 
     const tableGridStyle = {
         gridTemplateColumns: `minmax(320px, 3fr) repeat(${tableAddons.length}, minmax(120px, 1fr))`,
@@ -256,13 +284,14 @@ export const PlatformAddonComparison = ({ product }: { product: BillingProductV2
 
             <div className="grid gap-3 grid-cols-3">
                 {comparableAddons.map((addon) => (
-                    <PlanCard key={addon.type} addon={addon} />
+                    <PlanCard key={addon.type} addon={addon} onExpandCompare={() => setIsCompareOpen(true)} />
                 ))}
             </div>
 
             {features.length > 0 && (
                 <LemonCollapse
-                    defaultActiveKey={hasPlatformAddon || legacyAddon ? 'compare' : undefined}
+                    activeKey={isCompareOpen ? 'compare' : null}
+                    onChange={(key) => setIsCompareOpen(key === 'compare')}
                     panels={[
                         {
                             key: 'compare',
