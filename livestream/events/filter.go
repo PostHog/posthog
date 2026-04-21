@@ -85,6 +85,15 @@ func convertToResponsePostHogEvent(event PostHogEvent, teamId int, columns []str
 		}
 	}
 
+	if event.TrafficType != "" {
+		properties["$virt_is_bot"] = event.IsBot
+		properties["$virt_traffic_type"] = event.TrafficType
+		properties["$virt_traffic_category"] = event.TrafficCategory
+		if event.BotName != "" {
+			properties["$virt_bot_name"] = event.BotName
+		}
+	}
+
 	return &ResponsePostHogEvent{
 		Uuid:       event.Uuid,
 		Timestamp:  event.Timestamp,
