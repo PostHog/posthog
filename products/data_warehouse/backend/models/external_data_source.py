@@ -83,6 +83,13 @@ class ExternalDataSource(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         return not self.is_direct_query
 
     @property
+    def active_projection_revision(self):
+        if not self.is_direct_postgres:
+            return None
+
+        return self.projection_revisions.filter(is_active=True).order_by("-version").first()
+
+    @property
     def revenue_analytics_config_safe(self):
         """
         Safely access revenue_analytics_config with automatic creation fallback.

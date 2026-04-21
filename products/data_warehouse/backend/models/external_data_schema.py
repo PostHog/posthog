@@ -234,6 +234,23 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         return None
 
     @property
+    def source_schema_metadata(self) -> dict[str, Any] | None:
+        if self.sync_type_config:
+            metadata = self.sync_type_config.get("source_schema_metadata")
+            if isinstance(metadata, dict):
+                return metadata
+        return None
+
+    @property
+    def custom_fields(self) -> list[dict[str, str]] | None:
+        metadata = self.schema_metadata
+        if metadata:
+            custom_fields = metadata.get("custom_fields")
+            if isinstance(custom_fields, list):
+                return custom_fields
+        return None
+
+    @property
     def foreign_keys(self) -> list[dict[str, str]] | None:
         metadata = self.schema_metadata
         if metadata:

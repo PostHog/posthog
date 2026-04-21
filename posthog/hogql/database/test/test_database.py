@@ -5,7 +5,9 @@ import pytest
 from posthog.test.base import BaseTest, FuzzyInt, QueryMatchingTest, snapshot_postgres_queries
 from unittest.mock import patch
 
+from django.db import connection
 from django.test import override_settings
+from django.test.utils import CaptureQueriesContext
 
 from parameterized import parameterized
 
@@ -1164,6 +1166,43 @@ class TestDatabase(BaseTest, QueryMatchingTest):
 
         assert [table.id for table in loaded_tables] == [first_table.id]
 
+    def test_direct_postgres_qualified_table_name_resolves_in_postgres_select(self):
+        credentials = DataWarehouseCredential.objects.create(
+            access_key="test_key", access_secret="test_secret", team=self.team
+        )
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="source_id",
+            connection_id="connection_id",
+            source_type=ExternalDataSourceType.POSTGRES,
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+        )
+        DataWarehouseTable.objects.create(
+            name="posthog.struct_smoke_test22",
+            format="Parquet",
+            team=self.team,
+            credential=credentials,
+            external_data_source=source,
+            external_data_source_id=source.id,
+            url_pattern="direct://postgres",
+            options={"direct_postgres_schema": "posthog", "direct_postgres_table": "struct_smoke_test22"},
+            columns={"id": {"clickhouse": "Int64", "hogql": "integer", "valid": True}},
+        )
+
+        database = Database.create_for(team=self.team, connection_id=str(source.id))
+        context = HogQLContext(
+            team_id=self.team.pk,
+            enable_select_queries=True,
+            database=database,
+            direct_postgres_connection_metadata={"engine": "postgres"},
+        )
+
+        prepare_and_print_ast(
+            parse_select("SELECT * FROM posthog.struct_smoke_test22"),
+            context,
+            dialect="postgres",
+        )
+
     def test_adds_foreign_key_joins_for_direct_postgres_tables(self):
         credentials = DataWarehouseCredential.objects.create(
             access_key="test_key", access_secret="test_secret", team=self.team
@@ -1805,6 +1844,61 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         assert database.has_table("persons")
         assert set(serialized["events"].fields.keys()) == {"id"}
         assert set(serialized["persons"].fields.keys()) == {"email"}
+
+    def test_direct_query_database_scopes_warehouse_table_select_to_connection(self) -> None:
+        credentials = DataWarehouseCredential.objects.create(
+            access_key="test_key", access_secret="test_secret", team=self.team
+        )
+        selected_source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="selected_source_id",
+            connection_id="selected_connection_id",
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type=ExternalDataSourceType.POSTGRES,
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            prefix="ph3",
+        )
+        other_source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="other_source_id",
+            connection_id="other_connection_id",
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type=ExternalDataSourceType.POSTGRES,
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            prefix="ph4",
+        )
+
+        DataWarehouseTable.objects.create(
+            name="posthog_dashboard",
+            format="Parquet",
+            team=self.team,
+            credential=credentials,
+            external_data_source=selected_source,
+            url_pattern="direct://postgres",
+            columns={"id": {"hogql": "StringDatabaseField", "clickhouse": "Nullable(String)", "schema_valid": True}},
+        )
+        for index in range(3):
+            DataWarehouseTable.objects.create(
+                name=f"other_table_{index}",
+                format="Parquet",
+                team=self.team,
+                credential=credentials,
+                external_data_source=other_source,
+                url_pattern="direct://postgres",
+                columns={
+                    "id": {"hogql": "StringDatabaseField", "clickhouse": "Nullable(String)", "schema_valid": True}
+                },
+            )
+
+        with CaptureQueriesContext(connection) as queries:
+            database = Database.create_for(team=self.team, connection_id=str(selected_source.id))
+
+        assert database.has_table("posthog_dashboard")
+        assert not database.has_table("other_table_0")
+        warehouse_table_queries = [
+            query["sql"] for query in queries.captured_queries if '"posthog_datawarehousetable"' in query["sql"]
+        ]
+        assert any('"external_data_source_id"' in query for query in warehouse_table_queries)
 
     def test_direct_postgres_reserved_table_names_do_not_hide_posthog_tables_without_connection(self) -> None:
         credentials = DataWarehouseCredential.objects.create(

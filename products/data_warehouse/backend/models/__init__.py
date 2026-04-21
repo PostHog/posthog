@@ -7,6 +7,7 @@ from .datawarehouse_saved_query_folder import *
 from .external_data_job import *
 from .external_data_schema import *
 from .external_data_source import *
+from .external_data_source_projection import *
 from .join import *
 from .modeling import *
 from .query_tab_state import *

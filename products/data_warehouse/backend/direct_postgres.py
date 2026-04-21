@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from copy import deepcopy
 from typing import TYPE_CHECKING, Any
 
 from django.db.models import Q
@@ -7,7 +8,7 @@ from django.db.models import Q
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 
 from products.data_warehouse.backend.models.external_data_source import ExternalDataSource
-from products.data_warehouse.backend.models.util import postgres_column_to_dwh_column, postgres_columns_to_dwh_columns
+from products.data_warehouse.backend.models.util import postgres_column_to_dwh_column
 
 if TYPE_CHECKING:
     from products.data_warehouse.backend.models.table import DataWarehouseTable
@@ -16,6 +17,7 @@ DIRECT_POSTGRES_URL_PATTERN = "direct://postgres"
 DIRECT_POSTGRES_CATALOG_OPTION = "direct_postgres_catalog"
 DIRECT_POSTGRES_SCHEMA_OPTION = "direct_postgres_schema"
 DIRECT_POSTGRES_TABLE_OPTION = "direct_postgres_table"
+DIRECT_POSTGRES_SOURCE_SCHEMA_METADATA_KEY = "source_schema_metadata"
 
 type DirectPostgresColumns = dict[str, dict[str, Any]]
 type DirectPostgresLocation = tuple[str | None, str, str]
@@ -60,6 +62,8 @@ def postgres_schema_metadata(
     source_catalog: str | None = None,
     source_schema: str | None = None,
     source_table_name: str | None = None,
+    query_name: str | None = None,
+    custom_fields: list[dict[str, str]] | None = None,
 ) -> dict[str, Any]:
     return {
         "columns": [
@@ -73,6 +77,8 @@ def postgres_schema_metadata(
         "source_catalog": source_catalog,
         "source_schema": source_schema,
         "source_table_name": source_table_name,
+        "query_name": query_name,
+        "custom_fields": custom_fields or [],
     }
 
 
@@ -141,6 +147,175 @@ def get_direct_postgres_location_for_schema_model(
         schema_name=schema_name,
         schema_metadata=None,
         default_schema=default_schema,
+    )
+
+
+def get_direct_postgres_query_name(*, schema_name: str, schema_metadata: dict[str, Any] | None = None) -> str:
+    query_name = schema_metadata.get("query_name") if isinstance(schema_metadata, dict) else None
+    if isinstance(query_name, str) and query_name.strip():
+        return query_name.strip()
+    return schema_name
+
+
+def get_direct_postgres_source_schema_metadata(
+    *, sync_type_config: dict[str, Any] | None = None, schema_metadata: dict[str, Any] | None = None
+) -> dict[str, Any] | None:
+    if isinstance(sync_type_config, dict):
+        source_schema_metadata = sync_type_config.get(DIRECT_POSTGRES_SOURCE_SCHEMA_METADATA_KEY)
+        if isinstance(source_schema_metadata, dict):
+            return source_schema_metadata
+
+    if isinstance(schema_metadata, dict):
+        return schema_metadata
+
+    return None
+
+
+def _projection_source_matches(
+    table_config: dict[str, Any],
+    *,
+    schema_name: str,
+    source_catalog: str | None,
+    source_schema: str,
+    source_table_name: str,
+) -> bool:
+    config_source_table_name = table_config.get("source_table_name")
+    config_source_schema = table_config.get("source_schema")
+    config_source_catalog = table_config.get("source_catalog")
+    config_source_name = table_config.get("source_name")
+
+    if (
+        isinstance(config_source_table_name, str)
+        and isinstance(config_source_schema, str)
+        and config_source_table_name == source_table_name
+        and config_source_schema == source_schema
+    ):
+        if config_source_catalog is None:
+            return source_catalog is None
+        return config_source_catalog == source_catalog
+
+    return isinstance(config_source_name, str) and config_source_name == schema_name
+
+
+def get_direct_postgres_projection_table_config(
+    projection_config: dict[str, Any] | None,
+    *,
+    schema_name: str,
+    schema_metadata: dict[str, Any] | None,
+    default_schema: str | None = None,
+) -> dict[str, Any] | None:
+    if not isinstance(projection_config, dict):
+        return None
+
+    projection_tables = projection_config.get("tables")
+    if not isinstance(projection_tables, list):
+        return None
+
+    source_location = get_direct_postgres_location(
+        schema_name=schema_name,
+        schema_metadata=schema_metadata,
+        default_schema=default_schema,
+    )
+
+    for projection_table in projection_tables:
+        if not isinstance(projection_table, dict):
+            continue
+
+        if _projection_source_matches(
+            projection_table,
+            schema_name=schema_name,
+            source_catalog=source_location[0],
+            source_schema=source_location[1],
+            source_table_name=source_location[2],
+        ):
+            return projection_table
+
+    return None
+
+
+def _build_projected_query_name(
+    projection_table: dict[str, Any] | None,
+    *,
+    fallback_query_name: str,
+) -> str:
+    if not isinstance(projection_table, dict):
+        return fallback_query_name
+
+    query_name = projection_table.get("query_name")
+    if isinstance(query_name, str) and query_name.strip():
+        return query_name.strip()
+
+    target_table_name = projection_table.get("target_table_name")
+    if not isinstance(target_table_name, str) or not target_table_name.strip():
+        return fallback_query_name
+
+    target_schema = projection_table.get("target_schema")
+    normalized_target_table_name = target_table_name.strip()
+
+    if isinstance(target_schema, str) and target_schema.strip():
+        return f"{target_schema.strip()}.{normalized_target_table_name}"
+
+    return normalized_target_table_name
+
+
+def apply_direct_postgres_projection(
+    *,
+    schema_name: str,
+    schema_metadata: dict[str, Any] | None,
+    projection_config: dict[str, Any] | None = None,
+    default_schema: str | None = None,
+) -> tuple[str, dict[str, Any], bool | None]:
+    raw_schema_metadata: dict[str, Any] = (
+        deepcopy(schema_metadata) if isinstance(schema_metadata, dict) else {"columns": [], "foreign_keys": []}
+    )
+    fallback_query_name = get_direct_postgres_query_name(schema_name=schema_name, schema_metadata=raw_schema_metadata)
+
+    projection_table = get_direct_postgres_projection_table_config(
+        projection_config,
+        schema_name=schema_name,
+        schema_metadata=raw_schema_metadata,
+        default_schema=default_schema,
+    )
+    if projection_table is None:
+        raw_schema_metadata["query_name"] = fallback_query_name
+        raw_schema_metadata.setdefault("custom_fields", [])
+        return fallback_query_name, raw_schema_metadata, None
+
+    removed_fields = projection_table.get("removed_fields")
+    removed_field_names = (
+        {field_name for field_name in removed_fields if isinstance(field_name, str)}
+        if isinstance(removed_fields, list)
+        else set()
+    )
+
+    projected_columns = [
+        column
+        for column in raw_schema_metadata.get("columns", [])
+        if isinstance(column, dict) and column.get("name") not in removed_field_names
+    ]
+
+    projection_foreign_keys = projection_table.get("foreign_keys")
+    projected_foreign_keys = (
+        projection_foreign_keys
+        if isinstance(projection_foreign_keys, list)
+        else raw_schema_metadata.get("foreign_keys", [])
+    )
+
+    projection_custom_fields = projection_table.get("custom_fields")
+    projected_custom_fields = projection_custom_fields if isinstance(projection_custom_fields, list) else []
+    projected_query_name = _build_projected_query_name(projection_table, fallback_query_name=fallback_query_name)
+    enabled_override = projection_table.get("enabled") if isinstance(projection_table.get("enabled"), bool) else None
+
+    return (
+        projected_query_name,
+        {
+            **raw_schema_metadata,
+            "columns": projected_columns,
+            "foreign_keys": projected_foreign_keys,
+            "custom_fields": projected_custom_fields,
+            "query_name": projected_query_name,
+        },
+        enabled_override,
     )
 
 
@@ -233,6 +408,9 @@ def reconcile_direct_postgres_schemas(
 ) -> list[str]:
     from products.data_warehouse.backend.models.external_data_schema import ExternalDataSchema
 
+    active_projection_revision = source.active_projection_revision
+    projection_config = active_projection_revision.config if active_projection_revision is not None else None
+    default_schema = (source.job_inputs or {}).get("schema")
     source_schema_names = [schema.name for schema in source_schemas]
     schema_models = {
         schema.name: schema
@@ -251,17 +429,30 @@ def reconcile_direct_postgres_schemas(
                 "source_schema": source_schema.source_schema,
                 "source_table_name": source_schema.source_table_name,
             },
-            default_schema=(source.job_inputs or {}).get("schema"),
+            default_schema=default_schema,
         )
-        schema_metadata = postgres_schema_metadata(
+        source_schema_metadata = postgres_schema_metadata(
             source_schema.columns,
             source_schema.foreign_keys,
             source_catalog=resolved_source_catalog,
             source_schema=resolved_source_schema,
             source_table_name=resolved_source_table_name,
+            query_name=source_schema.name,
         )
-        schema_model.sync_type_config = {**(schema_model.sync_type_config or {}), "schema_metadata": schema_metadata}
-        schema_model.save(update_fields=["sync_type_config", "updated_at"])
+        query_name, effective_schema_metadata, enabled_override = apply_direct_postgres_projection(
+            schema_name=source_schema.name,
+            schema_metadata=source_schema_metadata,
+            projection_config=projection_config,
+            default_schema=default_schema,
+        )
+        schema_model.sync_type_config = {
+            **(schema_model.sync_type_config or {}),
+            DIRECT_POSTGRES_SOURCE_SCHEMA_METADATA_KEY: source_schema_metadata,
+            "schema_metadata": effective_schema_metadata,
+        }
+        if enabled_override is not None:
+            schema_model.should_sync = enabled_override
+        schema_model.save(update_fields=["sync_type_config", "should_sync", "updated_at"])
 
         if not schema_model.should_sync:
             hide_direct_postgres_table(schema_model.table)
@@ -269,9 +460,9 @@ def reconcile_direct_postgres_schemas(
 
         table_model = upsert_direct_postgres_table(
             schema_model.table,
-            schema_name=source_schema.name,
+            schema_name=query_name,
             source=source,
-            columns=postgres_columns_to_dwh_columns(source_schema.columns),
+            columns=postgres_schema_metadata_to_dwh_columns(effective_schema_metadata),
             source_catalog=resolved_source_catalog,
             source_schema=resolved_source_schema,
             source_table_name=resolved_source_table_name,

@@ -162,6 +162,21 @@ class Resolver(CloningVisitor):
     def _get_scope_table_column_aliases(self, scope: ast.SelectQueryType) -> dict[str, list[str]]:
         return self._scope_table_column_aliases.setdefault(id(scope), {})
 
+    def _resolve_expression_field_expr(self, expression_field_type: ast.ExpressionFieldType) -> ast.Expr:
+        expr = clone_expr(expression_field_type.expr)
+
+        if expression_field_type.isolate_scope:
+            table_type = expression_field_type.table_type
+            while isinstance(table_type, ast.VirtualTableType):
+                table_type = table_type.table_type
+            self.scopes.append(ast.SelectQueryType(tables={expression_field_type.name: table_type}))
+
+        try:
+            return self.visit(expr)
+        finally:
+            if expression_field_type.isolate_scope:
+                self.scopes.pop()
+
     def visit(self, node: ast.AST | None):
         if isinstance(node, ast.Expr) and node.type is not None:
             raise ResolutionError(
@@ -1741,6 +1756,8 @@ class Resolver(CloningVisitor):
                 if node.type.isolate_scope:
                     self.scopes.pop()
                 return new_node
+
+            node.type = dataclasses.replace(node.type, expr=self._resolve_expression_field_expr(node.type))
 
         if isinstance(node.type, ast.FieldType) and node.start is not None and node.end is not None:
             self.context.add_notice(

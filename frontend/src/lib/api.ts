@@ -5213,6 +5213,54 @@ const api = {
         async refreshSchemas(sourceId: ExternalDataSource['id']): Promise<{ added: number; deleted: number }> {
             return await new ApiRequest().externalDataSource(sourceId).withAction('refresh_schemas').create()
         },
+        async getProjectionRevisions(sourceId: ExternalDataSource['id']): Promise<
+            {
+                id: string
+                version: number
+                config: { tables?: Record<string, any>[] }
+                is_active: boolean
+                created_at: string
+                created_by: string | null
+            }[]
+        > {
+            return await new ApiRequest().externalDataSource(sourceId).withAction('projection_revisions').get()
+        },
+        async createProjectionRevision(
+            sourceId: ExternalDataSource['id'],
+            data: {
+                activate?: boolean
+                tables?: Record<string, any>[]
+            }
+        ): Promise<
+            {
+                id: string
+                version: number
+                config: { tables?: Record<string, any>[] }
+                is_active: boolean
+                created_at: string
+                created_by: string | null
+            }[]
+        > {
+            return await new ApiRequest().externalDataSource(sourceId).withAction('projection_revisions').create({
+                data,
+            })
+        },
+        async activateProjectionRevision(
+            sourceId: ExternalDataSource['id'],
+            revisionId: string
+        ): Promise<{
+            id: string
+            version: number
+            config: { tables?: Record<string, any>[] }
+            is_active: boolean
+            created_at: string
+            created_by: string | null
+        }> {
+            return await new ApiRequest()
+                .externalDataSource(sourceId)
+                .withAction('activate_projection_revision')
+                .create({ data: { revision_id: revisionId } })
+        },
         async bulkUpdateSchemas(
             sourceId: ExternalDataSource['id'],
             schemas: Pick<

@@ -33,12 +33,13 @@ import { cleanSourceId, isSelfManagedSourceId } from 'products/data_warehouse/fr
 
 import type { sourceSceneLogicType } from './SourceSceneType'
 import { ConfigurationTab } from './tabs/ConfigurationTab'
+import { ProjectionTab } from './tabs/ProjectionTab'
 import { SchemasTab } from './tabs/SchemasTab'
 import { sourceSettingsLogic } from './tabs/sourceSettingsLogic'
 import { SyncsTab } from './tabs/SyncsTab'
 import { WebhookTab } from './tabs/WebhookTab'
 
-const SOURCE_SCENE_TABS = ['schemas', 'syncs', 'configuration', 'webhook'] as const
+const SOURCE_SCENE_TABS = ['schemas', 'projection', 'syncs', 'configuration', 'webhook'] as const
 export type SourceSceneTab = (typeof SOURCE_SCENE_TABS)[number]
 
 export interface SourceSceneProps {
@@ -226,6 +227,8 @@ function ManagedSourceTabs({
         !!featureFlags[FEATURE_FLAGS.DWH_POSTGRES_DIRECT_QUERY]
     )
     const showWebhookTab = !!featureFlags[FEATURE_FLAGS.WAREHOUSE_SOURCE_WEBHOOKS] && !!source?.supports_webhooks
+    const showProjectionTab =
+        !!featureFlags[FEATURE_FLAGS.DWH_POSTGRES_DIRECT_QUERY] && source?.access_method === 'direct'
 
     useEffect(() => {
         if (!showSyncsTab && currentTab === 'syncs') {
@@ -234,7 +237,10 @@ function ManagedSourceTabs({
         if (!showWebhookTab && currentTab === 'webhook') {
             setCurrentTab('schemas')
         }
-    }, [showSyncsTab, showWebhookTab, currentTab, setCurrentTab])
+        if (!showProjectionTab && currentTab === 'projection') {
+            setCurrentTab('schemas')
+        }
+    }, [showProjectionTab, showSyncsTab, showWebhookTab, currentTab, setCurrentTab])
 
     const tabs: LemonTab<SourceSceneTab>[] = [
         {
@@ -254,6 +260,14 @@ function ManagedSourceTabs({
             label: 'Syncs',
             key: 'syncs',
             content: <SyncsTab id={sourceId} />,
+        })
+    }
+
+    if (showProjectionTab) {
+        tabs.splice(1, 0, {
+            label: 'Projection',
+            key: 'projection',
+            content: <ProjectionTab id={sourceId} tabId={tabId} />,
         })
     }
 

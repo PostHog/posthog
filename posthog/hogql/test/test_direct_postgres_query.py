@@ -403,6 +403,66 @@ class TestDirectPostgresQuery(APIBaseTest):
         self.assertIn("ducklake.system.query_log", sql)
         self.assertEqual(executor.direct_postgres_source_id, str(source.id))
 
+    def test_generate_sql_for_direct_postgres_table_with_custom_projection_fields(self):
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="source_id",
+            connection_id="connection_id",
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type="Postgres",
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            prefix="posthog",
+            job_inputs={
+                "host": "localhost",
+                "port": 5432,
+                "database": "postgres",
+                "user": "postgres",
+                "password": "postgres",
+                "schema": "posthog",
+            },
+        )
+
+        table = DataWarehouseTable.objects.create(
+            name="posthog.struct_smoke_test22",
+            format="Parquet",
+            team=self.team,
+            external_data_source=source,
+            url_pattern="direct://postgres",
+            columns={"id": {"hogql": "IntegerDatabaseField", "clickhouse": "Int64", "valid": True}},
+            options={
+                "direct_postgres_schema": "posthog",
+                "direct_postgres_table": "struct_smoke_test22",
+            },
+        )
+        ExternalDataSchema.objects.create(
+            name="posthog.struct_smoke_test22",
+            team=self.team,
+            source=source,
+            table=table,
+            sync_type_config={
+                "schema_metadata": {
+                    "columns": [{"name": "id", "data_type": "integer", "is_nullable": False}],
+                    "foreign_keys": [],
+                    "custom_fields": [{"name": "account_key", "expression": "concat('acct-', toString(id))"}],
+                    "source_schema": "posthog",
+                    "source_table_name": "struct_smoke_test22",
+                    "query_name": "posthog.struct_smoke_test22",
+                }
+            },
+        )
+
+        executor = HogQLQueryExecutor(
+            query="SELECT * FROM posthog.struct_smoke_test22",
+            team=self.team,
+            connection_id=str(source.id),
+        )
+
+        sql, _context = executor.generate_clickhouse_sql()
+
+        self.assertIn("FROM\n    posthog.struct_smoke_test22 AS posthog__struct_smoke_test22", sql)
+        self.assertIn("acct-", sql)
+        self.assertEqual(executor.direct_postgres_source_id, str(source.id))
+
     def test_direct_query_requires_selected_connection(self):
         source = ExternalDataSource.objects.create(
             team=self.team,

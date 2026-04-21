@@ -8,6 +8,7 @@ from parameterized import parameterized
 from posthog.hogql.database.direct_postgres_table import DirectPostgresTable
 from posthog.hogql.database.models import (
     DateTimeDatabaseField,
+    ExpressionField,
     IntegerDatabaseField,
     StringDatabaseField,
     StructDatabaseField,
@@ -20,7 +21,7 @@ from products.data_warehouse.backend.direct_postgres import (
     DIRECT_POSTGRES_SCHEMA_OPTION,
     DIRECT_POSTGRES_TABLE_OPTION,
 )
-from products.data_warehouse.backend.models import DataWarehouseCredential, DataWarehouseTable
+from products.data_warehouse.backend.models import DataWarehouseCredential, DataWarehouseTable, ExternalDataSchema
 from products.data_warehouse.backend.models.external_data_source import ExternalDataSource
 from products.data_warehouse.backend.models.table import SERIALIZED_FIELD_TO_CLICKHOUSE_MAPPING
 from products.data_warehouse.backend.models.util import postgres_column_to_dwh_column
@@ -203,6 +204,44 @@ class TestTable(BaseTest):
         assert isinstance(definition, DirectPostgresTable)
         assert isinstance(definition.fields["membership"], StructDatabaseField)
         assert set(definition.fields["membership"].fields.keys()) == {"type", "tier", "frequency", "provider"}
+
+    def test_direct_postgres_table_supports_custom_projection_fields(self):
+        source = ExternalDataSource.objects.create(
+            source_id="source-id",
+            connection_id="connection-id",
+            destination_id="destination-id",
+            team=self.team,
+            sync_frequency=ExternalDataSource.SyncFrequency.DAILY,
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type=ExternalDataSourceType.POSTGRES,
+            prefix="Readable Name",
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+        )
+        table = DataWarehouseTable.objects.create(
+            name="accounts",
+            format=DataWarehouseTable.TableFormat.Parquet,
+            team=self.team,
+            external_data_source=source,
+            columns={"id": {"clickhouse": "String", "hogql": "StringDatabaseField"}},
+        )
+        ExternalDataSchema.objects.create(
+            name="accounts",
+            team=self.team,
+            source=source,
+            table=table,
+            sync_type_config={
+                "schema_metadata": {
+                    "columns": [{"name": "id", "data_type": "text", "is_nullable": False}],
+                    "foreign_keys": [],
+                    "custom_fields": [{"name": "account_key", "expression": "concat('acct-', id)"}],
+                }
+            },
+        )
+
+        definition = table.hogql_definition()
+
+        assert isinstance(definition, DirectPostgresTable)
+        assert isinstance(definition.fields["account_key"], ExpressionField)
 
     def test_get_columns(self):
         credential = DataWarehouseCredential.objects.create(access_key="key", access_secret="secret", team=self.team)

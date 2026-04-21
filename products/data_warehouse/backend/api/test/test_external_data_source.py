@@ -54,7 +54,12 @@ from products.data_warehouse.backend.api.external_data_source import (
     strip_sensitive_from_dict,
 )
 from products.data_warehouse.backend.direct_postgres import DIRECT_POSTGRES_URL_PATTERN
-from products.data_warehouse.backend.models import ExternalDataSchema, ExternalDataSource
+from products.data_warehouse.backend.models import (
+    DataWarehouseSavedQuery,
+    ExternalDataSchema,
+    ExternalDataSource,
+    ExternalDataSourceProjectionRevision,
+)
 from products.data_warehouse.backend.models.external_data_job import ExternalDataJob
 from products.data_warehouse.backend.models.external_data_schema import sync_frequency_interval_to_sync_frequency
 from products.data_warehouse.backend.models.join import DataWarehouseJoin
@@ -1953,6 +1958,503 @@ class TestExternalDataSource(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.json(), {"message": "Schema is required for warehouse imports."})
+
+    def test_create_projection_revision_applies_to_direct_postgres_tables(self):
+        source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="Postgres",
+            created_by=self.user,
+            prefix="Primary database",
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            job_inputs={"schema": ""},
+        )
+        table = DataWarehouseTable.objects.create(
+            name="public.accounts",
+            format=DataWarehouseTable.TableFormat.Parquet,
+            team=self.team,
+            url_pattern=DIRECT_POSTGRES_URL_PATTERN,
+            external_data_source=source,
+            options={"direct_postgres_schema": "public", "direct_postgres_table": "accounts"},
+            columns={
+                "id": {"clickhouse": "Int64", "hogql": "IntegerDatabaseField", "valid": True},
+                "email": {"clickhouse": "String", "hogql": "StringDatabaseField", "valid": True},
+                "user_id": {"clickhouse": "Int64", "hogql": "IntegerDatabaseField", "valid": True},
+            },
+        )
+        schema = ExternalDataSchema.objects.create(
+            team_id=self.team.pk,
+            source=source,
+            name="public.accounts",
+            should_sync=True,
+            table=table,
+            sync_type_config={
+                "schema_metadata": {
+                    "columns": [
+                        {"name": "id", "data_type": "integer", "is_nullable": False},
+                        {"name": "email", "data_type": "text", "is_nullable": False},
+                        {"name": "user_id", "data_type": "integer", "is_nullable": False},
+                    ],
+                    "foreign_keys": [],
+                    "source_schema": "public",
+                    "source_table_name": "accounts",
+                    "query_name": "public.accounts",
+                }
+            },
+        )
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.id}/projection_revisions/",
+            data={
+                "activate": True,
+                "tables": [
+                    {
+                        "source_schema": "public",
+                        "source_table_name": "accounts",
+                        "target_schema": "analytics",
+                        "target_table_name": "customer_accounts",
+                        "removed_fields": ["email"],
+                        "custom_fields": [
+                            {
+                                "name": "account_key",
+                                "expression": "concat('acct-', toString(user_id))",
+                            }
+                        ],
+                        "foreign_keys": [
+                            {
+                                "column": "user_id",
+                                "target_table": "analytics.users",
+                                "target_column": "id",
+                            }
+                        ],
+                    }
+                ],
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        schema.refresh_from_db()
+        table.refresh_from_db()
+
+        revision = ExternalDataSourceProjectionRevision.objects.get(source=source, version=1)
+        self.assertTrue(revision.is_active)
+        self.assertEqual(table.name, "analytics.customer_accounts")
+        self.assertNotIn("email", table.columns)
+        self.assertEqual(
+            schema.sync_type_config["schema_metadata"]["foreign_keys"],
+            [{"column": "user_id", "target_table": "analytics.users", "target_column": "id"}],
+        )
+        self.assertEqual(
+            schema.sync_type_config["schema_metadata"]["custom_fields"],
+            [{"name": "account_key", "expression": "concat('acct-', toString(user_id))"}],
+        )
+        self.assertIn(
+            "email", [column["name"] for column in schema.sync_type_config["source_schema_metadata"]["columns"]]
+        )
+        self.assertNotIn("email", [column["name"] for column in schema.sync_type_config["schema_metadata"]["columns"]])
+        self.assertIn("account_key", table.hogql_definition().fields)
+
+    def test_activate_projection_revision_reapplies_stored_revision(self):
+        source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="Postgres",
+            created_by=self.user,
+            prefix="Primary database",
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            job_inputs={"schema": ""},
+        )
+        table = DataWarehouseTable.objects.create(
+            name="public.accounts",
+            format=DataWarehouseTable.TableFormat.Parquet,
+            team=self.team,
+            url_pattern=DIRECT_POSTGRES_URL_PATTERN,
+            external_data_source=source,
+            options={"direct_postgres_schema": "public", "direct_postgres_table": "accounts"},
+            columns={"id": {"clickhouse": "Int64", "hogql": "IntegerDatabaseField", "valid": True}},
+        )
+        ExternalDataSchema.objects.create(
+            team_id=self.team.pk,
+            source=source,
+            name="public.accounts",
+            should_sync=True,
+            table=table,
+            sync_type_config={
+                "schema_metadata": {
+                    "columns": [{"name": "id", "data_type": "integer", "is_nullable": False}],
+                    "foreign_keys": [],
+                    "source_schema": "public",
+                    "source_table_name": "accounts",
+                    "query_name": "public.accounts",
+                }
+            },
+        )
+
+        first_revision = ExternalDataSourceProjectionRevision.objects.create(
+            source=source,
+            team=self.team,
+            version=1,
+            config={
+                "tables": [
+                    {
+                        "source_schema": "public",
+                        "source_table_name": "accounts",
+                        "query_name": "analytics.accounts_v1",
+                    }
+                ]
+            },
+            is_active=False,
+            created_by=self.user,
+        )
+        ExternalDataSourceProjectionRevision.objects.create(
+            source=source,
+            team=self.team,
+            version=2,
+            config={
+                "tables": [
+                    {
+                        "source_schema": "public",
+                        "source_table_name": "accounts",
+                        "query_name": "analytics.accounts_v2",
+                    }
+                ]
+            },
+            is_active=True,
+            created_by=self.user,
+        )
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.id}/activate_projection_revision/",
+            data={"revision_id": str(first_revision.id)},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        table.refresh_from_db()
+        self.assertEqual(table.name, "analytics.accounts_v1")
+        first_revision.refresh_from_db()
+        self.assertTrue(first_revision.is_active)
+        self.assertEqual(
+            ExternalDataSourceProjectionRevision.objects.filter(source=source, is_active=True).count(),
+            1,
+        )
+
+    def test_create_projection_revision_ignores_tables_and_views_from_other_teams(self):
+        source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="Postgres",
+            created_by=self.user,
+            prefix="Primary database",
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            job_inputs={"schema": ""},
+        )
+        table = DataWarehouseTable.objects.create(
+            name="public.accounts",
+            format=DataWarehouseTable.TableFormat.Parquet,
+            team=self.team,
+            url_pattern=DIRECT_POSTGRES_URL_PATTERN,
+            external_data_source=source,
+            options={"direct_postgres_schema": "public", "direct_postgres_table": "accounts"},
+            columns={"id": {"clickhouse": "Int64", "hogql": "IntegerDatabaseField", "valid": True}},
+        )
+        ExternalDataSchema.objects.create(
+            team_id=self.team.pk,
+            source=source,
+            name="public.accounts",
+            should_sync=True,
+            table=table,
+            sync_type_config={
+                "schema_metadata": {
+                    "columns": [{"name": "id", "data_type": "integer", "is_nullable": False}],
+                    "foreign_keys": [],
+                    "source_schema": "public",
+                    "source_table_name": "accounts",
+                    "query_name": "public.accounts",
+                }
+            },
+        )
+
+        team_2 = Team.objects.create(id=2, organization=self.team.organization)
+
+        DataWarehouseTable.objects.create(
+            name="analytics.customer_accounts",
+            format=DataWarehouseTable.TableFormat.Parquet,
+            team=team_2,
+            url_pattern=DIRECT_POSTGRES_URL_PATTERN,
+            columns={"id": {"clickhouse": "Int64", "hogql": "IntegerDatabaseField", "valid": True}},
+        )
+        DataWarehouseSavedQuery.objects.create(
+            team=team_2,
+            name="analytics.customer_view",
+            query={"kind": "HogQLQuery", "query": "SELECT 1"},
+        )
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.id}/projection_revisions/",
+            data={
+                "activate": True,
+                "tables": [
+                    {
+                        "source_name": "public.accounts",
+                        "source_schema": "public",
+                        "source_table_name": "accounts",
+                        "query_name": "analytics.customer_accounts",
+                    }
+                ],
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        table.refresh_from_db()
+        self.assertEqual(table.name, "analytics.customer_accounts")
+
+    def test_create_projection_revision_allows_overriding_same_team_table_names(self):
+        source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="Postgres",
+            created_by=self.user,
+            prefix="Primary database",
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            job_inputs={"schema": ""},
+        )
+        table = DataWarehouseTable.objects.create(
+            name="public.accounts",
+            format=DataWarehouseTable.TableFormat.Parquet,
+            team=self.team,
+            url_pattern=DIRECT_POSTGRES_URL_PATTERN,
+            external_data_source=source,
+            options={"direct_postgres_schema": "public", "direct_postgres_table": "accounts"},
+            columns={"id": {"clickhouse": "Int64", "hogql": "IntegerDatabaseField", "valid": True}},
+        )
+        ExternalDataSchema.objects.create(
+            team_id=self.team.pk,
+            source=source,
+            name="public.accounts",
+            should_sync=True,
+            table=table,
+            sync_type_config={
+                "schema_metadata": {
+                    "columns": [{"name": "id", "data_type": "integer", "is_nullable": False}],
+                    "foreign_keys": [],
+                    "source_schema": "public",
+                    "source_table_name": "accounts",
+                    "query_name": "public.accounts",
+                }
+            },
+        )
+
+        DataWarehouseTable.objects.create(
+            name="analytics.customer_accounts",
+            format=DataWarehouseTable.TableFormat.Parquet,
+            team=self.team,
+            url_pattern="s3://warehouse/customer_accounts",
+            columns={"id": {"clickhouse": "Int64", "hogql": "IntegerDatabaseField", "valid": True}},
+        )
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.id}/projection_revisions/",
+            data={
+                "activate": True,
+                "tables": [
+                    {
+                        "source_name": "public.accounts",
+                        "source_schema": "public",
+                        "source_table_name": "accounts",
+                        "query_name": "analytics.customer_accounts",
+                    }
+                ],
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        table.refresh_from_db()
+        self.assertEqual(table.name, "analytics.customer_accounts")
+
+    def test_create_projection_revision_accepts_source_name_only_rows_with_null_location_fields(self):
+        source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="Postgres",
+            created_by=self.user,
+            prefix="Primary database",
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            job_inputs={"schema": ""},
+        )
+        table = DataWarehouseTable.objects.create(
+            name="public.accounts",
+            format=DataWarehouseTable.TableFormat.Parquet,
+            team=self.team,
+            url_pattern=DIRECT_POSTGRES_URL_PATTERN,
+            external_data_source=source,
+            options={"direct_postgres_schema": "public", "direct_postgres_table": "accounts"},
+            columns={"id": {"clickhouse": "Int64", "hogql": "IntegerDatabaseField", "valid": True}},
+        )
+        ExternalDataSchema.objects.create(
+            team_id=self.team.pk,
+            source=source,
+            name="public.accounts",
+            should_sync=True,
+            table=table,
+            sync_type_config={
+                "schema_metadata": {
+                    "columns": [{"name": "id", "data_type": "integer", "is_nullable": False}],
+                    "foreign_keys": [],
+                    "source_schema": "public",
+                    "source_table_name": "accounts",
+                    "query_name": "public.accounts",
+                }
+            },
+        )
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.id}/projection_revisions/",
+            data={
+                "activate": True,
+                "tables": [
+                    {
+                        "source_name": "public.accounts",
+                        "source_schema": None,
+                        "source_table_name": None,
+                        "enabled": True,
+                        "query_name": "public.accounts",
+                        "removed_fields": [],
+                        "custom_fields": [],
+                        "foreign_keys": [],
+                    }
+                ],
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        table.refresh_from_db()
+        self.assertEqual(table.name, "public.accounts")
+
+    @patch("products.data_warehouse.backend.api.external_data_source.SourceRegistry.get_source")
+    def test_refresh_schemas_reapplies_active_projection_revision(self, mock_get_source):
+        source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="Postgres",
+            created_by=self.user,
+            prefix="Primary database",
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            job_inputs={"schema": ""},
+        )
+        table = DataWarehouseTable.objects.create(
+            name="analytics.customer_accounts",
+            format=DataWarehouseTable.TableFormat.Parquet,
+            team=self.team,
+            url_pattern=DIRECT_POSTGRES_URL_PATTERN,
+            external_data_source=source,
+            options={"direct_postgres_schema": "public", "direct_postgres_table": "accounts"},
+            columns={
+                "id": {"clickhouse": "Int64", "hogql": "IntegerDatabaseField", "valid": True},
+                "user_id": {"clickhouse": "Int64", "hogql": "IntegerDatabaseField", "valid": True},
+            },
+        )
+        schema = ExternalDataSchema.objects.create(
+            team_id=self.team.pk,
+            source=source,
+            name="public.accounts",
+            should_sync=True,
+            table=table,
+            sync_type_config={
+                "source_schema_metadata": {
+                    "columns": [
+                        {"name": "id", "data_type": "integer", "is_nullable": False},
+                        {"name": "email", "data_type": "text", "is_nullable": False},
+                        {"name": "user_id", "data_type": "integer", "is_nullable": False},
+                    ],
+                    "foreign_keys": [],
+                    "source_schema": "public",
+                    "source_table_name": "accounts",
+                    "query_name": "public.accounts",
+                },
+                "schema_metadata": {
+                    "columns": [
+                        {"name": "id", "data_type": "integer", "is_nullable": False},
+                        {"name": "user_id", "data_type": "integer", "is_nullable": False},
+                    ],
+                    "foreign_keys": [],
+                    "custom_fields": [{"name": "account_key", "expression": "concat('acct-', toString(user_id))"}],
+                    "source_schema": "public",
+                    "source_table_name": "accounts",
+                    "query_name": "analytics.customer_accounts",
+                },
+            },
+        )
+        ExternalDataSourceProjectionRevision.objects.create(
+            source=source,
+            team=self.team,
+            version=1,
+            config={
+                "tables": [
+                    {
+                        "source_schema": "public",
+                        "source_table_name": "accounts",
+                        "query_name": "analytics.customer_accounts",
+                        "removed_fields": ["email"],
+                        "custom_fields": [{"name": "account_key", "expression": "concat('acct-', toString(user_id))"}],
+                    }
+                ]
+            },
+            is_active=True,
+            created_by=self.user,
+        )
+
+        mock_get_source.return_value.parse_config.return_value = None
+        mock_get_source.return_value.get_connection_metadata.return_value = source.connection_metadata
+        mock_get_source.return_value.get_schemas.return_value = [
+            SourceSchema(
+                name="public.accounts",
+                supports_incremental=False,
+                supports_append=False,
+                columns=[
+                    ("id", "integer", False),
+                    ("email", "text", False),
+                    ("user_id", "integer", False),
+                    ("status", "text", True),
+                ],
+                foreign_keys=[],
+                source_schema="public",
+                source_table_name="accounts",
+            )
+        ]
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.id}/refresh_schemas/"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        schema.refresh_from_db()
+        table.refresh_from_db()
+        self.assertEqual(table.name, "analytics.customer_accounts")
+        self.assertIn(
+            "status", [column["name"] for column in schema.sync_type_config["source_schema_metadata"]["columns"]]
+        )
+        self.assertNotIn("email", [column["name"] for column in schema.sync_type_config["schema_metadata"]["columns"]])
+        self.assertEqual(
+            schema.sync_type_config["schema_metadata"]["custom_fields"],
+            [{"name": "account_key", "expression": "concat('acct-', toString(user_id))"}],
+        )
 
     def test_database_schema(self):
         postgres_connection = psycopg.connect(

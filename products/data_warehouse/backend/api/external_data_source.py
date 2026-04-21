@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import uuid
 import dataclasses
 from collections.abc import Callable
@@ -8,6 +9,7 @@ from typing import Any, cast
 
 from django.db import transaction
 from django.db.models import Prefetch, Q
+from django.utils import timezone
 
 import structlog
 import temporalio
@@ -64,8 +66,13 @@ from products.data_warehouse.backend.data_load.service import (
     trigger_external_data_source_workflow,
 )
 from products.data_warehouse.backend.direct_postgres import (
+    DIRECT_POSTGRES_SOURCE_SCHEMA_METADATA_KEY,
+    apply_direct_postgres_projection,
     get_direct_postgres_location,
+    get_direct_postgres_source_schema_metadata,
+    hide_direct_postgres_table,
     postgres_schema_metadata,
+    postgres_schema_metadata_to_dwh_columns,
     reconcile_direct_postgres_schemas,
     rename_direct_postgres_schemas_to_match_source_schemas,
     upsert_direct_postgres_table,
@@ -82,6 +89,7 @@ from products.data_warehouse.backend.models import (
     ExternalDataJob,
     ExternalDataSchema,
     ExternalDataSource,
+    ExternalDataSourceProjectionRevision,
 )
 from products.data_warehouse.backend.models.external_data_schema import sync_old_schemas_with_new_schemas
 from products.data_warehouse.backend.models.revenue_analytics_config import ExternalDataSourceRevenueAnalyticsConfig
@@ -90,6 +98,7 @@ from products.data_warehouse.backend.types import DataWarehouseManagedViewSetKin
 from products.revenue_analytics.backend.joins import ensure_person_join, remove_person_join
 
 logger = structlog.get_logger(__name__)
+DIRECT_POSTGRES_PROJECTION_NAME_PATTERN = re.compile(r"^[A-Za-z_$][A-Za-z0-9_.$]*$")
 
 
 def get_sensitive_field_names(fields: list[FieldType]) -> set[str]:
@@ -281,6 +290,109 @@ class ExternalDataSourceConnectionOptionSerializer(serializers.ModelSerializer):
         model = ExternalDataSource
         fields = ["id", "prefix", "engine"]
         read_only_fields = ["id", "prefix", "engine"]
+
+
+class DirectPostgresProjectionCustomFieldSerializer(serializers.Serializer):
+    name = serializers.CharField(help_text="Projected field name exposed on the table.")
+    expression = serializers.CharField(help_text="HogQL expression used to derive the projected field.")
+
+
+class DirectPostgresProjectionForeignKeySerializer(serializers.Serializer):
+    column = serializers.CharField(help_text="Projected source column to join from.")
+    target_table = serializers.CharField(help_text="Target table name exposed in the warehouse namespace.")
+    target_column = serializers.CharField(help_text="Target column to join against on the target table.")
+
+
+class DirectPostgresProjectionTableSerializer(serializers.Serializer):
+    source_name = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text="Fallback source table name as currently displayed in the connection.",
+    )
+    source_catalog = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        allow_null=True,
+        help_text="Source catalog for the raw table when applicable.",
+    )
+    source_schema = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        allow_null=True,
+        help_text="Source schema for the raw table.",
+    )
+    source_table_name = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        allow_null=True,
+        help_text="Source table name for the raw table.",
+    )
+    enabled = serializers.BooleanField(
+        required=False,
+        help_text="Whether the table should stay queryable when this revision is active.",
+    )
+    query_name = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text="Fully resolved warehouse table name. Overrides target_schema/target_table_name when provided.",
+    )
+    target_schema = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        allow_null=True,
+        help_text="Warehouse schema to expose the projected table under.",
+    )
+    target_table_name = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        allow_null=True,
+        help_text="Warehouse table name to expose for the projected table.",
+    )
+    removed_fields = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        help_text="Physical source columns to hide from the projected table.",
+    )
+    custom_fields = DirectPostgresProjectionCustomFieldSerializer(
+        many=True,
+        required=False,
+        help_text="Virtual projected fields exposed alongside the physical source columns.",
+    )
+    foreign_keys = DirectPostgresProjectionForeignKeySerializer(
+        many=True,
+        required=False,
+        help_text="Foreign keys to expose for lazy joins from the projected table.",
+    )
+
+
+class DirectPostgresProjectionRevisionSerializer(serializers.ModelSerializer):
+    created_by = serializers.SerializerMethodField(read_only=True)
+
+    class Meta:
+        model = ExternalDataSourceProjectionRevision
+        fields = ["id", "version", "config", "is_active", "created_at", "created_by"]
+        read_only_fields = ["id", "version", "config", "is_active", "created_at", "created_by"]
+
+    def get_created_by(self, instance: ExternalDataSourceProjectionRevision) -> str | None:
+        return instance.created_by.email if instance.created_by else None
+
+
+class DirectPostgresProjectionRevisionWriteSerializer(serializers.Serializer):
+    activate = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text="Whether the new revision should become active immediately.",
+    )
+    tables = DirectPostgresProjectionTableSerializer(
+        many=True,
+        allow_empty=True,
+        required=False,
+        help_text="Projection table overrides keyed by raw source table identity.",
+    )
+
+
+class DirectPostgresProjectionActivationSerializer(serializers.Serializer):
+    revision_id = serializers.UUIDField(help_text="Projection revision to activate for this connection.")
 
 
 class ExternalDataSourceBulkUpdateSchemaSerializer(serializers.Serializer):
@@ -965,6 +1077,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                     "incremental_field": incremental_field,
                     "incremental_field_type": incremental_field_type,
                     "schema_metadata": schema_metadata,
+                    DIRECT_POSTGRES_SOURCE_SCHEMA_METADATA_KEY: schema_metadata,
                     **({"primary_key_columns": primary_key_columns} if primary_key_columns else {}),
                 }
             elif is_cdc_schema:
@@ -973,10 +1086,14 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                     "cdc_mode": "snapshot",
                     "primary_key_columns": pk_columns_by_table.get(schema_name, []),
                     "schema_metadata": schema_metadata,
+                    DIRECT_POSTGRES_SOURCE_SCHEMA_METADATA_KEY: schema_metadata,
                     "cdc_table_mode": cdc_table_mode,
                 }
             else:
-                sync_type_config = {"schema_metadata": schema_metadata}
+                sync_type_config = {
+                    "schema_metadata": schema_metadata,
+                    DIRECT_POSTGRES_SOURCE_SCHEMA_METADATA_KEY: schema_metadata,
+                }
 
             # CDC schemas benefit from a tighter poll cadence — the extraction workflow is cheap
             # and the value prop is near-real-time. Other sync types use the 6h default.
@@ -1175,6 +1292,282 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             .exists()
         )
         return prefix_exists
+
+    def _ensure_direct_postgres_source(self, instance: ExternalDataSource) -> None:
+        if not instance.is_direct_postgres:
+            raise ValidationError("Projection revisions are supported only for direct Postgres sources.")
+
+    def _validate_direct_postgres_projection_tables(
+        self,
+        source: ExternalDataSource,
+        tables: list[dict[str, Any]],
+    ) -> None:
+        schema_models = list(
+            ExternalDataSchema.objects.filter(team_id=self.team_id, source_id=source.id)
+            .exclude(deleted=True)
+            .select_related("table")
+        )
+        schema_model_by_source_name = {schema.name: schema for schema in schema_models}
+        seen_source_keys: set[tuple[str | None, str, str]] = set()
+        projected_query_names: dict[str, str] = {}
+
+        for table in tables:
+            source_name = table.get("source_name")
+            source_schema = table.get("source_schema")
+            source_table_name = table.get("source_table_name")
+            source_catalog = table.get("source_catalog")
+
+            if not (
+                (
+                    isinstance(source_schema, str)
+                    and source_schema
+                    and isinstance(source_table_name, str)
+                    and source_table_name
+                )
+                or (isinstance(source_name, str) and source_name)
+            ):
+                raise ValidationError(
+                    "Each projected table must include either source_name or source_schema/source_table_name."
+                )
+
+            matching_schema_model = None
+            if isinstance(source_name, str) and source_name:
+                matching_schema_model = schema_model_by_source_name.get(source_name)
+            if matching_schema_model is None:
+                matching_schema_model = next(
+                    (
+                        schema_model
+                        for schema_model in schema_models
+                        if schema_model.source_schema_metadata is not None
+                        and schema_model.source_schema_metadata.get("source_schema") == source_schema
+                        and schema_model.source_schema_metadata.get("source_table_name") == source_table_name
+                        and schema_model.source_schema_metadata.get("source_catalog") == source_catalog
+                    ),
+                    None,
+                )
+            if matching_schema_model is None:
+                raise ValidationError("Projected table references an unknown source table.")
+
+            source_schema_metadata = (
+                matching_schema_model.source_schema_metadata
+                or matching_schema_model.schema_metadata
+                or {"columns": [], "foreign_keys": []}
+            )
+            source_location = get_direct_postgres_location(
+                schema_name=matching_schema_model.name,
+                schema_metadata=source_schema_metadata,
+                default_schema=(source.job_inputs or {}).get("schema"),
+            )
+            if source_location in seen_source_keys:
+                raise ValidationError("Projection revision contains duplicate source table entries.")
+            seen_source_keys.add(source_location)
+
+            raw_column_names = {
+                column.get("name")
+                for column in source_schema_metadata.get("columns", [])
+                if isinstance(column, dict) and isinstance(column.get("name"), str)
+            }
+
+            removed_fields = table.get("removed_fields")
+            if isinstance(removed_fields, list):
+                unknown_removed_fields = [
+                    field_name
+                    for field_name in removed_fields
+                    if isinstance(field_name, str) and field_name not in raw_column_names
+                ]
+                if unknown_removed_fields:
+                    raise ValidationError(f"Unknown projected fields: {', '.join(unknown_removed_fields)}")
+
+            custom_fields = table.get("custom_fields")
+            seen_custom_field_names: set[str] = set()
+            if isinstance(custom_fields, list):
+                for custom_field in custom_fields:
+                    if not isinstance(custom_field, dict):
+                        raise ValidationError("Custom fields must be objects.")
+
+                    field_name = custom_field.get("name")
+                    expression = custom_field.get("expression")
+                    if not isinstance(field_name, str) or not field_name:
+                        raise ValidationError("Custom field name is required.")
+                    if not isinstance(expression, str) or not expression.strip():
+                        raise ValidationError("Custom field expression is required.")
+                    if field_name in raw_column_names or field_name in seen_custom_field_names:
+                        raise ValidationError(f"Duplicate projected field name: {field_name}")
+                    seen_custom_field_names.add(field_name)
+
+                    try:
+                        from posthog.hogql.parser import parse_expr
+
+                        parse_expr(expression)
+                    except Exception as error:
+                        raise ValidationError(f"Invalid custom field expression for {field_name}: {error}") from error
+
+            projected_query_name, _, _ = apply_direct_postgres_projection(
+                schema_name=matching_schema_model.name,
+                schema_metadata=source_schema_metadata,
+                projection_config={"tables": [table]},
+                default_schema=(source.job_inputs or {}).get("schema"),
+            )
+            enabled = table.get("enabled")
+            if enabled is False:
+                continue
+            if (
+                not isinstance(projected_query_name, str)
+                or not projected_query_name
+                or not DIRECT_POSTGRES_PROJECTION_NAME_PATTERN.match(projected_query_name)
+            ):
+                raise ValidationError(f"Invalid projected table name: {projected_query_name}")
+            if projected_query_name in projected_query_names:
+                raise ValidationError(f"Projected table name '{projected_query_name}' is duplicated in this revision.")
+            projected_query_names[projected_query_name] = matching_schema_model.name
+
+    def _apply_projection_revision(
+        self,
+        source: ExternalDataSource,
+        revision: ExternalDataSourceProjectionRevision | None,
+    ) -> None:
+        projection_config = revision.config if revision is not None else None
+        default_schema = (source.job_inputs or {}).get("schema")
+        schema_models = list(
+            ExternalDataSchema.objects.filter(team_id=self.team_id, source_id=source.id)
+            .exclude(deleted=True)
+            .select_related("table")
+        )
+
+        projected_states: list[tuple[ExternalDataSchema, dict[str, Any], str, bool]] = []
+        for schema_model in schema_models:
+            source_schema_metadata = get_direct_postgres_source_schema_metadata(
+                sync_type_config=schema_model.sync_type_config,
+                schema_metadata=schema_model.schema_metadata,
+            ) or {"columns": [], "foreign_keys": []}
+            projected_query_name, effective_schema_metadata, enabled_override = apply_direct_postgres_projection(
+                schema_name=schema_model.name,
+                schema_metadata=source_schema_metadata,
+                projection_config=projection_config,
+                default_schema=default_schema,
+            )
+            projected_should_sync = enabled_override if enabled_override is not None else schema_model.should_sync
+            projected_states.append((schema_model, source_schema_metadata, projected_query_name, projected_should_sync))
+            schema_model.sync_type_config = {
+                **(schema_model.sync_type_config or {}),
+                DIRECT_POSTGRES_SOURCE_SCHEMA_METADATA_KEY: source_schema_metadata,
+                "schema_metadata": effective_schema_metadata,
+            }
+            schema_model.should_sync = projected_should_sync
+
+        self._validate_direct_postgres_projection_tables(
+            source,
+            projection_config.get("tables", []) if isinstance(projection_config, dict) else [],
+        )
+
+        for schema_model, source_schema_metadata, projected_query_name, projected_should_sync in projected_states:
+            if projected_should_sync:
+                source_catalog, source_schema, source_table_name = get_direct_postgres_location(
+                    schema_name=schema_model.name,
+                    schema_metadata=source_schema_metadata,
+                    default_schema=default_schema,
+                )
+                schema_model.table = upsert_direct_postgres_table(
+                    schema_model.table,
+                    schema_name=projected_query_name,
+                    source=source,
+                    columns=postgres_schema_metadata_to_dwh_columns(schema_model.schema_metadata),
+                    source_catalog=source_catalog,
+                    source_schema=source_schema,
+                    source_table_name=source_table_name,
+                )
+            else:
+                hide_direct_postgres_table(schema_model.table)
+
+            schema_model.save(update_fields=["sync_type_config", "should_sync", "table", "updated_at"])
+
+    @extend_schema(
+        request=DirectPostgresProjectionRevisionWriteSerializer,
+        responses=DirectPostgresProjectionRevisionSerializer(many=True),
+    )
+    @action(methods=["GET", "POST"], detail=True)
+    def projection_revisions(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        instance: ExternalDataSource = self.get_object()
+        self._ensure_direct_postgres_source(instance)
+
+        if request.method == "GET":
+            revisions = instance.projection_revisions.order_by("-version")
+            serializer = DirectPostgresProjectionRevisionSerializer(revisions, many=True)
+            return Response(status=status.HTTP_200_OK, data=serializer.data)
+
+        serializer = DirectPostgresProjectionRevisionWriteSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        validated_data = serializer.validated_data
+        tables = validated_data.get("tables", [])
+        self._validate_direct_postgres_projection_tables(instance, tables)
+
+        with transaction.atomic():
+            ExternalDataSource._base_manager.filter(pk=instance.pk).select_for_update().get()
+            next_version = (
+                instance.projection_revisions.order_by("-version").values_list("version", flat=True).first() or 0
+            ) + 1
+            should_activate = bool(validated_data.get("activate", False))
+            if should_activate:
+                instance.projection_revisions.filter(is_active=True).update(is_active=False, updated_at=timezone.now())
+
+            revision = ExternalDataSourceProjectionRevision.objects.create(
+                source=instance,
+                team_id=self.team_id,
+                version=next_version,
+                config={"tables": tables},
+                is_active=should_activate,
+                created_by=request.user,
+            )
+
+            if should_activate:
+                self._apply_projection_revision(instance, revision)
+
+        revisions = instance.projection_revisions.order_by("-version")
+        return Response(
+            status=status.HTTP_201_CREATED,
+            data=DirectPostgresProjectionRevisionSerializer(revisions, many=True).data,
+        )
+
+    @extend_schema(
+        request=DirectPostgresProjectionActivationSerializer,
+        responses=DirectPostgresProjectionRevisionSerializer,
+    )
+    @action(methods=["POST"], detail=True)
+    def activate_projection_revision(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        instance: ExternalDataSource = self.get_object()
+        self._ensure_direct_postgres_source(instance)
+
+        serializer = DirectPostgresProjectionActivationSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        revision = (
+            instance.projection_revisions.filter(pk=serializer.validated_data["revision_id"])
+            .order_by("-version")
+            .first()
+        )
+        if revision is None:
+            return Response(status=status.HTTP_404_NOT_FOUND, data={"message": "Projection revision not found"})
+
+        self._validate_direct_postgres_projection_tables(
+            instance,
+            revision.config.get("tables", []) if isinstance(revision.config, dict) else [],
+        )
+
+        with transaction.atomic():
+            ExternalDataSource._base_manager.filter(pk=instance.pk).select_for_update().get()
+            instance.projection_revisions.filter(is_active=True).exclude(pk=revision.pk).update(
+                is_active=False,
+                updated_at=timezone.now(),
+            )
+            if not revision.is_active:
+                revision.is_active = True
+                revision.save(update_fields=["is_active", "updated_at"])
+            self._apply_projection_revision(instance, revision)
+
+        return Response(
+            status=status.HTTP_200_OK,
+            data=DirectPostgresProjectionRevisionSerializer(revision).data,
+        )
 
     def destroy(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         instance: ExternalDataSource = self.get_object()

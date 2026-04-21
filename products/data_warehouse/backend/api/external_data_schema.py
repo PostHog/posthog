@@ -35,6 +35,8 @@ from products.data_warehouse.backend.data_load.service import (
 )
 from products.data_warehouse.backend.direct_postgres import (
     get_direct_postgres_location,
+    get_direct_postgres_query_name,
+    get_direct_postgres_source_schema_metadata,
     hide_direct_postgres_table,
     postgres_schema_metadata_to_dwh_columns,
     upsert_direct_postgres_table,
@@ -65,6 +67,8 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
     sync_time_of_day = serializers.SerializerMethodField(read_only=True)
     primary_key_columns = serializers.SerializerMethodField(read_only=True)
     cdc_table_mode = serializers.SerializerMethodField(read_only=False)
+    schema_metadata = serializers.SerializerMethodField(read_only=True)
+    source_schema_metadata = serializers.SerializerMethodField(read_only=True)
 
     class Meta:
         model = ExternalDataSchema
@@ -87,6 +91,8 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
             "description",
             "primary_key_columns",
             "cdc_table_mode",
+            "schema_metadata",
+            "source_schema_metadata",
         ]
 
         read_only_fields = [
@@ -123,6 +129,14 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
 
     def get_primary_key_columns(self, schema: ExternalDataSchema) -> list[str] | None:
         return schema.primary_key_columns
+
+    @extend_schema_field(serializers.JSONField(allow_null=True))
+    def get_schema_metadata(self, schema: ExternalDataSchema) -> dict[str, Any] | None:
+        return schema.sync_type_config.get("schema_metadata") if isinstance(schema.sync_type_config, dict) else None
+
+    @extend_schema_field(serializers.JSONField(allow_null=True))
+    def get_source_schema_metadata(self, schema: ExternalDataSchema) -> dict[str, Any] | None:
+        return schema.source_schema_metadata or schema.schema_metadata
 
     def get_table(self, schema: ExternalDataSchema) -> Optional[dict]:
         from products.data_warehouse.backend.api.table import SimpleTableSerializer
@@ -297,14 +311,20 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
         if source.is_direct_postgres:
             # We use "should_sync" to determine if the table should be exposed or hidden.
             if should_sync is True and instance.should_sync is False:
+                source_schema_metadata = get_direct_postgres_source_schema_metadata(
+                    sync_type_config=instance.sync_type_config,
+                    schema_metadata=instance.schema_metadata,
+                )
                 source_catalog, source_schema, source_table_name = get_direct_postgres_location(
                     schema_name=instance.name,
-                    schema_metadata=instance.schema_metadata,
+                    schema_metadata=source_schema_metadata,
                     default_schema=(source.job_inputs or {}).get("schema"),
                 )
                 validated_data["table"] = upsert_direct_postgres_table(
                     instance.table,
-                    schema_name=instance.name,
+                    schema_name=get_direct_postgres_query_name(
+                        schema_name=instance.name, schema_metadata=instance.schema_metadata
+                    ),
                     source=source,
                     columns=postgres_schema_metadata_to_dwh_columns(instance.schema_metadata),
                     source_catalog=source_catalog,

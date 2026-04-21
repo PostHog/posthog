@@ -24,6 +24,7 @@ from posthog.hogql.database.s3_table import (
     build_function_call,
 )
 from posthog.hogql.escape_sql import escape_clickhouse_identifier
+from posthog.hogql.parser import parse_expr
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
@@ -468,6 +469,19 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             fields[column] = self._get_hogql_field_for_column(column, type, clickhouse_type, is_nullable)
 
         if self.external_data_source and self.external_data_source.is_direct_postgres:
+            direct_schema = next((schema for schema in self.externaldataschema_set.all() if not schema.deleted), None)
+            if direct_schema is not None and direct_schema.custom_fields:
+                for custom_field in direct_schema.custom_fields:
+                    field_name = custom_field.get("name") if isinstance(custom_field, dict) else None
+                    expression = custom_field.get("expression") if isinstance(custom_field, dict) else None
+                    if not isinstance(field_name, str) or not isinstance(expression, str):
+                        continue
+
+                    try:
+                        fields[field_name] = ast.ExpressionField(name=field_name, expr=parse_expr(expression))
+                    except Exception as error:
+                        capture_exception(error)
+
             postgres_catalog = (
                 self.options.get(DIRECT_POSTGRES_CATALOG_OPTION)
                 if isinstance(self.options.get(DIRECT_POSTGRES_CATALOG_OPTION), str)
