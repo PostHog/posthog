@@ -214,9 +214,8 @@ dev = [
     "protoletariat~=3.3.10",
     "ipython~=9.3.0",
     "mypy~=1.19.1",
-    "mypy-baseline~=0.7.3",
     "mypy-extensions~=1.1.0",
-    "ty==0.0.4",
+    "ty==0.0.29",
     # openapi-spec-validator needed for prance as a validation backend
     "openapi-spec-validator==0.7.1",
     "orjson==3.11.6",
@@ -411,10 +410,6 @@ check_untyped_defs = true
 [tool.django-stubs]
 django_settings_module = "posthog.settings"
 
-[tool.mypy-baseline]
-sort_baseline = true
-ignore_categories = ["note"]
-
 [tool.pyright]
 venvPath = ".flox/cache"
 venv = "venv"
@@ -428,6 +423,8 @@ exclude = [
     "bin/**",
     "manage.py",
     "posthog/hogql/grammar/**",
+    "posthog/schema.py",
+    "posthog/temporal/proxy_service/proto/**",
 ]
 
 # ---------------------------------------------------------------------------
@@ -476,4 +473,47 @@ unresolved-import = "ignore"
 # See: https://github.com/astral-sh/ty/issues/291
 unresolved-attribute = "ignore"  # Django model fields, relationships, auto-generated attributes
 invalid-argument-type = "ignore"  # Django querysets, managers, form fields
+unknown-argument = "ignore"  # Django kwargs, queryset filters, manager methods
 invalid-base = "ignore"  # Django model metaclasses (e.g., models.Model)
+missing-argument = "ignore"  # Django auto-generated __init__, managers
+too-many-positional-arguments = "ignore"  # Django metaprogramming signatures
+
+# Dual mypy+ty — mypy still runs, so its artifacts are legitimate
+redundant-cast = "ignore"  # casts needed by mypy that ty resolves
+unused-type-ignore-comment = "ignore"  # type: ignore comments required by mypy
+
+# Django lazy imports and settings indirection
+possibly-missing-submodule = "ignore"
+
+# DRF serializer pattern — validate/update/create overrides are idiomatic
+invalid-method-override = "ignore"
+
+# Conditional base classes (e.g. EnterpriseEventQuery | EventQuery pattern)
+unsupported-base = "ignore"
+
+# Protobuf generated code + Django lazy references
+unresolved-reference = "ignore"
+
+# Third-party library overload stubs (Anthropic SDK, Django, re, etc.)
+no-matching-overload = "ignore"
+
+# Framework metaclass magic — ty can't resolve dynamic callables
+call-top-callable = "ignore"
+call-non-callable = "ignore"
+
+# Django querysets typed as `object` — ty can't narrow through managers
+not-iterable = "ignore"
+
+# `in` operator on Django/framework `object` types
+unsupported-operator = "ignore"
+
+# Subscript on `object`/`None` from unresolved Django types
+not-subscriptable = "ignore"
+
+# mypy already catches deprecations; ty is a fast preflight, not the authority
+deprecated = "ignore"
+
+# ty disagrees with mypy on some existing code — baselined, not suppressed.
+# These rules catch real bugs in new code, so they stay enabled.
+# invalid-type-form is the exception: generated code + ty limitations on valid patterns.
+invalid-type-form = "ignore"
