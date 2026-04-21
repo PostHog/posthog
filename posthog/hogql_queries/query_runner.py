@@ -164,7 +164,7 @@ BLOCKING_EXECUTION_MODES: set[ExecutionMode] = {
     ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS,
 }
 
-_REFRESH_TO_EXECUTION_MODE: dict[str | bool, ExecutionMode] = {
+_REFRESH_TO_EXECUTION_MODE: dict[str | bool, ExecutionMode] = {  # ty: ignore[invalid-assignment]
     **ExecutionMode._value2member_map_,  # type: ignore
     True: ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
 }
@@ -1473,7 +1473,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             if survey_query_metric_labels:
                 SURVEY_QUERY_EXECUTION_DURATION.labels(**survey_query_metric_labels).observe(query_duration_seconds)
 
-        fresh_response_dict = {
+        fresh_response_dict: dict[str, Any] = {
             **query_result.model_dump(),
             "is_cached": False,
             "last_refresh": last_refresh,
@@ -1502,7 +1502,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             fresh_response_dict["calculation_trigger"] = trigger
 
         # Don't cache debug queries with errors and export queries
-        errors: Optional[list] = fresh_response_dict.get("error", None)
+        errors: Optional[list[Any]] = fresh_response_dict.get("error", None)
         has_error = errors is not None and len(errors) > 0
         if not has_error and self.limit_context != LimitContext.EXPORT:
             cache_manager.set_cache_data(
@@ -1859,11 +1859,13 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         if dashboard_filter.date_from or dashboard_filter.date_to:
             if self.query.dateRange is None:
                 self.query.dateRange = DateRange()
-            self.query.dateRange.date_from = dashboard_filter.date_from
-            self.query.dateRange.date_to = dashboard_filter.date_to
+            date_range = self.query.dateRange
+            assert date_range is not None
+            date_range.date_from = dashboard_filter.date_from
+            date_range.date_to = dashboard_filter.date_to
 
             if dashboard_filter.explicitDate is not None:
-                self.query.dateRange.explicitDate = dashboard_filter.explicitDate
+                date_range.explicitDate = dashboard_filter.explicitDate
 
         if dashboard_filter.breakdown_filter:
             if hasattr(self.query, "breakdownFilter"):

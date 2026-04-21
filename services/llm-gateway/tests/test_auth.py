@@ -234,6 +234,10 @@ class TestPersonalApiKeyAuthenticator:
                 {"id": "k3", "user_id": 100, "scopes": [], "current_team_id": 200},
                 id="empty_scopes",
             ),
+            pytest.param(
+                {"id": "k4", "user_id": 101, "scopes": ["*"], "current_team_id": 201},
+                id="wildcard_scope_rejected",
+            ),
         ],
     )
     async def test_invalid_keys_return_none(
@@ -372,6 +376,7 @@ class TestOAuthAccessTokenAuthenticator:
             pytest.param(
                 "read:all llm_gateway:read admin", ["read:all", "llm_gateway:read", "admin"], id="three_scopes"
             ),
+            pytest.param("*", ["*"], id="wildcard_scope_accepted_for_oauth"),
         ],
     )
     async def test_scope_parsing(

@@ -21,7 +21,7 @@ logging.getLogger("google_genai").setLevel(logging.ERROR)
 logging.getLogger("google.genai").setLevel(logging.ERROR)
 
 # Initialize posthoganalytics default_client so the LLM wrapper (which requires it) works
-posthoganalytics.default_client = Posthog(
+posthoganalytics.default_client = Posthog(  # ty: ignore[invalid-assignment]
     os.environ.get("POSTHOG_PROJECT_API_KEY", "phx_unused"),
     host=os.environ.get("POSTHOG_HOST", "http://localhost:8010"),
     disabled=True,
