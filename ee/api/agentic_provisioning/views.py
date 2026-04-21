@@ -316,6 +316,10 @@ def account_requests(request: Request) -> Response:
             status=401,
         )
 
+    if not partner:
+        if error := _verify_hmac_if_present(request):
+            return error
+
     # Stripe Projects: require stripe account if no provisioning partner identified
     if not partner and not partner_account_id:
         _capture_provisioning_event("account_request", "error", error_code="missing_stripe_account")
@@ -758,6 +762,9 @@ def _exchange_authorization_code(request: Request) -> Response:
     elif not has_hmac:
         _capture_provisioning_event("token_exchange", "missing_signature", grant_type="authorization_code")
         return Response({"error": "invalid_request", "error_description": "Authentication required"}, status=401)
+    else:
+        if error := _verify_hmac_if_present(request):
+            return error
 
     cache.delete(cache_key)
 
