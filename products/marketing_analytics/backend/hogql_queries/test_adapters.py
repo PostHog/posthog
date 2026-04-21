@@ -1,7 +1,8 @@
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Union
+from typing import ClassVar, Union
 
 import pytest
 from posthog.test.base import BaseTest, ClickhouseTestMixin
@@ -78,7 +79,7 @@ class TableInfo:
     credential: DataWarehouseCredential
     platform: str
     source_type: str
-    cleanup_fn: callable
+    cleanup_fn: Callable[[], None]
 
 
 @dataclass
@@ -96,6 +97,7 @@ class DataConfig:
 class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
     maxDiff = None
     CLASS_DATA_LEVEL_SETUP = False
+    test_data_configs: ClassVar[dict[str, DataConfig]]
 
     @classmethod
     def setUpClass(cls):
@@ -822,7 +824,7 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
         super().setUp()
         self.context = self._create_test_context()
         self.test_tables: dict[str, TableInfo] = {}
-        self._cleanup_functions: list[callable] = []
+        self._cleanup_functions: list[Callable[[], None]] = []
 
     def tearDown(self):
         for cleanup_fn in self._cleanup_functions:
@@ -884,7 +886,8 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
         self.test_tables[table_key] = table_info
         self._cleanup_functions.append(cleanup_fn)
 
-        logger.info("created_table", table_name=config.table_name, row_count=len(csv_df))
+        row_count = 0 if csv_df is None else len(csv_df)
+        logger.info("created_table", table_name=config.table_name, row_count=row_count)
         return table_info
 
     def _create_mock_table(self, name: str, source_type: str) -> Mock:
@@ -931,6 +934,7 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
 
         assert result is not None, "Query execution should not return None"
         assert result.results is not None, "Query results should not be None"
+        assert result.columns is not None, "Query columns should not be None"
         assert len(result.columns) == EXPECTED_COLUMN_COUNT, f"Should have {EXPECTED_COLUMN_COUNT} columns"
 
         return result.results
@@ -1145,6 +1149,33 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
         assert result.is_valid, "BingAdsAdapter validation should succeed"
         assert isinstance(result.errors, list), "BingAdsAdapter should return list of errors"
 
+    @parameterized.expand(
+        [
+            ("total_impression", "_get_impressions_field"),
+            ("total_clickthrough", "_get_clicks_field"),
+            ("spend_in_dollar", "_get_cost_field"),
+        ]
+    )
+    def test_pinterest_ads_returns_zero_when_stats_column_missing(self, missing_column, field_method):
+        campaign_table = self._create_mock_table("pinterestads_campaigns", "PinterestAds")
+        stats_table = self._create_mock_table("pinterestads_campaign_analytics", "PinterestAds")
+        all_columns = ("total_impression", "total_clickthrough", "spend_in_dollar")
+        stats_table.columns = {col: {"valid": True} for col in all_columns if col != missing_column}
+
+        config = PinterestAdsConfig(
+            campaign_table=campaign_table,
+            stats_table=stats_table,
+            source_type="PinterestAds",
+            source_id="test_missing_column",
+        )
+        adapter = PinterestAdsAdapter(config=config, context=self.context)
+        expr = getattr(adapter, field_method)()
+
+        assert isinstance(expr, ast.Call)
+        assert expr.name == "toFloat"
+        assert isinstance(expr.args[0], ast.Constant)
+        assert expr.args[0].value == 0
+
     def test_pinterest_ads_adapter_validation_consistency(self):
         campaign_table = self._create_mock_table("pinterestads_campaigns", "PinterestAds")
         stats_table = self._create_mock_table("pinterestads_campaign_analytics", "PinterestAds")
@@ -1315,6 +1346,11 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
     def test_pinterest_ads_native_query_generation(self):
         campaign_table = self._create_mock_table("pinterest_campaigns", "PinterestAds")
         stats_table = self._create_mock_table("pinterest_campaign_analytics", "PinterestAds")
+        stats_table.columns = {
+            "total_impression": {"valid": True},
+            "total_clickthrough": {"valid": True},
+            "spend_in_dollar": {"valid": True},
+        }
 
         config = PinterestAdsConfig(
             campaign_table=campaign_table,
@@ -1747,6 +1783,8 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
 
         facebook_query = facebook_adapter.build_query()
         tiktok_query = tiktok_adapter.build_query()
+        assert facebook_query is not None
+        assert tiktok_query is not None
 
         union_query = ast.SelectSetQuery.create_from_queries([facebook_query, tiktok_query], "UNION ALL")
         results = self._execute_query_and_validate(union_query)
@@ -1789,7 +1827,7 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
 
         config = ExternalConfig(
             table=table,
-            source_map=None,
+            source_map=None,  # type: ignore[arg-type]
             source_type="BigQuery",
             source_id="validation_error",
             schema_name="marketing_schema",
@@ -1816,7 +1854,7 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
             with pytest.raises(AssertionError, match="CSV file must exist"):
                 self._setup_csv_table("nonexistent_table")
         finally:
-            self.test_data_configs = old_configs
+            type(self).test_data_configs = old_configs
 
     # ================================================================
     # PERFORMANCE TESTS

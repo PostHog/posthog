@@ -59,9 +59,9 @@ export const SummarizeSessionReplaysButton = ({
             }}
             type="secondary"
             icon={<IconRewindPlay />}
-            tooltip="Use AI to analyze session replays and identify patterns in user behavior across experiment variants. Discover insights about how users interact with your variants."
+            tooltip="Use AI to analyze session recordings and identify patterns in user behavior across experiment variants. Discover insights about how users interact with your variants."
         >
-            Summarize session replays
+            Summarize session recordings
             <LemonTag type="highlight" size="small" className="ml-1">
                 Beta
             </LemonTag>

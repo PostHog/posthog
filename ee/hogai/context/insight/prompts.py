@@ -114,6 +114,17 @@ Date|$pageview -> sign up conversion|$pageview -> sign up drop-off
 """.strip()
 
 
+LIFECYCLE_EXAMPLE_PROMPT = """
+You are given a table with the results of a lifecycle query. Values are separated by the pipe character "|" and rows are separated by newlines. The first row is the header row. The first column is the date, and the remaining columns show the count of users in each lifecycle status for that period: New (first-time users), Returning (active in the previous period), Resurrecting (returning after inactivity), and Dormant (previously active but inactive, shown as negative values). If the query has multiple event series, each series is shown in a separate section with an "Event:" header.
+
+Example:
+```
+Date|New|Returning|Resurrecting|Dormant
+2025-10-01|6936|29541|13263|-16735
+2025-11-01|7101|30794|12662|-18946
+```
+""".strip()
+
 PATHS_EXAMPLE_PROMPT = """
 You are given a table with the results of a paths query. Values are separated by the pipe character "|" and rows are separated by newlines. The first row is the header row. Each row represents an edge in the user path graph, showing the source step, target step, the number of users who traversed that edge, and the average time to convert between steps. Source and target values are prefixed with their step number (e.g., "1_/home" means step 1 at "/home").
 

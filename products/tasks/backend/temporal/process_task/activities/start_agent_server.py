@@ -9,18 +9,23 @@ from posthog.temporal.oauth import PosthogMcpScopes
 
 from products.tasks.backend.models import Task
 from products.tasks.backend.services.agentsh import ENV_FILE, ENV_WRAPPER_SCRIPT, build_exec_prefix
-from products.tasks.backend.services.sandbox import Sandbox, SandboxProtocol
+from products.tasks.backend.services.sandbox import Sandbox, SandboxBase
 from products.tasks.backend.temporal.exceptions import OAuthTokenError, SandboxExecutionError
 from products.tasks.backend.temporal.oauth import create_oauth_access_token
 from products.tasks.backend.temporal.observability import emit_agent_log, log_activity_execution
-from products.tasks.backend.temporal.process_task.utils import format_allowed_domains_for_log, get_sandbox_mcp_configs
+from products.tasks.backend.temporal.process_task.utils import (
+    format_allowed_domains_for_log,
+    get_sandbox_ph_mcp_configs,
+    get_user_mcp_server_configs,
+    mark_mcp_token_issued,
+)
 
 from .get_task_processing_context import TaskProcessingContext
 
 logger = get_logger(__name__)
 
 
-def _emit_agentsh_log_tail(ctx: TaskProcessingContext, sandbox: SandboxProtocol) -> None:
+def _emit_agentsh_log_tail(ctx: TaskProcessingContext, sandbox: SandboxBase) -> None:
     try:
         result = sandbox.execute("tail -n 20 /var/log/agentsh/agentsh.log 2>/dev/null || true", timeout_seconds=5)
     except Exception:
@@ -32,7 +37,7 @@ def _emit_agentsh_log_tail(ctx: TaskProcessingContext, sandbox: SandboxProtocol)
         emit_agent_log(ctx.run_id, "debug", f"agentsh log tail:\n{log_tail}")
 
 
-def _emit_agent_server_log_tail(ctx: TaskProcessingContext, sandbox: SandboxProtocol) -> None:
+def _emit_agent_server_log_tail(ctx: TaskProcessingContext, sandbox: SandboxBase) -> None:
     try:
         result = sandbox.execute("tail -n 40 /tmp/agent-server.log 2>/dev/null || true", timeout_seconds=5)
     except Exception:
@@ -44,7 +49,7 @@ def _emit_agent_server_log_tail(ctx: TaskProcessingContext, sandbox: SandboxProt
         emit_agent_log(ctx.run_id, "debug", f"agent-server log tail:\n{log_tail}")
 
 
-def _run_connectivity_diagnostics(ctx: TaskProcessingContext, sandbox: SandboxProtocol) -> None:
+def _run_connectivity_diagnostics(ctx: TaskProcessingContext, sandbox: SandboxBase) -> None:
     """Emit diagnostic info about env vars and network connectivity.
 
     When allowed_domains is set, runs the checks inside the agentsh exec
@@ -134,11 +139,32 @@ def start_agent_server(input: StartAgentServerInput) -> StartAgentServerOutput:
                 cause=e,
             )
 
-        mcp_configs = get_sandbox_mcp_configs(
+        mcp_configs = get_sandbox_ph_mcp_configs(
             token=access_token,
             project_id=ctx.team_id,
             scopes=scopes,
         )
+        if task.created_by_id:
+            user_mcp_configs = get_user_mcp_server_configs(
+                token=access_token,
+                team_id=ctx.team_id,
+                user_id=task.created_by_id,
+            )
+            if user_mcp_configs:
+                mcp_configs = mcp_configs + user_mcp_configs
+
+        if mcp_configs:
+            emit_agent_log(
+                ctx.run_id,
+                "debug",
+                f"Resolved {len(mcp_configs)} MCP config(s) for agent server: {', '.join(config.name for config in mcp_configs)}",
+            )
+        else:
+            emit_agent_log(
+                ctx.run_id,
+                "warn",
+                "No MCP configs were resolved for this run. PostHog MCP tools will be unavailable in the agent session.",
+            )
 
         if ctx.allowed_domains:
             environment_name = ctx.sandbox_environment_name or ctx.sandbox_environment_id or "selected environment"
@@ -161,11 +187,21 @@ def start_agent_server(input: StartAgentServerInput) -> StartAgentServerOutput:
                 task_id=ctx.task_id,
                 run_id=ctx.run_id,
                 mode=ctx.mode,
+                create_pr=ctx.create_pr,
                 interaction_origin=ctx.interaction_origin,
                 branch=ctx.branch,
+                runtime_adapter=ctx.runtime_adapter,
+                provider=ctx.provider,
+                model=ctx.model,
+                reasoning_effort=ctx.reasoning_effort,
                 mcp_configs=mcp_configs or None,
                 allowed_domains=ctx.allowed_domains,
             )
+
+            # Mark startup-time token issuance so follow-ups within the next
+            # 30m window skip the redundant refresh.
+            if mcp_configs:
+                mark_mcp_token_issued(ctx.run_id)
 
             # emit agentsh logs
             if ctx.allowed_domains:

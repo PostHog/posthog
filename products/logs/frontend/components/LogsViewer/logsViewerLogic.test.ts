@@ -367,15 +367,15 @@ describe('logsViewerLogic', () => {
             })
         })
 
-        it('defaults prettifyJson to true', () => {
-            expect(logic.values.prettifyJson).toBe(true)
+        it('defaults prettifyJson to false', () => {
+            expect(logic.values.prettifyJson).toBe(false)
         })
 
         it('sets prettifyJson', async () => {
             await expectLogic(logic, () => {
-                logic.actions.setPrettifyJson(false)
+                logic.actions.setPrettifyJson(true)
             }).toMatchValues({
-                prettifyJson: false,
+                prettifyJson: true,
             })
         })
     })
@@ -676,6 +676,49 @@ describe('logsViewerLogic', () => {
             await expectLogic(logic, () => {
                 logic.actions.toggleExpandLog('log-1')
             }).toDispatchActions(['toggleExpandLog', 'recomputeRowHeights'])
+        })
+    })
+
+    describe('deep linking (linkToLogId)', () => {
+        let dataLogic: ReturnType<typeof logsViewerDataLogic.build>
+
+        beforeEach(() => {
+            ;({ logic, dataLogic } = mountWithLogs([]))
+        })
+
+        it('clears linkToLogId when linked log is found in results', async () => {
+            // Simulate: linkToLogId set from URL, then query results arrive containing the log
+            logic.actions.setLinkToLogId('log-2')
+            dataLogic.actions.setLogs(mockRawLogs)
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.linkToLogId).toBeNull()
+        })
+
+        it('clears linkToLogId when log not found in results', async () => {
+            logic.actions.setLinkToLogId('log-missing')
+            dataLogic.actions.setLogs(mockRawLogs)
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.linkToLogId).toBeNull()
+        })
+
+        it('clears linkToLogId when query returns zero results', async () => {
+            logic.actions.setLinkToLogId('log-missing')
+            dataLogic.actions.setLogs([])
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.linkToLogId).toBeNull()
+        })
+
+        it('opens correct log when linkToLogId changes with logs already loaded', async () => {
+            dataLogic.actions.setLogs(mockRawLogs)
+            await expectLogic(logic).toFinishAllListeners()
+
+            logic.actions.setLinkToLogId('log-2')
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.linkToLogId).toBeNull()
         })
     })
 

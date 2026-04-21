@@ -227,7 +227,7 @@ Created experiment 'Pricing page test':
 
 **What happens:**
 
-1. The `list-errors` tool fetches error groups sorted by occurrence count
+1. The `query-error-tracking-issues` tool fetches error groups sorted by occurrence count
 2. Returns error details including affected user counts
 
 **Expected output:**

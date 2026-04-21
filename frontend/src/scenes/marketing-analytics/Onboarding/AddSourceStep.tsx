@@ -7,11 +7,12 @@ import { LemonButton, LemonCard, Link, Tooltip } from '@posthog/lemon-ui'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { cn } from 'lib/utils/css-classes'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { DataWarehouseSourceIcon } from 'scenes/data-warehouse/settings/DataWarehouseSourceIcon'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
+
+import { SourceIcon } from 'products/data_warehouse/frontend/shared/components/SourceIcon'
 
 import { marketingAnalyticsLogic } from '../../web-analytics/tabs/marketing-analytics/frontend/logic/marketingAnalyticsLogic'
 import {
@@ -177,7 +178,7 @@ function SourceChip({ source, onSelect }: { source: MarketingSource; onSelect: (
             )}
             onClick={() => onSelect(source.id)}
         >
-            <DataWarehouseSourceIcon type={source.id} size="xsmall" disableTooltip />
+            <SourceIcon type={source.id} size="xsmall" disableTooltip />
             <span className="text-sm font-medium">{source.id}</span>
             {source.isConnected && <IconCheckCircle className="w-3.5 h-3.5 text-success" />}
         </button>

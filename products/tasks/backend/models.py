@@ -4,7 +4,13 @@ import json
 import uuid
 import string
 import secrets
-from typing import TYPE_CHECKING, Literal, Optional
+from datetime import datetime
+from typing import TYPE_CHECKING, Any, Literal, Optional
+
+from django.db.models.signals import post_save
+from django.dispatch import receiver
+
+from pydantic import BaseModel
 
 if TYPE_CHECKING:
     from products.slack_app.backend.slack_thread import SlackThreadContext
@@ -13,7 +19,7 @@ from django.conf import settings
 from django.contrib.postgres.fields import ArrayField
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, models, transaction
-from django.utils import timezone
+from django.utils import timezone as django_timezone
 
 import structlog
 import posthoganalytics
@@ -28,10 +34,17 @@ from posthog.storage import object_storage
 from posthog.temporal.oauth import PosthogMcpScopes
 
 from products.tasks.backend.constants import DEFAULT_TRUSTED_DOMAINS
+from products.tasks.backend.stream.redis_stream import publish_task_run_stream_event
 
 logger = structlog.get_logger(__name__)
 
 LogLevel = Literal["debug", "info", "warn", "error"]
+
+
+def resolve_schema(schema: type[BaseModel] | dict) -> dict:
+    if isinstance(schema, dict):
+        return schema
+    return schema.model_json_schema()
 
 
 class Task(DeletedMetaFields, models.Model):
@@ -39,9 +52,13 @@ class Task(DeletedMetaFields, models.Model):
         ERROR_TRACKING = "error_tracking", "Error Tracking"
         EVAL_CLUSTERS = "eval_clusters", "Eval Clusters"
         USER_CREATED = "user_created", "User Created"
+        AUTOMATION = "automation", "Automation"
         SLACK = "slack", "Slack"
         SUPPORT_QUEUE = "support_queue", "Support Queue"
         SESSION_SUMMARIES = "session_summaries", "Session Summaries"
+        # Unlike the others (which indicate direct creation from that product, e.g. a "fix this error" button),
+        # signal report tasks originate indirectly via signals from other products.
+        SIGNAL_REPORT = "signal_report", "Signal Report"
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
@@ -66,6 +83,16 @@ class Task(DeletedMetaFields, models.Model):
         max_length=255, null=True, blank=True
     )  # Format is organization/repo, for example posthog/posthog-js
 
+    # DEPRECATED - do not use
+    signal_report = models.ForeignKey(
+        "signals.SignalReport",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="task",
+        db_index=False,
+    )
+
     json_schema = models.JSONField(
         default=None,
         null=True,
@@ -78,12 +105,20 @@ class Task(DeletedMetaFields, models.Model):
         help_text="If true, this task is for internal use and should not be exposed to end users.",
     )
 
-    created_at = models.DateTimeField(default=timezone.now)
+    created_at = models.DateTimeField(default=django_timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
+    ci_prompt = models.TextField(
+        blank=True,
+        null=True,
+        help_text="Custom prompt for CI fixes. If blank, a default prompt will be used.",
+    )
 
     class Meta:
         db_table = "posthog_task"
         managed = True
+        indexes = [
+            models.Index(fields=["signal_report"], name="posthog_task_signal_report_idx"),
+        ]
 
     def __str__(self):
         return self.title
@@ -184,6 +219,7 @@ class Task(DeletedMetaFields, models.Model):
             state=state,
             branch=branch,
         )
+        task_run.publish_stream_state_event()
         self.capture_event(
             "task_run_created",
             {
@@ -198,11 +234,11 @@ class Task(DeletedMetaFields, models.Model):
 
     def soft_delete(self):
         self.deleted = True
-        self.deleted_at = timezone.now()
+        self.deleted_at = django_timezone.now()
         self.save()
         self.capture_event(
             "task_deleted",
-            {"duration_seconds": round((timezone.now() - self.created_at).total_seconds(), 1)},
+            {"duration_seconds": round((django_timezone.now() - self.created_at).total_seconds(), 1)},
         )
 
     def delete(self, *args, **kwargs):
@@ -224,16 +260,22 @@ class Task(DeletedMetaFields, models.Model):
         start_workflow: bool = True,
         posthog_mcp_scopes: PosthogMcpScopes = "full",
         branch: str | None = None,
+        signal_report_id: str | None = None,
         sandbox_environment_id: str | None = None,
+        internal: bool = False,
+        output_schema: type[BaseModel] | dict | None = None,
+        interaction_origin: str | None = None,
     ) -> "Task":
         from products.tasks.backend.temporal.client import execute_task_processing_workflow
 
         created_by = User.objects.get(id=user_id)
 
+        from products.tasks.backend.services.sandbox import is_public_sandbox_repo
+
         github_integration = None
         if repository:
             github_integration = Integration.objects.filter(team=team, kind="github").first()
-            if not github_integration:
+            if not github_integration and not is_public_sandbox_repo(repository):
                 raise ValueError(f"Team {team.id} does not have a GitHub integration")
 
         sandbox_env = None
@@ -250,21 +292,23 @@ class Task(DeletedMetaFields, models.Model):
             created_by=created_by,
             github_integration=github_integration,
             repository=repository,
+            internal=internal,
+            json_schema=resolve_schema(output_schema) if output_schema else None,
+            **({"signal_report_id": signal_report_id} if signal_report_id else {}),
         )
 
-        extra_state: dict[str, str] | None = None
-        if slack_thread_url or slack_thread_context:
-            extra_state = {}
-            if slack_thread_url:
-                extra_state["slack_thread_url"] = slack_thread_url
-            if slack_thread_context:
-                extra_state["interaction_origin"] = "slack"
+        extra_state: dict[str, str] = {}
+        if slack_thread_url:
+            extra_state["slack_thread_url"] = slack_thread_url
+        if interaction_origin:
+            extra_state["interaction_origin"] = interaction_origin
+        elif slack_thread_context:
+            extra_state["interaction_origin"] = "slack"
 
         if sandbox_env is not None:
-            extra_state = extra_state or {}
             extra_state["sandbox_environment_id"] = str(sandbox_env.id)
 
-        task_run = task.create_run(mode=mode, extra_state=extra_state, branch=branch)
+        task_run = task.create_run(mode=mode, extra_state=extra_state or None, branch=branch)
 
         if start_workflow:
             execute_task_processing_workflow(
@@ -278,6 +322,115 @@ class Task(DeletedMetaFields, models.Model):
             )
 
         return task
+
+
+class TaskAutomationManager(models.Manager):
+    def get_queryset(self):
+        return (
+            super()
+            .get_queryset()
+            .select_related(
+                "task",
+                "task__team",
+                "task__created_by",
+                "task__github_integration",
+                "last_task_run",
+                "last_task_run__task",
+            )
+        )
+
+
+class TaskAutomationQuerySet(models.QuerySet):
+    def with_task_context(self):
+        return self.select_related(
+            "task",
+            "task__team",
+            "task__created_by",
+            "task__github_integration",
+            "last_task_run",
+            "last_task_run__task",
+        )
+
+
+class TaskAutomation(models.Model):
+    class RunStatus(models.TextChoices):
+        SUCCESS = "success", "Success"
+        FAILED = "failed", "Failed"
+        RUNNING = "running", "Running"
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    cron_expression = models.CharField(max_length=100)
+    timezone = models.CharField(max_length=128, default="UTC")
+    template_id = models.CharField(max_length=255, null=True, blank=True)
+    enabled = models.BooleanField(default=True)
+    task = models.OneToOneField(Task, on_delete=models.CASCADE, related_name="automation")
+    last_task_run = models.ForeignKey("TaskRun", on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
+    last_error = models.TextField(null=True, blank=True)
+    created_at = models.DateTimeField(default=django_timezone.now)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    objects = TaskAutomationManager()
+
+    class Meta:
+        db_table = "posthog_task_automation"
+        ordering = ["task__title", "-created_at"]
+
+    def __str__(self):
+        return self.name
+
+    @property
+    def schedule_id(self) -> str:
+        return f"task-automation-{self.id}"
+
+    @property
+    def team(self) -> Team:
+        return self.task.team
+
+    @property
+    def team_id(self) -> int:
+        return self.task.team_id
+
+    @property
+    def created_by(self) -> User | None:
+        return self.task.created_by
+
+    @property
+    def created_by_id(self) -> int | None:
+        return self.task.created_by_id
+
+    @property
+    def name(self) -> str:
+        return self.task.title
+
+    @property
+    def prompt(self) -> str:
+        return self.task.description
+
+    @property
+    def repository(self) -> str | None:
+        return self.task.repository
+
+    @property
+    def github_integration(self) -> Integration | None:
+        return self.task.github_integration
+
+    @property
+    def github_integration_id(self) -> int | None:
+        return self.task.github_integration_id
+
+    @property
+    def last_run_at(self) -> datetime | None:
+        return self.last_task_run.created_at if self.last_task_run else None
+
+    @property
+    def last_run_status(self) -> str | None:
+        if self.last_task_run is None:
+            return None
+        if self.last_task_run.status == TaskRun.Status.COMPLETED:
+            return self.RunStatus.SUCCESS
+        if self.last_task_run.status in [TaskRun.Status.FAILED, TaskRun.Status.CANCELLED]:
+            return self.RunStatus.FAILED
+        return self.RunStatus.RUNNING
 
 
 class TaskRun(models.Model):
@@ -339,7 +492,7 @@ class TaskRun(models.Model):
         help_text="Run state data for resuming or tracking execution state",
     )
 
-    created_at = models.DateTimeField(default=timezone.now)
+    created_at = models.DateTimeField(default=django_timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
     completed_at = models.DateTimeField(null=True, blank=True)
 
@@ -470,6 +623,9 @@ class TaskRun(models.Model):
                 "run_id": str(self.id),
                 "team_id": self.team_id,
                 "repository": self.task.repository,
+                "origin_product": self.task.origin_product,
+                "title": self.task.title,
+                "signal_report_id": str(self.task.signal_report_id) if self.task.signal_report_id else None,
                 "environment": self.environment,
                 "mode": self.mode,
             }
@@ -492,19 +648,35 @@ class TaskRun(models.Model):
     def mark_completed(self):
         """Mark the progress as completed."""
         self.status = self.Status.COMPLETED
-        self.completed_at = timezone.now()
+        self.completed_at = django_timezone.now()
         self.save(update_fields=["status", "completed_at"])
+        self.publish_stream_state_event()
         self.capture_event(
             "task_run_completed",
             {"duration_seconds": self._duration_seconds()},
         )
 
+    def track_structured_result(self):
+        """Track a structured result event with properties from the run output."""
+        if not self.output:
+            return
+
+        try:
+            self.capture_event("task_run_structured_result", {"result": self.output})
+        except Exception as e:
+            logger.warning(
+                "task_run.track_structured_result_failed",
+                task_run_id=str(self.id),
+                error=str(e),
+            )
+
     def mark_failed(self, error: str):
         """Mark the progress as failed with an error message."""
         self.status = self.Status.FAILED
         self.error_message = error
-        self.completed_at = timezone.now()
+        self.completed_at = django_timezone.now()
         self.save(update_fields=["status", "error_message", "completed_at"])
+        self.publish_stream_state_event()
         self.capture_event(
             "task_run_failed",
             {
@@ -513,11 +685,31 @@ class TaskRun(models.Model):
             },
         )
 
+    def build_stream_state_event(self) -> dict[str, Any]:
+        return {
+            "type": "task_run_state",
+            "run_id": str(self.id),
+            "task_id": str(self.task_id),
+            "status": self.status,
+            "stage": self.stage,
+            "output": self.output,
+            "branch": self.branch,
+            "error_message": self.error_message,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+            "completed_at": self.completed_at.isoformat() if self.completed_at else None,
+        }
+
+    def publish_stream_event(self, event: dict[str, Any]) -> None:
+        publish_task_run_stream_event(str(self.id), event)
+
+    def publish_stream_state_event(self) -> None:
+        self.publish_stream_event(self.build_stream_state_event())
+
     def emit_console_event(self, level: LogLevel, message: str) -> None:
         """Emit a console-style log event in ACP notification format."""
         event = {
             "type": "notification",
-            "timestamp": timezone.now().isoformat(),
+            "timestamp": django_timezone.now().isoformat(),
             "notification": {
                 "jsonrpc": "2.0",
                 "method": "_posthog/console",
@@ -529,12 +721,13 @@ class TaskRun(models.Model):
             },
         }
         self.append_log([event])
+        self.publish_stream_event(event)
 
     def emit_sandbox_output(self, stdout: str, stderr: str, exit_code: int) -> None:
         """Emit sandbox execution output as ACP notification."""
         event = {
             "type": "notification",
-            "timestamp": timezone.now().isoformat(),
+            "timestamp": django_timezone.now().isoformat(),
             "notification": {
                 "jsonrpc": "2.0",
                 "method": "_posthog/sandbox_output",
@@ -547,6 +740,7 @@ class TaskRun(models.Model):
             },
         }
         self.append_log([event])
+        self.publish_stream_event(event)
 
     @property
     def is_terminal(self) -> bool:
@@ -711,6 +905,11 @@ class SandboxEnvironment(UUIDModel):
         help_text="If true, only the creator can see this environment. Otherwise visible to whole team.",
     )
 
+    internal = models.BooleanField(
+        default=False,
+        help_text="If true, this environment is for internal use (e.g. signals pipeline) and should not be exposed to end users.",
+    )
+
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -786,7 +985,7 @@ class CodeInvite(UUIDModel):
     def is_redeemable(self) -> bool:
         if not self.is_active:
             return False
-        if self.expires_at and self.expires_at <= timezone.now():
+        if self.expires_at and self.expires_at <= django_timezone.now():
             return False
         if self.max_redemptions > 0 and self.redemption_count >= self.max_redemptions:
             return False
@@ -807,3 +1006,21 @@ class CodeInviteRedemption(UUIDModel):
 
     def __str__(self):
         return f"{self.user} redeemed {self.invite_code}"
+
+
+@receiver(post_save, sender=TaskRun)
+def track_task_run_completion(sender, instance: TaskRun, created: bool, **kwargs):
+    try:
+        if (
+            not created
+            and instance.status == TaskRun.Status.COMPLETED
+            and instance.output
+            and instance.task.json_schema
+        ):
+            instance.track_structured_result()
+    except Exception as e:
+        logger.warning(
+            "task_run.track_task_run_completion_failed",
+            task_run_id=str(instance.id),
+            error=str(e),
+        )

@@ -9,6 +9,20 @@ from .get_sandbox_for_repository import (
 )
 from .get_task_processing_context import TaskProcessingContext, get_task_processing_context
 from .post_slack_update import PostSlackUpdateInput, post_slack_update
+from .provision_sandbox import (
+    CheckoutBranchInSandboxInput,
+    CloneRepositoryInSandboxInput,
+    CreateSandboxForRepositoryInput,
+    CreateSandboxForRepositoryOutput,
+    InjectFreshTokensOnResumeInput,
+    PrepareSandboxForRepositoryInput,
+    PrepareSandboxForRepositoryOutput,
+    checkout_branch_in_sandbox,
+    clone_repository_in_sandbox,
+    create_sandbox_for_repository,
+    inject_fresh_tokens_on_resume,
+    prepare_sandbox_for_repository,
+)
 from .read_sandbox_logs import ReadSandboxLogsInput, read_sandbox_logs
 from .relay_sandbox_events import RelaySandboxEventsInput, relay_sandbox_events
 from .send_followup_to_sandbox import SendFollowupToSandboxInput, send_followup_to_sandbox
@@ -24,7 +38,14 @@ __all__ = [
     "ExecuteTaskOutput",
     "GetSandboxForRepositoryInput",
     "GetSandboxForRepositoryOutput",
+    "CheckoutBranchInSandboxInput",
+    "CloneRepositoryInSandboxInput",
+    "CreateSandboxForRepositoryInput",
+    "CreateSandboxForRepositoryOutput",
+    "InjectFreshTokensOnResumeInput",
     "PostSlackUpdateInput",
+    "PrepareSandboxForRepositoryInput",
+    "PrepareSandboxForRepositoryOutput",
     "ReadSandboxLogsInput",
     "StartAgentServerInput",
     "StartAgentServerOutput",
@@ -35,15 +56,20 @@ __all__ = [
     "SendFollowupToSandboxInput",
     "cleanup_sandbox",
     "create_resume_snapshot",
+    "create_sandbox_for_repository",
     "execute_task_in_sandbox",
     "forward_pending_user_message",
     "relay_sandbox_events",
     "send_followup_to_sandbox",
     "get_sandbox_for_repository",
     "get_task_processing_context",
+    "inject_fresh_tokens_on_resume",
     "post_slack_update",
+    "prepare_sandbox_for_repository",
     "read_sandbox_logs",
     "start_agent_server",
     "track_workflow_event",
     "update_task_run_status",
+    "clone_repository_in_sandbox",
+    "checkout_branch_in_sandbox",
 ]

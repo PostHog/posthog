@@ -75,8 +75,15 @@ async function routeByClientId(request: Request, kv: KVNamespace, path: string):
     let clientId: string | null = null
 
     if (contentType.includes('application/json')) {
-        const json = JSON.parse(body) as Record<string, unknown>
-        clientId = (json.client_id as string) || null
+        try {
+            const json = JSON.parse(body) as Record<string, unknown>
+            clientId = (json.client_id as string) || null
+        } catch {
+            return new Response(
+                JSON.stringify({ error: 'invalid_request', error_description: 'Malformed JSON body' }),
+                { status: 400, headers: { 'Content-Type': 'application/json' } }
+            )
+        }
     } else {
         const params = new URLSearchParams(body)
         clientId = params.get('client_id')

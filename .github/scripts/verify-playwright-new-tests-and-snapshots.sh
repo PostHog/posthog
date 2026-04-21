@@ -74,8 +74,10 @@ set +e
 # No --reporter override — uses playwright.config.ts reporters (html + json in CI).
 # This overwrites the main run's report, which is fine: if verification fails,
 # the verification report is the one that matters (the main tests passed).
+# Fail fast once instability is detected so the job doesn't burn the full timeout
+# on the remaining repeated runs.
 pnpm --filter=@posthog/playwright exec playwright test "${tests_to_run[@]}" \
-    --workers=1 --repeat-each="$REPEAT_COUNT" --retries=0
+    --workers=1 --repeat-each="$REPEAT_COUNT" --retries=0 --max-failures=1
 test_exit=$?
 set -e
 

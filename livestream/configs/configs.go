@@ -41,6 +41,7 @@ type ConsumerConfig struct {
 	Topic            string `mapstructure:"topic"`
 	SecurityProtocol string `mapstructure:"security_protocol"`
 	GroupID          string `mapstructure:"group_id"`
+	ClientID         string `mapstructure:"client_id"`
 
 	// Timeout overrides — zero means use librdkafka defaults.
 	SessionTimeoutMs    int `mapstructure:"session_timeout_ms"`
@@ -103,6 +104,7 @@ func InitConfigs(filename, configPath string) {
 	_ = viper.BindEnv("consumers.event.topic")                 // LIVESTREAM_CONSUMERS_EVENT_TOPIC
 	_ = viper.BindEnv("consumers.event.security_protocol")     // LIVESTREAM_CONSUMERS_EVENT_SECURITY_PROTOCOL
 	_ = viper.BindEnv("consumers.event.group_id")              // LIVESTREAM_CONSUMERS_EVENT_GROUP_ID
+	_ = viper.BindEnv("consumers.event.client_id")             // LIVESTREAM_CONSUMERS_EVENT_CLIENT_ID
 	_ = viper.BindEnv("consumers.event.session_timeout_ms")    // LIVESTREAM_CONSUMERS_EVENT_SESSION_TIMEOUT_MS
 	_ = viper.BindEnv("consumers.event.heartbeat_interval_ms") // LIVESTREAM_CONSUMERS_EVENT_HEARTBEAT_INTERVAL_MS
 	_ = viper.BindEnv("consumers.event.max_poll_interval_ms")  // LIVESTREAM_CONSUMERS_EVENT_MAX_POLL_INTERVAL_MS
@@ -112,6 +114,7 @@ func InitConfigs(filename, configPath string) {
 	_ = viper.BindEnv("consumers.session_recording.topic")                 // LIVESTREAM_CONSUMERS_SESSION_RECORDING_TOPIC
 	_ = viper.BindEnv("consumers.session_recording.security_protocol")     // LIVESTREAM_CONSUMERS_SESSION_RECORDING_SECURITY_PROTOCOL
 	_ = viper.BindEnv("consumers.session_recording.group_id")              // LIVESTREAM_CONSUMERS_SESSION_RECORDING_GROUP_ID
+	_ = viper.BindEnv("consumers.session_recording.client_id")             // LIVESTREAM_CONSUMERS_SESSION_RECORDING_CLIENT_ID
 	_ = viper.BindEnv("consumers.session_recording.session_timeout_ms")    // LIVESTREAM_CONSUMERS_SESSION_RECORDING_SESSION_TIMEOUT_MS
 	_ = viper.BindEnv("consumers.session_recording.heartbeat_interval_ms") // LIVESTREAM_CONSUMERS_SESSION_RECORDING_HEARTBEAT_INTERVAL_MS
 	_ = viper.BindEnv("consumers.session_recording.max_poll_interval_ms")  // LIVESTREAM_CONSUMERS_SESSION_RECORDING_MAX_POLL_INTERVAL_MS
@@ -121,6 +124,7 @@ func InitConfigs(filename, configPath string) {
 	_ = viper.BindEnv("consumers.notification.topic")                 // LIVESTREAM_CONSUMERS_NOTIFICATION_TOPIC
 	_ = viper.BindEnv("consumers.notification.security_protocol")     // LIVESTREAM_CONSUMERS_NOTIFICATION_SECURITY_PROTOCOL
 	_ = viper.BindEnv("consumers.notification.group_id")              // LIVESTREAM_CONSUMERS_NOTIFICATION_GROUP_ID
+	_ = viper.BindEnv("consumers.notification.client_id")             // LIVESTREAM_CONSUMERS_NOTIFICATION_CLIENT_ID
 	_ = viper.BindEnv("consumers.notification.session_timeout_ms")    // LIVESTREAM_CONSUMERS_NOTIFICATION_SESSION_TIMEOUT_MS
 	_ = viper.BindEnv("consumers.notification.heartbeat_interval_ms") // LIVESTREAM_CONSUMERS_NOTIFICATION_HEARTBEAT_INTERVAL_MS
 	_ = viper.BindEnv("consumers.notification.max_poll_interval_ms")  // LIVESTREAM_CONSUMERS_NOTIFICATION_MAX_POLL_INTERVAL_MS

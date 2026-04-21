@@ -26,6 +26,7 @@ from rest_framework import request, response, serializers, viewsets
 from rest_framework.exceptions import MethodNotAllowed, NotFound, ValidationError
 from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.parsers import JSONParser
+from rest_framework.renderers import BaseRenderer
 from rest_framework.response import Response
 from rest_framework.settings import api_settings
 from rest_framework_csv import renderers as csvrenderers
@@ -38,6 +39,7 @@ from posthog.hogql.constants import CSV_EXPORT_LIMIT
 from posthog.api.capture import capture_internal
 from posthog.api.documentation import PersonPropertiesSerializer
 from posthog.api.insight import capture_legacy_api_call
+from posthog.api.property_value_metrics import PROPERTY_VALUES_DURATION
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action, format_paginated_url, get_pk_or_uuid, get_target_entity
 from posthog.auth import PersonalAPIKeyAuthentication
@@ -54,12 +56,12 @@ from posthog.models.filters.lifecycle_filter import LifecycleFilter
 from posthog.models.filters.path_filter import PathFilter
 from posthog.models.filters.properties_timeline_filter import PropertiesTimelineFilter
 from posthog.models.filters.retention_filter import RetentionFilter
-from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.person.deletion import reset_deleted_person_distinct_ids
 from posthog.models.person.missing_person import MissingPerson
 from posthog.models.person.person import PersonDistinctId
 from posthog.models.person.util import (
     delete_person,
+    delete_persons_from_postgres,
     get_person_by_pk_or_uuid,
     get_persons_by_distinct_ids,
     get_persons_by_uuids,
@@ -71,10 +73,8 @@ from posthog.queries.funnels.funnel_unordered_persons import ClickhouseFunnelUno
 from posthog.queries.insight import insight_sync_execute
 from posthog.queries.person_query import PersonQuery
 from posthog.queries.properties_timeline import PropertiesTimeline
-from posthog.queries.stickiness import Stickiness
 from posthog.queries.trends.lifecycle import Lifecycle
 from posthog.queries.trends.trends_actors import TrendsActors
-from posthog.queries.util import get_earliest_timestamp
 from posthog.rate_limit import ClickHouseBurstRateThrottle, PersonalApiKeyRateThrottle, UserOrEmailRateThrottle
 from posthog.renderers import SafeJSONRenderer
 from posthog.settings import EE_AVAILABLE
@@ -212,6 +212,53 @@ class PersonBulkDeleteRequestSerializer(serializers.Serializer):
         default=False,
         help_text="If true, keep the person records but delete their events and recordings.",
     )
+
+
+class PersonBulkDeleteResponseSerializer(serializers.Serializer):
+    persons_found = serializers.IntegerField(help_text="Number of persons matched by the provided IDs or distinct IDs.")
+    persons_deleted = serializers.IntegerField(
+        help_text="Number of person records deleted from the database. 0 if keep_person was true."
+    )
+    events_queued_for_deletion = serializers.BooleanField(
+        help_text="Whether event deletion was requested for the matched persons. "
+        "If a deletion was already queued for a person, it will not be duplicated."
+    )
+    recordings_queued_for_deletion = serializers.BooleanField(
+        help_text="Whether recording deletion was requested for the matched persons. "
+        "If a deletion was already queued for a person, it will not be duplicated."
+    )
+    deletion_errors = serializers.ListField(
+        child=serializers.DictField(),
+        required=False,
+        help_text="Persons that could not be deleted. Each entry contains 'person_uuid'. Contact support if this persists.",
+    )
+
+
+class AsyncDeletionStatusSerializer(serializers.Serializer):
+    person_uuid = serializers.CharField(
+        source="key", help_text="The UUID of the person whose events are queued for deletion."
+    )
+    created_at = serializers.DateTimeField(help_text="When the deletion was requested.")
+    status = serializers.SerializerMethodField(help_text="Current status: 'pending' or 'completed'.")
+    delete_verified_at = serializers.DateTimeField(
+        help_text="When the deletion was verified complete. Null if still pending.", allow_null=True
+    )
+
+    def get_status(self, obj: AsyncDeletion) -> str:
+        return "completed" if obj.delete_verified_at else "pending"
+
+
+class DeletionStatusQueryParamsSerializer(serializers.Serializer):
+    status = serializers.ChoiceField(
+        choices=["pending", "completed", "all"],
+        default="all",
+        required=False,
+    )
+    person_uuid = serializers.UUIDField(required=False)
+
+
+class DeletionStatusPagination(LimitOffsetPagination):
+    default_limit = 100
 
 
 class PersonSerializer(serializers.HyperlinkedModelSerializer):
@@ -370,7 +417,10 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     """
 
     scope_object = "person"
-    renderer_classes = (*tuple(api_settings.DEFAULT_RENDERER_CLASSES), csvrenderers.PaginatedCSVRenderer)
+    renderer_classes = cast(
+        tuple[type[BaseRenderer], ...],
+        (*tuple(api_settings.DEFAULT_RENDERER_CLASSES), csvrenderers.PaginatedCSVRenderer),
+    )
     parser_classes = [JSONParser]
     queryset = Person.objects.all()
     serializer_class = PersonSerializer
@@ -391,8 +441,6 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             PersonsWebBurstThrottle(),
             PersonsWebSustainedThrottle(),
         ]
-
-    stickiness_class = Stickiness
 
     def safely_get_queryset(self, queryset):
         queryset = queryset.prefetch_related(
@@ -531,7 +579,10 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         except Person.DoesNotExist:
             raise NotFound(detail="Person not found.")
 
-    @extend_schema(request=PersonBulkDeleteRequestSerializer)
+    @extend_schema(
+        request=PersonBulkDeleteRequestSerializer,
+        responses={202: PersonBulkDeleteResponseSerializer},
+    )
     @action(methods=["POST"], detail=False, required_scopes=["person:write"])
     def bulk_delete(self, request: request.Request, pk=None, **kwargs):
         """
@@ -542,7 +593,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         delete_recordings = bool(request.data.get("delete_recordings"))
         keep_person = bool(request.data.get("keep_person"))
 
-        self._bulk_delete_persons(
+        summary = self._bulk_delete_persons(
             request=request,
             distinct_ids=request.data.get("distinct_ids"),
             ids=request.data.get("ids"),
@@ -551,7 +602,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             keep_person=keep_person,
         )
 
-        return response.Response(status=202)
+        return response.Response(data=summary, status=202)
 
     def _bulk_delete_persons(
         self,
@@ -561,7 +612,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         delete_events: bool = False,
         delete_recordings: bool = False,
         keep_person: bool = False,
-    ) -> None:
+    ) -> dict[str, Any]:
         """
         This method is meant to be the canonical way to delete anything via the Persons API.
         """
@@ -585,10 +636,20 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         # after records are deleted (which would return empty results)
         persons = list(persons_queryset)
 
+        persons_deleted = 0
+        errors: builtins.list[dict[str, str]] = []
+        deleted_persons: builtins.list[Person] = []
         if not keep_person:
+            # Send ClickHouse deletion events and log activity per person
             for person in persons:
-                delete_person(person=person)
-                self.perform_destroy(person)
+                try:
+                    delete_person(person=person)
+                    persons_deleted += 1
+                    deleted_persons.append(person)
+                except Exception:
+                    logger.exception("Failed to delete person", person_uuid=str(person.uuid))
+                    errors.append({"person_uuid": str(person.uuid)})
+                    continue
                 log_activity(
                     organization_id=self.organization.id,
                     team_id=self.team_id,
@@ -599,12 +660,69 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     activity="deleted",
                     detail=Detail(name=str(person.uuid)),
                 )
+            # Postgres deletes happen after CH deletes. If the Postgres batch fails,
+            # persons may remain in Postgres that are already marked deleted in ClickHouse.
+            delete_persons_from_postgres(self.team_id, deleted_persons)
 
         if delete_events:
             self._queue_event_deletion(persons)
 
         if delete_recordings:
             self._queue_delete_recordings(persons)
+
+        return {
+            "persons_found": len(persons),
+            "persons_deleted": persons_deleted,
+            "events_queued_for_deletion": delete_events and len(persons) > 0,
+            "recordings_queued_for_deletion": delete_recordings and len(persons) > 0,
+            "deletion_errors": errors,
+        }
+
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                "status",
+                OpenApiTypes.STR,
+                description="Filter by deletion status: 'pending', 'completed', or 'all'.",
+                required=False,
+                enum=["pending", "completed", "all"],
+            ),
+            OpenApiParameter(
+                "person_uuid",
+                OpenApiTypes.UUID,
+                description="Filter by a specific person UUID.",
+                required=False,
+            ),
+        ],
+        responses={200: AsyncDeletionStatusSerializer(many=True)},
+    )
+    @action(methods=["GET"], detail=False, required_scopes=["person:read"])
+    def deletion_status(self, request: request.Request, **kwargs):
+        """
+        List the status of queued event deletions for persons. When you delete a person with `delete_events=true`, an async deletion is queued. Use this endpoint to check whether those deletions are still pending or have been completed.
+        """
+        params = DeletionStatusQueryParamsSerializer(data=request.query_params)
+        params.is_valid(raise_exception=True)
+
+        queryset = AsyncDeletion.objects.filter(
+            team_id=self.team_id,
+            deletion_type=DeletionType.Person,
+        ).order_by("-created_at")
+
+        status_filter = params.validated_data.get("status", "all")
+        if status_filter == "pending":
+            queryset = queryset.filter(delete_verified_at__isnull=True)
+        elif status_filter == "completed":
+            queryset = queryset.filter(delete_verified_at__isnull=False)
+
+        person_uuid = params.validated_data.get("person_uuid")
+        if person_uuid:
+            queryset = queryset.filter(key=str(person_uuid))
+
+        paginator = DeletionStatusPagination()
+        page = paginator.paginate_queryset(queryset, request)
+        serializer = AsyncDeletionStatusSerializer(page, many=True)
+        return paginator.get_paginated_response(serializer.data)
 
     @extend_schema(
         parameters=[
@@ -633,7 +751,10 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         )
         from posthog.hogql_queries.query_runner import ExecutionMode, execution_mode_from_refresh
 
-        with tracer.start_as_current_span("person_api_property_values") as span:
+        with (
+            PROPERTY_VALUES_DURATION.labels(endpoint_type="person").time(),
+            tracer.start_as_current_span("person_api_property_values") as span,
+        ):
             key = request.GET.get("key")
             value = request.GET.get("value")
 
@@ -683,7 +804,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         log_activity(
             organization_id=self.organization.id,
             team_id=self.team.id,
-            user=request.user,
+            user=cast(User, request.user),
             was_impersonated=is_impersonated_session(request),
             item_id=person.id,
             scope="Person",
@@ -705,7 +826,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     @extend_schema(request=PersonUpdatePropertyRequestSerializer, parameters=[_PERSON_ID_PARAMETER])
     @action(methods=["POST"], detail=True, required_scopes=["person:write"])
     def update_property(self, request: request.Request, pk=None, **kwargs) -> response.Response:
-        if request.data.get("value") is None:
+        if "value" not in request.data:
             return Response(
                 {
                     "attr": "value",
@@ -790,7 +911,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         log_activity(
             organization_id=self.organization.id,
             team_id=self.team.id,
-            user=request.user,
+            user=cast(User, request.user),
             was_impersonated=is_impersonated_session(request),
             item_id=person.id,
             scope="Person",
@@ -1053,26 +1174,6 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             filter=filter,
             team=team,
         )
-        next_url = paginated_result(request, len(people), filter.offset, filter.limit)
-        return response.Response({"results": [{"people": people, "count": len(people)}], "next": next_url})
-
-    @action(methods=["GET"], detail=False)
-    def stickiness(self, request: request.Request) -> response.Response:
-        team = cast(User, request.user).team
-        if not team:
-            return response.Response(
-                {
-                    "message": "Could not retrieve team",
-                    "detail": "Could not validate team associated with user",
-                },
-                status=400,
-            )
-        filter = StickinessFilter(request=request, team=team, get_earliest_timestamp=get_earliest_timestamp)
-        filter = prepare_actor_query_filter(filter)
-
-        target_entity = get_target_entity(filter)
-
-        people = self.stickiness_class().people(target_entity, filter, team, request)
         next_url = paginated_result(request, len(people), filter.offset, filter.limit)
         return response.Response({"results": [{"people": people, "count": len(people)}], "next": next_url})
 
@@ -1424,7 +1525,7 @@ def paginated_result(
     return format_paginated_url(request, offset, limit) if count >= limit else None
 
 
-T = TypeVar("T", Filter, PathFilter, RetentionFilter, LifecycleFilter, StickinessFilter)
+T = TypeVar("T", Filter, PathFilter, RetentionFilter, LifecycleFilter)
 
 
 def prepare_actor_query_filter(filter: T) -> T:
@@ -1435,7 +1536,7 @@ def prepare_actor_query_filter(filter: T) -> T:
     if not search:
         return filter
 
-    group_properties_filter_group = []
+    group_properties_filter_group: list[dict[str, object]] = []
     if hasattr(filter, "aggregation_group_type_index"):
         group_properties_filter_group += [
             {

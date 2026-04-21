@@ -10,6 +10,7 @@ export function createCdpConsumerDeps(hub: Hub): CdpConsumerBaseDeps {
         teamManager: hub.teamManager,
         integrationManager: hub.integrationManager,
         kafkaProducer: hub.kafkaProducer,
+        monitoringProducer: hub.monitoringProducer,
         internalCaptureService: hub.internalCaptureService,
         personRepository: hub.personRepository,
         geoipService: hub.geoipService,

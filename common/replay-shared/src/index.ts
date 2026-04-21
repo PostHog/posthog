@@ -56,5 +56,6 @@ export {
     CorsPlugin,
     COMMON_REPLAYER_CONFIG,
     HLSPlayerPlugin,
+    createHLSPlayerPlugin,
     WindowTitlePlugin,
 } from './rrweb-plugins'

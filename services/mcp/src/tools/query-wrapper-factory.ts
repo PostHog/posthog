@@ -1,6 +1,12 @@
 import { z } from 'zod'
 
-import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
+import {
+    POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY,
+    POSTHOG_META_KEY,
+    type Context,
+    type ToolBase,
+    type ZodObjectAny,
+} from '@/tools/types'
 
 interface QueryWrapperConfig<T extends ZodObjectAny> {
     name: string
@@ -9,34 +15,49 @@ interface QueryWrapperConfig<T extends ZodObjectAny> {
     uiResourceUri?: string
     /** Return JSON instead of TOON-encoded text. */
     responseFormat?: 'json'
+    /** When set, `_posthogUrl` uses `{baseUrl}{urlPrefix}` instead of `/insights/new#q=...`. */
+    urlPrefix?: string
+    /** When set, the tool is only available in this MCP version (1 = v1 only, 2 = v2 only). */
+    mcpVersion?: number
+}
+
+function buildInsightUrl(baseUrl: string, urlPrefix: string | undefined, query: Record<string, unknown>): string {
+    if (urlPrefix) {
+        return `${baseUrl}${urlPrefix}`
+    }
+    const q = encodeURIComponent(JSON.stringify({ kind: 'InsightVizNode', source: query }))
+    return `${baseUrl}/insights/new#q=${q}`
 }
 
 export function createQueryWrapper<T extends ZodObjectAny>(config: QueryWrapperConfig<T>): () => ToolBase<T> {
     return () => ({
         name: config.name,
         schema: config.schema,
-        handler: async (context: Context, params: z.infer<T>) => {
+        ...(config.mcpVersion !== undefined ? { mcpVersion: config.mcpVersion } : {}),
+        handler: async (context: Context, rawParams: z.infer<T>) => {
             const projectId = await context.stateManager.getProjectId()
-            const query = { ...params, kind: config.kind }
-            const result = await context.api.request<{
-                results: unknown
-                columns?: unknown
-                formatted_results?: string
-            }>({
-                method: 'POST',
-                path: `/api/environments/${projectId}/query/`,
-                body: { query },
-            })
-            const queryParam = encodeURIComponent(JSON.stringify(query))
+            const params = config.schema.parse(rawParams)
+            const query: Record<string, unknown> = { ...params, kind: config.kind }
             const baseUrl = context.api.getProjectBaseUrl(projectId)
+
+            if (config.kind.endsWith('ActorsQuery')) {
+                const data = await context.api.query({ projectId }).trendsActors({ query })
+                return {
+                    ...data,
+                    // TODO: _posthogUrl
+                }
+            }
+
+            const data = await context.api.query({ projectId }).runQuery({ query })
             return {
-                results: result.formatted_results ?? result.results,
-                _posthogUrl: `${baseUrl}/insights/new?q=${queryParam}`,
+                results: data.results,
+                _posthogUrl: buildInsightUrl(baseUrl, config.urlPrefix, query),
+                ...(data.formatted_results ? { [POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]: data.formatted_results } : {}),
             }
         },
         _meta: {
             ...(config.uiResourceUri ? { ui: { resourceUri: config.uiResourceUri } } : {}),
-            ...(config.responseFormat ? { responseFormat: config.responseFormat } : {}),
+            ...(config.responseFormat ? { [POSTHOG_META_KEY]: { responseFormat: config.responseFormat } } : {}),
         },
     })
 }

@@ -783,4 +783,92 @@ describe('CDP API', () => {
             expect(res.body.error).toEqual('Kafka producer not available')
         })
     })
+
+    describe('scheduled hogflow invocations', () => {
+        let scheduleHogFlow: HogFlow
+        let mockQueueInvocations: jest.Mock
+
+        beforeEach(async () => {
+            mockQueueInvocations = jest.fn().mockResolvedValue(undefined)
+            api['cyclotronJobQueue'] = { queueInvocations: mockQueueInvocations } as any
+
+            scheduleHogFlow = await insertHogFlow({
+                id: new UUIDT().toString(),
+                name: 'test schedule hog flow',
+                status: 'active',
+                version: 1,
+                exit_condition: 'exit_only_at_end',
+                edges: [],
+                actions: [],
+                trigger: {
+                    type: 'schedule',
+                },
+            })
+        })
+
+        it('errors if missing team', async () => {
+            const nonExistentTeamId = new UUIDT().toString()
+            const res = await supertest(app)
+                .post(`/api/projects/${nonExistentTeamId}/hog_flows/${scheduleHogFlow.id}/scheduled_invocations`)
+                .send({})
+
+            expect(res.status).toEqual(404)
+            expect(res.body.error).toEqual('Team not found')
+        })
+
+        it('errors if missing hog flow', async () => {
+            const nonExistentUuid = new UUIDT().toString()
+            const res = await supertest(app)
+                .post(`/api/projects/${scheduleHogFlow.team_id}/hog_flows/${nonExistentUuid}/scheduled_invocations`)
+                .send({})
+
+            expect(res.status).toEqual(404)
+            expect(res.body.error).toEqual('Workflow not found')
+        })
+
+        it('errors if trigger type is not schedule', async () => {
+            const eventHogFlow = await insertHogFlow({
+                id: new UUIDT().toString(),
+                name: 'test event hog flow',
+                status: 'active',
+                version: 1,
+                exit_condition: 'exit_on_conversion',
+                edges: [],
+                actions: [],
+                trigger: {
+                    type: 'event',
+                    filters: {},
+                },
+            })
+
+            const res = await supertest(app)
+                .post(`/api/projects/${eventHogFlow.team_id}/hog_flows/${eventHogFlow.id}/scheduled_invocations`)
+                .send({})
+
+            expect(res.status).toEqual(400)
+            expect(res.body.error).toEqual('Workflow trigger must be of type "schedule"')
+        })
+
+        it('queues invocation and returns queued status', async () => {
+            const res = await supertest(app)
+                .post(`/api/projects/${scheduleHogFlow.team_id}/hog_flows/${scheduleHogFlow.id}/scheduled_invocations`)
+                .send({ variables: { greeting: 'Hello' } })
+
+            expect(res.status).toEqual(200)
+            expect(res.body.status).toEqual('queued')
+            expect(res.body.invocation_id).toBeDefined()
+            expect(mockQueueInvocations).toHaveBeenCalledTimes(1)
+        })
+
+        it('queues invocation with empty variables when none provided', async () => {
+            const res = await supertest(app)
+                .post(`/api/projects/${scheduleHogFlow.team_id}/hog_flows/${scheduleHogFlow.id}/scheduled_invocations`)
+                .send({})
+
+            expect(res.status).toEqual(200)
+            expect(res.body.status).toEqual('queued')
+            expect(res.body.invocation_id).toBeDefined()
+            expect(mockQueueInvocations).toHaveBeenCalledTimes(1)
+        })
+    })
 })

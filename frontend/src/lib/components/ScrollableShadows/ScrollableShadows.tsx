@@ -6,7 +6,11 @@ import React, { CSSProperties, MutableRefObject } from 'react'
 
 export type ScrollableShadowsProps = {
     children: React.ReactNode
-    direction: 'horizontal' | 'vertical'
+    /**
+     * Which axis to scroll and show shadows for.
+     * When omitted, both axes can scroll and shadows appear on whichever axis overflows.
+     */
+    direction?: 'horizontal' | 'vertical'
     className?: string
     innerClassName?: string
     contentClassName?: string
@@ -16,18 +20,12 @@ export type ScrollableShadowsProps = {
     ariaLabel?: string
     ariaActivedescendant?: string
     onKeyDown?: (event: React.KeyboardEvent<HTMLDivElement>) => void
+    onFocusCapture?: (event: React.FocusEvent<HTMLDivElement>) => void
     onBlur?: () => void
     styledScrollbars?: boolean
     style?: CSSProperties
     /** Whether to disable scrolling. */
     disableScroll?: boolean
-    /**
-     * Whether scrolling should be constrained to the given direction.
-     * When false, both axes are allowed to scroll.
-     * Defaults to true for backwards compatibility.
-     * Should be used in conjunction with direction
-     */
-    constrainToDirection?: boolean
     /** Whether to hide the scrollable shadows. */
     hideShadows?: boolean
     /** Whether to hide the scrollbars. */
@@ -44,7 +42,6 @@ export const ScrollableShadows = React.forwardRef<HTMLDivElement, ScrollableShad
         scrollRef,
         styledScrollbars = false,
         disableScroll = false,
-        constrainToDirection = true,
         hideShadows = false,
         hideScrollbars = false,
         style,
@@ -57,7 +54,6 @@ export const ScrollableShadows = React.forwardRef<HTMLDivElement, ScrollableShad
             ref={ref}
             className={clsx(
                 'ScrollableShadows',
-                `ScrollableShadows--${direction}`,
                 hideShadows && 'ScrollableShadows--hide-shadows',
                 hideScrollbars && 'ScrollableShadows--hide-scrollbars',
                 className
@@ -80,7 +76,7 @@ export const ScrollableShadows = React.forwardRef<HTMLDivElement, ScrollableShad
                 style={
                     disableScroll
                         ? { overflow: 'hidden' }
-                        : constrainToDirection
+                        : direction
                           ? {
                                 overflowX: direction === 'horizontal' ? undefined : 'hidden',
                                 overflowY: direction === 'vertical' ? undefined : 'hidden',

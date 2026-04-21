@@ -2,17 +2,19 @@ import json
 from unittest.mock import MagicMock, patch
 
 import pytest
-from fastapi import Request
+from fastapi import HTTPException, Request
+from starlette.datastructures import Headers
 
 from llm_gateway.auth.models import AuthenticatedUser
-from llm_gateway.dependencies import _extract_end_user_id_from_body, enforce_throttles
+from llm_gateway.dependencies import _extract_end_user_id_from_body, enforce_throttles, get_provider_from_request
 from llm_gateway.rate_limiting.throttles import ThrottleContext, ThrottleResult
 
 
-def _make_request(body: dict | None = None) -> Request:
+def _make_request(body: dict | None = None, headers: dict[str, str] | None = None) -> Request:
     request = MagicMock(spec=Request)
     request.state = MagicMock()
     del request.state._cached_body
+    request.headers = Headers(headers or {})
 
     if body is not None:
         raw = json.dumps(body).encode()
@@ -93,6 +95,27 @@ class TestExtractEndUserIdFromBody:
 
         request.body = fake_body
         assert await _extract_end_user_id_from_body(request) is None
+
+
+class TestGetProviderFromRequest:
+    @pytest.mark.asyncio
+    async def test_returns_provider_from_header(self) -> None:
+        request = _make_request(
+            {"model": "claude-sonnet-4-6", "provider": "anthropic"},
+            headers={"X-PostHog-Provider": "bedrock"},
+        )
+
+        assert await get_provider_from_request(request) == "bedrock"
+
+    @pytest.mark.asyncio
+    async def test_invalid_provider_header_raises_http_400(self) -> None:
+        request = _make_request(headers={"X-PostHog-Provider": "vertex"})
+
+        with pytest.raises(HTTPException) as exc_info:
+            await get_provider_from_request(request)
+
+        assert exc_info.value.status_code == 400
+        assert exc_info.value.detail["error"]["type"] == "invalid_request_error"
 
 
 class TestEnforceThrottles:

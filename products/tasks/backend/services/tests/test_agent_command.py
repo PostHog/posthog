@@ -6,10 +6,13 @@ from django.test import override_settings
 import requests
 
 from products.tasks.backend.services.agent_command import (
+    REFRESH_SESSION_METHOD,
+    REFRESH_TIMEOUT_SECONDS,
     CommandResult,
     _build_request_args,
     send_agent_command,
     send_cancel,
+    send_refresh_session,
     send_user_message,
     validate_sandbox_url,
 )
@@ -293,3 +296,28 @@ class TestSendCancel:
             auth_token=None,
         )
         assert result.success
+
+
+class TestSendRefreshSession:
+    @patch("products.tasks.backend.services.agent_command.send_agent_command")
+    def test_sends_refresh_session_method(self, mock_send):
+        mock_send.return_value = CommandResult(success=True, status_code=200, data={"result": {"refreshed": True}})
+        task_run = MagicMock()
+        mcp_servers = [
+            {
+                "type": "http",
+                "name": "posthog",
+                "url": "https://mcp.posthog.com/mcp",
+                "headers": [{"name": "Authorization", "value": "Bearer tok"}],
+            }
+        ]
+        result = send_refresh_session(task_run, mcp_servers, auth_token="jwt")
+        mock_send.assert_called_once_with(
+            task_run,
+            method=REFRESH_SESSION_METHOD,
+            params={"mcpServers": mcp_servers},
+            auth_token="jwt",
+            timeout=REFRESH_TIMEOUT_SECONDS,
+        )
+        assert result.success
+        assert REFRESH_SESSION_METHOD == "_posthog/refresh_session"

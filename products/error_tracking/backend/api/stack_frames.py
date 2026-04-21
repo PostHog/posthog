@@ -34,7 +34,9 @@ class ErrorTrackingStackFrameSerializer(serializers.ModelSerializer):
 
 @extend_schema(tags=[ProductKey.ERROR_TRACKING])
 class ErrorTrackingStackFrameViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ReadOnlyModelViewSet):
-    scope_object = "INTERNAL"
+    scope_object = "error_tracking"
+    scope_object_read_actions = ["list", "retrieve", "batch_get"]
+    scope_object_write_actions: list = []
     queryset = ErrorTrackingStackFrame.objects.all()
     serializer_class = ErrorTrackingStackFrameSerializer
 

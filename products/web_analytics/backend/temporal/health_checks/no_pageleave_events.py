@@ -25,6 +25,8 @@ class NoPageleaveEventsCheck(HealthCheck):
     owner = JobOwners.TEAM_WEB_ANALYTICS
     product = Product.WEB_ANALYTICS
     policy = CLICKHOUSE_BATCH_EXECUTION_POLICY
+    schedule = "30 3 * * *"
+    active_since_days = 30
 
     def detect(self, team_ids: list[int]) -> dict[int, list[HealthCheckResult]]:
         rows = execute_clickhouse_health_team_query(

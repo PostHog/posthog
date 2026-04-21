@@ -21,6 +21,7 @@ services:
             - 'capture-ai:host-gateway'
             - 'replay-capture:host-gateway'
             - 'feature-flags:host-gateway'
+            - 'hypercache-server:host-gateway'
         environment:
             CADDYFILE: |
                 http://localhost:8000 {
@@ -53,6 +54,17 @@ services:
                         path /flags*
                     }
 
+                    @surveys {
+                        path /surveys
+                        path /surveys/
+                        path /api/surveys
+                        path /api/surveys/
+                    }
+
+                    @remote-config {
+                        path /array/*
+                    }
+
                     @webhooks {
                         path /public/webhooks
                         path /public/webhooks/*
@@ -78,6 +90,14 @@ services:
 
                     handle @flags {
                         reverse_proxy feature-flags:3001
+                    }
+
+                    handle @surveys {
+                        reverse_proxy hypercache-server:3002
+                    }
+
+                    handle @remote-config {
+                        reverse_proxy hypercache-server:3002
                     }
 
                     handle @webhooks {
@@ -355,6 +375,12 @@ services:
             file: docker-compose.base.yml
             service: clickhouse
         hostname: clickhouse
+        # ClickHouse writes ~1 GB/hour in dev and json-file driver has no default rotation
+        logging:
+            driver: json-file
+            options:
+                max-size: '50m'
+                max-file: '3'
         # Development performance optimizations
         mem_limit: 8g
         cpus: 2
@@ -551,22 +577,12 @@ services:
             - 'seaweedfs-data:/data'
 
     duckgres:
-        # DuckLake 0.4 + DuckDB 1.5.1 (posthog/duckgres@4b787d7)
-        image: ghcr.io/posthog/duckgres:4b787d7a5c576cba92ff53d6e95f10c7b6464a39
-        platform: arm64
-        restart: on-failure
+        extends:
+            file: docker-compose.base.yml
+            service: duckgres
         profiles: ['duckgres']
         ports:
             - '15432:15432'
-        volumes:
-            - ./devenv/duckgres.yaml:/app/config.yaml:ro
-            - duckgres-data:/app/data
-        depends_on:
-            db:
-                condition: service_healthy
-            objectstorage:
-                condition: service_started
-        command: ['--config', '/app/config.yaml']
 
     etcd:
         image: quay.io/coreos/etcd:v3.6.8

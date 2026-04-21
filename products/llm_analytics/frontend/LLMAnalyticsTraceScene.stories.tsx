@@ -16,6 +16,10 @@ interface LLMAnalyticsTraceSceneProps {
     eventId?: string
 }
 
+const getEffectiveQueryKind = (req: {
+    body?: { query?: { kind?: string; source?: { kind?: string } } }
+}): string | undefined => req.body?.query?.source?.kind ?? req.body?.query?.kind
+
 const meta: Meta<LLMAnalyticsTraceSceneProps> = {
     title: 'Scenes-App/LLM Analytics/Trace',
     parameters: {
@@ -26,7 +30,11 @@ const meta: Meta<LLMAnalyticsTraceSceneProps> = {
     render: ({ trace, eventId }) => {
         useStorybookMocks({
             post: {
-                '/api/environments/:team_id/query/': () => [200, { results: [trace] }],
+                '/api/environments/:team_id/query/:kind/': (req) => {
+                    if (getEffectiveQueryKind(req) === 'TraceQuery') {
+                        return [200, { results: [trace] }]
+                    }
+                },
             },
         })
 

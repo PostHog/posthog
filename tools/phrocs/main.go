@@ -81,7 +81,7 @@ func main() {
 	}
 
 	mgr := process.NewManager(cfg)
-	m := tui.New(mgr, cfg, logger)
+	m := tui.New(mgr, cfg, configPath, logger)
 
 	// If stdout isn't a TTY (e.g. Zed task runner, wrapped launches), open
 	// /dev/tty directly so Bubble Tea can query terminal size and render.

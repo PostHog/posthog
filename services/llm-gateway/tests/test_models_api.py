@@ -67,15 +67,15 @@ MOCK_COST_DATA: dict[str, ModelCost] = {
         "supports_vision": True,
         "mode": "chat",
     },
-    "claude-haiku-4-5": {
+    "claude-sonnet-4-6": {
         "litellm_provider": "anthropic",
         "max_input_tokens": 200000,
         "supports_vision": True,
         "mode": "chat",
     },
-    "gemini-2.0-flash": {
-        "litellm_provider": "vertex_ai",
-        "max_input_tokens": 1048576,
+    "claude-haiku-4-5": {
+        "litellm_provider": "anthropic",
+        "max_input_tokens": 200000,
         "supports_vision": True,
         "mode": "chat",
     },
@@ -112,7 +112,6 @@ def create_mock_settings() -> MagicMock:
     settings = MagicMock()
     settings.openai_api_key = "sk-test"
     settings.anthropic_api_key = "sk-ant-test"
-    settings.gemini_api_key = "gemini-test"
     settings.openrouter_api_key = "or-test"
     settings.fireworks_api_key = "fw-test"
     return settings
@@ -169,6 +168,14 @@ class TestListModelsEndpoint:
         assert "supports_streaming" in model
         assert "supports_vision" in model
 
+    def test_truncation_policy_limit_is_non_zero(self, client: TestClient):
+        # Ensure truncation_policy.limit is always > 0 (prevents tool output breakage).
+        response = client.get("/v1/models")
+        for model in response.json()["data"]:
+            policy = model["truncation_policy"]
+            assert policy["mode"] in {"bytes", "tokens"}
+            assert policy["limit"] > 0, f"{model['id']} would truncate tool output to zero"
+
 
 class TestListModelsForProductEndpoint:
     def test_returns_models_for_llm_gateway(self, client: TestClient):
@@ -178,6 +185,8 @@ class TestListModelsForProductEndpoint:
         model_ids = {m["id"] for m in data["data"]}
         assert "gpt-4o" in model_ids
         assert "o1" in model_ids
+        assert "claude-sonnet-4-5" in model_ids
+        assert "claude-3-5-sonnet-20241022" in model_ids
 
     def test_posthog_code_filters_models_by_allowed_list(self, client: TestClient):
         response = client.get("/posthog_code/v1/models")
@@ -188,7 +197,6 @@ class TestListModelsForProductEndpoint:
         assert "claude-sonnet-4-5-20260101" not in model_ids
         assert "gpt-4o" not in model_ids
         assert "o1" not in model_ids
-        assert "claude-3-5-sonnet-20241022" not in model_ids
 
     @pytest.mark.parametrize("alias", ["twig", "array"])
     def test_legacy_alias_routes_to_posthog_code(self, client: TestClient, alias: str):

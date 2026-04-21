@@ -1,9 +1,11 @@
 import pytest
 from unittest import mock
 
+from psycopg import sql as psql
+
 from posthog.schema import HogQLQuery
 
-from posthog.ducklake.client import execute_ducklake_query
+from posthog.ducklake.client import _SEARCH_PATH_SCHEMAS, execute_ducklake_query
 
 pytestmark = [pytest.mark.django_db]
 
@@ -99,4 +101,5 @@ class TestExecuteDuckLakeQuery:
 
         execute_ducklake_query(1, sql="SELECT 1")
 
-        mock_conn.execute.assert_called_once_with("SET search_path TO 'posthog'")
+        expected_sql = psql.SQL("SET search_path TO {}").format(psql.Literal(",".join(_SEARCH_PATH_SCHEMAS)))
+        mock_conn.execute.assert_called_once_with(expected_sql)

@@ -1,0 +1,9 @@
+{
+    "files": [],
+    "references": [
+        { "path": "packages/tokens" },
+        { "path": "packages/primitives" },
+        { "path": "packages/components" },
+        { "path": "packages/blocks" }
+    ]
+}

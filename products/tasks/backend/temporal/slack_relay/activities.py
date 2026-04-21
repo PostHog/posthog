@@ -103,7 +103,7 @@ class RelaySlackMessageInput:
     text: str
     user_message_ts: str | None = None
     delete_progress: bool = True
-    reaction_emoji: str = "white_check_mark"
+    reaction_emoji: str = "hedgehog"
 
 
 @activity.defn

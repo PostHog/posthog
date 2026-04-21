@@ -200,8 +200,14 @@ const SeriesSelectLabel = ({
 }
 
 const YSeries = ({ series, index }: { series: AxisSeries<number | null>; index: number }): JSX.Element => {
-    const { columns, numericalColumns, responseLoading, dataVisualizationProps, showTableSettings } =
-        useValues(dataVisualizationLogic)
+    const {
+        columns,
+        numericalColumns,
+        responseLoading,
+        dataVisualizationProps,
+        showTableSettings,
+        effectiveVisualizationType,
+    } = useValues(dataVisualizationLogic)
     const { updateSeriesIndex, deleteYSeries } = useActions(dataVisualizationLogic)
     const { selectedSeriesBreakdownColumn } = useValues(seriesBreakdownLogic({ key: dataVisualizationProps.key }))
 
@@ -211,6 +217,7 @@ const YSeries = ({ series, index }: { series: AxisSeries<number | null>; index: 
     const { isSettingsOpen, canOpenSettings, activeSettingsTab } = useValues(seriesLogic)
     const { setSettingsOpen, submitFormatting, submitDisplay, setSettingsTab } = useActions(seriesLogic)
 
+    const isPieChart = effectiveVisualizationType === ChartDisplayType.ActionsPie
     const seriesColor = series.settings?.display?.color ?? getSeriesColor(index)
     const showSeriesColor = !showTableSettings && !selectedSeriesBreakdownColumn
 
@@ -245,6 +252,20 @@ const YSeries = ({ series, index }: { series: AxisSeries<number | null>; index: 
         ),
     }))
 
+    const settingsTabs = isPieChart
+        ? [
+              {
+                  label: Y_SERIES_SETTINGS_TABS[YSeriesSettingsTab.Formatting].label,
+                  key: YSeriesSettingsTab.Formatting,
+                  content: <YSeriesFormattingTab ySeriesLogicProps={seriesLogicProps} />,
+              },
+          ]
+        : Object.values(Y_SERIES_SETTINGS_TABS).map(({ label, Component }, index) => ({
+              label: label,
+              key: Object.keys(Y_SERIES_SETTINGS_TABS)[index],
+              content: <Component ySeriesLogicProps={seriesLogicProps} />,
+          }))
+
     return (
         <div className="flex gap-1 mb-1">
             <LemonSelect
@@ -267,11 +288,7 @@ const YSeries = ({ series, index }: { series: AxisSeries<number | null>; index: 
                             activeKey={activeSettingsTab}
                             barClassName="justify-around"
                             onChange={(tab) => setSettingsTab(tab as YSeriesSettingsTab)}
-                            tabs={Object.values(Y_SERIES_SETTINGS_TABS).map(({ label, Component }, index) => ({
-                                label: label,
-                                key: Object.keys(Y_SERIES_SETTINGS_TABS)[index],
-                                content: <Component ySeriesLogicProps={seriesLogicProps} />,
-                            }))}
+                            tabs={settingsTabs}
                         />
                     </div>
                 }
@@ -304,49 +321,106 @@ const YSeries = ({ series, index }: { series: AxisSeries<number | null>; index: 
     )
 }
 
-const YSeriesFormattingTab = ({ ySeriesLogicProps }: { ySeriesLogicProps: YSeriesLogicProps }): JSX.Element => {
+export const YSeriesFormattingTab = ({ ySeriesLogicProps }: { ySeriesLogicProps: YSeriesLogicProps }): JSX.Element => {
     const { formatting } = useValues(ySeriesLogic(ySeriesLogicProps))
+    const { updateSeriesIndex } = useActions(dataVisualizationLogic)
+
+    const updateFormatting = (nextFormatting: typeof formatting): void => {
+        updateSeriesIndex(ySeriesLogicProps.seriesIndex, ySeriesLogicProps.series.column.name, {
+            formatting: {
+                prefix: nextFormatting.prefix,
+                suffix: nextFormatting.suffix,
+                style: nextFormatting.style,
+                decimalPlaces: Number.isNaN(nextFormatting.decimalPlaces) ? undefined : nextFormatting.decimalPlaces,
+            },
+        })
+    }
 
     return (
         <Form logic={ySeriesLogic} props={ySeriesLogicProps} formKey="formatting" className="deprecated-space-y-4">
             {ySeriesLogicProps.series.column.type.isNumerical && (
                 <LemonField name="style" label="Style" className="gap-1">
-                    <LemonSelect
-                        options={['none', 'number', 'short', 'percent'].map((value) => ({
-                            value,
-                            label: FORMATTING_STYLE_LABELS[value] ?? value,
-                        }))}
-                    />
+                    {({ value, onChange }) => (
+                        <LemonSelect
+                            value={value}
+                            options={['none', 'number', 'short', 'percent'].map((optionValue) => ({
+                                value: optionValue,
+                                label: FORMATTING_STYLE_LABELS[optionValue] ?? optionValue,
+                            }))}
+                            onChange={(newValue) => {
+                                onChange(newValue)
+                                updateFormatting({
+                                    ...formatting,
+                                    style: newValue as typeof formatting.style,
+                                })
+                            }}
+                        />
+                    )}
                 </LemonField>
             )}
             <LemonField name="prefix" label="Prefix">
-                <LemonInput placeholder="$" />
+                {({ value, onChange }) => (
+                    <LemonInput
+                        value={value ?? ''}
+                        placeholder="$"
+                        onChange={(newValue) => {
+                            onChange(newValue)
+                            updateFormatting({
+                                ...formatting,
+                                prefix: newValue,
+                            })
+                        }}
+                    />
+                )}
             </LemonField>
             <LemonField name="suffix" label="Suffix">
-                <LemonInput placeholder="USD" />
+                {({ value, onChange }) => (
+                    <LemonInput
+                        value={value ?? ''}
+                        placeholder="USD"
+                        onChange={(newValue) => {
+                            onChange(newValue)
+                            updateFormatting({
+                                ...formatting,
+                                suffix: newValue,
+                            })
+                        }}
+                    />
+                )}
             </LemonField>
             {ySeriesLogicProps.series.column.type.isNumerical && (
                 <LemonField name="decimalPlaces" label="Decimal places">
-                    <LemonInput
-                        type="number"
-                        min={0}
-                        disabledReason={
-                            formatting.style === 'short'
-                                ? 'Decimal places has no effect when using short number format'
-                                : undefined
-                        }
-                    />
+                    {({ value, onChange }) => (
+                        <LemonInput
+                            value={value ?? ''}
+                            type="number"
+                            min={0}
+                            disabledReason={
+                                formatting.style === 'short'
+                                    ? 'Decimal places has no effect when using short number format'
+                                    : undefined
+                            }
+                            onChange={(newValue) => {
+                                onChange(newValue)
+                                updateFormatting({
+                                    ...formatting,
+                                    decimalPlaces: newValue as typeof formatting.decimalPlaces,
+                                })
+                            }}
+                        />
+                    )}
                 </LemonField>
             )}
         </Form>
     )
 }
 
-const YSeriesDisplayTab = ({ ySeriesLogicProps }: { ySeriesLogicProps: YSeriesLogicProps }): JSX.Element => {
-    const { showTableSettings, dataVisualizationProps } = useValues(dataVisualizationLogic)
+export const YSeriesDisplayTab = ({ ySeriesLogicProps }: { ySeriesLogicProps: YSeriesLogicProps }): JSX.Element => {
+    const { showTableSettings, dataVisualizationProps, effectiveVisualizationType } = useValues(dataVisualizationLogic)
     const { selectedSeriesBreakdownColumn } = useValues(seriesBreakdownLogic({ key: dataVisualizationProps.key }))
     const { updateSeriesIndex } = useActions(dataVisualizationLogic)
 
+    const isPieChart = effectiveVisualizationType === ChartDisplayType.ActionsPie
     const showColorPicker = !showTableSettings && !selectedSeriesBreakdownColumn
     const showLabelInput = showTableSettings || !selectedSeriesBreakdownColumn
 
@@ -403,7 +477,7 @@ const YSeriesDisplayTab = ({ ySeriesLogicProps }: { ySeriesLogicProps: YSeriesLo
                     )}
                 </div>
             )}
-            {!showTableSettings && (
+            {!showTableSettings && !isPieChart && (
                 <>
                     {!selectedSeriesBreakdownColumn && (
                         <LemonField name="trendLine" label="Trend line">
@@ -474,6 +548,10 @@ const YSeriesDisplayTab = ({ ySeriesLogicProps }: { ySeriesLogicProps: YSeriesLo
                                         label: 'Bar',
                                         value: 'bar',
                                     },
+                                    {
+                                        label: 'Area',
+                                        value: 'area',
+                                    },
                                 ]}
                                 onChange={(newValue) => {
                                     onChange(newValue)
@@ -482,7 +560,7 @@ const YSeriesDisplayTab = ({ ySeriesLogicProps }: { ySeriesLogicProps: YSeriesLo
                                         ySeriesLogicProps.series.column.name,
                                         {
                                             display: {
-                                                displayType: newValue as 'auto' | 'line' | 'bar',
+                                                displayType: newValue as 'auto' | 'line' | 'bar' | 'area',
                                             },
                                         }
                                     )

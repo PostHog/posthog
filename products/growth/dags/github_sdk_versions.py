@@ -13,13 +13,13 @@ from posthog.dags.common import JobOwners
 from posthog.dags.common.resources import redis
 from posthog.exceptions_capture import capture_exception
 
-from products.growth.backend.constants import github_sdk_versions_key
+from products.growth.backend.constants import SDK_CACHE_EXPIRY, github_sdk_versions_key
 
 logger = structlog.get_logger(__name__)
 
-CACHE_EXPIRY = 60 * 60 * 24 * 7  # 7 days
 MAX_REQUEST_RETRIES = 3
 INITIAL_RETRIES_BACKOFF = 1  # in seconds
+UNPREFIXED_SEMVER_TAG = re.compile(r"\d+\.\d+(?:\.\d+)*$")
 
 
 SdkTypes = Literal[
@@ -75,6 +75,11 @@ def fetch_github_data_for_sdk(lib_name: str) -> Optional[dict[str, Any]]:
     if fetch_fn:
         return fetch_fn()
     return None
+
+
+def prefixed_or_unprefixed_semver_tags(*prefixes: str) -> list[str | re.Pattern]:
+    """Match semver-style release tags with optional string prefixes."""
+    return [*prefixes, UNPREFIXED_SEMVER_TAG]
 
 
 def fetch_sdk_data_from_releases(repo: str, tag_prefixes: list[str | re.Pattern] | None = None) -> dict[str, Any]:
@@ -196,7 +201,7 @@ def fetch_web_sdk_data() -> dict[str, Any]:
 
 def fetch_python_sdk_data() -> dict[str, Any]:
     """Fetch Python SDK data from GitHub releases API"""
-    return fetch_sdk_data_from_releases("PostHog/posthog-python", tag_prefixes=["v"])
+    return fetch_sdk_data_from_releases("PostHog/posthog-python", tag_prefixes=prefixed_or_unprefixed_semver_tags("v"))
 
 
 def fetch_node_sdk_data() -> dict[str, Any]:
@@ -256,12 +261,14 @@ def fetch_ios_sdk_data() -> dict[str, Any]:
 
 def fetch_android_sdk_data() -> dict[str, Any]:
     """Fetch Android SDK data from GitHub releases API"""
-    return fetch_sdk_data_from_releases("PostHog/posthog-android", tag_prefixes=["android-v", re.compile(r"[0-9]")])
+    return fetch_sdk_data_from_releases(
+        "PostHog/posthog-android", tag_prefixes=prefixed_or_unprefixed_semver_tags("android-v")
+    )
 
 
 def fetch_go_sdk_data() -> dict[str, Any]:
     """Fetch Go SDK data from GitHub releases API"""
-    return fetch_sdk_data_from_releases("PostHog/posthog-go", tag_prefixes=["v"])
+    return fetch_sdk_data_from_releases("PostHog/posthog-go", tag_prefixes=prefixed_or_unprefixed_semver_tags("v"))
 
 
 def fetch_php_sdk_data() -> dict[str, Any]:
@@ -276,12 +283,12 @@ def fetch_ruby_sdk_data() -> dict[str, Any]:
 
 def fetch_elixir_sdk_data() -> dict[str, Any]:
     """Fetch Elixir SDK data from CHANGELOG.md with release dates"""
-    return fetch_sdk_data_from_releases("PostHog/posthog-elixir", tag_prefixes=["v"])
+    return fetch_sdk_data_from_releases("PostHog/posthog-elixir", tag_prefixes=prefixed_or_unprefixed_semver_tags("v"))
 
 
 def fetch_dotnet_sdk_data() -> dict[str, Any]:
     """Fetch .NET SDK data from GitHub releases API"""
-    return fetch_sdk_data_from_releases("PostHog/posthog-dotnet", tag_prefixes=["v"])
+    return fetch_sdk_data_from_releases("PostHog/posthog-dotnet", tag_prefixes=prefixed_or_unprefixed_semver_tags("v"))
 
 
 # ---- Dagster defs
@@ -350,7 +357,7 @@ def cache_github_sdk_versions_op(
 
         cache_key = github_sdk_versions_key(lib_name)
         try:
-            redis_client.setex(cache_key, CACHE_EXPIRY, json.dumps(github_data))
+            redis_client.setex(cache_key, SDK_CACHE_EXPIRY, json.dumps(github_data))
             cached_count += 1
             context.log.info(f"Successfully cached {lib_name} SDK data")
         except Exception as e:

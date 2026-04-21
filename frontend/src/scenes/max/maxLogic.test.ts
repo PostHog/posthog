@@ -8,9 +8,9 @@ import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePane
 import { useMocks } from '~/mocks/jest'
 import { AgentMode } from '~/queries/schema/schema-assistant-messages'
 import { initKeaTests } from '~/test/init'
-import { SidePanelTab } from '~/types'
+import { ConversationDetail, SidePanelTab } from '~/types'
 
-import { QUESTION_SUGGESTIONS_DATA, maxLogic } from './maxLogic'
+import { QUESTION_SUGGESTIONS_DATA, maxLogic, mergeConversationHistory, mergeConversations } from './maxLogic'
 import { maxThreadLogic } from './maxThreadLogic'
 import { MOCK_CONVERSATION, MOCK_CONVERSATION_ID, maxMocks } from './testUtils'
 
@@ -493,6 +493,81 @@ describe('maxLogic', () => {
             const breadcrumbs = logic.values.breadcrumbs
             expect(breadcrumbs[0].name).toBe('AI')
             expect(breadcrumbs[1].name).toBe(MOCK_CONVERSATION.title)
+        })
+    })
+
+    describe('conversation merging', () => {
+        const detailedConversation: ConversationDetail = {
+            ...MOCK_CONVERSATION,
+            messages: [],
+            has_unsupported_content: true,
+            agent_mode: AgentMode.Research,
+            is_sandbox: true,
+            pending_approvals: [
+                {
+                    proposal_id: 'approval-1',
+                    decision_status: 'pending',
+                    tool_name: 'dangerous_tool',
+                    preview: 'Preview',
+                    payload: {},
+                },
+            ],
+        }
+
+        it('preserves detail-only fields when a summary conversation refreshes an existing full conversation', () => {
+            const merged = mergeConversations(
+                {
+                    ...MOCK_CONVERSATION,
+                    title: 'Updated title',
+                    updated_at: '2026-04-01T12:00:00Z',
+                },
+                detailedConversation
+            )
+
+            expect(merged).toEqual({
+                ...detailedConversation,
+                title: 'Updated title',
+                updated_at: '2026-04-01T12:00:00Z',
+            })
+        })
+
+        it('preserves detail-only fields when conversation history is refreshed from list results', () => {
+            const mergedHistory = mergeConversationHistory([detailedConversation], {
+                ...MOCK_CONVERSATION,
+                title: 'Updated title',
+                updated_at: '2026-04-01T12:00:00Z',
+            })
+
+            expect(mergedHistory).toEqual([
+                {
+                    ...detailedConversation,
+                    title: 'Updated title',
+                    updated_at: '2026-04-01T12:00:00Z',
+                },
+            ])
+        })
+
+        it('replaces cached detail fields when a full conversation response is loaded', () => {
+            const merged = mergeConversations(
+                {
+                    ...MOCK_CONVERSATION,
+                    messages: [],
+                    has_unsupported_content: false,
+                    agent_mode: AgentMode.ProductAnalytics,
+                    is_sandbox: false,
+                    pending_approvals: [],
+                },
+                detailedConversation
+            )
+
+            expect(merged).toEqual({
+                ...MOCK_CONVERSATION,
+                messages: [],
+                has_unsupported_content: false,
+                agent_mode: AgentMode.ProductAnalytics,
+                is_sandbox: false,
+                pending_approvals: [],
+            })
         })
     })
 })

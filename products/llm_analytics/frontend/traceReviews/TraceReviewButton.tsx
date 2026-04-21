@@ -291,7 +291,7 @@ function DefinitionPicker({
                 placeholder="Add scorer"
                 fullWidth
                 size="small"
-                data-attr="trace-review-definition-picker"
+                data-attr="llma-trace-review-definition-picker"
                 emptyStateComponent={
                     <div className="px-2 py-1 text-sm text-muted">
                         {loading
@@ -306,7 +306,13 @@ function DefinitionPicker({
                 <div className="flex items-center justify-between gap-2">
                     <div className="text-xs text-muted">{resultsLabel}</div>
                     {hasMoreDefinitions ? (
-                        <LemonButton type="tertiary" size="xsmall" onClick={onLoadMore} disabled={loading}>
+                        <LemonButton
+                            type="tertiary"
+                            size="xsmall"
+                            onClick={onLoadMore}
+                            disabled={loading}
+                            data-attr="llma-trace-review-load-more-definitions"
+                        >
                             Load more
                         </LemonButton>
                     ) : null}
@@ -400,7 +406,7 @@ export function TraceReviewButton({
                         disabled={disabled}
                         disabledReason={disabledReason}
                         className={buttonClassName || 'shrink-0'}
-                        data-attr="review-trace-button"
+                        data-attr="llma-trace-review-button"
                     >
                         {resolvedButtonLabel}
                     </LemonButton>
@@ -418,7 +424,12 @@ export function TraceReviewButton({
                             <div className="text-sm text-muted">
                                 There are no active scorers yet. You can still mark this trace as reviewed and add
                                 reasoning.{' '}
-                                <Link to={scorersUrl} target="_blank" targetBlankIcon>
+                                <Link
+                                    to={scorersUrl}
+                                    target="_blank"
+                                    targetBlankIcon
+                                    data-attr="llma-trace-review-open-scorers"
+                                >
                                     Open scorers
                                 </Link>
                             </div>
@@ -477,6 +488,7 @@ export function TraceReviewButton({
                                                         type="tertiary"
                                                         size="xsmall"
                                                         onClick={() => removeSelectedDefinition(definition.id)}
+                                                        data-attr="llma-trace-review-remove-definition"
                                                     >
                                                         Remove
                                                     </LemonButton>
@@ -500,6 +512,7 @@ export function TraceReviewButton({
                                 onChange={setComment}
                                 placeholder="Add optional reasoning or notes"
                                 rows={4}
+                                data-attr="llma-trace-review-comment"
                             />
                             <div className="text-xs text-muted">
                                 Leave this blank if you only want to mark the trace as reviewed.
@@ -515,14 +528,19 @@ export function TraceReviewButton({
                                         onClick={removeCurrentReview}
                                         loading={removing}
                                         disabled={saving}
-                                        data-attr="remove-trace-review-button"
+                                        data-attr="llma-trace-review-remove-button"
                                     >
                                         Remove review
                                     </LemonButton>
                                 ) : null}
                             </div>
                             <div className="flex items-center gap-2">
-                                <LemonButton type="secondary" onClick={closeModal} disabled={saving || removing}>
+                                <LemonButton
+                                    type="secondary"
+                                    onClick={closeModal}
+                                    disabled={saving || removing}
+                                    data-attr="llma-trace-review-cancel-button"
+                                >
                                     Cancel
                                 </LemonButton>
                                 <LemonButton
@@ -530,7 +548,7 @@ export function TraceReviewButton({
                                     onClick={saveCurrentReview}
                                     loading={saving}
                                     disabled={!canSave || removing}
-                                    data-attr="save-trace-review-button"
+                                    data-attr="llma-trace-review-save-button"
                                 >
                                     Save review
                                 </LemonButton>

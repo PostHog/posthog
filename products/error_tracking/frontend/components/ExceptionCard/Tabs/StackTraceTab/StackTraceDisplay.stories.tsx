@@ -99,6 +99,14 @@ export function GenericDisplayWithLongFrames(): JSX.Element {
     )
 }
 
+export function GenericDisplayWithNestedExceptions(): JSX.Element {
+    return (
+        <ExceptionLogicWrapper eventName="python_multierror">
+            <StackTraceGenericDisplay />
+        </ExceptionLogicWrapper>
+    )
+}
+
 ///////////////////// Text stacktraces
 
 export function TextDisplayEmpty(): JSX.Element {
@@ -122,6 +130,14 @@ export function TextDisplayWithStacktrace(): JSX.Element {
         <StacktraceWrapperAllEvents>
             <StackTraceRawDisplay />
         </StacktraceWrapperAllEvents>
+    )
+}
+
+export function TextDisplayWithNestedExceptions(): JSX.Element {
+    return (
+        <ExceptionLogicWrapper eventName="python_multierror">
+            <StackTraceRawDisplay />
+        </ExceptionLogicWrapper>
     )
 }
 

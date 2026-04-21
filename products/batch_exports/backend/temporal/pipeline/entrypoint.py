@@ -101,7 +101,7 @@ async def execute_batch_export_using_internal_stage(
             activity.
     """
     if hasattr(inputs, "batch_export"):
-        batch_export_inputs: _BatchExportInputsProtocol = inputs.batch_export
+        batch_export_inputs: _BatchExportInputsProtocol = inputs.batch_export  # ty: ignore[invalid-assignment]
     else:
         batch_export_inputs = inputs
 
@@ -189,6 +189,7 @@ async def execute_batch_export_using_internal_stage(
         )
         finish_inputs.records_completed = result.records_completed
         finish_inputs.bytes_exported = result.bytes_exported
+        finish_inputs.records_failed = result.records_failed
         if result.error_repr:
             finish_inputs.latest_error = result.error_repr
             finish_inputs.status = BatchExportRun.Status.FAILED

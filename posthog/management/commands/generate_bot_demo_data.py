@@ -5,8 +5,6 @@ from uuid import uuid4
 from django.core.management.base import BaseCommand, CommandError
 from django.utils import timezone
 
-from posthog.hogql.functions.bot_ua_fixtures import BOT_USER_AGENTS
-
 from posthog.demo.products.hedgebox.taxonomy import (
     SITE_URL,
     URL_FILES,
@@ -16,17 +14,30 @@ from posthog.demo.products.hedgebox.taxonomy import (
     URL_PRICING,
     URL_SIGNUP,
 )
+from posthog.hogql_queries.web_analytics.bot_ua_fixtures import BOT_USER_AGENTS
 from posthog.models import Team
 from posthog.models.event.util import create_event
 
 # Crawl patterns per bot category - bots visit different pages based on their purpose
 CRAWL_PATTERNS: dict[str, list[str]] = {
-    "ai_agent": [
+    "ai_crawler": [
         URL_HOME,
         URL_MARIUS_TECH_TIPS,
         URL_PRICING,
         f"{SITE_URL}/docs/",
         f"{SITE_URL}/blog/",
+    ],
+    "ai_search": [
+        URL_HOME,
+        URL_MARIUS_TECH_TIPS,
+        URL_PRICING,
+        f"{SITE_URL}/docs/",
+    ],
+    "ai_assistant": [
+        URL_HOME,
+        URL_MARIUS_TECH_TIPS,
+        URL_PRICING,
+        f"{SITE_URL}/docs/",
     ],
     "search_crawler": [
         URL_HOME,

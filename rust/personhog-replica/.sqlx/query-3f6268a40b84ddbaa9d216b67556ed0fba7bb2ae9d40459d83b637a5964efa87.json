@@ -1,0 +1,21 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT id::bigint as \"id!\" FROM posthog_person\n            WHERE team_id = $1\n            LIMIT $2\n            FOR UPDATE SKIP LOCKED\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int4",
+        "Int8"
+      ]
+    },
+    "nullable": [true]
+  },
+  "hash": "3f6268a40b84ddbaa9d216b67556ed0fba7bb2ae9d40459d83b637a5964efa87"
+}

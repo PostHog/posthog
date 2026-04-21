@@ -1,3 +1,5 @@
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+
 import { EventsNode, EventsQuery, SessionsQuery } from '~/queries/schema/schema-general'
 
 import { EventName as EventNameComponent } from 'products/actions/frontend/components/EventName'
@@ -14,6 +16,7 @@ export function EventName({ query, setQuery }: EventNameProps): JSX.Element {
             disabled={!setQuery}
             onChange={(value) => setQuery?.({ ...query, event: value })}
             allEventsOption="clear"
+            groupTypes={[TaxonomicFilterGroupType.SuggestedFilters, TaxonomicFilterGroupType.Events]}
         />
     )
 }

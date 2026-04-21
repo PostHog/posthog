@@ -33,9 +33,11 @@ class NodeRole(StrEnum):
     ENDPOINTS = "endpoints"
     LOGS = "logs"
 
-    OPS = "ops"
+    # Below nodes are part of separate clusters.
     AI_EVENTS = "ai_events"
     AUX = "aux"
+    OPS = "ops"
+    SESSIONS = "sessions"
 
 
 _default_workload = Workload.ONLINE
@@ -132,6 +134,8 @@ class ProxyClient:
         columnar=False,
     ):
         if query_id:
+            if settings is None:
+                settings = {}
             settings["query_id"] = query_id
         result = self._client.query(query=query, parameters=params, settings=settings, column_oriented=columnar)
 

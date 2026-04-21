@@ -1,18 +1,20 @@
 import '../ErrorTrackingIssueScene/ErrorTrackingIssueScene.scss'
 
+import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
-import { useEffect } from 'react'
-import { useRef } from 'react'
+import { useEffect, useRef } from 'react'
 
-import { IconFilter, IconList, IconSearch } from '@posthog/icons'
-import { LemonDivider } from '@posthog/lemon-ui'
+import { IconFilter, IconList, IconSearch, IconX } from '@posthog/icons'
+import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
 
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
+import { TZLabel } from 'lib/components/TZLabel'
 import ViewRecordingsPlaylistButton from 'lib/components/ViewRecordingButton/ViewRecordingsPlaylistButton'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { useWindowSize } from 'lib/hooks/useWindowSize'
 import { IconRobot } from 'lib/lemon-ui/icons'
 import {
     TabsPrimitive,
@@ -62,8 +64,10 @@ export const scene: SceneExport<ErrorTrackingIssueSceneLogicProps> = {
 }
 
 export function ErrorTrackingIssueScene(): JSX.Element {
-    const { issue, issueId } = useValues(errorTrackingIssueSceneLogic)
-    const { updateAssignee, updateStatus, updateName } = useActions(errorTrackingIssueSceneLogic)
+    const { issue, issueId, mobileDetailOpen } = useValues(errorTrackingIssueSceneLogic)
+    const { updateAssignee, updateStatus, updateName, setMobileDetailOpen } = useActions(errorTrackingIssueSceneLogic)
+    const { isWindowLessThan } = useWindowSize()
+    const isMobile = isWindowLessThan('md')
 
     useEffect(() => {
         const utmSource = new URLSearchParams(window.location.search).get('utm_source')
@@ -86,49 +90,81 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                                     onNameChange={updateName}
                                     description={null}
                                     resourceType={{ type: 'error_tracking' }}
-                                    className="pl-4 pr-2 h-[50px] @2xl/main-content:relative top-[0px] mt-0 mx-0 mb-0"
+                                    className={clsx(
+                                        'pl-4 pr-2 h-[50px] @2xl/main-content:relative top-[0px] mt-0 mx-0 mb-0',
+                                        isMobile
+                                            ? '[&>.scene-title-section]:flex-row [&>.scene-title-section]:items-center [&>.scene-title-section>*:last-child]:order-last'
+                                            : undefined
+                                    )}
                                     actions={
-                                        <div className="flex items-center gap-1">
-                                            <StatusIndicator status={issue.status} withTooltip />
-                                            <IssueAssigneeSelect
-                                                assignee={issue.assignee}
-                                                onChange={updateAssignee}
-                                                disabled={issue.status != 'active'}
-                                            />
-                                            <ViewRecordingsPlaylistButton
-                                                filters={{
-                                                    filter_group: {
-                                                        type: FilterLogicalOperator.And,
-                                                        values: [
-                                                            {
-                                                                type: FilterLogicalOperator.And,
-                                                                values: [
-                                                                    {
-                                                                        key: '$exception_issue_id',
-                                                                        type: PropertyFilterType.Event,
-                                                                        operator: PropertyOperator.Exact,
-                                                                        value: [issue.id],
-                                                                    },
-                                                                ],
-                                                            },
-                                                        ],
-                                                    },
-                                                }}
-                                                size="small"
-                                                type="secondary"
-                                                data-attr="error-tracking-issue-view-recordings"
-                                            />
-                                            <IssueStatusButton status={issue.status} onChange={updateStatus} />
-                                        </div>
+                                        isMobile ? undefined : (
+                                            <div className="flex items-center gap-1">
+                                                <StatusIndicator status={issue.status} withTooltip />
+                                                <IssueAssigneeSelect
+                                                    assignee={issue.assignee}
+                                                    onChange={updateAssignee}
+                                                    disabled={issue.status != 'active'}
+                                                />
+                                                <ViewRecordingsPlaylistButton
+                                                    filters={{
+                                                        filter_group: {
+                                                            type: FilterLogicalOperator.And,
+                                                            values: [
+                                                                {
+                                                                    type: FilterLogicalOperator.And,
+                                                                    values: [
+                                                                        {
+                                                                            key: '$exception_issue_id',
+                                                                            type: PropertyFilterType.Event,
+                                                                            operator: PropertyOperator.Exact,
+                                                                            value: [issue.id],
+                                                                        },
+                                                                    ],
+                                                                },
+                                                            ],
+                                                        },
+                                                    }}
+                                                    size="small"
+                                                    type="secondary"
+                                                    data-attr="error-tracking-issue-view-recordings"
+                                                />
+                                                <IssueStatusButton status={issue.status} onChange={updateStatus} />
+                                            </div>
+                                        )
                                     }
                                 />
+
+                                {isMobile && (
+                                    <div className="flex items-center gap-1.5 px-2 py-1.5 border-b flex-wrap">
+                                        <StatusIndicator status={issue.status} withTooltip />
+                                        <IssueAssigneeSelect
+                                            assignee={issue.assignee}
+                                            onChange={updateAssignee}
+                                            disabled={issue.status != 'active'}
+                                        />
+                                        <IssueStatusButton status={issue.status} onChange={updateStatus} />
+                                        {!mobileDetailOpen && (
+                                            <LemonButton
+                                                size="small"
+                                                type="secondary"
+                                                onClick={() => setMobileDetailOpen(true)}
+                                            >
+                                                Details
+                                            </LemonButton>
+                                        )}
+                                    </div>
+                                )}
 
                                 <ErrorTrackingIssueScenePanel issue={issue} />
 
                                 <div className="ErrorTrackingIssue flex flex-grow min-h-0 overflow-hidden">
-                                    <div className="flex flex-1 h-full w-full min-h-0">
-                                        <LeftHandColumn />
-                                        <RightHandColumn />
+                                    <div className="relative flex flex-1 h-full w-full min-h-0">
+                                        <LeftHandColumn isMobile={isMobile} />
+                                        <RightHandColumn
+                                            isMobile={isMobile}
+                                            isOpen={mobileDetailOpen}
+                                            onClose={() => setMobileDetailOpen(false)}
+                                        />
                                     </div>
                                 </div>
                             </div>
@@ -140,12 +176,40 @@ export function ErrorTrackingIssueScene(): JSX.Element {
     )
 }
 
-const RightHandColumn = (): JSX.Element => {
+const RightHandColumn = ({
+    isMobile,
+    isOpen,
+    onClose,
+}: {
+    isMobile: boolean
+    isOpen: boolean
+    onClose: () => void
+}): JSX.Element | null => {
     const { issue, issueLoading, selectedEvent, initialEventLoading } = useValues(errorTrackingIssueSceneLogic)
     const tagRenderer = useErrorTagRenderer()
 
+    if (isMobile && !isOpen) {
+        return null
+    }
+
     return (
-        <div className="flex flex-col flex-1 gap-1 min-h-0 min-w-[375px]">
+        <div
+            className={clsx(
+                'flex flex-col flex-1 gap-1 min-h-0',
+                isMobile ? 'absolute inset-0 z-20 bg-surface-primary' : 'min-w-[375px]'
+            )}
+        >
+            {isMobile && (
+                <div className="flex items-center justify-between p-1 shrink-0">
+                    <div className="flex items-center gap-1 pl-1">
+                        {selectedEvent?.timestamp && (
+                            <TZLabel className="text-muted text-xs" time={selectedEvent.timestamp} />
+                        )}
+                        {tagRenderer(selectedEvent)}
+                    </div>
+                    <LemonButton icon={<IconX />} size="small" onClick={onClose} aria-label="Close detail" />
+                </div>
+            )}
             <PostHogSDKIssueBanner event={selectedEvent} />
             <div className="flex-1 min-h-0 flex flex-col">
                 <ExceptionCard
@@ -154,6 +218,7 @@ const RightHandColumn = (): JSX.Element => {
                     loading={issueLoading || initialEventLoading}
                     event={selectedEvent ?? undefined}
                     label={tagRenderer(selectedEvent)}
+                    hideEventMeta={isMobile}
                     renderStackTraceActions={() => {
                         return issue ? <StackTraceActions issue={issue} /> : null
                     }}
@@ -163,7 +228,7 @@ const RightHandColumn = (): JSX.Element => {
     )
 }
 
-const LeftHandColumn = (): JSX.Element => {
+const LeftHandColumn = ({ isMobile }: { isMobile: boolean }): JSX.Element => {
     const { category } = useValues(errorTrackingIssueSceneConfigurationLogic)
     const { setCategory } = useActions(errorTrackingIssueSceneConfigurationLogic)
 
@@ -183,11 +248,15 @@ const LeftHandColumn = (): JSX.Element => {
         <div
             ref={ref}
             // eslint-disable-next-line react/forbid-dom-props
-            style={{
-                width: desiredSize ?? '40%',
-                minWidth: 320,
-            }}
-            className="flex flex-col h-full relative bg-surface-primary"
+            style={
+                isMobile
+                    ? undefined
+                    : {
+                          width: desiredSize ?? '40%',
+                          minWidth: 320,
+                      }
+            }
+            className={clsx('flex flex-col h-full relative bg-surface-primary', isMobile && 'flex-1 max-w-full')}
         >
             <TabsPrimitive
                 value={category}
@@ -240,7 +309,7 @@ const LeftHandColumn = (): JSX.Element => {
                 )}
             </TabsPrimitive>
 
-            <Resizer {...resizerLogicProps} />
+            {!isMobile && <Resizer {...resizerLogicProps} />}
         </div>
     )
 }
