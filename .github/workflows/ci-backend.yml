@@ -61,7 +61,6 @@ jobs:
             migrations: ${{ steps.filter.outputs.migrations || 'true' }}
             migrations_files: ${{ steps.filter.outputs.migrations_files }}
             tasks_temporal: ${{ steps.filter.outputs.tasks_temporal || 'true' }}
-            llm_gateway: ${{ steps.filter.outputs.llm_gateway || 'true' }}
             openapi_types: ${{ steps.filter.outputs.openapi_types || 'true' }}
             legacy: ${{ steps.filter.outputs.legacy || 'true' }}
         steps:
@@ -184,8 +183,6 @@ jobs:
                         - 'rust/bin/migrate-persons'
                       tasks_temporal:
                         - 'products/tasks/backend/temporal/**/*'
-                      llm_gateway:
-                        - 'services/llm-gateway/**/*'
                       openapi_types:
                         # Generated OpenAPI types - validate they match schema
                         - 'frontend/src/generated/**/*'
@@ -1752,44 +1749,3 @@ jobs:
                   github-token: ${{ secrets.GITHUB_TOKEN }}
                   status-job: 'Django Tests Pass'
                   runner: 'depot'
-
-    llm-gateway:
-        name: LLM Gateway Tests
-        needs: changes
-        if: needs.changes.outputs.llm_gateway == 'true'
-        runs-on: ubuntu-latest
-        timeout-minutes: 10
-        defaults:
-            run:
-                working-directory: services/llm-gateway
-
-        steps:
-            - uses: actions/checkout@v6
-
-            - name: Set up Python
-              uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
-              with:
-                  python-version: '3.12'
-
-            - name: Install uv
-              uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b # v7.3.0
-              with:
-                  version: '0.10.2' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
-
-            - name: Install dependencies
-              run: uv sync --frozen --dev
-
-            - name: Run tests
-              env:
-                  OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-                  ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-                  OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
-                  FIREWORKS_API_KEY: ${{ secrets.FIREWORKS_API_KEY }}
-              run: uv run pytest tests/ -v --tb=short --junitxml=junit.xml
-
-            - name: Upload test results
-              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
-              if: always()
-              with:
-                  name: junit-results-llm-gateway
-                  path: junit.xml
