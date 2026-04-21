@@ -25,6 +25,10 @@ CREATE TABLE IF NOT EXISTS personhog_person_tmp (
     last_seen_at TIMESTAMP WITH TIME ZONE
 ) PARTITION BY HASH (team_id);
 
+-- Tie the sequence lifecycle to the table so DROP TABLE also drops the
+-- sequence. Idempotent — re-running with the same owner is a no-op.
+ALTER SEQUENCE personhog_person_tmp_id_seq OWNED BY personhog_person_tmp.id;
+
 -- Primary key (idempotent: only add if not exists)
 DO $$
 BEGIN
