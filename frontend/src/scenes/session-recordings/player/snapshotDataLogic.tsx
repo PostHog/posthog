@@ -208,6 +208,8 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
                         )
                     ).sort((a, b) => a.timestamp - b.timestamp)
 
+                    breakpoint()
+
                     // Sync any newly discovered window IDs to the shared registry
                     for (const uuid of Object.keys(localWindowIds)) {
                         if (!(uuid in values.uuidToIndex)) {
