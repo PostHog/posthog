@@ -362,6 +362,11 @@ urlpatterns: list[Any] = [
         name="provisioning_update_service",
     ),
     path(
+        "api/provisioning/resources/<str:resource_id>/remove",
+        csrf_exempt(agentic_provisioning_views.provisioning_resource_remove),
+        name="provisioning_resource_remove",
+    ),
+    path(
         "api/provisioning/resources/<str:resource_id>",
         csrf_exempt(agentic_provisioning_views.provisioning_resource_detail),
         name="provisioning_resource_detail",
