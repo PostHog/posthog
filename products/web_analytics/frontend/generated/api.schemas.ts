@@ -65,8 +65,8 @@ export interface TopPageApi {
     path: string
     /** Unique visitors in the period. */
     visitors: number
-    /** Total pageviews in the period. */
-    pageviews: number
+    /** Period-over-period change in visitors, null when not meaningful. */
+    change: WoWChangeApi | null
 }
 
 export interface TopSourceApi {
@@ -74,6 +74,8 @@ export interface TopSourceApi {
     source: string
     /** Unique visitors from this source. */
     visitors: number
+    /** Period-over-period change in visitors, null when not meaningful. */
+    change: WoWChangeApi | null
 }
 
 export interface GoalApi {

@@ -27,12 +27,17 @@ class TopPageSerializer(serializers.Serializer):
     host = serializers.CharField(allow_blank=True, help_text="Host for the page, if recorded.")
     path = serializers.CharField(allow_blank=True, help_text="URL path.")
     visitors = serializers.IntegerField(help_text="Unique visitors in the period.")
-    pageviews = serializers.IntegerField(help_text="Total pageviews in the period.")
+    change = WoWChangeSerializer(
+        allow_null=True, help_text="Period-over-period change in visitors, null when not meaningful."
+    )
 
 
 class TopSourceSerializer(serializers.Serializer):
     source = serializers.CharField(help_text="Initial referring domain.")
     visitors = serializers.IntegerField(help_text="Unique visitors from this source.")
+    change = WoWChangeSerializer(
+        allow_null=True, help_text="Period-over-period change in visitors, null when not meaningful."
+    )
 
 
 class GoalSerializer(serializers.Serializer):

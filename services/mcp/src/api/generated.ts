@@ -33290,8 +33290,8 @@ export namespace Schemas {
       path: string;
       /** Unique visitors in the period. */
       visitors: number;
-      /** Total pageviews in the period. */
-      pageviews: number;
+      /** Period-over-period change in visitors, null when not meaningful. */
+      change: WoWChange | null;
     }
 
     export interface TopSource {
@@ -33299,6 +33299,8 @@ export namespace Schemas {
       source: string;
       /** Unique visitors from this source. */
       visitors: number;
+      /** Period-over-period change in visitors, null when not meaningful. */
+      change: WoWChange | null;
     }
 
     export interface TraceReviewCreate {

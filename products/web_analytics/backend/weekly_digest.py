@@ -91,7 +91,7 @@ def get_overview_for_team(team: Team, days: int = 7, compare: bool = True) -> di
         prev_duration = duration_item.previous
         result["avg_session_duration"] = {
             "current": _format_duration(current_duration),
-            "previous": _format_duration(prev_duration) if prev_duration is not None else None,
+            "previous": _format_duration(prev_duration) if compare else None,
             "change": compute_week_over_week_change(
                 current_duration,
                 prev_duration,
