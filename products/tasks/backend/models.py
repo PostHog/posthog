@@ -781,8 +781,7 @@ class TaskRun(models.Model):
         Consumed by the desktop client as `_posthog/progress`. Events sharing a
         `group` coalesce into a single collapsible card on the client, so the
         backend decides grouping granularity by picking a phase id (e.g.
-        `"setup"`, `"pr_create"`). Events without a known group are dropped by
-        the client.
+        `"setup"`, `"pr_create"`).
         """
         params: dict[str, Any] = {
             "sessionId": str(self.id),

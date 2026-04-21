@@ -330,6 +330,15 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         except asyncio.CancelledError:
             current_sandbox_id = sandbox_id or self._sandbox_id_for_cleanup
             if self._context:
+                if self._current_progress_step is not None:
+                    failed_step, failed_label, failed_group = self._current_progress_step
+                    await self._emit_progress(
+                        failed_step,
+                        "failed",
+                        failed_label,
+                        failed_group,
+                        detail="Cancelled",
+                    )
                 await self._track_workflow_event(
                     "task_run_cancelled",
                     {
@@ -577,12 +586,6 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         think about uniqueness.
         """
         scoped_group = f"{group}:{self.context.run_id}"
-        if status == "in_progress":
-            self._current_progress_step = (step, label, scoped_group)
-        elif status in {"completed", "skipped", "failed"}:
-            if self._current_progress_step and self._current_progress_step[0] == step:
-                self._current_progress_step = None
-
         try:
             await workflow.execute_activity(
                 emit_progress_activity,
@@ -597,6 +600,11 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 start_to_close_timeout=timedelta(seconds=30),
                 retry_policy=RetryPolicy(maximum_attempts=1),
             )
+            if status == "in_progress":
+                self._current_progress_step = (step, label, group)
+            elif status in {"completed", "failed"}:
+                if self._current_progress_step and self._current_progress_step[0] == step:
+                    self._current_progress_step = None
         except Exception as e:
             workflow.logger.warning(
                 "emit_progress_failed",
