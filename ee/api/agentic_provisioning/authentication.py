@@ -14,7 +14,7 @@ from rest_framework.exceptions import AuthenticationFailed
 from rest_framework.request import Request
 
 from posthog.api.oauth.cimd import (
-    CIMD_PROVISIONING_DEFAULTS,
+    _cimd_provisioning_defaults_for,
     get_application_by_client_id,
     is_cimd_client_id,
     is_cimd_registration_in_progress,
@@ -148,9 +148,10 @@ class ProvisioningAuthentication(BaseAuthentication):
             if app is not None:
                 try:
                     if not app.is_provisioning_partner:
-                        for field, value in CIMD_PROVISIONING_DEFAULTS.items():
+                        defaults = _cimd_provisioning_defaults_for(app)
+                        for field, value in defaults.items():
                             setattr(app, field, value)
-                        app.save(update_fields=list(CIMD_PROVISIONING_DEFAULTS.keys()))
+                        app.save(update_fields=list(defaults.keys()))
                 except Exception as e:
                     logger.warning(
                         "provisioning_cimd_backfill_error",

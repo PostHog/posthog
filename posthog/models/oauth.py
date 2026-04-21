@@ -6,6 +6,7 @@ from django.conf import settings
 from django.contrib.postgres.fields import ArrayField
 from django.core.exceptions import ValidationError
 from django.db import models
+from django.utils import timezone
 
 from oauth2_provider.models import (
     AbstractAccessToken,
@@ -16,7 +17,7 @@ from oauth2_provider.models import (
 )
 
 from posthog.helpers.encrypted_fields import EncryptedCharField
-from posthog.models.utils import UUIDT
+from posthog.models.utils import UUIDT, generate_random_token, hash_key_value, mask_key_value
 
 if TYPE_CHECKING:
     from posthog.models import Organization, User
@@ -383,3 +384,60 @@ def revoke_oauth_session(
 
         # Delete all grants for this user+application
         OAuthGrant.objects.filter(user=user, application=application).delete()
+
+
+def generate_random_token_cimd_verification() -> str:
+    return "phvt_" + generate_random_token()
+
+
+class CIMDVerificationToken(models.Model):
+    """Token that links a CIMD partner app to a PostHog organization.
+
+    A partner embeds the plaintext token in their CIMD metadata document under
+    `posthog_verification_token`. On fetch, we hash and look up the token; if it
+    matches, we link the resulting OAuthApplication to this organization and
+    apply the verified-partner rate-limit tier.
+    """
+
+    id: models.UUIDField = models.UUIDField(primary_key=True, default=UUIDT, editable=False)
+    organization: "Organization" = models.ForeignKey(  # type: ignore[assignment]
+        "posthog.Organization", on_delete=models.CASCADE, related_name="cimd_verification_tokens"
+    )
+    label: models.CharField = models.CharField(max_length=40)
+    mask_value: models.CharField = models.CharField(max_length=11, editable=False, null=True)
+    secure_value: models.CharField = models.CharField(unique=True, max_length=300, editable=False)
+    created_by: "User | None" = models.ForeignKey(  # type: ignore[assignment]
+        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+"
+    )
+    created_at: models.DateTimeField = models.DateTimeField(default=timezone.now)
+    last_used_at: models.DateTimeField = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        verbose_name = "CIMD Verification Token"
+        verbose_name_plural = "CIMD Verification Tokens"
+
+
+def find_cimd_verification_token(token: str) -> "CIMDVerificationToken | None":
+    if not token or not token.startswith("phvt_"):
+        return None
+    secure_value = hash_key_value(token)
+    try:
+        return CIMDVerificationToken.objects.select_related("organization").get(secure_value=secure_value)
+    except CIMDVerificationToken.DoesNotExist:
+        return None
+
+
+def create_cimd_verification_token(
+    *, organization: "Organization", label: str, created_by: "User | None" = None
+) -> tuple[CIMDVerificationToken, str]:
+    """Create a new token, returning (instance, plaintext). Plaintext is only
+    available at creation time — we only persist its hash."""
+    plaintext = generate_random_token_cimd_verification()
+    token = CIMDVerificationToken.objects.create(
+        organization=organization,
+        label=label,
+        created_by=created_by,
+        secure_value=hash_key_value(plaintext),
+        mask_value=mask_key_value(plaintext),
+    )
+    return token, plaintext

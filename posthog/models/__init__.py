@@ -93,7 +93,14 @@ from .user_repo_preference import UserRepoPreference
 from .user_scene_personalisation import UserScenePersonalisation
 from .user_home_settings import UserHomeSettings
 from .web_analytics_filter_preset import WebAnalyticsFilterPreset
-from .oauth import OAuthAccessToken, OAuthApplication, OAuthGrant, OAuthIDToken, OAuthRefreshToken
+from .oauth import (
+    CIMDVerificationToken,
+    OAuthAccessToken,
+    OAuthApplication,
+    OAuthGrant,
+    OAuthIDToken,
+    OAuthRefreshToken,
+)
 
 from ..approvals.models import Approval, ApprovalPolicy, ChangeRequest
 
@@ -114,6 +121,7 @@ __all__ = [
     "BatchExportDestination",
     "BatchExportRun",
     "BatchImport",
+    "CIMDVerificationToken",
     "Cohort",
     "CohortPeople",
     "CohortCalculationHistory",

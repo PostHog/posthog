@@ -27,7 +27,7 @@ from oauth2_provider.models import AbstractApplication
 from rest_framework.throttling import SimpleRateThrottle
 
 from posthog.exceptions_capture import capture_exception
-from posthog.models.oauth import OAuthApplication
+from posthog.models.oauth import CIMDVerificationToken, OAuthApplication, find_cimd_verification_token
 from posthog.ph_client import ph_scoped_capture
 from posthog.rate_limit import IPThrottle
 from posthog.security.url_validation import is_url_allowed
@@ -96,6 +96,10 @@ class CIMDMetadataDocument(TypedDict, total=False):
     grant_types: list[str]
     response_types: list[str]
     token_endpoint_auth_method: str
+    # Optional PostHog extension: if present, PostHog will look up the token
+    # and link this CIMD app to the owning organization. Verified partners get
+    # a higher default rate limit and an identity trail for abuse response.
+    posthog_verification_token: str
 
 
 def validate_cimd_url(url: str | None, *, perform_dns_check: bool = False) -> tuple[bool, str | None]:
@@ -286,6 +290,15 @@ def fetch_cimd_metadata(url: str) -> tuple[CIMDMetadataDocument, int]:
     return metadata, cache_ttl
 
 
+def _resolve_verification_token(metadata: CIMDMetadataDocument) -> CIMDVerificationToken | None:
+    """Look up a CIMD metadata `posthog_verification_token`. Returns the token
+    record (with its organization) on match, or None if missing or invalid."""
+    raw = metadata.get("posthog_verification_token")
+    if not raw or not isinstance(raw, str):
+        return None
+    return find_cimd_verification_token(raw)
+
+
 def _create_cimd_application(url: str, metadata: CIMDMetadataDocument) -> OAuthApplication:
     """Create a new OAuthApplication from CIMD metadata."""
     client_name = metadata.get("client_name", "CIMD Client")
@@ -296,6 +309,7 @@ def _create_cimd_application(url: str, metadata: CIMDMetadataDocument) -> OAuthA
 
     redirect_uris = " ".join(metadata.get("redirect_uris", []))
     logo_uri = metadata.get("logo_uri") or None
+    verification = _resolve_verification_token(metadata)
 
     app = OAuthApplication(
         name=client_name,
@@ -309,12 +323,18 @@ def _create_cimd_application(url: str, metadata: CIMDMetadataDocument) -> OAuthA
         cimd_metadata_url=url,
         cimd_metadata_last_fetched=timezone.now(),
         logo_uri=logo_uri,
-        organization=None,
+        organization=verification.organization if verification else None,
         user=None,
     )
     app.full_clean()
     app.save()
+    if verification is not None:
+        _touch_verification_token(verification)
     return app
+
+
+def _touch_verification_token(token: CIMDVerificationToken) -> None:
+    CIMDVerificationToken.objects.filter(pk=token.pk).update(last_used_at=timezone.now())
 
 
 def _update_cimd_application(app: OAuthApplication, metadata: CIMDMetadataDocument) -> OAuthApplication:
@@ -336,14 +356,26 @@ def _update_cimd_application(app: OAuthApplication, metadata: CIMDMetadataDocume
     app.logo_uri = new_uri if (new_uri := metadata.get("logo_uri")) is not None else app.logo_uri
     app.cimd_metadata_last_fetched = timezone.now()
 
+    # Re-evaluate verification on every refresh so a rotated/removed token
+    # unlinks the app on the next fetch.
+    verification = _resolve_verification_token(metadata)
+    new_org = verification.organization if verification else None
+    update_fields = ["name", "redirect_uris", "logo_uri", "cimd_metadata_last_fetched"]
+    if app.organization_id != (new_org.id if new_org else None):
+        app.organization = new_org
+        update_fields.append("organization")
+
     try:
         app.full_clean()
-        app.save(update_fields=["name", "redirect_uris", "logo_uri", "cimd_metadata_last_fetched"])
+        app.save(update_fields=update_fields)
     except ValidationError as e:
         logger.warning("cimd_update_validation_failed", url=app.cimd_metadata_url, error=str(e))
         capture_exception(e)
         # Refresh from DB so we don't return a mutated-but-unsaved object
         app.refresh_from_db()
+    else:
+        if verification is not None:
+            _touch_verification_token(verification)
 
     return app
 
@@ -382,6 +414,8 @@ def fetch_and_upsert_cimd_application(url: str, capture_ph_event=posthoganalytic
                     "client_name": metadata.get("client_name"),
                     "app_id": str(updated.pk),
                     "cache_ttl": cache_ttl,
+                    "is_verified": updated.organization_id is not None,
+                    "organization_id": str(updated.organization_id) if updated.organization_id else None,
                 },
             )
             return updated
@@ -399,6 +433,9 @@ def fetch_and_upsert_cimd_application(url: str, capture_ph_event=posthoganalytic
                     "redirect_uris_count": len(metadata.get("redirect_uris", [])),
                     "has_logo": bool(metadata.get("logo_uri")),
                     "cache_ttl": cache_ttl,
+                    "is_verified": new_app.organization_id is not None,
+                    "organization_id": str(new_app.organization_id) if new_app.organization_id else None,
+                    "had_verification_token_attempt": bool(metadata.get("posthog_verification_token")),
                 },
             )
             return new_app
@@ -432,9 +469,10 @@ def register_cimd_provisioning_application_task(url: str) -> None:
             if app is None:
                 return
             if not app.is_provisioning_partner:
-                for field, value in CIMD_PROVISIONING_DEFAULTS.items():
+                defaults = _cimd_provisioning_defaults_for(app)
+                for field, value in defaults.items():
                     setattr(app, field, value)
-                app.save(update_fields=list(CIMD_PROVISIONING_DEFAULTS.keys()))
+                app.save(update_fields=list(defaults.keys()))
                 capture_ph_event(
                     distinct_id=url,
                     event="cimd_provisioning_partner_registered",
@@ -442,7 +480,9 @@ def register_cimd_provisioning_application_task(url: str) -> None:
                         "cimd_url": url,
                         "client_name": app.name,
                         "app_id": str(app.pk),
-                        "account_requests_rate_limit": CIMD_PROVISIONING_ACCOUNT_REQUESTS_DEFAULT_RATE_LIMIT,
+                        "account_requests_rate_limit": defaults["provisioning_rate_limit_account_requests"],
+                        "is_verified": app.organization_id is not None,
+                        "organization_id": str(app.organization_id) if app.organization_id else None,
                     },
                 )
     except (CIMDFetchError, CIMDValidationError) as e:
@@ -500,8 +540,11 @@ def get_application_by_client_id(client_id: str) -> OAuthApplication:
 # app is opted into provisioning at the same trust level as other PKCE partners.
 # The account-request rate limit is set to a conservative floor so a single
 # self-serve partner cannot burn through bulk user-onboarding calls — admin can
-# raise it per-partner once a partner demonstrates legitimate volume.
-CIMD_PROVISIONING_ACCOUNT_REQUESTS_DEFAULT_RATE_LIMIT = 10  # per hour
+# raise it per-partner once a partner demonstrates legitimate volume. Verified
+# partners (those who presented a valid `posthog_verification_token`) get a
+# higher default since abuse is traceable to a real PostHog organization.
+CIMD_PROVISIONING_ACCOUNT_REQUESTS_DEFAULT_RATE_LIMIT = 10  # per hour, anonymous CIMD
+CIMD_PROVISIONING_ACCOUNT_REQUESTS_VERIFIED_RATE_LIMIT = 100  # per hour, verified CIMD
 CIMD_PROVISIONING_DEFAULTS = {
     "provisioning_auth_method": "pkce",
     "provisioning_active": True,
@@ -509,6 +552,16 @@ CIMD_PROVISIONING_DEFAULTS = {
     "provisioning_can_provision_resources": True,
     "provisioning_rate_limit_account_requests": CIMD_PROVISIONING_ACCOUNT_REQUESTS_DEFAULT_RATE_LIMIT,
 }
+
+
+def _cimd_provisioning_defaults_for(app: OAuthApplication) -> dict:
+    """Return the provisioning default profile to apply to this CIMD app on
+    first-time registration. Verified apps (linked to a PostHog org) get the
+    higher account-request rate limit."""
+    defaults = dict(CIMD_PROVISIONING_DEFAULTS)
+    if app.organization_id is not None:
+        defaults["provisioning_rate_limit_account_requests"] = CIMD_PROVISIONING_ACCOUNT_REQUESTS_VERIFIED_RATE_LIMIT
+    return defaults
 
 
 def get_or_create_cimd_provisioning_application(url: str) -> OAuthApplication | None:
@@ -528,9 +581,10 @@ def get_or_create_cimd_provisioning_application(url: str) -> OAuthApplication | 
 
     app = get_or_create_cimd_application(url)
     if not app.is_provisioning_partner:
-        for field, value in CIMD_PROVISIONING_DEFAULTS.items():
+        defaults = _cimd_provisioning_defaults_for(app)
+        for field, value in defaults.items():
             setattr(app, field, value)
-        app.save(update_fields=list(CIMD_PROVISIONING_DEFAULTS.keys()))
+        app.save(update_fields=list(defaults.keys()))
         posthoganalytics.capture(
             distinct_id=url,
             event="cimd_provisioning_partner_registered",
@@ -538,7 +592,9 @@ def get_or_create_cimd_provisioning_application(url: str) -> OAuthApplication | 
                 "cimd_url": url,
                 "client_name": app.name,
                 "app_id": str(app.pk),
-                "account_requests_rate_limit": CIMD_PROVISIONING_ACCOUNT_REQUESTS_DEFAULT_RATE_LIMIT,
+                "account_requests_rate_limit": defaults["provisioning_rate_limit_account_requests"],
+                "is_verified": app.organization_id is not None,
+                "organization_id": str(app.organization_id) if app.organization_id else None,
             },
         )
     return app
