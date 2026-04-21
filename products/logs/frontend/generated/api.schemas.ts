@@ -747,6 +747,12 @@ export const LogsAttributesRetrieveAttributeType = {
     Resource: 'resource',
 } as const
 
+export type LogsExportCreate201 = { [key: string]: unknown }
+
+export type LogsHasLogsRetrieve200 = { [key: string]: unknown }
+
+export type LogsServicesCreate200 = { [key: string]: unknown }
+
 export type LogsValuesRetrieveParams = {
     /**
  * Type of attribute: "log" or "resource". Defaults to "log".

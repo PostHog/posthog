@@ -9455,6 +9455,10 @@ export const EffectiveRestrictionLevelEnumApi = {
     Number37: 37,
 } as const
 
+/**
+ * * `21` - Everyone in the project can edit
+ * `37` - Only those invited to this dashboard can edit
+ */
 export type EffectivePrivilegeLevelEnumApi =
     (typeof EffectivePrivilegeLevelEnumApi)[keyof typeof EffectivePrivilegeLevelEnumApi]
 

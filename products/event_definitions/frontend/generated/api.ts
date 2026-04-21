@@ -12,7 +12,7 @@ import type {
     BulkUpdateTagsRequestApi,
     BulkUpdateTagsResponseApi,
     EnterpriseEventDefinitionApi,
-    EventDefinitionApi,
+    EventDefinitionRecordApi,
     EventDefinitionsByNameRetrieveParams,
     EventDefinitionsListParams,
     PaginatedEnterpriseEventDefinitionListApi,
@@ -211,8 +211,8 @@ export const eventDefinitionsByNameRetrieve = async (
     projectId: string,
     params: EventDefinitionsByNameRetrieveParams,
     options?: RequestInit
-): Promise<EventDefinitionApi> => {
-    return apiMutator<EventDefinitionApi>(getEventDefinitionsByNameRetrieveUrl(projectId, params), {
+): Promise<EventDefinitionRecordApi> => {
+    return apiMutator<EventDefinitionRecordApi>(getEventDefinitionsByNameRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
     })

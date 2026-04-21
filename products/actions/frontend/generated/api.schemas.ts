@@ -36,9 +36,9 @@
  * `flag` - flag
  * `workflow_variable` - workflow_variable
  */
-export type TypeE27EnumApi = (typeof TypeE27EnumApi)[keyof typeof TypeE27EnumApi]
+export type PropertyFilterTypeEnumApi = (typeof PropertyFilterTypeEnumApi)[keyof typeof PropertyFilterTypeEnumApi]
 
-export const TypeE27EnumApi = {
+export const PropertyFilterTypeEnumApi = {
     Event: 'event',
     EventMetadata: 'event_metadata',
     Feature: 'feature',
@@ -76,9 +76,9 @@ export const TypeE27EnumApi = {
  * `regex` - regex
  * `not_regex` - not_regex
  */
-export type DeviceTypesMatchTypeEnumApi = (typeof DeviceTypesMatchTypeEnumApi)[keyof typeof DeviceTypesMatchTypeEnumApi]
+export type HrefMatchingEnumApi = (typeof HrefMatchingEnumApi)[keyof typeof HrefMatchingEnumApi]
 
-export const DeviceTypesMatchTypeEnumApi = {
+export const HrefMatchingEnumApi = {
     Exact: 'exact',
     IsNot: 'is_not',
     Icontains: 'icontains',
@@ -122,7 +122,7 @@ export interface StringPropertyFilterApi {
 * `revenue_analytics` - revenue_analytics
 * `flag` - flag
 * `workflow_variable` - workflow_variable */
-    type?: TypeE27EnumApi
+    type?: PropertyFilterTypeEnumApi
     /** String value to match against. */
     value: string
     /** String comparison operator.
@@ -133,7 +133,7 @@ export interface StringPropertyFilterApi {
 * `not_icontains` - not_icontains
 * `regex` - regex
 * `not_regex` - not_regex */
-    operator?: DeviceTypesMatchTypeEnumApi
+    operator?: HrefMatchingEnumApi
 }
 
 /**
@@ -191,7 +191,7 @@ export interface NumericPropertyFilterApi {
 * `revenue_analytics` - revenue_analytics
 * `flag` - flag
 * `workflow_variable` - workflow_variable */
-    type?: TypeE27EnumApi
+    type?: PropertyFilterTypeEnumApi
     /** Numeric value to compare against. */
     value: number
     /** Numeric comparison operator.
@@ -256,7 +256,7 @@ export interface ArrayPropertyFilterApi {
 * `revenue_analytics` - revenue_analytics
 * `flag` - flag
 * `workflow_variable` - workflow_variable */
-    type?: TypeE27EnumApi
+    type?: PropertyFilterTypeEnumApi
     /** List of values to match. For example `["test@example.com", "ok@example.com"]`. */
     value: string[]
     /** Array comparison operator.
@@ -316,7 +316,7 @@ export interface DatePropertyFilterApi {
 * `revenue_analytics` - revenue_analytics
 * `flag` - flag
 * `workflow_variable` - workflow_variable */
-    type?: TypeE27EnumApi
+    type?: PropertyFilterTypeEnumApi
     /** Date or datetime string in ISO 8601 format (e.g. '2024-01-15' or '2024-01-15T10:30:00Z'). */
     value: string
     /** Date comparison operator.
@@ -331,9 +331,9 @@ export interface DatePropertyFilterApi {
  * * `is_set` - is_set
  * `is_not_set` - is_not_set
  */
-export type OperatorA04EnumApi = (typeof OperatorA04EnumApi)[keyof typeof OperatorA04EnumApi]
+export type ExistenceOperatorEnumApi = (typeof ExistenceOperatorEnumApi)[keyof typeof ExistenceOperatorEnumApi]
 
-export const OperatorA04EnumApi = {
+export const ExistenceOperatorEnumApi = {
     IsSet: 'is_set',
     IsNotSet: 'is_not_set',
 } as const
@@ -373,12 +373,12 @@ export interface ExistencePropertyFilterApi {
 * `revenue_analytics` - revenue_analytics
 * `flag` - flag
 * `workflow_variable` - workflow_variable */
-    type?: TypeE27EnumApi
+    type?: PropertyFilterTypeEnumApi
     /** Existence check operator.
 
 * `is_set` - is_set
 * `is_not_set` - is_not_set */
-    operator: OperatorA04EnumApi
+    operator: ExistenceOperatorEnumApi
 }
 
 export type ActionStepPropertyFilterApi =

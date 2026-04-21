@@ -26,7 +26,7 @@ export const HogFlowsListQueryParams = /* @__PURE__ */ zod.object({
 })
 
 export const HogFlowsRetrieveParams = /* @__PURE__ */ zod.object({
-    id: zod.string().describe('A UUID string identifying this hog flow.'),
+    id: zod.string(),
     project_id: zod
         .string()
         .describe(

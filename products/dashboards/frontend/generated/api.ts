@@ -297,7 +297,7 @@ export const dashboardsSharingRefreshCreate = async (
     })
 }
 
-export const getDashboardsRetrieveUrl = (projectId: string, id: number, params?: DashboardsRetrieveParams) => {
+export const getDashboardsRetrieveUrl = (projectId: string, id: string, params?: DashboardsRetrieveParams) => {
     const normalizedParams = new URLSearchParams()
 
     Object.entries(params || {}).forEach(([key, value]) => {
@@ -315,7 +315,7 @@ export const getDashboardsRetrieveUrl = (projectId: string, id: number, params?:
 
 export const dashboardsRetrieve = async (
     projectId: string,
-    id: number,
+    id: string,
     params?: DashboardsRetrieveParams,
     options?: RequestInit
 ): Promise<DashboardApi> => {
@@ -325,7 +325,7 @@ export const dashboardsRetrieve = async (
     })
 }
 
-export const getDashboardsUpdateUrl = (projectId: string, id: number, params?: DashboardsUpdateParams) => {
+export const getDashboardsUpdateUrl = (projectId: string, id: string, params?: DashboardsUpdateParams) => {
     const normalizedParams = new URLSearchParams()
 
     Object.entries(params || {}).forEach(([key, value]) => {
@@ -343,7 +343,7 @@ export const getDashboardsUpdateUrl = (projectId: string, id: number, params?: D
 
 export const dashboardsUpdate = async (
     projectId: string,
-    id: number,
+    id: string,
     dashboardApi: NonReadonly<DashboardApi>,
     params?: DashboardsUpdateParams,
     options?: RequestInit
@@ -358,7 +358,7 @@ export const dashboardsUpdate = async (
 
 export const getDashboardsPartialUpdateUrl = (
     projectId: string,
-    id: number,
+    id: string,
     params?: DashboardsPartialUpdateParams
 ) => {
     const normalizedParams = new URLSearchParams()
@@ -378,7 +378,7 @@ export const getDashboardsPartialUpdateUrl = (
 
 export const dashboardsPartialUpdate = async (
     projectId: string,
-    id: number,
+    id: string,
     patchedDashboardApi: NonReadonly<PatchedDashboardApi>,
     params?: DashboardsPartialUpdateParams,
     options?: RequestInit
@@ -394,7 +394,7 @@ export const dashboardsPartialUpdate = async (
 /**
  * Hard delete of this model is not allowed. Use a patch API call to set "deleted" to true
  */
-export const getDashboardsDestroyUrl = (projectId: string, id: number, params?: DashboardsDestroyParams) => {
+export const getDashboardsDestroyUrl = (projectId: string, id: string, params?: DashboardsDestroyParams) => {
     const normalizedParams = new URLSearchParams()
 
     Object.entries(params || {}).forEach(([key, value]) => {
@@ -412,7 +412,7 @@ export const getDashboardsDestroyUrl = (projectId: string, id: number, params?: 
 
 export const dashboardsDestroy = async (
     projectId: string,
-    id: number,
+    id: string,
     params?: DashboardsDestroyParams,
     options?: RequestInit
 ): Promise<unknown> => {
@@ -428,7 +428,7 @@ Expects cache_key in request body pointing to the stored 'before' state.
  */
 export const getDashboardsAnalyzeRefreshResultCreateUrl = (
     projectId: string,
-    id: number,
+    id: string,
     params?: DashboardsAnalyzeRefreshResultCreateParams
 ) => {
     const normalizedParams = new URLSearchParams()
@@ -448,7 +448,7 @@ export const getDashboardsAnalyzeRefreshResultCreateUrl = (
 
 export const dashboardsAnalyzeRefreshResultCreate = async (
     projectId: string,
-    id: number,
+    id: string,
     dashboardApi: NonReadonly<DashboardApi>,
     params?: DashboardsAnalyzeRefreshResultCreateParams,
     options?: RequestInit
@@ -466,7 +466,7 @@ export const dashboardsAnalyzeRefreshResultCreate = async (
  */
 export const getDashboardsCopyTileCreateUrl = (
     projectId: string,
-    id: number,
+    id: string,
     params?: DashboardsCopyTileCreateParams
 ) => {
     const normalizedParams = new URLSearchParams()
@@ -486,7 +486,7 @@ export const getDashboardsCopyTileCreateUrl = (
 
 export const dashboardsCopyTileCreate = async (
     projectId: string,
-    id: number,
+    id: string,
     copyDashboardTileRequestApi: CopyDashboardTileRequestApi,
     params?: DashboardsCopyTileCreateParams,
     options?: RequestInit
@@ -504,7 +504,7 @@ export const dashboardsCopyTileCreate = async (
  */
 export const getDashboardsGenerateMetadataCreateUrl = (
     projectId: string,
-    id: number,
+    id: string,
     params?: DashboardsGenerateMetadataCreateParams
 ) => {
     const normalizedParams = new URLSearchParams()
@@ -524,7 +524,7 @@ export const getDashboardsGenerateMetadataCreateUrl = (
 
 export const dashboardsGenerateMetadataCreate = async (
     projectId: string,
-    id: number,
+    id: string,
     params?: DashboardsGenerateMetadataCreateParams,
     options?: RequestInit
 ): Promise<DashboardGeneratedMetadataApi> => {
@@ -536,7 +536,7 @@ export const dashboardsGenerateMetadataCreate = async (
 
 export const getDashboardsMoveTilePartialUpdateUrl = (
     projectId: string,
-    id: number,
+    id: string,
     params?: DashboardsMoveTilePartialUpdateParams
 ) => {
     const normalizedParams = new URLSearchParams()
@@ -556,7 +556,7 @@ export const getDashboardsMoveTilePartialUpdateUrl = (
 
 export const dashboardsMoveTilePartialUpdate = async (
     projectId: string,
-    id: number,
+    id: string,
     patchedDashboardApi: NonReadonly<PatchedDashboardApi>,
     params?: DashboardsMoveTilePartialUpdateParams,
     options?: RequestInit
@@ -571,7 +571,7 @@ export const dashboardsMoveTilePartialUpdate = async (
 
 export const getDashboardsReorderTilesCreateUrl = (
     projectId: string,
-    id: number,
+    id: string,
     params?: DashboardsReorderTilesCreateParams
 ) => {
     const normalizedParams = new URLSearchParams()
@@ -591,7 +591,7 @@ export const getDashboardsReorderTilesCreateUrl = (
 
 export const dashboardsReorderTilesCreate = async (
     projectId: string,
-    id: number,
+    id: string,
     reorderTilesRequestApi: ReorderTilesRequestApi,
     params?: DashboardsReorderTilesCreateParams,
     options?: RequestInit
@@ -609,7 +609,7 @@ export const dashboardsReorderTilesCreate = async (
  */
 export const getDashboardsRunInsightsRetrieveUrl = (
     projectId: string,
-    id: number,
+    id: string,
     params?: DashboardsRunInsightsRetrieveParams
 ) => {
     const normalizedParams = new URLSearchParams()
@@ -629,7 +629,7 @@ export const getDashboardsRunInsightsRetrieveUrl = (
 
 export const dashboardsRunInsightsRetrieve = async (
     projectId: string,
-    id: number,
+    id: string,
     params?: DashboardsRunInsightsRetrieveParams,
     options?: RequestInit
 ): Promise<RunInsightsResponseApi> => {
@@ -645,7 +645,7 @@ Returns a cache_key representing the 'before' state, to be used with analyze_ref
  */
 export const getDashboardsSnapshotCreateUrl = (
     projectId: string,
-    id: number,
+    id: string,
     params?: DashboardsSnapshotCreateParams
 ) => {
     const normalizedParams = new URLSearchParams()
@@ -665,7 +665,7 @@ export const getDashboardsSnapshotCreateUrl = (
 
 export const dashboardsSnapshotCreate = async (
     projectId: string,
-    id: number,
+    id: string,
     dashboardApi: NonReadonly<DashboardApi>,
     params?: DashboardsSnapshotCreateParams,
     options?: RequestInit
@@ -683,7 +683,7 @@ export const dashboardsSnapshotCreate = async (
  */
 export const getDashboardsStreamTilesRetrieveUrl = (
     projectId: string,
-    id: number,
+    id: string,
     params?: DashboardsStreamTilesRetrieveParams
 ) => {
     const normalizedParams = new URLSearchParams()
@@ -703,7 +703,7 @@ export const getDashboardsStreamTilesRetrieveUrl = (
 
 export const dashboardsStreamTilesRetrieve = async (
     projectId: string,
-    id: number,
+    id: string,
     params?: DashboardsStreamTilesRetrieveParams,
     options?: RequestInit
 ): Promise<void> => {
@@ -872,13 +872,13 @@ export const dataColorThemesCreate = async (
     })
 }
 
-export const getDataColorThemesRetrieveUrl = (projectId: string, id: number) => {
+export const getDataColorThemesRetrieveUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/data_color_themes/${id}/`
 }
 
 export const dataColorThemesRetrieve = async (
     projectId: string,
-    id: number,
+    id: string,
     options?: RequestInit
 ): Promise<DataColorThemeApi> => {
     return apiMutator<DataColorThemeApi>(getDataColorThemesRetrieveUrl(projectId, id), {
@@ -887,13 +887,13 @@ export const dataColorThemesRetrieve = async (
     })
 }
 
-export const getDataColorThemesUpdateUrl = (projectId: string, id: number) => {
+export const getDataColorThemesUpdateUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/data_color_themes/${id}/`
 }
 
 export const dataColorThemesUpdate = async (
     projectId: string,
-    id: number,
+    id: string,
     dataColorThemeApi: NonReadonly<DataColorThemeApi>,
     options?: RequestInit
 ): Promise<DataColorThemeApi> => {
@@ -905,13 +905,13 @@ export const dataColorThemesUpdate = async (
     })
 }
 
-export const getDataColorThemesPartialUpdateUrl = (projectId: string, id: number) => {
+export const getDataColorThemesPartialUpdateUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/data_color_themes/${id}/`
 }
 
 export const dataColorThemesPartialUpdate = async (
     projectId: string,
-    id: number,
+    id: string,
     patchedDataColorThemeApi: NonReadonly<PatchedDataColorThemeApi>,
     options?: RequestInit
 ): Promise<DataColorThemeApi> => {
@@ -923,11 +923,11 @@ export const dataColorThemesPartialUpdate = async (
     })
 }
 
-export const getDataColorThemesDestroyUrl = (projectId: string, id: number) => {
+export const getDataColorThemesDestroyUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/data_color_themes/${id}/`
 }
 
-export const dataColorThemesDestroy = async (projectId: string, id: number, options?: RequestInit): Promise<void> => {
+export const dataColorThemesDestroy = async (projectId: string, id: string, options?: RequestInit): Promise<void> => {
     return apiMutator<void>(getDataColorThemesDestroyUrl(projectId, id), {
         ...options,
         method: 'DELETE',

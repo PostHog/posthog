@@ -488,9 +488,9 @@ export interface PropertyGroupFilterValueApi {
  * * `user` - user
  * `role` - role
  */
-export type TypeDe9EnumApi = (typeof TypeDe9EnumApi)[keyof typeof TypeDe9EnumApi]
+export type AssigneeTypeEnumApi = (typeof AssigneeTypeEnumApi)[keyof typeof AssigneeTypeEnumApi]
 
-export const TypeDe9EnumApi = {
+export const AssigneeTypeEnumApi = {
     User: 'user',
     Role: 'role',
 } as const
@@ -500,7 +500,7 @@ export interface ErrorTrackingAssignmentRuleAssigneeRequestApi {
 
 * `user` - user
 * `role` - role */
-    type: TypeDe9EnumApi
+    type: AssigneeTypeEnumApi
     /** User ID when `type` is `user`, or role UUID when `type` is `role`. */
     id: number | string
 }
@@ -634,7 +634,7 @@ export interface ErrorTrackingGroupingRuleAssigneeRequestApi {
 
 * `user` - user
 * `role` - role */
-    type: TypeDe9EnumApi
+    type: AssigneeTypeEnumApi
     /** User ID when `type` is `user`, or role UUID when `type` is `role`. */
     id: number | string
 }
@@ -815,6 +815,24 @@ export interface PaginatedErrorTrackingRecommendationListApi {
     /** @nullable */
     previous?: string | null
     results: ErrorTrackingRecommendationApi[]
+}
+
+export interface ErrorTrackingSpikeDetectionConfigApi {
+    /** @minimum 1 */
+    snooze_duration_minutes: number
+    /** @minimum 1 */
+    multiplier: number
+    /** @minimum 1 */
+    threshold: number
+}
+
+export interface PatchedErrorTrackingSpikeDetectionConfigApi {
+    /** @minimum 1 */
+    snooze_duration_minutes?: number
+    /** @minimum 1 */
+    multiplier?: number
+    /** @minimum 1 */
+    threshold?: number
 }
 
 export interface ErrorTrackingSpikeEventIssueApi {

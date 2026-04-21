@@ -756,7 +756,7 @@ export const SurveysCreateBody = /* @__PURE__ */ zod.object({
 })
 
 export const SurveysRetrieveParams = /* @__PURE__ */ zod.object({
-    id: zod.string().describe('A UUID string identifying this survey.'),
+    id: zod.string(),
     project_id: zod
         .string()
         .describe(
@@ -765,7 +765,7 @@ export const SurveysRetrieveParams = /* @__PURE__ */ zod.object({
 })
 
 export const SurveysPartialUpdateParams = /* @__PURE__ */ zod.object({
-    id: zod.string().describe('A UUID string identifying this survey.'),
+    id: zod.string(),
     project_id: zod
         .string()
         .describe(
@@ -1499,7 +1499,7 @@ export const SurveysPartialUpdateBody = /* @__PURE__ */ zod.object({
 })
 
 export const SurveysDestroyParams = /* @__PURE__ */ zod.object({
-    id: zod.string().describe('A UUID string identifying this survey.'),
+    id: zod.string(),
     project_id: zod
         .string()
         .describe(
@@ -1519,7 +1519,7 @@ Returns:
     Survey statistics including event counts, unique respondents, and conversion rates
  */
 export const SurveysStatsRetrieveParams = /* @__PURE__ */ zod.object({
-    id: zod.string().describe('A UUID string identifying this survey.'),
+    id: zod.string(),
     project_id: zod
         .string()
         .describe(

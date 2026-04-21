@@ -27,7 +27,6 @@ from posthog.permissions import APIScopePermission
 # therefore cannot be derived from any model field.  We pre-supply their
 # OpenAPI types so drf-spectacular never falls through to the warning path.
 _KNOWN_PATH_PARAMS: dict[str, dict[str, Any]] = {
-    "id": {"schema": build_basic_type(OpenApiTypes.STR), "description": ""},
     "project_id": {"schema": build_basic_type(OpenApiTypes.STR), "description": ""},
     "environment_id": {"schema": build_basic_type(OpenApiTypes.STR), "description": ""},
     "organization_id": {"schema": build_basic_type(OpenApiTypes.STR), "description": ""},
@@ -48,21 +47,49 @@ class PostHogAutoSchema(AutoSchema):
     handled by TeamAndOrgViewSetMixin (project_id, environment_id, etc.)."""
 
     def _resolve_path_parameters(self, variables):
-        known = []
-        remaining = []
-        for var in variables:
-            if var in _KNOWN_PATH_PARAMS:
-                known.append(
+        from drf_spectacular.plumbing import get_view_model, resolve_django_path_parameter, resolve_regex_path_parameter
+
+        model = get_view_model(self.view, emit_warnings=False)
+        parameters = []
+
+        for variable in variables:
+            if variable in _KNOWN_PATH_PARAMS:
+                # Params handled by TeamAndOrgViewSetMixin — not derivable from any model.
+                parameters.append(
                     build_parameter_type(
-                        name=var,
+                        name=variable,
                         location=OpenApiParameter.PATH,
-                        description=_KNOWN_PATH_PARAMS[var]["description"],
-                        schema=_KNOWN_PATH_PARAMS[var]["schema"],
+                        description=_KNOWN_PATH_PARAMS[variable]["description"],
+                        schema=_KNOWN_PATH_PARAMS[variable]["schema"],
+                    )
+                )
+            elif model is None:
+                # No queryset — try to resolve from the URL pattern (e.g. <int:id>),
+                # otherwise default to string without warning. Method-level
+                # @extend_schema(parameters=...) provides the proper type per-endpoint.
+                schema = build_basic_type(OpenApiTypes.STR)
+                resolved = resolve_django_path_parameter(
+                    self.path_regex,
+                    variable,
+                    self.map_renderers("format"),
+                )
+                if not resolved:
+                    resolved = resolve_regex_path_parameter(self.path_regex, variable)
+                if resolved:
+                    schema = resolved["schema"]
+                parameters.append(
+                    build_parameter_type(
+                        name=variable,
+                        location=OpenApiParameter.PATH,
+                        description="",
+                        schema=schema,
                     )
                 )
             else:
-                remaining.append(var)
-        return known + super()._resolve_path_parameters(remaining)
+                # Has a model — let the parent derive type + description from the PK field.
+                parameters.extend(super()._resolve_path_parameters([variable]))
+
+        return parameters
 
 
 def build_openapi_mock_request(method, path, view, original_request, **kwargs):
@@ -773,20 +800,28 @@ def _fix_pydantic_schema_for_openapi(schema):
     return schema
 
 
-_ENUM_DISCOVERY_NOISE = (
+_SCHEMA_DISCOVERY_NOISE = (
     "encountered multiple names for the same choice set",
     "non-optimally resolvable collision",
 )
 
 
-def clear_enum_discovery_warnings(result, generator, **kwargs):
-    """Remove cosmetic enum-naming warnings emitted during the discovery phase
-    of ``postprocess_schema_enums``.  ENUM_NAME_OVERRIDES already resolves the
-    final naming; the discovery-phase warnings are just noise that would cause
-    ``--fail-on-warn`` to fail on valid schemas."""
+def clear_schema_discovery_warnings(result, generator, **kwargs):
+    """Remove cosmetic warnings emitted during schema discovery that cannot be
+    addressed via configuration alone:
+
+    - Enum naming: ``ENUM_NAME_OVERRIDES`` resolves the final naming, but the
+      discovery phase warns about candidates before overrides are applied.
+    - Path parameter typing: queryset-less ViewSets can't auto-derive the ``id``
+      type; method-level ``@extend_schema(parameters=...)`` provides it, but the
+      class-level warning still fires.
+
+    Clearing these from ``GENERATOR_STATS`` lets ``--fail-on-warn`` pass while
+    still catching real problems (missing serializers, operationId collisions,
+    component name issues)."""
     from drf_spectacular.drainage import GENERATOR_STATS
 
-    for msg in [m for m in GENERATOR_STATS._warn_cache if any(p in m for p in _ENUM_DISCOVERY_NOISE)]:
+    for msg in [m for m in GENERATOR_STATS._warn_cache if any(p in m for p in _SCHEMA_DISCOVERY_NOISE)]:
         del GENERATOR_STATS._warn_cache[msg]
     return result
 

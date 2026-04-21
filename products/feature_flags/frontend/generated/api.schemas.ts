@@ -248,9 +248,9 @@ export interface PaginatedFeatureFlagListApi {
  * `person` - person
  * `group` - group
  */
-export type Type576EnumApi = (typeof Type576EnumApi)[keyof typeof Type576EnumApi]
+export type PropertyGroupTypeEnumApi = (typeof PropertyGroupTypeEnumApi)[keyof typeof PropertyGroupTypeEnumApi]
 
-export const Type576EnumApi = {
+export const PropertyGroupTypeEnumApi = {
     Cohort: 'cohort',
     Person: 'person',
     Group: 'group',
@@ -292,7 +292,7 @@ export interface FeatureFlagFilterPropertyGenericSchemaApi {
 * `cohort` - cohort
 * `person` - person
 * `group` - group */
-    type?: Type576EnumApi
+    type?: PropertyGroupTypeEnumApi
     /**
      * Resolved cohort name for cohort-type filters.
      * @nullable
@@ -324,9 +324,9 @@ export interface FeatureFlagFilterPropertyGenericSchemaApi {
  * * `is_set` - is_set
  * `is_not_set` - is_not_set
  */
-export type OperatorA04EnumApi = (typeof OperatorA04EnumApi)[keyof typeof OperatorA04EnumApi]
+export type ExistenceOperatorEnumApi = (typeof ExistenceOperatorEnumApi)[keyof typeof ExistenceOperatorEnumApi]
 
-export const OperatorA04EnumApi = {
+export const ExistenceOperatorEnumApi = {
     IsSet: 'is_set',
     IsNotSet: 'is_not_set',
 } as const
@@ -339,7 +339,7 @@ export interface FeatureFlagFilterPropertyExistsSchemaApi {
 * `cohort` - cohort
 * `person` - person
 * `group` - group */
-    type?: Type576EnumApi
+    type?: PropertyGroupTypeEnumApi
     /**
      * Resolved cohort name for cohort-type filters.
      * @nullable
@@ -354,7 +354,7 @@ export interface FeatureFlagFilterPropertyExistsSchemaApi {
 
 * `is_set` - is_set
 * `is_not_set` - is_not_set */
-    operator: OperatorA04EnumApi
+    operator: ExistenceOperatorEnumApi
     /** Optional value. Runtime behavior determines whether this is ignored. */
     value?: unknown
 }
@@ -380,7 +380,7 @@ export interface FeatureFlagFilterPropertyDateSchemaApi {
 * `cohort` - cohort
 * `person` - person
 * `group` - group */
-    type?: Type576EnumApi
+    type?: PropertyGroupTypeEnumApi
     /**
      * Resolved cohort name for cohort-type filters.
      * @nullable
@@ -435,7 +435,7 @@ export interface FeatureFlagFilterPropertySemverSchemaApi {
 * `cohort` - cohort
 * `person` - person
 * `group` - group */
-    type?: Type576EnumApi
+    type?: PropertyGroupTypeEnumApi
     /**
      * Resolved cohort name for cohort-type filters.
      * @nullable
@@ -482,7 +482,7 @@ export interface FeatureFlagFilterPropertyMultiContainsSchemaApi {
 * `cohort` - cohort
 * `person` - person
 * `group` - group */
-    type?: Type576EnumApi
+    type?: PropertyGroupTypeEnumApi
     /**
      * Resolved cohort name for cohort-type filters.
      * @nullable
@@ -1194,16 +1194,6 @@ export type FeatureFlagsLocalEvaluationRetrieveParams = {
      */
     send_cohorts?: boolean | null
 }
-
-/**
- * Unspecified response body
- */
-export type FeatureFlagsLocalEvaluationRetrieve402 = { [key: string]: unknown }
-
-/**
- * Unspecified response body
- */
-export type FeatureFlagsLocalEvaluationRetrieve500 = { [key: string]: unknown }
 
 export type FeatureFlagsMyFlagsRetrieveParams = {
     /**

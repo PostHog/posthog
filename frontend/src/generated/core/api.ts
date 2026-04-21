@@ -439,13 +439,13 @@ export const organizationsProjectsCreate = async (
 /**
  * Projects for the current organization.
  */
-export const getOrganizationsProjectsRetrieveUrl = (organizationId: string, id: number) => {
+export const getOrganizationsProjectsRetrieveUrl = (organizationId: string, id: string) => {
     return `/api/organizations/${organizationId}/projects/${id}/`
 }
 
 export const organizationsProjectsRetrieve = async (
     organizationId: string,
-    id: number,
+    id: string,
     options?: RequestInit
 ): Promise<ProjectBackwardCompatApi> => {
     return apiMutator<ProjectBackwardCompatApi>(getOrganizationsProjectsRetrieveUrl(organizationId, id), {
@@ -457,13 +457,13 @@ export const organizationsProjectsRetrieve = async (
 /**
  * Projects for the current organization.
  */
-export const getOrganizationsProjectsUpdateUrl = (organizationId: string, id: number) => {
+export const getOrganizationsProjectsUpdateUrl = (organizationId: string, id: string) => {
     return `/api/organizations/${organizationId}/projects/${id}/`
 }
 
 export const organizationsProjectsUpdate = async (
     organizationId: string,
-    id: number,
+    id: string,
     projectBackwardCompatApi: NonReadonly<ProjectBackwardCompatApi>,
     options?: RequestInit
 ): Promise<ProjectBackwardCompatApi> => {
@@ -478,13 +478,13 @@ export const organizationsProjectsUpdate = async (
 /**
  * Projects for the current organization.
  */
-export const getOrganizationsProjectsPartialUpdateUrl = (organizationId: string, id: number) => {
+export const getOrganizationsProjectsPartialUpdateUrl = (organizationId: string, id: string) => {
     return `/api/organizations/${organizationId}/projects/${id}/`
 }
 
 export const organizationsProjectsPartialUpdate = async (
     organizationId: string,
-    id: number,
+    id: string,
     patchedProjectBackwardCompatApi: NonReadonly<PatchedProjectBackwardCompatApi>,
     options?: RequestInit
 ): Promise<ProjectBackwardCompatApi> => {
@@ -499,13 +499,13 @@ export const organizationsProjectsPartialUpdate = async (
 /**
  * Projects for the current organization.
  */
-export const getOrganizationsProjectsDestroyUrl = (organizationId: string, id: number) => {
+export const getOrganizationsProjectsDestroyUrl = (organizationId: string, id: string) => {
     return `/api/organizations/${organizationId}/projects/${id}/`
 }
 
 export const organizationsProjectsDestroy = async (
     organizationId: string,
-    id: number,
+    id: string,
     options?: RequestInit
 ): Promise<void> => {
     return apiMutator<void>(getOrganizationsProjectsDestroyUrl(organizationId, id), {
@@ -517,13 +517,13 @@ export const organizationsProjectsDestroy = async (
 /**
  * Projects for the current organization.
  */
-export const getOrganizationsProjectsActivityRetrieveUrl = (organizationId: string, id: number) => {
+export const getOrganizationsProjectsActivityRetrieveUrl = (organizationId: string, id: string) => {
     return `/api/organizations/${organizationId}/projects/${id}/activity/`
 }
 
 export const organizationsProjectsActivityRetrieve = async (
     organizationId: string,
-    id: number,
+    id: string,
     options?: RequestInit
 ): Promise<ProjectBackwardCompatApi> => {
     return apiMutator<ProjectBackwardCompatApi>(getOrganizationsProjectsActivityRetrieveUrl(organizationId, id), {
@@ -535,13 +535,13 @@ export const organizationsProjectsActivityRetrieve = async (
 /**
  * Projects for the current organization.
  */
-export const getOrganizationsProjectsAddProductIntentPartialUpdateUrl = (organizationId: string, id: number) => {
+export const getOrganizationsProjectsAddProductIntentPartialUpdateUrl = (organizationId: string, id: string) => {
     return `/api/organizations/${organizationId}/projects/${id}/add_product_intent/`
 }
 
 export const organizationsProjectsAddProductIntentPartialUpdate = async (
     organizationId: string,
-    id: number,
+    id: string,
     patchedProjectBackwardCompatApi: NonReadonly<PatchedProjectBackwardCompatApi>,
     options?: RequestInit
 ): Promise<ProjectBackwardCompatApi> => {
@@ -559,13 +559,13 @@ export const organizationsProjectsAddProductIntentPartialUpdate = async (
 /**
  * Projects for the current organization.
  */
-export const getOrganizationsProjectsChangeOrganizationCreateUrl = (organizationId: string, id: number) => {
+export const getOrganizationsProjectsChangeOrganizationCreateUrl = (organizationId: string, id: string) => {
     return `/api/organizations/${organizationId}/projects/${id}/change_organization/`
 }
 
 export const organizationsProjectsChangeOrganizationCreate = async (
     organizationId: string,
-    id: number,
+    id: string,
     projectBackwardCompatApi: NonReadonly<ProjectBackwardCompatApi>,
     options?: RequestInit
 ): Promise<ProjectBackwardCompatApi> => {
@@ -585,14 +585,14 @@ export const organizationsProjectsChangeOrganizationCreate = async (
  */
 export const getOrganizationsProjectsCompleteProductOnboardingPartialUpdateUrl = (
     organizationId: string,
-    id: number
+    id: string
 ) => {
     return `/api/organizations/${organizationId}/projects/${id}/complete_product_onboarding/`
 }
 
 export const organizationsProjectsCompleteProductOnboardingPartialUpdate = async (
     organizationId: string,
-    id: number,
+    id: string,
     patchedProjectBackwardCompatApi: NonReadonly<PatchedProjectBackwardCompatApi>,
     options?: RequestInit
 ): Promise<ProjectBackwardCompatApi> => {
@@ -610,13 +610,13 @@ export const organizationsProjectsCompleteProductOnboardingPartialUpdate = async
 /**
  * Projects for the current organization.
  */
-export const getOrganizationsProjectsDeleteSecretTokenBackupPartialUpdateUrl = (organizationId: string, id: number) => {
+export const getOrganizationsProjectsDeleteSecretTokenBackupPartialUpdateUrl = (organizationId: string, id: string) => {
     return `/api/organizations/${organizationId}/projects/${id}/delete_secret_token_backup/`
 }
 
 export const organizationsProjectsDeleteSecretTokenBackupPartialUpdate = async (
     organizationId: string,
-    id: number,
+    id: string,
     patchedProjectBackwardCompatApi: NonReadonly<PatchedProjectBackwardCompatApi>,
     options?: RequestInit
 ): Promise<ProjectBackwardCompatApi> => {
@@ -636,14 +636,14 @@ export const organizationsProjectsDeleteSecretTokenBackupPartialUpdate = async (
  */
 export const getOrganizationsProjectsGenerateConversationsPublicTokenCreateUrl = (
     organizationId: string,
-    id: number
+    id: string
 ) => {
     return `/api/organizations/${organizationId}/projects/${id}/generate_conversations_public_token/`
 }
 
 export const organizationsProjectsGenerateConversationsPublicTokenCreate = async (
     organizationId: string,
-    id: number,
+    id: string,
     projectBackwardCompatApi: NonReadonly<ProjectBackwardCompatApi>,
     options?: RequestInit
 ): Promise<ProjectBackwardCompatApi> => {
@@ -661,13 +661,13 @@ export const organizationsProjectsGenerateConversationsPublicTokenCreate = async
 /**
  * Projects for the current organization.
  */
-export const getOrganizationsProjectsIsGeneratingDemoDataRetrieveUrl = (organizationId: string, id: number) => {
+export const getOrganizationsProjectsIsGeneratingDemoDataRetrieveUrl = (organizationId: string, id: string) => {
     return `/api/organizations/${organizationId}/projects/${id}/is_generating_demo_data/`
 }
 
 export const organizationsProjectsIsGeneratingDemoDataRetrieve = async (
     organizationId: string,
-    id: number,
+    id: string,
     options?: RequestInit
 ): Promise<ProjectBackwardCompatApi> => {
     return apiMutator<ProjectBackwardCompatApi>(
@@ -682,13 +682,13 @@ export const organizationsProjectsIsGeneratingDemoDataRetrieve = async (
 /**
  * Projects for the current organization.
  */
-export const getOrganizationsProjectsResetTokenPartialUpdateUrl = (organizationId: string, id: number) => {
+export const getOrganizationsProjectsResetTokenPartialUpdateUrl = (organizationId: string, id: string) => {
     return `/api/organizations/${organizationId}/projects/${id}/reset_token/`
 }
 
 export const organizationsProjectsResetTokenPartialUpdate = async (
     organizationId: string,
-    id: number,
+    id: string,
     patchedProjectBackwardCompatApi: NonReadonly<PatchedProjectBackwardCompatApi>,
     options?: RequestInit
 ): Promise<ProjectBackwardCompatApi> => {
@@ -706,13 +706,13 @@ export const organizationsProjectsResetTokenPartialUpdate = async (
 /**
  * Projects for the current organization.
  */
-export const getOrganizationsProjectsRotateSecretTokenPartialUpdateUrl = (organizationId: string, id: number) => {
+export const getOrganizationsProjectsRotateSecretTokenPartialUpdateUrl = (organizationId: string, id: string) => {
     return `/api/organizations/${organizationId}/projects/${id}/rotate_secret_token/`
 }
 
 export const organizationsProjectsRotateSecretTokenPartialUpdate = async (
     organizationId: string,
-    id: number,
+    id: string,
     patchedProjectBackwardCompatApi: NonReadonly<PatchedProjectBackwardCompatApi>,
     options?: RequestInit
 ): Promise<ProjectBackwardCompatApi> => {
@@ -840,13 +840,13 @@ export const exportsCreate = async (
     })
 }
 
-export const getExportsRetrieveUrl = (projectId: string, id: number) => {
+export const getExportsRetrieveUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/exports/${id}/`
 }
 
 export const exportsRetrieve = async (
     projectId: string,
-    id: number,
+    id: string,
     options?: RequestInit
 ): Promise<ExportedAssetApi> => {
     return apiMutator<ExportedAssetApi>(getExportsRetrieveUrl(projectId, id), {
@@ -855,11 +855,11 @@ export const exportsRetrieve = async (
     })
 }
 
-export const getExportsContentRetrieveUrl = (projectId: string, id: number) => {
+export const getExportsContentRetrieveUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/exports/${id}/content/`
 }
 
-export const exportsContentRetrieve = async (projectId: string, id: number, options?: RequestInit): Promise<void> => {
+export const exportsContentRetrieve = async (projectId: string, id: string, options?: RequestInit): Promise<void> => {
     return apiMutator<void>(getExportsContentRetrieveUrl(projectId, id), {
         ...options,
         method: 'GET',
@@ -1602,13 +1602,13 @@ export const subscriptionsCreate = async (
     })
 }
 
-export const getSubscriptionsRetrieveUrl = (projectId: string, id: number) => {
+export const getSubscriptionsRetrieveUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/subscriptions/${id}/`
 }
 
 export const subscriptionsRetrieve = async (
     projectId: string,
-    id: number,
+    id: string,
     options?: RequestInit
 ): Promise<SubscriptionApi> => {
     return apiMutator<SubscriptionApi>(getSubscriptionsRetrieveUrl(projectId, id), {
@@ -1617,13 +1617,13 @@ export const subscriptionsRetrieve = async (
     })
 }
 
-export const getSubscriptionsUpdateUrl = (projectId: string, id: number) => {
+export const getSubscriptionsUpdateUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/subscriptions/${id}/`
 }
 
 export const subscriptionsUpdate = async (
     projectId: string,
-    id: number,
+    id: string,
     subscriptionApi: NonReadonly<SubscriptionApi>,
     options?: RequestInit
 ): Promise<SubscriptionApi> => {
@@ -1635,13 +1635,13 @@ export const subscriptionsUpdate = async (
     })
 }
 
-export const getSubscriptionsPartialUpdateUrl = (projectId: string, id: number) => {
+export const getSubscriptionsPartialUpdateUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/subscriptions/${id}/`
 }
 
 export const subscriptionsPartialUpdate = async (
     projectId: string,
-    id: number,
+    id: string,
     patchedSubscriptionApi: NonReadonly<PatchedSubscriptionApi>,
     options?: RequestInit
 ): Promise<SubscriptionApi> => {
@@ -1656,24 +1656,24 @@ export const subscriptionsPartialUpdate = async (
 /**
  * Hard delete of this model is not allowed. Use a patch API call to set "deleted" to true
  */
-export const getSubscriptionsDestroyUrl = (projectId: string, id: number) => {
+export const getSubscriptionsDestroyUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/subscriptions/${id}/`
 }
 
-export const subscriptionsDestroy = async (projectId: string, id: number, options?: RequestInit): Promise<unknown> => {
+export const subscriptionsDestroy = async (projectId: string, id: string, options?: RequestInit): Promise<unknown> => {
     return apiMutator<unknown>(getSubscriptionsDestroyUrl(projectId, id), {
         ...options,
         method: 'DELETE',
     })
 }
 
-export const getSubscriptionsTestDeliveryCreateUrl = (projectId: string, id: number) => {
+export const getSubscriptionsTestDeliveryCreateUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/subscriptions/${id}/test-delivery/`
 }
 
 export const subscriptionsTestDeliveryCreate = async (
     projectId: string,
-    id: number,
+    id: string,
     options?: RequestInit
 ): Promise<void> => {
     return apiMutator<void>(getSubscriptionsTestDeliveryCreateUrl(projectId, id), {

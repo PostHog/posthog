@@ -185,31 +185,6 @@ export interface PaginatedTaskAutomationListApi {
 }
 
 /**
- * Serializer for extracted tasks
- */
-export interface TaskApi {
-    title: string
-    description?: string
-    /** @nullable */
-    assignee?: string | null
-}
-
-export interface PaginatedTaskListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: TaskApi[]
-}
-
-/**
- * Latest run details for this task
- * @nullable
- */
-export type PatchedTaskApiLatestRun = { [key: string]: unknown } | null | null
-
-/**
  * * `error_tracking` - Error Tracking
  * `eval_clusters` - Eval Clusters
  * `user_created` - User Created
@@ -241,6 +216,69 @@ export type SignalReportTaskRelationshipEnumApi =
 export const SignalReportTaskRelationshipEnumApi = {
     Implementation: 'implementation',
 } as const
+
+/**
+ * Latest run details for this task
+ * @nullable
+ */
+export type TaskApiLatestRun = { [key: string]: unknown } | null | null
+
+export interface TaskApi {
+    readonly id: string
+    /** @nullable */
+    readonly task_number: number | null
+    readonly slug: string
+    /** @maxLength 255 */
+    title?: string
+    title_manually_set?: boolean
+    description?: string
+    origin_product?: OriginProductEnumApi
+    /**
+     * @maxLength 255
+     * @nullable
+     */
+    repository?: string | null
+    /**
+     * GitHub integration for this task
+     * @nullable
+     */
+    github_integration?: number | null
+    /** @nullable */
+    signal_report?: string | null
+    signal_report_task_relationship?: SignalReportTaskRelationshipEnumApi
+    /** JSON schema for the task. This is used to validate the output of the task. */
+    json_schema?: unknown | null
+    /** If true, this task is for internal use and should not be exposed to end users. */
+    internal?: boolean
+    /**
+     * Latest run details for this task
+     * @nullable
+     */
+    readonly latest_run: TaskApiLatestRun
+    readonly created_at: string
+    readonly updated_at: string
+    readonly created_by: UserBasicApi
+    /**
+     * Custom prompt for CI fixes. If blank, a default prompt will be used.
+     * @nullable
+     */
+    ci_prompt?: string | null
+}
+
+export interface PaginatedTaskListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: TaskApi[]
+}
+
+/**
+ * Latest run details for this task
+ * @nullable
+ */
+export type PatchedTaskApiLatestRun = { [key: string]: unknown } | null | null
 
 export interface PatchedTaskApi {
     readonly id?: string
@@ -288,9 +326,9 @@ export interface PatchedTaskApi {
  * * `interactive` - interactive
  * `background` - background
  */
-export type Mode051EnumApi = (typeof Mode051EnumApi)[keyof typeof Mode051EnumApi]
+export type TaskExecutionModeEnumApi = (typeof TaskExecutionModeEnumApi)[keyof typeof TaskExecutionModeEnumApi]
 
-export const Mode051EnumApi = {
+export const TaskExecutionModeEnumApi = {
     Interactive: 'interactive',
     Background: 'background',
 } as const
@@ -366,7 +404,7 @@ export interface ClaudeTaskRunCreateSchemaApi {
 
 * `interactive` - interactive
 * `background` - background */
-    mode?: Mode051EnumApi
+    mode?: TaskExecutionModeEnumApi
     /**
      * Git branch to checkout in the sandbox
      * @maxLength 255
@@ -447,7 +485,7 @@ export interface CodexTaskRunCreateSchemaApi {
 
 * `interactive` - interactive
 * `background` - background */
-    mode?: Mode051EnumApi
+    mode?: TaskExecutionModeEnumApi
     /**
      * Git branch to checkout in the sandbox
      * @maxLength 255
@@ -500,7 +538,7 @@ export interface TaskRunResumeRequestSchemaApi {
 
 * `interactive` - interactive
 * `background` - background */
-    mode?: Mode051EnumApi
+    mode?: TaskExecutionModeEnumApi
     /**
      * Git branch to checkout in the sandbox
      * @maxLength 255

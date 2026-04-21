@@ -76,7 +76,7 @@ export const AnnotationsCreateBody = /* @__PURE__ */ zod.object({
  * Create, Read, Update and Delete annotations. [See docs](https://posthog.com/docs/data/annotations) for more information on annotations.
  */
 export const AnnotationsRetrieveParams = /* @__PURE__ */ zod.object({
-    id: zod.number().describe('A unique integer value identifying this annotation.'),
+    id: zod.string(),
     project_id: zod
         .string()
         .describe(
@@ -88,7 +88,7 @@ export const AnnotationsRetrieveParams = /* @__PURE__ */ zod.object({
  * Create, Read, Update and Delete annotations. [See docs](https://posthog.com/docs/data/annotations) for more information on annotations.
  */
 export const AnnotationsPartialUpdateParams = /* @__PURE__ */ zod.object({
-    id: zod.number().describe('A unique integer value identifying this annotation.'),
+    id: zod.string(),
     project_id: zod
         .string()
         .describe(
@@ -136,7 +136,7 @@ export const AnnotationsPartialUpdateBody = /* @__PURE__ */ zod.object({
  * Hard delete of this model is not allowed. Use a patch API call to set "deleted" to true
  */
 export const AnnotationsDestroyParams = /* @__PURE__ */ zod.object({
-    id: zod.number().describe('A unique integer value identifying this annotation.'),
+    id: zod.string(),
     project_id: zod
         .string()
         .describe(

@@ -10,13 +10,13 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  */
 import type {
     PaginatedAsyncDeletionStatusListApi,
-    PaginatedPersonListApi,
-    PatchedPersonApi,
-    PersonApi,
+    PaginatedPersonRecordListApi,
+    PatchedPersonRecordApi,
     PersonBulkDeleteRequestApi,
     PersonBulkDeleteResponseApi,
     PersonDeletePropertyRequestApi,
     PersonPropertiesAtTimeResponseApi,
+    PersonRecordApi,
     PersonUpdatePropertyRequestApi,
     PersonsActivityRetrieveParams,
     PersonsAllActivityRetrieveParams,
@@ -84,8 +84,8 @@ export const personsList = async (
     projectId: string,
     params?: PersonsListParams,
     options?: RequestInit
-): Promise<PaginatedPersonListApi> => {
-    return apiMutator<PaginatedPersonListApi>(getPersonsListUrl(projectId, params), {
+): Promise<PaginatedPersonRecordListApi> => {
+    return apiMutator<PaginatedPersonRecordListApi>(getPersonsListUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
@@ -115,8 +115,8 @@ export const personsRetrieve = async (
     id: string,
     params?: PersonsRetrieveParams,
     options?: RequestInit
-): Promise<PersonApi> => {
-    return apiMutator<PersonApi>(getPersonsRetrieveUrl(projectId, id, params), {
+): Promise<PersonRecordApi> => {
+    return apiMutator<PersonRecordApi>(getPersonsRetrieveUrl(projectId, id, params), {
         ...options,
         method: 'GET',
     })
@@ -146,15 +146,15 @@ export const getPersonsUpdateUrl = (projectId: string, id: string, params?: Pers
 export const personsUpdate = async (
     projectId: string,
     id: string,
-    personApi: NonReadonly<PersonApi>,
+    personRecordApi: NonReadonly<PersonRecordApi>,
     params?: PersonsUpdateParams,
     options?: RequestInit
-): Promise<PersonApi> => {
-    return apiMutator<PersonApi>(getPersonsUpdateUrl(projectId, id, params), {
+): Promise<PersonRecordApi> => {
+    return apiMutator<PersonRecordApi>(getPersonsUpdateUrl(projectId, id, params), {
         ...options,
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(personApi),
+        body: JSON.stringify(personRecordApi),
     })
 }
 
@@ -180,15 +180,15 @@ export const getPersonsPartialUpdateUrl = (projectId: string, id: string, params
 export const personsPartialUpdate = async (
     projectId: string,
     id: string,
-    patchedPersonApi: NonReadonly<PatchedPersonApi>,
+    patchedPersonRecordApi: NonReadonly<PatchedPersonRecordApi>,
     params?: PersonsPartialUpdateParams,
     options?: RequestInit
-): Promise<PersonApi> => {
-    return apiMutator<PersonApi>(getPersonsPartialUpdateUrl(projectId, id, params), {
+): Promise<PersonRecordApi> => {
+    return apiMutator<PersonRecordApi>(getPersonsPartialUpdateUrl(projectId, id, params), {
         ...options,
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(patchedPersonApi),
+        body: JSON.stringify(patchedPersonRecordApi),
     })
 }
 
@@ -197,7 +197,7 @@ export const personsPartialUpdate = async (
  */
 export const getPersonsActivityRetrieveUrl = (
     projectId: string,
-    id: number,
+    id: string,
     params?: PersonsActivityRetrieveParams
 ) => {
     const normalizedParams = new URLSearchParams()
@@ -217,7 +217,7 @@ export const getPersonsActivityRetrieveUrl = (
 
 export const personsActivityRetrieve = async (
     projectId: string,
-    id: number,
+    id: string,
     params?: PersonsActivityRetrieveParams,
     options?: RequestInit
 ): Promise<void> => {
@@ -270,7 +270,7 @@ export const personsDeletePropertyCreate = async (
  */
 export const getPersonsPropertiesTimelineRetrieveUrl = (
     projectId: string,
-    id: number,
+    id: string,
     params?: PersonsPropertiesTimelineRetrieveParams
 ) => {
     const normalizedParams = new URLSearchParams()
@@ -290,7 +290,7 @@ export const getPersonsPropertiesTimelineRetrieveUrl = (
 
 export const personsPropertiesTimelineRetrieve = async (
     projectId: string,
-    id: number,
+    id: string,
     params?: PersonsPropertiesTimelineRetrieveParams,
     options?: RequestInit
 ): Promise<void> => {
@@ -303,7 +303,7 @@ export const personsPropertiesTimelineRetrieve = async (
 /**
  * This endpoint is meant for reading and deleting persons. To create or update persons, we recommend using the [capture API](https://posthog.com/docs/api/capture), the `$set` and `$unset` [properties](https://posthog.com/docs/product-analytics/user-properties), or one of our SDKs.
  */
-export const getPersonsSplitCreateUrl = (projectId: string, id: number, params?: PersonsSplitCreateParams) => {
+export const getPersonsSplitCreateUrl = (projectId: string, id: string, params?: PersonsSplitCreateParams) => {
     const normalizedParams = new URLSearchParams()
 
     Object.entries(params || {}).forEach(([key, value]) => {
@@ -321,8 +321,8 @@ export const getPersonsSplitCreateUrl = (projectId: string, id: number, params?:
 
 export const personsSplitCreate = async (
     projectId: string,
-    id: number,
-    personApi: NonReadonly<PersonApi>,
+    id: string,
+    personRecordApi: NonReadonly<PersonRecordApi>,
     params?: PersonsSplitCreateParams,
     options?: RequestInit
 ): Promise<void> => {
@@ -330,7 +330,7 @@ export const personsSplitCreate = async (
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(personApi),
+        body: JSON.stringify(personRecordApi),
     })
 }
 
@@ -426,7 +426,7 @@ export const getPersonsBatchByDistinctIdsCreateUrl = (
 
 export const personsBatchByDistinctIdsCreate = async (
     projectId: string,
-    personApi: NonReadonly<PersonApi>,
+    personRecordApi: NonReadonly<PersonRecordApi>,
     params?: PersonsBatchByDistinctIdsCreateParams,
     options?: RequestInit
 ): Promise<void> => {
@@ -434,7 +434,7 @@ export const personsBatchByDistinctIdsCreate = async (
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(personApi),
+        body: JSON.stringify(personRecordApi),
     })
 }
 
@@ -459,7 +459,7 @@ export const getPersonsBatchByUuidsCreateUrl = (projectId: string, params?: Pers
 
 export const personsBatchByUuidsCreate = async (
     projectId: string,
-    personApi: NonReadonly<PersonApi>,
+    personRecordApi: NonReadonly<PersonRecordApi>,
     params?: PersonsBatchByUuidsCreateParams,
     options?: RequestInit
 ): Promise<void> => {
@@ -467,7 +467,7 @@ export const personsBatchByUuidsCreate = async (
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(personApi),
+        body: JSON.stringify(personRecordApi),
     })
 }
 
@@ -615,7 +615,7 @@ export const getPersonsFunnelCreateUrl = (projectId: string, params?: PersonsFun
 
 export const personsFunnelCreate = async (
     projectId: string,
-    personApi: NonReadonly<PersonApi>,
+    personRecordApi: NonReadonly<PersonRecordApi>,
     params?: PersonsFunnelCreateParams,
     options?: RequestInit
 ): Promise<void> => {
@@ -623,7 +623,7 @@ export const personsFunnelCreate = async (
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(personApi),
+        body: JSON.stringify(personRecordApi),
     })
 }
 
@@ -684,7 +684,7 @@ export const getPersonsFunnelCorrelationCreateUrl = (
 
 export const personsFunnelCorrelationCreate = async (
     projectId: string,
-    personApi: NonReadonly<PersonApi>,
+    personRecordApi: NonReadonly<PersonRecordApi>,
     params?: PersonsFunnelCorrelationCreateParams,
     options?: RequestInit
 ): Promise<void> => {
@@ -692,7 +692,7 @@ export const personsFunnelCorrelationCreate = async (
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(personApi),
+        body: JSON.stringify(personRecordApi),
     })
 }
 
@@ -792,7 +792,7 @@ export const getPersonsResetPersonDistinctIdCreateUrl = (
 
 export const personsResetPersonDistinctIdCreate = async (
     projectId: string,
-    personApi: NonReadonly<PersonApi>,
+    personRecordApi: NonReadonly<PersonRecordApi>,
     params?: PersonsResetPersonDistinctIdCreateParams,
     options?: RequestInit
 ): Promise<void> => {
@@ -800,7 +800,7 @@ export const personsResetPersonDistinctIdCreate = async (
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(personApi),
+        body: JSON.stringify(personRecordApi),
     })
 }
 

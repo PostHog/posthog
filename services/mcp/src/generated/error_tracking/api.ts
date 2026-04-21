@@ -1964,7 +1964,7 @@ export const ErrorTrackingIssuesListQueryParams = /* @__PURE__ */ zod.object({
 })
 
 export const ErrorTrackingIssuesRetrieveParams = /* @__PURE__ */ zod.object({
-    id: zod.string().describe('A UUID string identifying this error tracking issue.'),
+    id: zod.string(),
     project_id: zod
         .string()
         .describe(
@@ -1973,7 +1973,7 @@ export const ErrorTrackingIssuesRetrieveParams = /* @__PURE__ */ zod.object({
 })
 
 export const ErrorTrackingIssuesPartialUpdateParams = /* @__PURE__ */ zod.object({
-    id: zod.string().describe('A UUID string identifying this error tracking issue.'),
+    id: zod.string(),
     project_id: zod
         .string()
         .describe(
@@ -2018,7 +2018,7 @@ export const ErrorTrackingIssuesPartialUpdateBody = /* @__PURE__ */ zod.object({
 })
 
 export const ErrorTrackingIssuesMergeCreateParams = /* @__PURE__ */ zod.object({
-    id: zod.string().describe('A UUID string identifying this error tracking issue.'),
+    id: zod.string(),
     project_id: zod
         .string()
         .describe(
@@ -2031,7 +2031,7 @@ export const ErrorTrackingIssuesMergeCreateBody = /* @__PURE__ */ zod.object({
 })
 
 export const ErrorTrackingIssuesSplitCreateParams = /* @__PURE__ */ zod.object({
-    id: zod.string().describe('A UUID string identifying this error tracking issue.'),
+    id: zod.string(),
     project_id: zod
         .string()
         .describe(

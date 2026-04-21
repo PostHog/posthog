@@ -106,7 +106,7 @@ export const SessionRecordingPlaylistsPartialUpdateBody = /* @__PURE__ */ zod.ob
 })
 
 export const SessionRecordingsRetrieveParams = /* @__PURE__ */ zod.object({
-    id: zod.string().describe('A UUID string identifying this session recording.'),
+    id: zod.string(),
     project_id: zod
         .string()
         .describe(
@@ -115,7 +115,7 @@ export const SessionRecordingsRetrieveParams = /* @__PURE__ */ zod.object({
 })
 
 export const SessionRecordingsDestroyParams = /* @__PURE__ */ zod.object({
-    id: zod.string().describe('A UUID string identifying this session recording.'),
+    id: zod.string(),
     project_id: zod
         .string()
         .describe(

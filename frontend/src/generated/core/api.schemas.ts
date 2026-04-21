@@ -161,10 +161,10 @@ export interface PatchedOrganizationDomainApi {
  * `8` - administrator
  * `15` - owner
  */
-export type OrganizationMembershipLevelApi =
-    (typeof OrganizationMembershipLevelApi)[keyof typeof OrganizationMembershipLevelApi]
+export type EffectiveMembershipLevelEnumApi =
+    (typeof EffectiveMembershipLevelEnumApi)[keyof typeof EffectiveMembershipLevelEnumApi]
 
-export const OrganizationMembershipLevelApi = {
+export const EffectiveMembershipLevelEnumApi = {
     Number1: 1,
     Number8: 8,
     Number15: 15,
@@ -240,7 +240,7 @@ export interface OrganizationInviteApi {
      * @minimum 0
      * @maximum 32767
      */
-    level?: OrganizationMembershipLevelApi
+    level?: EffectiveMembershipLevelEnumApi
     /** Check if invite is older than INVITE_DAYS_VALIDITY days. */
     readonly is_expired: boolean
     readonly created_by: UserBasicApi
@@ -319,6 +319,8 @@ export interface PaginatedProjectBackwardCompatBasicListApi {
 
 export type ProjectBackwardCompatApiGroupTypesItem = { [key: string]: unknown }
 
+export type ProjectBackwardCompatApiDefaultModifiers = { [key: string]: unknown }
+
 export type ProjectBackwardCompatApiProductIntentsItem = {
     product_type?: string
     created_at?: string
@@ -326,15 +328,6 @@ export type ProjectBackwardCompatApiProductIntentsItem = {
     onboarding_completed_at?: string | null
     updated_at?: string
 }
-
-export type EffectiveMembershipLevelEnumApi =
-    (typeof EffectiveMembershipLevelEnumApi)[keyof typeof EffectiveMembershipLevelEnumApi]
-
-export const EffectiveMembershipLevelEnumApi = {
-    Number1: 1,
-    Number8: 8,
-    Number15: 15,
-} as const
 
 /**
  * * `30d` - 30 Days
@@ -611,12 +604,12 @@ export interface ProjectBackwardCompatApi {
     live_events_columns?: string[] | null
     /** @nullable */
     recording_domains?: (string | null)[] | null
-    readonly person_on_events_querying_enabled: string
+    readonly person_on_events_querying_enabled: boolean
     /** @nullable */
     inject_web_apps?: boolean | null
     extra_settings?: unknown | null
     modifiers?: unknown | null
-    readonly default_modifiers: string
+    readonly default_modifiers: ProjectBackwardCompatApiDefaultModifiers
     has_completed_onboarding_for?: unknown | null
     /** @nullable */
     surveys_opt_in?: boolean | null
@@ -647,6 +640,8 @@ export interface ProjectBackwardCompatApi {
 }
 
 export type PatchedProjectBackwardCompatApiGroupTypesItem = { [key: string]: unknown }
+
+export type PatchedProjectBackwardCompatApiDefaultModifiers = { [key: string]: unknown }
 
 export type PatchedProjectBackwardCompatApiProductIntentsItem = {
     product_type?: string
@@ -753,12 +748,12 @@ export interface PatchedProjectBackwardCompatApi {
     live_events_columns?: string[] | null
     /** @nullable */
     recording_domains?: (string | null)[] | null
-    readonly person_on_events_querying_enabled?: string
+    readonly person_on_events_querying_enabled?: boolean
     /** @nullable */
     inject_web_apps?: boolean | null
     extra_settings?: unknown | null
     modifiers?: unknown | null
-    readonly default_modifiers?: string
+    readonly default_modifiers?: PatchedProjectBackwardCompatApiDefaultModifiers
     has_completed_onboarding_for?: unknown | null
     /** @nullable */
     surveys_opt_in?: boolean | null
@@ -1061,9 +1056,10 @@ export interface PatchedProjectSecretAPIKeyApi {
  * `Boolean` - Boolean
  * `Duration` - Duration
  */
-export type PropertyType02dEnumApi = (typeof PropertyType02dEnumApi)[keyof typeof PropertyType02dEnumApi]
+export type PropertyDefinitionTypeEnumApi =
+    (typeof PropertyDefinitionTypeEnumApi)[keyof typeof PropertyDefinitionTypeEnumApi]
 
-export const PropertyType02dEnumApi = {
+export const PropertyDefinitionTypeEnumApi = {
     DateTime: 'DateTime',
     String: 'String',
     Numeric: 'Numeric',
@@ -1085,7 +1081,7 @@ export interface EnterprisePropertyDefinitionApi {
     readonly updated_by: UserBasicApi
     /** @nullable */
     readonly is_seen_on_filtered_events: boolean | null
-    property_type?: PropertyType02dEnumApi | BlankEnumApi | NullEnumApi | null
+    property_type?: PropertyDefinitionTypeEnumApi | BlankEnumApi | NullEnumApi | null
     verified?: boolean
     /** @nullable */
     readonly verified_at: string | null
@@ -1117,7 +1113,7 @@ export interface PatchedEnterprisePropertyDefinitionApi {
     readonly updated_by?: UserBasicApi
     /** @nullable */
     readonly is_seen_on_filtered_events?: boolean | null
-    property_type?: PropertyType02dEnumApi | BlankEnumApi | NullEnumApi | null
+    property_type?: PropertyDefinitionTypeEnumApi | BlankEnumApi | NullEnumApi | null
     verified?: boolean
     /** @nullable */
     readonly verified_at?: string | null
@@ -1859,16 +1855,6 @@ export type FlagValueValuesRetrieveParams = {
      */
     key?: string
 }
-
-/**
- * Unspecified response body
- */
-export type FlagValueValuesRetrieve400 = { [key: string]: unknown }
-
-/**
- * Unspecified response body
- */
-export type FlagValueValuesRetrieve404 = { [key: string]: unknown }
 
 export type ProjectSecretApiKeysListParams = {
     /**

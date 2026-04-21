@@ -212,24 +212,24 @@ export const elementsCreate = async (
     })
 }
 
-export const getElementsRetrieveUrl = (projectId: string, id: number) => {
+export const getElementsRetrieveUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/elements/${id}/`
 }
 
-export const elementsRetrieve = async (projectId: string, id: number, options?: RequestInit): Promise<ElementApi> => {
+export const elementsRetrieve = async (projectId: string, id: string, options?: RequestInit): Promise<ElementApi> => {
     return apiMutator<ElementApi>(getElementsRetrieveUrl(projectId, id), {
         ...options,
         method: 'GET',
     })
 }
 
-export const getElementsUpdateUrl = (projectId: string, id: number) => {
+export const getElementsUpdateUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/elements/${id}/`
 }
 
 export const elementsUpdate = async (
     projectId: string,
-    id: number,
+    id: string,
     elementApi: ElementApi,
     options?: RequestInit
 ): Promise<ElementApi> => {
@@ -241,13 +241,13 @@ export const elementsUpdate = async (
     })
 }
 
-export const getElementsPartialUpdateUrl = (projectId: string, id: number) => {
+export const getElementsPartialUpdateUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/elements/${id}/`
 }
 
 export const elementsPartialUpdate = async (
     projectId: string,
-    id: number,
+    id: string,
     patchedElementApi: PatchedElementApi,
     options?: RequestInit
 ): Promise<ElementApi> => {
@@ -259,11 +259,11 @@ export const elementsPartialUpdate = async (
     })
 }
 
-export const getElementsDestroyUrl = (projectId: string, id: number) => {
+export const getElementsDestroyUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/elements/${id}/`
 }
 
-export const elementsDestroy = async (projectId: string, id: number, options?: RequestInit): Promise<void> => {
+export const elementsDestroy = async (projectId: string, id: string, options?: RequestInit): Promise<void> => {
     return apiMutator<void>(getElementsDestroyUrl(projectId, id), {
         ...options,
         method: 'DELETE',
@@ -530,7 +530,7 @@ cached response, ensuring the request is authorized.
  */
 export const getInsightsActivityRetrieveUrl = (
     projectId: string,
-    id: number,
+    id: string,
     params?: InsightsActivityRetrieveParams
 ) => {
     const normalizedParams = new URLSearchParams()
@@ -550,7 +550,7 @@ export const getInsightsActivityRetrieveUrl = (
 
 export const insightsActivityRetrieve = async (
     projectId: string,
-    id: number,
+    id: string,
     params?: InsightsActivityRetrieveParams,
     options?: RequestInit
 ): Promise<void> => {
@@ -570,7 +570,7 @@ cached response, ensuring the request is authorized.
  */
 export const getInsightsAnalyzeRetrieveUrl = (
     projectId: string,
-    id: number,
+    id: string,
     params?: InsightsAnalyzeRetrieveParams
 ) => {
     const normalizedParams = new URLSearchParams()
@@ -590,7 +590,7 @@ export const getInsightsAnalyzeRetrieveUrl = (
 
 export const insightsAnalyzeRetrieve = async (
     projectId: string,
-    id: number,
+    id: string,
     params?: InsightsAnalyzeRetrieveParams,
     options?: RequestInit
 ): Promise<void> => {
@@ -610,7 +610,7 @@ cached response, ensuring the request is authorized.
  */
 export const getInsightsSuggestionsRetrieveUrl = (
     projectId: string,
-    id: number,
+    id: string,
     params?: InsightsSuggestionsRetrieveParams
 ) => {
     const normalizedParams = new URLSearchParams()
@@ -630,7 +630,7 @@ export const getInsightsSuggestionsRetrieveUrl = (
 
 export const insightsSuggestionsRetrieve = async (
     projectId: string,
-    id: number,
+    id: string,
     params?: InsightsSuggestionsRetrieveParams,
     options?: RequestInit
 ): Promise<void> => {
@@ -650,7 +650,7 @@ cached response, ensuring the request is authorized.
  */
 export const getInsightsSuggestionsCreateUrl = (
     projectId: string,
-    id: number,
+    id: string,
     params?: InsightsSuggestionsCreateParams
 ) => {
     const normalizedParams = new URLSearchParams()
@@ -670,7 +670,7 @@ export const getInsightsSuggestionsCreateUrl = (
 
 export const insightsSuggestionsCreate = async (
     projectId: string,
-    id: number,
+    id: string,
     insightApi: NonReadonly<InsightApi>,
     params?: InsightsSuggestionsCreateParams,
     options?: RequestInit

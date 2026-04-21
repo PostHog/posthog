@@ -141,7 +141,7 @@ export const CohortsCreateBody = /* @__PURE__ */ zod.object({
 })
 
 export const CohortsRetrieveParams = /* @__PURE__ */ zod.object({
-    id: zod.number().describe('A unique integer value identifying this cohort.'),
+    id: zod.string(),
     project_id: zod
         .string()
         .describe(
@@ -150,7 +150,7 @@ export const CohortsRetrieveParams = /* @__PURE__ */ zod.object({
 })
 
 export const CohortsPartialUpdateParams = /* @__PURE__ */ zod.object({
-    id: zod.number().describe('A unique integer value identifying this cohort.'),
+    id: zod.string(),
     project_id: zod
         .string()
         .describe(
@@ -273,7 +273,7 @@ export const CohortsPartialUpdateBody = /* @__PURE__ */ zod.object({
 })
 
 export const CohortsAddPersonsToStaticCohortPartialUpdateParams = /* @__PURE__ */ zod.object({
-    id: zod.number().describe('A unique integer value identifying this cohort.'),
+    id: zod.string(),
     project_id: zod
         .string()
         .describe(
@@ -286,7 +286,7 @@ export const CohortsAddPersonsToStaticCohortPartialUpdateBody = /* @__PURE__ */ 
 })
 
 export const CohortsRemovePersonFromStaticCohortPartialUpdateParams = /* @__PURE__ */ zod.object({
-    id: zod.number().describe('A unique integer value identifying this cohort.'),
+    id: zod.string(),
     project_id: zod
         .string()
         .describe(

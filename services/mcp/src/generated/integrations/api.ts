@@ -22,7 +22,7 @@ export const IntegrationsListQueryParams = /* @__PURE__ */ zod.object({
 })
 
 export const IntegrationsRetrieveParams = /* @__PURE__ */ zod.object({
-    id: zod.number().describe('A unique integer value identifying this integration.'),
+    id: zod.string(),
     project_id: zod
         .string()
         .describe(
@@ -31,7 +31,7 @@ export const IntegrationsRetrieveParams = /* @__PURE__ */ zod.object({
 })
 
 export const IntegrationsDestroyParams = /* @__PURE__ */ zod.object({
-    id: zod.number().describe('A unique integer value identifying this integration.'),
+    id: zod.string(),
     project_id: zod
         .string()
         .describe(

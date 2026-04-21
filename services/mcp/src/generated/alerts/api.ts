@@ -968,7 +968,7 @@ export const AlertsCreateBody = /* @__PURE__ */ zod.object({
 })
 
 export const AlertsRetrieveParams = /* @__PURE__ */ zod.object({
-    id: zod.string().describe('A UUID string identifying this alert configuration.'),
+    id: zod.string(),
     project_id: zod
         .string()
         .describe(
@@ -1000,7 +1000,7 @@ export const AlertsRetrieveQueryParams = /* @__PURE__ */ zod.object({
 })
 
 export const AlertsPartialUpdateParams = /* @__PURE__ */ zod.object({
-    id: zod.string().describe('A UUID string identifying this alert configuration.'),
+    id: zod.string(),
     project_id: zod
         .string()
         .describe(
@@ -1952,7 +1952,7 @@ export const AlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
 })
 
 export const AlertsDestroyParams = /* @__PURE__ */ zod.object({
-    id: zod.string().describe('A UUID string identifying this alert configuration.'),
+    id: zod.string(),
     project_id: zod
         .string()
         .describe(

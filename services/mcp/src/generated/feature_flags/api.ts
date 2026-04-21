@@ -373,22 +373,8 @@ export const FeatureFlagsCreateBody = /* @__PURE__ */ zod.object({
 
 If you're looking to use feature flags on your application, you can either use our JavaScript Library or our dedicated endpoint to check if feature flags are enabled for a given user.
  */
-export const FeatureFlagsRetrieve2Params = /* @__PURE__ */ zod.object({
-    id: zod.number().describe('A unique integer value identifying this feature flag.'),
-    project_id: zod
-        .string()
-        .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
-        ),
-})
-
-/**
- * Create, read, update and delete feature flags. [See docs](https://posthog.com/docs/feature-flags) for more information on feature flags.
-
-If you're looking to use feature flags on your application, you can either use our JavaScript Library or our dedicated endpoint to check if feature flags are enabled for a given user.
- */
 export const FeatureFlagsPartialUpdateParams = /* @__PURE__ */ zod.object({
-    id: zod.number().describe('A unique integer value identifying this feature flag.'),
+    id: zod.string(),
     project_id: zod
         .string()
         .describe(
@@ -689,7 +675,7 @@ export const FeatureFlagsPartialUpdateBody = /* @__PURE__ */ zod.object({
  * Hard delete of this model is not allowed. Use a patch API call to set "deleted" to true
  */
 export const FeatureFlagsDestroyParams = /* @__PURE__ */ zod.object({
-    id: zod.number().describe('A unique integer value identifying this feature flag.'),
+    id: zod.string(),
     project_id: zod
         .string()
         .describe(
@@ -703,7 +689,7 @@ export const FeatureFlagsDestroyParams = /* @__PURE__ */ zod.object({
 If you're looking to use feature flags on your application, you can either use our JavaScript Library or our dedicated endpoint to check if feature flags are enabled for a given user.
  */
 export const FeatureFlagsActivityRetrieveParams = /* @__PURE__ */ zod.object({
-    id: zod.number().describe('A unique integer value identifying this feature flag.'),
+    id: zod.string(),
     project_id: zod
         .string()
         .describe(
@@ -728,7 +714,7 @@ export const FeatureFlagsActivityRetrieveQueryParams = /* @__PURE__ */ zod.objec
  * Get other active flags that depend on this flag.
  */
 export const FeatureFlagsDependentFlagsListParams = /* @__PURE__ */ zod.object({
-    id: zod.number().describe('A unique integer value identifying this feature flag.'),
+    id: zod.string(),
     project_id: zod
         .string()
         .describe(
@@ -742,7 +728,7 @@ export const FeatureFlagsDependentFlagsListParams = /* @__PURE__ */ zod.object({
 If you're looking to use feature flags on your application, you can either use our JavaScript Library or our dedicated endpoint to check if feature flags are enabled for a given user.
  */
 export const FeatureFlagsStatusRetrieveParams = /* @__PURE__ */ zod.object({
-    id: zod.number().describe('A unique integer value identifying this feature flag.'),
+    id: zod.string(),
     project_id: zod
         .string()
         .describe(
@@ -876,7 +862,7 @@ export const ScheduledChangesCreateBody = /* @__PURE__ */ zod.object({
  * Create, read, update and delete scheduled changes.
  */
 export const ScheduledChangesRetrieveParams = /* @__PURE__ */ zod.object({
-    id: zod.number().describe('A unique integer value identifying this scheduled change.'),
+    id: zod.string(),
     project_id: zod
         .string()
         .describe(
@@ -888,7 +874,7 @@ export const ScheduledChangesRetrieveParams = /* @__PURE__ */ zod.object({
  * Create, read, update and delete scheduled changes.
  */
 export const ScheduledChangesPartialUpdateParams = /* @__PURE__ */ zod.object({
-    id: zod.number().describe('A unique integer value identifying this scheduled change.'),
+    id: zod.string(),
     project_id: zod
         .string()
         .describe(
@@ -950,7 +936,7 @@ export const ScheduledChangesPartialUpdateBody = /* @__PURE__ */ zod.object({
  * Create, read, update and delete scheduled changes.
  */
 export const ScheduledChangesDestroyParams = /* @__PURE__ */ zod.object({
-    id: zod.number().describe('A unique integer value identifying this scheduled change.'),
+    id: zod.string(),
     project_id: zod
         .string()
         .describe(

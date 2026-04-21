@@ -434,7 +434,7 @@ export const ActionsCreateBody = /* @__PURE__ */ zod
     .describe('Serializer mixin that handles tags for objects.')
 
 export const ActionsRetrieveParams = /* @__PURE__ */ zod.object({
-    id: zod.number().describe('A unique integer value identifying this action.'),
+    id: zod.string(),
     project_id: zod
         .string()
         .describe(
@@ -447,7 +447,7 @@ export const ActionsRetrieveQueryParams = /* @__PURE__ */ zod.object({
 })
 
 export const ActionsPartialUpdateParams = /* @__PURE__ */ zod.object({
-    id: zod.number().describe('A unique integer value identifying this action.'),
+    id: zod.string(),
     project_id: zod
         .string()
         .describe(
@@ -864,7 +864,7 @@ export const ActionsPartialUpdateBody = /* @__PURE__ */ zod
  * Hard delete of this model is not allowed. Use a patch API call to set "deleted" to true
  */
 export const ActionsDestroyParams = /* @__PURE__ */ zod.object({
-    id: zod.number().describe('A unique integer value identifying this action.'),
+    id: zod.string(),
     project_id: zod
         .string()
         .describe(

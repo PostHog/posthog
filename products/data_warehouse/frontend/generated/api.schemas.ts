@@ -369,9 +369,10 @@ export interface PaginatedExternalDataSchemaListApi {
  * `Convex` - Convex
  * `ClickHouse` - ClickHouse
  */
-export type SourceTypeF0aEnumApi = (typeof SourceTypeF0aEnumApi)[keyof typeof SourceTypeF0aEnumApi]
+export type ExternalDataSourceTypeEnumApi =
+    (typeof ExternalDataSourceTypeEnumApi)[keyof typeof ExternalDataSourceTypeEnumApi]
 
-export const SourceTypeF0aEnumApi = {
+export const ExternalDataSourceTypeEnumApi = {
     Ashby: 'Ashby',
     Supabase: 'Supabase',
     CustomerIO: 'CustomerIO',
@@ -560,7 +561,7 @@ export interface ExternalDataSourceSerializersApi {
     readonly status: string
     client_secret: string
     account_id: string
-    readonly source_type: SourceTypeF0aEnumApi
+    readonly source_type: ExternalDataSourceTypeEnumApi
     /** @nullable */
     readonly latest_error: string | null
     /**
@@ -614,7 +615,7 @@ export interface PatchedExternalDataSourceSerializersApi {
     readonly status?: string
     client_secret?: string
     account_id?: string
-    readonly source_type?: SourceTypeF0aEnumApi
+    readonly source_type?: ExternalDataSourceTypeEnumApi
     /** @nullable */
     readonly latest_error?: string | null
     /**
@@ -800,7 +801,7 @@ export interface UserBasicApi {
 
 export interface DataWarehouseModelPathApi {
     readonly id: string
-    path: string
+    readonly path: readonly string[]
     team: number
     /** @nullable */
     table?: string | null
@@ -828,9 +829,9 @@ export interface PaginatedDataWarehouseModelPathListApi {
  * `Failed` - Failed
  * `Running` - Running
  */
-export type Status550EnumApi = (typeof Status550EnumApi)[keyof typeof Status550EnumApi]
+export type SavedQueryStatusEnumApi = (typeof SavedQueryStatusEnumApi)[keyof typeof SavedQueryStatusEnumApi]
 
-export const Status550EnumApi = {
+export const SavedQueryStatusEnumApi = {
     Cancelled: 'Cancelled',
     Modified: 'Modified',
     Completed: 'Completed',
@@ -873,7 +874,7 @@ export interface DataWarehouseSavedQueryMinimalApi {
 * `Completed` - Completed
 * `Failed` - Failed
 * `Running` - Running */
-    readonly status: Status550EnumApi | NullEnumApi | null
+    readonly status: SavedQueryStatusEnumApi | NullEnumApi | null
     /** @nullable */
     readonly last_run_at: string | null
     /** @nullable */
@@ -940,7 +941,7 @@ export interface DataWarehouseSavedQueryApi {
 * `Completed` - Completed
 * `Failed` - Failed
 * `Running` - Running */
-    readonly status: Status550EnumApi | NullEnumApi | null
+    readonly status: SavedQueryStatusEnumApi | NullEnumApi | null
     /** @nullable */
     readonly last_run_at: string | null
     /** @nullable */
@@ -1021,7 +1022,7 @@ export interface PatchedDataWarehouseSavedQueryApi {
 * `Completed` - Completed
 * `Failed` - Failed
 * `Running` - Running */
-    readonly status?: Status550EnumApi | NullEnumApi | null
+    readonly status?: SavedQueryStatusEnumApi | NullEnumApi | null
     /** @nullable */
     readonly last_run_at?: string | null
     /** @nullable */
@@ -1131,7 +1132,7 @@ export interface SimpleExternalDataSourceSerializersApi {
     /** @nullable */
     readonly created_by: number | null
     readonly status: string
-    readonly source_type: SourceTypeF0aEnumApi
+    readonly source_type: ExternalDataSourceTypeEnumApi
 }
 
 export type TableApiColumnsItem = { [key: string]: unknown }
@@ -1208,6 +1209,17 @@ export interface ViewLinkValidationApi {
     source_table_name: string
     /** @maxLength 255 */
     source_table_key: string
+}
+
+export type FixHogqlListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
 }
 
 export type WarehouseSavedQueryDraftsListParams = {

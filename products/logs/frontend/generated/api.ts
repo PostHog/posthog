@@ -19,6 +19,9 @@ import type {
     LogsAlertsEventsListParams,
     LogsAlertsListParams,
     LogsAttributesRetrieveParams,
+    LogsExportCreate201,
+    LogsHasLogsRetrieve200,
+    LogsServicesCreate200,
     LogsValuesRetrieveParams,
     LogsViewApi,
     LogsViewsListParams,
@@ -441,8 +444,8 @@ export const getLogsExportCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/logs/export/`
 }
 
-export const logsExportCreate = async (projectId: string, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getLogsExportCreateUrl(projectId), {
+export const logsExportCreate = async (projectId: string, options?: RequestInit): Promise<LogsExportCreate201> => {
+    return apiMutator<LogsExportCreate201>(getLogsExportCreateUrl(projectId), {
         ...options,
         method: 'POST',
     })
@@ -452,8 +455,11 @@ export const getLogsHasLogsRetrieveUrl = (projectId: string) => {
     return `/api/projects/${projectId}/logs/has_logs/`
 }
 
-export const logsHasLogsRetrieve = async (projectId: string, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getLogsHasLogsRetrieveUrl(projectId), {
+export const logsHasLogsRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<LogsHasLogsRetrieve200> => {
+    return apiMutator<LogsHasLogsRetrieve200>(getLogsHasLogsRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
     })
@@ -480,8 +486,8 @@ export const getLogsServicesCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/logs/services/`
 }
 
-export const logsServicesCreate = async (projectId: string, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getLogsServicesCreateUrl(projectId), {
+export const logsServicesCreate = async (projectId: string, options?: RequestInit): Promise<LogsServicesCreate200> => {
+    return apiMutator<LogsServicesCreate200>(getLogsServicesCreateUrl(projectId), {
         ...options,
         method: 'POST',
     })

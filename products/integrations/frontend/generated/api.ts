@@ -11,15 +11,13 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 import type {
     GitHubBranchesResponseApi,
     GitHubReposResponseApi,
-    IntegrationApi,
+    IntegrationConfigApi,
     IntegrationsGithubBranchesRetrieveParams,
     IntegrationsGithubReposRetrieveParams,
-    IntegrationsList2Params,
     IntegrationsListParams,
     OrganizationIntegrationApi,
-    PaginatedIntegrationListApi,
-    PaginatedOrganizationIntegrationListApi,
-    PatchedIntegrationApi,
+    PaginatedIntegrationConfigListApi,
+    PatchedIntegrationConfigApi,
     PatchedOrganizationIntegrationApi,
 } from './api.schemas'
 
@@ -39,93 +37,6 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
           [P in keyof Writable<T>]: T[P] extends object ? NonReadonly<NonNullable<T[P]>> : T[P]
       }
     : DistributeReadOnlyOverUnions<T>
-
-/**
- * ViewSet for organization-level integrations.
-
-Provides access to integrations that are scoped to the entire organization
-(vs. project-level integrations). Examples include Vercel, AWS Marketplace, etc.
-
-Creation is handled by the integration installation flows
-(e.g., Vercel marketplace installation). Users can disconnect integrations
-via the DELETE endpoint.
- */
-export const getIntegrationsListUrl = (organizationId: string, params?: IntegrationsListParams) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/organizations/${organizationId}/integrations/?${stringifiedParams}`
-        : `/api/organizations/${organizationId}/integrations/`
-}
-
-export const integrationsList = async (
-    organizationId: string,
-    params?: IntegrationsListParams,
-    options?: RequestInit
-): Promise<PaginatedOrganizationIntegrationListApi> => {
-    return apiMutator<PaginatedOrganizationIntegrationListApi>(getIntegrationsListUrl(organizationId, params), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-/**
- * ViewSet for organization-level integrations.
-
-Provides access to integrations that are scoped to the entire organization
-(vs. project-level integrations). Examples include Vercel, AWS Marketplace, etc.
-
-Creation is handled by the integration installation flows
-(e.g., Vercel marketplace installation). Users can disconnect integrations
-via the DELETE endpoint.
- */
-export const getIntegrationsRetrieveUrl = (organizationId: string, id: string) => {
-    return `/api/organizations/${organizationId}/integrations/${id}/`
-}
-
-export const integrationsRetrieve = async (
-    organizationId: string,
-    id: string,
-    options?: RequestInit
-): Promise<OrganizationIntegrationApi> => {
-    return apiMutator<OrganizationIntegrationApi>(getIntegrationsRetrieveUrl(organizationId, id), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-/**
- * ViewSet for organization-level integrations.
-
-Provides access to integrations that are scoped to the entire organization
-(vs. project-level integrations). Examples include Vercel, AWS Marketplace, etc.
-
-Creation is handled by the integration installation flows
-(e.g., Vercel marketplace installation). Users can disconnect integrations
-via the DELETE endpoint.
- */
-export const getOrganizationIntegrationsDestroyUrl = (organizationId: string, id: string) => {
-    return `/api/organizations/${organizationId}/integrations/${id}/`
-}
-
-export const organizationIntegrationsDestroy = async (
-    organizationId: string,
-    id: string,
-    options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getOrganizationIntegrationsDestroyUrl(organizationId, id), {
-        ...options,
-        method: 'DELETE',
-    })
-}
 
 /**
  * ViewSet for organization-level integrations.
@@ -158,7 +69,7 @@ export const integrationsEnvironmentMappingPartialUpdate = async (
     )
 }
 
-export const getIntegrationsList2Url = (projectId: string, params?: IntegrationsList2Params) => {
+export const getIntegrationsListUrl = (projectId: string, params?: IntegrationsListParams) => {
     const normalizedParams = new URLSearchParams()
 
     Object.entries(params || {}).forEach(([key, value]) => {
@@ -174,12 +85,12 @@ export const getIntegrationsList2Url = (projectId: string, params?: Integrations
         : `/api/projects/${projectId}/integrations/`
 }
 
-export const integrationsList2 = async (
+export const integrationsList = async (
     projectId: string,
-    params?: IntegrationsList2Params,
+    params?: IntegrationsListParams,
     options?: RequestInit
-): Promise<PaginatedIntegrationListApi> => {
-    return apiMutator<PaginatedIntegrationListApi>(getIntegrationsList2Url(projectId, params), {
+): Promise<PaginatedIntegrationConfigListApi> => {
+    return apiMutator<PaginatedIntegrationConfigListApi>(getIntegrationsListUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
@@ -191,50 +102,50 @@ export const getIntegrationsCreateUrl = (projectId: string) => {
 
 export const integrationsCreate = async (
     projectId: string,
-    integrationApi: NonReadonly<IntegrationApi>,
+    integrationConfigApi: NonReadonly<IntegrationConfigApi>,
     options?: RequestInit
-): Promise<IntegrationApi> => {
-    return apiMutator<IntegrationApi>(getIntegrationsCreateUrl(projectId), {
+): Promise<IntegrationConfigApi> => {
+    return apiMutator<IntegrationConfigApi>(getIntegrationsCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(integrationApi),
+        body: JSON.stringify(integrationConfigApi),
     })
 }
 
-export const getIntegrationsRetrieve2Url = (projectId: string, id: number) => {
+export const getIntegrationsRetrieveUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/integrations/${id}/`
 }
 
-export const integrationsRetrieve2 = async (
+export const integrationsRetrieve = async (
     projectId: string,
-    id: number,
+    id: string,
     options?: RequestInit
-): Promise<IntegrationApi> => {
-    return apiMutator<IntegrationApi>(getIntegrationsRetrieve2Url(projectId, id), {
+): Promise<IntegrationConfigApi> => {
+    return apiMutator<IntegrationConfigApi>(getIntegrationsRetrieveUrl(projectId, id), {
         ...options,
         method: 'GET',
     })
 }
 
-export const getIntegrationsDestroyUrl = (projectId: string, id: number) => {
+export const getIntegrationsDestroyUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/integrations/${id}/`
 }
 
-export const integrationsDestroy = async (projectId: string, id: number, options?: RequestInit): Promise<void> => {
+export const integrationsDestroy = async (projectId: string, id: string, options?: RequestInit): Promise<void> => {
     return apiMutator<void>(getIntegrationsDestroyUrl(projectId, id), {
         ...options,
         method: 'DELETE',
     })
 }
 
-export const getIntegrationsChannelsRetrieveUrl = (projectId: string, id: number) => {
+export const getIntegrationsChannelsRetrieveUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/integrations/${id}/channels/`
 }
 
 export const integrationsChannelsRetrieve = async (
     projectId: string,
-    id: number,
+    id: string,
     options?: RequestInit
 ): Promise<void> => {
     return apiMutator<void>(getIntegrationsChannelsRetrieveUrl(projectId, id), {
@@ -243,13 +154,13 @@ export const integrationsChannelsRetrieve = async (
     })
 }
 
-export const getIntegrationsClickupListsRetrieveUrl = (projectId: string, id: number) => {
+export const getIntegrationsClickupListsRetrieveUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/integrations/${id}/clickup_lists/`
 }
 
 export const integrationsClickupListsRetrieve = async (
     projectId: string,
-    id: number,
+    id: string,
     options?: RequestInit
 ): Promise<void> => {
     return apiMutator<void>(getIntegrationsClickupListsRetrieveUrl(projectId, id), {
@@ -258,13 +169,13 @@ export const integrationsClickupListsRetrieve = async (
     })
 }
 
-export const getIntegrationsClickupSpacesRetrieveUrl = (projectId: string, id: number) => {
+export const getIntegrationsClickupSpacesRetrieveUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/integrations/${id}/clickup_spaces/`
 }
 
 export const integrationsClickupSpacesRetrieve = async (
     projectId: string,
-    id: number,
+    id: string,
     options?: RequestInit
 ): Promise<void> => {
     return apiMutator<void>(getIntegrationsClickupSpacesRetrieveUrl(projectId, id), {
@@ -273,13 +184,13 @@ export const integrationsClickupSpacesRetrieve = async (
     })
 }
 
-export const getIntegrationsClickupWorkspacesRetrieveUrl = (projectId: string, id: number) => {
+export const getIntegrationsClickupWorkspacesRetrieveUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/integrations/${id}/clickup_workspaces/`
 }
 
 export const integrationsClickupWorkspacesRetrieve = async (
     projectId: string,
-    id: number,
+    id: string,
     options?: RequestInit
 ): Promise<void> => {
     return apiMutator<void>(getIntegrationsClickupWorkspacesRetrieveUrl(projectId, id), {
@@ -288,45 +199,45 @@ export const integrationsClickupWorkspacesRetrieve = async (
     })
 }
 
-export const getIntegrationsEmailPartialUpdateUrl = (projectId: string, id: number) => {
+export const getIntegrationsEmailPartialUpdateUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/integrations/${id}/email/`
 }
 
 export const integrationsEmailPartialUpdate = async (
     projectId: string,
-    id: number,
-    patchedIntegrationApi: NonReadonly<PatchedIntegrationApi>,
+    id: string,
+    patchedIntegrationConfigApi: NonReadonly<PatchedIntegrationConfigApi>,
     options?: RequestInit
-): Promise<IntegrationApi> => {
-    return apiMutator<IntegrationApi>(getIntegrationsEmailPartialUpdateUrl(projectId, id), {
+): Promise<IntegrationConfigApi> => {
+    return apiMutator<IntegrationConfigApi>(getIntegrationsEmailPartialUpdateUrl(projectId, id), {
         ...options,
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(patchedIntegrationApi),
+        body: JSON.stringify(patchedIntegrationConfigApi),
     })
 }
 
-export const getIntegrationsEmailVerifyCreateUrl = (projectId: string, id: number) => {
+export const getIntegrationsEmailVerifyCreateUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/integrations/${id}/email/verify/`
 }
 
 export const integrationsEmailVerifyCreate = async (
     projectId: string,
-    id: number,
-    integrationApi: NonReadonly<IntegrationApi>,
+    id: string,
+    integrationConfigApi: NonReadonly<IntegrationConfigApi>,
     options?: RequestInit
 ): Promise<void> => {
     return apiMutator<void>(getIntegrationsEmailVerifyCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(integrationApi),
+        body: JSON.stringify(integrationConfigApi),
     })
 }
 
 export const getIntegrationsGithubBranchesRetrieveUrl = (
     projectId: string,
-    id: number,
+    id: string,
     params: IntegrationsGithubBranchesRetrieveParams
 ) => {
     const normalizedParams = new URLSearchParams()
@@ -346,7 +257,7 @@ export const getIntegrationsGithubBranchesRetrieveUrl = (
 
 export const integrationsGithubBranchesRetrieve = async (
     projectId: string,
-    id: number,
+    id: string,
     params: IntegrationsGithubBranchesRetrieveParams,
     options?: RequestInit
 ): Promise<GitHubBranchesResponseApi> => {
@@ -358,7 +269,7 @@ export const integrationsGithubBranchesRetrieve = async (
 
 export const getIntegrationsGithubReposRetrieveUrl = (
     projectId: string,
-    id: number,
+    id: string,
     params?: IntegrationsGithubReposRetrieveParams
 ) => {
     const normalizedParams = new URLSearchParams()
@@ -378,7 +289,7 @@ export const getIntegrationsGithubReposRetrieveUrl = (
 
 export const integrationsGithubReposRetrieve = async (
     projectId: string,
-    id: number,
+    id: string,
     params?: IntegrationsGithubReposRetrieveParams,
     options?: RequestInit
 ): Promise<GitHubReposResponseApi> => {
@@ -388,13 +299,13 @@ export const integrationsGithubReposRetrieve = async (
     })
 }
 
-export const getIntegrationsGoogleAccessibleAccountsRetrieveUrl = (projectId: string, id: number) => {
+export const getIntegrationsGoogleAccessibleAccountsRetrieveUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/integrations/${id}/google_accessible_accounts/`
 }
 
 export const integrationsGoogleAccessibleAccountsRetrieve = async (
     projectId: string,
-    id: number,
+    id: string,
     options?: RequestInit
 ): Promise<void> => {
     return apiMutator<void>(getIntegrationsGoogleAccessibleAccountsRetrieveUrl(projectId, id), {
@@ -403,13 +314,13 @@ export const integrationsGoogleAccessibleAccountsRetrieve = async (
     })
 }
 
-export const getIntegrationsGoogleConversionActionsRetrieveUrl = (projectId: string, id: number) => {
+export const getIntegrationsGoogleConversionActionsRetrieveUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/integrations/${id}/google_conversion_actions/`
 }
 
 export const integrationsGoogleConversionActionsRetrieve = async (
     projectId: string,
-    id: number,
+    id: string,
     options?: RequestInit
 ): Promise<void> => {
     return apiMutator<void>(getIntegrationsGoogleConversionActionsRetrieveUrl(projectId, id), {
@@ -418,13 +329,13 @@ export const integrationsGoogleConversionActionsRetrieve = async (
     })
 }
 
-export const getIntegrationsJiraProjectsRetrieveUrl = (projectId: string, id: number) => {
+export const getIntegrationsJiraProjectsRetrieveUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/integrations/${id}/jira_projects/`
 }
 
 export const integrationsJiraProjectsRetrieve = async (
     projectId: string,
-    id: number,
+    id: string,
     options?: RequestInit
 ): Promise<void> => {
     return apiMutator<void>(getIntegrationsJiraProjectsRetrieveUrl(projectId, id), {
@@ -433,13 +344,13 @@ export const integrationsJiraProjectsRetrieve = async (
     })
 }
 
-export const getIntegrationsLinearTeamsRetrieveUrl = (projectId: string, id: number) => {
+export const getIntegrationsLinearTeamsRetrieveUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/integrations/${id}/linear_teams/`
 }
 
 export const integrationsLinearTeamsRetrieve = async (
     projectId: string,
-    id: number,
+    id: string,
     options?: RequestInit
 ): Promise<void> => {
     return apiMutator<void>(getIntegrationsLinearTeamsRetrieveUrl(projectId, id), {
@@ -448,13 +359,13 @@ export const integrationsLinearTeamsRetrieve = async (
     })
 }
 
-export const getIntegrationsLinkedinAdsAccountsRetrieveUrl = (projectId: string, id: number) => {
+export const getIntegrationsLinkedinAdsAccountsRetrieveUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/integrations/${id}/linkedin_ads_accounts/`
 }
 
 export const integrationsLinkedinAdsAccountsRetrieve = async (
     projectId: string,
-    id: number,
+    id: string,
     options?: RequestInit
 ): Promise<void> => {
     return apiMutator<void>(getIntegrationsLinkedinAdsAccountsRetrieveUrl(projectId, id), {
@@ -463,13 +374,13 @@ export const integrationsLinkedinAdsAccountsRetrieve = async (
     })
 }
 
-export const getIntegrationsLinkedinAdsConversionRulesRetrieveUrl = (projectId: string, id: number) => {
+export const getIntegrationsLinkedinAdsConversionRulesRetrieveUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/integrations/${id}/linkedin_ads_conversion_rules/`
 }
 
 export const integrationsLinkedinAdsConversionRulesRetrieve = async (
     projectId: string,
-    id: number,
+    id: string,
     options?: RequestInit
 ): Promise<void> => {
     return apiMutator<void>(getIntegrationsLinkedinAdsConversionRulesRetrieveUrl(projectId, id), {
@@ -478,13 +389,13 @@ export const integrationsLinkedinAdsConversionRulesRetrieve = async (
     })
 }
 
-export const getIntegrationsTwilioPhoneNumbersRetrieveUrl = (projectId: string, id: number) => {
+export const getIntegrationsTwilioPhoneNumbersRetrieveUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/integrations/${id}/twilio_phone_numbers/`
 }
 
 export const integrationsTwilioPhoneNumbersRetrieve = async (
     projectId: string,
-    id: number,
+    id: string,
     options?: RequestInit
 ): Promise<void> => {
     return apiMutator<void>(getIntegrationsTwilioPhoneNumbersRetrieveUrl(projectId, id), {
@@ -517,14 +428,14 @@ export const getIntegrationsDomainConnectApplyUrlCreateUrl = (projectId: string)
 
 export const integrationsDomainConnectApplyUrlCreate = async (
     projectId: string,
-    integrationApi: NonReadonly<IntegrationApi>,
+    integrationConfigApi: NonReadonly<IntegrationConfigApi>,
     options?: RequestInit
 ): Promise<void> => {
     return apiMutator<void>(getIntegrationsDomainConnectApplyUrlCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(integrationApi),
+        body: JSON.stringify(integrationConfigApi),
     })
 }
 

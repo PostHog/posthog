@@ -256,7 +256,7 @@ export const HogFunctionsCreateBody = /* @__PURE__ */ zod.object({
 })
 
 export const HogFunctionsRetrieveParams = /* @__PURE__ */ zod.object({
-    id: zod.string().describe('A UUID string identifying this hog function.'),
+    id: zod.string(),
     project_id: zod
         .string()
         .describe(
@@ -265,7 +265,7 @@ export const HogFunctionsRetrieveParams = /* @__PURE__ */ zod.object({
 })
 
 export const HogFunctionsPartialUpdateParams = /* @__PURE__ */ zod.object({
-    id: zod.string().describe('A UUID string identifying this hog function.'),
+    id: zod.string(),
     project_id: zod
         .string()
         .describe(
@@ -496,7 +496,7 @@ export const HogFunctionsPartialUpdateBody = /* @__PURE__ */ zod.object({
  * Hard delete of this model is not allowed. Use a patch API call to set "deleted" to true
  */
 export const HogFunctionsDestroyParams = /* @__PURE__ */ zod.object({
-    id: zod.string().describe('A UUID string identifying this hog function.'),
+    id: zod.string(),
     project_id: zod
         .string()
         .describe(
@@ -505,7 +505,7 @@ export const HogFunctionsDestroyParams = /* @__PURE__ */ zod.object({
 })
 
 export const HogFunctionsInvocationsCreateParams = /* @__PURE__ */ zod.object({
-    id: zod.string().describe('A UUID string identifying this hog function.'),
+    id: zod.string(),
     project_id: zod
         .string()
         .describe(

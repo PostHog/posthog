@@ -1125,7 +1125,7 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
  * Retrieve a single experiment by ID, including its current status, metrics, feature flag, and results metadata.
  */
 export const ExperimentsRetrieveParams = /* @__PURE__ */ zod.object({
-    id: zod.number().describe('A unique integer value identifying this experiment.'),
+    id: zod.string(),
     project_id: zod
         .string()
         .describe(
@@ -1137,7 +1137,7 @@ export const ExperimentsRetrieveParams = /* @__PURE__ */ zod.object({
  * Update an experiment. Use this to modify experiment properties such as name, description, metrics, variants, and configuration. Metrics can be added, changed and removed at any time.
  */
 export const ExperimentsPartialUpdateParams = /* @__PURE__ */ zod.object({
-    id: zod.number().describe('A unique integer value identifying this experiment.'),
+    id: zod.string(),
     project_id: zod
         .string()
         .describe(
@@ -2238,7 +2238,7 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
  * Hard delete of this model is not allowed. Use a patch API call to set "deleted" to true
  */
 export const ExperimentsDestroyParams = /* @__PURE__ */ zod.object({
-    id: zod.number().describe('A unique integer value identifying this experiment.'),
+    id: zod.string(),
     project_id: zod
         .string()
         .describe(
@@ -2254,7 +2254,7 @@ restored at any time by updating archived=false. Returns 400 if the
 experiment is already archived or has not ended yet.
  */
 export const ExperimentsArchiveCreateParams = /* @__PURE__ */ zod.object({
-    id: zod.number().describe('A unique integer value identifying this experiment.'),
+    id: zod.string(),
     project_id: zod
         .string()
         .describe(
@@ -2287,7 +2287,7 @@ Other options:
 Returns 400 if the experiment is not running.
  */
 export const ExperimentsEndCreateParams = /* @__PURE__ */ zod.object({
-    id: zod.number().describe('A unique integer value identifying this experiment.'),
+    id: zod.string(),
     project_id: zod
         .string()
         .describe(
@@ -2321,7 +2321,7 @@ Returns 400 if the experiment has already been launched or if the feature flag
 configuration is invalid (e.g. missing "control" variant or fewer than 2 variants).
  */
 export const ExperimentsLaunchCreateParams = /* @__PURE__ */ zod.object({
-    id: zod.number().describe('A unique integer value identifying this experiment.'),
+    id: zod.string(),
     project_id: zod
         .string()
         .describe(
@@ -2339,7 +2339,7 @@ $feature_flag_called is not fired).
 Returns 400 if the experiment is not running or is already paused.
  */
 export const ExperimentsPauseCreateParams = /* @__PURE__ */ zod.object({
-    id: zod.number().describe('A unique integer value identifying this experiment.'),
+    id: zod.string(),
     project_id: zod
         .string()
         .describe(
@@ -2359,7 +2359,7 @@ results unless the start date is manually adjusted after re-launch.
 Returns 400 if the experiment is already in draft state.
  */
 export const ExperimentsResetCreateParams = /* @__PURE__ */ zod.object({
-    id: zod.number().describe('A unique integer value identifying this experiment.'),
+    id: zod.string(),
     project_id: zod
         .string()
         .describe(
@@ -2376,7 +2376,7 @@ before the pause, and exposure tracking resumes.
 Returns 400 if the experiment is not running or is not paused.
  */
 export const ExperimentsResumeCreateParams = /* @__PURE__ */ zod.object({
-    id: zod.number().describe('A unique integer value identifying this experiment.'),
+    id: zod.string(),
     project_id: zod
         .string()
         .describe(
@@ -2404,7 +2404,7 @@ Returns 400 if the experiment is in draft state, the variant_key is not found
 on the flag, or the experiment has no linked feature flag.
  */
 export const ExperimentsShipVariantCreateParams = /* @__PURE__ */ zod.object({
-    id: zod.number().describe('A unique integer value identifying this experiment.'),
+    id: zod.string(),
     project_id: zod
         .string()
         .describe(

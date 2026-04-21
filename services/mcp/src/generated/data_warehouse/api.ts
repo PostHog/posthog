@@ -66,7 +66,7 @@ export const WarehouseSavedQueriesCreateBody = /* @__PURE__ */ zod
  * Create, Read, Update and Delete Warehouse Tables.
  */
 export const WarehouseSavedQueriesRetrieveParams = /* @__PURE__ */ zod.object({
-    id: zod.string().describe('A UUID string identifying this data warehouse saved query.'),
+    id: zod.string(),
     project_id: zod
         .string()
         .describe(
@@ -78,7 +78,7 @@ export const WarehouseSavedQueriesRetrieveParams = /* @__PURE__ */ zod.object({
  * Create, Read, Update and Delete Warehouse Tables.
  */
 export const WarehouseSavedQueriesPartialUpdateParams = /* @__PURE__ */ zod.object({
-    id: zod.string().describe('A UUID string identifying this data warehouse saved query.'),
+    id: zod.string(),
     project_id: zod
         .string()
         .describe(
@@ -122,7 +122,7 @@ export const WarehouseSavedQueriesPartialUpdateBody = /* @__PURE__ */ zod
  * Create, Read, Update and Delete Warehouse Tables.
  */
 export const WarehouseSavedQueriesDestroyParams = /* @__PURE__ */ zod.object({
-    id: zod.string().describe('A UUID string identifying this data warehouse saved query.'),
+    id: zod.string(),
     project_id: zod
         .string()
         .describe(
@@ -134,7 +134,7 @@ export const WarehouseSavedQueriesDestroyParams = /* @__PURE__ */ zod.object({
  * Enable materialization for this saved query with a 24-hour sync frequency.
  */
 export const WarehouseSavedQueriesMaterializeCreateParams = /* @__PURE__ */ zod.object({
-    id: zod.string().describe('A UUID string identifying this data warehouse saved query.'),
+    id: zod.string(),
     project_id: zod
         .string()
         .describe(
@@ -183,7 +183,7 @@ export const WarehouseSavedQueriesMaterializeCreateBody = /* @__PURE__ */ zod
 (i.e. delete the materialized table and the schedule)
  */
 export const WarehouseSavedQueriesRevertMaterializationCreateParams = /* @__PURE__ */ zod.object({
-    id: zod.string().describe('A UUID string identifying this data warehouse saved query.'),
+    id: zod.string(),
     project_id: zod
         .string()
         .describe(
@@ -231,7 +231,7 @@ export const WarehouseSavedQueriesRevertMaterializationCreateBody = /* @__PURE__
  * Run this saved query.
  */
 export const WarehouseSavedQueriesRunCreateParams = /* @__PURE__ */ zod.object({
-    id: zod.string().describe('A UUID string identifying this data warehouse saved query.'),
+    id: zod.string(),
     project_id: zod
         .string()
         .describe(
@@ -279,7 +279,7 @@ export const WarehouseSavedQueriesRunCreateBody = /* @__PURE__ */ zod
  * Return the recent run history (up to 5 most recent) for this materialized view.
  */
 export const WarehouseSavedQueriesRunHistoryRetrieveParams = /* @__PURE__ */ zod.object({
-    id: zod.string().describe('A UUID string identifying this data warehouse saved query.'),
+    id: zod.string(),
     project_id: zod
         .string()
         .describe(

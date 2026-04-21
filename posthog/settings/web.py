@@ -371,7 +371,7 @@ SPECTACULAR_SETTINGS = {
     "PREPROCESSING_HOOKS": ["posthog.api.documentation.preprocess_exclude_path_format"],
     "POSTPROCESSING_HOOKS": [
         "drf_spectacular.hooks.postprocess_schema_enums",
-        "posthog.api.documentation.clear_enum_discovery_warnings",
+        "posthog.api.documentation.clear_schema_discovery_warnings",
         "posthog.api.documentation.custom_postprocessing_hook",
     ],
     "ENUM_NAME_OVERRIDES": {

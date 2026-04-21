@@ -281,7 +281,7 @@ const surveysGlobalStats = (): ToolBase<typeof SurveysGlobalStatsSchema, Schemas
             const projectId = await context.stateManager.getProjectId()
             const result = await context.api.request<Schemas.SurveyStatsResponse>({
                 method: 'GET',
-                path: `/api/projects/${encodeURIComponent(String(projectId))}/surveys/${params.id}/stats/`,
+                path: `/api/projects/${encodeURIComponent(String(projectId))}/surveys/${encodeURIComponent(String(params.id))}/stats/`,
                 query: {
                     date_from: params.date_from,
                     date_to: params.date_to,

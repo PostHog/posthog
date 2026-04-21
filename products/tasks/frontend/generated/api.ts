@@ -225,7 +225,11 @@ export const getTasksCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/tasks/`
 }
 
-export const tasksCreate = async (projectId: string, taskApi: TaskApi, options?: RequestInit): Promise<TaskApi> => {
+export const tasksCreate = async (
+    projectId: string,
+    taskApi: NonReadonly<TaskApi>,
+    options?: RequestInit
+): Promise<TaskApi> => {
     return apiMutator<TaskApi>(getTasksCreateUrl(projectId), {
         ...options,
         method: 'POST',
@@ -258,7 +262,7 @@ export const getTasksUpdateUrl = (projectId: string, id: string) => {
 export const tasksUpdate = async (
     projectId: string,
     id: string,
-    taskApi: TaskApi,
+    taskApi: NonReadonly<TaskApi>,
     options?: RequestInit
 ): Promise<TaskApi> => {
     return apiMutator<TaskApi>(getTasksUpdateUrl(projectId, id), {

@@ -373,10 +373,10 @@ export interface PatchedOrganizationApi {
  * `8` - administrator
  * `15` - owner
  */
-export type OrganizationMembershipLevelApi =
-    (typeof OrganizationMembershipLevelApi)[keyof typeof OrganizationMembershipLevelApi]
+export type EffectiveMembershipLevelEnumApi =
+    (typeof EffectiveMembershipLevelEnumApi)[keyof typeof EffectiveMembershipLevelEnumApi]
 
-export const OrganizationMembershipLevelApi = {
+export const EffectiveMembershipLevelEnumApi = {
     Number1: 1,
     Number8: 8,
     Number15: 15,
@@ -389,7 +389,7 @@ export interface OrganizationMemberApi {
      * @minimum 0
      * @maximum 32767
      */
-    level?: OrganizationMembershipLevelApi
+    level?: EffectiveMembershipLevelEnumApi
     readonly joined_at: string
     readonly updated_at: string
     readonly is_2fa_enabled: boolean
@@ -413,7 +413,7 @@ export interface PatchedOrganizationMemberApi {
      * @minimum 0
      * @maximum 32767
      */
-    level?: OrganizationMembershipLevelApi
+    level?: EffectiveMembershipLevelEnumApi
     readonly joined_at?: string
     readonly updated_at?: string
     readonly is_2fa_enabled?: boolean
