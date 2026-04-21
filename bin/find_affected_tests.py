@@ -94,7 +94,6 @@ GATE_ONLY_PATTERNS = (
     "bin/find_python_dependencies.py",
     "bin/granian_metrics.py",
     "bin/unit_metrics.py",
-    "bin/ty.py",
 )
 
 # Max changed files before we give up and run everything
