@@ -1129,7 +1129,7 @@ class GoogleAdsIntegration:
             },
         )
 
-        if response.status_code in (401, 403):
+        if response.status_code == 401:
             logger.warning(
                 "GoogleAdsIntegration: Auth error listing conversion actions",
                 status_code=response.status_code,
@@ -1140,6 +1140,12 @@ class GoogleAdsIntegration:
             raise ValidationError(
                 "This integration's authentication is no longer valid. "
                 "Please reconnect or disconnect this integration and connect a different account."
+            )
+
+        if response.status_code == 403:
+            raise ValidationError(
+                "This integration does not have permission to access this resource. "
+                "Please check the account permissions on the provider side."
             )
 
         if response.status_code != 200:
@@ -1163,7 +1169,7 @@ class GoogleAdsIntegration:
             },
         )
 
-        if response.status_code in (401, 403):
+        if response.status_code == 401:
             logger.warning(
                 "GoogleAdsIntegration: Auth error listing accessible accounts",
                 status_code=response.status_code,
@@ -1174,6 +1180,12 @@ class GoogleAdsIntegration:
             raise ValidationError(
                 "This integration's authentication is no longer valid. "
                 "Please reconnect or disconnect this integration and connect a different account."
+            )
+
+        if response.status_code == 403:
+            raise ValidationError(
+                "This integration does not have permission to access this resource. "
+                "Please check the account permissions on the provider side."
             )
 
         if response.status_code != 200:
@@ -1551,7 +1563,7 @@ class LinkedInAdsIntegration:
         return WebClient(self.integration.sensitive_config["access_token"])
 
     def _check_auth_error(self, response: requests.Response, context: str) -> None:
-        if response.status_code in (401, 403):
+        if response.status_code == 401:
             logger.warning(
                 f"LinkedInAdsIntegration: Auth error {context}",
                 status_code=response.status_code,
@@ -1562,6 +1574,11 @@ class LinkedInAdsIntegration:
             raise ValidationError(
                 "This integration's authentication is no longer valid. "
                 "Please reconnect or disconnect this integration and connect a different account."
+            )
+        if response.status_code == 403:
+            raise ValidationError(
+                "This integration does not have permission to access this resource. "
+                "Please check the account permissions on the provider side."
             )
 
     def list_linkedin_ads_conversion_rules(self, account_id):
@@ -1603,7 +1620,7 @@ class ClickUpIntegration:
         self.integration = integration
 
     def _check_auth_error(self, response: requests.Response, context: str) -> None:
-        if response.status_code in (401, 403):
+        if response.status_code == 401:
             logger.warning(
                 f"ClickUpIntegration: Auth error {context}",
                 status_code=response.status_code,
@@ -1614,6 +1631,11 @@ class ClickUpIntegration:
             raise ValidationError(
                 "This integration's authentication is no longer valid. "
                 "Please reconnect or disconnect this integration and connect a different account."
+            )
+        if response.status_code == 403:
+            raise ValidationError(
+                "This integration does not have permission to access this resource. "
+                "Please check the account permissions on the provider side."
             )
 
     def list_clickup_spaces(self, workspace_id):
