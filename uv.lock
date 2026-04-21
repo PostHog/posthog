@@ -11,7 +11,7 @@ resolution-markers = [
 ]
 
 [options]
-exclude-newer = "2026-04-14T00:33:21.69895691Z"
+exclude-newer = "2026-04-14T00:57:52.033117313Z"
 exclude-newer-span = "P7D"
 
 [options.exclude-newer-package]
@@ -3581,15 +3581,15 @@ wheels = [
 
 [[package]]
 name = "langgraph-prebuilt"
-version = "1.0.1"
+version = "0.2.3"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "langchain-core" },
     { name = "langgraph-checkpoint" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/b2/b6/2bcb992acf67713a3557e51c1955854672ec6c1abe6ba51173a87eb8d825/langgraph_prebuilt-1.0.1.tar.gz", hash = "sha256:ecbfb9024d9d7ed9652dde24eef894650aaab96bf79228e862c503e2a060b469", size = 119918, upload-time = "2025-10-20T18:49:55.991Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/cc/45/0dfa4fb6e757773d3010e47994f9749cecedc38489f4ce56b862d7f603de/langgraph_prebuilt-0.2.3.tar.gz", hash = "sha256:4e5f81c062ae30c42384ece8d7a6e234216cf079320fd643a2cecb4cb80c33da", size = 118108, upload-time = "2025-06-26T01:40:30.581Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/68/47/9ffd10882403020ea866e381de7f8e504a78f606a914af7f8244456c7783/langgraph_prebuilt-1.0.1-py3-none-any.whl", hash = "sha256:8c02e023538f7ef6ad5ed76219ba1ab4f6de0e31b749e4d278f57a8a95eec9f7", size = 28458, upload-time = "2025-10-20T18:49:54.723Z" },
+    { url = "https://files.pythonhosted.org/packages/49/75/fb26334afc7471b3c8928adb0eee1c48957710472fc83c5463e4fed4e49a/langgraph_prebuilt-0.2.3-py3-none-any.whl", hash = "sha256:efa0bdfaf6e0b5b20e4fa55193ba7871c4aae70026be1c51d3960cb1742404c9", size = 23785, upload-time = "2025-06-26T01:40:29.793Z" },
 ]
 
 [[package]]
@@ -5148,6 +5148,7 @@ dependencies = [
     { name = "langchain-core" },
     { name = "langchain-openai" },
     { name = "langgraph" },
+    { name = "langgraph-prebuilt" },
     { name = "linkedin-api-client" },
     { name = "lxml" },
     { name = "lzstring" },
@@ -5206,6 +5207,7 @@ dependencies = [
     { name = "scikit-learn" },
     { name = "selenium" },
     { name = "semantic-version" },
+    { name = "setuptools" },
     { name = "simple-salesforce" },
     { name = "slack-sdk" },
     { name = "snowflake-connector-python" },
@@ -5407,6 +5409,7 @@ requires-dist = [
     { name = "langchain-core", specifier = "~=0.3.81" },
     { name = "langchain-openai", specifier = "~=0.3.35" },
     { name = "langgraph", specifier = "==0.4.10" },
+    { name = "langgraph-prebuilt", specifier = "<0.3" },
     { name = "linkedin-api-client", specifier = "~=0.3.0" },
     { name = "lxml", specifier = "==6.0.2" },
     { name = "lzstring", specifier = "==1.0.4" },
@@ -5465,6 +5468,7 @@ requires-dist = [
     { name = "scikit-learn", specifier = "~=1.5.0" },
     { name = "selenium", specifier = "==4.28.1" },
     { name = "semantic-version", specifier = "==2.8.5" },
+    { name = "setuptools", specifier = "<80" },
     { name = "simple-salesforce", specifier = "~=1.12.9" },
     { name = "slack-sdk", specifier = "==3.39.0" },
     { name = "snowflake-connector-python", specifier = "==4.3.0" },
@@ -6889,11 +6893,11 @@ wheels = [
 
 [[package]]
 name = "setuptools"
-version = "82.0.1"
+version = "79.0.1"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/4f/db/cfac1baf10650ab4d1c111714410d2fbb77ac5a616db26775db562c8fab2/setuptools-82.0.1.tar.gz", hash = "sha256:7d872682c5d01cfde07da7bccc7b65469d3dca203318515ada1de5eda35efbf9", size = 1152316, upload-time = "2026-03-09T12:47:17.221Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/bb/71/b6365e6325b3290e14957b2c3a804a529968c77a049b2ed40c095f749707/setuptools-79.0.1.tar.gz", hash = "sha256:128ce7b8f33c3079fd1b067ecbb4051a66e8526e7b65f6cec075dfc650ddfa88", size = 1367909, upload-time = "2025-04-23T22:20:59.241Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/9d/76/f789f7a86709c6b087c5a2f52f911838cad707cc613162401badc665acfe/setuptools-82.0.1-py3-none-any.whl", hash = "sha256:a59e362652f08dcd477c78bb6e7bd9d80a7995bc73ce773050228a348ce2e5bb", size = 1006223, upload-time = "2026-03-09T12:47:15.026Z" },
+    { url = "https://files.pythonhosted.org/packages/0d/6d/b4752b044bf94cb802d88a888dc7d288baaf77d7910b7dedda74b5ceea0c/setuptools-79.0.1-py3-none-any.whl", hash = "sha256:e147c0549f27767ba362f9da434eab9c5dc0045d5304feb602a0af001089fc51", size = 1256281, upload-time = "2025-04-23T22:20:56.768Z" },
 ]
 
 [[package]]
