@@ -104,12 +104,16 @@ export const toolsetsHandler = async (context: Context, params: Params): Promise
         }
         const features = expandToolsetToFeatures(name)
         const toolNames = toolsForFeatures(features).map((t) => t.name)
+        const reconnectQuery = `?progressive=true&toolsets=${enabled.join(',')}`
         return {
             enabled: name,
             enabledNow: enabled,
             expandedFeatures: features,
             newlyAvailableTools: toolNames,
-            note: `Tools in this toolset are now callable. If your MCP client supports tools/list_changed, they will appear automatically. If not, ask the user to reconnect with ?progressive=true&toolsets=${enabled.join(',')}`,
+            // Keep this terse and action-first. Empirically, wordy notes get Sonnet-class
+            // models to retry-and-thrash before surfacing the reconnect. Leading with the
+            // concrete instruction reduces wasted turns.
+            nextStep: `If calling a newly-available tool returns "No such tool available", ask the user to reconnect the MCP with: ${reconnectQuery}`,
         }
     }
 

@@ -255,12 +255,14 @@ describe('Client capability detection', () => {
     it.each([
         [undefined, true],
         ['', true],
-        ['claude-code', true],
         ['claude-ai', true],
         ['Cursor', false],
         ['cursor-vscode', false],
         ['Windsurf', false],
         ['codeium', false],
+        // Claude Code defers non-bootstrap tools at init and doesn't re-scan on list_changed,
+        // so the reconnect path is needed. Verified empirically 2026-04.
+        ['claude-code', false],
     ])('clientSupportsListChanged(%s) === %s', (clientName, expected) => {
         expect(clientSupportsListChanged(clientName as string | undefined)).toBe(expected)
     })
