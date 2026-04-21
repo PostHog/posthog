@@ -160,9 +160,6 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             asyncio.create_task(self._wait_for_inactivity(inactivity_timeout)),
         ]
         if ci_follow_up_scheduled:
-            workflow.logger.info(
-                "Waiting for CI follow-up event", run_id=self.context.run_id, repetitions=self._ci_repetitions
-            )
             possible_events.append(asyncio.create_task(self._wait_for_ci_follow_up()))
         done, pending = await workflow.wait(possible_events, return_when=asyncio.FIRST_COMPLETED)
         for task in pending:
