@@ -324,11 +324,15 @@ class TestIsBadPlanTimeout:
     def test_matches_error_2013(self):
         assert _is_bad_plan_timeout(pymysql.err.OperationalError(2013, "Lost connection to MySQL server during query"))
 
-    def test_does_not_match_other_error_codes(self):
-        # 2003 = Can't connect to MySQL server on ...
-        assert not _is_bad_plan_timeout(pymysql.err.OperationalError(2003, "Can't connect to MySQL server"))
-        # 1045 = Access denied
-        assert not _is_bad_plan_timeout(pymysql.err.OperationalError(1045, "Access denied for user"))
+    @pytest.mark.parametrize(
+        "code,message",
+        [
+            (2003, "Can't connect to MySQL server"),
+            (1045, "Access denied for user"),
+        ],
+    )
+    def test_does_not_match_other_error_codes(self, code, message):
+        assert not _is_bad_plan_timeout(pymysql.err.OperationalError(code, message))
 
     def test_does_not_match_error_without_args(self):
         assert not _is_bad_plan_timeout(pymysql.err.OperationalError())
