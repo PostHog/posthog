@@ -605,7 +605,7 @@ class TestOAuthAccessTokenAPIScopePermission(BaseTest):
         self.access_token.save()
         response = self._do_request(f"/api/projects/{self.team.id}/search")
         self.assertEqual(response.status_code, 403)
-        self.assertEqual(response.json()["detail"], "This action does not support Personal API Key access")
+        self.assertEqual(response.json()["detail"], "This action does not support personal API key access")
 
     def test_allows_derived_scope_for_read(self):
         """OAuth token with feature_flag:read can read feature flags"""
