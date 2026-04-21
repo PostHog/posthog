@@ -1092,7 +1092,7 @@ export interface ChartSettingsDisplay {
     label?: string
     trendLine?: boolean
     yAxisPosition?: 'left' | 'right'
-    displayType?: 'auto' | 'line' | 'bar'
+    displayType?: 'auto' | 'line' | 'bar' | 'area'
 }
 
 export interface HeatmapGradientStop {
