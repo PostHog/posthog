@@ -1,9 +1,14 @@
 import json
 
 import pytest
+import requests
 from unittest import mock
 
-from posthog.temporal.data_imports.sources.linkedin_ads.client import LinkedinAdsClient, LinkedinAdsPivot
+from posthog.temporal.data_imports.sources.linkedin_ads.client import (
+    LinkedinAdsClient,
+    LinkedinAdsPivot,
+    LinkedinAdsRetryableError,
+)
 
 
 class TestLinkedinAdsClient:
@@ -110,3 +115,95 @@ class TestLinkedinAdsClient:
 
         expected = {"start": {"year": 2024, "month": 1, "day": 15}, "end": {"year": 2024, "month": 2, "day": 20}}
         assert result == expected
+
+    # Retry behavior: tenacity's exponential backoff sleeps are patched out to keep tests instant.
+
+    @mock.patch("tenacity.nap.time.sleep", return_value=None)
+    @mock.patch("posthog.temporal.data_imports.sources.linkedin_ads.client.RestliClient")
+    def test_retries_on_ssl_error_then_succeeds(self, mock_restli_client, _mock_sleep):
+        mock_success = mock.MagicMock()
+        mock_success.status_code = 200
+        mock_success.elements = [{"id": "123"}]
+
+        ssl_error = requests.exceptions.SSLError("UNEXPECTED_EOF_WHILE_READING")
+        mock_client_instance = mock_restli_client.return_value
+        mock_client_instance.finder.side_effect = [ssl_error, ssl_error, mock_success]
+
+        client = LinkedinAdsClient(self.access_token)
+        result = client.get_accounts()
+
+        assert result == [{"id": "123"}]
+        assert mock_client_instance.finder.call_count == 3
+
+    @mock.patch("tenacity.nap.time.sleep", return_value=None)
+    @mock.patch("posthog.temporal.data_imports.sources.linkedin_ads.client.RestliClient")
+    def test_retries_on_5xx_then_succeeds(self, mock_restli_client, _mock_sleep):
+        mock_504 = mock.MagicMock()
+        mock_504.status_code = 504
+        mock_504.response.text = "Gateway Timeout"
+
+        mock_success = mock.MagicMock()
+        mock_success.status_code = 200
+        mock_success.elements = [{"id": "456"}]
+
+        mock_client_instance = mock_restli_client.return_value
+        mock_client_instance.finder.side_effect = [mock_504, mock_success]
+
+        client = LinkedinAdsClient(self.access_token)
+        result = client.get_accounts()
+
+        assert result == [{"id": "456"}]
+        assert mock_client_instance.finder.call_count == 2
+
+    @mock.patch("tenacity.nap.time.sleep", return_value=None)
+    @mock.patch("posthog.temporal.data_imports.sources.linkedin_ads.client.RestliClient")
+    def test_retries_exhausted_reraises_last_error(self, mock_restli_client, _mock_sleep):
+        mock_client_instance = mock_restli_client.return_value
+        mock_client_instance.finder.side_effect = requests.exceptions.ConnectionError("boom")
+
+        client = LinkedinAdsClient(self.access_token)
+
+        with pytest.raises(requests.exceptions.ConnectionError, match="boom"):
+            client.get_accounts()
+
+        assert mock_client_instance.finder.call_count == 5
+
+    @mock.patch("tenacity.nap.time.sleep", return_value=None)
+    @mock.patch("posthog.temporal.data_imports.sources.linkedin_ads.client.RestliClient")
+    def test_no_retry_on_4xx(self, mock_restli_client, _mock_sleep):
+        mock_response = mock.MagicMock()
+        mock_response.status_code = 401
+        mock_response.response.text = "Unauthorized"
+
+        mock_client_instance = mock_restli_client.return_value
+        mock_client_instance.finder.return_value = mock_response
+
+        client = LinkedinAdsClient(self.access_token)
+
+        with pytest.raises(Exception, match="LinkedIn API error \\(401\\): Unauthorized"):
+            client.get_accounts()
+
+        assert mock_client_instance.finder.call_count == 1
+
+    @mock.patch("tenacity.nap.time.sleep", return_value=None)
+    @mock.patch("posthog.temporal.data_imports.sources.linkedin_ads.client.RestliClient")
+    def test_429_is_retried(self, mock_restli_client, _mock_sleep):
+        mock_429 = mock.MagicMock()
+        mock_429.status_code = 429
+        mock_429.response.text = "Too Many Requests"
+
+        mock_success = mock.MagicMock()
+        mock_success.status_code = 200
+        mock_success.elements = []
+
+        mock_client_instance = mock_restli_client.return_value
+        mock_client_instance.finder.side_effect = [mock_429, mock_success]
+
+        client = LinkedinAdsClient(self.access_token)
+        result = client.get_accounts()
+
+        assert result == []
+        assert mock_client_instance.finder.call_count == 2
+
+    def test_retryable_error_is_exported(self):
+        assert issubclass(LinkedinAdsRetryableError, Exception)
