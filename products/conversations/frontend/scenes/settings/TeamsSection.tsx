@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonButton, LemonCard, LemonDivider, LemonSelect, LemonTag, Link } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonCard, LemonDivider, LemonSelect, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { OrganizationMembershipLevel } from 'lib/constants'
@@ -40,6 +40,7 @@ function TeamsChannelSection(): JSX.Element {
         teamsChannelId,
         teamsChannels,
         teamsChannelsLoading,
+        teamsInstallStatus,
     } = useValues(supportSettingsLogic)
     const {
         connectTeams,
@@ -48,6 +49,7 @@ function TeamsChannelSection(): JSX.Element {
         setTeamsChannel,
         loadTeamsTeamsWithToken,
         loadTeamsChannelsForTeam,
+        installTeamsApp,
     } = useActions(supportSettingsLogic)
     const adminRestrictionReason = useRestrictedArea({
         scope: RestrictionScope.Organization,
@@ -111,7 +113,54 @@ function TeamsChannelSection(): JSX.Element {
                             </LemonButton>
                         </div>
                     </div>
-                    {teamsTeamId && (
+                    {teamsTeamId && teamsInstallStatus === 'installing' && (
+                        <>
+                            <LemonDivider />
+                            <LemonBanner type="info">Installing SupportHog in your Teams group…</LemonBanner>
+                        </>
+                    )}
+                    {teamsTeamId && teamsInstallStatus === 'needs_org_catalog' && (
+                        <>
+                            <LemonDivider />
+                            <LemonBanner type="warning" className="flex flex-col gap-2">
+                                <div>
+                                    <strong>SupportHog isn't available in your Microsoft tenant's app catalog.</strong>{' '}
+                                    Your organisation's Teams admin needs to upload the SupportHog app package to your{' '}
+                                    <Link to="https://posthog.com/docs/support/teams#org-catalog" target="_blank">
+                                        org catalog
+                                    </Link>{' '}
+                                    (one-time). Once uploaded, click Retry.
+                                </div>
+                                <div>
+                                    <LemonButton
+                                        type="primary"
+                                        size="small"
+                                        onClick={() => installTeamsApp(teamsTeamId)}
+                                    >
+                                        Retry install
+                                    </LemonButton>
+                                </div>
+                            </LemonBanner>
+                        </>
+                    )}
+                    {teamsTeamId && teamsInstallStatus === 'error' && (
+                        <>
+                            <LemonDivider />
+                            <LemonBanner type="error" className="flex flex-col gap-2">
+                                <div>Failed to install SupportHog into the selected Teams group.</div>
+                                <div>
+                                    <LemonButton
+                                        type="primary"
+                                        size="small"
+                                        onClick={() => installTeamsApp(teamsTeamId)}
+                                    >
+                                        Retry
+                                    </LemonButton>
+                                </div>
+                            </LemonBanner>
+                        </>
+                    )}
+                    {teamsTeamId && teamsInstallStatus === 'installed' && (
                         <>
                             <LemonDivider />
                             <div className="gap-4">

@@ -15,7 +15,7 @@ from .restore import WidgetRestoreRedeemView, WidgetRestoreRequestView
 from .slack_channels import SlackChannelsView
 from .slack_events import supporthog_event_handler
 from .slack_oauth import SupportSlackAuthorizeView, SupportSlackDisconnectView, support_slack_oauth_callback
-from .teams_channels import TeamsChannelsView, TeamsTeamsView
+from .teams_channels import TeamsChannelsView, TeamsInstallAppView, TeamsTeamsView
 from .teams_events import teams_event_handler
 from .teams_oauth import TeamsAuthorizeView, TeamsDisconnectView, teams_oauth_callback
 from .widget import WidgetMarkReadView, WidgetMessagesView, WidgetMessageView, WidgetTicketsView
@@ -40,6 +40,7 @@ urlpatterns = [
     re_path(r"^v1/teams/disconnect/?$", TeamsDisconnectView.as_view(), name="supporthog-teams-disconnect"),
     re_path(r"^v1/teams/teams/?$", TeamsTeamsView.as_view(), name="teams-teams"),
     re_path(r"^v1/teams/channels/?$", TeamsChannelsView.as_view(), name="teams-channels"),
+    re_path(r"^v1/teams/install/?$", TeamsInstallAppView.as_view(), name="teams-install"),
     # Email channel
     re_path(r"^v1/email/inbound/?$", email_inbound_handler, name="email-inbound"),
     re_path(r"^v1/email/status/?$", EmailStatusView.as_view(), name="email-status"),

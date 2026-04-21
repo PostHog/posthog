@@ -188,6 +188,16 @@ CONSTANCE_CONFIG = {
         ),
         str,
     ),
+    "SUPPORT_TEAMS_CATALOG_APP_ID": (
+        get_from_env("SUPPORT_TEAMS_CATALOG_APP_ID", default=""),
+        (
+            "Teams catalog app id (GUID) for the published SupportHog manifest. This is the id "
+            "Microsoft assigns when the manifest is listed in the Teams Store (AppSource) or uploaded "
+            "to an org catalog — different from SUPPORT_TEAMS_APP_ID, which is the bot's Azure AD "
+            "client id. Required for programmatic install via Graph /teams/{id}/installedApps."
+        ),
+        str,
+    ),
     "CONVERSATIONS_HMAC_SIGNING_SECRET": (
         get_from_env("CONVERSATIONS_HMAC_SIGNING_SECRET", default=""),
         "HMAC signing secret for conversations widget identity verification in the support sidebar.",
@@ -308,6 +318,7 @@ SETTINGS_ALLOWING_API_OVERRIDE = (
     "SUPPORT_TEAMS_APP_SECRET",
     "SUPPORT_TEAMS_APP_TENANT_ID",
     "SUPPORT_TEAMS_CHANNEL_TENANT_ID",
+    "SUPPORT_TEAMS_CATALOG_APP_ID",
     "CONVERSATIONS_HMAC_SIGNING_SECRET",
     "CONVERSATIONS_EMAIL_INBOUND_DOMAIN",
     "CONVERSATIONS_EMAIL_WEBHOOK_SIGNING_KEY",

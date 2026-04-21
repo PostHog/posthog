@@ -65,6 +65,11 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
         setTeamsChannel: (channelId: string | null, channelName: string | null) => ({ channelId, channelName }),
         loadTeamsTeamsWithToken: true,
         loadTeamsChannelsForTeam: (teamId: string) => ({ teamId }),
+        installTeamsApp: (teamId: string) => ({ teamId }),
+        setTeamsInstallStatus: (
+            status: 'idle' | 'installing' | 'installed' | 'needs_org_catalog' | 'error',
+            teamId: string | null = null
+        ) => ({ status, teamId }),
         // Email channel settings (multi-config)
         loadEmailConfigs: true,
         loadEmailConfigsDone: (configs: EmailConfigStatus[]) => ({ configs }),
@@ -210,6 +215,22 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
             {
                 sendTestEmail: (_, { configId }) => configId,
                 sendTestEmailDone: () => null,
+            },
+        ],
+        teamsInstallStatus: [
+            'idle' as 'idle' | 'installing' | 'installed' | 'needs_org_catalog' | 'error',
+            {
+                installTeamsApp: () => 'installing' as const,
+                setTeamsInstallStatus: (_, { status }) => status,
+                disconnectTeams: () => 'idle' as const,
+            },
+        ],
+        teamsInstallingForTeamId: [
+            null as string | null,
+            {
+                installTeamsApp: (_, { teamId }) => teamId,
+                setTeamsInstallStatus: (_, { teamId }) => teamId,
+                disconnectTeams: () => null,
             },
         ],
         slackTicketEmojiValue: [
@@ -629,7 +650,38 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
                 },
             })
             if (teamId) {
-                actions.loadTeamsChannelsForTeam(teamId)
+                actions.installTeamsApp(teamId)
+            } else {
+                actions.setTeamsInstallStatus('idle')
+            }
+        },
+        installTeamsApp: async ({ teamId }) => {
+            try {
+                const response = await api.create('api/conversations/v1/teams/install', {
+                    team_id: teamId,
+                })
+                if (response?.ok) {
+                    actions.setTeamsInstallStatus('installed', teamId)
+                    actions.loadTeamsChannelsForTeam(teamId)
+                } else {
+                    actions.setTeamsInstallStatus('error', teamId)
+                    lemonToast.error('Failed to install SupportHog in the selected Teams group')
+                }
+            } catch (err: any) {
+                const detail = err?.data?.error ?? err?.detail ?? ''
+                if (detail === 'app_not_found_in_catalog') {
+                    actions.setTeamsInstallStatus('needs_org_catalog', teamId)
+                    return
+                }
+                if (detail === 'catalog_not_configured') {
+                    actions.setTeamsInstallStatus('error', teamId)
+                    lemonToast.error(
+                        'SupportHog Teams app is not configured on this PostHog instance. Contact your administrator.'
+                    )
+                    return
+                }
+                actions.setTeamsInstallStatus('error', teamId)
+                lemonToast.error('Failed to install SupportHog in the selected Teams group')
             }
         },
         setTeamsChannel: ({ channelId, channelName }) => {
@@ -660,6 +712,10 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
             actions.loadTeamsTeamsWithToken()
             const teamsTeamId = values.teamsTeamId
             if (teamsTeamId) {
+                // Already installed on a previous visit — skip the Graph install
+                // call (it's idempotent server-side, but avoids a request per page
+                // load) and jump straight to loading channels.
+                actions.setTeamsInstallStatus('installed', teamsTeamId)
                 actions.loadTeamsChannelsForTeam(teamsTeamId)
             }
         }
