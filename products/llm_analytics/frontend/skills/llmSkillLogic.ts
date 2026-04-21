@@ -193,7 +193,7 @@ export const llmSkillLogic = kea<llmSkillLogicType>([
         compareSkill: [
             null as LLMSkillApi | null,
             {
-                setCompareVersion: (state, { compareVersion }) => (compareVersion === null ? null : state),
+                setCompareVersion: () => null,
                 loadSkillSuccess: () => null,
             },
         ],
