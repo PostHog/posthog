@@ -705,7 +705,7 @@
         }
     },
     "external-data-sources-create": {
-        "description": "Create a new external data source connection. Requires source_type and credentials specific to the source type. Use 'external-data-sources-wizard' to discover available source types and their required fields. Use 'external-data-sources-db-schema' to validate credentials and preview available tables before creating the source.",
+        "description": "Create a new external data source connection. Before calling this, use 'external-data-sources-wizard' to discover source types and 'external-data-sources-db-schema' to validate credentials and discover available tables. Present the db-schema results to the user showing each table's available sync methods, incremental fields, detected primary keys, and columns so they can configure before creation. The payload must include a 'schemas' array where each entry has: name, should_sync (bool), sync_type (incremental/full_refresh/append), and optionally incremental_field, incremental_field_type, and primary_key_columns from the db-schema response.",
         "category": "Data warehouse",
         "feature": "data_warehouse",
         "summary": "Create data warehouse source",
