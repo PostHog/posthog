@@ -27,7 +27,7 @@ from django_otp import login as otp_login
 from django_otp.plugins.otp_static.models import StaticDevice, StaticToken
 from django_otp.plugins.otp_totp.models import TOTPDevice
 from django_otp.util import random_hex
-from drf_spectacular.utils import extend_schema, extend_schema_field
+from drf_spectacular.utils import extend_schema, extend_schema_field, extend_schema_view
 from loginas.utils import is_impersonated_session
 from prometheus_client import Counter
 from rest_framework import exceptions, mixins, serializers, viewsets
@@ -127,10 +127,28 @@ class UserSerializer(serializers.ModelSerializer):
     organizations = OrganizationBasicSerializer(many=True, read_only=True)
     set_current_organization = serializers.CharField(write_only=True, required=False)
     set_current_team = serializers.CharField(write_only=True, required=False)
-    current_password = serializers.CharField(write_only=True, required=False)
-    notification_settings = serializers.DictField(required=False)
+    current_password = serializers.CharField(
+        write_only=True,
+        required=False,
+        help_text=(
+            "The user's current password. Required when changing `password` if the user already has a usable password set."
+        ),
+    )
+    notification_settings = serializers.DictField(
+        required=False,
+        help_text=(
+            "Map of notification preferences. Keys include `plugin_disabled`, `all_weekly_report_disabled`, "
+            "`project_weekly_digest_disabled`, `error_tracking_weekly_digest_project_enabled`, "
+            "`web_analytics_weekly_digest_project_enabled`, `organization_member_join_email_disabled`, "
+            "`data_pipeline_error_threshold` (number between 0.0 and 1.0), and other per-topic switches. "
+            "Values are either booleans, or (for per-project/per-resource keys) a map of IDs to booleans. "
+            "Only the keys you send are updated — other preferences stay as-is."
+        ),
+    )
     scene_personalisation = ScenePersonalisationBasicSerializer(many=True, read_only=True)
-    anonymize_data = ClassicBehaviorBooleanFieldSerializer()
+    anonymize_data = ClassicBehaviorBooleanFieldSerializer(
+        help_text="Whether PostHog should anonymize events captured for this user when identified."
+    )
     role_at_organization = serializers.ChoiceField(choices=ROLE_CHOICES, required=False)
     is_organization_first_user = serializers.SerializerMethodField()
 
@@ -557,6 +575,23 @@ class ScenePersonalisationSerializer(serializers.ModelSerializer):
 
 
 @extend_schema(tags=["core"])
+@extend_schema_view(
+    retrieve=extend_schema(
+        description=(
+            "Retrieve a user's profile and settings. Pass `@me` as the UUID to fetch the authenticated user; "
+            "non-staff callers may only access their own account."
+        ),
+    ),
+    update=extend_schema(
+        description=(
+            "Replace the authenticated user's profile and settings. Pass `@me` as the UUID to update the authenticated "
+            "user. Prefer the PATCH endpoint for partial updates — PUT requires every writable field to be provided."
+        ),
+    ),
+    partial_update=extend_schema(
+        description=("Update one or more of the authenticated user's profile fields or settings."),
+    ),
+)
 class UserViewSet(
     mixins.RetrieveModelMixin,
     mixins.UpdateModelMixin,

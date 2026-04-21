@@ -122,6 +122,7 @@ export const OAUTH_SCOPES_SUPPORTED = [
     'person:read',
     'person:write',
     'project:read',
+    'project:write',
     'property_definition:read',
     'query:read',
     'session_recording:read',
@@ -135,7 +136,9 @@ export const OAUTH_SCOPES_SUPPORTED = [
     'ticket:read',
     'ticket:write',
     'user:read',
+    'user:write',
     'warehouse_table:read',
     'warehouse_view:read',
     'warehouse_view:write',
+    'web_analytics:read',
 ] as const

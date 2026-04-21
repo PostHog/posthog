@@ -275,7 +275,7 @@ importers:
         version: 3.12.1
       jest:
         specifier: 'catalog:'
-        version: 29.7.0(@types/node@22.18.8)(ts-node@10.9.1(@swc/core@1.11.4)(@types/node@22.18.8)(typescript@5.9.3))
+        version: 29.7.0(@types/node@22.18.8)(ts-node@10.9.1(@swc/core@1.15.18)(@types/node@22.18.8)(typescript@5.9.3))
       oxfmt:
         specifier: 'catalog:'
         version: 0.35.0
@@ -464,7 +464,7 @@ importers:
         version: 7.6.4(@babel/core@7.26.0)(@swc/core@1.15.18)(encoding@0.1.13)(esbuild@0.18.20)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(type-fest@4.41.0)(typescript@5.9.3)(webpack-cli@5.1.4)(webpack-hot-middleware@2.25.4)
       '@storybook/test-runner':
         specifier: ^0.16.0
-        version: 0.16.0(@types/node@22.18.8)(encoding@0.1.13)(ts-node@10.9.1(@swc/core@1.15.18)(@types/node@22.18.8)(typescript@5.9.3))
+        version: 0.16.0(@types/node@22.18.8)(encoding@0.1.13)
       '@storybook/theming':
         specifier: ^7.6.4
         version: 7.6.20(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
@@ -1086,8 +1086,8 @@ importers:
         specifier: ^1.7.11
         version: 1.7.11(react@18.3.1)
       react-grid-layout:
-        specifier: ^2.2.2
-        version: 2.2.2(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+        specifier: ^2.2.3
+        version: 2.2.3(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       react-intersection-observer:
         specifier: ^9.5.3
         version: 9.5.3(react@18.3.1)
@@ -1310,7 +1310,7 @@ importers:
         version: 29.7.0
       jest-image-snapshot:
         specifier: ^6.1.0
-        version: 6.4.0(jest@29.7.0(@types/node@22.18.8)(ts-node@10.9.1(@swc/core@1.15.18)(@types/node@22.18.8)(typescript@5.9.3)))
+        version: 6.4.0(jest@29.7.0(@types/node@22.18.8))
       kea-typegen:
         specifier: 3.6.2-leakfix.5
         version: 3.6.2-leakfix.5(typescript@5.9.3)
@@ -1802,7 +1802,7 @@ importers:
         version: 7.6.24(encoding@0.1.13)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(rollup@4.52.4)(typescript@5.9.3)(vite@5.4.21(@types/node@22.18.8)(less@4.2.2)(lightningcss@1.32.0)(sass-embedded@1.70.0)(sass@1.56.0)(terser@5.46.0))
       '@storybook/test-runner':
         specifier: ^0.16.0
-        version: 0.16.0(@types/node@22.18.8)(encoding@0.1.13)(ts-node@10.9.1(@swc/core@1.15.18)(@types/node@22.18.8)(typescript@5.9.3))
+        version: 0.16.0(@types/node@22.18.8)(encoding@0.1.13)
       '@tailwindcss/vite':
         specifier: ^4.1.17
         version: 4.2.2(vite@5.4.21(@types/node@22.18.8)(less@4.2.2)(lightningcss@1.32.0)(sass-embedded@1.70.0)(sass@1.56.0)(terser@5.46.0))
@@ -1817,10 +1817,10 @@ importers:
         version: 18.3.7(@types/react@18.3.27)
       '@vitejs/plugin-react':
         specifier: ^4.3.4
-        version: 4.7.0(vite@5.4.21(@types/node@22.18.8)(less@4.2.2)(lightningcss@1.32.0)(sass-embedded@1.70.0)(terser@5.46.0))
+        version: 4.7.0(vite@5.4.21(@types/node@22.18.8)(less@4.2.2)(lightningcss@1.32.0)(sass-embedded@1.70.0)(sass@1.56.0)(terser@5.46.0))
       jest-image-snapshot:
         specifier: ^6.4.0
-        version: 6.4.0(jest@29.7.0(@types/node@22.18.8)(ts-node@10.9.1(@swc/core@1.15.18)(@types/node@22.18.8)(typescript@5.9.3)))
+        version: 6.4.0(jest@29.7.0(@types/node@22.18.8))
       storybook:
         specifier: ^7.6.4
         version: 7.6.4(encoding@0.1.13)
@@ -3399,7 +3399,7 @@ importers:
         version: 18.3.7(@types/react@18.3.27)
       '@vitejs/plugin-react':
         specifier: ^4.3.4
-        version: 4.7.0(vite@5.4.21(@types/node@22.18.8)(less@4.2.2)(lightningcss@1.32.0)(sass-embedded@1.70.0)(terser@5.46.0))
+        version: 4.7.0(vite@5.4.21(@types/node@22.18.8)(less@4.2.2)(lightningcss@1.32.0)(sass-embedded@1.70.0)(sass@1.56.0)(terser@5.46.0))
       ajv:
         specifier: ^8.17.1
         version: 8.17.1
@@ -20481,8 +20481,8 @@ packages:
   react-error-overlay@6.0.9:
     resolution: {integrity: sha512-nQTTcUu+ATDbrSD1BZHr5kgSD4oF8OFjxun8uAaL8RwPBacGBNPf/yAuVVdx17N8XNzRDMrZ9XcKZHCjPW+9ew==}
 
-  react-grid-layout@2.2.2:
-    resolution: {integrity: sha512-yNo9pxQWoxHWRAwHGSVT4DEGELYPyQ7+q9lFclb5jcqeFzva63/2F72CryS/jiTIr/SBIlTaDdyjqH+ODg8oBw==}
+  react-grid-layout@2.2.3:
+    resolution: {integrity: sha512-OAEJHBxmfuxQfVtZwRzmsokijGlBgzYIJ7MUlLk/VSa43SaGzu15w5D0P2RDrfX5EvP9POMbL6bFrai/huDzbQ==}
     peerDependencies:
       react: 18.3.1
       react-dom: 18.3.1
@@ -20574,10 +20574,11 @@ packages:
       react: 18.3.1
       react-dom: 18.3.1
 
-  react-resizable@3.0.5:
-    resolution: {integrity: sha512-vKpeHhI5OZvYn82kXOs1bC8aOXktGU5AmKAgaZS4F5JPburCtbmDPqE7Pzp+1kN4+Wb81LlF33VpGwWwtXem+w==}
+  react-resizable@3.1.3:
+    resolution: {integrity: sha512-liJBNayhX7qA4tBJiBD321FDhJxgGTJ07uzH5zSORXoE8h7PyEZ8mLqmosST7ppf6C4zUsbd2gzDMmBCfFp9Lw==}
     peerDependencies:
       react: 18.3.1
+      react-dom: 18.3.1
 
   react-shadow@20.4.0:
     resolution: {integrity: sha512-sirvAmFja7Ss6MoyQbKWxaQ5IDTAW3Za3Tvegylfr5jXnwKZObHRIyiatefeNlskoGKfuPaZ8DNT052T0SUGcg==}
@@ -28919,41 +28920,6 @@ snapshots:
       - ts-node
       - utf-8-validate
 
-  '@jest/core@29.7.0(ts-node@10.9.1(@swc/core@1.11.4)(@types/node@22.18.8)(typescript@5.9.3))':
-    dependencies:
-      '@jest/console': 29.7.0
-      '@jest/reporters': 29.7.0
-      '@jest/test-result': 29.7.0
-      '@jest/transform': 29.7.0
-      '@jest/types': 29.6.3
-      '@types/node': 22.18.8
-      ansi-escapes: 4.3.2
-      chalk: 4.1.2
-      ci-info: 3.8.0
-      exit: 0.1.2
-      graceful-fs: 4.2.11
-      jest-changed-files: 29.7.0
-      jest-config: 29.7.0(@types/node@22.18.8)(ts-node@10.9.1(@swc/core@1.11.4)(@types/node@22.18.8)(typescript@5.9.3))
-      jest-haste-map: 29.7.0
-      jest-message-util: 29.7.0
-      jest-regex-util: 29.6.3
-      jest-resolve: 29.7.0
-      jest-resolve-dependencies: 29.7.0
-      jest-runner: 29.7.0
-      jest-runtime: 29.7.0
-      jest-snapshot: 29.7.0
-      jest-util: 29.7.0
-      jest-validate: 29.7.0
-      jest-watcher: 29.7.0
-      micromatch: 4.0.8
-      pretty-format: 29.7.0
-      slash: 3.0.0
-      strip-ansi: 6.0.1
-    transitivePeerDependencies:
-      - babel-plugin-macros
-      - supports-color
-      - ts-node
-
   '@jest/core@29.7.0(ts-node@10.9.1(@swc/core@1.15.18)(@types/node@22.18.8)(typescript@5.9.3))':
     dependencies:
       '@jest/console': 29.7.0
@@ -33734,7 +33700,7 @@ snapshots:
       '@storybook/client-logger': 7.6.4
       '@storybook/core-events': 7.6.4
       '@storybook/global': 5.0.0
-      qs: 6.14.1
+      qs: 6.15.1
       telejson: 7.2.0
       tiny-invariant: 1.3.3
 
@@ -34153,7 +34119,7 @@ snapshots:
       dequal: 2.0.3
       lodash: 4.18.1
       memoizerific: 1.11.3
-      qs: 6.14.1
+      qs: 6.15.1
       synchronous-promise: 2.0.17
       ts-dedent: 2.2.0
       util-deprecate: 1.0.2
@@ -34362,7 +34328,7 @@ snapshots:
       - encoding
       - supports-color
 
-  '@storybook/test-runner@0.16.0(@types/node@22.18.8)(encoding@0.1.13)(ts-node@10.9.1(@swc/core@1.15.18)(@types/node@22.18.8)(typescript@5.9.3))':
+  '@storybook/test-runner@0.16.0(@types/node@22.18.8)(encoding@0.1.13)':
     dependencies:
       '@babel/core': 7.29.0
       '@babel/generator': 7.29.1
@@ -34383,10 +34349,10 @@ snapshots:
       jest-circus: 29.7.0
       jest-environment-node: 29.7.0
       jest-junit: 16.0.0
-      jest-playwright-preset: 4.0.0(jest-circus@29.7.0)(jest-environment-node@29.7.0)(jest-runner@29.7.0)(jest@29.7.0(@types/node@22.18.8)(ts-node@10.9.1(@swc/core@1.15.18)(@types/node@22.18.8)(typescript@5.9.3)))
+      jest-playwright-preset: 4.0.0(jest-circus@29.7.0)(jest-environment-node@29.7.0)(jest-runner@29.7.0)(jest@29.7.0(@types/node@22.18.8))
       jest-runner: 29.7.0
       jest-serializer-html: 7.1.0
-      jest-watch-typeahead: 2.2.2(jest@29.7.0(@types/node@22.18.8)(ts-node@10.9.1(@swc/core@1.15.18)(@types/node@22.18.8)(typescript@5.9.3)))
+      jest-watch-typeahead: 2.2.2(jest@29.7.0(@types/node@22.18.8))
       node-fetch: 2.7.0(encoding@0.1.13)
       playwright: 1.45.0
       read-pkg-up: 7.0.1
@@ -36350,7 +36316,7 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  '@vitejs/plugin-react@4.7.0(vite@5.4.21(@types/node@22.18.8)(less@4.2.2)(lightningcss@1.32.0)(sass-embedded@1.70.0)(terser@5.46.0))':
+  '@vitejs/plugin-react@4.7.0(vite@5.4.21(@types/node@22.18.8)(less@4.2.2)(lightningcss@1.32.0)(sass-embedded@1.70.0)(sass@1.56.0)(terser@5.46.0))':
     dependencies:
       '@babel/core': 7.29.0
       '@babel/plugin-transform-react-jsx-self': 7.27.1(@babel/core@7.29.0)
@@ -38322,21 +38288,6 @@ snapshots:
       ripemd160: 2.0.2
       safe-buffer: 5.2.1
       sha.js: 2.4.12
-
-  create-jest@29.7.0(@types/node@22.18.8)(ts-node@10.9.1(@swc/core@1.11.4)(@types/node@22.18.8)(typescript@5.9.3)):
-    dependencies:
-      '@jest/types': 29.6.3
-      chalk: 4.1.2
-      exit: 0.1.2
-      graceful-fs: 4.2.11
-      jest-config: 29.7.0(@types/node@22.18.8)(ts-node@10.9.1(@swc/core@1.11.4)(@types/node@22.18.8)(typescript@5.9.3))
-      jest-util: 29.7.0
-      prompts: 2.4.2
-    transitivePeerDependencies:
-      - '@types/node'
-      - babel-plugin-macros
-      - supports-color
-      - ts-node
 
   create-jest@29.7.0(@types/node@22.18.8)(ts-node@10.9.1(@swc/core@1.15.18)(@types/node@22.18.8)(typescript@5.9.3)):
     dependencies:
@@ -41738,25 +41689,6 @@ snapshots:
       - ts-node
       - utf-8-validate
 
-  jest-cli@29.7.0(@types/node@22.18.8)(ts-node@10.9.1(@swc/core@1.11.4)(@types/node@22.18.8)(typescript@5.9.3)):
-    dependencies:
-      '@jest/core': 29.7.0(ts-node@10.9.1(@swc/core@1.11.4)(@types/node@22.18.8)(typescript@5.9.3))
-      '@jest/test-result': 29.7.0
-      '@jest/types': 29.6.3
-      chalk: 4.1.2
-      create-jest: 29.7.0(@types/node@22.18.8)(ts-node@10.9.1(@swc/core@1.11.4)(@types/node@22.18.8)(typescript@5.9.3))
-      exit: 0.1.2
-      import-local: 3.2.0
-      jest-config: 29.7.0(@types/node@22.18.8)(ts-node@10.9.1(@swc/core@1.11.4)(@types/node@22.18.8)(typescript@5.9.3))
-      jest-util: 29.7.0
-      jest-validate: 29.7.0
-      yargs: 17.7.2
-    transitivePeerDependencies:
-      - '@types/node'
-      - babel-plugin-macros
-      - supports-color
-      - ts-node
-
   jest-cli@29.7.0(@types/node@22.18.8)(ts-node@10.9.1(@swc/core@1.15.18)(@types/node@22.18.8)(typescript@5.9.3)):
     dependencies:
       '@jest/core': 29.7.0(ts-node@10.9.1(@swc/core@1.15.18)(@types/node@22.18.8)(typescript@5.9.3))
@@ -41828,37 +41760,6 @@ snapshots:
       - canvas
       - supports-color
       - utf-8-validate
-
-  jest-config@29.7.0(@types/node@22.18.8)(ts-node@10.9.1(@swc/core@1.11.4)(@types/node@22.18.8)(typescript@5.9.3)):
-    dependencies:
-      '@babel/core': 7.29.0
-      '@jest/test-sequencer': 29.7.0
-      '@jest/types': 29.6.3
-      babel-jest: 29.7.0(@babel/core@7.29.0)
-      chalk: 4.1.2
-      ci-info: 3.8.0
-      deepmerge: 4.3.1
-      glob: 7.2.3
-      graceful-fs: 4.2.11
-      jest-circus: 29.7.0
-      jest-environment-node: 29.7.0
-      jest-get-type: 29.6.3
-      jest-regex-util: 29.6.3
-      jest-resolve: 29.7.0
-      jest-runner: 29.7.0
-      jest-util: 29.7.0
-      jest-validate: 29.7.0
-      micromatch: 4.0.8
-      parse-json: 5.2.0
-      pretty-format: 29.7.0
-      slash: 3.0.0
-      strip-json-comments: 3.1.1
-    optionalDependencies:
-      '@types/node': 22.18.8
-      ts-node: 10.9.1(@swc/core@1.11.4)(@types/node@22.18.8)(typescript@5.9.3)
-    transitivePeerDependencies:
-      - babel-plugin-macros
-      - supports-color
 
   jest-config@29.7.0(@types/node@22.18.8)(ts-node@10.9.1(@swc/core@1.15.18)(@types/node@22.18.8)(typescript@5.9.3)):
     dependencies:
@@ -42110,7 +42011,7 @@ snapshots:
     optionalDependencies:
       fsevents: 2.3.3
 
-  jest-image-snapshot@6.4.0(jest@29.7.0(@types/node@22.18.8)(ts-node@10.9.1(@swc/core@1.15.18)(@types/node@22.18.8)(typescript@5.9.3))):
+  jest-image-snapshot@6.4.0(jest@29.7.0(@types/node@22.18.8)):
     dependencies:
       chalk: 4.1.2
       get-stdin: 5.0.1
@@ -42267,7 +42168,7 @@ snapshots:
       '@types/node': 22.18.8
       jest-util: 30.0.5
 
-  jest-playwright-preset@4.0.0(jest-circus@29.7.0)(jest-environment-node@29.7.0)(jest-runner@29.7.0)(jest@29.7.0(@types/node@22.18.8)(ts-node@10.9.1(@swc/core@1.15.18)(@types/node@22.18.8)(typescript@5.9.3))):
+  jest-playwright-preset@4.0.0(jest-circus@29.7.0)(jest-environment-node@29.7.0)(jest-runner@29.7.0)(jest@29.7.0(@types/node@22.18.8)):
     dependencies:
       expect-playwright: 0.8.0
       jest: 29.7.0(@types/node@22.18.8)(ts-node@10.9.1(@swc/core@1.15.18)(@types/node@22.18.8)(typescript@5.9.3))
@@ -42690,7 +42591,7 @@ snapshots:
       leven: 3.1.0
       pretty-format: 30.0.5
 
-  jest-watch-typeahead@2.2.2(jest@29.7.0(@types/node@22.18.8)(ts-node@10.9.1(@swc/core@1.15.18)(@types/node@22.18.8)(typescript@5.9.3))):
+  jest-watch-typeahead@2.2.2(jest@29.7.0(@types/node@22.18.8)):
     dependencies:
       ansi-escapes: 6.0.0
       chalk: 5.6.2
@@ -42765,18 +42666,6 @@ snapshots:
       - supports-color
       - ts-node
       - utf-8-validate
-
-  jest@29.7.0(@types/node@22.18.8)(ts-node@10.9.1(@swc/core@1.11.4)(@types/node@22.18.8)(typescript@5.9.3)):
-    dependencies:
-      '@jest/core': 29.7.0(ts-node@10.9.1(@swc/core@1.11.4)(@types/node@22.18.8)(typescript@5.9.3))
-      '@jest/types': 29.6.3
-      import-local: 3.2.0
-      jest-cli: 29.7.0(@types/node@22.18.8)(ts-node@10.9.1(@swc/core@1.11.4)(@types/node@22.18.8)(typescript@5.9.3))
-    transitivePeerDependencies:
-      - '@types/node'
-      - babel-plugin-macros
-      - supports-color
-      - ts-node
 
   jest@29.7.0(@types/node@22.18.8)(ts-node@10.9.1(@swc/core@1.15.18)(@types/node@22.18.8)(typescript@5.9.3)):
     dependencies:
@@ -46997,7 +46886,7 @@ snapshots:
 
   react-error-overlay@6.0.9: {}
 
-  react-grid-layout@2.2.2(react-dom@18.3.1(react@18.3.1))(react@18.3.1):
+  react-grid-layout@2.2.3(react-dom@18.3.1(react@18.3.1))(react@18.3.1):
     dependencies:
       clsx: 2.1.1
       fast-equals: 4.0.3
@@ -47005,7 +46894,7 @@ snapshots:
       react: 18.3.1
       react-dom: 18.3.1(react@18.3.1)
       react-draggable: 4.5.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
-      react-resizable: 3.0.5(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+      react-resizable: 3.1.3(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       resize-observer-polyfill: 1.5.1
 
   react-intersection-observer@9.5.3(react@18.3.1):
@@ -47096,13 +46985,12 @@ snapshots:
       react: 18.3.1
       react-dom: 18.3.1(react@18.3.1)
 
-  react-resizable@3.0.5(react-dom@18.3.1(react@18.3.1))(react@18.3.1):
+  react-resizable@3.1.3(react-dom@18.3.1(react@18.3.1))(react@18.3.1):
     dependencies:
       prop-types: 15.8.1
       react: 18.3.1
+      react-dom: 18.3.1(react@18.3.1)
       react-draggable: 4.5.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
-    transitivePeerDependencies:
-      - react-dom
 
   react-shadow@20.4.0(prop-types@15.8.1)(react-dom@18.3.1(react@18.3.1))(react@18.3.1):
     dependencies:
@@ -49057,27 +48945,6 @@ snapshots:
       safe-stable-stringify: 2.5.0
       tslib: 2.8.1
       typescript: 5.9.3
-
-  ts-node@10.9.1(@swc/core@1.11.4)(@types/node@22.18.8)(typescript@5.9.3):
-    dependencies:
-      '@cspotcode/source-map-support': 0.8.1
-      '@tsconfig/node10': 1.0.9
-      '@tsconfig/node12': 1.0.11
-      '@tsconfig/node14': 1.0.3
-      '@tsconfig/node16': 1.0.3
-      '@types/node': 22.18.8
-      acorn: 8.15.0
-      acorn-walk: 8.3.2
-      arg: 4.1.3
-      create-require: 1.1.1
-      diff: 4.0.2
-      make-error: 1.3.6
-      typescript: 5.9.3
-      v8-compile-cache-lib: 3.0.1
-      yn: 3.1.1
-    optionalDependencies:
-      '@swc/core': 1.11.4
-    optional: true
 
   ts-node@10.9.1(@swc/core@1.15.18)(@types/node@22.18.8)(typescript@5.9.3):
     dependencies:

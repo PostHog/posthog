@@ -1046,6 +1046,36 @@
             "readOnlyHint": false
         }
     },
+    "project-get": {
+        "description": "Retrieve a project and its settings. Pass `@current` as the ID to fetch the caller's active project.",
+        "category": "Core",
+        "feature": "core",
+        "summary": "Get project",
+        "title": "Get project",
+        "required_scopes": ["project:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "project-settings-update": {
+        "description": "Update a project's settings using PATCH semantics — only the fields included in the request body are changed. Use `project-get` first to inspect current settings. Always confirm changes with the user before applying.",
+        "category": "Core",
+        "feature": "core",
+        "summary": "Update project settings",
+        "title": "Update project settings",
+        "required_scopes": ["project:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "subscriptions-list": {
         "description": "List subscriptions for the project. Returns scheduled email, Slack, or webhook deliveries of insight or dashboard snapshots. Each subscription includes its schedule (frequency, interval, byweekday), next_delivery_date, and a human-readable summary.",
         "category": "Core",
@@ -1098,6 +1128,36 @@
         "summary": "Update subscription",
         "title": "Update subscription",
         "required_scopes": ["subscription:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "user-get": {
+        "description": "Retrieve a user's profile and settings. Pass `@me` as the UUID to fetch the authenticated user — non-staff callers may only access their own account.",
+        "category": "Core",
+        "feature": "core",
+        "summary": "Get user",
+        "title": "Get user",
+        "required_scopes": ["user:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "user-settings-update": {
+        "description": "Update the authenticated user's profile and settings using PATCH semantics — only the fields included in the request body are changed. Pass `@me` as the UUID; non-staff callers may only update their own account. Use `user-get` first to inspect current settings. `notification_settings` merges key-by-key; changing `email` triggers a verification flow; changing `password` also requires `current_password`. Always confirm changes with the user before applying.",
+        "category": "Core",
+        "feature": "core",
+        "summary": "Update user settings",
+        "title": "Update user settings",
+        "required_scopes": ["user:write"],
         "new_mcp": true,
         "annotations": {
             "destructiveHint": true,
@@ -3609,6 +3669,21 @@
         "summary": "Get skill file",
         "title": "Get skill file",
         "required_scopes": ["llm_skill:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "web-analytics-weekly-digest": {
+        "description": "Summarizes a project's web analytics over a lookback window (default 7 days): unique visitors, pageviews, sessions, bounce rate, and average session duration with period-over-period comparisons, plus the top 5 pages, top 5 traffic sources, and goal conversions. Accepts optional `days` (1–90, default 7) and `compare` (bool, default true) query params — pass `days=30` to summarize the last month, or `compare=false` to skip the period-over-period comparison for a faster response. Use this to answer questions like \"how are my web analytics?\", \"how did the site do last week?\", or \"what's my traffic looking like this month?\".",
+        "category": "Web analytics",
+        "feature": "web_analytics",
+        "summary": "Summarize web analytics",
+        "title": "Summarize web analytics",
+        "required_scopes": ["web_analytics:read"],
         "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
