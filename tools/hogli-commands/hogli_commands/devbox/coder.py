@@ -738,6 +738,31 @@ def logs_replace(name: str, follow: bool) -> None:
     _run_or_exit(args)
 
 
+def create_task(
+    prompt: str | None,
+    *,
+    task_name: str | None = None,
+    quiet: bool = False,
+) -> None:
+    """Create a Coder task on the posthog-linux template.
+
+    When ``prompt`` is None, ``--stdin`` is passed so coder reads the prompt
+    from the parent process's stdin; otherwise it is forwarded as the
+    positional input argument. Execs into the coder CLI so stdin, stdout,
+    and the exit code flow through unchanged.
+    """
+    args = ["coder", "task", "create", "--template", TEMPLATE_NAME]
+    if task_name:
+        args += ["--name", task_name]
+    if quiet:
+        args.append("--quiet")
+    if prompt is None:
+        args.append("--stdin")
+    else:
+        args.append(prompt)
+    _run_or_exit(args)
+
+
 def run_in_workspace(
     name: str, command: list[str], *, capture_output: bool = False
 ) -> subprocess.CompletedProcess[str]:

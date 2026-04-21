@@ -317,14 +317,20 @@
                                 "description": "Human-readable variant name",
                                 "type": "string"
                             },
-                            "rollout_percentage": {
+                            "split_percent": {
+                                "description": "Percentage of traffic allocated to this variant (0-100). All variants must sum to 100. One of split_percent (recommended) or rollout_percentage (deprecated) must be provided per variant.",
                                 "type": "number",
                                 "minimum": 0,
-                                "maximum": 100,
-                                "description": "Percentage of users to show this variant"
+                                "maximum": 100
+                            },
+                            "rollout_percentage": {
+                                "description": "Deprecated: use split_percent instead. Accepted for backward compatibility.",
+                                "type": "number",
+                                "minimum": 0,
+                                "maximum": 100
                             }
                         },
-                        "required": ["key", "rollout_percentage"]
+                        "required": ["key"]
                     }
                 },
                 "minimum_detectable_effect": {
