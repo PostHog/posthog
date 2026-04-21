@@ -111,6 +111,8 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str]]:
         "UserSocialAuth",
         "MCPServer",
         "MCPOAuthState",
+        "MCPServerTemplate",
+        "MCPServerInstallationTool",
         # --- Internal infra (audit, async, caching, scheduling) ---
         "ActivityLog",
         "AsyncDeletion",
