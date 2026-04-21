@@ -5,6 +5,8 @@ from django.core.exceptions import ValidationError
 from django.db import transaction
 
 from asgiref.sync import sync_to_async
+from ee.hogai.artifacts.types import ModelArtifactResult
+from ee.hogai.tool import MaxTool
 from pydantic import BaseModel, Field
 
 from posthog.schema import (
@@ -21,9 +23,8 @@ from posthog.models.alert import AlertConfiguration, AlertSubscription, Threshol
 from posthog.models.insight import Insight
 from posthog.models.team import Team
 from posthog.models.user import User
-
-from ee.hogai.artifacts.types import ModelArtifactResult
-from ee.hogai.tool import MaxTool
+from posthog.rbac.user_access_control import AccessControlLevel
+from posthog.scopes import APIScopeObject
 
 UPSERT_ALERT_CONTEXT_PROMPT_TEMPLATE = """
 The user is currently viewing an insight that supports alerts. Here are the insight's details for use with the `upsert_alert` tool:
@@ -167,7 +168,9 @@ class UpsertAlertTool(MaxTool):
     args_schema: type[BaseModel] = UpsertAlertToolArgs
     context_prompt_template: str = UPSERT_ALERT_CONTEXT_PROMPT_TEMPLATE
 
-    def get_required_resource_access(self):
+    def get_required_resource_access(
+        self,
+    ) -> list[tuple[APIScopeObject, AccessControlLevel]]:
         return [("alert", "editor")]
 
     async def is_dangerous_operation(self, action: UpsertAlertAction, **kwargs) -> bool:
@@ -219,7 +222,10 @@ class UpsertAlertTool(MaxTool):
                 created_by=user,
                 configuration={
                     "type": action.threshold_type,
-                    "bounds": {"lower": action.lower_threshold, "upper": action.upper_threshold},
+                    "bounds": {
+                        "lower": action.lower_threshold,
+                        "upper": action.upper_threshold,
+                    },
                 },
             )
 
@@ -235,7 +241,10 @@ class UpsertAlertTool(MaxTool):
                 name=truncated_name,
                 threshold_to_persist=unsaved_threshold,
                 condition={"type": action.condition_type},
-                config={"type": "TrendsAlertConfig", "series_index": action.series_index},
+                config={
+                    "type": "TrendsAlertConfig",
+                    "series_index": action.series_index,
+                },
                 calculation_interval=action.calculation_interval,
                 enabled=action.enabled,
                 skip_weekend=action.skip_weekend,
@@ -265,7 +274,10 @@ class UpsertAlertTool(MaxTool):
 
         except Exception as e:
             capture_exception(e, {"team_id": self._team.id, "user_id": self._user.id})
-            return f"Failed to create alert: {str(e)}", {"error": "creation_failed", "details": str(e)}
+            return f"Failed to create alert: {str(e)}", {
+                "error": "creation_failed",
+                "details": str(e),
+            }
 
     async def _handle_update(self, action: UpdateAlertAction) -> tuple[str, dict[str, Any]]:
         try:
@@ -292,7 +304,10 @@ class UpsertAlertTool(MaxTool):
                 update_fields.append("calculation_interval")
 
             if action.series_index is not None:
-                alert.config = {**(alert.config or {}), "series_index": action.series_index}
+                alert.config = {
+                    **(alert.config or {}),
+                    "series_index": action.series_index,
+                }
                 update_fields.append("config")
 
             if action.enabled is not None:
@@ -335,7 +350,10 @@ class UpsertAlertTool(MaxTool):
 
         except Exception as e:
             capture_exception(e, {"team_id": self._team.id, "user_id": self._user.id})
-            return f"Failed to update alert: {str(e)}", {"error": "update_failed", "details": str(e)}
+            return f"Failed to update alert: {str(e)}", {
+                "error": "update_failed",
+                "details": str(e),
+            }
 
     async def _resolve_alert(self, alert_id: str) -> AlertConfiguration | None:
         alert_id = str(alert_id).strip()

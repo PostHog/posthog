@@ -378,7 +378,7 @@ def create_symbol_set(
             if symbol_set.release is None:
                 symbol_set.release = release
             elif symbol_set.release != release:
-                raise ValidationError(f"Symbol set has already been uploaded for a different release")
+                raise ValidationError("Symbol set has already been uploaded for a different release")
             symbol_set.storage_ptr = storage_ptr
             symbol_set.content_hash = content_hash
             symbol_set.last_used = timezone.now()

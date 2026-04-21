@@ -1,15 +1,15 @@
 import json
+from collections.abc import Iterator
 from typing import Any
 
 from django.http import HttpResponse, StreamingHttpResponse
 
 import httpx
 import structlog
+from ee.hogai.utils.asgi import SyncIterableToAsync
 
 from posthog.security.url_validation import is_url_allowed
 from posthog.settings import SERVER_GATEWAY_INTERFACE
-
-from ee.hogai.utils.asgi import SyncIterableToAsync
 
 from .models import MCPServerInstallation
 from .oauth import TokenRefreshError, is_token_expiring, refresh_installation_token
@@ -44,14 +44,18 @@ def ensure_valid_token(installation: MCPServerInstallation) -> None:
     refresh_installation_token(installation)
 
 
-def validate_installation_auth(installation: MCPServerInstallation) -> tuple[bool, HttpResponse | None]:
+def validate_installation_auth(
+    installation: MCPServerInstallation,
+) -> tuple[bool, HttpResponse | None]:
     """Validate that the installation has valid auth credentials.
 
     Returns (True, None) if auth is valid, or (False, error_response) if not.
     """
     if not installation.is_enabled:
         logger.warning(
-            "Proxy auth failed: server is disabled", installation_id=str(installation.id), url=installation.url
+            "Proxy auth failed: server is disabled",
+            installation_id=str(installation.id),
+            url=installation.url,
         )
         return False, HttpResponse(
             '{"error": "Server is disabled"}',
@@ -63,7 +67,9 @@ def validate_installation_auth(installation: MCPServerInstallation) -> tuple[boo
 
     if sensitive.get("needs_reauth"):
         logger.warning(
-            "Proxy auth failed: needs re-authentication", installation_id=str(installation.id), url=installation.url
+            "Proxy auth failed: needs re-authentication",
+            installation_id=str(installation.id),
+            url=installation.url,
         )
         return False, HttpResponse(
             '{"error": "Installation needs re-authentication"}',
@@ -74,7 +80,9 @@ def validate_installation_auth(installation: MCPServerInstallation) -> tuple[boo
     if installation.auth_type == "oauth":
         if not sensitive.get("access_token"):
             logger.warning(
-                "Proxy auth failed: no OAuth credentials", installation_id=str(installation.id), url=installation.url
+                "Proxy auth failed: no OAuth credentials",
+                installation_id=str(installation.id),
+                url=installation.url,
             )
             return False, HttpResponse(
                 '{"error": "No credentials configured"}',
@@ -93,7 +101,9 @@ def validate_installation_auth(installation: MCPServerInstallation) -> tuple[boo
 
     if installation.auth_type == "api_key" and not sensitive.get("api_key"):
         logger.warning(
-            "Proxy auth failed: no API key configured", installation_id=str(installation.id), url=installation.url
+            "Proxy auth failed: no API key configured",
+            installation_id=str(installation.id),
+            url=installation.url,
         )
         return False, HttpResponse(
             '{"error": "No credentials configured"}',
@@ -126,7 +136,11 @@ def proxy_mcp_request(request: Any, installation: MCPServerInstallation) -> Http
     body = json.dumps(data).encode()
 
     if len(body) > MAX_PROXY_BODY_SIZE:
-        logger.warning("Proxy request rejected: body too large", url=installation.url, body_size=len(body))
+        logger.warning(
+            "Proxy request rejected: body too large",
+            url=installation.url,
+            body_size=len(body),
+        )
         return HttpResponse(
             '{"error": "Request body too large"}',
             content_type="application/json",
@@ -205,7 +219,7 @@ def proxy_mcp_request(request: Any, installation: MCPServerInstallation) -> Http
     return response
 
 
-def _stream_upstream(upstream_response: httpx.Response, client: httpx.Client):
+def _stream_upstream(upstream_response: httpx.Response, client: httpx.Client) -> Iterator[bytes]:
     try:
         yield from upstream_response.iter_bytes(4096)
     finally:

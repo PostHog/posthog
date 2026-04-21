@@ -2,6 +2,10 @@ import re
 import json
 from typing import Optional
 
+from ee.hogai.chat_agent.schema_generator.parsers import PydanticOutputParserException
+from ee.hogai.llm import MaxChatOpenAI
+from ee.hogai.tool import MaxTool
+from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import HumanMessage, SystemMessage
 from pydantic import BaseModel, Field
 
@@ -29,10 +33,6 @@ from products.cdp.backend.prompts import (
     HOG_FUNCTION_INPUTS_ASSISTANT_ROOT_SYSTEM_PROMPT,
     HOG_TRANSFORMATION_ASSISTANT_ROOT_SYSTEM_PROMPT,
 )
-
-from ee.hogai.chat_agent.schema_generator.parsers import PydanticOutputParserException
-from ee.hogai.llm import MaxChatOpenAI
-from ee.hogai.tool import MaxTool
 
 
 class CreateHogTransformationFunctionArgs(BaseModel):
@@ -82,7 +82,10 @@ class CreateHogTransformationFunctionTool(MaxTool):
 
         user_content = "Write a Hog transformation or tweak the current one to satisfy this request: " + instructions
 
-        messages = [SystemMessage(content=system_content), HumanMessage(content=user_content)]
+        messages = [
+            SystemMessage(content=system_content),
+            HumanMessage(content=user_content),
+        ]
 
         final_error: Optional[BaseException] = None
         for _ in range(3):
@@ -102,7 +105,7 @@ class CreateHogTransformationFunctionTool(MaxTool):
         return "```hog\n" + parsed_result.hog_code + "\n```", parsed_result.hog_code
 
     @property
-    def _model(self):
+    def _model(self) -> BaseChatModel:
         return MaxChatOpenAI(
             model="gpt-4.1",
             temperature=0.3,
@@ -118,14 +121,18 @@ class CreateHogTransformationFunctionTool(MaxTool):
         if not match:
             # The model may have returned the code without tags, or with markdown
             hog_code = re.sub(
-                r"^\s*```hog\s*\n(.*?)\n\s*```\s*$", r"\1", output, flags=re.DOTALL | re.MULTILINE
+                r"^\s*```hog\s*\n(.*?)\n\s*```\s*$",
+                r"\1",
+                output,
+                flags=re.DOTALL | re.MULTILINE,
             ).strip()
         else:
             hog_code = match.group(1).strip()
 
         if not hog_code:
             raise PydanticOutputParserException(
-                llm_output=output, validation_message="The model returned an empty hog code response."
+                llm_output=output,
+                validation_message="The model returned an empty hog code response.",
             )
 
         try:
@@ -179,7 +186,10 @@ class CreateHogFunctionFiltersTool(MaxTool):
 
         user_content = f"Create filters for this hog function: {instructions}"
 
-        messages = [SystemMessage(content=system_content), HumanMessage(content=user_content)]
+        messages = [
+            SystemMessage(content=system_content),
+            HumanMessage(content=user_content),
+        ]
 
         final_error: Optional[BaseException] = None
         for _ in range(3):
@@ -196,12 +206,20 @@ class CreateHogFunctionFiltersTool(MaxTool):
             assert final_error is not None
             raise final_error
 
-        return f"```json\n{json.dumps(parsed_result.filters, indent=2)}\n```", json.dumps(parsed_result.filters)
+        return (
+            f"```json\n{json.dumps(parsed_result.filters, indent=2)}\n```",
+            json.dumps(parsed_result.filters),
+        )
 
     @property
-    def _model(self):
+    def _model(self) -> BaseChatModel:
         return MaxChatOpenAI(
-            model="gpt-4.1", temperature=0.3, disable_streaming=True, user=self._user, team=self._team, billable=True
+            model="gpt-4.1",
+            temperature=0.3,
+            disable_streaming=True,
+            user=self._user,
+            team=self._team,
+            billable=True,
         )
 
     def _parse_output(self, output: str) -> HogFunctionFiltersOutput:
@@ -209,21 +227,26 @@ class CreateHogFunctionFiltersTool(MaxTool):
         if not match:
             # The model may have returned the JSON without tags, or with markdown
             json_str = re.sub(
-                r"^\s*```json\s*\n(.*?)\n\s*```\s*$", r"\1", output, flags=re.DOTALL | re.MULTILINE
+                r"^\s*```json\s*\n(.*?)\n\s*```\s*$",
+                r"\1",
+                output,
+                flags=re.DOTALL | re.MULTILINE,
             ).strip()
         else:
             json_str = match.group(1).strip()
 
         if not json_str:
             raise PydanticOutputParserException(
-                llm_output=output, validation_message="The model returned an empty filters response."
+                llm_output=output,
+                validation_message="The model returned an empty filters response.",
             )
 
         try:
             filters = json.loads(json_str)
         except json.JSONDecodeError as e:
             raise PydanticOutputParserException(
-                llm_output=json_str, validation_message=f"The filters JSON failed to parse: {str(e)}"
+                llm_output=json_str,
+                validation_message=f"The filters JSON failed to parse: {str(e)}",
             )
 
         return HogFunctionFiltersOutput(filters=filters)
@@ -258,7 +281,10 @@ class CreateHogFunctionInputsTool(MaxTool):
 
         user_content = f"Create or modify the input variables for this function: {instructions}"
 
-        messages = [SystemMessage(content=system_content), HumanMessage(content=user_content)]
+        messages = [
+            SystemMessage(content=system_content),
+            HumanMessage(content=user_content),
+        ]
 
         final_error: Optional[BaseException] = None
         for _ in range(3):
@@ -281,9 +307,14 @@ class CreateHogFunctionInputsTool(MaxTool):
         return f"```json\n{formatted_json}\n```", parsed_result.inputs_schema
 
     @property
-    def _model(self):
+    def _model(self) -> BaseChatModel:
         return MaxChatOpenAI(
-            model="gpt-4.1", temperature=0.3, disable_streaming=True, user=self._user, team=self._team, billable=True
+            model="gpt-4.1",
+            temperature=0.3,
+            disable_streaming=True,
+            user=self._user,
+            team=self._team,
+            billable=True,
         )
 
     def _parse_output(self, output: str) -> HogFunctionInputsOutput:
@@ -297,7 +328,8 @@ class CreateHogFunctionInputsTool(MaxTool):
                 json_str = json_match.group(0)
             else:
                 raise PydanticOutputParserException(
-                    llm_output=output, validation_message="Could not find inputs_schema in the response."
+                    llm_output=output,
+                    validation_message="Could not find inputs_schema in the response.",
                 )
         else:
             json_str = match.group(1).strip()
@@ -306,11 +338,13 @@ class CreateHogFunctionInputsTool(MaxTool):
             inputs_schema = json.loads(json_str)
             if not isinstance(inputs_schema, list):
                 raise PydanticOutputParserException(
-                    llm_output=output, validation_message="Inputs schema must be a list."
+                    llm_output=output,
+                    validation_message="Inputs schema must be a list.",
                 )
         except json.JSONDecodeError as e:
             raise PydanticOutputParserException(
-                llm_output=output, validation_message=f"Invalid JSON in inputs schema: {str(e)}"
+                llm_output=output,
+                validation_message=f"Invalid JSON in inputs schema: {str(e)}",
             )
 
         return HogFunctionInputsOutput(inputs_schema=inputs_schema)

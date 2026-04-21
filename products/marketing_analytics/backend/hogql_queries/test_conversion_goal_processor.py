@@ -2130,7 +2130,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         assert campaign_name == "spring_sale", f"Expected last-touch spring_sale, got {campaign_name}"
         assert source_name == "google", f"Expected google source, got {source_name}"
         assert conversion_count == 1, f"Expected 1 conversion, got {conversion_count}"
-        assert campaign_name != "early_bird", f"Should not attribute to first touch early_bird"
+        assert campaign_name != "early_bird", "Should not attribute to first touch early_bird"
         assert pretty_print_in_tests(response.hogql, self.team.pk) == self.snapshot
 
     @pytest.mark.usefixtures("unittest_snapshot")
@@ -2205,7 +2205,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         assert campaign_name == "early_bird", f"Expected first-touch early_bird, got {campaign_name}"
         assert source_name == "email", f"Expected email source, got {source_name}"
         assert conversion_count == 1, f"Expected 1 conversion, got {conversion_count}"
-        assert campaign_name != "spring_sale", f"Should not attribute to last touch spring_sale"
+        assert campaign_name != "spring_sale", "Should not attribute to last touch spring_sale"
         assert pretty_print_in_tests(response.hogql, self.team.pk) == self.snapshot
 
     @pytest.mark.usefixtures("unittest_snapshot")
@@ -2301,8 +2301,8 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         assert campaign_name == "spring_sale", f"Expected spring_sale (last valid), got {campaign_name}"
         assert source_name == "google", f"Expected google source, got {source_name}"
         assert conversion_count == 1, f"Expected 1 conversion, got {conversion_count}"
-        assert campaign_name != "summer_sale", f"Should ignore ads after conversion"
-        assert campaign_name != "july_promo", f"Should ignore ads after conversion"
+        assert campaign_name != "summer_sale", "Should ignore ads after conversion"
+        assert campaign_name != "july_promo", "Should ignore ads after conversion"
         assert pretty_print_in_tests(response.hogql, self.team.pk) == self.snapshot
 
     @pytest.mark.usefixtures("unittest_snapshot")
@@ -3042,7 +3042,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         assert campaign_name == "retarget", f"Expected retarget (last-touch), got {campaign_name}"
         assert source_name == "meta", f"Expected meta source, got {source_name}"
         assert conversion_count == 1, f"Expected 1 conversion, got {conversion_count}"
-        assert campaign_name != "upsell", f"Should ignore post-purchase campaigns"
+        assert campaign_name != "upsell", "Should ignore post-purchase campaigns"
 
     def test_organic_vs_paid_attribution_organic_then_paid(self):
         """
@@ -3275,7 +3275,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         assert campaign_name == "search_ad", f"Expected search_ad (last-touch, got {campaign_name}"
         assert source_name == "google", f"Expected google source, got {source_name}"
         assert conversion_count == 1, f"Expected 1 conversion, got {conversion_count}"
-        assert campaign_name != "brand_awareness", f"Should not attribute to first touch"
+        assert campaign_name != "brand_awareness", "Should not attribute to first touch"
         assert pretty_print_in_tests(response.hogql, self.team.pk) == self.snapshot
 
     def test_multi_session_attribution_across_devices(self):
@@ -3377,7 +3377,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         assert campaign_name == "cart_abandonment", f"Expected cart_abandonment (last-touch), got {campaign_name}"
         assert source_name == "email", f"Expected email source, got {source_name}"
         assert conversion_count == 1, f"Expected 1 conversion, got {conversion_count}"
-        assert campaign_name != "mobile_ad", f"Should not attribute to first touch"
+        assert campaign_name != "mobile_ad", "Should not attribute to first touch"
 
     # ================================================================
     # 13. ATTRIBUTION WINDOW TESTS - Time-based attribution limits

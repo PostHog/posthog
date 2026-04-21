@@ -20,7 +20,8 @@ class Link(FileSystemSyncMixin, CreatedMetaFields, UpdatedMetaFields, UUIDTModel
     redirect_url = models.URLField(max_length=2048)
     short_link_domain = models.CharField(max_length=255, help_text="Domain where the short link is hosted, e.g. hog.gg")
     short_code = models.CharField(
-        max_length=255, help_text="The unique code/path that identifies the short link, e.g. 'abc123'"
+        max_length=255,
+        help_text="The unique code/path that identifies the short link, e.g. 'abc123'",
     )
     team = models.ForeignKey(
         Team,
@@ -36,16 +37,17 @@ class Link(FileSystemSyncMixin, CreatedMetaFields, UpdatedMetaFields, UUIDTModel
         ]
         constraints = [
             models.UniqueConstraint(
-                fields=["short_link_domain", "short_code"], name="unique_short_link_domain_short_code"
+                fields=["short_link_domain", "short_code"],
+                name="unique_short_link_domain_short_code",
             )
         ]
         db_table = "posthog_link"
 
-    def __str__(self):
+    def __str__(self) -> str:
         return f"{self.id} -> {self.redirect_url}"
 
     @classmethod
-    def get_links_for_team(cls, team_id, limit=100, offset=0):
+    def get_links_for_team(cls, team_id: int, limit: int = 100, offset: int = 0) -> QuerySet["Link"]:
         """
         Get all links for a team with pagination.
         Args:

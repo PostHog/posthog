@@ -163,7 +163,7 @@ def fetch_releases_from_repo(repo: str, skip_cache: bool = False) -> list[Any]:
 
             releases_json = response.json()
             if releases_json is None:
-                logger.error(f"[SDK Doctor] Expected list of releases, got empty response", repo=repo)
+                logger.error("[SDK Doctor] Expected list of releases, got empty response", repo=repo)
                 break
 
             if not isinstance(releases_json, list):

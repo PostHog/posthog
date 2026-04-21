@@ -102,12 +102,12 @@ class DashboardTile(models.Model):
         constraints = [
             UniqueConstraint(
                 fields=["dashboard", "insight"],
-                name=f"unique_dashboard_insight",
+                name="unique_dashboard_insight",
                 condition=Q(("insight__isnull", False)),
             ),
             UniqueConstraint(
                 fields=["dashboard", "text"],
-                name=f"unique_dashboard_text",
+                name="unique_dashboard_text",
                 condition=Q(("text__isnull", False)),
             ),
             UniqueConstraint(

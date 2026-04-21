@@ -53,9 +53,7 @@ def format_content(content, max_len):
             tool_id = item.get("tool_use_id", "?")
             result_content = item.get("content", "")
             if isinstance(result_content, list):
-                result_content = " ".join(
-                    p.get("text", "") for p in result_content if isinstance(p, dict)
-                )
+                result_content = " ".join(p.get("text", "") for p in result_content if isinstance(p, dict))
             parts.append(f"  [tool_result: {tool_id}] {truncate(str(result_content), max_len)}")
         else:
             parts.append(f"  [{item_type}] {truncate(json.dumps(item, default=str), max_len)}")
@@ -74,9 +72,9 @@ for trace in traces:
         if not isinstance(messages, list):
             continue
         model = p.get("$ai_model", "?")
-        print(f"\n{'='*80}")
+        print(f"\n{'=' * 80}")
         print(f"Generation: {model}  ({ev.get('createdAt', '?')})")
-        print(f"{'='*80}")
+        print(f"{'=' * 80}")
         for msg in messages:
             role = msg.get("role", "?")
             content = msg.get("content", "")
@@ -101,6 +99,6 @@ for trace in traces:
         # Show output choices
         choices = p.get("$ai_output_choices", [])
         if choices:
-            print(f"\n[ASSISTANT (output)]")
+            print("\n[ASSISTANT (output)]")
             for choice in choices:
                 print(format_content(choice.get("content", ""), max_len))

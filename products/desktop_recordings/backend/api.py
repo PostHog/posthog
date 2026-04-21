@@ -1,10 +1,12 @@
 from django.db import transaction
+from django.db.models import QuerySet
 
 from drf_spectacular.utils import extend_schema
 from rest_framework import status, viewsets
 from rest_framework.authentication import SessionAuthentication
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
+from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -34,10 +36,16 @@ class DesktopRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated, APIScopePermission]
     scope_object = "desktop_recording"
     scope_object_read_actions = ["list", "retrieve"]
-    scope_object_write_actions = ["create", "update", "partial_update", "destroy", "append_segments"]
+    scope_object_write_actions = [
+        "create",
+        "update",
+        "partial_update",
+        "destroy",
+        "append_segments",
+    ]
     queryset = DesktopRecording.objects.all()
 
-    def safely_get_queryset(self, queryset):
+    def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
         """Filter recordings to current team"""
         queryset = queryset.filter(team=self.team)
 
@@ -65,7 +73,7 @@ class DesktopRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         description="Create a new recording and get Recall.ai upload token for the desktop SDK",
     )
     @transaction.atomic
-    def create(self, request, **kwargs):
+    def create(self, request: Request, **kwargs) -> Response:
         """
         RESTful POST /desktop_recordings/
 
@@ -75,7 +83,10 @@ class DesktopRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         from posthog.settings.integrations import RECALL_AI_API_KEY, RECALL_AI_API_URL
 
         if not RECALL_AI_API_KEY:
-            return Response({"detail": "Recall.ai API key not configured"}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+            return Response(
+                {"detail": "Recall.ai API key not configured"},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
 
         request_serializer = CreateRecordingRequestSerializer(data=request.data)
         request_serializer.is_valid(raise_exception=True)
@@ -118,7 +129,7 @@ class DesktopRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         description="Append transcript segments (supports batched real-time streaming)",
     )
     @action(detail=True, methods=["POST"])
-    def append_segments(self, request, pk=None, **kwargs):
+    def append_segments(self, request: Request, pk: int | None = None, **kwargs) -> Response:
         """
         POST /recordings/{id}/append_segments/
 

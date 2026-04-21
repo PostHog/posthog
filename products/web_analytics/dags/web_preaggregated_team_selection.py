@@ -126,7 +126,7 @@ def store_team_selection_in_clickhouse(
 def _web_analytics_team_selection_impl(
     context: dagster.AssetExecutionContext, cluster: dagster.ResourceParam[ClickhouseCluster]
 ) -> dagster.MaterializeResult:
-    context.log.info(f"Getting team IDs from sources tables")
+    context.log.info("Getting team IDs from sources tables")
     team_ids = get_team_ids_from_sources(context)
 
     context.log.info(f"Materializing team selection for {len(team_ids)} teams")

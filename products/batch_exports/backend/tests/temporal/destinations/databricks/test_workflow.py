@@ -96,7 +96,7 @@ class DatabricksDestinationTest(BaseDestinationTest):
         """Provide test configuration for Databricks destination."""
         return {
             "http_path": os.getenv("DATABRICKS_BE_HTTP_PATH"),
-            "catalog": os.getenv("DATABRICKS_CATALOG", f"batch_export_tests"),
+            "catalog": os.getenv("DATABRICKS_CATALOG", "batch_export_tests"),
             # use a hyphen in the schema name to test we handle it correctly
             "schema": os.getenv("DATABRICKS_SCHEMA", f"test_workflow_schema-{team_id}"),
             # use a hyphen in the table name to test we handle it correctly

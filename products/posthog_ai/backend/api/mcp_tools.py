@@ -4,6 +4,8 @@ from django.views.generic import View
 
 import pydantic
 from asgiref.sync import async_to_sync
+from ee.hogai.mcp_tool import mcp_tool_registry
+from ee.hogai.tool_errors import MaxToolError
 from posthoganalytics import capture_exception
 from rest_framework import status
 from rest_framework.decorators import action
@@ -15,9 +17,6 @@ from structlog import get_logger
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models.user import User
 from posthog.renderers import SafeJSONRenderer
-
-from ee.hogai.mcp_tool import mcp_tool_registry
-from ee.hogai.tool_errors import MaxToolError
 
 logger = get_logger(__name__)
 
@@ -39,7 +38,7 @@ class MCPToolsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
         methods=["POST"],
         url_path="(?P<tool_name>[^/.]+)",
     )
-    def invoke_tool(self, request: Request, tool_name: str, *args, **kwargs):
+    def invoke_tool(self, request: Request, tool_name: str, *args, **kwargs) -> Response:
         """
         Invoke an MCP tool by name.
 
@@ -71,7 +70,12 @@ class MCPToolsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
         try:
             content = async_to_sync(tool.execute)(validated_args)
         except MaxToolError as e:
-            return Response({"success": False, "content": f"Tool failed: {e.to_summary()}.{e.retry_hint}"})
+            return Response(
+                {
+                    "success": False,
+                    "content": f"Tool failed: {e.to_summary()}.{e.retry_hint}",
+                }
+            )
         except Exception as e:
             logger.exception("Error calling tool", extra={"tool_name": tool_name, "error": str(e)})
             capture_exception(e, properties={"tag": "mcp", "args": args_data})

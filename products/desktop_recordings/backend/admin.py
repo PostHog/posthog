@@ -17,7 +17,13 @@ class DesktopRecordingAdmin(admin.ModelAdmin):
         "duration_seconds",
     )
     list_filter = ("status", "platform", "started_at", "created_at")
-    search_fields = ("id", "meeting_title", "meeting_url", "team__name", "created_by__email")
+    search_fields = (
+        "id",
+        "meeting_title",
+        "meeting_url",
+        "team__name",
+        "created_by__email",
+    )
     readonly_fields = (
         "id",
         "sdk_upload_id",
@@ -85,7 +91,7 @@ class DesktopRecordingAdmin(admin.ModelAdmin):
     )
 
     @admin.display(description="Team")
-    def team_link(self, obj: DesktopRecording):
+    def team_link(self, obj: DesktopRecording) -> str:
         if obj.team:
             return format_html(
                 '<a href="{}">{}</a>',
@@ -95,7 +101,7 @@ class DesktopRecordingAdmin(admin.ModelAdmin):
         return "-"
 
     @admin.display(description="Created by")
-    def created_by_link(self, obj: DesktopRecording):
+    def created_by_link(self, obj: DesktopRecording) -> str:
         if obj.created_by:
             return format_html(
                 '<a href="{}">{}</a>',

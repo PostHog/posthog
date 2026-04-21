@@ -55,7 +55,12 @@ class MCPProxyRenderer(renderers.BaseRenderer):
     media_type = "*/*"
     format = "mcp"
 
-    def render(self, data, accepted_media_type=None, renderer_context=None):
+    def render(
+        self,
+        data: bytes,
+        accepted_media_type: str | None = None,
+        renderer_context: dict | None = None,
+    ) -> bytes:
         return data
 
 
@@ -287,7 +292,10 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
         allowed, reason = is_url_allowed(mcp_url)
         if not allowed:
             logger.warning("SSRF blocked MCP server URL", url=mcp_url, reason=reason)
-            return Response({"detail": "Server URL blocked by security policy"}, status=status.HTTP_400_BAD_REQUEST)
+            return Response(
+                {"detail": "Server URL blocked by security policy"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         return None
 
     def _register_dcr_client_or_raise(self, metadata: dict, redirect_uri: str, *, server_url: str = "") -> str:
@@ -427,7 +435,10 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
             )
 
             if not created:
-                return Response({"detail": "This server URL is already installed."}, status=status.HTTP_400_BAD_REQUEST)
+                return Response(
+                    {"detail": "This server URL is already installed."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
 
             logger.info(
                 "MCP server installed via API key",
@@ -489,13 +500,19 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
             logger.exception("OAuth discovery failed", server_url=mcp_url, error=str(e))
             if created:
                 installation.delete()
-            return Response({"detail": "OAuth discovery failed."}, status=status.HTTP_400_BAD_REQUEST)
+            return Response(
+                {"detail": "OAuth discovery failed."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
         issuer_url = metadata.get("issuer", "")
         if not issuer_url:
             if created:
                 installation.delete()
-            return Response({"detail": "Could not determine OAuth issuer"}, status=status.HTTP_400_BAD_REQUEST)
+            return Response(
+                {"detail": "Could not determine OAuth issuer"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
         # Register or reuse an existing DCR client for this server.
         try:
@@ -516,7 +533,10 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
         except DCRRegistrationFailedError:
             if created:
                 installation.delete()
-            return Response({"detail": "OAuth registration failed."}, status=status.HTTP_400_BAD_REQUEST)
+            return Response(
+                {"detail": "OAuth registration failed."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
         # Store the server in the installation if it's not already set.
         # Typically happens on fresh install, but also covers relinking if the installations points to a different server.
@@ -528,7 +548,13 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
         code_verifier, code_challenge = generate_pkce()
         token = secrets.token_urlsafe(32)
         _create_oauth_state(
-            request, installation, server, token, install_source, posthog_code_callback_url, pkce_verifier=code_verifier
+            request,
+            installation,
+            server,
+            token,
+            install_source,
+            posthog_code_callback_url,
+            pkce_verifier=code_verifier,
         )
 
         try:
@@ -541,7 +567,10 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
         except OAuthAuthorizeURLError:
             if created:
                 installation.delete()
-            return Response({"detail": "Authorization endpoint must use HTTPS"}, status=status.HTTP_400_BAD_REQUEST)
+            return Response(
+                {"detail": "Authorization endpoint must use HTTPS"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
         # Return the OAuth provider's authorization URL to redirect the user to.
         return Response({"redirect_url": authorize_url}, status=status.HTTP_200_OK)
@@ -683,7 +712,10 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
                 status=status.HTTP_400_BAD_REQUEST,
             )
         except DCRRegistrationFailedError:
-            return Response({"detail": "OAuth discovery/registration failed."}, status=status.HTTP_400_BAD_REQUEST)
+            return Response(
+                {"detail": "OAuth discovery/registration failed."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
         metadata["dcr_redirect_uri"] = redirect_uri
         server.oauth_metadata = metadata
@@ -730,7 +762,10 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
                 code_challenge=code_challenge,
             )
         except OAuthAuthorizeURLError:
-            return Response({"detail": "Authorization endpoint must use HTTPS"}, status=status.HTTP_400_BAD_REQUEST)
+            return Response(
+                {"detail": "Authorization endpoint must use HTTPS"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
         response = HttpResponse(status=302)
         response["Location"] = authorize_url
@@ -749,16 +784,25 @@ class MCPOAuthRedirectViewSet(viewsets.ViewSet):
     # Use SessionAuthentication; leave permission_classes empty for uniform 400s, not 401s
     permission_classes: list = []
     authentication_classes = [SessionAuthentication]
-    throttle_classes = [MCPOAuthRedirectBurstThrottle, MCPOAuthRedirectSustainedThrottle]
+    throttle_classes = [
+        MCPOAuthRedirectBurstThrottle,
+        MCPOAuthRedirectSustainedThrottle,
+    ]
 
     def list(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
         state_token = request.query_params.get("state")
         if not state_token:
-            return Response({"detail": "Missing state parameter"}, status=status.HTTP_400_BAD_REQUEST)
+            return Response(
+                {"detail": "Missing state parameter"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
         oauth_state = self._consume_oauth_state(request, state_token)
         if not oauth_state:
-            return Response({"detail": "Invalid or expired OAuth state"}, status=status.HTTP_400_BAD_REQUEST)
+            return Response(
+                {"detail": "Invalid or expired OAuth state"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
         installation = oauth_state.installation
         install_source = oauth_state.install_source
@@ -781,7 +825,10 @@ class MCPOAuthRedirectViewSet(viewsets.ViewSet):
                 team=installation.team,
             )
             return self._build_oauth_redirect(
-                install_source, installation, error=error_msg, posthog_code_callback_url=posthog_code_callback_url
+                install_source,
+                installation,
+                error=error_msg,
+                posthog_code_callback_url=posthog_code_callback_url,
             )
 
         code = request.query_params.get("code")
@@ -846,7 +893,9 @@ class MCPOAuthRedirectViewSet(viewsets.ViewSet):
         )
 
         return self._build_oauth_redirect(
-            install_source, installation, posthog_code_callback_url=posthog_code_callback_url
+            install_source,
+            installation,
+            posthog_code_callback_url=posthog_code_callback_url,
         )
 
     def _consume_oauth_state(self, request: Request, state_token: str) -> MCPOAuthState | None:
@@ -861,7 +910,11 @@ class MCPOAuthRedirectViewSet(viewsets.ViewSet):
             oauth_state = (
                 MCPOAuthState.objects.select_for_update()
                 .select_related("installation", "server")
-                .filter(token_hash=token_hash, consumed_at__isnull=True, created_by=request.user)
+                .filter(
+                    token_hash=token_hash,
+                    consumed_at__isnull=True,
+                    created_by=request.user,
+                )
                 .first()
             )
             if not oauth_state or oauth_state.expires_at <= now:
@@ -874,7 +927,10 @@ class MCPOAuthRedirectViewSet(viewsets.ViewSet):
 
     @staticmethod
     def _exchange_and_store_tokens(
-        installation: MCPServerInstallation, server: MCPServer, code: str, pkce_verifier: str
+        installation: MCPServerInstallation,
+        server: MCPServer,
+        code: str,
+        pkce_verifier: str,
     ) -> None:
         redirect_uri = _get_oauth_redirect_uri()
         token_data = exchange_dcr_token(

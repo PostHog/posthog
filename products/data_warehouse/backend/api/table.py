@@ -415,7 +415,7 @@ class TableViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if file.size > 52428800:  # 50MB in bytes
             return response.Response(
                 status=status.HTTP_400_BAD_REQUEST,
-                data={"message": f"File size exceeds maximum allowed size of 50MB"},
+                data={"message": "File size exceeds maximum allowed size of 50MB"},
             )
 
         # Create the table record

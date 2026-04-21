@@ -61,7 +61,7 @@ class TestHasLogsAPI(ClickhouseTestMixin, APIBaseTest):
 
     def test_has_logs_api_returns_false_when_no_logs(self):
         # Clean up any logs from previous tests
-        sync_execute(f"TRUNCATE TABLE IF EXISTS logs32")
+        sync_execute("TRUNCATE TABLE IF EXISTS logs32")
         cache.delete(f"team:{self.team.id}:has_logs")
 
         response = self.client.get(f"/api/projects/{self.team.id}/logs/has_logs")

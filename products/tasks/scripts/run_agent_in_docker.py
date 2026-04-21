@@ -105,7 +105,7 @@ def create_test_task(repository=None):
 
 
 def cleanup_test_data(task_id, api_key_id):
-    print(f"\nCleaning up test data...")
+    print("\nCleaning up test data...")
     with transaction.atomic():
         task = Task.objects.filter(id=task_id).first()
         if task:
@@ -176,7 +176,7 @@ def main():
 
     finally:
         if sandbox and not args.keep_sandbox:
-            print(f"\nDestroying sandbox...")
+            print("\nDestroying sandbox...")
             sandbox.destroy()
             print("✓ Sandbox destroyed")
         elif sandbox:
@@ -186,7 +186,7 @@ def main():
         if not args.no_cleanup:
             cleanup_test_data(task.id, api_key.id)
         else:
-            print(f"\n⚠ Test data not cleaned up")
+            print("\n⚠ Test data not cleaned up")
             print(f"  Task ID: {task.id}")
             print(f"  Run ID: {task_run.id}")
 
