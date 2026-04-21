@@ -75,10 +75,7 @@ class Migration(migrations.Migration):
                     f'WHERE "{field}_id" IS NOT NULL; '
                     f"-- not-null-ignore"
                 ),
-                reverse_sql=(
-                    f"DROP INDEX CONCURRENTLY IF EXISTS "
-                    f'"{_partial_unique_index_name(field)}";'
-                ),
+                reverse_sql=(f'DROP INDEX CONCURRENTLY IF EXISTS "{_partial_unique_index_name(field)}";'),
             )
             for field in NEW_RELATED_OBJECTS
         ],
@@ -91,10 +88,7 @@ class Migration(migrations.Migration):
                 f'"{_composite_unique_index_name()}" '
                 f'ON "posthog_taggeditem" ({_build_composite_columns_sql()});'
             ),
-            reverse_sql=(
-                f"DROP INDEX CONCURRENTLY IF EXISTS "
-                f'"{_composite_unique_index_name()}";'
-            ),
+            reverse_sql=(f'DROP INDEX CONCURRENTLY IF EXISTS "{_composite_unique_index_name()}";'),
         ),
         migrations.RunSQL(
             sql=(
@@ -104,8 +98,7 @@ class Migration(migrations.Migration):
                 f"-- existing-table-constraint-ignore"
             ),
             reverse_sql=(
-                f'ALTER TABLE "posthog_taggeditem" '
-                f'DROP CONSTRAINT IF EXISTS "{_composite_unique_index_name()}";'
+                f'ALTER TABLE "posthog_taggeditem" DROP CONSTRAINT IF EXISTS "{_composite_unique_index_name()}";'
             ),
         ),
     ]

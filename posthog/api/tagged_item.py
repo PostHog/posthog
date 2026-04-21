@@ -313,20 +313,14 @@ class TagViewSet(
     queryset = Tag.objects.none()
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
-        return (
-            Tag.objects.filter(team=self.team)
-            .annotate(usage_count=Count("tagged_items"))
-            .order_by("name")
-        )
+        return Tag.objects.filter(team=self.team).annotate(usage_count=Count("tagged_items")).order_by("name")
 
     def list(self, request, *args, **kwargs) -> response.Response:
         # Legacy shape: `?shape=names` returns a flat list of tag names. This
         # matches the pre-TagViewSet behaviour — keep it alive until every
         # caller migrates.
         if request.query_params.get("shape") == "names":
-            return response.Response(
-                Tag.objects.filter(team=self.team).values_list("name", flat=True).distinct()
-            )
+            return response.Response(Tag.objects.filter(team=self.team).values_list("name", flat=True).distinct())
         return super().list(request, *args, **kwargs)
 
     @extend_schema(
@@ -385,9 +379,7 @@ class TagViewSet(
 
         target_tag.refresh_from_db()
         return response.Response(
-            TagSerializer(
-                Tag.objects.filter(pk=target_tag.pk).annotate(usage_count=Count("tagged_items")).first()
-            ).data
+            TagSerializer(Tag.objects.filter(pk=target_tag.pk).annotate(usage_count=Count("tagged_items")).first()).data
         )
 
 
