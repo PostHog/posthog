@@ -524,6 +524,26 @@ class TestGetOrCreateCimdProvisioningApplication(APIBaseTest):
         with self.assertRaises(CIMDFetchError):
             get_or_create_cimd_provisioning_application(VALID_CIMD_URL)
 
+    def test_blocked_url_returns_none(self, _url_mock):
+        from posthog.api.oauth.cimd import block_cimd_url, unblock_cimd_url
+
+        block_cimd_url(VALID_CIMD_URL)
+        result = get_or_create_cimd_provisioning_application(VALID_CIMD_URL)
+        self.assertIsNone(result)
+
+        unblock_cimd_url(VALID_CIMD_URL)
+
+    @patch("posthog.api.oauth.cimd.requests.get")
+    def test_blocked_url_prevents_fetch(self, mock_get, _url_mock):
+        from posthog.api.oauth.cimd import block_cimd_url, unblock_cimd_url
+
+        block_cimd_url(VALID_CIMD_URL)
+        result = fetch_and_upsert_cimd_application(VALID_CIMD_URL)
+        self.assertIsNone(result)
+        mock_get.assert_not_called()
+
+        unblock_cimd_url(VALID_CIMD_URL)
+
 
 @override_settings(
     OAUTH2_PROVIDER={

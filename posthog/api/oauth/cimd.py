@@ -138,13 +138,33 @@ def is_cimd_client_id(client_id: str | None) -> bool:
 
 
 def _cache_key(url: str) -> str:
-    hash = hashlib.sha256(url.encode()).hexdigest()
-    return f"cimd:metadata:{hash}"
+    url_hash = hashlib.sha256(url.encode()).hexdigest()
+    return f"cimd:metadata:{url_hash}"
 
 
 def _fetch_lock_key(url: str) -> str:
-    hash = hashlib.sha256(url.encode()).hexdigest()
-    return f"cimd:fetching:{hash}"
+    url_hash = hashlib.sha256(url.encode()).hexdigest()
+    return f"cimd:fetching:{url_hash}"
+
+
+def _blocked_key(url: str) -> str:
+    url_hash = hashlib.sha256(url.encode()).hexdigest()
+    return f"cimd:blocked:{url_hash}"
+
+
+def block_cimd_url(url: str, ttl: int = 86400 * 365) -> None:
+    """Add a CIMD URL to the blocklist. Used by admin to prevent re-registration after deletion."""
+    cache.set(_blocked_key(url), True, timeout=ttl)
+
+
+def unblock_cimd_url(url: str) -> None:
+    """Remove a CIMD URL from the blocklist."""
+    cache.delete(_blocked_key(url))
+
+
+def is_cimd_url_blocked(url: str) -> bool:
+    """Check if a CIMD URL has been blocklisted."""
+    return bool(cache.get(_blocked_key(url)))
 
 
 def _parse_cache_ttl(response: requests.Response) -> int:
@@ -338,6 +358,10 @@ def fetch_and_upsert_cimd_application(url: str, capture_ph_event=posthoganalytic
 
     Used by both synchronous (new client) and asynchronous (stale refresh) paths.
     """
+    if is_cimd_url_blocked(url):
+        logger.warning("cimd_blocked_url_fetch_attempt", url=url)
+        return None
+
     fetch_lock = _fetch_lock_key(url)
     if not cache.add(fetch_lock, True, timeout=CIMD_FETCH_TIMEOUT_SECONDS * 3):
         return None
@@ -455,7 +479,7 @@ CIMD_PROVISIONING_DEFAULTS = {
 }
 
 
-def get_or_create_cimd_provisioning_application(url: str) -> OAuthApplication:
+def get_or_create_cimd_provisioning_application(url: str) -> OAuthApplication | None:
     """
     Resolve a CIMD URL to an OAuthApplication configured as a provisioning partner.
 
@@ -463,8 +487,13 @@ def get_or_create_cimd_provisioning_application(url: str) -> OAuthApplication:
     then backfills provisioning defaults if they haven't been set. Existing apps
     that already have provisioning fields configured (e.g. via admin) are left alone.
 
+    Returns None if the URL is blocklisted.
     Raises CIMDFetchError / CIMDValidationError on fetch failures.
     """
+    if is_cimd_url_blocked(url):
+        logger.warning("cimd_blocked_url", url=url)
+        return None
+
     app = get_or_create_cimd_application(url)
     if not app.is_provisioning_partner:
         for field, value in CIMD_PROVISIONING_DEFAULTS.items():
