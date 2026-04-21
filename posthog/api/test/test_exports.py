@@ -985,7 +985,7 @@ class TestExports(APIBaseTest):
                 25,
             ),
             (
-                "enterprise_no_recordings_feature",
+                "enterprise_via_saml_only",
                 [{"key": "saml", "name": "SAML"}],
                 25,
             ),

@@ -1,5 +1,5 @@
 from datetime import timedelta
-from typing import Any
+from typing import Any, Literal
 
 from django.conf import settings
 from django.http import HttpResponse
@@ -32,7 +32,11 @@ from posthog.temporal.exports.workflows import ExportAssetWorkflow, ExportAssetW
 from posthog.temporal.session_replay.rasterize_recording.types import RasterizeRecordingInputs
 
 # Full video exports per team per calendar month, tiered by plan.
-FULL_VIDEO_EXPORTS_LIMIT_BY_TIER: dict[str, int] = {"free": 10, "paid": 15, "enterprise": 25}
+FULL_VIDEO_EXPORTS_LIMIT_BY_TIER: dict[Literal["free", "paid", "enterprise"], int] = {
+    "free": 10,
+    "paid": 15,
+    "enterprise": 25,
+}
 
 
 def get_full_video_exports_limit_for_organization(organization: Organization | None) -> int:

@@ -73,11 +73,11 @@ class TestGetCachedOrgTier(BaseTest):
 
         get_cached_org_tier(self.team.pk)
 
-        cached_value = cache.get(f"replay_org_tier_{self.team.pk}")
+        cached_value = cache.get(f"replay_org_tier_v2_{self.team.pk}")
         assert cached_value == "paid"
 
     def test_uses_cached_value_on_second_call(self) -> None:
-        cache.set(f"replay_org_tier_{self.team.pk}", "enterprise", REPLAY_TIER_CACHE_TTL_SECONDS)
+        cache.set(f"replay_org_tier_v2_{self.team.pk}", "enterprise", REPLAY_TIER_CACHE_TTL_SECONDS)
 
         self.organization.available_product_features = None
         self.organization.save()
