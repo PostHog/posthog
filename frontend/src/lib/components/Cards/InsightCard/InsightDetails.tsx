@@ -1,8 +1,17 @@
 import { useValues } from 'kea'
 import React from 'react'
 
-import { IconCalculator, IconCalendar, IconCode2, IconFilter, IconPencil, IconSort, IconUser } from '@posthog/icons'
-import { Lettermark, LettermarkColor } from '@posthog/lemon-ui'
+import {
+    IconCalculator,
+    IconCalendar,
+    IconCode2,
+    IconFilter,
+    IconPencil,
+    IconSort,
+    IconUser,
+    IconWarning,
+} from '@posthog/icons'
+import { Lettermark, LettermarkColor, Tooltip } from '@posthog/lemon-ui'
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { convertPropertiesToPropertyGroup } from 'lib/components/PropertyFilters/utils'
@@ -36,6 +45,8 @@ import {
     TrendsFormulaNode,
     TrendsQuery,
     AnyDataWarehouseNode,
+    DashboardFilter,
+    TileFilters,
 } from '~/queries/schema/schema-general'
 import {
     isActionsNode,
@@ -338,6 +349,18 @@ export function PropertiesSummary({
     )
 }
 
+export function PropertiesIgnoredWarning(): JSX.Element {
+    return (
+        <InsightDetailSectionDisplay icon={<IconFilter />} label="Filters">
+            <Tooltip title="Filter overrides are not applied. Insights with a data warehouse series do not support filters.">
+                <div className="flex items-center gap-1 text-warning italic">
+                    <IconWarning /> Filter overrides ignored (data warehouse series).
+                </div>
+            </Tooltip>
+        </InsightDetailSectionDisplay>
+    )
+}
+
 export function VariablesSummary({
     variables,
     variablesOverride,
@@ -449,13 +472,18 @@ interface InsightDetailsProps {
         last_refresh: string | null
     }
     variablesOverride?: Record<string, HogQLVariable>
+    filtersOverride?: DashboardFilter | null
+    tileFiltersOverride?: TileFilters | null
+    hasDataWarehouseSeries?: boolean
 }
 
 export const InsightDetails = React.memo(
     React.forwardRef<HTMLDivElement, InsightDetailsProps>(function InsightDetailsInternal(
-        { query, footerInfo, variablesOverride },
+        { query, footerInfo, variablesOverride, filtersOverride, tileFiltersOverride, hasDataWarehouseSeries },
         ref
     ): JSX.Element {
+        const hasPropertyOverrides = !!filtersOverride?.properties?.length || !!tileFiltersOverride?.properties?.length
+
         return (
             <div className="InsightDetails space-y-2" ref={ref}>
                 {(isInsightVizNode(query) ||
@@ -467,11 +495,17 @@ export const InsightDetails = React.memo(
                             variables={isHogQLQuery(query.source) ? query.source.variables : undefined}
                             variablesOverride={variablesOverride}
                         />
-                        <PropertiesSummary
-                            properties={
-                                isHogQLQuery(query.source) ? query.source.filters?.properties : query.source.properties
-                            }
-                        />
+                        {hasDataWarehouseSeries && hasPropertyOverrides ? (
+                            <PropertiesIgnoredWarning />
+                        ) : (
+                            <PropertiesSummary
+                                properties={
+                                    isHogQLQuery(query.source)
+                                        ? query.source.filters?.properties
+                                        : query.source.properties
+                                }
+                            />
+                        )}
                         <InsightBreakdownSummary query={query.source} />
                     </>
                 )}

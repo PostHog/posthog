@@ -335,17 +335,23 @@ class ExperimentQueryRunner(QueryRunner):
         ):
             modifiers.sessionIdPushdown = True
 
+        settings = HogQLGlobalSettings(
+            max_execution_time=self.max_execution_time,
+            enable_analyzer=True,
+            max_bytes_before_external_group_by=MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY,
+        )
+        # Mean metric queries join exposures with a potentially large metric-events table and
+        # can exceed memory with the default hash join. grace_hash spills to disk when needed.
+        if isinstance(self.metric, ExperimentMeanMetric):
+            settings.join_algorithm = "grace_hash"
+
         response = execute_hogql_query(
             query_type="ExperimentQuery",
             query=experiment_query_ast,
             team=self.team,
             timings=self.timings,
             modifiers=modifiers,
-            settings=HogQLGlobalSettings(
-                max_execution_time=self.max_execution_time,
-                enable_analyzer=True,
-                max_bytes_before_external_group_by=MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY,
-            ),
+            settings=settings,
             workload=self.workload,
         )
 

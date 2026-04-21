@@ -1,11 +1,11 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
-        "evaluationId": {
-            "description": "The UUID of the evaluation to retrieve.",
+        "id": {
+            "description": "A UUID string identifying this evaluation.",
             "type": "string"
         }
     },
-    "required": ["evaluationId"],
+    "required": ["id"],
     "type": "object"
 }

@@ -1244,6 +1244,21 @@
             "readOnlyHint": true
         }
     },
+    "error-tracking-suppression-rules-create": {
+        "description": "Create an error tracking suppression rule for the current project. Provide optional `filters` and optional `sampling_rate`; omit `filters` to create a match-all suppression rule.",
+        "category": "Error tracking",
+        "feature": "error_tracking",
+        "summary": "Create error tracking suppression rule",
+        "title": "Create error tracking suppression rule",
+        "required_scopes": ["error_tracking:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "query-error-tracking-issues": {
         "description": "Query error tracking issues to find, filter, and inspect errors in the project. Returns aggregated metrics per issue including occurrence count, affected users, sessions, and volume data.\n\nUse 'read-data-schema' to discover available events, actions, and properties for filters.\n\nThis is a unified query tool — use it both to list issues and to get details on a specific issue:\n\n- **List issues**: omit `issueId` to get a filtered, sorted list of error tracking issues.\n- **Get issue details**: provide `issueId` to get aggregated metrics for a single issue.\n\nUse `error-tracking-issues-retrieve` to get the full issue model (description, assignee, external references) and `error-tracking-issues-partial-update` to change status or assignee.\n\nCRITICAL: Be minimalist. Only include filters and settings that are essential to answer the user's specific question. Default settings are usually sufficient unless the user explicitly requests customization.\n\n# Data narrowing\n\n## Property filters\n\nUse property filters via the `filterGroup` field to narrow results. Only include property filters when they are essential to directly answer the user's question. Avoid adding them if the question can be addressed without additional filtering and always use the minimum set of property filters needed.\n\nIMPORTANT: Do not check if a property is set unless the user explicitly asks for it.\n\nWhen using a property filter, you should:\n\n- **Prioritize properties directly related to the context or objective of the user's query.** Avoid using properties for identification like IDs. Instead, prioritize filtering based on general properties like `$browser`, `$os`, or `$geoip_country_code`.\n- **Ensure that you find both the property group and name.** Property groups should be one of the following: event, person, session, group.\n- After selecting a property, **validate that the property value accurately reflects the intended criteria**.\n- **Find the suitable operator for type** (e.g., `contains`, `is set`).\n- If the operator requires a value, use the `read-data-schema` tool to find the property values.\n\nInfer the property groups from the user's request. If your first guess doesn't yield any results, try to adjust the property group.\n\nSupported operators for the String type are:\n\n- equals (exact)\n- doesn't equal (is_not)\n- contains (icontains)\n- doesn't contain (not_icontains)\n- matches regex (regex)\n- doesn't match regex (not_regex)\n- is set\n- is not set\n\nSupported operators for the Numeric type are:\n\n- equals (exact)\n- doesn't equal (is_not)\n- greater than (gt)\n- less than (lt)\n- is set\n- is not set\n\nSupported operators for the DateTime type are:\n\n- equals (is_date_exact)\n- doesn't equal (is_not for existence check)\n- before (is_date_before)\n- after (is_date_after)\n- is set\n- is not set\n\nSupported operators for the Boolean type are:\n\n- equals\n- doesn't equal\n- is set\n- is not set\n\nAll operators take a single value except for `equals` and `doesn't equal` which can take one or more values (as an array).\n\n## Time period\n\nYou should not filter events by time using property filters. Instead, use the `dateRange` field. If the question doesn't mention time, the default is the last 7 days.\n\n# Parameters\n\n## issueId (optional)\n\nWhen provided, returns aggregated metrics for a single error tracking issue. When omitted, returns a paginated list of issues matching the filters.\n\n## status\n\nFilter by issue status. Available values: `active`, `resolved`, `suppressed`, `pending_release`, `archived`, `all`. Defaults to `active`.\n\n## orderBy\n\nField to sort results by: `occurrences`, `last_seen`, `first_seen`, `users`, `sessions`. Defaults to `occurrences`.\n\n## searchQuery\n\nFree-text search across exception type, message, and stack frames. Use this when the user is looking for a specific error by name or message content.\n\n## assignee\n\nFilter issues by assignee. The value is a user ID. Use this when the user asks to see errors assigned to a specific person.\n\n## filterGroup\n\nA flat list of property filters to narrow results. Each filter specifies a property key, operator, type (event/person/session/group), and value. See the \"Property filters\" section above for usage guidelines and supported operators.\n\n## volumeResolution\n\nControls the granularity of the volume chart data returned with each issue. Use `1` (default) for list views where you want a volume sparkline. Use `0` when you only need aggregate counts without volume data.\n\n## dateRange\n\nDate range to filter results. Defaults to the last 7 days (`-7d`).\n\n- `date_from`: Start of the range. Accepts ISO 8601 timestamps (e.g., `2024-01-15T00:00:00Z`) or relative formats: `-7d`, `-2w`, `-1m`, `-1h`, `-1mStart`, `-1yStart`.\n- `date_to`: End of the range. Same format. Omit or null for \"now\".\n\n## limit / offset\n\nPagination controls. `limit` defaults to 50.\n\n# Examples\n\n## List all active errors sorted by occurrence count\n\n```json\n{}\n```\n\nAll defaults apply: `status: \"active\"`, `orderBy: \"occurrences\"`, `dateRange: { \"date_from\": \"-7d\" }`.\n\n## Search for a specific error\n\n```json\n{\n  \"searchQuery\": \"TypeError: Cannot read property\",\n  \"limit\": 10\n}\n```\n\n## Get details for a specific issue\n\n```json\n{\n  \"issueId\": \"01234567-89ab-cdef-0123-456789abcdef\",\n  \"volumeResolution\": 0\n}\n```\n\n## List resolved errors from the last 30 days\n\n```json\n{\n  \"status\": \"resolved\",\n  \"dateRange\": { \"date_from\": \"-30d\" },\n  \"orderBy\": \"last_seen\"\n}\n```\n\n## Find most recent errors\n\n```json\n{\n  \"orderBy\": \"first_seen\",\n  \"orderDirection\": \"DESC\",\n  \"dateRange\": { \"date_from\": \"-24h\" }\n}\n```\n\n## Errors from Chrome users only\n\n```json\n{\n  \"filterGroup\": [{ \"key\": \"$browser\", \"operator\": \"exact\", \"type\": \"event\", \"value\": [\"Chrome\"] }]\n}\n```\n\n## Errors from US users in the last 30 days\n\n```json\n{\n  \"filterGroup\": [{ \"key\": \"$geoip_country_code\", \"operator\": \"exact\", \"type\": \"event\", \"value\": [\"US\"] }],\n  \"dateRange\": { \"date_from\": \"-30d\" }\n}\n```\n\n# Reminders\n\n- Ensure that any properties included are directly relevant to the context and objectives of the user's question. Avoid unnecessary or unrelated details.\n- Avoid overcomplicating the response with excessive property filters. Focus on the simplest solution.",
         "category": "Error tracking",
@@ -1257,6 +1272,186 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
+        }
+    },
+    "evaluation-reports-list": {
+        "description": "List all evaluation report configurations for the current project. Optionally filter by evaluation UUID using the 'evaluation' query param. Each report config controls how and when evaluation summary reports are generated and delivered (email or Slack).",
+        "category": "LLM analytics",
+        "feature": "llm_analytics",
+        "summary": "List evaluation report configs",
+        "title": "List evaluation report configs",
+        "required_scopes": ["llm_analytics:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "evaluation-report-get": {
+        "description": "Get a specific evaluation report configuration by UUID. Returns the full config including frequency, delivery targets, trigger thresholds, and schedule settings.",
+        "category": "LLM analytics",
+        "feature": "llm_analytics",
+        "summary": "Get evaluation report config",
+        "title": "Get evaluation report config",
+        "required_scopes": ["llm_analytics:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "evaluation-report-update": {
+        "description": "Partially update an evaluation report configuration. Toggle enabled/disabled, update delivery targets (email or Slack), change frequency ('every_n' or 'scheduled'), set trigger_threshold and cooldown_minutes for every_n mode, or set rrule/starts_at for scheduled mode. Set deleted=true to soft-delete the config.",
+        "category": "LLM analytics",
+        "feature": "llm_analytics",
+        "summary": "Update evaluation report config",
+        "title": "Update evaluation report config",
+        "required_scopes": ["llm_analytics:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "evaluation-report-generate": {
+        "description": "Immediately trigger an AI-generated evaluation report for this report config. Enqueues a Temporal workflow that analyzes recent evaluation runs and delivers the report to configured targets (email or Slack). Returns 202 on success. Duplicate requests within the same minute are coalesced — only one report is generated. Rate-limited by daily_run_cap.",
+        "category": "LLM analytics",
+        "feature": "llm_analytics",
+        "summary": "Trigger evaluation report generation",
+        "title": "Trigger evaluation report generation",
+        "required_scopes": ["llm_analytics:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "evaluation-report-runs-list": {
+        "description": "List the run history for a specific evaluation report config. Each run record includes the generated report content, the evaluation period covered, delivery status ('pending', 'delivered', 'failed'), and any delivery error details.",
+        "category": "LLM analytics",
+        "feature": "llm_analytics",
+        "summary": "List evaluation report runs",
+        "title": "List evaluation report runs",
+        "required_scopes": ["llm_analytics:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "evaluations-get": {
+        "description": "List all LLM evaluations for the current project. Optionally filter by name/description search or enabled status. Evaluations automatically score $ai_generation events for quality, relevance, safety, and other criteria. Two types are supported: 'llm_judge' (LLM scores outputs against a prompt) and 'hog' (deterministic Hog code). Results are stored as '$ai_evaluation' events.",
+        "category": "LLM analytics",
+        "feature": "llm_analytics",
+        "summary": "List evaluations",
+        "title": "List evaluations",
+        "required_scopes": ["evaluation:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "evaluation-get": {
+        "description": "Get a specific LLM evaluation by its UUID. Returns the full evaluation configuration including type, config, output type, enabled status, and model configuration.",
+        "category": "LLM analytics",
+        "feature": "llm_analytics",
+        "summary": "Get evaluation",
+        "title": "Get evaluation",
+        "required_scopes": ["evaluation:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "evaluation-create": {
+        "description": "Create a new LLM evaluation. For 'llm_judge' type, provide evaluation_config.prompt and model_configuration (provider + model). For 'hog' type, provide evaluation_config.source (Hog code returning a boolean). When enabled, the evaluation runs automatically on new $ai_generation events. Results appear as '$ai_evaluation' events.",
+        "category": "LLM analytics",
+        "feature": "llm_analytics",
+        "summary": "Create evaluation",
+        "title": "Create evaluation",
+        "required_scopes": ["evaluation:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "evaluation-update": {
+        "description": "Update an existing LLM evaluation (partial update). Toggle enabled/disabled, update the evaluation config (prompt or Hog source), or change the model configuration.",
+        "category": "LLM analytics",
+        "feature": "llm_analytics",
+        "summary": "Update evaluation",
+        "title": "Update evaluation",
+        "required_scopes": ["evaluation:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "evaluation-delete": {
+        "description": "Soft-delete an LLM evaluation. The evaluation stops running and is hidden from list views. Historical evaluation results ($ai_evaluation events) are preserved.",
+        "category": "LLM analytics",
+        "feature": "llm_analytics",
+        "summary": "Delete evaluation",
+        "title": "Delete evaluation",
+        "required_scopes": ["evaluation:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "evaluation-test-hog": {
+        "description": "Test Hog evaluation source code against a sample of recent $ai_generation events without saving. Returns per-event results (pass/fail/N/A), reasoning, and input/output previews. Use this to validate Hog code before creating or updating a 'hog' type evaluation.",
+        "category": "LLM analytics",
+        "feature": "llm_analytics",
+        "summary": "Test Hog evaluation code",
+        "title": "Test Hog evaluation code",
+        "required_scopes": ["evaluation:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "evaluation-run": {
+        "description": "Manually trigger an evaluation run for a specific $ai_generation event. Enqueues a Temporal workflow that asynchronously executes the evaluation and stores the result as a '$ai_evaluation' event. Returns a workflow_id and status \"started\". Pair with execute-sql to query results: SELECT * FROM events WHERE event = '$ai_evaluation'.",
+        "category": "LLM analytics",
+        "feature": "llm_analytics",
+        "summary": "Run evaluation",
+        "title": "Run evaluation",
+        "required_scopes": ["evaluation:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
         }
     },
     "experiment-get-all": {
@@ -1844,6 +2039,86 @@
             "openWorldHint": true,
             "readOnlyHint": true
         }
+    },
+    "logs-alerts-list": {
+        "description": "List log alert configurations in the current project, newest first. Returns alert name, state, threshold, filters, and scheduling details. Use this to review existing alerts before creating or modifying them.",
+        "category": "Logs",
+        "feature": "logs",
+        "summary": "List log alerts",
+        "title": "List log alerts",
+        "required_scopes": ["logs:read"],
+        "new_mcp": false,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "logs-alerting"
+    },
+    "logs-alerts-create": {
+        "description": "Create a threshold-based alert on log streams. The alert periodically counts log entries matching the given filters and fires when the count crosses the threshold. Maximum 20 alerts per project.",
+        "category": "Logs",
+        "feature": "logs",
+        "summary": "Create log alert",
+        "title": "Create log alert",
+        "required_scopes": ["logs:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "logs-alerting"
+    },
+    "logs-alerts-retrieve": {
+        "description": "Get a log alert configuration by ID. Returns full details including current state, threshold settings, filters, and scheduling information.",
+        "category": "Logs",
+        "feature": "logs",
+        "summary": "Get log alert",
+        "title": "Get log alert",
+        "required_scopes": ["logs:read"],
+        "new_mcp": false,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "logs-alerting"
+    },
+    "logs-alerts-partial-update": {
+        "description": "Update a log alert configuration by ID. Only the fields you provide are changed. Use this to adjust thresholds, filters, enable/disable alerts, or snooze them.",
+        "category": "Logs",
+        "feature": "logs",
+        "summary": "Update log alert",
+        "title": "Update log alert",
+        "required_scopes": ["logs:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "logs-alerting"
+    },
+    "logs-alerts-destroy": {
+        "description": "Permanently delete a log alert configuration by ID.",
+        "category": "Logs",
+        "feature": "logs",
+        "summary": "Delete log alert",
+        "title": "Delete log alert",
+        "required_scopes": ["logs:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "logs-alerting"
     },
     "logs-sparkline-query": {
         "description": "Get a time-bucketed sparkline of log volume, broken down by severity or service. Use this to understand log volume patterns before querying individual log entries — it is much cheaper than a full log query.\n\nAll parameters must be nested inside a `query` object.\n\n# Parameters\n\n## query.dateRange\n\nDate range for the sparkline. Defaults to the last hour (`-1h`).\n\n- `date_from`: Start of the range. Accepts ISO 8601 timestamps or relative formats: `-1h`, `-6h`, `-1d`, `-7d`.\n- `date_to`: End of the range. Same format. Omit or null for \"now\".\n\n## query.serviceNames\n\nFilter by service names.\n\n## query.severityLevels\n\nFilter by log severity: `trace`, `debug`, `info`, `warn`, `error`, `fatal`. Omit to include all levels.\n\n## query.searchTerm\n\nFull-text search across log bodies.\n\n## query.filterGroup\n\nProperty filters to narrow results. Same format as `query-logs` filters.\n\n## query.sparklineBreakdownBy\n\nBreak down the sparkline by `\"severity\"` (default) or `\"service\"`. Use `\"service\"` to see which services are producing the most logs.\n\n# Examples\n\n## Error volume over the last day\n\n```json\n{\n  \"query\": {\n    \"serviceNames\": [\"api-gateway\"],\n    \"severityLevels\": [\"error\", \"fatal\"],\n    \"dateRange\": { \"date_from\": \"-1d\" }\n  }\n}\n```\n\n## Log volume by service\n\n```json\n{\n  \"query\": {\n    \"serviceNames\": [\"api-gateway\"],\n    \"sparklineBreakdownBy\": \"service\",\n    \"dateRange\": { \"date_from\": \"-6h\" }\n  }\n}\n```\n\n## Log volume by severity\n\n```json\n{\n  \"query\": {\n    \"serviceNames\": [\"api-gateway\"],\n    \"sparklineBreakdownBy\": \"severity\",\n    \"dateRange\": { \"date_from\": \"-1d\" }\n  }\n}\n```",
