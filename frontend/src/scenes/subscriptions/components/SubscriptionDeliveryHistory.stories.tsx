@@ -12,6 +12,11 @@ import { MOCK_SUBSCRIPTION_DELIVERIES } from './subscriptionStoryFixtures'
 const noopLoadPage = (): void => undefined
 const noopTestDelivery = (): void => undefined
 
+// Storybook can't reach the real exports endpoint. Point all preview image lookups at a bundled asset so the
+// visual regression snapshot is deterministic.
+const STORYBOOK_ASSET_PLACEHOLDER = '/static/blank-dashboard-hog.png'
+const buildMockAssetImageUrl = (): string => STORYBOOK_ASSET_PLACEHOLDER
+
 const meta: Meta<typeof SubscriptionDeliveryHistory> = {
     component: SubscriptionDeliveryHistory,
     title: 'Scenes-App/Subscriptions/Subscription delivery history',
@@ -48,6 +53,7 @@ export const WithDeliveries: Story = {
                 deliveryStatusFilter={deliveryStatusFilter}
                 onDeliveryStatusFilterChange={setDeliveryStatusFilter}
                 onTestDelivery={noopTestDelivery}
+                buildAssetImageUrl={buildMockAssetImageUrl}
             />
         )
     },
@@ -64,6 +70,7 @@ export const WithExpandedSummary: Story = {
         loadDeliveriesPage: noopLoadPage,
         onTestDelivery: noopTestDelivery,
         initiallyExpandedDeliveryIds: EXPANDED_SUMMARY_STORY_IDS,
+        buildAssetImageUrl: buildMockAssetImageUrl,
     },
 }
 
@@ -74,5 +81,6 @@ export const Empty: Story = {
         loadDeliveriesPage: noopLoadPage,
         onTestDelivery: noopTestDelivery,
         testDeliveryLoading: false,
+        buildAssetImageUrl: buildMockAssetImageUrl,
     },
 }

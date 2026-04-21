@@ -120,6 +120,9 @@ export function SubscriptionScene({ tabId }: SceneProps): JSX.Element {
                                 testDeliveryLoading={Boolean(
                                     subscription && deliveringSubscriptionId === subscription.id
                                 )}
+                                buildAssetImageUrl={(assetId) =>
+                                    `/api/environments/${String(getCurrentTeamId())}/exports/${assetId}/content/`
+                                }
                             />
                         ) : null}
                     </div>

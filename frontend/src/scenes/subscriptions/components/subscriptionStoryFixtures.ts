@@ -104,7 +104,7 @@ export const MOCK_SUBSCRIPTION_DELIVERIES: SubscriptionDeliveryApi[] = [
         target_type: 'email',
         target_value:
             'matt.p@posthog.com, rollups@posthog.com, exec@posthog.com, analytics@posthog.com, oncall@posthog.com',
-        exported_asset_ids: [],
+        exported_asset_ids: [101, 102, 103],
         content_snapshot: {},
         recipient_results: [],
         status: SubscriptionDeliveryStatusEnumApi.Completed,

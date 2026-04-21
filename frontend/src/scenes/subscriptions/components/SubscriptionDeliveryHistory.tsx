@@ -69,37 +69,73 @@ function deliveryTriggerLabel(triggerType: string): string {
 /** LemonTag and text cells share a row height; middle-align `td` so badges line up with copy. */
 const DELIVERY_TABLE_CELL_CLASS = 'align-middle'
 
-function ExpandedSummaryRow({ summary }: { summary: string }): JSX.Element {
+/** URL builder for an ExportedAsset preview image. Injected so storybook can point at a static asset. */
+export type BuildAssetImageUrl = (assetId: number) => string
+
+function ExpandedDeliveryRow({
+    summary,
+    exportedAssetIds,
+    buildAssetImageUrl,
+}: {
+    summary: string | null
+    exportedAssetIds: readonly number[]
+    buildAssetImageUrl: BuildAssetImageUrl
+}): JSX.Element {
     return (
-        <div className="px-4 py-3 text-sm whitespace-pre-wrap">
-            <div className="text-xs font-semibold uppercase tracking-wide text-secondary mb-1">AI summary</div>
-            {summary}
+        <div className="px-4 py-3 flex flex-col gap-3">
+            {summary ? (
+                <div className="text-sm whitespace-pre-wrap">
+                    <div className="text-xs font-semibold uppercase tracking-wide text-secondary mb-1">AI summary</div>
+                    {summary}
+                </div>
+            ) : null}
+            {exportedAssetIds.length > 0 ? (
+                <div className="flex flex-col gap-1">
+                    <div className="text-xs font-semibold uppercase tracking-wide text-secondary">Delivered assets</div>
+                    <div className="grid grid-cols-[repeat(auto-fill,minmax(14rem,1fr))] gap-2">
+                        {exportedAssetIds.map((assetId) => (
+                            <img
+                                key={assetId}
+                                src={buildAssetImageUrl(assetId)}
+                                alt={`Delivered asset ${assetId}`}
+                                loading="lazy"
+                                className="w-full h-auto rounded border border-border bg-bg-light"
+                            />
+                        ))}
+                    </div>
+                </div>
+            ) : null}
         </div>
     )
 }
 
-function deliverySummaryText(row: SubscriptionDeliveryApi): string | null {
-    return row.change_summary?.summary ?? null
+function rowHasExpandedContent(row: SubscriptionDeliveryApi): boolean {
+    return Boolean(row.change_summary) || row.exported_asset_ids.length > 0
 }
 
-// Module-scope const keeps the reference stable across parent re-renders.
-const DELIVERY_TABLE_EXPANDABLE = {
-    rowExpandable: (row: SubscriptionDeliveryApi) => Boolean(deliverySummaryText(row)),
-    // rowExpandable above guarantees deliverySummaryText returns a non-null string when this fires.
-    expandedRowRender: (row: SubscriptionDeliveryApi) => (
-        <ExpandedSummaryRow summary={deliverySummaryText(row) as string} />
-    ),
-}
-
-// When a test or story wants a row visible in its expanded state on first render.
-function buildExpandable(initiallyExpandedDeliveryIds?: ReadonlySet<string>): typeof DELIVERY_TABLE_EXPANDABLE & {
+function buildExpandable(
+    buildAssetImageUrl: BuildAssetImageUrl,
+    initiallyExpandedDeliveryIds?: ReadonlySet<string>
+): {
+    rowExpandable: (row: SubscriptionDeliveryApi) => boolean
+    expandedRowRender: (row: SubscriptionDeliveryApi) => JSX.Element
     isRowExpanded?: (row: SubscriptionDeliveryApi) => number
 } {
+    const base = {
+        rowExpandable: rowHasExpandedContent,
+        expandedRowRender: (row: SubscriptionDeliveryApi) => (
+            <ExpandedDeliveryRow
+                summary={row.change_summary?.summary ?? null}
+                exportedAssetIds={row.exported_asset_ids}
+                buildAssetImageUrl={buildAssetImageUrl}
+            />
+        ),
+    }
     if (!initiallyExpandedDeliveryIds || initiallyExpandedDeliveryIds.size === 0) {
-        return DELIVERY_TABLE_EXPANDABLE
+        return base
     }
     return {
-        ...DELIVERY_TABLE_EXPANDABLE,
+        ...base,
         isRowExpanded: (row) => (initiallyExpandedDeliveryIds.has(row.id) ? 1 : -1),
     }
 }
@@ -252,6 +288,8 @@ export type SubscriptionDeliveryHistoryProps = {
     testDeliveryLoading?: boolean
     /** Delivery ids whose AI summary row should render pre-expanded (used by storybook visual tests). */
     initiallyExpandedDeliveryIds?: ReadonlySet<string>
+    /** Given an ExportedAsset id, return the image URL to render in the expanded row. */
+    buildAssetImageUrl: BuildAssetImageUrl
 }
 
 export function SubscriptionDeliveryHistory({
@@ -263,6 +301,7 @@ export function SubscriptionDeliveryHistory({
     onTestDelivery,
     testDeliveryLoading = false,
     initiallyExpandedDeliveryIds,
+    buildAssetImageUrl,
 }: SubscriptionDeliveryHistoryProps): JSX.Element {
     const rowCount = deliveriesPage?.results.length ?? 0
     const hasPagination = Boolean(deliveriesPage?.next || deliveriesPage?.previous)
@@ -273,7 +312,7 @@ export function SubscriptionDeliveryHistory({
         (deliveryStatusFilter != null && deliveriesPage != null)
     const showStatusFilter = Boolean(onDeliveryStatusFilterChange)
     const tableEmptyState = deliveryStatusFilter != null ? 'No deliveries match this filter' : 'No deliveries yet'
-    const expandable = buildExpandable(initiallyExpandedDeliveryIds)
+    const expandable = buildExpandable(buildAssetImageUrl, initiallyExpandedDeliveryIds)
 
     return (
         <>
