@@ -50,10 +50,7 @@ Map `kind` to the playbook file:
 | `RetentionQuery`  | [retention-playbook.md](./references/retention-playbook.md)   |
 | `StickinessQuery` | [stickiness-playbook.md](./references/stickiness-playbook.md) |
 | `LifecycleQuery`  | [lifecycle-playbook.md](./references/lifecycle-playbook.md)   |
-
-`PathsQuery` is rarely the "metric" in a changed-metric investigation — paths describes behavior
-between events rather than a metric that moves. Treat the path's end event as the metric and use
-the Trend playbook.
+| `PathsQuery`      | [paths-playbook.md](./references/paths-playbook.md)           |
 
 ### If the user hasn't pointed at anything
 
@@ -196,6 +193,7 @@ Include direct links where useful: `[Insight: name](/insights/short_id)`, `[Dash
   - [retention-playbook.md](./references/retention-playbook.md)
   - [stickiness-playbook.md](./references/stickiness-playbook.md)
   - [lifecycle-playbook.md](./references/lifecycle-playbook.md)
+  - [paths-playbook.md](./references/paths-playbook.md)
 - [shared-patterns.md](./references/shared-patterns.md) — reusable recipes used across
   playbooks (property discovery, breakdown dimensions, interval zoom, actor drilldown,
   session recordings, error cross-check, `execute-sql` escape hatch).
