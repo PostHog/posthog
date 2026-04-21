@@ -244,7 +244,7 @@ def concepts() -> None:
 
 
 def _register_script_commands() -> None:
-    """Dynamically register commands from scripts_manifest.yaml.
+    """Dynamically register commands from hogli.yaml.
 
     Supports three types of entries:
     1. bin_script: Delegate to a shell script (in config.scripts_dir, default: bin/)

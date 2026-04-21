@@ -9,17 +9,7 @@ import argparse
 from pathlib import Path
 
 import click
-
-# scripts/ -> hogli/ -> tools/ -> repo root
-REPO_ROOT = Path(__file__).resolve().parents[3]
-COMMON_DIR = REPO_ROOT / "common"
-
-if str(REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(REPO_ROOT))
-if str(COMMON_DIR) not in sys.path:
-    sys.path.insert(0, str(COMMON_DIR))
-
-from hogli.cli import cli  # noqa: E402
+from hogli.cli import cli
 
 ANSI_RE = re.compile(r"\x1B\[[0-9;]*[A-Za-z]")
 TERMINAL_WIDTH = 120

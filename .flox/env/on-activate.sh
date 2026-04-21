@@ -233,7 +233,7 @@ HOGLI_MANPAGE_DIR="$UV_PROJECT_ENVIRONMENT/share/man/man1"
 if [[ -d "$UV_PROJECT_ENVIRONMENT/bin" ]]; then
   (
     mkdir -p "$HOGLI_MANPAGE_DIR"
-    PYTHONPATH="$FLOX_ENV_PROJECT/common" "$UV_PROJECT_ENVIRONMENT/bin/python" \
+    "$UV_PROJECT_ENVIRONMENT/bin/python" \
       "$FLOX_ENV_PROJECT/tools/hogli/scripts/generate_man_page.py" \
       --output "$HOGLI_MANPAGE_DIR/hogli.1" >/dev/null 2>&1
   ) || true
