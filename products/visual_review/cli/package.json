@@ -15,6 +15,7 @@
         "@napi-rs/blake-hash": "^1.3.6",
         "commander": "^12.0.0",
         "sharp": "^0.34.5",
+        "undici": "^7.25.0",
         "yaml": "^2.3.0"
     },
     "devDependencies": {

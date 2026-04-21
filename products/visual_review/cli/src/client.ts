@@ -1,10 +1,3 @@
-/**
- * Visual Review API client.
- *
- * Simple fetch-based implementation for CLI usage.
- * Uses generated types from the frontend package.
- */
-import { Agent, RetryAgent } from 'undici'
 import type {
     ApproveSnapshotInputApi,
     ArtifactApi,
@@ -16,6 +9,13 @@ import type {
     SnapshotManifestItemApi,
     UploadTargetApi,
 } from '@visual-review/types'
+/**
+ * Visual Review API client.
+ *
+ * Simple fetch-based implementation for CLI usage.
+ * Uses generated types from the frontend package.
+ */
+import { Agent, RetryAgent, fetch as undiciFetch } from 'undici'
 
 // Re-export types for convenience
 export type {
@@ -34,9 +34,9 @@ export type {
 function createRetryDispatcher(): RetryAgent {
     return new RetryAgent(new Agent(), {
         maxRetries: 3,
-        minTimeout: 1_000,  // 1s initial delay
-        maxTimeout: 8_000,  // 8s cap
-        timeoutFactor: 2,   // exponential: 1s, 2s, 4s
+        minTimeout: 1_000, // 1s initial delay
+        maxTimeout: 8_000, // 8s cap
+        timeoutFactor: 2, // exponential: 1s, 2s, 4s
         statusCodes: [502, 503, 504],
         methods: ['GET', 'POST', 'PUT', 'DELETE'],
         retryAfter: true,
@@ -75,14 +75,14 @@ export class VisualReviewClient {
     }
 
     private async request<T>(path: string, options: RequestInit = {}): Promise<T> {
-        const response = await fetch(this.url(path), {
+        const response = await undiciFetch(this.url(path), {
             ...options,
             headers: {
                 ...this.headers,
                 ...options.headers,
             },
             dispatcher: this.dispatcher,
-        } as RequestInit)
+        })
 
         if (!response.ok) {
             const text = await response.text()
