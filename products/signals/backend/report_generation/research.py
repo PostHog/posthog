@@ -489,7 +489,7 @@ async def run_multi_turn_research(
     summary: str | None = None,
     previous_report_id: str | None = None,
     previous_report_research: ReportResearchOutput | None = None,
-    branch: str = "master",
+    branch: str | None = None,
     verbose: bool = False,
     output_fn: OutputFn = None,
     signal_report_id: str | None = None,

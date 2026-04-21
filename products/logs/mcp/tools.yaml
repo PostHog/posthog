@@ -36,8 +36,8 @@ tools:
         description: >
             List available log attribute names for filtering. Defaults to attribute_type "log" (log-level attributes).
             To search resource-level attributes (e.g. k8s.pod.name, k8s.namespace.name), you MUST explicitly pass
-            attribute_type: "resource" — it will NOT return resource attributes unless you do.
-            Accepts optional serviceNames, dateRange, and filterGroup to narrow which logs are scanned.
+            attribute_type: "resource" — it will NOT return resource attributes unless you do. Accepts optional
+            serviceNames, dateRange, and filterGroup to narrow which logs are scanned.
         response:
             include:
                 - results
@@ -54,9 +54,9 @@ tools:
         title: List log attribute values
         description: >
             List values for a specific log attribute key. Use to discover what values exist before building filters.
-            Defaults to attribute_type "log" (log-level attributes). To get values for resource-level attributes
-            (e.g. service.name, k8s.pod.name), you MUST explicitly pass attribute_type: "resource".
-            Accepts optional serviceNames, dateRange, and filterGroup to narrow which logs are scanned.
+            Defaults to attribute_type "log" (log-level attributes). To get values for resource-level attributes (e.g.
+            service.name, k8s.pod.name), you MUST explicitly pass attribute_type: "resource". Accepts optional
+            serviceNames, dateRange, and filterGroup to narrow which logs are scanned.
         response:
             include:
                 - results
@@ -157,4 +157,7 @@ tools:
         enabled: false
     logs-alerts-reset-create:
         operation: logs_alerts_reset_create
+        enabled: false
+    logs-alerts-events-list:
+        operation: logs_alerts_events_list
         enabled: false
