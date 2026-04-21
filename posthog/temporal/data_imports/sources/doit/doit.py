@@ -93,6 +93,13 @@ def append_primary_key(row: dict[str, Any]) -> dict[str, Any]:
     return {**row, "id": hash_key}
 
 
+# NOTE: This source intentionally remains a SimpleSource and is not a candidate for ResumableSource.
+# The DoIt analytics reports endpoint returns the entire requested window in a single response —
+# there is no pagination loop, next-URL, continuation token, or parent/child fanout. Because
+# `get_rows` issues exactly one HTTP call and yields one batch per run, there is no mid-sync
+# checkpoint to persist; any saved state would only duplicate `db_incremental_field_last_value`,
+# which already drives the `startDate` on restart. If DoIt exposes a paginated reports API in the
+# future, or we slice the `startDate`/`endDate` window into chunks, revisit this decision.
 def doit_source(
     config: DoItSourceConfig,
     report_name: str,
