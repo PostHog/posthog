@@ -3,12 +3,24 @@ import { useActions, useValues } from 'kea'
 import { IconDownload } from '@posthog/icons'
 import { LemonButton, LemonDropdown } from '@posthog/lemon-ui'
 
+import { ActivityLogSubscribeMenu } from 'lib/components/ActivityLog/ActivityLogSubscribeMenu'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+
+import { advancedActivityFiltersToHogProperties } from './advancedActivityFilterTranslation'
 import { advancedActivityLogsLogic } from './advancedActivityLogsLogic'
 import { BasicFiltersTab } from './BasicFiltersTab'
 
 export function AdvancedActivityLogFiltersPanel(): JSX.Element {
-    const { hasActiveFilters, exportsLoading } = useValues(advancedActivityLogsLogic)
+    const { hasActiveFilters, exportsLoading, filters } = useValues(advancedActivityLogsLogic)
     const { clearAllFilters, exportLogs } = useActions(advancedActivityLogsLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+
+    const { properties: subscribeProperties, droppedFields } = advancedActivityFiltersToHogProperties(filters)
+    const subscribeTooltip =
+        droppedFields.length > 0
+            ? `Some filters can't trigger notifications yet (${droppedFields.join(', ')}) — they'll be skipped.`
+            : undefined
 
     return (
         <div className="border rounded-md p-4 bg-bg-light">
@@ -49,6 +61,13 @@ export function AdvancedActivityLogFiltersPanel(): JSX.Element {
                             Export
                         </LemonButton>
                     </LemonDropdown>
+                    {featureFlags[FEATURE_FLAGS.CDP_ACTIVITY_LOG_NOTIFICATIONS] && (
+                        <ActivityLogSubscribeMenu
+                            properties={subscribeProperties}
+                            tooltip={subscribeTooltip}
+                            data-attr="audit-logs-subscribe-button"
+                        />
+                    )}
                     <LemonButton
                         size="small"
                         type="secondary"
