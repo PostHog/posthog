@@ -195,9 +195,6 @@ class UsageReportCounters:
     # AI Billing Credits (PostHog AI feature usage)
     ai_credits_used_in_period: int
 
-    # PostHog Code Credits (PostHog Code product usage, served by the LLM gateway)
-    posthog_code_credits_used_in_period: int
-
     # CDP Delivery
     hog_function_calls_in_period: int
     hog_function_fetch_calls_in_period: int
@@ -1232,82 +1229,6 @@ def get_teams_with_ai_credits_used_in_period(
     return results
 
 
-@timed_log()
-@retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
-def get_teams_with_posthog_code_credits_used_in_period(
-    begin: datetime,
-    end: datetime,
-) -> list[tuple[int, int]]:
-    """
-    Credits used by PostHog Code in the period.
-
-    Mirrors `get_teams_with_ai_credits_used_in_period` (same region routing and
-    `$group_1` scoping) but keyed on `ai_product = 'posthog_code'`. PostHog Code has
-    no trace-level billable filter — every `$ai_generation` with a positive cost is
-    billable.
-    """
-    region = get_instance_region()
-
-    if region is None:
-        from posthog.settings import TEST
-
-        if not TEST:
-            assert region is not None, "Region must be set in production infrastructure"
-        return []
-
-    team_to_query = CLOUD_REGION_TO_TEAM_ID[region]
-
-    with tags_context(
-        product=Product.MAX_AI,
-        feature=Feature.USAGE_REPORT,
-        usage_report="posthog_code_credits",
-        kind="usage_report",
-    ):
-        results = sync_execute(
-            """
-            SELECT
-                JSONExtractInt(properties, 'team_id') AS customer_team_id,
-                toInt64(
-                    roundBankers(
-                        sum(
-                            toDecimal32OrZero(
-                                JSONExtractString(properties, '$ai_total_cost_usd'),
-                                5
-                            ) * 100 * %(markup_multiplier)s
-                        )
-                    )
-                ) AS posthog_code_credits
-            FROM events
-            PREWHERE
-                team_id = %(team_to_query)s
-                AND JSONExtractString(properties, '$group_1') = %(region_url)s
-                AND timestamp >= %(begin)s
-                AND timestamp < %(end)s
-                AND event = '$ai_generation'
-                AND JSONExtractString(properties, 'ai_product') = 'posthog_code'
-            WHERE
-                toDecimal32OrZero(JSONExtractString(properties, '$ai_total_cost_usd'), 5) > 0
-            GROUP BY
-                customer_team_id
-            HAVING
-                posthog_code_credits > 0
-            ORDER BY
-                posthog_code_credits DESC
-            """,
-            {
-                "team_to_query": team_to_query,
-                "region_url": CLOUD_REGION_TO_URL[region],
-                "begin": begin,
-                "end": end,
-                "markup_multiplier": 1 + AI_COST_MARKUP_PERCENT,
-            },
-            workload=Workload.OFFLINE,
-            settings=CH_BILLING_SETTINGS,
-        )
-
-    return results
-
-
 dwh_pricing_free_period_start = datetime(2025, 10, 29, 0, 0, 0, tzinfo=UTC)
 dwh_pricing_free_period_end = datetime(2025, 11, 6, 0, 0, 0, tzinfo=UTC)
 
@@ -1876,7 +1797,6 @@ def has_non_zero_usage(report: FullUsageReport) -> bool:
         or report.exceptions_captured_in_period > 0
         or report.ai_event_count_in_period > 0
         or report.ai_credits_used_in_period > 0
-        or report.posthog_code_credits_used_in_period > 0
         or report.workflow_emails_sent_in_period > 0
         or report.workflow_push_sent_in_period > 0
         or report.workflow_sms_sent_in_period > 0
@@ -2125,9 +2045,6 @@ def _get_all_usage_data(period_start: datetime, period_end: datetime) -> dict[st
         ),
         "teams_with_ai_event_count_in_period": get_teams_with_ai_event_count_in_period(period_start, period_end),
         "teams_with_ai_credits_used_in_period": get_teams_with_ai_credits_used_in_period(period_start, period_end),
-        "teams_with_posthog_code_credits_used_in_period": get_teams_with_posthog_code_credits_used_in_period(
-            period_start, period_end
-        ),
         "teams_with_active_hog_destinations_in_period": get_teams_with_active_hog_destinations_in_period(),
         "teams_with_active_hog_transformations_in_period": get_teams_with_active_hog_transformations_in_period(),
         "teams_with_workflow_emails_sent_in_period": get_teams_with_workflow_emails_sent_in_period(
@@ -2288,7 +2205,6 @@ def _get_team_report(all_data: dict[str, Any], team: Team) -> UsageReportCounter
         rust_events_count_in_period=all_data["teams_with_rust_events_count_in_period"].get(team.id, 0),
         ai_event_count_in_period=all_data["teams_with_ai_event_count_in_period"].get(team.id, 0),
         ai_credits_used_in_period=all_data["teams_with_ai_credits_used_in_period"].get(team.id, 0),
-        posthog_code_credits_used_in_period=all_data["teams_with_posthog_code_credits_used_in_period"].get(team.id, 0),
         active_hog_destinations_in_period=all_data["teams_with_active_hog_destinations_in_period"].get(team.id, 0),
         active_hog_transformations_in_period=all_data["teams_with_active_hog_transformations_in_period"].get(
             team.id, 0
