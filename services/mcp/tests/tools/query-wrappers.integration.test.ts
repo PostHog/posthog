@@ -96,8 +96,8 @@ describe('Query Wrapper Integration Tests', { concurrent: false }, () => {
             const tool = getToolByName(GENERATED_TOOLS, 'query-retention')
             const result = (await tool.handler(context, {
                 retentionFilter: {
-                    targetEntity: { name: '$pageview', type: 'events' },
-                    returningEntity: { name: '$pageview', type: 'events' },
+                    targetEntity: { id: '$pageview', type: 'events' },
+                    returningEntity: { id: '$pageview', type: 'events' },
                     period: 'Day',
                     totalIntervals: 7,
                 },

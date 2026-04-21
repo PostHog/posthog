@@ -7,6 +7,22 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
+export interface EvaluationRunRequestApi {
+    /** UUID of the evaluation to run. */
+    evaluation_id: string
+    /** UUID of the $ai_generation event to evaluate. */
+    target_event_id: string
+    /** ISO 8601 timestamp of the target event (needed for efficient ClickHouse lookup). */
+    timestamp: string
+    /** Event name. Defaults to '$ai_generation'. */
+    event?: string
+    /**
+     * Distinct ID of the event (optional, improves lookup performance).
+     * @nullable
+     */
+    distinct_id?: string | null
+}
+
 /**
  * * `active` - Active
  * `paused` - Paused
@@ -64,9 +80,9 @@ export const OutputTypeEnumApi = {
  * `openrouter` - Openrouter
  * `fireworks` - Fireworks
  */
-export type Provider519EnumApi = (typeof Provider519EnumApi)[keyof typeof Provider519EnumApi]
+export type Provider2f4EnumApi = (typeof Provider2f4EnumApi)[keyof typeof Provider2f4EnumApi]
 
-export const Provider519EnumApi = {
+export const Provider2f4EnumApi = {
     Openai: 'openai',
     Anthropic: 'anthropic',
     Gemini: 'gemini',
@@ -78,7 +94,7 @@ export const Provider519EnumApi = {
  * Nested serializer for model configuration.
  */
 export interface ModelConfigurationApi {
-    provider: Provider519EnumApi
+    provider: Provider2f4EnumApi
     /** @maxLength 100 */
     model: string
     /** @nullable */
@@ -142,23 +158,66 @@ export interface UserBasicApi {
     role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | NullEnumApi | null
 }
 
+/**
+ * Configuration dict. For 'llm_judge': {prompt}. For 'hog': {source}.
+ */
+export type EvaluationApiEvaluationConfig =
+    | {
+          /**
+           * Evaluation criteria for the LLM judge. Describe what makes a good vs bad response.
+           * @minLength 1
+           */
+          prompt: string
+      }
+    | {
+          /**
+           * Hog source code. Must return true (pass), false (fail), or null for N/A.
+           * @minLength 1
+           */
+          source: string
+      }
+
+/**
+ * Output config. For 'boolean' output_type: {allows_na} to permit N/A results.
+ */
+export type EvaluationApiOutputConfig = {
+    /** Whether the evaluation can return N/A for non-applicable generations. */
+    allows_na?: boolean
+}
+
 export interface EvaluationApi {
     readonly id: string
-    /** @maxLength 400 */
+    /**
+     * Name of the evaluation.
+     * @maxLength 400
+     */
     name: string
+    /** Optional description of what this evaluation checks. */
     description?: string
+    /** Whether the evaluation runs automatically on new $ai_generation events. */
     enabled?: boolean
     readonly status: EvaluationStatusEnumApi
     readonly status_reason: StatusReasonEnumApi | NullEnumApi | null
+    /** 'llm_judge' uses an LLM to score outputs against a prompt; 'hog' runs deterministic Hog code.
+
+* `llm_judge` - LLM as a judge
+* `hog` - Hog */
     evaluation_type: EvaluationTypeEnumApi
-    evaluation_config?: unknown
+    /** Configuration dict. For 'llm_judge': {prompt}. For 'hog': {source}. */
+    evaluation_config?: EvaluationApiEvaluationConfig
+    /** Output format. Currently only 'boolean' is supported.
+
+* `boolean` - Boolean (Pass/Fail) */
     output_type: OutputTypeEnumApi
-    output_config?: unknown
+    /** Output config. For 'boolean' output_type: {allows_na} to permit N/A results. */
+    output_config?: EvaluationApiOutputConfig
+    /** Optional trigger conditions to filter which events are evaluated. OR between condition sets, AND within each. */
     conditions?: unknown
     model_configuration?: ModelConfigurationApi | null
     readonly created_at: string
     readonly updated_at: string
     readonly created_by: UserBasicApi
+    /** Set to true to soft-delete the evaluation. */
     deleted?: boolean
 }
 
@@ -169,6 +228,124 @@ export interface PaginatedEvaluationListApi {
     /** @nullable */
     previous?: string | null
     results: EvaluationApi[]
+}
+
+/**
+ * Configuration dict. For 'llm_judge': {prompt}. For 'hog': {source}.
+ */
+export type PatchedEvaluationApiEvaluationConfig =
+    | {
+          /**
+           * Evaluation criteria for the LLM judge. Describe what makes a good vs bad response.
+           * @minLength 1
+           */
+          prompt: string
+      }
+    | {
+          /**
+           * Hog source code. Must return true (pass), false (fail), or null for N/A.
+           * @minLength 1
+           */
+          source: string
+      }
+
+/**
+ * Output config. For 'boolean' output_type: {allows_na} to permit N/A results.
+ */
+export type PatchedEvaluationApiOutputConfig = {
+    /** Whether the evaluation can return N/A for non-applicable generations. */
+    allows_na?: boolean
+}
+
+export interface PatchedEvaluationApi {
+    readonly id?: string
+    /**
+     * Name of the evaluation.
+     * @maxLength 400
+     */
+    name?: string
+    /** Optional description of what this evaluation checks. */
+    description?: string
+    /** Whether the evaluation runs automatically on new $ai_generation events. */
+    enabled?: boolean
+    readonly status?: EvaluationStatusEnumApi
+    readonly status_reason?: StatusReasonEnumApi | NullEnumApi | null
+    /** 'llm_judge' uses an LLM to score outputs against a prompt; 'hog' runs deterministic Hog code.
+
+* `llm_judge` - LLM as a judge
+* `hog` - Hog */
+    evaluation_type?: EvaluationTypeEnumApi
+    /** Configuration dict. For 'llm_judge': {prompt}. For 'hog': {source}. */
+    evaluation_config?: PatchedEvaluationApiEvaluationConfig
+    /** Output format. Currently only 'boolean' is supported.
+
+* `boolean` - Boolean (Pass/Fail) */
+    output_type?: OutputTypeEnumApi
+    /** Output config. For 'boolean' output_type: {allows_na} to permit N/A results. */
+    output_config?: PatchedEvaluationApiOutputConfig
+    /** Optional trigger conditions to filter which events are evaluated. OR between condition sets, AND within each. */
+    conditions?: unknown
+    model_configuration?: ModelConfigurationApi | null
+    readonly created_at?: string
+    readonly updated_at?: string
+    readonly created_by?: UserBasicApi
+    /** Set to true to soft-delete the evaluation. */
+    deleted?: boolean
+}
+
+export type TestHogRequestApiConditionsItem = { [key: string]: unknown }
+
+export interface TestHogRequestApi {
+    /**
+     * Hog source code to test. Must return a boolean (true = pass, false = fail) or null for N/A.
+     * @minLength 1
+     */
+    source: string
+    /**
+     * Number of recent $ai_generation events to test against (1–10, default 5).
+     * @minimum 1
+     * @maximum 10
+     */
+    sample_count?: number
+    /** Whether the evaluation can return N/A for non-applicable generations. */
+    allows_na?: boolean
+    /** Optional trigger conditions to filter which events are sampled. */
+    conditions?: TestHogRequestApiConditionsItem[]
+}
+
+export interface TestHogResultItemApi {
+    /** UUID of the $ai_generation event. */
+    event_uuid: string
+    /**
+     * Trace ID if available.
+     * @nullable
+     */
+    trace_id?: string | null
+    /** First 200 chars of the generation input. */
+    input_preview: string
+    /** First 200 chars of the generation output. */
+    output_preview: string
+    /**
+     * True = pass, False = fail, null = N/A or error.
+     * @nullable
+     */
+    result: boolean | null
+    /**
+     * Hog evaluation reasoning string, if any.
+     * @nullable
+     */
+    reasoning: string | null
+    /**
+     * Error message if the Hog code raised an exception.
+     * @nullable
+     */
+    error: string | null
+}
+
+export interface TestHogResponseApi {
+    results: TestHogResultItemApi[]
+    /** Optional message, e.g. when no recent events were found. */
+    message?: string
 }
 
 /**
@@ -361,41 +538,58 @@ export const EvaluationReportFrequencyEnumApi = {
 
 export interface EvaluationReportApi {
     readonly id: string
+    /** UUID of the evaluation this report config belongs to. */
     evaluation: string
+    /** 'every_n' triggers a report after N evaluations run; 'scheduled' uses an rrule schedule.
+
+* `scheduled` - Scheduled
+* `every_n` - Every N */
     frequency?: EvaluationReportFrequencyEnumApi
+    /** RFC 5545 recurrence rule string. Required when frequency is 'scheduled'. */
     rrule?: string
-    /** @nullable */
+    /**
+     * Schedule start datetime (ISO 8601). Required when frequency is 'scheduled'.
+     * @nullable
+     */
     starts_at?: string | null
-    /** @maxLength 64 */
+    /**
+     * IANA timezone name for scheduled delivery (e.g. 'America/New_York').
+     * @maxLength 64
+     */
     timezone_name?: string
     /** @nullable */
     readonly next_delivery_date: string | null
+    /** List of delivery targets. Each is {type: 'email', value: '...'} or {type: 'slack', integration_id: N, channel: '...'}. */
     delivery_targets?: unknown
     /**
+     * Max number of evaluation runs included in each report. Defaults to 100.
      * @minimum -2147483648
      * @maximum 2147483647
      */
     max_sample_size?: number
+    /** Whether report delivery is active. */
     enabled?: boolean
+    /** Set to true to soft-delete this report config. */
     deleted?: boolean
     /** @nullable */
     readonly last_delivered_at: string | null
+    /** Optional custom instructions injected into the AI report prompt to focus analysis. */
     report_prompt_guidance?: string
     /**
-     * Number of new eval results that triggers a report
+     * Number of evaluation runs that trigger a report (every_n mode). Min 10, max 1000.
      * @minimum -2147483648
      * @maximum 2147483647
      * @nullable
      */
     trigger_threshold?: number | null
     /**
-     * Minimum minutes between count-triggered reports
+     * Minimum minutes between reports in every_n mode to prevent spam. Min 60, max 1440 (24 hours).
      * @minimum -2147483648
      * @maximum 2147483647
      */
     cooldown_minutes?: number
     /**
-     * Maximum count-triggered report runs per calendar day (UTC)
+     * Max reports generated per day. Defaults to 3.
      * @minimum -2147483648
      * @maximum 2147483647
      */
@@ -416,41 +610,58 @@ export interface PaginatedEvaluationReportListApi {
 
 export interface PatchedEvaluationReportApi {
     readonly id?: string
+    /** UUID of the evaluation this report config belongs to. */
     evaluation?: string
+    /** 'every_n' triggers a report after N evaluations run; 'scheduled' uses an rrule schedule.
+
+* `scheduled` - Scheduled
+* `every_n` - Every N */
     frequency?: EvaluationReportFrequencyEnumApi
+    /** RFC 5545 recurrence rule string. Required when frequency is 'scheduled'. */
     rrule?: string
-    /** @nullable */
+    /**
+     * Schedule start datetime (ISO 8601). Required when frequency is 'scheduled'.
+     * @nullable
+     */
     starts_at?: string | null
-    /** @maxLength 64 */
+    /**
+     * IANA timezone name for scheduled delivery (e.g. 'America/New_York').
+     * @maxLength 64
+     */
     timezone_name?: string
     /** @nullable */
     readonly next_delivery_date?: string | null
+    /** List of delivery targets. Each is {type: 'email', value: '...'} or {type: 'slack', integration_id: N, channel: '...'}. */
     delivery_targets?: unknown
     /**
+     * Max number of evaluation runs included in each report. Defaults to 100.
      * @minimum -2147483648
      * @maximum 2147483647
      */
     max_sample_size?: number
+    /** Whether report delivery is active. */
     enabled?: boolean
+    /** Set to true to soft-delete this report config. */
     deleted?: boolean
     /** @nullable */
     readonly last_delivered_at?: string | null
+    /** Optional custom instructions injected into the AI report prompt to focus analysis. */
     report_prompt_guidance?: string
     /**
-     * Number of new eval results that triggers a report
+     * Number of evaluation runs that trigger a report (every_n mode). Min 10, max 1000.
      * @minimum -2147483648
      * @maximum 2147483647
      * @nullable
      */
     trigger_threshold?: number | null
     /**
-     * Minimum minutes between count-triggered reports
+     * Minimum minutes between reports in every_n mode to prevent spam. Min 60, max 1440 (24 hours).
      * @minimum -2147483648
      * @maximum 2147483647
      */
     cooldown_minutes?: number
     /**
-     * Maximum count-triggered report runs per calendar day (UTC)
+     * Max reports generated per day. Defaults to 3.
      * @minimum -2147483648
      * @maximum 2147483647
      */
@@ -476,13 +687,26 @@ export const DeliveryStatusEnumApi = {
 } as const
 
 export interface EvaluationReportRunApi {
+    /** UUID of this report run. */
     readonly id: string
+    /** UUID of the report config that generated this run. */
     readonly report: string
+    /** Generated report content (markdown or structured text). */
     readonly content: unknown
+    /** Run metadata including model used, token counts, and generation stats. */
     readonly metadata: unknown
+    /** Start of the evaluation window covered by this report. */
     readonly period_start: string
+    /** End of the evaluation window covered by this report. */
     readonly period_end: string
+    /** 'pending', 'delivered', or 'failed'.
+
+* `pending` - Pending
+* `delivered` - Delivered
+* `partial_failure` - Partial Failure
+* `failed` - Failed */
     readonly delivery_status: DeliveryStatusEnumApi
+    /** List of delivery error messages if delivery failed. */
     readonly delivery_errors: unknown
     readonly created_at: string
 }
@@ -573,7 +797,7 @@ export const LLMProviderKeyStateEnumApi = {
 
 export interface LLMProviderKeyApi {
     readonly id: string
-    provider: Provider519EnumApi
+    provider: Provider2f4EnumApi
     /** @maxLength 255 */
     name: string
     readonly state: LLMProviderKeyStateEnumApi
@@ -599,7 +823,7 @@ export interface PaginatedLLMProviderKeyListApi {
 
 export interface PatchedLLMProviderKeyApi {
     readonly id?: string
-    provider?: Provider519EnumApi
+    provider?: Provider2f4EnumApi
     /** @maxLength 255 */
     name?: string
     readonly state?: LLMProviderKeyStateEnumApi
@@ -698,9 +922,9 @@ export interface PatchedReviewQueueUpdateApi {
  * `numeric` - numeric
  * `boolean` - boolean
  */
-export type Kind01eEnumApi = (typeof Kind01eEnumApi)[keyof typeof Kind01eEnumApi]
+export type KindD08EnumApi = (typeof KindD08EnumApi)[keyof typeof KindD08EnumApi]
 
-export const Kind01eEnumApi = {
+export const KindD08EnumApi = {
     Categorical: 'categorical',
     Numeric: 'numeric',
     Boolean: 'boolean',
@@ -786,7 +1010,7 @@ export interface ScoreDefinitionApi {
     readonly id: string
     readonly name: string
     readonly description: string
-    readonly kind: Kind01eEnumApi
+    readonly kind: KindD08EnumApi
     readonly archived: boolean
     /** Current immutable configuration version number. */
     readonly current_version: number
@@ -825,7 +1049,7 @@ export interface ScoreDefinitionCreateApi {
 * `categorical` - categorical
 * `numeric` - numeric
 * `boolean` - boolean */
-    kind: Kind01eEnumApi
+    kind: KindD08EnumApi
     /** New scorers are always created as active. */
     archived?: boolean
     /** Initial immutable scorer configuration. */
@@ -907,9 +1131,9 @@ export const SummarizeTypeEnumApi = {
  * * `minimal` - minimal
  * `detailed` - detailed
  */
-export type Mode02aEnumApi = (typeof Mode02aEnumApi)[keyof typeof Mode02aEnumApi]
+export type ModeE35EnumApi = (typeof ModeE35EnumApi)[keyof typeof ModeE35EnumApi]
 
-export const Mode02aEnumApi = {
+export const ModeE35EnumApi = {
     Minimal: 'minimal',
     Detailed: 'detailed',
 } as const
@@ -924,7 +1148,7 @@ export interface SummarizeRequestApi {
 
 * `minimal` - minimal
 * `detailed` - detailed */
-    mode?: Mode02aEnumApi
+    mode?: ModeE35EnumApi
     /** Data to summarize. For traces: {trace, hierarchy}. For events: {event}. Not required when using trace_id or generation_id. */
     data?: unknown
     /** Force regenerate summary, bypassing cache */
@@ -990,7 +1214,7 @@ export interface BatchCheckRequestApi {
 
 * `minimal` - minimal
 * `detailed` - detailed */
-    mode?: Mode02aEnumApi
+    mode?: ModeE35EnumApi
     /**
      * LLM model used for cached summaries
      * @nullable
@@ -1327,19 +1551,15 @@ export interface LLMPromptResolveResponseApi {
     has_more: boolean
 }
 
-export interface LLMSkillFileInputApi {
+export interface LLMSkillOutlineEntryApi {
     /**
-     * File path relative to skill root, e.g. 'scripts/setup.sh' or 'references/guide.md'.
-     * @maxLength 500
+     * Markdown heading level (1-6).
+     * @minimum 1
+     * @maximum 6
      */
-    path: string
-    /** Text content of the file. */
-    content: string
-    /**
-     * MIME type of the file content.
-     * @maxLength 100
-     */
-    content_type?: string
+    level: number
+    /** Heading text. */
+    text: string
 }
 
 /**
@@ -1348,7 +1568,7 @@ export interface LLMSkillFileInputApi {
 export type LLMSkillListApiMetadata = { [key: string]: unknown }
 
 /**
- * List serializer that omits the body field for progressive disclosure (Level 1).
+ * List serializer that omits body and file manifest — progressive disclosure (Level 1).
  */
 export interface LLMSkillListApi {
     readonly id: string
@@ -1376,8 +1596,8 @@ export interface LLMSkillListApi {
     allowed_tools?: string[]
     /** Arbitrary key-value metadata. */
     metadata?: LLMSkillListApiMetadata
-    /** Bundled files to include with the initial version (scripts, references, assets). */
-    files?: LLMSkillFileInputApi[]
+    /** Flat list of markdown headings parsed from the skill body. Useful as a lightweight table of contents. */
+    readonly outline: readonly LLMSkillOutlineEntryApi[]
     readonly version: number
     readonly created_by: UserBasicApi
     readonly created_at: string
@@ -1401,7 +1621,80 @@ export interface PaginatedLLMSkillListListApi {
 /**
  * Arbitrary key-value metadata.
  */
+export type LLMSkillCreateApiMetadata = { [key: string]: unknown }
+
+export interface LLMSkillFileInputApi {
+    /**
+     * File path relative to skill root, e.g. 'scripts/setup.sh' or 'references/guide.md'.
+     * @maxLength 500
+     */
+    path: string
+    /** Text content of the file. */
+    content: string
+    /**
+     * MIME type of the file content.
+     * @maxLength 100
+     */
+    content_type?: string
+}
+
+/**
+ * Create serializer — accepts bundled files as write-only input on POST.
+ */
+export interface LLMSkillCreateApi {
+    readonly id: string
+    /**
+     * Unique skill name. Lowercase letters, numbers, and hyphens only. Max 64 characters.
+     * @maxLength 64
+     */
+    name: string
+    /**
+     * What this skill does and when to use it. Max 4096 characters.
+     * @maxLength 4096
+     */
+    description: string
+    /** The SKILL.md instruction content (markdown). */
+    body: string
+    /**
+     * License name or reference to a bundled license file.
+     * @maxLength 255
+     */
+    license?: string
+    /**
+     * Environment requirements (intended product, system packages, network access, etc.).
+     * @maxLength 500
+     */
+    compatibility?: string
+    /** List of pre-approved tools the skill may use. */
+    allowed_tools?: string[]
+    /** Arbitrary key-value metadata. */
+    metadata?: LLMSkillCreateApiMetadata
+    /** Bundled files to include with the initial version (scripts, references, assets). */
+    files?: LLMSkillFileInputApi[]
+    /** Flat list of markdown headings parsed from the skill body. Useful as a lightweight table of contents. */
+    readonly outline: readonly LLMSkillOutlineEntryApi[]
+    readonly version: number
+    readonly created_by: UserBasicApi
+    readonly created_at: string
+    readonly updated_at: string
+    readonly deleted: boolean
+    readonly is_latest: boolean
+    readonly latest_version: number
+    readonly version_count: number
+    readonly first_version_created_at: string
+}
+
+/**
+ * Arbitrary key-value metadata.
+ */
 export type LLMSkillApiMetadata = { [key: string]: unknown }
+
+export interface LLMSkillFileManifestApi {
+    /** @maxLength 500 */
+    path: string
+    /** @maxLength 100 */
+    content_type?: string
+}
 
 export interface LLMSkillApi {
     readonly id: string
@@ -1431,8 +1724,10 @@ export interface LLMSkillApi {
     allowed_tools?: string[]
     /** Arbitrary key-value metadata. */
     metadata?: LLMSkillApiMetadata
-    /** Bundled files to include with the initial version (scripts, references, assets). */
-    files?: LLMSkillFileInputApi[]
+    /** Bundled files manifest. Each entry is path + content_type only; fetch content via /llm_skills/name/{name}/files/{path}/. */
+    readonly files: readonly LLMSkillFileManifestApi[]
+    /** Flat list of markdown headings parsed from the skill body. Useful as a lightweight table of contents. */
+    readonly outline: readonly LLMSkillOutlineEntryApi[]
     readonly version: number
     readonly created_by: UserBasicApi
     readonly created_at: string

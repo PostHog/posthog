@@ -43,16 +43,6 @@
         },
         "order_by": {
             "description": "Sort order. Prefix with `-` for descending. Defaults to `-updated_at`.",
-            "enum": [
-                "-created_at",
-                "-sla_due_at",
-                "-ticket_number",
-                "-updated_at",
-                "created_at",
-                "sla_due_at",
-                "ticket_number",
-                "updated_at"
-            ],
             "type": "string"
         },
         "priority": {

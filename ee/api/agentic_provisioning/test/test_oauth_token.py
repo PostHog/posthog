@@ -9,7 +9,7 @@ from ee.api.agentic_provisioning.signature import compute_signature
 from ee.api.agentic_provisioning.test.base import HMAC_SECRET, ProvisioningTestBase
 
 
-@override_settings(STRIPE_APP_SECRET_KEY=HMAC_SECRET)
+@override_settings(STRIPE_SIGNING_SECRET=HMAC_SECRET)
 class TestOAuthTokenExchange(ProvisioningTestBase):
     def _store_auth_code(self, code: str = "test_code", **overrides):
         data = {

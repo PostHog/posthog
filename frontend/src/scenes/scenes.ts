@@ -451,6 +451,12 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
             'Analyze your marketing performance across integrations: spend, impressions, conversions, ROAS, and more metrics.',
         iconType: 'marketing_analytics',
     },
+    [Scene.MarketingAnalyticsSettings]: {
+        projectBased: true,
+        name: 'Marketing settings',
+        description: 'Configure marketing analytics integrations and data sources.',
+        iconType: 'marketing_settings',
+    },
     [Scene.SavedInsights]: {
         projectBased: true,
         name: 'Product analytics',
@@ -549,13 +555,6 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     },
     [Scene.Unsubscribe]: { allowUnauthenticated: true, layout: 'app-raw' },
     [Scene.VerifyEmail]: { allowUnauthenticated: true, layout: 'plain' },
-    [Scene.WebAnalyticsMarketing]: {
-        projectBased: true,
-        name: 'Marketing settings',
-        layout: 'app-container',
-        description: 'Analyze your marketing analytics data to understand your marketing performance.',
-        iconType: 'marketing_settings',
-    },
     [Scene.WebAnalyticsPageReports]: {
         projectBased: true,
         name: 'Page reports',
@@ -622,7 +621,7 @@ const redirectPipeline = (id: string, fallbackUrl: string): string => {
 
 // NOTE: These redirects will fully replace the URL. If you want to keep support for query and hash params then you should use a function (not string) redirect
 // NOTE: If you need a query param to be automatically forwarded to the redirect URL, add it to the forwardedRedirectQueryParams array
-export const forwardedRedirectQueryParams: string[] = ['invite_modal']
+export const forwardedRedirectQueryParams: string[] = ['modal']
 export const redirects: Record<
     string,
     string | ((params: Params, searchParams: Params, hashParams: Params) => string)
@@ -752,7 +751,6 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.revenueAnalytics()]: [Scene.RevenueAnalytics, 'revenueAnalytics'],
     [urls.marketingAnalyticsApp()]: [Scene.MarketingAnalytics, 'marketingAnalytics'],
     [urls.revenueSettings()]: [Scene.DataManagement, 'revenue'],
-    [urls.marketingAnalytics()]: [Scene.DataManagement, 'marketingAnalytics'],
     [urls.dataWarehouseManagedViewsets()]: [Scene.DataManagement, 'dataWarehouseManagedViewsets'],
     [urls.coreEvents()]: [Scene.DataManagement, 'coreEvents'],
     [urls.eventDefinitions()]: [Scene.DataManagement, 'eventDefinitions'],

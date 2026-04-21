@@ -9,12 +9,18 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
+    AppMetricsResponseApi,
+    AppMetricsTotalsResponseApi,
     BlastRadiusApi,
     BlastRadiusRequestApi,
     HogFlowApi,
     HogFlowTemplateApi,
     HogFlowTemplatesListParams,
+    HogFlowTemplatesLogsRetrieveParams,
     HogFlowsListParams,
+    HogFlowsLogsRetrieveParams,
+    HogFlowsMetricsRetrieveParams,
+    HogFlowsMetricsTotalsRetrieveParams,
     HogFlowsSchedulesCreateParams,
     HogFlowsSchedulesListParams,
     PaginatedHogFlowMinimalListApi,
@@ -154,16 +160,33 @@ export const hogFlowTemplatesDestroy = async (projectId: string, id: string, opt
     })
 }
 
-export const getHogFlowTemplatesLogsRetrieveUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/hog_flow_templates/${id}/logs/`
+export const getHogFlowTemplatesLogsRetrieveUrl = (
+    projectId: string,
+    id: string,
+    params?: HogFlowTemplatesLogsRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/hog_flow_templates/${id}/logs/?${stringifiedParams}`
+        : `/api/projects/${projectId}/hog_flow_templates/${id}/logs/`
 }
 
 export const hogFlowTemplatesLogsRetrieve = async (
     projectId: string,
     id: string,
+    params?: HogFlowTemplatesLogsRetrieveParams,
     options?: RequestInit
 ): Promise<void> => {
-    return apiMutator<void>(getHogFlowTemplatesLogsRetrieveUrl(projectId, id), {
+    return apiMutator<void>(getHogFlowTemplatesLogsRetrieveUrl(projectId, id, params), {
         ...options,
         method: 'GET',
     })
@@ -322,38 +345,93 @@ export const hogFlowsInvocationsCreate = async (
     })
 }
 
-export const getHogFlowsLogsRetrieveUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/hog_flows/${id}/logs/`
+export const getHogFlowsLogsRetrieveUrl = (projectId: string, id: string, params?: HogFlowsLogsRetrieveParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/hog_flows/${id}/logs/?${stringifiedParams}`
+        : `/api/projects/${projectId}/hog_flows/${id}/logs/`
 }
 
-export const hogFlowsLogsRetrieve = async (projectId: string, id: string, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getHogFlowsLogsRetrieveUrl(projectId, id), {
+export const hogFlowsLogsRetrieve = async (
+    projectId: string,
+    id: string,
+    params?: HogFlowsLogsRetrieveParams,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getHogFlowsLogsRetrieveUrl(projectId, id, params), {
         ...options,
         method: 'GET',
     })
 }
 
-export const getHogFlowsMetricsRetrieveUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/hog_flows/${id}/metrics/`
+export const getHogFlowsMetricsRetrieveUrl = (
+    projectId: string,
+    id: string,
+    params?: HogFlowsMetricsRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/hog_flows/${id}/metrics/?${stringifiedParams}`
+        : `/api/projects/${projectId}/hog_flows/${id}/metrics/`
 }
 
-export const hogFlowsMetricsRetrieve = async (projectId: string, id: string, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getHogFlowsMetricsRetrieveUrl(projectId, id), {
+export const hogFlowsMetricsRetrieve = async (
+    projectId: string,
+    id: string,
+    params?: HogFlowsMetricsRetrieveParams,
+    options?: RequestInit
+): Promise<AppMetricsResponseApi> => {
+    return apiMutator<AppMetricsResponseApi>(getHogFlowsMetricsRetrieveUrl(projectId, id, params), {
         ...options,
         method: 'GET',
     })
 }
 
-export const getHogFlowsMetricsTotalsRetrieveUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/hog_flows/${id}/metrics/totals/`
+export const getHogFlowsMetricsTotalsRetrieveUrl = (
+    projectId: string,
+    id: string,
+    params?: HogFlowsMetricsTotalsRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/hog_flows/${id}/metrics/totals/?${stringifiedParams}`
+        : `/api/projects/${projectId}/hog_flows/${id}/metrics/totals/`
 }
 
 export const hogFlowsMetricsTotalsRetrieve = async (
     projectId: string,
     id: string,
+    params?: HogFlowsMetricsTotalsRetrieveParams,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getHogFlowsMetricsTotalsRetrieveUrl(projectId, id), {
+): Promise<AppMetricsTotalsResponseApi> => {
+    return apiMutator<AppMetricsTotalsResponseApi>(getHogFlowsMetricsTotalsRetrieveUrl(projectId, id, params), {
         ...options,
         method: 'GET',
     })

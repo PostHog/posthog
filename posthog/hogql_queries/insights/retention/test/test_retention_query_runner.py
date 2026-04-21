@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 from zoneinfo import ZoneInfo
 
 from freezegun import freeze_time
@@ -4554,7 +4554,7 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
         )
         flush_persons_and_events()
 
-        base_query = {
+        base_query: dict[str, Any] = {
             "dateRange": {"date_from": _date(0), "date_to": _date(5)},
             "retentionFilter": {
                 "totalIntervals": 5,

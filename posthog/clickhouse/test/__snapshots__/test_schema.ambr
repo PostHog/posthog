@@ -3341,76 +3341,6 @@
   
   '''
 # ---
-# name: test_create_table_query[property_values]
-  '''
-  
-  CREATE TABLE IF NOT EXISTS property_values
-  (
-      `team_id` Int64 CODEC(DoubleDelta, ZSTD(1)),
-      `property_type` LowCardinality(String) CODEC(ZSTD(1)),
-      `property_key` LowCardinality(String) CODEC(ZSTD(1)),
-      `property_value` String CODEC(ZSTD(1)),
-      `property_count` SimpleAggregateFunction(sum, UInt64),
-      `last_seen` SimpleAggregateFunction(max, DateTime) DEFAULT now()
-      ,
-      INDEX idx_property_value property_value TYPE text(tokenizer = ngrams(3)) GRANULARITY 1
-  ) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.property_values', '{replica}-{shard}')
-  
-  ORDER BY (team_id, property_type, property_key, property_value)
-  TTL last_seen + INTERVAL 7 DAY DELETE
-  SETTINGS
-      index_granularity = 8192,
-      enable_full_text_index = 1
-  
-  '''
-# ---
-# name: test_create_table_query[property_values_distributed]
-  '''
-  
-  CREATE TABLE IF NOT EXISTS property_values_distributed
-  (
-      `team_id` Int64 CODEC(DoubleDelta, ZSTD(1)),
-      `property_type` LowCardinality(String) CODEC(ZSTD(1)),
-      `property_key` LowCardinality(String) CODEC(ZSTD(1)),
-      `property_value` String CODEC(ZSTD(1)),
-      `property_count` SimpleAggregateFunction(sum, UInt64),
-      `last_seen` SimpleAggregateFunction(max, DateTime) DEFAULT now()
-      
-  ) ENGINE = Distributed('aux', 'posthog_test', 'property_values')
-  
-  '''
-# ---
-# name: test_create_table_query[property_values_mv]
-  '''
-  
-  CREATE MATERIALIZED VIEW IF NOT EXISTS property_values_mv
-  TO writable_property_values
-  AS SELECT
-      team_id,
-      tuple.1 as property_type,
-      tuple.2 as property_key,
-      tuple.3 as property_value,
-      sumSimpleState(toUInt64(1)) as property_count,
-      maxSimpleState(toDateTime(timestamp)) as last_seen
-  FROM posthog_test.sharded_events
-  ARRAY JOIN
-      arrayConcat(
-          arrayMap(kv -> ('event', kv.1, kv.2), JSONExtractKeysAndValues(properties, 'String')),
-          arrayMap(kv -> ('person', kv.1, kv.2), JSONExtractKeysAndValues(person_properties, 'String')),
-          arrayMap(kv -> ('group_0', kv.1, kv.2), JSONExtractKeysAndValues(group0_properties, 'String')),
-          arrayMap(kv -> ('group_1', kv.1, kv.2), JSONExtractKeysAndValues(group1_properties, 'String')),
-          arrayMap(kv -> ('group_2', kv.1, kv.2), JSONExtractKeysAndValues(group2_properties, 'String')),
-          arrayMap(kv -> ('group_3', kv.1, kv.2), JSONExtractKeysAndValues(group3_properties, 'String')),
-          arrayMap(kv -> ('group_4', kv.1, kv.2), JSONExtractKeysAndValues(group4_properties, 'String'))
-      ) as tuple
-  WHERE length(tuple.2) > 0
-    AND length(tuple.2) <= 400
-    AND length(tuple.3) > 0
-    AND length(tuple.3) < 256
-  GROUP BY team_id, property_type, property_key, property_value
-  
-  '''
-# ---
 # name: test_create_table_query[query_log_archive]
   '''
   
@@ -6495,22 +6425,6 @@
   
   '''
 # ---
-# name: test_create_table_query[writable_property_values]
-  '''
-  
-  CREATE TABLE IF NOT EXISTS writable_property_values
-  (
-      `team_id` Int64 CODEC(DoubleDelta, ZSTD(1)),
-      `property_type` LowCardinality(String) CODEC(ZSTD(1)),
-      `property_key` LowCardinality(String) CODEC(ZSTD(1)),
-      `property_value` String CODEC(ZSTD(1)),
-      `property_count` SimpleAggregateFunction(sum, UInt64),
-      `last_seen` SimpleAggregateFunction(max, DateTime) DEFAULT now()
-      
-  ) ENGINE = Distributed('aux', 'posthog_test', 'property_values')
-  
-  '''
-# ---
 # name: test_create_table_query[writable_raw_sessions]
   '''
   
@@ -7545,29 +7459,6 @@
   ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.property_definitions', '{replica}-{shard}', version)
   ORDER BY (team_id, type, COALESCE(event, ''), name, COALESCE(group_type_index, 255))
   SETTINGS index_granularity = 8192
-  
-  '''
-# ---
-# name: test_create_table_query_replicated_and_storage[property_values]
-  '''
-  
-  CREATE TABLE IF NOT EXISTS property_values
-  (
-      `team_id` Int64 CODEC(DoubleDelta, ZSTD(1)),
-      `property_type` LowCardinality(String) CODEC(ZSTD(1)),
-      `property_key` LowCardinality(String) CODEC(ZSTD(1)),
-      `property_value` String CODEC(ZSTD(1)),
-      `property_count` SimpleAggregateFunction(sum, UInt64),
-      `last_seen` SimpleAggregateFunction(max, DateTime) DEFAULT now()
-      ,
-      INDEX idx_property_value property_value TYPE text(tokenizer = ngrams(3)) GRANULARITY 1
-  ) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.property_values', '{replica}-{shard}')
-  
-  ORDER BY (team_id, property_type, property_key, property_value)
-  TTL last_seen + INTERVAL 7 DAY DELETE
-  SETTINGS
-      index_granularity = 8192,
-      enable_full_text_index = 1
   
   '''
 # ---

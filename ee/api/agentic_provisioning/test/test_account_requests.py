@@ -18,7 +18,7 @@ from ee.api.agentic_provisioning import AUTH_CODE_CACHE_PREFIX
 from ee.api.agentic_provisioning.test.base import HMAC_SECRET, ProvisioningTestBase
 
 
-@override_settings(STRIPE_APP_SECRET_KEY=HMAC_SECRET)
+@override_settings(STRIPE_SIGNING_SECRET=HMAC_SECRET)
 class TestAccountRequests(ProvisioningTestBase):
     def _account_request_payload(self, **overrides):
         payload = {
