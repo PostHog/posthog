@@ -14,6 +14,7 @@ from posthog.hogql.escape_sql import escape_hogql_identifier
 from posthog.hogql.visitor import CloningVisitor, TraversingVisitor
 
 from posthog.clickhouse.materialized_columns import (
+    MATERIALIZATION_VALID_TABLES,
     MaterializedColumn,
     TablesWithMaterializedColumns,
     get_materialized_column_for_property,
@@ -273,9 +274,6 @@ class PropertySwapper(CloningVisitor):
             view_name=node.view_name,
         )
 
-    # JSONExtract functions whose return type matches the mat_ column (String)
-    _JSON_EXTRACT_STRING_FUNCTIONS: frozenset[str] = frozenset({"JSONExtractString"})
-
     def visit_call(self, node: ast.Call):
         rewritten = self._try_rewrite_json_extract_to_mat_column(node)
         if rewritten is not None:
@@ -288,14 +286,14 @@ class PropertySwapper(CloningVisitor):
             self._inside_call_depth -= 1
 
     def _try_rewrite_json_extract_to_mat_column(self, node: ast.Call) -> ast.Field | None:
-        """Rewrite JSONExtractString(properties, '$prop') to use a materialized column.
+        """Rewrite JSONExtractString(properties, '$foo') to use a materialized column.
 
-        When users write raw JSONExtractString(properties, '$current_url') in HogQL,
-        ClickHouse decompresses the full properties JSON blob. If '$current_url' has a
-        materialized column (mat_$current_url), this is unnecessary I/O. We rewrite the
+        When users write raw JSONExtractString(properties, '$foo') in HogQL,
+        ClickHouse decompresses the full properties JSON blob. If '$foo' has a
+        materialized column (mat_$foo), this is unnecessary I/O. We rewrite the
         call to a property access node that the printer resolves to the mat_ column.
         """
-        if node.name not in self._JSON_EXTRACT_STRING_FUNCTIONS:
+        if node.name != "JSONExtractString":
             return None
         if len(node.args) != 2:
             return None
@@ -330,7 +328,7 @@ class PropertySwapper(CloningVisitor):
             return None
 
         table_name = table_type.resolve_database_table(self.context).to_printed_hogql()
-        if table_name not in ("events", "person", "groups"):
+        if table_name not in MATERIALIZATION_VALID_TABLES:
             return None
 
         field_name = cast(TableColumn, database_field.name)

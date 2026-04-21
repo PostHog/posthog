@@ -1,4 +1,5 @@
 import re
+from contextlib import nullcontext
 from datetime import datetime
 from typing import Any
 
@@ -236,40 +237,38 @@ class TestJSONExtractToMaterializedColumn(ClickhouseTestMixin, BaseTest):
         )
         return pretty_print_in_tests(query, self.team.pk)
 
-    def test_jsonextractstring_rewritten_to_mat_column(self):
+    @parameterized.expand(
+        [
+            ("bare_properties", "select JSONExtractString(properties, '$browser') from events"),
+            ("table_alias", "select JSONExtractString(e.properties, '$browser') from events e"),
+        ]
+    )
+    def test_jsonextractstring_rewritten_to_mat_column(self, _name: str, query: str):
         from posthog.test.base import materialized
 
         with materialized("events", "$browser"):
-            printed = self._print_select("select JSONExtractString(properties, '$browser') from events")
+            printed = self._print_select(query)
             assert "mat_$browser" in printed, f"Expected mat_$browser in output, got: {printed}"
             assert "JSONExtractString" not in printed, f"Expected no JSONExtractString, got: {printed}"
 
-    def test_jsonextractstring_not_rewritten_without_mat_column(self):
-        printed = self._print_select("select JSONExtractString(properties, 'some_random_prop_xyz') from events")
-        assert "JSONExtractString" in printed or "JSONExtractRaw" in printed
-
-    def test_jsonextractstring_with_table_alias(self):
+    @parameterized.expand(
+        [
+            ("no_mat_column", "select JSONExtractString(properties, 'some_random_prop_xyz') from events", False),
+            ("wrong_function", "select JSONExtractInt(properties, '$browser') from events", True),
+            ("three_args", "select JSONExtractString(properties, '$browser', 'nested') from events", False),
+            ("non_json_field", "select JSONExtractString(event, '$browser') from events", False),
+        ]
+    )
+    def test_jsonextract_not_rewritten(self, _name: str, query: str, needs_mat_column: bool):
         from posthog.test.base import materialized
 
-        with materialized("events", "$browser"):
-            printed = self._print_select("select JSONExtractString(e.properties, '$browser') from events e")
-            assert "mat_$browser" in printed, f"Expected mat_$browser in output, got: {printed}"
-
-    def test_jsonextractint_not_rewritten(self):
-        from posthog.test.base import materialized
-
-        with materialized("events", "$browser"):
-            printed = self._print_select("select JSONExtractInt(properties, '$browser') from events")
-            # JSONExtractInt is not rewritten (only JSONExtractString is)
-            assert "JSONExtractInt" in printed
-
-    def test_jsonextractstring_three_args_not_rewritten(self):
-        printed = self._print_select("select JSONExtractString(properties, '$browser', 'nested') from events")
-        assert "JSONExtractString" in printed
-
-    def test_jsonextractstring_non_properties_field_not_rewritten(self):
-        printed = self._print_select("select JSONExtractString(event, '$browser') from events")
-        assert "JSONExtractString" in printed
+        if needs_mat_column:
+            ctx = materialized("events", "$browser")
+        else:
+            ctx = nullcontext()
+        with ctx:
+            printed = self._print_select(query)
+            assert "mat_" not in printed, f"Expected no mat_ column in output, got: {printed}"
 
 
 # ── Timezone index pruning tests ──────────────────────────────────────────────
