@@ -65,7 +65,7 @@ describe('externalDataSourcesDbSchema', () => {
 })
 
 describe('externalDataSourcesJobs', () => {
-    it('passes all query params when provided', async () => {
+    it('passes all query params as repeated keys when provided', async () => {
         const requestMock = vi.fn().mockResolvedValue([])
         const context = createMockContext(requestMock)
         const tool = externalDataSourcesJobs()
@@ -77,32 +77,29 @@ describe('externalDataSourcesJobs', () => {
             schemas: ['users', 'orders'],
         })
 
-        expect(requestMock).toHaveBeenCalledWith({
-            method: 'GET',
-            path: '/api/projects/42/external_data_sources/source-123/jobs/',
-            query: {
-                after: '2025-01-01T00:00:00Z',
-                before: '2025-12-31T23:59:59Z',
-                schemas: ['users', 'orders'],
-            },
-        })
+        const path = requestMock.mock.calls[0]![0].path as string
+        expect(path).toContain('/api/projects/42/external_data_sources/source-123/jobs/')
+        expect(path).toContain('after=2025-01-01T00%3A00%3A00Z')
+        expect(path).toContain('before=2025-12-31T23%3A59%3A59Z')
+        expect(path).toContain('schemas=users')
+        expect(path).toContain('schemas=orders')
+        expect(requestMock.mock.calls[0]![0]).not.toHaveProperty('query')
     })
 
-    it('omits undefined optional params from query', async () => {
+    it('omits query string when no optional params provided', async () => {
         const requestMock = vi.fn().mockResolvedValue([])
         const context = createMockContext(requestMock)
         const tool = externalDataSourcesJobs()
 
         await tool.handler(context, { id: 'source-456' })
 
-        const query = requestMock.mock.calls[0]![0].query
-        expect(query).toEqual({})
-        expect(query).not.toHaveProperty('after')
-        expect(query).not.toHaveProperty('before')
-        expect(query).not.toHaveProperty('schemas')
+        expect(requestMock).toHaveBeenCalledWith({
+            method: 'GET',
+            path: '/api/projects/42/external_data_sources/source-456/jobs/',
+        })
     })
 
-    it('includes only provided optional params', async () => {
+    it('includes only provided optional params in query string', async () => {
         const requestMock = vi.fn().mockResolvedValue([])
         const context = createMockContext(requestMock)
         const tool = externalDataSourcesJobs()
@@ -112,7 +109,9 @@ describe('externalDataSourcesJobs', () => {
             after: '2025-06-01T00:00:00Z',
         })
 
-        const query = requestMock.mock.calls[0]![0].query
-        expect(query).toEqual({ after: '2025-06-01T00:00:00Z' })
+        const path = requestMock.mock.calls[0]![0].path as string
+        expect(path).toContain('after=2025-06-01T00%3A00%3A00Z')
+        expect(path).not.toContain('before=')
+        expect(path).not.toContain('schemas=')
     })
 })

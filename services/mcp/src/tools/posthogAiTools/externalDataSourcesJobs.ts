@@ -21,20 +21,23 @@ const tool = (): ToolBase<typeof schema, unknown> => ({
     schema,
     handler: async (context: Context, params: Params) => {
         const projectId = await context.stateManager.getProjectId()
-        const query: Record<string, string | string[]> = {}
+        const searchParams = new URLSearchParams()
         if (params.after) {
-            query.after = params.after
+            searchParams.append('after', params.after)
         }
         if (params.before) {
-            query.before = params.before
+            searchParams.append('before', params.before)
         }
         if (params.schemas) {
-            query.schemas = params.schemas
+            for (const schema of params.schemas) {
+                searchParams.append('schemas', schema)
+            }
         }
+        const qs = searchParams.toString()
+        const basePath = `/api/projects/${encodeURIComponent(String(projectId))}/external_data_sources/${encodeURIComponent(String(params.id))}/jobs/`
         const result = await context.api.request<unknown>({
             method: 'GET',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/external_data_sources/${encodeURIComponent(String(params.id))}/jobs/`,
-            query,
+            path: qs ? `${basePath}?${qs}` : basePath,
         })
         return result
     },
