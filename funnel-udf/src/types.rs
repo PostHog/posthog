@@ -1,4 +1,4 @@
-use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use serde::{ser::Error as _, Deserialize, Deserializer, Serialize, Serializer};
 
 // ClickHouse `String` is byte-typed, not UTF-8. Breakdown values are Vec<u8>
 // end-to-end; the newtype lets PropVal keep its derive while still round-tripping
@@ -15,7 +15,9 @@ impl<'de> Deserialize<'de> for Bytes {
 impl Serialize for Bytes {
     fn serialize<S: Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
         // Only reached on the JSON path, where bytes originated from a JSON string.
-        std::str::from_utf8(&self.0).unwrap().serialize(s)
+        std::str::from_utf8(&self.0)
+            .map_err(S::Error::custom)?
+            .serialize(s)
     }
 }
 
