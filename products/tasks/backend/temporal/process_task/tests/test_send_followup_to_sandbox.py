@@ -197,10 +197,10 @@ class TestRefreshSandboxMcp:
         mock_user_configs.return_value = []
         mock_send_refresh.return_value = CommandResult(success=True, status_code=200)
 
-        _refresh_sandbox_mcp(_make_task_run_mock(), "read_write", auth_token=None)
+        _refresh_sandbox_mcp(_make_task_run_mock(), "full", auth_token=None)
 
-        mock_oauth.assert_called_once_with(mock_oauth.call_args.args[0], scopes="read_write")
-        mock_ph_configs.assert_called_once_with(token="fresh-token", project_id=7, scopes="read_write")
+        mock_oauth.assert_called_once_with(mock_oauth.call_args.args[0], scopes="full")
+        mock_ph_configs.assert_called_once_with(token="fresh-token", project_id=7, scopes="full")
 
 
 class TestRefreshIntervalGate:
@@ -325,29 +325,30 @@ class TestSendFollowupActivityRefreshOrdering:
 
     def test_refresh_called_before_user_message(self, _patches):
         call_order: list[str] = []
-        _patches["refresh"].side_effect = lambda *a, **kw: call_order.append("refresh")
-        _patches["user_msg"].side_effect = lambda *a, **kw: (
-            call_order.append("user_message"),
-            CommandResult(success=True, status_code=200, data={"result": {"stopReason": "end_turn"}}),
-        )[1]
 
-        send_followup_to_sandbox(
-            SendFollowupToSandboxInput(run_id="run-1", message="hi", posthog_mcp_scopes="read_write")
-        )
+        def _record_refresh(*a, **kw):
+            call_order.append("refresh")
+
+        def _record_user_msg(*a, **kw):
+            call_order.append("user_message")
+            return CommandResult(success=True, status_code=200, data={"result": {"stopReason": "end_turn"}})
+
+        _patches["refresh"].side_effect = _record_refresh
+        _patches["user_msg"].side_effect = _record_user_msg
+
+        send_followup_to_sandbox(SendFollowupToSandboxInput(run_id="run-1", message="hi", posthog_mcp_scopes="full"))
 
         assert call_order == ["refresh", "user_message"]
 
     def test_scopes_flow_from_input_to_refresh(self, _patches):
         _patches["user_msg"].return_value = CommandResult(success=True, status_code=200)
 
-        send_followup_to_sandbox(
-            SendFollowupToSandboxInput(run_id="run-1", message="hi", posthog_mcp_scopes="read_write")
-        )
+        send_followup_to_sandbox(SendFollowupToSandboxInput(run_id="run-1", message="hi", posthog_mcp_scopes="full"))
 
         _patches["refresh"].assert_called_once()
         args, _kwargs = _patches["refresh"].call_args
         assert args[0] is _patches["task_run"]
-        assert args[1] == "read_write"
+        assert args[1] == "full"
         assert args[2] == "jwt"
 
     def test_default_scope_is_read_only(self, _patches):

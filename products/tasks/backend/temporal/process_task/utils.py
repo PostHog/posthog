@@ -11,7 +11,7 @@ from django.core.cache import cache
 from pydantic import BaseModel
 
 from posthog.models.integration import GitHubIntegration, Integration
-from posthog.temporal.oauth import PosthogMcpScopes, has_write_scopes
+from posthog.temporal.oauth import TOKEN_EXPIRATION_SECONDS, PosthogMcpScopes, has_write_scopes
 
 from products.mcp_store.backend.facade.api import get_active_installations
 
@@ -167,7 +167,7 @@ GITHUB_USER_TOKEN_CACHE_TTL_SECONDS = 6 * 60 * 60
 # Minimum interval between MCP token refreshes pushed to a live sandbox. The
 # OAuth tokens themselves are valid for 6h; we only need to rotate periodically
 # so a long-running sandbox doesn't accumulate stale credentials.
-MCP_TOKEN_REFRESH_INTERVAL_SECONDS = 30 * 60
+MCP_TOKEN_REFRESH_INTERVAL_SECONDS = TOKEN_EXPIRATION_SECONDS / 2  # 3 hours
 
 
 def _mcp_token_issued_cache_key(run_id: str) -> str:
