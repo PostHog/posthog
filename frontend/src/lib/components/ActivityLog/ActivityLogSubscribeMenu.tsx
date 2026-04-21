@@ -14,6 +14,7 @@ export interface ActivityLogSubscribeMenuProps {
     onNavigate?: () => void
     tooltip?: string
     disabledReason?: string
+    iconOnly?: boolean
     'data-attr'?: string
 }
 
@@ -22,6 +23,7 @@ export function ActivityLogSubscribeMenu({
     onNavigate,
     tooltip,
     disabledReason,
+    iconOnly = false,
     'data-attr': dataAttr,
 }: ActivityLogSubscribeMenuProps): JSX.Element {
     const templateItems = HOG_FUNCTION_SUB_TEMPLATES['activity-log'].map((subTemplate) => {
@@ -64,7 +66,7 @@ export function ActivityLogSubscribeMenu({
             disabledReason={disabledReason}
             data-attr={dataAttr}
         >
-            Subscribe
+            {iconOnly ? null : 'Subscribe'}
         </LemonButton>
     )
 

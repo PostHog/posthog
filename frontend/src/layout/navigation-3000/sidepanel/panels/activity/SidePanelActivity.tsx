@@ -158,6 +158,7 @@ export const SidePanelActivity = (): JSX.Element => {
                                                 : []),
                                         ]}
                                         onNavigate={closeSidePanel}
+                                        iconOnly
                                     />
                                 )}
                             </div>
