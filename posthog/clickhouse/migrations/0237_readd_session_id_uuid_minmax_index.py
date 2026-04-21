@@ -17,6 +17,6 @@ operations = [
     run_sql_with_exceptions(
         ADD_MINMAX_INDEX_SHARDED_EVENTS,
         sharded=True,
-        is_alter_on_replicated_table=False,
+        is_alter_on_replicated_table=True,
     ),
 ]

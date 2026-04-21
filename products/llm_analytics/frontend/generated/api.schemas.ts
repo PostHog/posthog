@@ -7,6 +7,22 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
+export interface EvaluationRunRequestApi {
+    /** UUID of the evaluation to run. */
+    evaluation_id: string
+    /** UUID of the $ai_generation event to evaluate. */
+    target_event_id: string
+    /** ISO 8601 timestamp of the target event (needed for efficient ClickHouse lookup). */
+    timestamp: string
+    /** Event name. Defaults to '$ai_generation'. */
+    event?: string
+    /**
+     * Distinct ID of the event (optional, improves lookup performance).
+     * @nullable
+     */
+    distinct_id?: string | null
+}
+
 /**
  * * `active` - Active
  * `paused` - Paused
@@ -144,21 +160,37 @@ export interface UserBasicApi {
 
 export interface EvaluationApi {
     readonly id: string
-    /** @maxLength 400 */
+    /**
+     * Name of the evaluation.
+     * @maxLength 400
+     */
     name: string
+    /** Optional description of what this evaluation checks. */
     description?: string
+    /** Whether the evaluation runs automatically on new $ai_generation events. */
     enabled?: boolean
     readonly status: EvaluationStatusEnumApi
     readonly status_reason: StatusReasonEnumApi | NullEnumApi | null
+    /** 'llm_judge' uses an LLM to score outputs against a prompt; 'hog' runs deterministic Hog code.
+
+* `llm_judge` - LLM as a judge
+* `hog` - Hog */
     evaluation_type: EvaluationTypeEnumApi
+    /** Configuration dict. For llm_judge: {'prompt': '...'}. For hog: {'source': '...'}. */
     evaluation_config?: unknown
+    /** Output format. Currently only 'boolean' is supported.
+
+* `boolean` - Boolean (Pass/Fail) */
     output_type: OutputTypeEnumApi
+    /** Optional output config, e.g. {'allows_na': true} to allow N/A results. */
     output_config?: unknown
+    /** Optional trigger conditions to filter which events are evaluated. OR between condition sets, AND within each. */
     conditions?: unknown
     model_configuration?: ModelConfigurationApi | null
     readonly created_at: string
     readonly updated_at: string
     readonly created_by: UserBasicApi
+    /** Set to true to soft-delete the evaluation. */
     deleted?: boolean
 }
 
@@ -169,6 +201,97 @@ export interface PaginatedEvaluationListApi {
     /** @nullable */
     previous?: string | null
     results: EvaluationApi[]
+}
+
+export interface PatchedEvaluationApi {
+    readonly id?: string
+    /**
+     * Name of the evaluation.
+     * @maxLength 400
+     */
+    name?: string
+    /** Optional description of what this evaluation checks. */
+    description?: string
+    /** Whether the evaluation runs automatically on new $ai_generation events. */
+    enabled?: boolean
+    readonly status?: EvaluationStatusEnumApi
+    readonly status_reason?: StatusReasonEnumApi | NullEnumApi | null
+    /** 'llm_judge' uses an LLM to score outputs against a prompt; 'hog' runs deterministic Hog code.
+
+* `llm_judge` - LLM as a judge
+* `hog` - Hog */
+    evaluation_type?: EvaluationTypeEnumApi
+    /** Configuration dict. For llm_judge: {'prompt': '...'}. For hog: {'source': '...'}. */
+    evaluation_config?: unknown
+    /** Output format. Currently only 'boolean' is supported.
+
+* `boolean` - Boolean (Pass/Fail) */
+    output_type?: OutputTypeEnumApi
+    /** Optional output config, e.g. {'allows_na': true} to allow N/A results. */
+    output_config?: unknown
+    /** Optional trigger conditions to filter which events are evaluated. OR between condition sets, AND within each. */
+    conditions?: unknown
+    model_configuration?: ModelConfigurationApi | null
+    readonly created_at?: string
+    readonly updated_at?: string
+    readonly created_by?: UserBasicApi
+    /** Set to true to soft-delete the evaluation. */
+    deleted?: boolean
+}
+
+export type TestHogRequestApiConditionsItem = { [key: string]: unknown }
+
+export interface TestHogRequestApi {
+    /**
+     * Hog source code to test. Must return a boolean (true = pass, false = fail) or null for N/A.
+     * @minLength 1
+     */
+    source: string
+    /**
+     * Number of recent $ai_generation events to test against (1–10, default 5).
+     * @minimum 1
+     * @maximum 10
+     */
+    sample_count?: number
+    /** Whether the evaluation can return N/A for non-applicable generations. */
+    allows_na?: boolean
+    /** Optional trigger conditions to filter which events are sampled. */
+    conditions?: TestHogRequestApiConditionsItem[]
+}
+
+export interface TestHogResultItemApi {
+    /** UUID of the $ai_generation event. */
+    event_uuid: string
+    /**
+     * Trace ID if available.
+     * @nullable
+     */
+    trace_id?: string | null
+    /** First 200 chars of the generation input. */
+    input_preview: string
+    /** First 200 chars of the generation output. */
+    output_preview: string
+    /**
+     * True = pass, False = fail, null = N/A or error.
+     * @nullable
+     */
+    result: boolean | null
+    /**
+     * Hog evaluation reasoning string, if any.
+     * @nullable
+     */
+    reasoning: string | null
+    /**
+     * Error message if the Hog code raised an exception.
+     * @nullable
+     */
+    error: string | null
+}
+
+export interface TestHogResponseApi {
+    results: TestHogResultItemApi[]
+    /** Optional message, e.g. when no recent events were found. */
+    message?: string
 }
 
 /**
@@ -361,41 +484,58 @@ export const EvaluationReportFrequencyEnumApi = {
 
 export interface EvaluationReportApi {
     readonly id: string
+    /** UUID of the evaluation this report config belongs to. */
     evaluation: string
+    /** 'every_n' triggers a report after N evaluations run; 'scheduled' uses an rrule schedule.
+
+* `scheduled` - Scheduled
+* `every_n` - Every N */
     frequency?: EvaluationReportFrequencyEnumApi
+    /** RFC 5545 recurrence rule string. Required when frequency is 'scheduled'. */
     rrule?: string
-    /** @nullable */
+    /**
+     * Schedule start datetime (ISO 8601). Required when frequency is 'scheduled'.
+     * @nullable
+     */
     starts_at?: string | null
-    /** @maxLength 64 */
+    /**
+     * IANA timezone name for scheduled delivery (e.g. 'America/New_York').
+     * @maxLength 64
+     */
     timezone_name?: string
     /** @nullable */
     readonly next_delivery_date: string | null
+    /** List of delivery targets. Each is {type: 'email', value: '...'} or {type: 'slack', integration_id: N, channel: '...'}. */
     delivery_targets?: unknown
     /**
+     * Max number of evaluation runs included in each report. Defaults to 100.
      * @minimum -2147483648
      * @maximum 2147483647
      */
     max_sample_size?: number
+    /** Whether report delivery is active. */
     enabled?: boolean
+    /** Set to true to soft-delete this report config. */
     deleted?: boolean
     /** @nullable */
     readonly last_delivered_at: string | null
+    /** Optional custom instructions injected into the AI report prompt to focus analysis. */
     report_prompt_guidance?: string
     /**
-     * Number of new eval results that triggers a report
+     * Number of evaluation runs that trigger a report (every_n mode). Min 10, max 1000.
      * @minimum -2147483648
      * @maximum 2147483647
      * @nullable
      */
     trigger_threshold?: number | null
     /**
-     * Minimum minutes between count-triggered reports
+     * Minimum minutes between reports in every_n mode to prevent spam. Min 60.
      * @minimum -2147483648
      * @maximum 2147483647
      */
     cooldown_minutes?: number
     /**
-     * Maximum count-triggered report runs per calendar day (UTC)
+     * Max reports generated per day. Defaults to 3.
      * @minimum -2147483648
      * @maximum 2147483647
      */
@@ -416,41 +556,58 @@ export interface PaginatedEvaluationReportListApi {
 
 export interface PatchedEvaluationReportApi {
     readonly id?: string
+    /** UUID of the evaluation this report config belongs to. */
     evaluation?: string
+    /** 'every_n' triggers a report after N evaluations run; 'scheduled' uses an rrule schedule.
+
+* `scheduled` - Scheduled
+* `every_n` - Every N */
     frequency?: EvaluationReportFrequencyEnumApi
+    /** RFC 5545 recurrence rule string. Required when frequency is 'scheduled'. */
     rrule?: string
-    /** @nullable */
+    /**
+     * Schedule start datetime (ISO 8601). Required when frequency is 'scheduled'.
+     * @nullable
+     */
     starts_at?: string | null
-    /** @maxLength 64 */
+    /**
+     * IANA timezone name for scheduled delivery (e.g. 'America/New_York').
+     * @maxLength 64
+     */
     timezone_name?: string
     /** @nullable */
     readonly next_delivery_date?: string | null
+    /** List of delivery targets. Each is {type: 'email', value: '...'} or {type: 'slack', integration_id: N, channel: '...'}. */
     delivery_targets?: unknown
     /**
+     * Max number of evaluation runs included in each report. Defaults to 100.
      * @minimum -2147483648
      * @maximum 2147483647
      */
     max_sample_size?: number
+    /** Whether report delivery is active. */
     enabled?: boolean
+    /** Set to true to soft-delete this report config. */
     deleted?: boolean
     /** @nullable */
     readonly last_delivered_at?: string | null
+    /** Optional custom instructions injected into the AI report prompt to focus analysis. */
     report_prompt_guidance?: string
     /**
-     * Number of new eval results that triggers a report
+     * Number of evaluation runs that trigger a report (every_n mode). Min 10, max 1000.
      * @minimum -2147483648
      * @maximum 2147483647
      * @nullable
      */
     trigger_threshold?: number | null
     /**
-     * Minimum minutes between count-triggered reports
+     * Minimum minutes between reports in every_n mode to prevent spam. Min 60.
      * @minimum -2147483648
      * @maximum 2147483647
      */
     cooldown_minutes?: number
     /**
-     * Maximum count-triggered report runs per calendar day (UTC)
+     * Max reports generated per day. Defaults to 3.
      * @minimum -2147483648
      * @maximum 2147483647
      */
@@ -476,13 +633,26 @@ export const DeliveryStatusEnumApi = {
 } as const
 
 export interface EvaluationReportRunApi {
+    /** UUID of this report run. */
     readonly id: string
+    /** UUID of the report config that generated this run. */
     readonly report: string
+    /** Generated report content (markdown or structured text). */
     readonly content: unknown
+    /** Run metadata including model used, token counts, and generation stats. */
     readonly metadata: unknown
+    /** Start of the evaluation window covered by this report. */
     readonly period_start: string
+    /** End of the evaluation window covered by this report. */
     readonly period_end: string
+    /** 'pending', 'delivered', or 'failed'.
+
+* `pending` - Pending
+* `delivered` - Delivered
+* `partial_failure` - Partial Failure
+* `failed` - Failed */
     readonly delivery_status: DeliveryStatusEnumApi
+    /** List of delivery error messages if delivery failed. */
     readonly delivery_errors: unknown
     readonly created_at: string
 }
