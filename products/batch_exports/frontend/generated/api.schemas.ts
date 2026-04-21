@@ -279,6 +279,64 @@ export interface PaginatedBatchExportListApi {
 }
 
 /**
+ * Serializer for a BatchExport model.
+ */
+export interface PatchedBatchExportApi {
+    readonly id?: string
+    /** The team this belongs to. */
+    readonly team_id?: number
+    /** A human-readable name for this BatchExport. */
+    name?: string
+    /** Which model this BatchExport is exporting.
+
+* `events` - Events
+* `persons` - Persons
+* `sessions` - Sessions */
+    model?: ModelEnumApi | BlankEnumApi | NullEnumApi | null
+    destination?: BatchExportDestinationApi
+    interval?: IntervalEnumApi
+    /** Whether this BatchExport is paused or not. */
+    paused?: boolean
+    /** The timestamp at which this BatchExport was created. */
+    readonly created_at?: string
+    /** The timestamp at which this BatchExport was last updated. */
+    readonly last_updated_at?: string
+    /**
+     * The timestamp at which this BatchExport was last paused.
+     * @nullable
+     */
+    last_paused_at?: string | null
+    /**
+     * Time before which any Batch Export runs won't be triggered.
+     * @nullable
+     */
+    start_at?: string | null
+    /**
+     * Time after which any Batch Export runs won't be triggered.
+     * @nullable
+     */
+    end_at?: string | null
+    readonly latest_runs?: readonly BatchExportRunApi[]
+    hogql_query?: string
+    /** A schema of custom fields to select when exporting data. */
+    readonly schema?: unknown | null
+    filters?: unknown | null
+    timezone?: string | NullEnumApi | null
+    /**
+     * @minimum 0
+     * @maximum 6
+     * @nullable
+     */
+    offset_day?: number | null
+    /**
+     * @minimum 0
+     * @maximum 23
+     * @nullable
+     */
+    offset_hour?: number | null
+}
+
+/**
  * * `Cancelled` - Cancelled
  * `Completed` - Completed
  * `ContinuedAsNew` - Continued As New
@@ -385,65 +443,50 @@ export interface PaginatedBatchExportRunListApi {
     results: BatchExportRunApi[]
 }
 
-/**
- * Serializer for a BatchExport model.
- */
-export interface PatchedBatchExportApi {
-    readonly id?: string
-    /** The team this belongs to. */
-    readonly team_id?: number
-    /** A human-readable name for this BatchExport. */
-    name?: string
-    /** Which model this BatchExport is exporting.
-
-* `events` - Events
-* `persons` - Persons
-* `sessions` - Sessions */
-    model?: ModelEnumApi | BlankEnumApi | NullEnumApi | null
-    destination?: BatchExportDestinationApi
-    interval?: IntervalEnumApi
-    /** Whether this BatchExport is paused or not. */
-    paused?: boolean
-    /** The timestamp at which this BatchExport was created. */
-    readonly created_at?: string
-    /** The timestamp at which this BatchExport was last updated. */
-    readonly last_updated_at?: string
+export type BatchExportsListParams = {
     /**
-     * The timestamp at which this BatchExport was last paused.
-     * @nullable
+     * Number of results to return per page.
      */
-    last_paused_at?: string | null
+    limit?: number
     /**
-     * Time before which any Batch Export runs won't be triggered.
-     * @nullable
+     * The initial index from which to return the results.
      */
-    start_at?: string | null
-    /**
-     * Time after which any Batch Export runs won't be triggered.
-     * @nullable
-     */
-    end_at?: string | null
-    readonly latest_runs?: readonly BatchExportRunApi[]
-    hogql_query?: string
-    /** A schema of custom fields to select when exporting data. */
-    readonly schema?: unknown | null
-    filters?: unknown | null
-    timezone?: string | NullEnumApi | null
-    /**
-     * @minimum 0
-     * @maximum 6
-     * @nullable
-     */
-    offset_day?: number | null
-    /**
-     * @minimum 0
-     * @maximum 23
-     * @nullable
-     */
-    offset_hour?: number | null
+    offset?: number
 }
 
-export type BatchExportsListParams = {
+export type BatchExportsLogsRetrieveParams = {
+    /**
+     * Only return entries after this ISO 8601 timestamp.
+     */
+    after?: string
+    /**
+     * Only return entries before this ISO 8601 timestamp.
+     */
+    before?: string
+    /**
+     * Filter logs to a specific execution instance.
+     * @minLength 1
+     */
+    instance_id?: string
+    /**
+     * Comma-separated log levels to include, e.g. 'WARN,ERROR'. Valid levels: DEBUG, LOG, INFO, WARN, ERROR.
+     * @minLength 1
+     */
+    level?: string
+    /**
+     * Maximum number of log entries to return (1-500, default 50).
+     * @minimum 1
+     * @maximum 500
+     */
+    limit?: number
+    /**
+     * Case-insensitive substring search across log messages.
+     * @minLength 1
+     */
+    search?: string
+}
+
+export type BatchExportsList2Params = {
     /**
      * Number of results to return per page.
      */
@@ -474,4 +517,68 @@ export type BatchExportsRunsListParams = {
      * Which field to use when ordering the results.
      */
     ordering?: string
+}
+
+export type BatchExportsRunsLogsRetrieveParams = {
+    /**
+     * Only return entries after this ISO 8601 timestamp.
+     */
+    after?: string
+    /**
+     * Only return entries before this ISO 8601 timestamp.
+     */
+    before?: string
+    /**
+     * Filter logs to a specific execution instance.
+     * @minLength 1
+     */
+    instance_id?: string
+    /**
+     * Comma-separated log levels to include, e.g. 'WARN,ERROR'. Valid levels: DEBUG, LOG, INFO, WARN, ERROR.
+     * @minLength 1
+     */
+    level?: string
+    /**
+     * Maximum number of log entries to return (1-500, default 50).
+     * @minimum 1
+     * @maximum 500
+     */
+    limit?: number
+    /**
+     * Case-insensitive substring search across log messages.
+     * @minLength 1
+     */
+    search?: string
+}
+
+export type BatchExportsLogsRetrieve2Params = {
+    /**
+     * Only return entries after this ISO 8601 timestamp.
+     */
+    after?: string
+    /**
+     * Only return entries before this ISO 8601 timestamp.
+     */
+    before?: string
+    /**
+     * Filter logs to a specific execution instance.
+     * @minLength 1
+     */
+    instance_id?: string
+    /**
+     * Comma-separated log levels to include, e.g. 'WARN,ERROR'. Valid levels: DEBUG, LOG, INFO, WARN, ERROR.
+     * @minLength 1
+     */
+    level?: string
+    /**
+     * Maximum number of log entries to return (1-500, default 50).
+     * @minimum 1
+     * @maximum 500
+     */
+    limit?: number
+    /**
+     * Case-insensitive substring search across log messages.
+     * @minLength 1
+     */
+    search?: string
 }

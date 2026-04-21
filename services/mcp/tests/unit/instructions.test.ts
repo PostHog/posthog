@@ -3,7 +3,9 @@ import { describe, expect, it } from 'vitest'
 import type { GroupType } from '@/api/client'
 import { buildGroupTypesBlock, buildInstructionsV2 } from '@/lib/instructions'
 
-const MOCK_TEMPLATE = `### Basic functionality
+const MOCK_TEMPLATE = `{metadata}
+
+### Basic functionality
 Some instructions here.
 
 {guidelines}
@@ -68,5 +70,33 @@ describe('buildInstructionsV2', () => {
         const result = buildInstructionsV2(MOCK_TEMPLATE, '  padded  ', undefined)
         expect(result).toContain('padded')
         expect(result).not.toContain('  padded  ')
+    })
+
+    it('should inject metadata into the template', () => {
+        const metadata = 'You are currently in project "My App" (organization: "Acme Corp").\nThe user\'s name is Jane Doe (jane@acme.com).\nProject timezone: America/New_York.'
+        const result = buildInstructionsV2(MOCK_TEMPLATE, 'guidelines', undefined, metadata)
+        expect(result).toContain('You are currently in project "My App" (organization: "Acme Corp").')
+        expect(result).toContain("The user's name is Jane Doe (jane@acme.com).")
+        expect(result).toContain('Project timezone: America/New_York.')
+        expect(result).not.toContain('{metadata}')
+    })
+
+    it('should place metadata before the basic functionality section', () => {
+        const metadata = 'Project: Test'
+        const result = buildInstructionsV2(MOCK_TEMPLATE, 'guidelines', undefined, metadata)
+        const metadataIndex = result.indexOf('Project: Test')
+        const basicIndex = result.indexOf('### Basic functionality')
+        expect(metadataIndex).toBeLessThan(basicIndex)
+    })
+
+    it('should leave no placeholder when metadata is undefined', () => {
+        const result = buildInstructionsV2(MOCK_TEMPLATE, 'guidelines', undefined, undefined)
+        expect(result).not.toContain('{metadata}')
+    })
+
+    it('should trim metadata whitespace', () => {
+        const result = buildInstructionsV2(MOCK_TEMPLATE, 'guidelines', undefined, '  padded metadata  ')
+        expect(result).toContain('padded metadata')
+        expect(result).not.toContain('  padded metadata  ')
     })
 })
