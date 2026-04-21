@@ -128,7 +128,12 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         )
         DashboardTile.objects.create(dashboard=dashboard, insight=legacy_insight)
 
-        with patch("posthog.api.insight.posthoganalytics.feature_enabled", return_value=True):
+        # Only block the legacy-filter flag; other flags (e.g. hogql-insights-replace-filters)
+        # keep their default behavior so the serializer does not implicitly migrate filters → query.
+        def only_legacy_filter_flag(flag_name: str, *args: Any, **kwargs: Any) -> bool:
+            return flag_name == "legacy-insight-filters-disabled"
+
+        with patch("posthog.api.insight.posthoganalytics.feature_enabled", side_effect=only_legacy_filter_flag):
             response = self.client.post(
                 f"/api/projects/{self.team.id}/dashboards/",
                 {"name": "duplicated", "use_dashboard": dashboard.id, "duplicate_tiles": True},
