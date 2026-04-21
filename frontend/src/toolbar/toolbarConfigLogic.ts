@@ -129,21 +129,26 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
                 return window.location.origin
             },
         ],
-        // API host for JS and static assets (CSS)
-        // Uses posthog.config.api_host if available, otherwise falls back to props.apiURL for backwards compatibility
+        // API host for static assets (CSS) and telemetry ingest. Never use for
+        // authenticated calls — use uiHost (token-bound) instead, otherwise an
+        // attacker-controlled apiURL hash param would receive the bearer token.
+        //
+        // Each candidate is run through canonicalizeUiHost so non-http(s) schemes
+        // (javascript:, data:, …) and URLs with userinfo are rejected. This is
+        // defense-in-depth: Option B removed the authenticated use, but keeping
+        // the validation here prevents future callers from re-introducing the
+        // same leak, and blocks `javascript:` being dropped into a <link href>.
         apiHost: [
             (s) => [s.props],
             (props: ToolbarProps): string => {
-                if (props.posthog?.config?.api_host) {
-                    return props.posthog.config.api_host.replace(/\/+$/, '')
+                const fromConfig = canonicalizeUiHost(props.posthog?.config?.api_host)
+                if (fromConfig) {
+                    return fromConfig
                 }
-
-                // Fallback: if apiURL prop is set, use it (backwards compatibility)
-                if (props.apiURL) {
-                    return props.apiURL.replace(/\/+$/, '')
+                const fromApi = canonicalizeUiHost(props.apiURL)
+                if (fromApi) {
+                    return fromApi
                 }
-
-                // Final fallback: current origin
                 return window.location.origin
             },
         ],
@@ -795,16 +800,20 @@ export interface ToolbarMediaUploadResponse {
 export async function toolbarUploadMedia(file: File): Promise<{ id: string; url: string; fileName: string }> {
     const logic = toolbarConfigLogic.findMounted()
     const accessToken = logic?.values.accessToken
-    const apiHost = logic?.values.apiHost
+    // Must use uiHost, not apiHost: uiHost is validated + token-bound, while
+    // apiHost can be redirected via the apiURL hash param. Sending the bearer
+    // token to apiHost would let an attacker exfiltrate it by crafting a link
+    // with a legitimate uiHost and an attacker-controlled apiURL.
+    const uiHost = logic?.values.uiHost
 
-    if (!accessToken || !apiHost) {
+    if (!accessToken || !uiHost) {
         throw new Error('Toolbar not authenticated')
     }
 
     const formData = new FormData()
     formData.append('image', file)
 
-    const url = `${apiHost}/api/projects/@current/uploaded_media/`
+    const url = `${uiHost}/api/projects/@current/uploaded_media/`
 
     let response = await fetch(url, {
         method: 'POST',

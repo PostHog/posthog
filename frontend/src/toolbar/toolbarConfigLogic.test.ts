@@ -1,7 +1,7 @@
 import { expectLogic } from 'kea-test-utils'
 
 import { initKeaTests } from '~/test/init'
-import { canonicalizeUiHost, toolbarConfigLogic, toolbarFetch } from '~/toolbar/toolbarConfigLogic'
+import { canonicalizeUiHost, toolbarConfigLogic, toolbarFetch, toolbarUploadMedia } from '~/toolbar/toolbarConfigLogic'
 import { cleanToolbarAuthHash, OAUTH_LOCALSTORAGE_KEY, PKCE_STORAGE_KEY, readToolbarAuthHash } from '~/toolbar/utils'
 
 global.fetch = jest.fn(() =>
@@ -1217,6 +1217,95 @@ describe('toolbar toolbarConfigLogic', () => {
             window.history.pushState({}, '', '/page?q=search#__posthog_toolbar=code:abc,client_id:xyz')
             cleanToolbarAuthHash()
             expect(replaceStateSpy).toHaveBeenCalledWith(null, '', '/page?q=search')
+        })
+    })
+
+    describe('apiHost validation', () => {
+        it('prefers posthog.config.api_host over apiURL', () => {
+            const logic = toolbarConfigLogic.build({
+                apiURL: 'https://should-not-be-used.example.com',
+                posthog: { config: { api_host: 'https://us.i.posthog.com' } } as any,
+            } as any)
+            logic.mount()
+            expect(logic.values.apiHost).toBe('https://us.i.posthog.com')
+        })
+
+        it('falls back to apiURL when no posthog config', () => {
+            const logic = toolbarConfigLogic.build({ apiURL: 'https://selfhosted.example.com' } as any)
+            logic.mount()
+            expect(logic.values.apiHost).toBe('https://selfhosted.example.com')
+        })
+
+        it('normalizes apiHost to not end with a slash', () => {
+            const logic = toolbarConfigLogic.build({
+                posthog: { config: { api_host: 'https://us.i.posthog.com/' } } as any,
+            } as any)
+            logic.mount()
+            expect(logic.values.apiHost).toBe('https://us.i.posthog.com')
+        })
+
+        it.each(['javascript:alert(1)//', 'data:text/html,<script>alert(1)</script>', 'vbscript:msgbox'])(
+            'rejects apiHost with dangerous scheme: %s',
+            (maliciousHost) => {
+                // Option A: even though apiHost no longer carries auth tokens after
+                // Option B, validating at the selector stops a dangerous scheme from
+                // ending up as a <link href> on toolbar.css.
+                const logic = toolbarConfigLogic.build({
+                    apiURL: maliciousHost,
+                    posthog: { config: { api_host: maliciousHost } } as any,
+                } as any)
+                logic.mount()
+                // Should fall through to window.location.origin instead of the malicious value.
+                expect(logic.values.apiHost).toBe(window.location.origin)
+            }
+        )
+
+        it('rejects apiHost with userinfo (visual spoof protection)', () => {
+            const logic = toolbarConfigLogic.build({
+                apiURL: 'https://us.posthog.com@evil.com',
+                posthog: { config: {} } as any,
+            } as any)
+            logic.mount()
+            expect(logic.values.apiHost).toBe(window.location.origin)
+        })
+    })
+
+    describe('toolbarUploadMedia uses uiHost, not apiHost', () => {
+        // Regression: an attacker-crafted link with a legitimate uiHost but an
+        // attacker-controlled apiURL must not receive the bearer token.
+        it('POSTs to uiHost even when apiHost points elsewhere', async () => {
+            const logic = toolbarConfigLogic.build({
+                uiHost: 'https://us.posthog.com',
+                apiURL: 'https://evil.example.com',
+                accessToken: 'pha_secret',
+                refreshToken: 'phr_secret',
+                clientId: 'client',
+            } as any)
+            logic.mount()
+
+            const uploadResponse = {
+                ok: true,
+                status: 200,
+                json: () => Promise.resolve({ id: 'm1', image_location: 'https://cdn/x.png', name: 'x.png' }),
+            }
+            ;(global.fetch as jest.Mock).mockImplementation((url: string) => {
+                if (url.endsWith('/toolbar_oauth/check')) {
+                    return Promise.resolve({ ok: true, status: 200 })
+                }
+                return Promise.resolve(uploadResponse as any)
+            })
+            ;(global.fetch as jest.Mock).mockClear()
+
+            const file = new File(['data'], 'x.png', { type: 'image/png' })
+            await toolbarUploadMedia(file)
+
+            const uploadCall = (global.fetch as jest.Mock).mock.calls.find(
+                (c) => typeof c[0] === 'string' && c[0].includes('/uploaded_media/')
+            )
+            expect(uploadCall).not.toBeUndefined()
+            expect(uploadCall![0]).toBe('https://us.posthog.com/api/projects/@current/uploaded_media/')
+            expect(uploadCall![0]).not.toContain('evil.example.com')
+            expect(uploadCall![1].headers.Authorization).toBe('Bearer pha_secret')
         })
     })
 })
