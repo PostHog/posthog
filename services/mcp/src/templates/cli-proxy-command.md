@@ -180,7 +180,7 @@ Prefer query wrappers when the user's question maps to a supported insight type.
 - "How frequently / how many days per week / power users" -> `query-stickiness`
 - "What do users do after X / before X / navigation flow" -> `query-paths`
 - "New vs returning vs dormant / user composition" -> `query-lifecycle`
-- "LLM traces / AI generations / token usage" -> `query-traces-list`
+- "LLM traces / AI generations / token usage" -> `query-llm-traces-list`
 
 #### Schema-first workflow
 
@@ -204,6 +204,8 @@ If the required events or properties do not exist, inform the user immediately i
 For complex investigations, combine multiple query types. For example, use `query-trends` to identify when a metric changed, then `query-funnel` to check if conversion was affected, then `query-trends` with breakdowns to isolate the segment.
 
 {group_types}
+
+{metadata}
 
 {guidelines}
 
