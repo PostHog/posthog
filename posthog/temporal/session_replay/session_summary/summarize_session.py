@@ -1,6 +1,5 @@
 import json
 import time
-import uuid
 import asyncio
 import dataclasses
 from collections.abc import AsyncGenerator, Generator
@@ -35,8 +34,10 @@ from posthog.temporal.session_replay.session_summary.activities import (
     cleanup_gemini_file_activity,
     consolidate_video_segments_activity,
     embed_and_store_segments_activity,
+    emit_session_problem_signals_activity,
     prep_session_video_asset_activity,
     store_video_session_summary_activity,
+    tag_and_highlight_session_activity,
     upload_video_to_gemini_activity,
 )
 from posthog.temporal.session_replay.session_summary.activities.video_validation import (
@@ -170,6 +171,7 @@ async def fetch_session_data_activity(inputs: SingleSessionSummaryInputs) -> boo
         user_distinct_id_to_log=inputs.user_distinct_id_to_log,
         summary_data=summary_data,
         model_to_use=inputs.model_to_use,
+        trigger_session_id=inputs.trigger_session_id,
     )
     # Store the input in Redis
     input_data_str = json.dumps(dataclasses.asdict(input_data))
@@ -284,6 +286,7 @@ async def get_llm_single_session_summary_activity(
         session_duration=llm_input.session_duration,
         trace_id=temporalio.activity.info().workflow_id,
         user_distinct_id=llm_input.user_distinct_id_to_log,
+        trigger_session_id=llm_input.trigger_session_id,
     )
     # Store the final summary in the DB
     await database_sync_to_async(_store_final_summary_in_db_from_activity, thread_sensitive=False)(
@@ -377,6 +380,7 @@ async def stream_llm_single_session_summary_activity(
         session_duration=llm_input.session_duration,
         trace_id=temporalio.activity.info().workflow_id,
         user_distinct_id=llm_input.user_distinct_id_to_log,
+        trigger_session_id=llm_input.trigger_session_id,
     )
     async for current_summary_state_str in session_summary_generator:
         if current_summary_state_str == last_summary_state_str:
@@ -404,34 +408,14 @@ async def stream_llm_single_session_summary_activity(
     return last_summary_state_str
 
 
-@temporalio.workflow.defn(name="summarize-session-stream")
-class SummarizeSingleSessionStreamWorkflow(PostHogWorkflow):
-    @staticmethod
-    def parse_inputs(inputs: list[str]) -> SingleSessionSummaryInputs:
-        """Parse inputs from the management command CLI."""
-        loaded = json.loads(inputs[0])
-        return SingleSessionSummaryInputs(**loaded)
-
-    @temporalio.workflow.run
-    async def run(self, inputs: SingleSessionSummaryInputs) -> str:
-        await temporalio.workflow.execute_activity(
-            fetch_session_data_activity,
-            inputs,
-            start_to_close_timeout=timedelta(minutes=3),
-            retry_policy=RetryPolicy(maximum_attempts=3),
-        )
-        summary = await temporalio.workflow.execute_activity(
-            stream_llm_single_session_summary_activity,
-            inputs,
-            start_to_close_timeout=timedelta(minutes=5),
-            heartbeat_timeout=timedelta(seconds=30),
-            retry_policy=RetryPolicy(maximum_attempts=3),
-        )
-        return summary
-
-
 @temporalio.workflow.defn(name="summarize-session")
 class SummarizeSingleSessionWorkflow(PostHogWorkflow):
+    @classmethod
+    def workflow_id_for(cls, team_id: int, session_id: str, *, stream: bool = False) -> str:
+        """Stable Temporal workflow id (per team, session, and direct vs stream)."""
+        mode = "stream" if stream else "direct"
+        return f"session-summary:single:{mode}:{team_id}:{session_id}"
+
     def __init__(self) -> None:
         self._progress: SingleSessionProgress = {
             "phase": "starting",
@@ -492,6 +476,36 @@ class SummarizeSingleSessionWorkflow(PostHogWorkflow):
             start_to_close_timeout=timedelta(seconds=30),
             retry_policy=RetryPolicy(maximum_attempts=2),
         )
+
+
+@temporalio.workflow.defn(name="summarize-session-stream")
+class SummarizeSingleSessionStreamWorkflow(PostHogWorkflow):
+    @classmethod
+    def workflow_id_for(cls, team_id: int, session_id: str) -> str:
+        return SummarizeSingleSessionWorkflow.workflow_id_for(team_id, session_id, stream=True)
+
+    @staticmethod
+    def parse_inputs(inputs: list[str]) -> SingleSessionSummaryInputs:
+        """Parse inputs from the management command CLI."""
+        loaded = json.loads(inputs[0])
+        return SingleSessionSummaryInputs(**loaded)
+
+    @temporalio.workflow.run
+    async def run(self, inputs: SingleSessionSummaryInputs) -> str:
+        await temporalio.workflow.execute_activity(
+            fetch_session_data_activity,
+            inputs,
+            start_to_close_timeout=timedelta(minutes=3),
+            retry_policy=RetryPolicy(maximum_attempts=3),
+        )
+        summary = await temporalio.workflow.execute_activity(
+            stream_llm_single_session_summary_activity,
+            inputs,
+            start_to_close_timeout=timedelta(minutes=5),
+            heartbeat_timeout=timedelta(seconds=30),
+            retry_policy=RetryPolicy(maximum_attempts=3),
+        )
+        return summary
 
 
 def _validate_period(
@@ -734,7 +748,7 @@ async def ensure_llm_single_session_summary(
         inactivity_periods=inactivity_periods,
     )
 
-    # Activity 7 (cleanup) must run even if activities 3-6 fail
+    # Activity 8 (cleanup) must run even if activities 3-7 fail
     try:
         # Activity 3: Analyze all segments in parallel (max 100 concurrent to limit blast radius)
         _set_phase(progress, "analyzing_segments")
@@ -773,14 +787,18 @@ async def ensure_llm_single_session_summary(
                 continue
             raw_segments.extend(cast(list[VideoSegmentOutput], result))
 
-        # Activity 4: Consolidate raw segments into meaningful semantic segments
+        # Activity 4: Consolidate raw segments into meaningful semantic segments,
+        # then tag the session in a follow-up turn of the same conversation
         _set_phase(progress, "consolidating")
-        consolidated_analysis = await temporalio.workflow.execute_activity(
+        consolidation_output = await temporalio.workflow.execute_activity(
             consolidate_video_segments_activity,
             args=(video_inputs, raw_segments, trace_id),
-            start_to_close_timeout=timedelta(minutes=3),
+            start_to_close_timeout=timedelta(minutes=5),
             retry_policy=retry_policy,
         )
+
+        consolidated_analysis = consolidation_output["consolidated_analysis"]
+        tagging = consolidation_output["tagging"]
 
         # Activity 5: Enqueue embedding requests for each segment via Kafka.
         # The activity just produces Kafka messages and returns; actual embedding
@@ -793,18 +811,47 @@ async def ensure_llm_single_session_summary(
             retry_policy=retry_policy,
         )
 
-        # Activity 6: Store video-based summary in database
-        # This activity retrieves the cached event data from Redis (from fetch_session_data_activity)
-        # and uses it to map video segments to real events
+        # Activities 6a + 6b run in parallel:
+        # - 6a: Emit signals for issue-indicating segments
+        # - 6b: Store video-based summary in database
         _set_phase(progress, "saving_summary")
+        emit_result, store_result = await asyncio.gather(
+            temporalio.workflow.execute_activity(
+                emit_session_problem_signals_activity,
+                args=(video_inputs, consolidated_analysis),
+                start_to_close_timeout=timedelta(minutes=5),
+                retry_policy=retry_policy,
+            ),
+            temporalio.workflow.execute_activity(
+                store_video_session_summary_activity,
+                args=(video_inputs, consolidated_analysis),
+                start_to_close_timeout=timedelta(minutes=5),
+                retry_policy=retry_policy,
+            ),
+            return_exceptions=True,
+        )
+        if isinstance(emit_result, Exception):
+            posthoganalytics.capture_exception(
+                emit_result,
+                distinct_id=inputs.user_distinct_id_to_log,
+            )
+            logger.exception(
+                f"Error emitting session problem signals for session {inputs.session_id}: {emit_result}",
+                signals_type="session-summaries",
+            )
+        if isinstance(store_result, BaseException):
+            raise store_result
+
+        # Activity 7: Write tags and highlight flag to ClickHouse via Kafka
+        _set_phase(progress, "tagging")
         await temporalio.workflow.execute_activity(
-            store_video_session_summary_activity,
-            args=(video_inputs, consolidated_analysis),
-            start_to_close_timeout=timedelta(minutes=5),
+            tag_and_highlight_session_activity,
+            args=(video_inputs, tagging),
+            start_to_close_timeout=timedelta(minutes=2),
             retry_policy=retry_policy,
         )
     finally:
-        # Activity 7: Delete uploaded video from Gemini to free storage quota
+        # Activity 8: Delete uploaded video from Gemini to free storage quota
         _set_phase(progress, "cleanup")
         await temporalio.workflow.execute_activity(
             cleanup_gemini_file_activity,
@@ -901,6 +948,7 @@ def _prepare_execution(
     extra_summary_context: ExtraSummaryContext | None = None,
     local_reads_prod: bool = False,
     video_validation_enabled: bool | Literal["full"] | None = None,
+    trigger_session_id: str | None = None,
 ) -> tuple[Redis, str, str, SingleSessionSummaryInputs, str]:
     # Use shared identifier to be able to construct all the ids to check/debug
     # Using session id instead of random UUID to be able to check the data in Redis
@@ -932,10 +980,9 @@ def _prepare_execution(
         redis_key_base=redis_key_base,
         model_to_use=model_to_use,
         video_validation_enabled=video_validation_enabled,
+        trigger_session_id=trigger_session_id,
     )
-    workflow_id = (
-        f"session-summary:single:{'stream' if stream else 'direct'}:{team.id}:{session_id}:{shared_id}:{uuid.uuid4()}"
-    )
+    workflow_id = SummarizeSingleSessionWorkflow.workflow_id_for(team.id, session_id, stream=stream)
     return redis_client, redis_input_key, redis_output_key, session_input, workflow_id
 
 
@@ -947,6 +994,7 @@ async def execute_summarize_session(
     extra_summary_context: ExtraSummaryContext | None = None,
     local_reads_prod: bool = False,
     video_validation_enabled: bool | Literal["full"] | None = None,
+    trigger_session_id: str | None = None,
 ) -> dict[str, Any]:
     """
     Start the direct summarization workflow (no streaming) and return the summary.
@@ -973,6 +1021,7 @@ async def execute_summarize_session(
         extra_summary_context=extra_summary_context,
         local_reads_prod=local_reads_prod,
         video_validation_enabled=video_validation_enabled,
+        trigger_session_id=trigger_session_id,
     )
     # Wait for the workflow to complete
     try:

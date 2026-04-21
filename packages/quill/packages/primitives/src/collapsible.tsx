@@ -21,7 +21,7 @@ function Collapsible({ variant = 'default', className, ...props }: CollapsiblePr
                 data-variant={variant}
                 className={cn(
                     'group/collapsible',
-                    variant !== 'folder' && 'hover:bg-muted data-open:bg-muted rounded-md',
+                    variant !== 'folder' && 'hover:bg-muted data-open:bg-muted rounded-sm',
                     className
                 )}
                 {...props}

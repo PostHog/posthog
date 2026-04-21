@@ -12,8 +12,7 @@
     "color": null,
     "last_refresh": null,
     "refreshing": false,
-    "result": [],
-    "boxplot_data": [
+    "result": [
         {
             "day": "2022-03-05",
             "label": "5-Mar-2022",

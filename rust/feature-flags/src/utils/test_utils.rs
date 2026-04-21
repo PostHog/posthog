@@ -1606,6 +1606,23 @@ impl TestContext {
         Ok(())
     }
 
+    /// Populate cache for a team with custom flag definitions payload.
+    pub async fn populate_cache_for_team_with_flags(
+        &self,
+        team_id: i32,
+        flags_data: serde_json::Value,
+    ) -> Result<(), Error> {
+        let redis_client = setup_redis_client(Some(self.config.redis_url.clone())).await;
+        let cache_key =
+            format!("posthog:1:cache/teams/{team_id}/feature_flags/flags_with_cohorts.json");
+        let payload = serde_json::to_string(&flags_data)?;
+        redis_client
+            .set(cache_key, payload)
+            .await
+            .map_err(|e| anyhow::anyhow!("Failed to set cache: {e}"))?;
+        Ok(())
+    }
+
     /// Gets the organization_id for a team by querying the project table
     pub async fn get_organization_id_for_team(&self, team: &Team) -> Result<uuid::Uuid, Error> {
         let mut conn = self.non_persons_reader.get_connection().await?;

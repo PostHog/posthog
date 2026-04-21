@@ -92,6 +92,7 @@ def _to_run(run) -> contracts.Run:
         created_at=run.created_at,
         completed_at=run.completed_at,
         is_stale=logic.is_run_stale(run),
+        superseded_by_id=run.superseded_by_id,
         metadata=run.metadata or {},
     )
 
@@ -278,10 +279,12 @@ def approve_all(
     review_decision: ReviewDecision = ReviewDecision.HUMAN_APPROVED,
     commit_to_github: bool = True,
 ) -> contracts.AutoApproveResult:
-    if team_id is not None:
-        logic.get_run(run_id, team_id=team_id)  # validates ownership
     run, baseline_content = logic.approve_all(
-        run_id=run_id, user_id=user_id, review_decision=review_decision, commit_to_github=commit_to_github
+        run_id=run_id,
+        user_id=user_id,
+        team_id=team_id,
+        review_decision=review_decision,
+        commit_to_github=commit_to_github,
     )
     return contracts.AutoApproveResult(
         run=_to_run(run),
@@ -295,12 +298,11 @@ def approve_run(input: contracts.ApproveRunInput, team_id: int | None = None) ->
     For full run finalization with GitHub commit, use approve_all=true
     which routes through auto_approve_run.
     """
-    if team_id is not None:
-        logic.get_run(input.run_id, team_id=team_id)  # validates ownership
     approved_snapshots = [{"identifier": s.identifier, "new_hash": s.new_hash} for s in input.snapshots]
     run = logic.approve_snapshots(
         run_id=input.run_id,
         user_id=input.user_id,
         approved_snapshots=approved_snapshots,
+        team_id=team_id,
     )
     return _to_run(run)
