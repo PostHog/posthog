@@ -85,6 +85,19 @@ const DELIVERY_TABLE_EXPANDABLE = {
     expandedRowRender: (row: SubscriptionDeliveryApi) => <ExpandedSummaryRow summary={row.change_summary as string} />,
 }
 
+// When a test or story wants a row visible in its expanded state on first render.
+function buildExpandable(initiallyExpandedDeliveryIds?: ReadonlySet<string>): typeof DELIVERY_TABLE_EXPANDABLE & {
+    isRowExpanded?: (row: SubscriptionDeliveryApi) => number
+} {
+    if (!initiallyExpandedDeliveryIds || initiallyExpandedDeliveryIds.size === 0) {
+        return DELIVERY_TABLE_EXPANDABLE
+    }
+    return {
+        ...DELIVERY_TABLE_EXPANDABLE,
+        isRowExpanded: (row) => (initiallyExpandedDeliveryIds.has(row.id) ? 1 : -1),
+    }
+}
+
 function buildDeliveryColumns(): LemonTableColumns<SubscriptionDeliveryApi> {
     return [
         {
@@ -231,6 +244,8 @@ export type SubscriptionDeliveryHistoryProps = {
     /** When set, empty table shows this as the primary action (e.g. send a test delivery). */
     onTestDelivery?: () => void
     testDeliveryLoading?: boolean
+    /** Delivery ids whose AI summary row should render pre-expanded (used by storybook visual tests). */
+    initiallyExpandedDeliveryIds?: ReadonlySet<string>
 }
 
 export function SubscriptionDeliveryHistory({
@@ -241,6 +256,7 @@ export function SubscriptionDeliveryHistory({
     onDeliveryStatusFilterChange,
     onTestDelivery,
     testDeliveryLoading = false,
+    initiallyExpandedDeliveryIds,
 }: SubscriptionDeliveryHistoryProps): JSX.Element {
     const rowCount = deliveriesPage?.results.length ?? 0
     const hasPagination = Boolean(deliveriesPage?.next || deliveriesPage?.previous)
@@ -251,6 +267,7 @@ export function SubscriptionDeliveryHistory({
         (deliveryStatusFilter != null && deliveriesPage != null)
     const showStatusFilter = Boolean(onDeliveryStatusFilterChange)
     const tableEmptyState = deliveryStatusFilter != null ? 'No deliveries match this filter' : 'No deliveries yet'
+    const expandable = buildExpandable(initiallyExpandedDeliveryIds)
 
     return (
         <>
@@ -297,7 +314,7 @@ export function SubscriptionDeliveryHistory({
                         nouns={['delivery', 'deliveries']}
                         emptyState={tableEmptyState}
                         data-attr="subscription-deliveries-table"
-                        expandable={DELIVERY_TABLE_EXPANDABLE}
+                        expandable={expandable}
                         pagination={{
                             controlled: true,
                             pageSize: 50,
