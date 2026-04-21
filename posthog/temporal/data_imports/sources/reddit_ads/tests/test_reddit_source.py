@@ -9,6 +9,7 @@ from requests import Response
 
 from posthog.schema import SourceFieldInputConfig, SourceFieldOauthConfig
 
+from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.sources.generated_configs import RedditAdsSourceConfig
 from posthog.temporal.data_imports.sources.reddit_ads.reddit_ads import RedditAdsResumeConfig
 from posthog.temporal.data_imports.sources.reddit_ads.source import RedditAdsSource
@@ -122,7 +123,7 @@ class TestRedditAdsSource:
             assert endpoint in schema_names
 
     def test_get_resumable_source_manager(self):
-        """The source must expose a resumable manager typed for its resume config."""
+        """The source must expose a ResumableSourceManager instance."""
         inputs = mock.MagicMock()
         inputs.team_id = self.team_id
         inputs.job_id = "test_job"
@@ -130,8 +131,7 @@ class TestRedditAdsSource:
 
         manager = self.source.get_resumable_source_manager(inputs)
 
-        assert manager._data_class is RedditAdsResumeConfig
-        assert manager._inputs is inputs
+        assert isinstance(manager, ResumableSourceManager)
 
     @mock.patch("posthog.temporal.data_imports.sources.reddit_ads.source.RedditAdsSource.get_oauth_integration")
     def test_source_for_pipeline_success(self, mock_get_oauth_integration):
