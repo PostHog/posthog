@@ -8293,7 +8293,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         )
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("Cannot specify both distinct_id and person_id", response.json()["non_field_errors"][0])
+        self.assertIn("Cannot provide both distinct_id and person_id", response.json()["non_field_errors"][0])
 
     def test_test_evaluation_person_not_found(self):
         """Test 404 when person doesn't exist."""
