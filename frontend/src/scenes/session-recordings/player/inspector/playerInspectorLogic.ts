@@ -34,15 +34,12 @@ import {
 } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
 import { sessionRecordingEventUsageLogic } from 'scenes/session-recordings/sessionRecordingEventUsageLogic'
 
-import { LogMessage, LogsQuery, RecordingsQuery } from '~/queries/schema/schema-general'
+import { LogMessage, RecordingsQuery } from '~/queries/schema/schema-general'
 import { getCoreFilterDefinition } from '~/taxonomy/helpers'
 import {
     CommentType,
-    FilterLogicalOperator,
     MatchedRecordingEvent,
     PerformanceEvent,
-    PropertyFilterType,
-    PropertyOperator,
     RRWebRecordingConsoleLogPayload,
     RecordingConsoleLogV2,
     RecordingEventType,
@@ -55,39 +52,9 @@ import {
     sessionRecordingPlayerLogic,
 } from '../sessionRecordingPlayerLogic'
 import type { playerInspectorLogicType } from './playerInspectorLogicType'
+import { playerInspectorLogsLogic } from './playerInspectorLogsLogic'
 
 const CONSOLE_LOG_PLUGIN_NAME = 'rrweb/console@1'
-
-const MAX_LOG_ENTRIES = 5000
-
-function buildSessionLogsQuery(sessionId: string, start: Dayjs, end: Dayjs, cursor?: string): Omit<LogsQuery, 'kind'> {
-    return {
-        dateRange: {
-            date_from: start.toISOString(),
-            date_to: end.toISOString(),
-        },
-        filterGroup: {
-            type: FilterLogicalOperator.And,
-            values: [
-                {
-                    type: FilterLogicalOperator.And,
-                    values: [
-                        {
-                            key: 'session_id',
-                            value: sessionId,
-                            operator: PropertyOperator.Exact,
-                            type: PropertyFilterType.LogAttribute,
-                        },
-                    ],
-                },
-            ],
-        },
-        severityLevels: [],
-        serviceNames: [],
-        limit: 1000,
-        ...(cursor ? { after: cursor } : {}),
-    }
-}
 
 const MAX_SEEKBAR_ITEMS = 100
 
@@ -383,6 +350,8 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
             ['loadFullEventData', 'setTrackedWindow', 'registerWindowId', 'loadEventsSuccess'],
             sessionRecordingPlayerLogic(props),
             ['seekToTime', 'setSkippingToMatchingEvent'],
+            playerInspectorLogsLogic(props),
+            ['loadLogs', 'loadMoreLogs', 'markLogsInitialLoadRequested'],
         ],
         values: [
             miniFiltersLogic,
@@ -420,15 +389,21 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
             ['allPerformanceEvents'],
             featureFlagLogic,
             ['featureFlags'],
+            playerInspectorLogsLogic(props),
+            [
+                'logs',
+                'logsLoading',
+                'logsHasMore',
+                'logsNextCursor',
+                'logsLoadError',
+                'logsInitialLoadRequested',
+                'readyToLoadLogs',
+            ],
         ],
     })),
     actions(() => ({
         setItemExpanded: (index: number, expanded: boolean) => ({ index, expanded }),
         setSyncScrollPaused: (paused: boolean) => ({ paused }),
-        setLogsHasMore: (hasMore: boolean) => ({ hasMore }),
-        setLogsNextCursor: (cursor: string | undefined) => ({ cursor }),
-        setLogsLoadError: (error: boolean) => ({ error }),
-        markLogsInitialLoadRequested: true,
     })),
     reducers(() => ({
         expandedItems: [
@@ -448,32 +423,6 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
             {
                 setSyncScrollPaused: (_, { paused }) => paused,
                 setItemExpanded: () => true,
-            },
-        ],
-        logsHasMore: [
-            false,
-            {
-                setLogsHasMore: (_, { hasMore }) => hasMore,
-            },
-        ],
-        logsNextCursor: [
-            undefined as string | undefined,
-            {
-                setLogsNextCursor: (_, { cursor }) => cursor,
-            },
-        ],
-        logsInitialLoadRequested: [
-            false,
-            {
-                markLogsInitialLoadRequested: () => true,
-            },
-        ],
-        logsLoadError: [
-            false,
-            {
-                setLogsLoadError: (_, { error }) => error,
-                loadLogsSuccess: () => false,
-                loadMoreLogsSuccess: () => false,
             },
         ],
     })),
@@ -529,59 +478,6 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                     const response = await api.recordings.getMatchingEvents(toParams(params))
                     skipToEarliestEvent(response.results)
                     return response.results
-                },
-            },
-        ],
-        logs: [
-            [] as LogMessage[],
-            {
-                loadLogs: async () => {
-                    if (!values.featureFlags[FEATURE_FLAGS.SESSION_REPLAY_BACKEND_LOGS]) {
-                        return []
-                    }
-
-                    if (!props.sessionRecordingId || !values.start || !values.end) {
-                        return []
-                    }
-
-                    try {
-                        const response = await api.logs.query({
-                            query: buildSessionLogsQuery(props.sessionRecordingId, values.start, values.end),
-                        })
-                        actions.setLogsHasMore(response.hasMore)
-                        actions.setLogsNextCursor(response.nextCursor)
-                        return response.results
-                    } catch (error) {
-                        console.error('Failed to load backend logs for session replay', error)
-                        actions.setLogsLoadError(true)
-                        return []
-                    }
-                },
-                loadMoreLogs: async () => {
-                    const cursor = values.logsNextCursor
-                    if (!cursor || !values.start || !values.end) {
-                        return values.logs
-                    }
-
-                    if (values.logs.length >= MAX_LOG_ENTRIES) {
-                        actions.setLogsHasMore(false)
-                        return values.logs
-                    }
-
-                    try {
-                        const response = await api.logs.query({
-                            query: buildSessionLogsQuery(props.sessionRecordingId, values.start, values.end, cursor),
-                        })
-                        const combined = [...values.logs, ...response.results]
-                        const capped = combined.length > MAX_LOG_ENTRIES
-                        actions.setLogsHasMore(capped ? false : response.hasMore)
-                        actions.setLogsNextCursor(capped ? undefined : response.nextCursor)
-                        return capped ? combined.slice(0, MAX_LOG_ENTRIES) : combined
-                    } catch (error) {
-                        console.error('Failed to load more backend logs for session replay', error)
-                        actions.setLogsLoadError(true)
-                        return values.logs
-                    }
                 },
             },
         ],
@@ -1571,12 +1467,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 }
             }
 
-            const readyToLoadLogs =
-                values.featureFlags[FEATURE_FLAGS.SESSION_REPLAY_BACKEND_LOGS] &&
-                !!props.sessionRecordingId &&
-                !!values.start &&
-                !!values.end
-            if (!values.logsInitialLoadRequested && readyToLoadLogs) {
+            if (!values.logsInitialLoadRequested && values.readyToLoadLogs) {
                 actions.markLogsInitialLoadRequested()
                 actions.loadLogs()
             }
