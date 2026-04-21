@@ -9,6 +9,7 @@ from posthog.schema import (
     BreakdownFilter,
     CompareFilter,
     DashboardFilter,
+    DataWarehouseNode,
     DateRange,
     EventPropertyFilter,
     EventsNode,
@@ -32,7 +33,7 @@ class TestTrendsDashboardFilters(BaseTest):
         date_from: str,
         date_to: Optional[str],
         interval: IntervalType,
-        series: Optional[list[EventsNode | ActionsNode]],
+        series: Optional[list[EventsNode | ActionsNode | DataWarehouseNode]],
         properties: Optional[list[EventPropertyFilter] | PropertyGroupFilter] = None,
         trends_filters: Optional[TrendsFilter] = None,
         breakdown: Optional[BreakdownFilter] = None,
@@ -42,7 +43,9 @@ class TestTrendsDashboardFilters(BaseTest):
         explicit_date: Optional[bool] = None,
         compare_filters: Optional[CompareFilter] = None,
     ) -> TrendsQueryRunner:
-        query_series: list[EventsNode | ActionsNode] = [EventsNode(event="$pageview")] if series is None else series
+        query_series: list[EventsNode | ActionsNode | DataWarehouseNode] = (
+            [EventsNode(event="$pageview")] if series is None else series
+        )
         query = TrendsQuery(
             dateRange=DateRange(date_from=date_from, date_to=date_to, explicitDate=explicit_date),
             interval=interval,
@@ -464,3 +467,39 @@ class TestTrendsDashboardFilters(BaseTest):
         assert query_runner.query.compareFilter == CompareFilter(
             compare=False
         )  # There's no previous period for the "all time" date range
+
+    def test_dashboard_property_filters_are_ignored_for_data_warehouse_series(self):
+        query_runner = self._create_query_runner(
+            "2020-01-09",
+            "2020-01-20",
+            IntervalType.DAY,
+            [
+                DataWarehouseNode(
+                    id="warehouse_orders",
+                    table_name="warehouse_orders",
+                    name="Orders",
+                    timestamp_field="created_at",
+                    id_field="order_id",
+                    distinct_id_field="customer_id",
+                )
+            ],
+        )
+
+        query_runner.apply_dashboard_filters(
+            DashboardFilter(
+                date_from="2024-07-07",
+                date_to="2024-07-14",
+                properties=[EventPropertyFilter(key="dashboard", value="filter", operator="exact")],
+            )
+        )
+
+        # date range is overriden
+        assert query_runner.query.dateRange is not None
+        assert query_runner.query.dateRange.date_from == "2024-07-07"
+        assert query_runner.query.dateRange.date_to == "2024-07-14"
+
+        # but properties are not
+        assert query_runner.query.properties is None
+
+        # validations pass
+        query_runner.validate()

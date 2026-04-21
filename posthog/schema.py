@@ -948,6 +948,7 @@ class DisplayType(StrEnum):
     AUTO = "auto"
     LINE = "line"
     BAR = "bar"
+    AREA = "area"
 
 
 class YAxisPosition(StrEnum):
