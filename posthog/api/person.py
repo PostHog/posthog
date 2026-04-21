@@ -26,6 +26,7 @@ from rest_framework import request, response, serializers, viewsets
 from rest_framework.exceptions import MethodNotAllowed, NotFound, ValidationError
 from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.parsers import JSONParser
+from rest_framework.renderers import BaseRenderer
 from rest_framework.response import Response
 from rest_framework.settings import api_settings
 from rest_framework_csv import renderers as csvrenderers
@@ -60,6 +61,7 @@ from posthog.models.person.missing_person import MissingPerson
 from posthog.models.person.person import PersonDistinctId
 from posthog.models.person.util import (
     delete_person,
+    delete_persons_from_postgres,
     get_person_by_pk_or_uuid,
     get_persons_by_distinct_ids,
     get_persons_by_uuids,
@@ -415,7 +417,10 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     """
 
     scope_object = "person"
-    renderer_classes = (*tuple(api_settings.DEFAULT_RENDERER_CLASSES), csvrenderers.PaginatedCSVRenderer)
+    renderer_classes = cast(
+        tuple[type[BaseRenderer], ...],
+        (*tuple(api_settings.DEFAULT_RENDERER_CLASSES), csvrenderers.PaginatedCSVRenderer),
+    )
     parser_classes = [JSONParser]
     queryset = Person.objects.all()
     serializer_class = PersonSerializer
@@ -633,12 +638,14 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         persons_deleted = 0
         errors: builtins.list[dict[str, str]] = []
+        deleted_persons: builtins.list[Person] = []
         if not keep_person:
+            # Send ClickHouse deletion events and log activity per person
             for person in persons:
                 try:
                     delete_person(person=person)
-                    self.perform_destroy(person)
                     persons_deleted += 1
+                    deleted_persons.append(person)
                 except Exception:
                     logger.exception("Failed to delete person", person_uuid=str(person.uuid))
                     errors.append({"person_uuid": str(person.uuid)})
@@ -653,6 +660,9 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     activity="deleted",
                     detail=Detail(name=str(person.uuid)),
                 )
+            # Postgres deletes happen after CH deletes. If the Postgres batch fails,
+            # persons may remain in Postgres that are already marked deleted in ClickHouse.
+            delete_persons_from_postgres(self.team_id, deleted_persons)
 
         if delete_events:
             self._queue_event_deletion(persons)
@@ -794,7 +804,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         log_activity(
             organization_id=self.organization.id,
             team_id=self.team.id,
-            user=request.user,
+            user=cast(User, request.user),
             was_impersonated=is_impersonated_session(request),
             item_id=person.id,
             scope="Person",
@@ -816,7 +826,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     @extend_schema(request=PersonUpdatePropertyRequestSerializer, parameters=[_PERSON_ID_PARAMETER])
     @action(methods=["POST"], detail=True, required_scopes=["person:write"])
     def update_property(self, request: request.Request, pk=None, **kwargs) -> response.Response:
-        if request.data.get("value") is None:
+        if "value" not in request.data:
             return Response(
                 {
                     "attr": "value",
@@ -901,7 +911,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         log_activity(
             organization_id=self.organization.id,
             team_id=self.team.id,
-            user=request.user,
+            user=cast(User, request.user),
             was_impersonated=is_impersonated_session(request),
             item_id=person.id,
             scope="Person",
@@ -1527,7 +1537,7 @@ def prepare_actor_query_filter(filter: T) -> T:
     if not search:
         return filter
 
-    group_properties_filter_group = []
+    group_properties_filter_group: list[dict[str, object]] = []
     if hasattr(filter, "aggregation_group_type_index"):
         group_properties_filter_group += [
             {

@@ -56,6 +56,7 @@ jest.mock('scenes/sceneLogic', () => ({
     get sceneLogic() {
         return mockSceneLogic
     },
+    getTabsSnapshotForHistory: (tabs: any[]) => tabs.map(({ sceneParams: _omit, ...rest }) => ({ ...rest })),
 }))
 
 describe('endpointSceneLogic', () => {

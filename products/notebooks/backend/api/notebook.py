@@ -435,7 +435,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
                 for match_pair in match_pairs:
                     splat = match_pair.split(":")
                     target = depluralize(splat[0])
-                    match = splat[1] if len(splat) > 1 else None
+                    match_value: str | int | None = splat[1] if len(splat) > 1 else None
 
                     if target:
                         # the JSONB query requires a specific structure
@@ -447,31 +447,31 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
                         try:
                             # We try to parse the match as a number, as query params are always strings,
                             # but an id could be an integer and wouldn't match
-                            if isinstance(match, str):  # because mypy
-                                match = int(match)
+                            if isinstance(match_value, str):  # because mypy
+                                match_value = int(match_value)
                         except (ValueError, TypeError):
                             pass
 
-                        id_match_structure: basic_structure | nested_structure = [{"attrs": {"id": match}}]
+                        id_match_structure: basic_structure | nested_structure = [{"attrs": {"id": match_value}}]
                         if target == "replay-timestamp":
                             # replay timestamps are not at the top level, they're one-level down in a content array
                             presence_match_structure = [{"content": [{"type": f"ph-{target}"}]}]
-                            id_match_structure = [{"content": [{"attrs": {"sessionRecordingId": match}}]}]
+                            id_match_structure = [{"content": [{"attrs": {"sessionRecordingId": match_value}}]}]
                         elif target == "query":
                             id_match_structure = [
                                 {
                                     "attrs": {
                                         "query": {
                                             "kind": "SavedInsightNode",
-                                            "shortId": match,
+                                            "shortId": match_value,
                                         }
                                     }
                                 }
                             ]
 
-                        if match == "true" or match is None:
+                        if match_value == "true" or match_value is None:
                             queryset = queryset.filter(content__content__contains=presence_match_structure)
-                        elif match == "false":
+                        elif match_value == "false":
                             queryset = queryset.exclude(content__content__contains=presence_match_structure)
                         else:
                             queryset = queryset.filter(content__content__contains=presence_match_structure)

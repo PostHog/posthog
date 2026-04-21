@@ -77,6 +77,11 @@ from posthog.models.feature_flag.local_evaluation import (
     get_flags_response_if_none_match,
 )
 from posthog.models.feature_flag.types import PropertyFilterType
+from posthog.models.feature_flag.version_history import (
+    VersionHistoryIncomplete,
+    VersionNotFound,
+    reconstruct_flag_at_version,
+)
 from posthog.models.group.group import Group
 from posthog.models.property import Property
 from posthog.models.signals import model_activity_signal, mutable_receiver
@@ -659,7 +664,7 @@ class FeatureFlagSerializer(
     experiment_set_metadata = serializers.SerializerMethodField()
     surveys: serializers.SerializerMethodField = serializers.SerializerMethodField()
     features: serializers.SerializerMethodField = serializers.SerializerMethodField()
-    usage_dashboard: serializers.PrimaryKeyRelatedField = serializers.PrimaryKeyRelatedField(read_only=True)
+    usage_dashboard: serializers.PrimaryKeyRelatedField = serializers.PrimaryKeyRelatedField(read_only=True)  # ty: ignore[invalid-assignment]
     analytics_dashboards = TeamScopedPrimaryKeyRelatedField(
         many=True,
         required=False,
@@ -752,7 +757,7 @@ class FeatureFlagSerializer(
         """Check if this feature flag is used in any team's session recording linked flag setting."""
         # Use annotated value if available (set by queryset annotation)
         if hasattr(feature_flag, "is_used_in_replay_settings_annotation"):
-            return feature_flag.is_used_in_replay_settings_annotation
+            return bool(feature_flag.is_used_in_replay_settings_annotation)
         # Return False if team is not available
         if not hasattr(feature_flag, "team") or feature_flag.team is None:
             return False
@@ -862,6 +867,7 @@ class FeatureFlagSerializer(
         # If we see this, just return the current filters
         if "groups" not in filters and self.context["request"].method == "PATCH":
             # mypy cannot tell that self.instance is a FeatureFlag
+            assert isinstance(self.instance, FeatureFlag)
             return self.instance.filters
 
         # Only validate empty groups for new flag creation (POST), not updates (PUT/PATCH)
@@ -1030,7 +1036,7 @@ class FeatureFlagSerializer(
                 if prop.type == "cohort":
                     try:
                         initial_cohort: Cohort = Cohort.objects.get(
-                            pk=prop.value, team__project_id=self.context["project_id"]
+                            pk=cast(str | int, prop.value), team__project_id=self.context["project_id"]
                         )
                         dependency_cohorts = get_all_cohort_dependencies(initial_cohort)
                         for cohort in [initial_cohort, *dependency_cohorts]:
@@ -1909,6 +1915,49 @@ class DependentFlagSerializer(serializers.Serializer):
     name = serializers.CharField(help_text="Feature flag name")
 
 
+class FeatureFlagVersionResponseSerializer(serializers.ModelSerializer):
+    """Feature flag state at a given version plus reconstruction metadata."""
+
+    created_by = serializers.IntegerField(read_only=True, allow_null=True)
+    filters = serializers.DictField(read_only=True)
+    is_historical = serializers.BooleanField(
+        read_only=True,
+        help_text="False for the current version; true for reconstructed historical versions.",
+    )
+    version_timestamp = serializers.DateTimeField(read_only=True, allow_null=True)
+    modified_by = serializers.IntegerField(
+        read_only=True,
+        allow_null=True,
+        help_text="User from the activity log entry that produced this version.",
+    )
+
+    class Meta:
+        model = FeatureFlag
+        fields = [
+            "id",
+            "key",
+            "name",
+            "filters",
+            "active",
+            "deleted",
+            "version",
+            "rollback_conditions",
+            "performed_rollback",
+            "ensure_experience_continuity",
+            "has_enriched_analytics",
+            "is_remote_configuration",
+            "has_encrypted_payloads",
+            "evaluation_runtime",
+            "bucketing_identifier",
+            "last_called_at",
+            "created_at",
+            "created_by",
+            "is_historical",
+            "version_timestamp",
+            "modified_by",
+        ]
+
+
 class UserBlastRadiusRequestSerializer(serializers.Serializer):
     condition = serializers.DictField(required=True, help_text="The release condition to evaluate")
     group_type_index = serializers.IntegerField(
@@ -2295,6 +2344,59 @@ class FeatureFlagViewSet(
             ],
             status=200,
         )
+
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                "version_number",
+                OpenApiTypes.INT,
+                location=OpenApiParameter.PATH,
+                required=True,
+                description="The version number to reconstruct.",
+            ),
+        ],
+        responses={
+            200: FeatureFlagVersionResponseSerializer,
+            400: OpenApiResponse(description="Version history is not available for remote configuration flags."),
+            404: OpenApiResponse(description="Version not found."),
+            422: OpenApiResponse(description="Activity log incomplete; cannot reconstruct this version."),
+        },
+    )
+    @action(
+        methods=["GET"],
+        detail=True,
+        url_path=r"versions/(?P<version_number>[0-9]+)",
+        required_scopes=["feature_flag:read"],
+    )
+    def versions(self, request: request.Request, version_number: str, **kwargs) -> Response:
+        feature_flag: FeatureFlag = self.get_object()
+
+        if feature_flag.is_remote_configuration or feature_flag.has_encrypted_payloads:
+            return Response(
+                {"detail": "Version history is not available for remote configuration or encrypted flags."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        target_version = int(version_number)
+
+        try:
+            result = reconstruct_flag_at_version(
+                flag=feature_flag,
+                target_version=target_version,
+                team_id=self.team_id,
+            )
+        except VersionNotFound as e:
+            return Response(
+                {"detail": str(e)},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        except VersionHistoryIncomplete as e:
+            return Response(
+                {"detail": str(e)},
+                status=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            )
+
+        return Response(FeatureFlagVersionResponseSerializer(instance=result).data)
 
     @validated_request(
         query_serializer=MyFlagsQuerySerializer,

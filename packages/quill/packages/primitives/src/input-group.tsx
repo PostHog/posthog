@@ -1,3 +1,4 @@
+import { NumberField } from '@base-ui/react/number-field'
 import { cva, type VariantProps } from 'class-variance-authority'
 import * as React from 'react'
 
@@ -13,7 +14,7 @@ const InputGroup = React.forwardRef<HTMLDivElement, React.ComponentProps<'div'>>
             data-slot="input-group"
             role="group"
             className={cn(
-                'group/input-group relative flex h-8 w-full min-w-0 items-center rounded-md border border-input bg-input/20 dark:bg-input/30 transition-colors outline-none in-data-[slot=combobox-content]:focus-within:border-inherit in-data-[slot=combobox-content]:focus-within:ring-0 has-data-[align=block-end]:rounded-md has-data-[align=block-start]:rounded-md has-[[data-slot=input-group-control]:focus-visible]:border-ring has-[[data-slot=input-group-control]:focus-visible]:ring-2 has-[[data-slot=input-group-control]:focus-visible]:ring-ring/30 has-[[data-slot][aria-invalid=true]]:bg-destructive/50 has-[[data-slot][aria-invalid=true]]:border-destructive-foreground/30 has-[[data-slot][aria-invalid=true]]:focus-within:ring-destructive-foreground/50 has-[[data-slot][aria-invalid=true]]:focus-within:ring-3 has-[textarea]:rounded-md has-[>[data-align=block-end]]:h-auto has-[>[data-align=block-end]]:flex-col has-[>[data-align=block-start]]:h-auto has-[>[data-align=block-start]]:flex-col has-[>textarea]:h-auto has-[>[data-align=block-end]]:[&>input]:pt-3 has-[>[data-align=block-start]]:[&>input]:pb-3 has-[>[data-align=inline-end]]:[&>input]:pe-1.5 has-[>[data-align=inline-start]]:[&>input]:ps-1.5 aria-disabled:pointer-events-none aria-disabled:cursor-not-allowed aria-disabled:opacity-50',
+                'group/input-group relative flex h-8 w-full min-w-0 items-center rounded-sm border border-input bg-input/20 dark:bg-input/30 transition-colors outline-none in-data-[slot=combobox-content]:focus-within:border-inherit in-data-[slot=combobox-content]:focus-within:ring-0 has-data-[align=block-end]:rounded-sm has-data-[align=block-start]:rounded-sm has-[[data-slot=input-group-control]:focus-visible]:border-ring has-[[data-slot=input-group-control]:focus-visible]:ring-2 has-[[data-slot=input-group-control]:focus-visible]:ring-ring/30 has-[[data-slot][aria-invalid=true]]:bg-destructive/50 has-[[data-slot][aria-invalid=true]]:border-destructive-foreground/30 has-[[data-slot][aria-invalid=true]]:focus-within:ring-destructive-foreground/50 has-[[data-slot][aria-invalid=true]]:focus-within:ring-3 has-[textarea]:rounded-sm has-[>[data-align=block-end]]:h-auto has-[>[data-align=block-end]]:flex-col has-[>[data-align=block-start]]:h-auto has-[>[data-align=block-start]]:flex-col has-[>textarea]:h-auto has-[>[data-align=block-end]]:[&>input]:pt-3 has-[>[data-align=block-start]]:[&>input]:pb-3 has-[>[data-align=inline-end]]:[&>input]:pe-1.5 has-[>[data-align=inline-start]]:[&>input]:ps-1.5 aria-disabled:pointer-events-none aria-disabled:cursor-not-allowed aria-disabled:opacity-50',
                 className
             )}
             {...props}
@@ -29,7 +30,7 @@ const inputGroupAddonVariants = cva(
             align: {
                 'inline-start': 'order-first ps-2 has-[>button]:ms-[-0.275rem] has-[>kbd]:ms-[-0.275rem]',
                 'inline-end':
-                    'order-last pe-2 has-[>button]:me-[-0.275rem] has-[>button[data-size="sm"]]:me-[-0.475rem] has-[>kbd]:me-[-0.275rem]',
+                    'order-last pe-2 has-[>button]:me-[-0.275rem] has-[>button[data-size="sm"]]:me-[-0.475rem] has-[>kbd]:me-[-0.175rem]',
                 'block-start':
                     'order-first w-full justify-start px-2 pt-2 group-has-[>input]/input-group:pt-2 [.border-b]:pb-2',
                 'block-end':
@@ -64,7 +65,7 @@ function InputGroupAddon({
     )
 }
 
-const inputGroupButtonVariants = cva('flex items-center gap-2 rounded-md text-xs/relaxed shadow-none', {
+const inputGroupButtonVariants = cva('flex items-center gap-2 rounded-sm text-xs/relaxed shadow-none', {
     variants: {
         size: {
             xs: "h-5 gap-1 rounded-[calc(var(--radius-sm)-2px)] px-1 [&>svg:not([class*='size-'])]:size-3",
@@ -140,4 +141,30 @@ function InputGroupTextarea({ className, ...props }: React.ComponentProps<'texta
     )
 }
 
-export { InputGroup, InputGroupAddon, InputGroupButton, InputGroupText, InputGroupInput, InputGroupTextarea }
+interface InputGroupNumberInputProps extends Omit<NumberField.Root.Props, 'className' | 'children'> {
+    className?: string
+    inputRef?: React.Ref<HTMLInputElement>
+}
+
+function InputGroupNumberInput({
+    className,
+    inputRef,
+    ...rootProps
+}: InputGroupNumberInputProps): React.ReactElement {
+    return (
+        <NumberField.Root {...rootProps}>
+            <NumberField.ScrubArea data-slot="input-group-scrub-area" className="cursor-ew-resize">
+                <NumberField.Input
+                    ref={inputRef}
+                    data-slot="input-group-control"
+                    className={cn(
+                        'h-8 w-full min-w-0 flex-1 rounded-none border-0 bg-transparent px-2 py-0.5 text-xs tabular-nums shadow-none outline-none ring-0 transition-colors placeholder:text-muted-foreground focus-visible:ring-0 aria-invalid:ring-0 focus-visible:aria-invalid:ring-0 disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50 dark:bg-transparent',
+                        className
+                    )}
+                />
+            </NumberField.ScrubArea>
+        </NumberField.Root>
+    )
+}
+
+export { InputGroup, InputGroupAddon, InputGroupButton, InputGroupText, InputGroupInput, InputGroupNumberInput, InputGroupTextarea }

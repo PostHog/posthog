@@ -282,9 +282,10 @@ def _handle_bool_values(value: ValueT, expr: ast.Expr, property: Property, team:
         prop_type = None
 
         table_or_view = get_view_or_table_by_name(team, current_join.joining_table_name)
-        if table_or_view:
+        if table_or_view and table_or_view.columns is not None:
             prop_type_dict = table_or_view.columns.get(property.key, None)
-            prop_type = prop_type_dict.get("hogql")
+            if prop_type_dict is not None:
+                prop_type = prop_type_dict.get("hogql")
 
         if not table_or_view:
             raise Exception(f"Could not find table or view for key {key}")
@@ -1104,6 +1105,8 @@ def property_to_expr(
     elif property.type == "cohort" or property.type == "static-cohort" or property.type == "precalculated-cohort":
         if not team:
             raise Exception("Can not convert cohort property to expression without team")
+        if not isinstance(property.value, (str, int)):
+            raise ValidationError("Cohort property value must be a cohort ID")
         cohort = Cohort.objects.get(team__project_id=team.project_id, id=property.value)
         return ast.CompareOperation(
             left=ast.Field(chain=["id" if scope == "person" else "person_id"]),
@@ -1249,8 +1252,9 @@ def action_to_expr(action: Action, events_alias: Optional[str] = None) -> ast.Ex
 def entity_to_expr(entity: RetentionEntity, team: Team) -> ast.Expr:
     if entity.type == TREND_FILTER_TYPE_ACTIONS and entity.id is not None:
         # action
+        action_id = int(entity.id) if isinstance(entity.id, float) else entity.id
         try:
-            action = Action.objects.get(pk=entity.id, team=team)
+            action = Action.objects.get(pk=action_id, team=team)
         except Action.DoesNotExist:
             raise ValidationError(f"Action ID {entity.id} does not exist!")
         event_expr = action_to_expr(action)
