@@ -645,6 +645,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
     @temporalio.workflow.signal
     async def update_pr_url(self, pr_url: str) -> None:
         self._pr_url = pr_url
+        self._last_active_time = workflow.now()  # Reset inactivity timer on PR URL update
         try:
             run_id = self.context.run_id
         except Exception:
