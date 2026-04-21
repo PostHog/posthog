@@ -92,8 +92,8 @@ The wrapper script determines which Grafana region to connect to using (in order
 
 Region → host mapping:
 
-| Region | Tailscale host         |
-| ------ | ---------------------- |
+| Region | Tailscale host           |
+| ------ | ------------------------ |
 | `us`   | `http://grafana-prod-us` |
 | `eu`   | `http://grafana-prod-eu` |
 | `dev`  | `http://grafana-dev`     |
