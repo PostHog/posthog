@@ -34,15 +34,14 @@ def _default_overview() -> dict:
     }
 
 
-def get_overview_for_team(team: Team) -> dict:
-    """Get visitors, pageviews, sessions, bounce rate and avg session duration with week-over-week comparison."""
+def get_overview_for_team(team: Team, days: int = 7, compare: bool = True) -> dict:
     tag_queries(product=ProductKey.WEB_ANALYTICS, team_id=team.pk, name="weekly_digest:web_overview")
     result = _default_overview()
 
     try:
         query = WebOverviewQuery(
-            dateRange=DateRange(date_from="-7d"),
-            compareFilter=CompareFilter(compare=True),
+            dateRange=DateRange(date_from=f"-{days}d"),
+            compareFilter=CompareFilter(compare=compare),
             filterTestAccounts=True,
             properties=[],
         )
@@ -92,7 +91,7 @@ def get_overview_for_team(team: Team) -> dict:
         prev_duration = duration_item.previous
         result["avg_session_duration"] = {
             "current": _format_duration(current_duration),
-            "previous": _format_duration(prev_duration),
+            "previous": _format_duration(prev_duration) if compare else None,
             "change": compute_week_over_week_change(
                 current_duration,
                 prev_duration,
@@ -117,15 +116,13 @@ def _format_duration(seconds: float | None) -> str:
     return f"{minutes}m {secs}s"
 
 
-def get_top_pages(team: Team, limit: int = 5) -> list[dict]:
-    """Get top pages by unique visitors for the last 7 days, with week-over-week comparison."""
+def get_top_pages(team: Team, limit: int = 5, days: int = 7) -> list[dict]:
     tag_queries(product=ProductKey.WEB_ANALYTICS, team_id=team.pk, name="weekly_digest:top_pages")
 
     try:
         query = WebStatsTableQuery(
             breakdownBy=WebStatsBreakdown.PAGE,
-            dateRange=DateRange(date_from="-7d"),
-            compareFilter=CompareFilter(compare=True),
+            dateRange=DateRange(date_from=f"-{days}d"),
             limit=limit,
             orderBy=[WebAnalyticsOrderByFields.VISITORS, WebAnalyticsOrderByDirection.DESC],
             filterTestAccounts=True,
@@ -151,15 +148,13 @@ def get_top_pages(team: Team, limit: int = 5) -> list[dict]:
         return []
 
 
-def get_top_sources(team: Team, limit: int = 5) -> list[dict]:
-    """Get top traffic sources by unique visitors for the last 7 days, with week-over-week comparison."""
+def get_top_sources(team: Team, limit: int = 5, days: int = 7) -> list[dict]:
     tag_queries(product=ProductKey.WEB_ANALYTICS, team_id=team.pk, name="weekly_digest:top_sources")
 
     try:
         query = WebStatsTableQuery(
             breakdownBy=WebStatsBreakdown.INITIAL_REFERRING_DOMAIN,
-            dateRange=DateRange(date_from="-7d"),
-            compareFilter=CompareFilter(compare=True),
+            dateRange=DateRange(date_from=f"-{days}d"),
             limit=limit,
             orderBy=[WebAnalyticsOrderByFields.VISITORS, WebAnalyticsOrderByDirection.DESC],
             filterTestAccounts=True,
@@ -173,7 +168,7 @@ def get_top_sources(team: Team, limit: int = 5) -> list[dict]:
 
         return [
             {
-                "source": row[0] or "",
+                "name": row[0] or "",
                 "visitors": row[1][0],
                 "change": compute_week_over_week_change(row[1][0], row[1][1], higher_is_better=True),
             }
@@ -185,14 +180,13 @@ def get_top_sources(team: Team, limit: int = 5) -> list[dict]:
         return []
 
 
-def get_goals_for_team(team: Team, limit: int = 5) -> list[dict]:
-    """Get goal conversions with week-over-week comparison."""
+def get_goals_for_team(team: Team, limit: int = 5, days: int = 7, compare: bool = True) -> list[dict]:
     tag_queries(product=ProductKey.WEB_ANALYTICS, team_id=team.pk, name="weekly_digest:goals")
 
     try:
         query = WebGoalsQuery(
-            dateRange=DateRange(date_from="-7d"),
-            compareFilter=CompareFilter(compare=True),
+            dateRange=DateRange(date_from=f"-{days}d"),
+            compareFilter=CompareFilter(compare=compare),
             properties=[],
         )
         runner = WebGoalsQueryRunner(team=team, query=query)
@@ -220,12 +214,11 @@ def get_goals_for_team(team: Team, limit: int = 5) -> list[dict]:
     return results
 
 
-def build_team_digest(team: Team) -> dict:
-    """Build a complete digest for a team."""
-    overview = get_overview_for_team(team)
-    top_pages = get_top_pages(team)
-    top_sources = get_top_sources(team)
-    goals = get_goals_for_team(team)
+def build_team_digest(team: Team, days: int = 7, compare: bool = True) -> dict:
+    overview = get_overview_for_team(team, days=days, compare=compare)
+    top_pages = get_top_pages(team, days=days)
+    top_sources = get_top_sources(team, days=days)
+    goals = get_goals_for_team(team, days=days, compare=compare)
 
     return {
         "team": team,
