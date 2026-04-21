@@ -52,7 +52,7 @@ class TestLegalDocumentAPI(APIBaseTest):
         self.url = f"/api/organizations/{self.organization.id}/legal_documents/"
 
     @parameterized.expand([("boost",), ("scale",), ("enterprise",)])
-    @patch("products.legal_documents.backend.presentation.serializers.BillingManager")
+    @patch("products.legal_documents.backend.logic.BillingManager")
     def test_create_baa_with_qualifying_addon_succeeds(self, addon_type: str, mock_manager_cls) -> None:
         mock_manager_cls.return_value.get_billing.return_value = _billing_with_addons({addon_type})
 
@@ -66,7 +66,7 @@ class TestLegalDocumentAPI(APIBaseTest):
         self.assertEqual(row.dpa_mode, "")
         self.assertEqual(row.company_address, "")
 
-    @patch("products.legal_documents.backend.presentation.serializers.BillingManager")
+    @patch("products.legal_documents.backend.logic.BillingManager")
     def test_create_baa_without_qualifying_addon_is_forbidden(self, mock_manager_cls) -> None:
         mock_manager_cls.return_value.get_billing.return_value = _billing_with_addons(set())
 
@@ -155,7 +155,7 @@ class TestLegalDocumentAPI(APIBaseTest):
         self.assertTrue(row.webhook_secret)
         self.assertGreaterEqual(len(row.webhook_secret), 32)
 
-    @patch("products.legal_documents.backend.presentation.views.posthoganalytics.capture")
+    @patch("products.legal_documents.backend.logic.posthoganalytics.capture")
     def test_create_fires_zapier_event_with_secret(self, mock_capture) -> None:
         response = self.client.post(self.url, DPA_PAYLOAD, format="json")
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
@@ -169,10 +169,10 @@ class TestLegalDocumentAPI(APIBaseTest):
         self.assertEqual(props["legal_document_secret"], row.webhook_secret)
         self.assertEqual(props["companyName"], "Acme, Inc.")
 
-    @patch("products.legal_documents.backend.presentation.views.posthoganalytics.capture")
+    @patch("products.legal_documents.backend.logic.posthoganalytics.capture")
     def test_create_baa_fires_submitted_baa_event(self, mock_capture) -> None:
         with patch(
-            "products.legal_documents.backend.presentation.serializers._has_qualifying_baa_addon",
+            "products.legal_documents.backend.logic.has_qualifying_baa_addon",
             return_value=True,
         ):
             response = self.client.post(self.url, BAA_PAYLOAD, format="json")
@@ -212,7 +212,7 @@ class TestLegalDocumentAPI(APIBaseTest):
         self.assertIn("already has a DPA", second.json()["detail"])
         self.assertEqual(LegalDocument.objects.filter(document_type="DPA").count(), 1)
 
-    @patch("products.legal_documents.backend.presentation.serializers._has_qualifying_baa_addon", return_value=True)
+    @patch("products.legal_documents.backend.logic.has_qualifying_baa_addon", return_value=True)
     def test_only_one_baa_per_organization(self, _mock_addon) -> None:
         first = self.client.post(self.url, BAA_PAYLOAD, format="json")
         self.assertEqual(first.status_code, status.HTTP_201_CREATED)
@@ -222,7 +222,7 @@ class TestLegalDocumentAPI(APIBaseTest):
         self.assertIn("already has a BAA", second.json()["detail"])
         self.assertEqual(LegalDocument.objects.filter(document_type="BAA").count(), 1)
 
-    @patch("products.legal_documents.backend.presentation.serializers._has_qualifying_baa_addon", return_value=True)
+    @patch("products.legal_documents.backend.logic.has_qualifying_baa_addon", return_value=True)
     def test_baa_and_dpa_can_coexist_in_same_organization(self, _mock_addon) -> None:
         baa_response = self.client.post(self.url, BAA_PAYLOAD, format="json")
         dpa_response = self.client.post(self.url, DPA_PAYLOAD, format="json")

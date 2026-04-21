@@ -1,13 +1,24 @@
-"""
-Exported enums and constants for legal_documents.
+"""Exported enums and constants for legal_documents."""
 
-Small products can keep enums in contracts.py instead. Split
-into this file when contracts.py gets crowded.
+from enum import StrEnum
 
-Rule: if an enum appears in a contract dataclass field, it
-belongs here (or in contracts.py). Shared types that other
-products need to interpret contract objects also belong here.
 
-Internal-only constants (DB magic values, feature flags, etc.)
-should stay in the implementation (logic.py, models.py).
-"""
+class DocumentType(StrEnum):
+    BAA = "BAA"
+    DPA = "DPA"
+
+
+class DPAMode(StrEnum):
+    PRETTY = "pretty"
+    LAWYER = "lawyer"
+    FAIRYTALE = "fairytale"
+    TSWIFT = "tswift"
+
+
+class LegalDocumentStatus(StrEnum):
+    SUBMITTED_FOR_SIGNATURE = "submitted_for_signature"
+    SIGNED = "signed"
+
+
+# DPA modes that the API accepts on submit — fairytale and tswift are preview-only.
+DPA_SUBMITTABLE_MODES = frozenset({DPAMode.PRETTY, DPAMode.LAWYER})
