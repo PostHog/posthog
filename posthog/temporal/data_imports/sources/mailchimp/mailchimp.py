@@ -19,7 +19,9 @@ class MailchimpResumeConfig:
     """Resume state for the ``contacts`` endpoint's fan-out loop.
 
     ``contacts`` iterates every audience list and paginates members within each.
-    The checkpoint is the (list_id, offset) we were about to fetch next.
+    The checkpoint is the ``(list_id, offset)`` of the page we last fetched —
+    on resume we re-request that same page, and duplicates are deduped by the
+    ``(list_id, id)`` primary key.
     """
 
     list_id: str
@@ -259,20 +261,21 @@ def _get_contacts_iterator(
 
     lists = _fetch_all_lists(api_key, dc)
 
-    resume_config = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
-    # Only honour the saved list_id if it still exists; otherwise fall back to a fresh run.
-    list_ids = {lst["id"] for lst in lists}
-    skip_until_match = resume_config is not None and resume_config.list_id in list_ids
+    # Only honour the saved checkpoint if its list_id still exists; otherwise fall back to a fresh run.
+    resume_config: MailchimpResumeConfig | None = None
+    if resumable_source_manager.can_resume():
+        loaded = resumable_source_manager.load_state()
+        if loaded is not None and any(lst["id"] == loaded.list_id for lst in lists):
+            resume_config = loaded
 
     for lst in lists:
         list_id = lst["id"]
 
-        if skip_until_match:
-            assert resume_config is not None  # narrows for the type checker
+        if resume_config is not None:
             if list_id != resume_config.list_id:
                 continue
-            skip_until_match = False
             start_offset = resume_config.offset
+            resume_config = None
         else:
             start_offset = 0
 

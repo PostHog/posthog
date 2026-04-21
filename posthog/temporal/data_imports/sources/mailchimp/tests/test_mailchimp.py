@@ -97,11 +97,47 @@ def _build_response(members: list[dict[str, Any]], total_items: int) -> MagicMoc
 
 
 class TestFetchContactsForList:
-    def test_saves_checkpoint_before_yielding_first_page(self, monkeypatch):
+    @pytest.mark.parametrize(
+        ("label", "start_offset", "members", "total_items", "expected_ids", "expected_checkpoint"),
+        [
+            (
+                "fresh_page_checkpoints_at_offset_zero",
+                0,
+                [{"id": "m1"}, {"id": "m2"}],
+                2,
+                ["m1", "m2"],
+                MailchimpResumeConfig(list_id="list_a", offset=0),
+            ),
+            (
+                "resume_page_checkpoints_at_start_offset",
+                1000,
+                [{"id": "m3"}],
+                1001,
+                ["m3"],
+                MailchimpResumeConfig(list_id="list_a", offset=1000),
+            ),
+            (
+                "empty_page_is_not_checkpointed",
+                0,
+                [],
+                0,
+                [],
+                None,
+            ),
+        ],
+    )
+    def test_single_page_behaviour(
+        self,
+        monkeypatch,
+        label: str,
+        start_offset: int,
+        members: list[dict[str, Any]],
+        total_items: int,
+        expected_ids: list[str],
+        expected_checkpoint: MailchimpResumeConfig | None,
+    ) -> None:
         manager = _fake_manager()
-        members_page_1 = [{"id": "m1"}, {"id": "m2"}]
-        responses = [_build_response(members_page_1, total_items=2)]
-        get_mock = MagicMock(side_effect=responses)
+        get_mock = MagicMock(side_effect=[_build_response(members, total_items=total_items)])
         monkeypatch.setattr("posthog.temporal.data_imports.sources.mailchimp.mailchimp.requests.get", get_mock)
 
         emitted = list(
@@ -111,54 +147,18 @@ class TestFetchContactsForList:
                 list_id="list_a",
                 since_last_changed=None,
                 resumable_source_manager=manager,
+                start_offset=start_offset,
             )
         )
 
-        assert [c["id"] for c in emitted] == ["m1", "m2"]
-        assert [c["list_id"] for c in emitted] == ["list_a", "list_a"]
+        assert [c["id"] for c in emitted] == expected_ids
+        assert all(c["list_id"] == "list_a" for c in emitted)
+        assert get_mock.call_args.kwargs["params"]["offset"] == start_offset
 
-        manager.save_state.assert_called_once_with(MailchimpResumeConfig(list_id="list_a", offset=0))
-
-    def test_resumes_from_start_offset(self, monkeypatch):
-        manager = _fake_manager()
-        members_page_2 = [{"id": "m3"}]
-        responses = [_build_response(members_page_2, total_items=1001)]
-        get_mock = MagicMock(side_effect=responses)
-        monkeypatch.setattr("posthog.temporal.data_imports.sources.mailchimp.mailchimp.requests.get", get_mock)
-
-        list(
-            _fetch_contacts_for_list(
-                api_key="key-us6",
-                dc="us6",
-                list_id="list_a",
-                since_last_changed=None,
-                resumable_source_manager=manager,
-                start_offset=1000,
-            )
-        )
-
-        # The saved checkpoint must reflect the page we actually fetched.
-        manager.save_state.assert_called_once_with(MailchimpResumeConfig(list_id="list_a", offset=1000))
-        assert get_mock.call_args.kwargs["params"]["offset"] == 1000
-
-    def test_empty_page_is_not_checkpointed(self, monkeypatch):
-        manager = _fake_manager()
-        responses = [_build_response([], total_items=0)]
-        get_mock = MagicMock(side_effect=responses)
-        monkeypatch.setattr("posthog.temporal.data_imports.sources.mailchimp.mailchimp.requests.get", get_mock)
-
-        emitted = list(
-            _fetch_contacts_for_list(
-                api_key="key-us6",
-                dc="us6",
-                list_id="list_a",
-                since_last_changed=None,
-                resumable_source_manager=manager,
-            )
-        )
-
-        assert emitted == []
-        manager.save_state.assert_not_called()
+        if expected_checkpoint is None:
+            manager.save_state.assert_not_called()
+        else:
+            manager.save_state.assert_called_once_with(expected_checkpoint)
 
 
 class TestGetContactsIterator:
