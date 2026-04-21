@@ -1,4 +1,4 @@
-import { IconCheck, IconX } from '@posthog/icons'
+import { IconCheck } from '@posthog/icons'
 import { Tooltip } from '@posthog/lemon-ui'
 
 interface SnapshotStatusIndicatorProps {
@@ -14,7 +14,7 @@ interface SnapshotStatusIndicatorProps {
 const RESULT_STYLES: Record<string, { dot: string; text: string; label: string; bg: string; shape?: 'x' }> = {
     changed: { dot: 'bg-warning', text: 'text-warning-dark', label: 'Changed', bg: 'bg-warning-highlight' },
     new: { dot: 'bg-success', text: 'text-success', label: 'New', bg: 'bg-success-highlight' },
-    removed: { dot: 'text-danger', text: 'text-danger', label: 'Removed', bg: 'bg-danger-highlight', shape: 'x' },
+    removed: { dot: 'bg-danger', text: 'text-danger', label: 'Removed', bg: 'bg-danger-highlight', shape: 'x' },
     unchanged: { dot: 'bg-muted', text: 'text-muted', label: 'Unchanged', bg: 'bg-fill-secondary' },
 }
 
@@ -54,7 +54,7 @@ export function SnapshotStatusIndicator({
             <Tooltip title={tooltip}>
                 <span className="flex items-center gap-0.5">
                     {styles.shape === 'x' ? (
-                        <IconX className={`w-3 h-3 shrink-0 ${styles.dot}`} />
+                        <span className={`w-2 h-2 rounded-full shrink-0 ${styles.dot}`} />
                     ) : (
                         <span className={`w-2 h-2 rounded-full shrink-0 ${styles.dot}`} />
                     )}
@@ -73,7 +73,7 @@ export function SnapshotStatusIndicator({
             <span className="flex items-center gap-1.5">
                 <span className="flex items-center gap-1">
                     {styles.shape === 'x' ? (
-                        <IconX className={`w-3.5 h-3.5 shrink-0 ${styles.dot}`} />
+                        <span className={`w-2 h-2 rounded-full shrink-0 ${styles.dot}`} />
                     ) : (
                         <span className={`w-2 h-2 rounded-full shrink-0 ${styles.dot}`} />
                     )}

@@ -759,9 +759,13 @@ def _stamp_quarantine(run: Run) -> None:
         .filter(Q(expires_at__isnull=True) | Q(expires_at__gt=now))
         .values_list("identifier", flat=True)
     )
+
+    if not quarantined_ids:
+        run.snapshots.using(WRITER_DB).filter(is_quarantined=True).update(is_quarantined=False)
+        return
+
     snapshots = run.snapshots.using(WRITER_DB)
-    if quarantined_ids:
-        snapshots.filter(identifier__in=quarantined_ids, is_quarantined=False).update(is_quarantined=True)
+    snapshots.filter(identifier__in=quarantined_ids, is_quarantined=False).update(is_quarantined=True)
     snapshots.filter(is_quarantined=True).exclude(identifier__in=quarantined_ids).update(is_quarantined=False)
 
 
@@ -1533,9 +1537,11 @@ def get_tolerated_hashes_for_identifier(repo_id: UUID, identifier: str) -> list[
 
 
 def list_quarantined_identifiers(
-    repo_id: UUID, team_id: int, identifier: str | None = None
+    repo_id: UUID, team_id: int, identifier: str | None = None, run_type: str | None = None
 ) -> list[QuarantinedIdentifier]:
     qs = QuarantinedIdentifier.objects.using(WRITER_DB).filter(repo_id=repo_id, team_id=team_id)
+    if run_type:
+        qs = qs.filter(run_type=run_type)
     if identifier:
         qs = qs.filter(identifier=identifier)
     else:

@@ -33,7 +33,7 @@ from ..facade.contracts import (
     UpdateRepoInput,
     UpdateRepoRequestInput,
 )
-from ..facade.enums import ReviewDecision
+from ..facade.enums import ReviewDecision, RunType
 from .serializers import (
     AddSnapshotsInputSerializer,
     AddSnapshotsResultSerializer,
@@ -128,6 +128,7 @@ class RepoViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             OpenApiParameter(
                 name="identifier", type=str, required=False, description="Filter by identifier (returns full history)"
             ),
+            OpenApiParameter(name="run_type", type=str, required=False, description="Filter by run type"),
         ],
         responses={200: QuarantinedIdentifierEntrySerializer(many=True)},
     )
@@ -135,7 +136,8 @@ class RepoViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     def list_quarantined(self, request: Request, pk: str, **kwargs) -> Response:
         """List quarantined identifiers. Without filter: active only. With identifier: full history."""
         identifier = request.query_params.get("identifier")
-        entries = api.list_quarantined(UUID(pk), team_id=self.team_id, identifier=identifier)
+        run_type = request.query_params.get("run_type")
+        entries = api.list_quarantined(UUID(pk), team_id=self.team_id, identifier=identifier, run_type=run_type)
         page = self.paginate_queryset(entries)
         if page is not None:
             serializer = QuarantinedIdentifierEntrySerializer(instance=page, many=True)
@@ -149,6 +151,12 @@ class RepoViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     @action(detail=True, methods=["post"], url_path=r"quarantine/(?P<run_type>[^/]+)")
     def quarantine(self, request: TypedRequest[QuarantineInput], pk: str, run_type: str, **kwargs) -> Response:
         """Quarantine a snapshot identifier for a specific run type."""
+        valid_run_types = {e.value for e in RunType}
+        if run_type not in valid_run_types:
+            return Response(
+                {"detail": f"Invalid run_type '{run_type}'. Must be one of: {', '.join(sorted(valid_run_types))}"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         try:
             entry = api.quarantine_identifier(
                 repo_id=UUID(pk),

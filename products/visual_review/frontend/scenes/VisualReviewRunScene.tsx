@@ -92,21 +92,13 @@ function SnapshotThumbnail({
                     </span>
                 )}
             </div>
-            <div className="flex items-center gap-1 max-w-[108px]">
+            <div className="flex items-center gap-1 max-w-[108px] w-full">
                 {hasDiff ? (
-                    <span className="flex items-center gap-1 shrink-0 bg-warning-highlight rounded-full px-1.5 py-0.5">
-                        <SnapshotStatusIndicator
-                            result={snapshot.result || 'unchanged'}
-                            reviewState=""
-                            classificationReason={snapshot.classification_reason}
-                            size="small"
-                        />
-                        <span className="text-[10px] font-mono tabular-nums text-warning-dark leading-none">
-                            {snapshot.diff_percentage! < 1
-                                ? snapshot.diff_percentage!.toFixed(1)
-                                : Math.round(snapshot.diff_percentage!)}
-                            %
-                        </span>
+                    <span className="shrink-0 bg-warning-highlight rounded-full px-1.5 py-0.5 text-[10px] font-mono tabular-nums text-warning-dark leading-none">
+                        {snapshot.diff_percentage! < 1
+                            ? snapshot.diff_percentage!.toFixed(1)
+                            : Math.round(snapshot.diff_percentage!)}
+                        %
                     </span>
                 ) : (
                     <SnapshotStatusIndicator

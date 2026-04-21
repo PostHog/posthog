@@ -358,9 +358,9 @@ def _to_quarantined_entry(
 
 
 def list_quarantined(
-    repo_id: UUID, team_id: int, identifier: str | None = None
+    repo_id: UUID, team_id: int, identifier: str | None = None, run_type: str | None = None
 ) -> list[contracts.QuarantinedIdentifierEntry]:
-    entries = logic.list_quarantined_identifiers(repo_id, team_id, identifier=identifier)
+    entries = logic.list_quarantined_identifiers(repo_id, team_id, identifier=identifier, run_type=run_type)
     user_ids = {e.created_by_id for e in entries if e.created_by_id}
     users = _fetch_users_by_ids(user_ids)
     return [_to_quarantined_entry(q, users) for q in entries]
