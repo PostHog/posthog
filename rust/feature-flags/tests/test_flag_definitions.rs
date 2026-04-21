@@ -1542,9 +1542,6 @@ async fn test_flag_definitions_custom_rate_limit_overrides_default() {
         "Should allow exactly 2 requests per second for custom team"
     );
 
-    // Wait for rate limit to reset
-    sleep(Duration::from_millis(1100)).await;
-
     // Test default rate limit (600/minute = 10/second)
     // Should allow more requests than custom limit
     // Send all 5 requests concurrently to ensure they hit the rate limiter simultaneously

@@ -345,85 +345,36 @@ async fn test_rate_limit_ip_fallback_on_malformed_body() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
-async fn test_rate_limit_replenishment() -> Result<()> {
-    // Test that rate limit replenishes over time
-    let mut config = Config::default_test_config();
-    config.flags_rate_limit_enabled = FlexBool(true);
-    config.flags_rate_limit_log_only = FlexBool(false);
-    config.flags_bucket_capacity = 1;
-    config.flags_bucket_replenish_rate = 1.0; // 1 token per second
+#[test]
+fn test_rate_limit_replenishment() {
+    use feature_flags::api::flags_rate_limiter::{FlagsRateLimiter, RateLimitResult};
+    use governor::clock::FakeRelativeClock;
+    use std::collections::HashMap;
+    use std::time::Duration;
 
-    let redis_client = setup_redis_client(Some(config.redis_url.clone())).await;
-    let team = insert_new_team_in_redis(redis_client.clone())
-        .await
-        .unwrap();
-    let token = team.api_token.clone();
-
-    let context = TestContext::new(None).await;
-    context.insert_new_team(Some(team.id)).await.unwrap();
-    context
-        .insert_person(team.id, "user123".to_string(), None)
-        .await
-        .unwrap();
-
-    // Insert config into hypercache
-    let remote_config = json!({
-        "supportedCompression": ["gzip", "gzip-js"],
-        "config": {}
-    });
-    insert_config_in_hypercache(redis_client.clone(), &token, remote_config).await?;
-
-    let server = ServerHandle::for_config(config).await;
-    let client = reqwest::Client::new();
-
-    let payload = json!({
-        "token": token,
-        "distinct_id": "user123",
-    });
-
-    // First request should succeed
-    let response = client
-        .post(format!("http://{}/flags", server.addr))
-        .header("content-type", "application/json")
-        .json(&payload)
-        .send()
-        .await?;
-
-    assert_eq!(response.status(), StatusCode::OK, "First request allowed");
-
-    // Second request should be rate limited
-    let response = client
-        .post(format!("http://{}/flags", server.addr))
-        .header("content-type", "application/json")
-        .json(&payload)
-        .send()
-        .await?;
+    let clock = FakeRelativeClock::default();
+    let limiter =
+        FlagsRateLimiter::new_with_clock(true, 1.0, None, 1, false, HashMap::new(), clock.clone())
+            .unwrap();
 
     assert_eq!(
-        response.status(),
-        StatusCode::TOO_MANY_REQUESTS,
+        limiter.allow_request("test_token"),
+        RateLimitResult::Allowed,
+        "First request allowed"
+    );
+    assert_eq!(
+        limiter.allow_request("test_token"),
+        RateLimitResult::Blocked,
         "Second request blocked"
     );
 
-    // Wait for token to replenish (1 second + buffer)
-    tokio::time::sleep(tokio::time::Duration::from_millis(1100)).await;
-
-    // Third request should succeed after replenishment
-    let response = client
-        .post(format!("http://{}/flags", server.addr))
-        .header("content-type", "application/json")
-        .json(&payload)
-        .send()
-        .await?;
+    clock.advance(Duration::from_millis(1100));
 
     assert_eq!(
-        response.status(),
-        StatusCode::OK,
+        limiter.allow_request("test_token"),
+        RateLimitResult::Allowed,
         "Third request allowed after replenishment"
     );
-
-    Ok(())
 }
 
 #[tokio::test]
