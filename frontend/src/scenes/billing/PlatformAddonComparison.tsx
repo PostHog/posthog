@@ -297,7 +297,7 @@ export const PlatformAddonComparison = ({ product }: { product: BillingProductV2
 
             {features.length > 0 && (
                 <LemonCollapse
-                    activeKey={isCompareOpen ? 'compare' : null}
+                    activeKey={isCompareOpen ? 'compare' : undefined}
                     onChange={(key) => setIsCompareOpen(key === 'compare')}
                     panels={[
                         {
