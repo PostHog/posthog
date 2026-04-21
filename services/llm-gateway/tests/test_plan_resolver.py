@@ -118,7 +118,6 @@ class TestPlanResolver:
         with patch("llm_gateway.services.plan_resolver.get_settings") as mock_settings:
             mock_settings.return_value.posthog_api_base_url = "https://app.posthog.com"
             mock_settings.return_value.plan_cache_ttl = 300
-            mock_settings.return_value.free_plan_trial_period_days = 30
             result = await resolver_with_redis.get_plan(user_id=1, auth_header="Bearer phx_test")
 
         assert result.plan_key == "posthog-code-200-20260301"
@@ -142,7 +141,6 @@ class TestPlanResolver:
         with patch("llm_gateway.services.plan_resolver.get_settings") as mock_settings:
             mock_settings.return_value.posthog_api_base_url = "https://app.posthog.com"
             mock_settings.return_value.plan_cache_ttl = 300
-            mock_settings.return_value.free_plan_trial_period_days = 30
             await resolver.get_plan(user_id=1, auth_header="Bearer phx_mysecretkey")
 
         resolver._http.get.assert_called_once()

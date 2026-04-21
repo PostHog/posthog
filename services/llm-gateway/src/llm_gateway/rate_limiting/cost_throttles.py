@@ -256,7 +256,7 @@ class UserCostSustainedThrottle(_UserCostThrottleBase):
         if not base_key:
             return base_key
         if context.product == POSTHOG_CODE_PRODUCT:
-            period = get_billing_period_number(context.seat_created_at, get_settings().free_plan_trial_period_days)
+            period = get_billing_period_number(context.seat_created_at, get_settings().billing_period_days)
             return f"{base_key}:period:{period}"
         return base_key
 

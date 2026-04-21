@@ -149,7 +149,7 @@ class Settings(BaseSettings):
 
     posthog_api_base_url: str = "https://us.posthog.com"
     plan_cache_ttl: int = 300  # 5 minutes
-    free_plan_trial_period_days: int = 30
+    billing_period_days: int = 30
 
     @field_validator("product_cost_limits", mode="before")
     @classmethod
