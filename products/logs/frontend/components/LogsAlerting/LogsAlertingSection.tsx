@@ -11,6 +11,7 @@ import {
     LogsAlertConfigurationStateEnumApi,
 } from 'products/logs/frontend/generated/api.schemas'
 
+import { LogsAlertEventHistoryModal } from './LogsAlertEventHistory'
 import { LogsAlertForm } from './LogsAlertForm'
 import { logsAlertFormLogic } from './logsAlertFormLogic'
 import { logsAlertingLogic } from './logsAlertingLogic'
@@ -27,8 +28,8 @@ export function LogsAlertingSection(): JSX.Element {
 }
 
 function LogsAlertingSectionInner(): JSX.Element {
-    const { isCreating, editingAlert } = useValues(logsAlertingLogic)
-    const { setIsCreating, setEditingAlert } = useActions(logsAlertingLogic)
+    const { isCreating, editingAlert, viewingHistoryAlert } = useValues(logsAlertingLogic)
+    const { setIsCreating, setEditingAlert, setViewingHistoryAlert } = useActions(logsAlertingLogic)
 
     const isModalOpen = isCreating || editingAlert !== null
 
@@ -40,7 +41,7 @@ function LogsAlertingSectionInner(): JSX.Element {
                 className="mb-3"
                 action={{ children: 'Send feedback', id: 'logs-alerts-feedback-button' }}
             >
-                Logs alerting is in beta — alerts are checked every 5 minutes. Read the{' '}
+                Logs alerting is in beta. Alerts are checked every 5 minutes. Read the{' '}
                 <Link to="https://posthog.com/docs/logs/alerts" target="_blank">
                     docs
                 </Link>{' '}
@@ -59,6 +60,7 @@ function LogsAlertingSectionInner(): JSX.Element {
             >
                 {isModalOpen && <LogsAlertModalContent editingAlert={editingAlert} />}
             </LemonModal>
+            <LogsAlertEventHistoryModal alert={viewingHistoryAlert} onClose={() => setViewingHistoryAlert(null)} />
         </>
     )
 }
