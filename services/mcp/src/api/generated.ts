@@ -34341,10 +34341,10 @@ export namespace Schemas {
     * `tree_snapshot` - tree_snapshot
     * `user_attachment` - user_attachment
      */
-    export type Type46fEnum = typeof Type46fEnum[keyof typeof Type46fEnum];
+    export type TypeE8eEnum = typeof TypeE8eEnum[keyof typeof TypeE8eEnum];
 
 
-    export const Type46fEnum = {
+    export const TypeE8eEnum = {
       Plan: 'plan',
       Context: 'context',
       Reference: 'reference',
@@ -34371,7 +34371,7 @@ export namespace Schemas {
     * `artifact` - artifact
     * `tree_snapshot` - tree_snapshot
     * `user_attachment` - user_attachment */
-      type: Type46fEnum;
+      type: TypeE8eEnum;
       /**
        * Optional source label for the artifact, such as agent_output or user_attachment
        * @maxLength 64
@@ -34404,7 +34404,7 @@ export namespace Schemas {
     * `artifact` - artifact
     * `tree_snapshot` - tree_snapshot
     * `user_attachment` - user_attachment */
-      type: Type46fEnum;
+      type: TypeE8eEnum;
       /**
        * Optional source label for the artifact, such as agent_output or user_attachment
        * @maxLength 64
@@ -34474,7 +34474,7 @@ export namespace Schemas {
     * `artifact` - artifact
     * `tree_snapshot` - tree_snapshot
     * `user_attachment` - user_attachment */
-      type: Type46fEnum;
+      type: TypeE8eEnum;
       /**
        * Optional source label for the artifact, such as agent_output or user_attachment
        * @maxLength 64
@@ -34640,7 +34640,7 @@ export namespace Schemas {
     * `artifact` - artifact
     * `tree_snapshot` - tree_snapshot
     * `user_attachment` - user_attachment */
-      type: Type46fEnum;
+      type: TypeE8eEnum;
       /**
        * Optional source label for the artifact, such as agent_output or user_attachment
        * @maxLength 64
@@ -34673,7 +34673,7 @@ export namespace Schemas {
     * `artifact` - artifact
     * `tree_snapshot` - tree_snapshot
     * `user_attachment` - user_attachment */
-      type: Type46fEnum;
+      type: TypeE8eEnum;
       /**
        * Optional source label for the artifact, such as agent_output or user_attachment
        * @maxLength 64
