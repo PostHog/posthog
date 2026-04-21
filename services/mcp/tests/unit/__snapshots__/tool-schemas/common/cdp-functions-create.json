@@ -444,7 +444,7 @@
                 {
                     "anyOf": [
                         {
-                            "description": "* `destination` - Destination\n* `site_destination` - Site Destination\n* `internal_destination` - Internal Destination\n* `source_webhook` - Source Webhook\n* `warehouse_source_webhook` - Warehouse Source Webhook\n* `site_app` - Site App\n* `transformation` - Transformation",
+                            "description": "* `destination` - destination\n* `site_destination` - site_destination\n* `internal_destination` - internal_destination\n* `source_webhook` - source_webhook\n* `warehouse_source_webhook` - warehouse_source_webhook\n* `site_app` - site_app\n* `transformation` - transformation",
                             "enum": [
                                 "destination",
                                 "site_destination",

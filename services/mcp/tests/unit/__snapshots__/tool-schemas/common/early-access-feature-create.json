@@ -24,7 +24,7 @@
             "description": "Arbitrary JSON metadata associated with this feature."
         },
         "stage": {
-            "description": "Lifecycle stage. Valid values: draft, concept, alpha, beta, general-availability, archived. Moving to an active stage (alpha/beta/general-availability) enables the feature flag for opted-in users.\n\n* `draft` - draft\n* `concept` - concept\n* `alpha` - alpha\n* `beta` - beta\n* `general-availability` - general availability\n* `archived` - archived",
+            "description": "Lifecycle stage. Valid values: draft, concept, alpha, beta, general-availability, archived. Moving to an active stage (alpha/beta/general-availability) enables the feature flag for opted-in users.\n\n* `draft` - draft\n* `concept` - concept\n* `alpha` - alpha\n* `beta` - beta\n* `general-availability` - general-availability\n* `archived` - archived",
             "enum": ["draft", "concept", "alpha", "beta", "general-availability", "archived"],
             "type": "string"
         }

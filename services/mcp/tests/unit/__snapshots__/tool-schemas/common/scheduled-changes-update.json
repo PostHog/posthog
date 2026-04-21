@@ -35,7 +35,7 @@
             "type": "boolean"
         },
         "model_name": {
-            "description": "The type of record to modify. Currently only \"FeatureFlag\" is supported.\n\n* `FeatureFlag` - feature flag",
+            "description": "The type of record to modify. Currently only \"FeatureFlag\" is supported.\n\n* `FeatureFlag` - FeatureFlag",
             "enum": ["FeatureFlag"],
             "type": "string"
         },

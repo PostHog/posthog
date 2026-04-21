@@ -44,7 +44,7 @@
                 {
                     "anyOf": [
                         {
-                            "description": "* `collection` - Collection\n* `filters` - Filters",
+                            "description": "* `collection` - collection\n* `filters` - filters",
                             "enum": ["collection", "filters"],
                             "type": "string"
                         },
@@ -58,7 +58,7 @@
                     "type": "null"
                 }
             ],
-            "description": "Playlist type: 'collection' for manually curated recordings, 'filters' for saved filter views. Required on create, cannot be changed after.\n\n* `collection` - Collection\n* `filters` - Filters"
+            "description": "Playlist type: 'collection' for manually curated recordings, 'filters' for saved filter views. Required on create, cannot be changed after.\n\n* `collection` - collection\n* `filters` - filters"
         }
     },
     "type": "object"
