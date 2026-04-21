@@ -2,6 +2,7 @@ import {
     actions,
     afterMount,
     connect,
+    isBreakpoint,
     kea,
     key,
     listeners,
@@ -15,8 +16,9 @@ import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { encodeParams, urlToAction } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
+import posthog from 'posthog-js'
 
-import api from 'lib/api'
+import api, { ApiError } from 'lib/api'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { isDomain, isURL } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
@@ -313,6 +315,12 @@ export const authorizedUrlListLogic = kea<authorizedUrlListLogicType>([
         suggestions: {
             __default: [] as SuggestedDomain[],
             loadSuggestions: async (_: void, breakpoint) => {
+                // Skip the query if no team is resolved — the backend would return 404
+                // ("Project not found.") and surface as an uncaught rejection.
+                if (!values.currentTeam) {
+                    return []
+                }
+
                 const query = hogql`
                     select properties.$current_url, count()
                     from events
@@ -325,10 +333,23 @@ export const authorizedUrlListLogic = kea<authorizedUrlListLogicType>([
                     limit 25`
 
                 const currentScene = sceneLogic.findMounted()?.values.activeSceneId ?? 'Settings'
-                const response = await api.queryHogQL(query, {
-                    scene: currentScene,
-                    productKey: 'platform_and_support',
-                })
+                let response
+                try {
+                    response = await api.queryHogQL(query, {
+                        scene: currentScene,
+                        productKey: 'platform_and_support',
+                    })
+                } catch (e: any) {
+                    if (isBreakpoint(e)) {
+                        throw e
+                    }
+                    // 404 means the team couldn't be resolved (e.g. team was deleted
+                    // mid-session). Treat as no suggestions rather than bubbling up.
+                    if (!(e instanceof ApiError && e.status === 404)) {
+                        posthog.captureException(e)
+                    }
+                    return []
+                }
                 breakpoint()
                 const result = response.results as [string, number][]
 

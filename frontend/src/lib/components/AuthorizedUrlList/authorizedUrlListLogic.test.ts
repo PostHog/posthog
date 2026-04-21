@@ -2,7 +2,9 @@ import { MOCK_TEAM_ID, api } from 'lib/api.mock'
 
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
+import realApi, { ApiError } from 'lib/api'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { urls } from 'scenes/urls'
 
@@ -31,6 +33,9 @@ describe('the authorized urls list logic', () => {
                     }
                     return [200, { result: ['result from api'] }]
                 },
+            },
+            post: {
+                '/api/environments/:team_id/query/': [200, { results: [] }],
             },
             patch: {
                 '/api/projects/:team': [200, {}],
@@ -61,6 +66,42 @@ describe('the authorized urls list logic', () => {
     it('can be launchd without focussing adding new URL', async () => {
         router.actions.push(urls.toolbarLaunch())
         await expectLogic(logic).toNotHaveDispatchedActions(['newUrl'])
+    })
+
+    describe('loadSuggestions error handling', () => {
+        // Regression coverage for an uncaught rejection from the Authorized URLs settings
+        // loader when the backend couldn't resolve the current team (e.g. deleted project).
+        // `loadSuggestions` used to propagate the ApiError and surface as an unhandled
+        // promise rejection. It should now return [] so the EmptyState degrades gracefully.
+        it('returns an empty list and does not capture a 404 from the query endpoint', async () => {
+            const captureException = jest.spyOn(posthog, 'captureException').mockImplementation()
+            jest.spyOn(realApi, 'queryHogQL').mockImplementationOnce(() =>
+                Promise.reject(new ApiError('Project not found.', 404, undefined, { detail: 'Project not found.' }))
+            )
+
+            logic.actions.loadSuggestions()
+
+            await expectLogic(logic).toFinishAllListeners().toMatchValues({
+                suggestions: [],
+                suggestionsLoading: false,
+            })
+            expect(captureException).not.toHaveBeenCalled()
+        })
+
+        it('returns an empty list and captures a non-404 error', async () => {
+            const captureException = jest.spyOn(posthog, 'captureException').mockImplementation()
+            jest.spyOn(realApi, 'queryHogQL').mockImplementationOnce(() =>
+                Promise.reject(new ApiError('boom', 500, undefined, { detail: 'boom' }))
+            )
+
+            logic.actions.loadSuggestions()
+
+            await expectLogic(logic).toFinishAllListeners().toMatchValues({
+                suggestions: [],
+                suggestionsLoading: false,
+            })
+            expect(captureException).toHaveBeenCalledTimes(1)
+        })
     })
 
     describe('applying a suggestion', () => {
