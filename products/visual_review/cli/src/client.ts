@@ -74,12 +74,11 @@ export class VisualReviewClient {
         return `${this.apiUrl}/api/projects/${this.teamId}${path}`
     }
 
-    private async request<T>(path: string, options: RequestInit = {}): Promise<T> {
+    private async request<T>(path: string, options: { method?: string; body?: string } = {}): Promise<T> {
         const response = await undiciFetch(this.url(path), {
             ...options,
             headers: {
                 ...this.headers,
-                ...options.headers,
             },
             dispatcher: this.dispatcher,
         })
