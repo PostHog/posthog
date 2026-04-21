@@ -14,6 +14,8 @@ from rest_framework.decorators import action
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from posthog.hogql.query import execute_hogql_query
+
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import Workload, get_client_from_pool
 from posthog.cloud_utils import is_cloud
@@ -287,31 +289,44 @@ class DebugCHQueries(viewsets.ViewSet):
 
         return Response(self._serialize_precomputation_team(team, enabled))
 
-    def _fetch_org_mrr(self, org_ids: set[str]) -> dict[str, int]:
-        """Fetch current confirmed MRR per organization from billing tables.
+    # Team ID for PostHog's own project, which has data warehouse billing tables
+    _POSTHOG_INTERNAL_TEAM_ID = 2
 
-        Returns empty dict if billing tables are unavailable (e.g. local dev).
+    def _fetch_org_mrr(self, org_ids: set[str]) -> dict[str, int]:
+        """Fetch current confirmed MRR per organization from data warehouse billing tables.
+
+        Uses HogQL to access data warehouse tables via the PostHog internal team.
+        Returns empty dict if unavailable (e.g. local dev or missing tables).
         """
         try:
-            rows = sync_execute(
-                """
+            team = Team.objects.get(id=self._POSTHOG_INTERNAL_TEAM_ID)
+        except Team.DoesNotExist:
+            return {}
+
+        org_id_list = ", ".join(f"'{org_id}'" for org_id in org_ids)
+
+        try:
+            # nosemgrep: hogql-fstring-param-audit - org_ids are UUIDs from our own DB
+            response = execute_hogql_query(
+                f"""
                 SELECT
                     cus.organization_id,
                     round(sum(iwa.mrr)) AS current_mrr
-                FROM prod_postgres_invoice_with_annual iwa
-                JOIN prod_postgres_billing_customer cus ON iwa.customer_id = cus.id
+                FROM prod_postgres_invoice_with_annual AS iwa
+                JOIN prod_postgres_billing_customer AS cus ON iwa.customer_id = cus.id
                 WHERE
-                    cus.organization_id IN %(org_ids)s
-                    AND iwa.type NOT LIKE '%%upcoming%%'
+                    cus.organization_id IN ({org_id_list})
+                    AND iwa.type NOT LIKE '%upcoming%'
                     AND iwa.mrr > 0
                     AND toStartOfMonth(toTimeZone(iwa.period_end, 'UTC')) = toStartOfMonth(now())
                 GROUP BY cus.organization_id
                 """,
-                {"org_ids": list(org_ids)},
+                team=team,
+                query_type="internal_org_mrr",
             )
-            return {str(row[0]): round(float(row[1])) for row in rows}
+            return {str(row[0]): round(float(row[1])) for row in response.results or []}
         except Exception:
-            logger.warning("Failed to fetch org MRR from billing tables, skipping")
+            logger.warning("Failed to fetch org MRR from billing tables, skipping", exc_info=True)
             return {}
 
     @action(detail=False, methods=["GET"], url_path="slowest_queries")

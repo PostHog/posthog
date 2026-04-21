@@ -1,12 +1,14 @@
-import type { ApiClient } from '@/api/client'
+import type { ApiClient, GroupType } from '@/api/client'
+import { getPostHogClient } from '@/lib/analytics'
 import { ErrorCode, wrapError } from '@/lib/errors'
+import { buildActiveEnvironmentContextPrompt } from '@/lib/instructions'
 import { sanitizeHeaderValue } from '@/lib/utils'
 import type { ApiUser } from '@/schema/api'
-import type { State } from '@/tools/types'
+import type { CachedOrg, CachedProject, CachedUser, State } from '@/tools/types'
 
 import type { ScopedCache } from './cache/ScopedCache'
 
-const AI_CONSENT_TTL_MS = 4 * 60 * 60 * 1000 // 4 hours
+const CACHE_TTL_MS = 10 * 60 * 1000 // 10 minutes
 
 export class StateManager {
     private _cache: ScopedCache<State>
@@ -166,37 +168,123 @@ export class StateManager {
         return projectId
     }
 
-    async invalidateAiConsent(): Promise<void> {
-        await this._cache.delete('aiConsentGiven')
-        await this._cache.delete('aiConsentFetchedAt')
+    private isCacheStale(fetchedAt: number | undefined): boolean {
+        return !fetchedAt || Date.now() - fetchedAt > CACHE_TTL_MS
     }
 
-    async getAiConsentGiven(): Promise<boolean | undefined> {
-        const fetchedAt = await this._cache.get('aiConsentFetchedAt')
-        const isExpired = !fetchedAt || Date.now() - fetchedAt > AI_CONSENT_TTL_MS
-        if (!isExpired) {
-            const cached = await this._cache.get('aiConsentGiven')
-            if (cached !== undefined) {
-                return cached
-            }
+    /**
+     * Stale-while-cached helper. Returns fresh cached data if available; otherwise
+     * fetches, writes both the value and its timestamp, and returns the fresh value.
+     * On fetcher failure, returns the last-known cached value (possibly `undefined`)
+     * and captures the exception.
+     */
+    private async getOrFetchCached<D extends keyof State, F extends keyof State>(opts: {
+        name: string
+        cacheKey: D
+        fetchedAtKey: F
+        fetcher: () => Promise<NonNullable<State[D]>>
+    }): Promise<State[D]> {
+        const [cached, fetchedAt] = (await Promise.all([
+            this._cache.get(opts.cacheKey),
+            this._cache.get(opts.fetchedAtKey),
+        ])) as [State[D], number | undefined]
+
+        if (cached !== undefined && !this.isCacheStale(fetchedAt)) {
+            return cached
         }
 
         try {
-            const orgId = await this.getOrgID()
-            if (!orgId) {
+            const data = await opts.fetcher()
+            await Promise.all([
+                this._cache.set(opts.cacheKey, data as State[D]),
+                this._cache.set(opts.fetchedAtKey, Date.now() as State[F]),
+            ])
+            return data as State[D]
+        } catch (error) {
+            getPostHogClient().captureException(error, undefined, {
+                tag: 'max_ai',
+                context: `get_or_fetch_${opts.name}`,
+            })
+            return cached
+        }
+    }
+
+    async getCachedOrFetchUser(): Promise<CachedUser | undefined> {
+        const distinctId = await this.getDistinctId()
+        return this.getOrFetchCached({
+            name: 'user',
+            cacheKey: `cachedUser:${distinctId}` as const,
+            fetchedAtKey: `cachedUserFetchedAt:${distinctId}` as const,
+            fetcher: () => this.getUser(),
+        })
+    }
+
+    async getCachedOrFetchOrg(): Promise<CachedOrg | undefined> {
+        const orgId = await this.getOrgID()
+        if (!orgId) {
+            return undefined
+        }
+        return this.getOrFetchCached({
+            name: 'org',
+            cacheKey: `cachedOrg:${orgId}` as const,
+            fetchedAtKey: `cachedOrgFetchedAt:${orgId}` as const,
+            fetcher: async () => {
+                const result = await this._api.organizations().get({ orgId })
+                if (!result.success) {
+                    throw result.error
+                }
+                return result.data
+            },
+        })
+    }
+
+    async getCachedOrFetchProject(): Promise<CachedProject | undefined> {
+        const projectId = await this.getProjectId()
+        if (!projectId) {
+            return undefined
+        }
+        return this.getOrFetchCached({
+            name: 'project',
+            cacheKey: `cachedProject:${projectId}` as const,
+            fetchedAtKey: `cachedProjectFetchedAt:${projectId}` as const,
+            fetcher: async () => {
+                const result = await this._api.projects().get({ projectId })
+                if (!result.success) {
+                    throw result.error
+                }
+                return result.data
+            },
+        })
+    }
+
+    async getOrFetchGroupTypes(projectId: string): Promise<GroupType[] | undefined> {
+        return this.getOrFetchCached({
+            name: 'group_types',
+            cacheKey: `groupTypes:${projectId}` as const,
+            fetchedAtKey: `groupTypesFetchedAt:${projectId}` as const,
+            fetcher: () => this._api.getGroupTypes(projectId),
+        })
+    }
+
+    async getEnvironmentPrompt(): Promise<string | undefined> {
+        const [user, org, project] = await Promise.all([
+            this.getCachedOrFetchUser().catch(() => undefined),
+            this.getCachedOrFetchOrg().catch(() => undefined),
+            this.getCachedOrFetchProject().catch(() => undefined),
+        ])
+        return buildActiveEnvironmentContextPrompt(user, org, project)
+    }
+
+    async getAiConsentGiven(): Promise<boolean | undefined> {
+        try {
+            const org = await this.getCachedOrFetchOrg()
+            if (!org) {
                 return undefined
             }
-
-            const orgResult = await this._api.organizations().get({ orgId })
-            if (orgResult.success) {
-                const org = orgResult.data as { is_ai_data_processing_approved?: boolean | null }
-                const consent = !!org.is_ai_data_processing_approved
-                await this._cache.set('aiConsentGiven', consent)
-                await this._cache.set('aiConsentFetchedAt', Date.now())
-                return consent
-            }
-        } catch {}
-
-        return undefined
+            const consent = (org as { is_ai_data_processing_approved?: boolean | null }).is_ai_data_processing_approved
+            return !!consent
+        } catch {
+            return undefined
+        }
     }
 }

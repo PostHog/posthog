@@ -359,6 +359,36 @@
             "readOnlyHint": false
         }
     },
+    "cdp-functions-logs-retrieve": {
+        "description": "Retrieve execution logs for a specific CDP function by ID. Returns log entries with timestamp, level (DEBUG, LOG, INFO, WARN, ERROR), and message. Use to debug why a destination or transformation is failing or not producing expected results. Supports filtering by log level, text search, time range (after/before), and pagination via limit.",
+        "category": "Functions",
+        "feature": "hog_functions",
+        "summary": "Get function logs",
+        "title": "Get function logs",
+        "required_scopes": ["hog_function:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "cdp-functions-metrics-retrieve": {
+        "description": "Retrieve execution metrics for a specific CDP function by ID. Returns time-series data showing success and failure counts over a configurable interval (hour, day, or week). Use to understand function health, identify failure spikes, and monitor delivery reliability. Supports breakdown by metric kind (success/failure) or name, and time range filtering.",
+        "category": "Functions",
+        "feature": "hog_functions",
+        "summary": "Get function metrics",
+        "title": "Get function metrics",
+        "required_scopes": ["hog_function:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "cdp-functions-rearrange-partial-update": {
         "description": "Update the execution order of transformation functions. Send an 'orders' object mapping function UUIDs to their new execution_order integer values. Only applies to functions with type=transformation. Returns the updated list of transformations.",
         "category": "Functions",
@@ -2811,6 +2841,36 @@
         "feature": "workflows",
         "summary": "Get workflow",
         "title": "Get workflow",
+        "required_scopes": ["hog_flow:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "hog-flows-logs-retrieve": {
+        "description": "Retrieve execution logs for a specific workflow by ID. Returns log entries with timestamp, level (DEBUG, LOG, INFO, WARN, ERROR), and message. Use to debug why a workflow is failing or not producing expected results. Supports filtering by log level, text search, time range (after/before), and pagination via limit.",
+        "category": "Workflows",
+        "feature": "workflows",
+        "summary": "Get workflow logs",
+        "title": "Get workflow logs",
+        "required_scopes": ["hog_flow:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "hog-flows-metrics-retrieve": {
+        "description": "Retrieve execution metrics for a specific workflow by ID. Returns time-series data showing success and failure counts over a configurable interval (hour, day, or week). Use to understand workflow health, identify failure spikes, and monitor execution reliability. Supports breakdown by metric kind (success/failure) or name, and time range filtering.",
+        "category": "Workflows",
+        "feature": "workflows",
+        "summary": "Get workflow metrics",
+        "title": "Get workflow metrics",
         "required_scopes": ["hog_flow:read"],
         "new_mcp": true,
         "annotations": {
