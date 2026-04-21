@@ -55,19 +55,3 @@ export const CODING_AGENT_CLIENT_NAME_FRAGMENTS = [
 export function isCodingAgentClient(clientName: string | undefined): boolean {
     return matchesAnyFragment(clientName, CODING_AGENT_CLIENT_NAME_FRAGMENTS)
 }
-
-export const CLAUDE_CLIENT_NAME_FRAGMENTS = [
-    'claude-code',
-    'claude-desktop',
-    'claude-ai',
-    // Bare 'claude' catches anything Claude-branded that doesn't match the
-    // specific names above (e.g. 'claude-mobile', 'claude-web').
-    'claude',
-    // 'anthropic' catches Anthropic-branded clients that don't carry the
-    // Claude name (e.g. 'Anthropic/Cowork').
-    'anthropic',
-] as const
-
-export function isClaudeLike(clientName: string | undefined): boolean {
-    return matchesAnyFragment(clientName, CLAUDE_CLIENT_NAME_FRAGMENTS)
-}
