@@ -7,6 +7,7 @@ import api from 'lib/api'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { hasFormErrors, toParams } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { addProjectIdIfMissing } from 'lib/utils/router-utils'
@@ -566,6 +567,8 @@ export const experimentLogic = kea<experimentLogicType>([
             ['currentTeamId'],
             groupsModel,
             ['aggregationLabel', 'groupTypes', 'showGroupsOptions'],
+            featureFlagLogic,
+            ['featureFlags'],
             holdoutsLogic,
             ['holdouts'],
             billingLogic,
