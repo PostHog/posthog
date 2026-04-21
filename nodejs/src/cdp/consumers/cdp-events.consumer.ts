@@ -1,3 +1,4 @@
+import { DateTime } from 'luxon'
 import { Message } from 'node-rdkafka'
 
 import { instrumentFn, instrumented } from '~/common/tracing/tracing-utils'
@@ -22,7 +23,12 @@ import {
     MinimalAppMetric,
 } from '../types'
 import { CdpConsumerBase, CdpConsumerBaseDeps } from './cdp-base.consumer'
-import { counterHogFunctionStateOnEvent, counterParseError, counterRateLimited } from './metrics'
+import {
+    counterHogFunctionStateOnEvent,
+    counterParseError,
+    counterRateLimitDeferred,
+    counterRateLimited,
+} from './metrics'
 import { shouldBlockInvocationDueToQuota } from './quota-limiting-helper'
 
 export class CdpEventsConsumer<
@@ -49,6 +55,7 @@ export class CdpEventsConsumer<
                 bucketSize: config.CDP_RATE_LIMITER_BUCKET_SIZE,
                 refillRate: config.CDP_RATE_LIMITER_REFILL_RATE,
                 ttl: config.CDP_RATE_LIMITER_TTL,
+                deferredGraceMs: config.CDP_RATE_LIMITER_DEFERRED_GRACE_MS,
             },
             this.redis
         )
@@ -284,6 +291,47 @@ export class CdpEventsConsumer<
         const rateLimits = await instrumentFn('cdpConsumer.handleEachBatch.hogRateLimiter.rateLimitMany', async () => {
             return await this.hogRateLimiter.rateLimitMany(possibleInvocations.map((x) => [x.hogFlow.id, 1]))
         })
+
+        // Same format as hogflow-executor.service.ts so the Invocations tab renders pills.
+        const formatTriggerActor = (item: (typeof possibleInvocations)[number]): string => {
+            const personPart = item.person?.id ? ` for [Person:${item.person.id}|${item.person.name ?? 'unknown'}]` : ''
+            const event = item.state?.event
+            const eventPart = event?.uuid
+                ? ` on [Event:${event.uuid}|${event.event?.replaceAll('|', '') ?? 'unknown'}|${event.timestamp}]`
+                : ''
+            return `${personPart}${eventPart}`
+        }
+
+        // Batched outside the per-item try/catch so Redis failures fail the batch instead
+        // of being swallowed per-item and silently bypassing rate limiting.
+        const deferResultsByInvocationId = new Map<string, { accepted: boolean; scheduledAtMs: number }>()
+        if (this.config.CDP_RATE_LIMITER_SOFT_LIMIT_ENABLED) {
+            const rateLimitedEntries: { flowId: string; invocationId: string }[] = []
+            possibleInvocations.forEach((item, i) => {
+                if (rateLimits[i][1].isRateLimited) {
+                    rateLimitedEntries.push({
+                        flowId: item.functionId,
+                        invocationId: item.id,
+                    })
+                }
+            })
+
+            if (rateLimitedEntries.length > 0) {
+                const results = await instrumentFn(
+                    'cdpConsumer.handleEachBatch.hogRateLimiter.tryDeferMany',
+                    async () => {
+                        return await this.hogRateLimiter.tryDeferMany(
+                            rateLimitedEntries,
+                            this.config.CDP_RATE_LIMITER_MAX_DEFERRED_PER_FLOW
+                        )
+                    }
+                )
+                rateLimitedEntries.forEach((entry, i) => {
+                    deferResultsByInvocationId.set(entry.invocationId, results[i])
+                })
+            }
+        }
+
         const validInvocations: CyclotronJobInvocation[] = []
 
         // Iterate over adding them to the list and updating their priority
@@ -292,18 +340,43 @@ export class CdpEventsConsumer<
                 try {
                     const rateLimit = rateLimits[index][1]
                     if (rateLimit.isRateLimited) {
-                        counterRateLimited.labels({ kind: 'hog_flow' }).inc()
-                        this.hogFunctionMonitoringService.queueAppMetric(
-                            {
-                                team_id: item.teamId,
-                                app_source_id: item.functionId,
-                                metric_kind: 'failure',
-                                metric_name: 'rate_limited',
-                                count: 1,
-                            },
-                            'hog_flow'
-                        )
-                        return
+                        const deferResult = deferResultsByInvocationId.get(item.id) ?? {
+                            accepted: false,
+                            scheduledAtMs: 0,
+                        }
+
+                        if (deferResult.accepted) {
+                            item.queueScheduledAt = DateTime.fromMillis(deferResult.scheduledAtMs)
+                            // Deferred log/metric emitted below, after the invocation clears
+                            // quota/watcher/masking - otherwise we'd promise execution we then drop.
+                        } else {
+                            counterRateLimited.labels({ kind: 'hog_flow' }).inc()
+                            this.hogFunctionMonitoringService.queueAppMetric(
+                                {
+                                    team_id: item.teamId,
+                                    app_source_id: item.functionId,
+                                    metric_kind: 'failure',
+                                    metric_name: 'rate_limited',
+                                    count: 1,
+                                },
+                                'hog_flow'
+                            )
+                            this.hogFunctionMonitoringService.queueLogs(
+                                [
+                                    {
+                                        team_id: item.teamId,
+                                        log_source: 'hog_flow',
+                                        log_source_id: item.functionId,
+                                        instance_id: item.id,
+                                        timestamp: DateTime.utc(),
+                                        level: 'warn',
+                                        message: `Workflow invocation dropped${formatTriggerActor(item)}: burst protection triggered for this workflow.`,
+                                    },
+                                ],
+                                'hog_flow'
+                            )
+                            return
+                        }
                     }
                 } catch (e) {
                     captureException(e)
@@ -356,6 +429,16 @@ export class CdpEventsConsumer<
             })),
             'hog_flow'
         )
+
+        // Deferred invocations are intentionally not surfaced to customers: they still execute,
+        // just a few seconds late. The Prometheus counter below gives us internal visibility for
+        // debugging; the invocation's queueScheduledAt + the normal "Starting workflow execution"
+        // log (emitted when it runs) are enough to trace individual cases.
+        notMaskedInvocations.forEach((item) => {
+            if (deferResultsByInvocationId.get(item.id)?.accepted) {
+                counterRateLimitDeferred.labels({ kind: 'hog_flow' }).inc()
+            }
+        })
 
         const triggeredInvocationsMetrics: MinimalAppMetric[] = []
 

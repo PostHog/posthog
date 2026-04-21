@@ -12,6 +12,12 @@ export const counterRateLimited = new Counter({
     labelNames: ['kind'],
 })
 
+export const counterRateLimitDeferred = new Counter({
+    name: 'cdp_function_rate_limit_deferred',
+    help: 'A function invocation was rate limited and deferred to a later scheduled execution time',
+    labelNames: ['kind'],
+})
+
 export const counterHogFunctionStateOnEvent = new Counter({
     name: 'cdp_hog_function_state_on_event',
     help: 'Metric the state of a hog function that matched an event',

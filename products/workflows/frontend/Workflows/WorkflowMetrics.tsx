@@ -33,8 +33,9 @@ export const WORKFLOW_METRICS_INFO: Record<string, { name: string; description: 
         color: getColorVar('danger'),
     },
     rate_limited: {
-        name: 'Rate Limited',
-        description: 'Total number of events that were rate limited',
+        name: 'Rate limited',
+        description:
+            'Events that triggered this workflow’s burst protection and were not queued. See the Invocations tab for the affected events.',
         color: getColorVar('danger'),
     },
     triggered: {

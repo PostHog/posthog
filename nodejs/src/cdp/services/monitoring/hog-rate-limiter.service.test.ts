@@ -35,7 +35,10 @@ describe('HogRateLimiter', () => {
             })
             await deleteKeysWithPrefix(redis, BASE_REDIS_KEY)
 
-            rateLimiter = new HogRateLimiterService({ bucketSize: 100, refillRate: 10, ttl: 60 * 60 * 24 }, redis)
+            rateLimiter = new HogRateLimiterService(
+                { bucketSize: 100, refillRate: 10, ttl: 60 * 60 * 24, deferredGraceMs: 0 },
+                redis
+            )
         })
 
         const advanceTime = (ms: number) => {
@@ -127,6 +130,116 @@ describe('HogRateLimiter', () => {
                 [id1, { tokens: 0, isRateLimited: true }],
                 [id1, { tokens: -1, isRateLimited: true }],
             ])
+        })
+
+        describe('tryDefer', () => {
+            const flowId = 'flow-a'
+            const otherFlowId = 'flow-b'
+
+            it('should accept the first defer and schedule one refill-interval ahead', async () => {
+                const res = await rateLimiter.tryDefer(flowId, 'inv-1', 100)
+
+                // refillRate=10 -> one interval = 1000/10 = 100ms
+                expect(res).toEqual({ accepted: true, scheduledAtMs: now + 100 })
+            })
+
+            it('should stagger concurrent defers by the refill interval', async () => {
+                const first = await rateLimiter.tryDefer(flowId, 'inv-1', 100)
+                const second = await rateLimiter.tryDefer(flowId, 'inv-2', 100)
+                const third = await rateLimiter.tryDefer(flowId, 'inv-3', 100)
+
+                expect(first.scheduledAtMs).toBe(now + 100)
+                expect(second.scheduledAtMs).toBe(now + 200)
+                expect(third.scheduledAtMs).toBe(now + 300)
+            })
+
+            it.each([
+                { max: 1, attempts: 1, expectedAcceptedCount: 1 },
+                { max: 3, attempts: 3, expectedAcceptedCount: 3 },
+                { max: 3, attempts: 5, expectedAcceptedCount: 3 },
+                { max: 10, attempts: 15, expectedAcceptedCount: 10 },
+            ])(
+                'accepts up to the cap ($expectedAcceptedCount/$attempts with max=$max)',
+                async ({ max, attempts, expectedAcceptedCount }) => {
+                    const results: boolean[] = []
+                    for (let i = 0; i < attempts; i++) {
+                        const res = await rateLimiter.tryDefer(flowId, `inv-${i}`, max)
+                        results.push(res.accepted)
+                    }
+
+                    const accepted = results.filter((r) => r).length
+                    expect(accepted).toBe(expectedAcceptedCount)
+                }
+            )
+
+            it('returns accepted=false with scheduledAtMs=0 when the backlog is full', async () => {
+                // Fill the backlog exactly
+                await rateLimiter.tryDefer(flowId, 'inv-1', 2)
+                await rateLimiter.tryDefer(flowId, 'inv-2', 2)
+
+                const rejected = await rateLimiter.tryDefer(flowId, 'inv-3', 2)
+
+                expect(rejected).toEqual({ accepted: false, scheduledAtMs: 0 })
+            })
+
+            it('releases capacity as scheduled times pass', async () => {
+                // Queue 3 defers. At refillRate=10, these schedule at +100, +200, +300 ms.
+                await rateLimiter.tryDefer(flowId, 'inv-1', 3)
+                await rateLimiter.tryDefer(flowId, 'inv-2', 3)
+                await rateLimiter.tryDefer(flowId, 'inv-3', 3)
+
+                // Full backlog -> next defer is rejected
+                const rejected = await rateLimiter.tryDefer(flowId, 'inv-4', 3)
+                expect(rejected.accepted).toBe(false)
+
+                // Advance past the first two scheduled times, which should auto-clean them
+                advanceTime(250)
+
+                const res = await rateLimiter.tryDefer(flowId, 'inv-5', 3)
+                // Only the third entry remains pending, so this one takes position 2
+                expect(res).toEqual({ accepted: true, scheduledAtMs: now + 200 })
+            })
+
+            it.each([
+                { aDefers: 1, bDefers: 1 },
+                { aDefers: 5, bDefers: 2 },
+                { aDefers: 10, bDefers: 10 },
+            ])(
+                'tracks deferred backlog independently per flow (a=$aDefers, b=$bDefers)',
+                async ({ aDefers, bDefers }) => {
+                    for (let i = 0; i < aDefers; i++) {
+                        const res = await rateLimiter.tryDefer(flowId, `a-${i}`, aDefers)
+                        expect(res.accepted).toBe(true)
+                    }
+
+                    // Other flow still has full capacity
+                    for (let i = 0; i < bDefers; i++) {
+                        const res = await rateLimiter.tryDefer(otherFlowId, `b-${i}`, bDefers)
+                        expect(res.accepted).toBe(true)
+                    }
+
+                    // Flow A is at cap
+                    const overflow = await rateLimiter.tryDefer(flowId, 'a-over', aDefers)
+                    expect(overflow.accepted).toBe(false)
+                }
+            )
+
+            it('is idempotent for the same invocationId (re-adding updates score instead of growing backlog)', async () => {
+                const first = await rateLimiter.tryDefer(flowId, 'inv-same', 2)
+                expect(first.accepted).toBe(true)
+
+                // Same invocationId again should not consume a new slot since it's a sorted set member
+                const second = await rateLimiter.tryDefer(flowId, 'inv-same', 2)
+                expect(second.accepted).toBe(true)
+
+                // There should still be room for one more distinct invocation
+                const third = await rateLimiter.tryDefer(flowId, 'inv-other', 2)
+                expect(third.accepted).toBe(true)
+
+                // And then the next one hits the cap
+                const fourth = await rateLimiter.tryDefer(flowId, 'inv-reject', 2)
+                expect(fourth.accepted).toBe(false)
+            })
         })
     })
 })

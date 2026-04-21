@@ -24,6 +24,11 @@ export type CdpConfig = {
     CDP_RATE_LIMITER_BUCKET_SIZE: number
     CDP_RATE_LIMITER_REFILL_RATE: number
     CDP_RATE_LIMITER_TTL: number
+    CDP_RATE_LIMITER_SOFT_LIMIT_ENABLED: boolean
+    CDP_RATE_LIMITER_MAX_DEFERRED_PER_FLOW: number
+    // Grace window past a scheduled time before we drop a deferred entry from the per-flow
+    // counter. Without this, Cyclotron worker lag would silently inflate the cap.
+    CDP_RATE_LIMITER_DEFERRED_GRACE_MS: number
     CDP_HOG_FILTERS_TELEMETRY_TEAMS: string
     DISABLE_OPENTELEMETRY_TRACING: boolean
     CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_KIND: CyclotronJobQueueKind
@@ -118,6 +123,9 @@ export function getDefaultCdpConfig(): CdpConfig {
         CDP_RATE_LIMITER_BUCKET_SIZE: 100,
         CDP_RATE_LIMITER_REFILL_RATE: 1,
         CDP_RATE_LIMITER_TTL: 60 * 60 * 24,
+        CDP_RATE_LIMITER_SOFT_LIMIT_ENABLED: false,
+        CDP_RATE_LIMITER_MAX_DEFERRED_PER_FLOW: 1000,
+        CDP_RATE_LIMITER_DEFERRED_GRACE_MS: 5 * 60 * 1000,
         CDP_HOG_FILTERS_TELEMETRY_TEAMS: '',
         DISABLE_OPENTELEMETRY_TRACING: false,
         CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_KIND: 'hog',

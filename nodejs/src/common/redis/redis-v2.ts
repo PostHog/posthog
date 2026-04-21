@@ -5,6 +5,7 @@ import { RedisPoolConfig, createRedisFromConfig } from '../../utils/db/redis'
 import { timeoutGuard } from '../../utils/db/utils'
 import { logger } from '../../utils/logger'
 import { captureException } from '../../utils/posthog'
+import { defineLuaDeferCounter } from './redis-defer-counter.lua'
 import { defineLuaTokenBucket } from './redis-token-bucket.lua'
 
 type WithCheckRateLimit<T, TV2> = {
@@ -12,10 +13,25 @@ type WithCheckRateLimit<T, TV2> = {
     checkRateLimitV2: (key: string, now: number, cost: number, poolMax: number, fillRate: number, expiry: number) => TV2
 }
 
-export type RedisClientPipeline = Pipeline & WithCheckRateLimit<number, [number, number]>
+type WithDeferInvocation<T> = {
+    deferInvocation: (
+        key: string,
+        nowMs: number,
+        refillRate: number,
+        maxDeferred: number,
+        ttl: number,
+        member: string,
+        graceMs: number
+    ) => T
+}
+
+export type RedisClientPipeline = Pipeline &
+    WithCheckRateLimit<number, [number, number]> &
+    WithDeferInvocation<[number, number]>
 
 export type RedisClient = Omit<Redis, 'pipeline'> &
-    WithCheckRateLimit<Promise<number>, Promise<[number, number]>> & {
+    WithCheckRateLimit<Promise<number>, Promise<[number, number]>> &
+    WithDeferInvocation<Promise<[number, number]>> & {
         pipeline: () => RedisClientPipeline
     }
 
@@ -40,6 +56,7 @@ export const createRedisV2PoolFromConfig = (config: RedisPoolConfig): RedisV2 =>
                 const client = await createRedisFromConfig(config.connection)
 
                 defineLuaTokenBucket(client)
+                defineLuaDeferCounter(client)
 
                 return client as RedisClient
             },
