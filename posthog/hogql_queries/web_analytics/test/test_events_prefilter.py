@@ -1,7 +1,14 @@
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, also_test_with_materialized_columns
 from unittest.mock import patch
 
-from posthog.schema import DateRange, EventPropertyFilter, PropertyOperator, WebStatsBreakdown, WebStatsTableQuery
+from posthog.schema import (
+    DateRange,
+    EventPropertyFilter,
+    PersonPropertyFilter,
+    PropertyOperator,
+    WebStatsBreakdown,
+    WebStatsTableQuery,
+)
 
 from posthog.hogql_queries.web_analytics.stats_table import WebStatsTableQueryRunner
 
@@ -161,6 +168,36 @@ class TestEventsPrefilterTransformer(ClickhouseTestMixin, APIBaseTest):
         # properties blob must be in the subquery for JSONExtractRaw
         assert "events.properties" in sql
         assert "JSONExtractRaw(events.properties," in sql
+
+    @also_test_with_materialized_columns(
+        person_properties=["email"],
+        verify_no_jsonextract=False,
+    )
+    def test_bounce_with_person_property_filter(self):
+        from posthog.schema import PersonsOnEventsMode
+
+        self.team.modifiers = {"personsOnEventsMode": PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS}
+        self.team.save()
+
+        sql = self._run_prefiltered_query(
+            includeBounceRate=True,
+            properties=[
+                PersonPropertyFilter(
+                    key="email",
+                    operator=PropertyOperator.IS_NOT,
+                    value=["test@example.com"],
+                )
+            ],
+        )
+
+        assert "toDate(events.timestamp)" in sql
+        # When materialized with PoE, mat_pp_email must be in the prefilter subquery
+        # SELECT — if missing, the query above would fail with UNKNOWN_IDENTIFIER.
+        # Also verify it appears in the generated SQL for the materialized case.
+        if "mat_pp_email" in sql:
+            assert sql.count("mat_pp_email") >= 2, (
+                "mat_pp_email should appear in both the subquery SELECT and outer WHERE"
+            )
 
     def test_initial_page_breakdown_with_bounce(self):
         sql = self._run_prefiltered_query(

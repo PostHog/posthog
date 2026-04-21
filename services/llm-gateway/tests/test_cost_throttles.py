@@ -707,7 +707,7 @@ class TestUnconfiguredProductsUseDefaults:
         from llm_gateway.rate_limiting.cost_throttles import UserCostSustainedThrottle
 
         throttle = UserCostSustainedThrottle(redis=None)
-        context = make_context(product="wizard")
+        context = make_context(product="unconfigured_product")
 
         await throttle.record_cost(context, 999.0)
         result = await throttle.allow_request(context)
@@ -748,12 +748,12 @@ class TestUnconfiguredProductsUseDefaults:
         _UserCostThrottleBase._warned_products = set()
 
         throttle = UserCostBurstThrottle(redis=None)
-        context = make_context(product="wizard")
+        context = make_context(product="unconfigured_product")
 
         await throttle.allow_request(context)
         captured = capsys.readouterr()
         assert "user_cost_limits_using_default" in captured.out
-        assert "wizard" in captured.out
+        assert "unconfigured_product" in captured.out
 
         await throttle.allow_request(context)
         captured2 = capsys.readouterr()
@@ -855,7 +855,7 @@ class TestUserCostEdgeCases:
         from llm_gateway.rate_limiting.cost_throttles import UserCostBurstThrottle
 
         throttle = UserCostBurstThrottle(redis=None)
-        context = make_context(product="wizard")
+        context = make_context(product="unconfigured_product")
 
         config = throttle._get_config(context)
         assert config.burst_limit_usd == 100.0

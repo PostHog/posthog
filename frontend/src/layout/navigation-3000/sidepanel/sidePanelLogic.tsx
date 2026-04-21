@@ -5,77 +5,52 @@ import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
+import { sceneLayoutLogic } from '~/layout/scenes/sceneLayoutLogic'
 import { SidePanelTab } from '~/types'
 
-import { sidePanelContextLogic } from './panels/sidePanelContextLogic'
-import { sidePanelHealthLogic } from './panels/sidePanelHealthLogic'
-import { sidePanelStatusIncidentIoLogic } from './panels/sidePanelStatusIncidentIoLogic'
+import { sidePanelContextLogic } from './sidePanelContextLogic'
 import type { sidePanelLogicType } from './sidePanelLogicType'
 import { sidePanelStateLogic } from './sidePanelStateLogic'
-
-const ALWAYS_EXTRA_TABS = [
-    SidePanelTab.Settings,
-    SidePanelTab.Status,
-    SidePanelTab.Exports,
-    SidePanelTab.Health,
-    SidePanelTab.Changelog,
-]
 
 const TABS_REQUIRING_A_TEAM = [
     SidePanelTab.Max,
     SidePanelTab.Notebooks,
-
     SidePanelTab.Activity,
     SidePanelTab.Discussion,
     SidePanelTab.AccessControl,
     SidePanelTab.Exports,
-    SidePanelTab.Health,
 ]
 
-/**
- * @deprecated Sidepanel is soft-deprecated as only notebooks will be kept in sidepanel in future releases.
- */
 export const sidePanelLogic = kea<sidePanelLogicType>([
     path(['scenes', 'navigation', 'sidepanel', 'sidePanelLogic']),
     connect(() => ({
         values: [
-            preflightLogic,
-            ['isCloudOrDev'],
             sidePanelStateLogic,
             ['selectedTab', 'sidePanelOpen'],
-            sidePanelStatusIncidentIoLogic,
-            ['status'],
-            sidePanelHealthLogic,
-            ['hasIssues'],
             sidePanelContextLogic,
             ['sceneSidePanelContext'],
             teamLogic,
             ['currentTeam'],
+            sceneLayoutLogic,
+            ['scenePanelIsPresent'],
+            preflightLogic,
+            ['isCloudOrDev'],
         ],
         actions: [sidePanelStateLogic, ['closeSidePanel', 'openSidePanel']],
     })),
 
     selectors({
         enabledTabs: [
-            (s) => [s.isCloudOrDev, s.sceneSidePanelContext, s.currentTeam],
-            (isCloudOrDev, sceneSidePanelContext, currentTeam) => {
+            (s) => [s.sceneSidePanelContext, s.currentTeam, s.scenePanelIsPresent, s.isCloudOrDev],
+            (sceneSidePanelContext, currentTeam, scenePanelIsPresent, isCloudOrDev) => {
                 const tabs: SidePanelTab[] = []
 
-                /* Always show PostHog AI at the top of the tabs list
-                 * ALL DEVS, add an F for Max if you are here and you see this:
-                 *  F
-                 */
+                if (scenePanelIsPresent) {
+                    tabs.push(SidePanelTab.Info)
+                }
+
                 tabs.push(SidePanelTab.Max)
-
-                if (isCloudOrDev) {
-                    tabs.push(SidePanelTab.Status)
-                }
-
                 tabs.push(SidePanelTab.Notebooks)
-                tabs.push(SidePanelTab.Docs)
-                if (isCloudOrDev) {
-                    tabs.push(SidePanelTab.Support)
-                }
 
                 if (sceneSidePanelContext?.activity_scope) {
                     tabs.push(SidePanelTab.Activity)
@@ -86,10 +61,16 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
                     tabs.push(SidePanelTab.AccessControl)
                 }
 
+                if (sceneSidePanelContext.settings_section) {
+                    tabs.push(SidePanelTab.Settings)
+                }
+
+                // Exports and Support are openable programmatically but not shown in the nav bar
                 tabs.push(SidePanelTab.Exports)
-                tabs.push(SidePanelTab.Settings)
-                tabs.push(SidePanelTab.Health)
-                tabs.push(SidePanelTab.Changelog)
+
+                if (isCloudOrDev) {
+                    tabs.push(SidePanelTab.Support)
+                }
 
                 if (!currentTeam) {
                     return tabs.filter((tab) => !TABS_REQUIRING_A_TEAM.includes(tab))
@@ -99,36 +80,13 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
             },
         ],
 
+        /** Tabs shown in the navigation bar */
         visibleTabs: [
-            (s) => [s.enabledTabs, s.selectedTab, s.sidePanelOpen, s.status, s.hasIssues],
-            (enabledTabs, selectedTab, sidePanelOpen, status, hasIssues): SidePanelTab[] => {
-                return enabledTabs.filter((tab) => {
-                    if (tab === selectedTab && sidePanelOpen) {
-                        return true
-                    }
-
-                    if (tab === SidePanelTab.Status && status !== 'operational') {
-                        return true
-                    }
-
-                    if (tab === SidePanelTab.Health && hasIssues) {
-                        return true
-                    }
-
-                    // Hide certain tabs unless they are selected
-                    if (ALWAYS_EXTRA_TABS.includes(tab)) {
-                        return false
-                    }
-
-                    return true
-                })
-            },
-        ],
-
-        extraTabs: [
-            (s) => [s.enabledTabs, s.visibleTabs],
-            (enabledTabs, visibleTabs): SidePanelTab[] => {
-                return enabledTabs.filter((tab: any) => !visibleTabs.includes(tab))
+            (s) => [s.enabledTabs],
+            (enabledTabs): SidePanelTab[] => {
+                // Some tabs are openable programmatically but not shown in the nav bar
+                const hiddenTabs = [SidePanelTab.Exports]
+                return enabledTabs.filter((tab) => !hiddenTabs.includes(tab))
             },
         ],
     }),

@@ -980,10 +980,21 @@ class TestExperimentService(APIBaseTest):
             experiment,
             {
                 "metrics": [
-                    {"kind": "ExperimentMetric", "metric_type": "count", "uuid": "m1", "event": "$pageview"},
-                    {"kind": "ExperimentMetric", "metric_type": "count", "uuid": "m2", "event": "$pageleave"},
+                    {
+                        "kind": "ExperimentMetric",
+                        "metric_type": "mean",
+                        "uuid": "m1",
+                        "source": {"kind": "EventsNode", "event": "$pageview"},
+                    },
+                    {
+                        "kind": "ExperimentMetric",
+                        "metric_type": "mean",
+                        "uuid": "m2",
+                        "source": {"kind": "EventsNode", "event": "$pageleave"},
+                    },
                 ],
             },
+            allow_unknown_events=True,
         )
 
         assert updated.primary_metrics_ordered_uuids is not None
@@ -1030,6 +1041,65 @@ class TestExperimentService(APIBaseTest):
         )
 
         assert updated.primary_metrics_ordered_uuids == ["m1"]
+
+    @parameterized.expand(
+        [
+            ("primary", "metrics", "primary_metrics_ordered_uuids"),
+            ("secondary", "metrics_secondary", "secondary_metrics_ordered_uuids"),
+        ]
+    )
+    def test_update_experiment_auto_generates_uuids(self, _name, field, ordering_attr):
+        experiment = self._create_draft_experiment()
+        service = self._service()
+
+        updated = service.update_experiment(
+            experiment,
+            {
+                field: [
+                    {
+                        "kind": "ExperimentMetric",
+                        "metric_type": "mean",
+                        "source": {"kind": "EventsNode", "event": "$pageview"},
+                    }
+                ],
+            },
+            allow_unknown_events=True,
+        )
+
+        metrics = getattr(updated, field)
+        assert len(metrics) == 1
+        generated_uuid = metrics[0].get("uuid")
+        assert generated_uuid, "UUID should be auto-generated for metrics without one"
+        assert getattr(updated, ordering_attr) == [generated_uuid]
+
+    @parameterized.expand(
+        [
+            ("primary", "metrics", "primary_metrics_ordered_uuids"),
+            ("secondary", "metrics_secondary", "secondary_metrics_ordered_uuids"),
+        ]
+    )
+    def test_update_experiment_preserves_provided_metric_uuids(self, _name, field, ordering_attr):
+        experiment = self._create_draft_experiment()
+        service = self._service()
+
+        updated = service.update_experiment(
+            experiment,
+            {
+                field: [
+                    {
+                        "kind": "ExperimentMetric",
+                        "metric_type": "mean",
+                        "uuid": "explicit-uuid",
+                        "source": {"kind": "EventsNode", "event": "$pageview"},
+                    }
+                ],
+            },
+            allow_unknown_events=True,
+        )
+
+        metrics = getattr(updated, field)
+        assert metrics[0]["uuid"] == "explicit-uuid"
+        assert "explicit-uuid" in (getattr(updated, ordering_attr) or [])
 
     def test_update_experiment_replaces_saved_metrics(self):
         experiment = self._create_draft_experiment()
@@ -2775,6 +2845,37 @@ class TestExperimentService(APIBaseTest):
                 parameters={"feature_flag_variants": ["control", "test"]},
             )
 
+    def test_variant_missing_both_percentages_raises_validation_error(self):
+        """Variant without split_percent or rollout_percentage should be rejected."""
+        service = self._service()
+        with self.assertRaises(ValidationError) as ctx:
+            service.create_experiment(
+                name="Missing Percentages",
+                feature_flag_key="missing-pct-flag",
+                parameters={
+                    "feature_flag_variants": [
+                        {"key": "control"},
+                        {"key": "test", "rollout_percentage": 50},
+                    ]
+                },
+            )
+        assert "split_percent" in str(ctx.exception)
+
+    def test_variant_with_only_rollout_percentage_succeeds(self):
+        """Legacy clients sending only rollout_percentage must still work (deprecated but accepted)."""
+        service = self._service()
+        experiment = service.create_experiment(
+            name="Legacy rollout only",
+            feature_flag_key="legacy-rollout-flag",
+            parameters={
+                "feature_flag_variants": [
+                    {"key": "control", "rollout_percentage": 50},
+                    {"key": "test", "rollout_percentage": 50},
+                ]
+            },
+        )
+        assert experiment.id is not None
+
     def test_duplicate_metric_uuids_raises_validation_error(self):
         """Metrics with duplicate UUIDs should be rejected."""
         service = self._service()
@@ -3065,6 +3166,85 @@ class TestExperimentService(APIBaseTest):
             ],
         )
         assert experiment.metrics is not None and len(experiment.metrics) == 1
+
+    def test_funnel_metric_with_empty_series_raises(self):
+        # The experiment exposure event is prepended as step_0 at query time, so an
+        # empty series would produce a degenerate single-step funnel with no conversion event.
+        service = self._service()
+        with self.assertRaises(ValidationError) as ctx:
+            service.create_experiment(
+                name="Empty Funnel",
+                feature_flag_key="empty-funnel-flag",
+                allow_unknown_events=True,
+                metrics=[
+                    {
+                        "kind": "ExperimentMetric",
+                        "metric_type": "funnel",
+                        "series": [],
+                    },
+                ],
+            )
+        assert "at least one step" in str(ctx.exception)
+
+    @parameterized.expand(
+        [
+            ("primary", "metrics"),
+            ("secondary", "metrics_secondary"),
+        ]
+    )
+    def test_update_experiment_rejects_empty_funnel_series(self, _name, field):
+        experiment = self._create_draft_experiment()
+        service = self._service()
+        with self.assertRaises(ValidationError):
+            service.update_experiment(
+                experiment,
+                {
+                    field: [
+                        {
+                            "kind": "ExperimentMetric",
+                            "metric_type": "funnel",
+                            "series": [],
+                        }
+                    ],
+                },
+                allow_unknown_events=True,
+            )
+
+    @parameterized.expand(
+        [
+            (
+                "single_step",
+                [{"kind": "EventsNode", "event": "$pageview"}],
+            ),
+            (
+                "two_steps",
+                [
+                    {"kind": "EventsNode", "event": "$pageview"},
+                    {"kind": "EventsNode", "event": "$pageleave"},
+                ],
+            ),
+        ]
+    )
+    def test_funnel_metric_with_valid_series_succeeds(self, name, series):
+        # Single-step series is valid: the exposure event is prepended as step_0 at query
+        # time, yielding a standard conversion-rate funnel (exposure → event).
+        flag_key = f"valid-funnel-flag-{name.replace('_', '-')}"
+        self._create_flag(key=flag_key)
+        service = self._service()
+        experiment = service.create_experiment(
+            name=f"Valid Funnel {name}",
+            feature_flag_key=flag_key,
+            allow_unknown_events=True,
+            metrics=[
+                {
+                    "kind": "ExperimentMetric",
+                    "metric_type": "funnel",
+                    "series": series,
+                },
+            ],
+        )
+        assert experiment.metrics is not None and len(experiment.metrics) == 1
+        assert experiment.metrics[0]["metric_type"] == "funnel"
 
     def test_funnel_metric_with_nonexistent_action_in_series_raises(self):
         action = Action.objects.create(team=self.team, name="real action")
