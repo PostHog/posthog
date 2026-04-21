@@ -1254,6 +1254,119 @@ class TestClaudeTokenResolution:
         assert devbox_cli._maybe_prompt_for_claude_oauth_token(False) is None
 
 
+class TestCreateTask:
+    """Test the coder task create argv assembly."""
+
+    def test_positional_prompt(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        captured: list[list[str]] = []
+        monkeypatch.setattr(coder, "_run_or_exit", lambda args: captured.append(args))
+
+        coder.create_task("fix CI on PR #1234")
+
+        assert captured == [["coder", "task", "create", "--template", "posthog-linux", "fix CI on PR #1234"]]
+
+    def test_stdin_when_no_prompt(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        captured: list[list[str]] = []
+        monkeypatch.setattr(coder, "_run_or_exit", lambda args: captured.append(args))
+
+        coder.create_task(None)
+
+        assert captured == [["coder", "task", "create", "--template", "posthog-linux", "--stdin"]]
+
+    def test_task_name_and_quiet_flags(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        captured: list[list[str]] = []
+        monkeypatch.setattr(coder, "_run_or_exit", lambda args: captured.append(args))
+
+        coder.create_task("do the thing", task_name="my-task", quiet=True)
+
+        assert captured == [
+            [
+                "coder",
+                "task",
+                "create",
+                "--template",
+                "posthog-linux",
+                "--name",
+                "my-task",
+                "--quiet",
+                "do the thing",
+            ]
+        ]
+
+
+class TestDevboxTaskCommand:
+    """Test the devbox:task Click command."""
+
+    def test_positional_prompt_invokes_create_task(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        captured: dict[str, object] = {}
+
+        monkeypatch.setattr(devbox_cli, "ensure_runtime_ready", lambda: None)
+        monkeypatch.setattr(
+            devbox_cli,
+            "create_task",
+            lambda prompt, task_name=None, quiet=False: captured.update(
+                {"prompt": prompt, "task_name": task_name, "quiet": quiet}
+            ),
+        )
+
+        result = runner.invoke(cli, ["devbox:task", "fix CI on PR #1234"])
+
+        assert result.exit_code == 0
+        assert captured == {"prompt": "fix CI on PR #1234", "task_name": None, "quiet": False}
+
+    def test_name_and_quiet_options_forwarded(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        captured: dict[str, object] = {}
+
+        monkeypatch.setattr(devbox_cli, "ensure_runtime_ready", lambda: None)
+        monkeypatch.setattr(
+            devbox_cli,
+            "create_task",
+            lambda prompt, task_name=None, quiet=False: captured.update(
+                {"prompt": prompt, "task_name": task_name, "quiet": quiet}
+            ),
+        )
+
+        result = runner.invoke(cli, ["devbox:task", "--name", "my-task", "-q", "do it"])
+
+        assert result.exit_code == 0
+        assert captured == {"prompt": "do it", "task_name": "my-task", "quiet": True}
+
+    def test_no_prompt_on_tty_errors(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(devbox_cli, "ensure_runtime_ready", lambda: None)
+
+        class FakeTTY:
+            def isatty(self) -> bool:
+                return True
+
+        monkeypatch.setattr(devbox_cli.click, "get_text_stream", lambda stream: FakeTTY())
+
+        called: list[bool] = []
+        monkeypatch.setattr(devbox_cli, "create_task", lambda *a, **kw: called.append(True))
+
+        result = runner.invoke(cli, ["devbox:task"])
+
+        assert result.exit_code != 0
+        assert "Provide a prompt" in result.output
+        assert called == []
+
+    def test_piped_stdin_passes_none_as_prompt(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        captured: dict[str, object] = {}
+
+        monkeypatch.setattr(devbox_cli, "ensure_runtime_ready", lambda: None)
+        monkeypatch.setattr(
+            devbox_cli,
+            "create_task",
+            lambda prompt, task_name=None, quiet=False: captured.update(
+                {"prompt": prompt, "task_name": task_name, "quiet": quiet}
+            ),
+        )
+
+        result = runner.invoke(cli, ["devbox:task"], input="piped prompt\n")
+
+        assert result.exit_code == 0
+        assert captured == {"prompt": None, "task_name": None, "quiet": False}
+
+
 class TestSetupClaudeToken:
     """Test the Claude token step in devbox:setup."""
 
