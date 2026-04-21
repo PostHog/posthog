@@ -76,10 +76,22 @@ class PostHogCallback(InstrumentedCallback):
 
     callback_name = "posthog"
 
-    def __init__(self, api_key: str, host: str):
+    def __init__(
+        self,
+        api_key: str,
+        host: str,
+        region: str = "US",
+        region_url: str | None = None,
+        mirror_api_key: str | None = None,
+        mirror_host: str | None = None,
+    ):
         super().__init__()
         self._api_key = api_key
         self._host = host
+        self._region = region
+        self._region_url = region_url
+        self._mirror_api_key = mirror_api_key
+        self._mirror_host = mirror_host
 
     async def _on_success(
         self, kwargs: dict[str, Any], response_obj: Any, start_time: float, end_time: float, end_user_id: str | None
@@ -135,6 +147,8 @@ class PostHogCallback(InstrumentedCallback):
         if team_id:
             properties["team_id"] = team_id
 
+        properties["region"] = self._region
+
         response_cost = standard_logging_object.get("response_cost")
         if response_cost is not None:
             properties["$ai_total_cost_usd"] = response_cost
@@ -154,9 +168,8 @@ class PostHogCallback(InstrumentedCallback):
             "distinct_id": distinct_id,
             "event": "$ai_generation",
             "properties": properties,
+            "groups": self._build_groups(team_id),
         }
-        if team_id:
-            capture_kwargs["groups"] = {"project": team_id}
 
         logger.debug(
             "PostHog capturing event",
@@ -214,13 +227,14 @@ class PostHogCallback(InstrumentedCallback):
         if team_id:
             properties["team_id"] = team_id
 
+        properties["region"] = self._region
+
         capture_kwargs: dict[str, Any] = {
             "distinct_id": distinct_id,
             "event": "$ai_generation",
             "properties": properties,
+            "groups": self._build_groups(team_id),
         }
-        if team_id:
-            capture_kwargs["groups"] = {"project": team_id}
 
         logger.debug(
             "PostHog capturing error event",
@@ -231,6 +245,16 @@ class PostHogCallback(InstrumentedCallback):
         )
         self._capture_fire_and_forget(**capture_kwargs)
 
+    def _build_groups(self, team_id: int | None) -> dict[str, Any]:
+        # `instance` becomes $group_1 on the internal PostHog project and is how
+        # usage_report.py scopes billing to its own region.
+        groups: dict[str, Any] = {}
+        if self._region_url:
+            groups["instance"] = self._region_url
+        if team_id:
+            groups["project"] = team_id
+        return groups
+
     def _capture_fire_and_forget(self, **capture_kwargs: Any) -> None:
         """
         Initializes a separate client for the capture operation to avoid payload bloat.
@@ -240,19 +264,25 @@ class PostHogCallback(InstrumentedCallback):
         loop.run_in_executor(None, partial(self._capture_sync, **capture_kwargs))
 
     def _capture_sync(self, **capture_kwargs: Any) -> None:
-        client = Posthog(
-            self._api_key,
-            host=self._host,
-            sync_mode=True,
-            enable_local_evaluation=False,
-        )
-        try:
-            client.capture(**capture_kwargs)
-        except Exception as e:
-            client.capture_exception(e, **capture_kwargs)
-            logger.exception("posthog_capture_failed", error=str(e))
-        finally:
-            client.shutdown()
+        targets: list[tuple[str, str]] = [(self._api_key, self._host)]
+        if self._mirror_api_key and self._mirror_host:
+            targets.append((self._mirror_api_key, self._mirror_host))
+
+        for api_key, host in targets:
+            client = Posthog(
+                api_key,
+                host=host,
+                sync_mode=True,
+                enable_local_evaluation=False,
+                super_properties={"region": self._region},
+            )
+            try:
+                client.capture(**capture_kwargs)
+            except Exception as e:
+                client.capture_exception(e, **capture_kwargs)
+                logger.exception("posthog_capture_failed", error=str(e), host=host)
+            finally:
+                client.shutdown()
 
     def _extract_metadata(self, kwargs: dict[str, Any]) -> dict[str, Any]:
         litellm_params = kwargs.get("litellm_params", {}) or {}

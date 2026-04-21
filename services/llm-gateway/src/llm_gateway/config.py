@@ -1,8 +1,17 @@
 import json
 from functools import lru_cache
+from typing import Literal
 
 from pydantic import BaseModel, field_validator
 from pydantic_settings import BaseSettings
+
+# Customer-facing URL per region. Used as the `instance` group on captured events so the
+# per-region usage_report can filter by `$group_1 = region_url` and avoid double-counting
+# dual-captured events.
+REGION_TO_URL: dict[str, str] = {
+    "US": "https://us.posthog.com",
+    "EU": "https://eu.posthog.com",
+}
 
 
 class ProductCostLimit(BaseModel, frozen=True):
@@ -134,9 +143,22 @@ class Settings(BaseSettings):
     openrouter_api_key: str | None = None
     fireworks_api_key: str | None = None
 
-    # Project token for LLM analytics events
+    # Which region this gateway deployment serves. Tagged on every captured event (as a
+    # `region` super-property and as the `instance` group) so usage_report.py can scope
+    # billing to events that originated in its own region.
+    posthog_region: Literal["US", "EU"] = "US"
+
+    # Primary project token for LLM analytics events — should point at the regional internal
+    # PostHog project (US → team 2, EU → team 1) so billing sees its own region as ground
+    # truth.
     posthog_project_token: str | None = None
     posthog_host: str = "https://us.i.posthog.com"
+
+    # Optional mirror project. When set, every captured event is additionally sent here.
+    # Intended for EU deployments to dual-capture into US team 2 for dev visibility (the
+    # `$group_1 = region_url` filter in usage_report keeps billing from double-counting).
+    posthog_mirror_project_token: str | None = None
+    posthog_mirror_host: str | None = None
 
     metrics_enabled: bool = True
 

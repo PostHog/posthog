@@ -74,7 +74,11 @@ class TestPostHogCallback:
             await callback._on_success(kwargs, None, 0.0, 1.0, end_user_id=None)
 
             mock_cls.assert_called_once_with(
-                "test-key", host="https://test.posthog.com", sync_mode=True, enable_local_evaluation=False
+                "test-key",
+                host="https://test.posthog.com",
+                sync_mode=True,
+                enable_local_evaluation=False,
+                super_properties={"region": "US"},
             )
             mock_client.capture.assert_called_once()
             call_kwargs = mock_client.capture.call_args.kwargs
@@ -113,7 +117,8 @@ class TestPostHogCallback:
 
             call_kwargs = mock_client.capture.call_args.kwargs
             # distinct_id should be a UUID string since no auth user
-            assert "groups" not in call_kwargs  # No team_id means no groups
+            # No team_id and no region_url → empty groups dict
+            assert call_kwargs["groups"] == {}
 
     @pytest.mark.asyncio
     async def test_on_success_uses_end_user_id_for_distinct_id(
@@ -237,6 +242,73 @@ class TestPostHogCallback:
 
     def test_callback_name_is_posthog(self, callback: PostHogCallback) -> None:
         assert callback.callback_name == "posthog"
+
+    @pytest.mark.asyncio
+    async def test_region_tagged_and_instance_group_set(
+        self,
+        auth_user: AuthenticatedUser,
+        standard_logging_object: dict,
+        mock_posthog_client: tuple,
+    ) -> None:
+        """EU deployment: events get region super_property + `instance` group so the
+        per-region usage_report can filter on `$group_1 = region_url`."""
+        mock_cls, mock_client = mock_posthog_client
+        callback = PostHogCallback(
+            api_key="eu-key",
+            host="https://eu.i.posthog.com",
+            region="EU",
+            region_url="https://eu.posthog.com",
+        )
+        kwargs = {"standard_logging_object": standard_logging_object, "litellm_params": {}}
+
+        with (
+            patch("llm_gateway.callbacks.posthog.get_auth_user", return_value=auth_user),
+            patch("llm_gateway.callbacks.posthog.get_product", return_value="posthog_code"),
+        ):
+            await callback._on_success(kwargs, None, 0.0, 1.0, end_user_id=None)
+
+            mock_cls.assert_called_once_with(
+                "eu-key",
+                host="https://eu.i.posthog.com",
+                sync_mode=True,
+                enable_local_evaluation=False,
+                super_properties={"region": "EU"},
+            )
+            call_kwargs = mock_client.capture.call_args.kwargs
+            assert call_kwargs["groups"] == {"instance": "https://eu.posthog.com", "project": 456}
+            assert call_kwargs["properties"]["region"] == "EU"
+
+    @pytest.mark.asyncio
+    async def test_mirror_dual_captures_to_second_project(
+        self,
+        auth_user: AuthenticatedUser,
+        standard_logging_object: dict,
+        mock_posthog_client: tuple,
+    ) -> None:
+        """EU deployment with a US mirror: every event is sent to both projects so
+        US team 2 gets dev visibility while EU team 1 stays the billing source of truth."""
+        mock_cls, _ = mock_posthog_client
+        callback = PostHogCallback(
+            api_key="eu-key",
+            host="https://eu.i.posthog.com",
+            region="EU",
+            region_url="https://eu.posthog.com",
+            mirror_api_key="us-mirror-key",
+            mirror_host="https://us.i.posthog.com",
+        )
+        kwargs = {"standard_logging_object": standard_logging_object, "litellm_params": {}}
+
+        with (
+            patch("llm_gateway.callbacks.posthog.get_auth_user", return_value=auth_user),
+            patch("llm_gateway.callbacks.posthog.get_product", return_value="posthog_code"),
+        ):
+            await callback._on_success(kwargs, None, 0.0, 1.0, end_user_id=None)
+
+        assert mock_cls.call_count == 2
+        hosts = [call.kwargs["host"] for call in mock_cls.call_args_list]
+        keys = [call.args[0] for call in mock_cls.call_args_list]
+        assert hosts == ["https://eu.i.posthog.com", "https://us.i.posthog.com"]
+        assert keys == ["eu-key", "us-mirror-key"]
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize("product", ["wizard", "posthog_code", "llm_gateway"])
