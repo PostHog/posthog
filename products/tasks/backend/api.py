@@ -249,12 +249,8 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 qs = qs.filter(search_q)
 
         if status_filter:
-            latest_run_status = (
-                TaskRun.objects.filter(task=OuterRef("pk")).order_by("-created_at").values("status")[:1]
-            )
-            qs = qs.annotate(_latest_run_status=Subquery(latest_run_status)).filter(
-                _latest_run_status=status_filter
-            )
+            latest_run_status = TaskRun.objects.filter(task=OuterRef("pk")).order_by("-created_at").values("status")[:1]
+            qs = qs.annotate(_latest_run_status=Subquery(latest_run_status)).filter(_latest_run_status=status_filter)
 
         # Only filter by internal on list — retrieve should always work if you have the ID
         if self.action == "list":

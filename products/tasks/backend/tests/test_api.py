@@ -1047,9 +1047,7 @@ class TestTaskAPI(BaseTaskAPITest):
         base_time = django_timezone.now()
 
         task = self.create_task("Task with mixed runs")
-        TaskRun.objects.create(
-            task=task, team=self.team, status=TaskRun.Status.COMPLETED, created_at=base_time
-        )
+        TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.COMPLETED, created_at=base_time)
         TaskRun.objects.create(
             task=task,
             team=self.team,
@@ -1071,9 +1069,7 @@ class TestTaskAPI(BaseTaskAPITest):
         wrong_search = self.create_task("Other issue")
         TaskRun.objects.create(task=wrong_search, team=self.team, status=TaskRun.Status.IN_PROGRESS)
 
-        response = self.client.get(
-            f"/api/projects/@current/tasks/?search=payments&status={TaskRun.Status.IN_PROGRESS}"
-        )
+        response = self.client.get(f"/api/projects/@current/tasks/?search=payments&status={TaskRun.Status.IN_PROGRESS}")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         data = response.json()
         self.assertEqual([t["id"] for t in data["results"]], [str(matching.id)])
