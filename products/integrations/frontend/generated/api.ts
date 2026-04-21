@@ -113,13 +113,13 @@ export const integrationsCreate = async (
     })
 }
 
-export const getIntegrationsRetrieveUrl = (projectId: string, id: string) => {
+export const getIntegrationsRetrieveUrl = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/integrations/${id}/`
 }
 
 export const integrationsRetrieve = async (
     projectId: string,
-    id: string,
+    id: number,
     options?: RequestInit
 ): Promise<IntegrationConfigApi> => {
     return apiMutator<IntegrationConfigApi>(getIntegrationsRetrieveUrl(projectId, id), {
@@ -128,24 +128,24 @@ export const integrationsRetrieve = async (
     })
 }
 
-export const getIntegrationsDestroyUrl = (projectId: string, id: string) => {
+export const getIntegrationsDestroyUrl = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/integrations/${id}/`
 }
 
-export const integrationsDestroy = async (projectId: string, id: string, options?: RequestInit): Promise<void> => {
+export const integrationsDestroy = async (projectId: string, id: number, options?: RequestInit): Promise<void> => {
     return apiMutator<void>(getIntegrationsDestroyUrl(projectId, id), {
         ...options,
         method: 'DELETE',
     })
 }
 
-export const getIntegrationsChannelsRetrieveUrl = (projectId: string, id: string) => {
+export const getIntegrationsChannelsRetrieveUrl = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/integrations/${id}/channels/`
 }
 
 export const integrationsChannelsRetrieve = async (
     projectId: string,
-    id: string,
+    id: number,
     options?: RequestInit
 ): Promise<void> => {
     return apiMutator<void>(getIntegrationsChannelsRetrieveUrl(projectId, id), {
@@ -154,13 +154,13 @@ export const integrationsChannelsRetrieve = async (
     })
 }
 
-export const getIntegrationsClickupListsRetrieveUrl = (projectId: string, id: string) => {
+export const getIntegrationsClickupListsRetrieveUrl = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/integrations/${id}/clickup_lists/`
 }
 
 export const integrationsClickupListsRetrieve = async (
     projectId: string,
-    id: string,
+    id: number,
     options?: RequestInit
 ): Promise<void> => {
     return apiMutator<void>(getIntegrationsClickupListsRetrieveUrl(projectId, id), {
@@ -169,13 +169,13 @@ export const integrationsClickupListsRetrieve = async (
     })
 }
 
-export const getIntegrationsClickupSpacesRetrieveUrl = (projectId: string, id: string) => {
+export const getIntegrationsClickupSpacesRetrieveUrl = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/integrations/${id}/clickup_spaces/`
 }
 
 export const integrationsClickupSpacesRetrieve = async (
     projectId: string,
-    id: string,
+    id: number,
     options?: RequestInit
 ): Promise<void> => {
     return apiMutator<void>(getIntegrationsClickupSpacesRetrieveUrl(projectId, id), {
@@ -184,13 +184,13 @@ export const integrationsClickupSpacesRetrieve = async (
     })
 }
 
-export const getIntegrationsClickupWorkspacesRetrieveUrl = (projectId: string, id: string) => {
+export const getIntegrationsClickupWorkspacesRetrieveUrl = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/integrations/${id}/clickup_workspaces/`
 }
 
 export const integrationsClickupWorkspacesRetrieve = async (
     projectId: string,
-    id: string,
+    id: number,
     options?: RequestInit
 ): Promise<void> => {
     return apiMutator<void>(getIntegrationsClickupWorkspacesRetrieveUrl(projectId, id), {
@@ -199,13 +199,13 @@ export const integrationsClickupWorkspacesRetrieve = async (
     })
 }
 
-export const getIntegrationsEmailPartialUpdateUrl = (projectId: string, id: string) => {
+export const getIntegrationsEmailPartialUpdateUrl = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/integrations/${id}/email/`
 }
 
 export const integrationsEmailPartialUpdate = async (
     projectId: string,
-    id: string,
+    id: number,
     patchedIntegrationConfigApi: NonReadonly<PatchedIntegrationConfigApi>,
     options?: RequestInit
 ): Promise<IntegrationConfigApi> => {
@@ -217,13 +217,13 @@ export const integrationsEmailPartialUpdate = async (
     })
 }
 
-export const getIntegrationsEmailVerifyCreateUrl = (projectId: string, id: string) => {
+export const getIntegrationsEmailVerifyCreateUrl = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/integrations/${id}/email/verify/`
 }
 
 export const integrationsEmailVerifyCreate = async (
     projectId: string,
-    id: string,
+    id: number,
     integrationConfigApi: NonReadonly<IntegrationConfigApi>,
     options?: RequestInit
 ): Promise<void> => {
@@ -237,7 +237,7 @@ export const integrationsEmailVerifyCreate = async (
 
 export const getIntegrationsGithubBranchesRetrieveUrl = (
     projectId: string,
-    id: string,
+    id: number,
     params: IntegrationsGithubBranchesRetrieveParams
 ) => {
     const normalizedParams = new URLSearchParams()
@@ -257,7 +257,7 @@ export const getIntegrationsGithubBranchesRetrieveUrl = (
 
 export const integrationsGithubBranchesRetrieve = async (
     projectId: string,
-    id: string,
+    id: number,
     params: IntegrationsGithubBranchesRetrieveParams,
     options?: RequestInit
 ): Promise<GitHubBranchesResponseApi> => {
@@ -269,7 +269,7 @@ export const integrationsGithubBranchesRetrieve = async (
 
 export const getIntegrationsGithubReposRetrieveUrl = (
     projectId: string,
-    id: string,
+    id: number,
     params?: IntegrationsGithubReposRetrieveParams
 ) => {
     const normalizedParams = new URLSearchParams()
@@ -289,7 +289,7 @@ export const getIntegrationsGithubReposRetrieveUrl = (
 
 export const integrationsGithubReposRetrieve = async (
     projectId: string,
-    id: string,
+    id: number,
     params?: IntegrationsGithubReposRetrieveParams,
     options?: RequestInit
 ): Promise<GitHubReposResponseApi> => {
@@ -299,13 +299,13 @@ export const integrationsGithubReposRetrieve = async (
     })
 }
 
-export const getIntegrationsGoogleAccessibleAccountsRetrieveUrl = (projectId: string, id: string) => {
+export const getIntegrationsGoogleAccessibleAccountsRetrieveUrl = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/integrations/${id}/google_accessible_accounts/`
 }
 
 export const integrationsGoogleAccessibleAccountsRetrieve = async (
     projectId: string,
-    id: string,
+    id: number,
     options?: RequestInit
 ): Promise<void> => {
     return apiMutator<void>(getIntegrationsGoogleAccessibleAccountsRetrieveUrl(projectId, id), {
@@ -314,13 +314,13 @@ export const integrationsGoogleAccessibleAccountsRetrieve = async (
     })
 }
 
-export const getIntegrationsGoogleConversionActionsRetrieveUrl = (projectId: string, id: string) => {
+export const getIntegrationsGoogleConversionActionsRetrieveUrl = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/integrations/${id}/google_conversion_actions/`
 }
 
 export const integrationsGoogleConversionActionsRetrieve = async (
     projectId: string,
-    id: string,
+    id: number,
     options?: RequestInit
 ): Promise<void> => {
     return apiMutator<void>(getIntegrationsGoogleConversionActionsRetrieveUrl(projectId, id), {
@@ -329,13 +329,13 @@ export const integrationsGoogleConversionActionsRetrieve = async (
     })
 }
 
-export const getIntegrationsJiraProjectsRetrieveUrl = (projectId: string, id: string) => {
+export const getIntegrationsJiraProjectsRetrieveUrl = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/integrations/${id}/jira_projects/`
 }
 
 export const integrationsJiraProjectsRetrieve = async (
     projectId: string,
-    id: string,
+    id: number,
     options?: RequestInit
 ): Promise<void> => {
     return apiMutator<void>(getIntegrationsJiraProjectsRetrieveUrl(projectId, id), {
@@ -344,13 +344,13 @@ export const integrationsJiraProjectsRetrieve = async (
     })
 }
 
-export const getIntegrationsLinearTeamsRetrieveUrl = (projectId: string, id: string) => {
+export const getIntegrationsLinearTeamsRetrieveUrl = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/integrations/${id}/linear_teams/`
 }
 
 export const integrationsLinearTeamsRetrieve = async (
     projectId: string,
-    id: string,
+    id: number,
     options?: RequestInit
 ): Promise<void> => {
     return apiMutator<void>(getIntegrationsLinearTeamsRetrieveUrl(projectId, id), {
@@ -359,13 +359,13 @@ export const integrationsLinearTeamsRetrieve = async (
     })
 }
 
-export const getIntegrationsLinkedinAdsAccountsRetrieveUrl = (projectId: string, id: string) => {
+export const getIntegrationsLinkedinAdsAccountsRetrieveUrl = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/integrations/${id}/linkedin_ads_accounts/`
 }
 
 export const integrationsLinkedinAdsAccountsRetrieve = async (
     projectId: string,
-    id: string,
+    id: number,
     options?: RequestInit
 ): Promise<void> => {
     return apiMutator<void>(getIntegrationsLinkedinAdsAccountsRetrieveUrl(projectId, id), {
@@ -374,13 +374,13 @@ export const integrationsLinkedinAdsAccountsRetrieve = async (
     })
 }
 
-export const getIntegrationsLinkedinAdsConversionRulesRetrieveUrl = (projectId: string, id: string) => {
+export const getIntegrationsLinkedinAdsConversionRulesRetrieveUrl = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/integrations/${id}/linkedin_ads_conversion_rules/`
 }
 
 export const integrationsLinkedinAdsConversionRulesRetrieve = async (
     projectId: string,
-    id: string,
+    id: number,
     options?: RequestInit
 ): Promise<void> => {
     return apiMutator<void>(getIntegrationsLinkedinAdsConversionRulesRetrieveUrl(projectId, id), {
@@ -389,13 +389,13 @@ export const integrationsLinkedinAdsConversionRulesRetrieve = async (
     })
 }
 
-export const getIntegrationsTwilioPhoneNumbersRetrieveUrl = (projectId: string, id: string) => {
+export const getIntegrationsTwilioPhoneNumbersRetrieveUrl = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/integrations/${id}/twilio_phone_numbers/`
 }
 
 export const integrationsTwilioPhoneNumbersRetrieve = async (
     projectId: string,
-    id: string,
+    id: number,
     options?: RequestInit
 ): Promise<void> => {
     return apiMutator<void>(getIntegrationsTwilioPhoneNumbersRetrieveUrl(projectId, id), {

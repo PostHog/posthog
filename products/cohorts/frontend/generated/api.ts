@@ -79,24 +79,24 @@ export const cohortsCreate = async (
     })
 }
 
-export const getCohortsRetrieveUrl = (projectId: string, id: string) => {
+export const getCohortsRetrieveUrl = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/cohorts/${id}/`
 }
 
-export const cohortsRetrieve = async (projectId: string, id: string, options?: RequestInit): Promise<CohortApi> => {
+export const cohortsRetrieve = async (projectId: string, id: number, options?: RequestInit): Promise<CohortApi> => {
     return apiMutator<CohortApi>(getCohortsRetrieveUrl(projectId, id), {
         ...options,
         method: 'GET',
     })
 }
 
-export const getCohortsUpdateUrl = (projectId: string, id: string) => {
+export const getCohortsUpdateUrl = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/cohorts/${id}/`
 }
 
 export const cohortsUpdate = async (
     projectId: string,
-    id: string,
+    id: number,
     cohortApi: NonReadonly<CohortApi>,
     options?: RequestInit
 ): Promise<CohortApi> => {
@@ -108,13 +108,13 @@ export const cohortsUpdate = async (
     })
 }
 
-export const getCohortsPartialUpdateUrl = (projectId: string, id: string) => {
+export const getCohortsPartialUpdateUrl = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/cohorts/${id}/`
 }
 
 export const cohortsPartialUpdate = async (
     projectId: string,
-    id: string,
+    id: number,
     patchedCohortApi: NonReadonly<PatchedCohortApi>,
     options?: RequestInit
 ): Promise<CohortApi> => {
@@ -129,35 +129,35 @@ export const cohortsPartialUpdate = async (
 /**
  * Hard delete of this model is not allowed. Use a patch API call to set "deleted" to true
  */
-export const getCohortsDestroyUrl = (projectId: string, id: string) => {
+export const getCohortsDestroyUrl = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/cohorts/${id}/`
 }
 
-export const cohortsDestroy = async (projectId: string, id: string, options?: RequestInit): Promise<unknown> => {
+export const cohortsDestroy = async (projectId: string, id: number, options?: RequestInit): Promise<unknown> => {
     return apiMutator<unknown>(getCohortsDestroyUrl(projectId, id), {
         ...options,
         method: 'DELETE',
     })
 }
 
-export const getCohortsActivityRetrieveUrl = (projectId: string, id: string) => {
+export const getCohortsActivityRetrieveUrl = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/cohorts/${id}/activity/`
 }
 
-export const cohortsActivityRetrieve = async (projectId: string, id: string, options?: RequestInit): Promise<void> => {
+export const cohortsActivityRetrieve = async (projectId: string, id: number, options?: RequestInit): Promise<void> => {
     return apiMutator<void>(getCohortsActivityRetrieveUrl(projectId, id), {
         ...options,
         method: 'GET',
     })
 }
 
-export const getCohortsAddPersonsToStaticCohortPartialUpdateUrl = (projectId: string, id: string) => {
+export const getCohortsAddPersonsToStaticCohortPartialUpdateUrl = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/cohorts/${id}/add_persons_to_static_cohort/`
 }
 
 export const cohortsAddPersonsToStaticCohortPartialUpdate = async (
     projectId: string,
-    id: string,
+    id: number,
     patchedAddPersonsToStaticCohortRequestApi: PatchedAddPersonsToStaticCohortRequestApi,
     options?: RequestInit
 ): Promise<void> => {
@@ -169,13 +169,13 @@ export const cohortsAddPersonsToStaticCohortPartialUpdate = async (
     })
 }
 
-export const getCohortsCalculationHistoryRetrieveUrl = (projectId: string, id: string) => {
+export const getCohortsCalculationHistoryRetrieveUrl = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/cohorts/${id}/calculation_history/`
 }
 
 export const cohortsCalculationHistoryRetrieve = async (
     projectId: string,
-    id: string,
+    id: number,
     options?: RequestInit
 ): Promise<void> => {
     return apiMutator<void>(getCohortsCalculationHistoryRetrieveUrl(projectId, id), {
@@ -184,7 +184,7 @@ export const cohortsCalculationHistoryRetrieve = async (
     })
 }
 
-export const getCohortsPersonsRetrieveUrl = (projectId: string, id: string, params?: CohortsPersonsRetrieveParams) => {
+export const getCohortsPersonsRetrieveUrl = (projectId: string, id: number, params?: CohortsPersonsRetrieveParams) => {
     const normalizedParams = new URLSearchParams()
 
     Object.entries(params || {}).forEach(([key, value]) => {
@@ -202,7 +202,7 @@ export const getCohortsPersonsRetrieveUrl = (projectId: string, id: string, para
 
 export const cohortsPersonsRetrieve = async (
     projectId: string,
-    id: string,
+    id: number,
     params?: CohortsPersonsRetrieveParams,
     options?: RequestInit
 ): Promise<void> => {
@@ -212,13 +212,13 @@ export const cohortsPersonsRetrieve = async (
     })
 }
 
-export const getCohortsRemovePersonFromStaticCohortPartialUpdateUrl = (projectId: string, id: string) => {
+export const getCohortsRemovePersonFromStaticCohortPartialUpdateUrl = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/cohorts/${id}/remove_person_from_static_cohort/`
 }
 
 export const cohortsRemovePersonFromStaticCohortPartialUpdate = async (
     projectId: string,
-    id: string,
+    id: number,
     patchedRemovePersonRequestApi: PatchedRemovePersonRequestApi,
     options?: RequestInit
 ): Promise<void> => {

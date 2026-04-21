@@ -85,13 +85,13 @@ export const annotationsCreate = async (
 /**
  * Create, Read, Update and Delete annotations. [See docs](https://posthog.com/docs/data/annotations) for more information on annotations.
  */
-export const getAnnotationsRetrieveUrl = (projectId: string, id: string) => {
+export const getAnnotationsRetrieveUrl = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/annotations/${id}/`
 }
 
 export const annotationsRetrieve = async (
     projectId: string,
-    id: string,
+    id: number,
     options?: RequestInit
 ): Promise<AnnotationApi> => {
     return apiMutator<AnnotationApi>(getAnnotationsRetrieveUrl(projectId, id), {
@@ -103,13 +103,13 @@ export const annotationsRetrieve = async (
 /**
  * Create, Read, Update and Delete annotations. [See docs](https://posthog.com/docs/data/annotations) for more information on annotations.
  */
-export const getAnnotationsUpdateUrl = (projectId: string, id: string) => {
+export const getAnnotationsUpdateUrl = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/annotations/${id}/`
 }
 
 export const annotationsUpdate = async (
     projectId: string,
-    id: string,
+    id: number,
     annotationApi: NonReadonly<AnnotationApi>,
     options?: RequestInit
 ): Promise<AnnotationApi> => {
@@ -124,13 +124,13 @@ export const annotationsUpdate = async (
 /**
  * Create, Read, Update and Delete annotations. [See docs](https://posthog.com/docs/data/annotations) for more information on annotations.
  */
-export const getAnnotationsPartialUpdateUrl = (projectId: string, id: string) => {
+export const getAnnotationsPartialUpdateUrl = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/annotations/${id}/`
 }
 
 export const annotationsPartialUpdate = async (
     projectId: string,
-    id: string,
+    id: number,
     patchedAnnotationApi: NonReadonly<PatchedAnnotationApi>,
     options?: RequestInit
 ): Promise<AnnotationApi> => {
@@ -145,11 +145,11 @@ export const annotationsPartialUpdate = async (
 /**
  * Hard delete of this model is not allowed. Use a patch API call to set "deleted" to true
  */
-export const getAnnotationsDestroyUrl = (projectId: string, id: string) => {
+export const getAnnotationsDestroyUrl = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/annotations/${id}/`
 }
 
-export const annotationsDestroy = async (projectId: string, id: string, options?: RequestInit): Promise<unknown> => {
+export const annotationsDestroy = async (projectId: string, id: number, options?: RequestInit): Promise<unknown> => {
     return apiMutator<unknown>(getAnnotationsDestroyUrl(projectId, id), {
         ...options,
         method: 'DELETE',

@@ -28,7 +28,7 @@ export const LlmAnalyticsClusteringJobsListQueryParams = /* @__PURE__ */ zod.obj
  * CRUD for clustering job configurations (max 5 per team).
  */
 export const LlmAnalyticsClusteringJobsRetrieveParams = /* @__PURE__ */ zod.object({
-    id: zod.string(),
+    id: zod.string().describe('A UUID string identifying this clustering job.'),
     project_id: zod
         .string()
         .describe(

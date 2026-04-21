@@ -145,13 +145,13 @@ export const featureFlagsCreate = async (
 
 If you're looking to use feature flags on your application, you can either use our JavaScript Library or our dedicated endpoint to check if feature flags are enabled for a given user.
  */
-export const getFeatureFlagsRetrieveUrl = (projectId: string, id: string) => {
+export const getFeatureFlagsRetrieveUrl = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/feature_flags/${id}/`
 }
 
 export const featureFlagsRetrieve = async (
     projectId: string,
-    id: string,
+    id: number,
     options?: RequestInit
 ): Promise<FeatureFlagApi> => {
     return apiMutator<FeatureFlagApi>(getFeatureFlagsRetrieveUrl(projectId, id), {
@@ -165,13 +165,13 @@ export const featureFlagsRetrieve = async (
 
 If you're looking to use feature flags on your application, you can either use our JavaScript Library or our dedicated endpoint to check if feature flags are enabled for a given user.
  */
-export const getFeatureFlagsUpdateUrl = (projectId: string, id: string) => {
+export const getFeatureFlagsUpdateUrl = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/feature_flags/${id}/`
 }
 
 export const featureFlagsUpdate = async (
     projectId: string,
-    id: string,
+    id: number,
     featureFlagApi: NonReadonly<FeatureFlagApi>,
     options?: RequestInit
 ): Promise<FeatureFlagApi> => {
@@ -188,13 +188,13 @@ export const featureFlagsUpdate = async (
 
 If you're looking to use feature flags on your application, you can either use our JavaScript Library or our dedicated endpoint to check if feature flags are enabled for a given user.
  */
-export const getFeatureFlagsPartialUpdateUrl = (projectId: string, id: string) => {
+export const getFeatureFlagsPartialUpdateUrl = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/feature_flags/${id}/`
 }
 
 export const featureFlagsPartialUpdate = async (
     projectId: string,
-    id: string,
+    id: number,
     patchedFeatureFlagPartialUpdateRequestSchemaApi: PatchedFeatureFlagPartialUpdateRequestSchemaApi,
     options?: RequestInit
 ): Promise<FeatureFlagApi> => {
@@ -209,11 +209,11 @@ export const featureFlagsPartialUpdate = async (
 /**
  * Hard delete of this model is not allowed. Use a patch API call to set "deleted" to true
  */
-export const getFeatureFlagsDestroyUrl = (projectId: string, id: string) => {
+export const getFeatureFlagsDestroyUrl = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/feature_flags/${id}/`
 }
 
-export const featureFlagsDestroy = async (projectId: string, id: string, options?: RequestInit): Promise<unknown> => {
+export const featureFlagsDestroy = async (projectId: string, id: number, options?: RequestInit): Promise<unknown> => {
     return apiMutator<unknown>(getFeatureFlagsDestroyUrl(projectId, id), {
         ...options,
         method: 'DELETE',
@@ -227,7 +227,7 @@ If you're looking to use feature flags on your application, you can either use o
  */
 export const getFeatureFlagsActivityRetrieveUrl = (
     projectId: string,
-    id: string,
+    id: number,
     params?: FeatureFlagsActivityRetrieveParams
 ) => {
     const normalizedParams = new URLSearchParams()
@@ -247,7 +247,7 @@ export const getFeatureFlagsActivityRetrieveUrl = (
 
 export const featureFlagsActivityRetrieve = async (
     projectId: string,
-    id: string,
+    id: number,
     params?: FeatureFlagsActivityRetrieveParams,
     options?: RequestInit
 ): Promise<ActivityLogPaginatedResponseApi> => {
@@ -262,13 +262,13 @@ export const featureFlagsActivityRetrieve = async (
 
 If you're looking to use feature flags on your application, you can either use our JavaScript Library or our dedicated endpoint to check if feature flags are enabled for a given user.
  */
-export const getFeatureFlagsCreateStaticCohortForFlagCreateUrl = (projectId: string, id: string) => {
+export const getFeatureFlagsCreateStaticCohortForFlagCreateUrl = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/feature_flags/${id}/create_static_cohort_for_flag/`
 }
 
 export const featureFlagsCreateStaticCohortForFlagCreate = async (
     projectId: string,
-    id: string,
+    id: number,
     featureFlagApi: NonReadonly<FeatureFlagApi>,
     options?: RequestInit
 ): Promise<void> => {
@@ -285,13 +285,13 @@ export const featureFlagsCreateStaticCohortForFlagCreate = async (
 
 If you're looking to use feature flags on your application, you can either use our JavaScript Library or our dedicated endpoint to check if feature flags are enabled for a given user.
  */
-export const getFeatureFlagsDashboardCreateUrl = (projectId: string, id: string) => {
+export const getFeatureFlagsDashboardCreateUrl = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/feature_flags/${id}/dashboard/`
 }
 
 export const featureFlagsDashboardCreate = async (
     projectId: string,
-    id: string,
+    id: number,
     featureFlagApi: NonReadonly<FeatureFlagApi>,
     options?: RequestInit
 ): Promise<void> => {
@@ -306,13 +306,13 @@ export const featureFlagsDashboardCreate = async (
 /**
  * Get other active flags that depend on this flag.
  */
-export const getFeatureFlagsDependentFlagsListUrl = (projectId: string, id: string) => {
+export const getFeatureFlagsDependentFlagsListUrl = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/feature_flags/${id}/dependent_flags/`
 }
 
 export const featureFlagsDependentFlagsList = async (
     projectId: string,
-    id: string,
+    id: number,
     options?: RequestInit
 ): Promise<DependentFlagApi[]> => {
     return apiMutator<DependentFlagApi[]>(getFeatureFlagsDependentFlagsListUrl(projectId, id), {
@@ -326,13 +326,13 @@ export const featureFlagsDependentFlagsList = async (
 
 If you're looking to use feature flags on your application, you can either use our JavaScript Library or our dedicated endpoint to check if feature flags are enabled for a given user.
  */
-export const getFeatureFlagsEnrichUsageDashboardCreateUrl = (projectId: string, id: string) => {
+export const getFeatureFlagsEnrichUsageDashboardCreateUrl = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/feature_flags/${id}/enrich_usage_dashboard/`
 }
 
 export const featureFlagsEnrichUsageDashboardCreate = async (
     projectId: string,
-    id: string,
+    id: number,
     featureFlagApi: NonReadonly<FeatureFlagApi>,
     options?: RequestInit
 ): Promise<void> => {
@@ -349,13 +349,13 @@ export const featureFlagsEnrichUsageDashboardCreate = async (
 
 If you're looking to use feature flags on your application, you can either use our JavaScript Library or our dedicated endpoint to check if feature flags are enabled for a given user.
  */
-export const getFeatureFlagsRemoteConfigRetrieveUrl = (projectId: string, id: string) => {
+export const getFeatureFlagsRemoteConfigRetrieveUrl = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/feature_flags/${id}/remote_config/`
 }
 
 export const featureFlagsRemoteConfigRetrieve = async (
     projectId: string,
-    id: string,
+    id: number,
     options?: RequestInit
 ): Promise<void> => {
     return apiMutator<void>(getFeatureFlagsRemoteConfigRetrieveUrl(projectId, id), {
@@ -369,13 +369,13 @@ export const featureFlagsRemoteConfigRetrieve = async (
 
 If you're looking to use feature flags on your application, you can either use our JavaScript Library or our dedicated endpoint to check if feature flags are enabled for a given user.
  */
-export const getFeatureFlagsStatusRetrieveUrl = (projectId: string, id: string) => {
+export const getFeatureFlagsStatusRetrieveUrl = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/feature_flags/${id}/status/`
 }
 
 export const featureFlagsStatusRetrieve = async (
     projectId: string,
-    id: string,
+    id: number,
     options?: RequestInit
 ): Promise<FeatureFlagStatusResponseApi> => {
     return apiMutator<FeatureFlagStatusResponseApi>(getFeatureFlagsStatusRetrieveUrl(projectId, id), {
@@ -389,13 +389,13 @@ export const featureFlagsStatusRetrieve = async (
 
 If you're looking to use feature flags on your application, you can either use our JavaScript Library or our dedicated endpoint to check if feature flags are enabled for a given user.
  */
-export const getFeatureFlagsVersionsRetrieveUrl = (projectId: string, id: string, versionNumber: number) => {
+export const getFeatureFlagsVersionsRetrieveUrl = (projectId: string, id: number, versionNumber: number) => {
     return `/api/projects/${projectId}/feature_flags/${id}/versions/${versionNumber}/`
 }
 
 export const featureFlagsVersionsRetrieve = async (
     projectId: string,
-    id: string,
+    id: number,
     versionNumber: number,
     options?: RequestInit
 ): Promise<FeatureFlagVersionResponseApi> => {
@@ -711,13 +711,13 @@ export const scheduledChangesCreate = async (
 /**
  * Create, read, update and delete scheduled changes.
  */
-export const getScheduledChangesRetrieveUrl = (projectId: string, id: string) => {
+export const getScheduledChangesRetrieveUrl = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/scheduled_changes/${id}/`
 }
 
 export const scheduledChangesRetrieve = async (
     projectId: string,
-    id: string,
+    id: number,
     options?: RequestInit
 ): Promise<ScheduledChangeApi> => {
     return apiMutator<ScheduledChangeApi>(getScheduledChangesRetrieveUrl(projectId, id), {
@@ -729,13 +729,13 @@ export const scheduledChangesRetrieve = async (
 /**
  * Create, read, update and delete scheduled changes.
  */
-export const getScheduledChangesUpdateUrl = (projectId: string, id: string) => {
+export const getScheduledChangesUpdateUrl = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/scheduled_changes/${id}/`
 }
 
 export const scheduledChangesUpdate = async (
     projectId: string,
-    id: string,
+    id: number,
     scheduledChangeApi: NonReadonly<ScheduledChangeApi>,
     options?: RequestInit
 ): Promise<ScheduledChangeApi> => {
@@ -750,13 +750,13 @@ export const scheduledChangesUpdate = async (
 /**
  * Create, read, update and delete scheduled changes.
  */
-export const getScheduledChangesPartialUpdateUrl = (projectId: string, id: string) => {
+export const getScheduledChangesPartialUpdateUrl = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/scheduled_changes/${id}/`
 }
 
 export const scheduledChangesPartialUpdate = async (
     projectId: string,
-    id: string,
+    id: number,
     patchedScheduledChangeApi: NonReadonly<PatchedScheduledChangeApi>,
     options?: RequestInit
 ): Promise<ScheduledChangeApi> => {
@@ -771,11 +771,11 @@ export const scheduledChangesPartialUpdate = async (
 /**
  * Create, read, update and delete scheduled changes.
  */
-export const getScheduledChangesDestroyUrl = (projectId: string, id: string) => {
+export const getScheduledChangesDestroyUrl = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/scheduled_changes/${id}/`
 }
 
-export const scheduledChangesDestroy = async (projectId: string, id: string, options?: RequestInit): Promise<void> => {
+export const scheduledChangesDestroy = async (projectId: string, id: number, options?: RequestInit): Promise<void> => {
     return apiMutator<void>(getScheduledChangesDestroyUrl(projectId, id), {
         ...options,
         method: 'DELETE',

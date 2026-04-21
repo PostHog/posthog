@@ -99,7 +99,7 @@ export const actionsCreate = async (
     })
 }
 
-export const getActionsRetrieveUrl = (projectId: string, id: string, params?: ActionsRetrieveParams) => {
+export const getActionsRetrieveUrl = (projectId: string, id: number, params?: ActionsRetrieveParams) => {
     const normalizedParams = new URLSearchParams()
 
     Object.entries(params || {}).forEach(([key, value]) => {
@@ -117,7 +117,7 @@ export const getActionsRetrieveUrl = (projectId: string, id: string, params?: Ac
 
 export const actionsRetrieve = async (
     projectId: string,
-    id: string,
+    id: number,
     params?: ActionsRetrieveParams,
     options?: RequestInit
 ): Promise<ActionApi> => {
@@ -127,7 +127,7 @@ export const actionsRetrieve = async (
     })
 }
 
-export const getActionsUpdateUrl = (projectId: string, id: string, params?: ActionsUpdateParams) => {
+export const getActionsUpdateUrl = (projectId: string, id: number, params?: ActionsUpdateParams) => {
     const normalizedParams = new URLSearchParams()
 
     Object.entries(params || {}).forEach(([key, value]) => {
@@ -145,7 +145,7 @@ export const getActionsUpdateUrl = (projectId: string, id: string, params?: Acti
 
 export const actionsUpdate = async (
     projectId: string,
-    id: string,
+    id: number,
     actionApi: NonReadonly<ActionApi>,
     params?: ActionsUpdateParams,
     options?: RequestInit
@@ -158,7 +158,7 @@ export const actionsUpdate = async (
     })
 }
 
-export const getActionsPartialUpdateUrl = (projectId: string, id: string, params?: ActionsPartialUpdateParams) => {
+export const getActionsPartialUpdateUrl = (projectId: string, id: number, params?: ActionsPartialUpdateParams) => {
     const normalizedParams = new URLSearchParams()
 
     Object.entries(params || {}).forEach(([key, value]) => {
@@ -176,7 +176,7 @@ export const getActionsPartialUpdateUrl = (projectId: string, id: string, params
 
 export const actionsPartialUpdate = async (
     projectId: string,
-    id: string,
+    id: number,
     patchedActionApi: NonReadonly<PatchedActionApi>,
     params?: ActionsPartialUpdateParams,
     options?: RequestInit
@@ -192,7 +192,7 @@ export const actionsPartialUpdate = async (
 /**
  * Hard delete of this model is not allowed. Use a patch API call to set "deleted" to true
  */
-export const getActionsDestroyUrl = (projectId: string, id: string, params?: ActionsDestroyParams) => {
+export const getActionsDestroyUrl = (projectId: string, id: number, params?: ActionsDestroyParams) => {
     const normalizedParams = new URLSearchParams()
 
     Object.entries(params || {}).forEach(([key, value]) => {
@@ -210,7 +210,7 @@ export const getActionsDestroyUrl = (projectId: string, id: string, params?: Act
 
 export const actionsDestroy = async (
     projectId: string,
-    id: string,
+    id: number,
     params?: ActionsDestroyParams,
     options?: RequestInit
 ): Promise<unknown> => {
@@ -220,7 +220,7 @@ export const actionsDestroy = async (
     })
 }
 
-export const getActionsReferencesListUrl = (projectId: string, id: string, params?: ActionsReferencesListParams) => {
+export const getActionsReferencesListUrl = (projectId: string, id: number, params?: ActionsReferencesListParams) => {
     const normalizedParams = new URLSearchParams()
 
     Object.entries(params || {}).forEach(([key, value]) => {
@@ -238,7 +238,7 @@ export const getActionsReferencesListUrl = (projectId: string, id: string, param
 
 export const actionsReferencesList = async (
     projectId: string,
-    id: string,
+    id: number,
     params?: ActionsReferencesListParams,
     options?: RequestInit
 ): Promise<ActionReferenceApi[]> => {

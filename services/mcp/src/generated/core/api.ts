@@ -34,7 +34,7 @@ export const SubscriptionsDeliveriesListQueryParams = /* @__PURE__ */ zod.object
  * @summary Retrieve subscription delivery
  */
 export const SubscriptionsDeliveriesRetrieveParams = /* @__PURE__ */ zod.object({
-    id: zod.string(),
+    id: zod.string().describe('A UUID string identifying this subscription delivery.'),
     project_id: zod
         .string()
         .describe(
@@ -178,7 +178,7 @@ export const SubscriptionsCreateBody = /* @__PURE__ */ zod
     .describe('Standard Subscription serializer.')
 
 export const SubscriptionsRetrieveParams = /* @__PURE__ */ zod.object({
-    id: zod.string(),
+    id: zod.number().describe('A unique integer value identifying this subscription.'),
     project_id: zod
         .string()
         .describe(
@@ -187,7 +187,7 @@ export const SubscriptionsRetrieveParams = /* @__PURE__ */ zod.object({
 })
 
 export const SubscriptionsPartialUpdateParams = /* @__PURE__ */ zod.object({
-    id: zod.string(),
+    id: zod.number().describe('A unique integer value identifying this subscription.'),
     project_id: zod
         .string()
         .describe(
@@ -299,7 +299,7 @@ export const SubscriptionsPartialUpdateBody = /* @__PURE__ */ zod
     .describe('Standard Subscription serializer.')
 
 export const SubscriptionsTestDeliveryCreateParams = /* @__PURE__ */ zod.object({
-    id: zod.string(),
+    id: zod.number().describe('A unique integer value identifying this subscription.'),
     project_id: zod
         .string()
         .describe(

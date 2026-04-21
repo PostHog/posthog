@@ -63,7 +63,7 @@ export const EarlyAccessFeatureCreateBody = /* @__PURE__ */ zod.object({
 })
 
 export const EarlyAccessFeatureRetrieveParams = /* @__PURE__ */ zod.object({
-    id: zod.string(),
+    id: zod.string().describe('A UUID string identifying this early access feature.'),
     project_id: zod
         .string()
         .describe(
@@ -72,7 +72,7 @@ export const EarlyAccessFeatureRetrieveParams = /* @__PURE__ */ zod.object({
 })
 
 export const EarlyAccessFeaturePartialUpdateParams = /* @__PURE__ */ zod.object({
-    id: zod.string(),
+    id: zod.string().describe('A UUID string identifying this early access feature.'),
     project_id: zod
         .string()
         .describe(
@@ -111,7 +111,7 @@ export const EarlyAccessFeaturePartialUpdateBody = /* @__PURE__ */ zod.object({
 })
 
 export const EarlyAccessFeatureDestroyParams = /* @__PURE__ */ zod.object({
-    id: zod.string(),
+    id: zod.string().describe('A UUID string identifying this early access feature.'),
     project_id: zod
         .string()
         .describe(

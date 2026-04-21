@@ -22,7 +22,7 @@ export const ApprovalPoliciesListQueryParams = /* @__PURE__ */ zod.object({
 })
 
 export const ApprovalPoliciesRetrieveParams = /* @__PURE__ */ zod.object({
-    id: zod.string(),
+    id: zod.string().describe('A UUID string identifying this approval policy.'),
     project_id: zod
         .string()
         .describe(
@@ -49,7 +49,7 @@ export const ChangeRequestsListQueryParams = /* @__PURE__ */ zod.object({
 })
 
 export const ChangeRequestsRetrieveParams = /* @__PURE__ */ zod.object({
-    id: zod.string(),
+    id: zod.string().describe('A UUID string identifying this change request.'),
     project_id: zod
         .string()
         .describe(
@@ -63,7 +63,7 @@ export const ListQueryParams = /* @__PURE__ */ zod.object({
 })
 
 export const RetrieveParams = /* @__PURE__ */ zod.object({
-    id: zod.string(),
+    id: zod.string().describe('A UUID string identifying this organization.'),
 })
 
 export const MembersListParams = /* @__PURE__ */ zod.object({
@@ -86,7 +86,7 @@ export const RolesListQueryParams = /* @__PURE__ */ zod.object({
 })
 
 export const RolesRetrieveParams = /* @__PURE__ */ zod.object({
-    id: zod.string(),
+    id: zod.string().describe('A UUID string identifying this role.'),
     organization_id: zod.string(),
 })
 
@@ -335,7 +335,7 @@ export const CommentsListQueryParams = /* @__PURE__ */ zod.object({
 })
 
 export const CommentsRetrieveParams = /* @__PURE__ */ zod.object({
-    id: zod.string(),
+    id: zod.string().describe('A UUID string identifying this comment.'),
     project_id: zod
         .string()
         .describe(
@@ -344,7 +344,7 @@ export const CommentsRetrieveParams = /* @__PURE__ */ zod.object({
 })
 
 export const CommentsThreadRetrieveParams = /* @__PURE__ */ zod.object({
-    id: zod.string(),
+    id: zod.string().describe('A UUID string identifying this comment.'),
     project_id: zod
         .string()
         .describe(

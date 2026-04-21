@@ -87,13 +87,13 @@ export const experimentHoldoutsCreate = async (
     })
 }
 
-export const getExperimentHoldoutsRetrieveUrl = (projectId: string, id: string) => {
+export const getExperimentHoldoutsRetrieveUrl = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/experiment_holdouts/${id}/`
 }
 
 export const experimentHoldoutsRetrieve = async (
     projectId: string,
-    id: string,
+    id: number,
     options?: RequestInit
 ): Promise<ExperimentHoldoutApi> => {
     return apiMutator<ExperimentHoldoutApi>(getExperimentHoldoutsRetrieveUrl(projectId, id), {
@@ -102,13 +102,13 @@ export const experimentHoldoutsRetrieve = async (
     })
 }
 
-export const getExperimentHoldoutsUpdateUrl = (projectId: string, id: string) => {
+export const getExperimentHoldoutsUpdateUrl = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/experiment_holdouts/${id}/`
 }
 
 export const experimentHoldoutsUpdate = async (
     projectId: string,
-    id: string,
+    id: number,
     experimentHoldoutApi: NonReadonly<ExperimentHoldoutApi>,
     options?: RequestInit
 ): Promise<ExperimentHoldoutApi> => {
@@ -120,13 +120,13 @@ export const experimentHoldoutsUpdate = async (
     })
 }
 
-export const getExperimentHoldoutsPartialUpdateUrl = (projectId: string, id: string) => {
+export const getExperimentHoldoutsPartialUpdateUrl = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/experiment_holdouts/${id}/`
 }
 
 export const experimentHoldoutsPartialUpdate = async (
     projectId: string,
-    id: string,
+    id: number,
     patchedExperimentHoldoutApi: NonReadonly<PatchedExperimentHoldoutApi>,
     options?: RequestInit
 ): Promise<ExperimentHoldoutApi> => {
@@ -138,13 +138,13 @@ export const experimentHoldoutsPartialUpdate = async (
     })
 }
 
-export const getExperimentHoldoutsDestroyUrl = (projectId: string, id: string) => {
+export const getExperimentHoldoutsDestroyUrl = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/experiment_holdouts/${id}/`
 }
 
 export const experimentHoldoutsDestroy = async (
     projectId: string,
-    id: string,
+    id: number,
     options?: RequestInit
 ): Promise<void> => {
     return apiMutator<void>(getExperimentHoldoutsDestroyUrl(projectId, id), {
@@ -197,13 +197,13 @@ export const experimentSavedMetricsCreate = async (
     })
 }
 
-export const getExperimentSavedMetricsRetrieveUrl = (projectId: string, id: string) => {
+export const getExperimentSavedMetricsRetrieveUrl = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/experiment_saved_metrics/${id}/`
 }
 
 export const experimentSavedMetricsRetrieve = async (
     projectId: string,
-    id: string,
+    id: number,
     options?: RequestInit
 ): Promise<ExperimentSavedMetricApi> => {
     return apiMutator<ExperimentSavedMetricApi>(getExperimentSavedMetricsRetrieveUrl(projectId, id), {
@@ -212,13 +212,13 @@ export const experimentSavedMetricsRetrieve = async (
     })
 }
 
-export const getExperimentSavedMetricsUpdateUrl = (projectId: string, id: string) => {
+export const getExperimentSavedMetricsUpdateUrl = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/experiment_saved_metrics/${id}/`
 }
 
 export const experimentSavedMetricsUpdate = async (
     projectId: string,
-    id: string,
+    id: number,
     experimentSavedMetricApi: NonReadonly<ExperimentSavedMetricApi>,
     options?: RequestInit
 ): Promise<ExperimentSavedMetricApi> => {
@@ -230,13 +230,13 @@ export const experimentSavedMetricsUpdate = async (
     })
 }
 
-export const getExperimentSavedMetricsPartialUpdateUrl = (projectId: string, id: string) => {
+export const getExperimentSavedMetricsPartialUpdateUrl = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/experiment_saved_metrics/${id}/`
 }
 
 export const experimentSavedMetricsPartialUpdate = async (
     projectId: string,
-    id: string,
+    id: number,
     patchedExperimentSavedMetricApi: NonReadonly<PatchedExperimentSavedMetricApi>,
     options?: RequestInit
 ): Promise<ExperimentSavedMetricApi> => {
@@ -248,13 +248,13 @@ export const experimentSavedMetricsPartialUpdate = async (
     })
 }
 
-export const getExperimentSavedMetricsDestroyUrl = (projectId: string, id: string) => {
+export const getExperimentSavedMetricsDestroyUrl = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/experiment_saved_metrics/${id}/`
 }
 
 export const experimentSavedMetricsDestroy = async (
     projectId: string,
-    id: string,
+    id: number,
     options?: RequestInit
 ): Promise<void> => {
     return apiMutator<void>(getExperimentSavedMetricsDestroyUrl(projectId, id), {
@@ -316,13 +316,13 @@ export const experimentsCreate = async (
 /**
  * Retrieve a single experiment by ID, including its current status, metrics, feature flag, and results metadata.
  */
-export const getExperimentsRetrieveUrl = (projectId: string, id: string) => {
+export const getExperimentsRetrieveUrl = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/experiments/${id}/`
 }
 
 export const experimentsRetrieve = async (
     projectId: string,
-    id: string,
+    id: number,
     options?: RequestInit
 ): Promise<ExperimentApi> => {
     return apiMutator<ExperimentApi>(getExperimentsRetrieveUrl(projectId, id), {
@@ -338,13 +338,13 @@ This mixin intercepts ApprovalRequired exceptions raised by the @approval_gate d
 on serializer methods and converts them into proper HTTP 409 Conflict responses with
 change request details.
  */
-export const getExperimentsUpdateUrl = (projectId: string, id: string) => {
+export const getExperimentsUpdateUrl = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/experiments/${id}/`
 }
 
 export const experimentsUpdate = async (
     projectId: string,
-    id: string,
+    id: number,
     experimentApi: NonReadonly<ExperimentApi>,
     options?: RequestInit
 ): Promise<ExperimentApi> => {
@@ -359,13 +359,13 @@ export const experimentsUpdate = async (
 /**
  * Update an experiment. Use this to modify experiment properties such as name, description, metrics, variants, and configuration. Metrics can be added, changed and removed at any time.
  */
-export const getExperimentsPartialUpdateUrl = (projectId: string, id: string) => {
+export const getExperimentsPartialUpdateUrl = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/experiments/${id}/`
 }
 
 export const experimentsPartialUpdate = async (
     projectId: string,
-    id: string,
+    id: number,
     patchedExperimentApi: NonReadonly<PatchedExperimentApi>,
     options?: RequestInit
 ): Promise<ExperimentApi> => {
@@ -380,11 +380,11 @@ export const experimentsPartialUpdate = async (
 /**
  * Hard delete of this model is not allowed. Use a patch API call to set "deleted" to true
  */
-export const getExperimentsDestroyUrl = (projectId: string, id: string) => {
+export const getExperimentsDestroyUrl = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/experiments/${id}/`
 }
 
-export const experimentsDestroy = async (projectId: string, id: string, options?: RequestInit): Promise<unknown> => {
+export const experimentsDestroy = async (projectId: string, id: number, options?: RequestInit): Promise<unknown> => {
     return apiMutator<unknown>(getExperimentsDestroyUrl(projectId, id), {
         ...options,
         method: 'DELETE',
@@ -398,13 +398,13 @@ Hides the experiment from the default list view. The experiment can be
 restored at any time by updating archived=false. Returns 400 if the
 experiment is already archived or has not ended yet.
  */
-export const getExperimentsArchiveCreateUrl = (projectId: string, id: string) => {
+export const getExperimentsArchiveCreateUrl = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/experiments/${id}/archive/`
 }
 
 export const experimentsArchiveCreate = async (
     projectId: string,
-    id: string,
+    id: number,
     options?: RequestInit
 ): Promise<ExperimentApi> => {
     return apiMutator<ExperimentApi>(getExperimentsArchiveCreateUrl(projectId, id), {
@@ -420,13 +420,13 @@ This mixin intercepts ApprovalRequired exceptions raised by the @approval_gate d
 on serializer methods and converts them into proper HTTP 409 Conflict responses with
 change request details.
  */
-export const getExperimentsCopyToProjectCreateUrl = (projectId: string, id: string) => {
+export const getExperimentsCopyToProjectCreateUrl = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/experiments/${id}/copy_to_project/`
 }
 
 export const experimentsCopyToProjectCreate = async (
     projectId: string,
-    id: string,
+    id: number,
     copyExperimentToProjectApi: CopyExperimentToProjectApi,
     options?: RequestInit
 ): Promise<ExperimentApi> => {
@@ -445,13 +445,13 @@ This mixin intercepts ApprovalRequired exceptions raised by the @approval_gate d
 on serializer methods and converts them into proper HTTP 409 Conflict responses with
 change request details.
  */
-export const getExperimentsCreateExposureCohortForExperimentCreateUrl = (projectId: string, id: string) => {
+export const getExperimentsCreateExposureCohortForExperimentCreateUrl = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/experiments/${id}/create_exposure_cohort_for_experiment/`
 }
 
 export const experimentsCreateExposureCohortForExperimentCreate = async (
     projectId: string,
-    id: string,
+    id: number,
     experimentApi: NonReadonly<ExperimentApi>,
     options?: RequestInit
 ): Promise<void> => {
@@ -470,13 +470,13 @@ This mixin intercepts ApprovalRequired exceptions raised by the @approval_gate d
 on serializer methods and converts them into proper HTTP 409 Conflict responses with
 change request details.
  */
-export const getExperimentsDuplicateCreateUrl = (projectId: string, id: string) => {
+export const getExperimentsDuplicateCreateUrl = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/experiments/${id}/duplicate/`
 }
 
 export const experimentsDuplicateCreate = async (
     projectId: string,
-    id: string,
+    id: number,
     experimentApi: NonReadonly<ExperimentApi>,
     options?: RequestInit
 ): Promise<void> => {
@@ -512,13 +512,13 @@ Other options:
 
 Returns 400 if the experiment is not running.
  */
-export const getExperimentsEndCreateUrl = (projectId: string, id: string) => {
+export const getExperimentsEndCreateUrl = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/experiments/${id}/end/`
 }
 
 export const experimentsEndCreate = async (
     projectId: string,
-    id: string,
+    id: number,
     endExperimentApi: EndExperimentApi,
     options?: RequestInit
 ): Promise<ExperimentApi> => {
@@ -538,13 +538,13 @@ sets start_date to the current server time, and transitions the experiment to ru
 Returns 400 if the experiment has already been launched or if the feature flag
 configuration is invalid (e.g. missing "control" variant or fewer than 2 variants).
  */
-export const getExperimentsLaunchCreateUrl = (projectId: string, id: string) => {
+export const getExperimentsLaunchCreateUrl = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/experiments/${id}/launch/`
 }
 
 export const experimentsLaunchCreate = async (
     projectId: string,
-    id: string,
+    id: number,
     options?: RequestInit
 ): Promise<ExperimentApi> => {
     return apiMutator<ExperimentApi>(getExperimentsLaunchCreateUrl(projectId, id), {
@@ -562,13 +562,13 @@ the control experience), and no new exposure events are recorded (i.e.
 $feature_flag_called is not fired).
 Returns 400 if the experiment is not running or is already paused.
  */
-export const getExperimentsPauseCreateUrl = (projectId: string, id: string) => {
+export const getExperimentsPauseCreateUrl = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/experiments/${id}/pause/`
 }
 
 export const experimentsPauseCreate = async (
     projectId: string,
-    id: string,
+    id: number,
     options?: RequestInit
 ): Promise<ExperimentApi> => {
     return apiMutator<ExperimentApi>(getExperimentsPauseCreateUrl(projectId, id), {
@@ -584,13 +584,13 @@ This mixin intercepts ApprovalRequired exceptions raised by the @approval_gate d
 on serializer methods and converts them into proper HTTP 409 Conflict responses with
 change request details.
  */
-export const getExperimentsRecalculateTimeseriesCreateUrl = (projectId: string, id: string) => {
+export const getExperimentsRecalculateTimeseriesCreateUrl = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/experiments/${id}/recalculate_timeseries/`
 }
 
 export const experimentsRecalculateTimeseriesCreate = async (
     projectId: string,
-    id: string,
+    id: number,
     experimentApi: NonReadonly<ExperimentApi>,
     options?: RequestInit
 ): Promise<void> => {
@@ -613,13 +613,13 @@ results unless the start date is manually adjusted after re-launch.
 
 Returns 400 if the experiment is already in draft state.
  */
-export const getExperimentsResetCreateUrl = (projectId: string, id: string) => {
+export const getExperimentsResetCreateUrl = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/experiments/${id}/reset/`
 }
 
 export const experimentsResetCreate = async (
     projectId: string,
-    id: string,
+    id: number,
     options?: RequestInit
 ): Promise<ExperimentApi> => {
     return apiMutator<ExperimentApi>(getExperimentsResetCreateUrl(projectId, id), {
@@ -636,13 +636,13 @@ Users are re-bucketed deterministically into the same variants they had
 before the pause, and exposure tracking resumes.
 Returns 400 if the experiment is not running or is not paused.
  */
-export const getExperimentsResumeCreateUrl = (projectId: string, id: string) => {
+export const getExperimentsResumeCreateUrl = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/experiments/${id}/resume/`
 }
 
 export const experimentsResumeCreate = async (
     projectId: string,
-    id: string,
+    id: number,
     options?: RequestInit
 ): Promise<ExperimentApi> => {
     return apiMutator<ExperimentApi>(getExperimentsResumeCreateUrl(projectId, id), {
@@ -670,13 +670,13 @@ the change request is approved and the user retries.
 Returns 400 if the experiment is in draft state, the variant_key is not found
 on the flag, or the experiment has no linked feature flag.
  */
-export const getExperimentsShipVariantCreateUrl = (projectId: string, id: string) => {
+export const getExperimentsShipVariantCreateUrl = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/experiments/${id}/ship_variant/`
 }
 
 export const experimentsShipVariantCreate = async (
     projectId: string,
-    id: string,
+    id: number,
     shipVariantApi: ShipVariantApi,
     options?: RequestInit
 ): Promise<ExperimentApi> => {
@@ -695,13 +695,13 @@ This mixin intercepts ApprovalRequired exceptions raised by the @approval_gate d
 on serializer methods and converts them into proper HTTP 409 Conflict responses with
 change request details.
  */
-export const getExperimentsTimeseriesResultsRetrieveUrl = (projectId: string, id: string) => {
+export const getExperimentsTimeseriesResultsRetrieveUrl = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/experiments/${id}/timeseries_results/`
 }
 
 export const experimentsTimeseriesResultsRetrieve = async (
     projectId: string,
-    id: string,
+    id: number,
     options?: RequestInit
 ): Promise<void> => {
     return apiMutator<void>(getExperimentsTimeseriesResultsRetrieveUrl(projectId, id), {

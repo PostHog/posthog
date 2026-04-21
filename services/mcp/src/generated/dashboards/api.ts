@@ -69,7 +69,7 @@ export const DashboardsCreateBody = /* @__PURE__ */ zod
     .describe('Serializer mixin that handles tags for objects.')
 
 export const DashboardsRetrieveParams = /* @__PURE__ */ zod.object({
-    id: zod.string(),
+    id: zod.number().describe('A unique integer value identifying this dashboard.'),
     project_id: zod
         .string()
         .describe(
@@ -82,7 +82,7 @@ export const DashboardsRetrieveQueryParams = /* @__PURE__ */ zod.object({
 })
 
 export const DashboardsPartialUpdateParams = /* @__PURE__ */ zod.object({
-    id: zod.string(),
+    id: zod.number().describe('A unique integer value identifying this dashboard.'),
     project_id: zod
         .string()
         .describe(
@@ -132,7 +132,7 @@ export const DashboardsPartialUpdateBody = /* @__PURE__ */ zod
  * Hard delete of this model is not allowed. Use a patch API call to set "deleted" to true
  */
 export const DashboardsDestroyParams = /* @__PURE__ */ zod.object({
-    id: zod.string(),
+    id: zod.number().describe('A unique integer value identifying this dashboard.'),
     project_id: zod
         .string()
         .describe(
@@ -145,7 +145,7 @@ export const DashboardsDestroyQueryParams = /* @__PURE__ */ zod.object({
 })
 
 export const DashboardsReorderTilesCreateParams = /* @__PURE__ */ zod.object({
-    id: zod.string(),
+    id: zod.number().describe('A unique integer value identifying this dashboard.'),
     project_id: zod
         .string()
         .describe(
@@ -168,7 +168,7 @@ export const DashboardsReorderTilesCreateBody = /* @__PURE__ */ zod.object({
  * Run all insights on a dashboard and return their results.
  */
 export const DashboardsRunInsightsRetrieveParams = /* @__PURE__ */ zod.object({
-    id: zod.string(),
+    id: zod.number().describe('A unique integer value identifying this dashboard.'),
     project_id: zod
         .string()
         .describe(

@@ -97,7 +97,7 @@ export const ConversationsTicketsListQueryParams = /* @__PURE__ */ zod.object({
  * Get single ticket and mark as read by team.
  */
 export const ConversationsTicketsRetrieveParams = /* @__PURE__ */ zod.object({
-    id: zod.string(),
+    id: zod.string().describe('A UUID string identifying this ticket.'),
     project_id: zod
         .string()
         .describe(
@@ -106,7 +106,7 @@ export const ConversationsTicketsRetrieveParams = /* @__PURE__ */ zod.object({
 })
 
 export const ConversationsTicketsPartialUpdateParams = /* @__PURE__ */ zod.object({
-    id: zod.string(),
+    id: zod.string().describe('A UUID string identifying this ticket.'),
     project_id: zod
         .string()
         .describe(

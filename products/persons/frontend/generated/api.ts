@@ -197,7 +197,7 @@ export const personsPartialUpdate = async (
  */
 export const getPersonsActivityRetrieveUrl = (
     projectId: string,
-    id: string,
+    id: number,
     params?: PersonsActivityRetrieveParams
 ) => {
     const normalizedParams = new URLSearchParams()
@@ -217,7 +217,7 @@ export const getPersonsActivityRetrieveUrl = (
 
 export const personsActivityRetrieve = async (
     projectId: string,
-    id: string,
+    id: number,
     params?: PersonsActivityRetrieveParams,
     options?: RequestInit
 ): Promise<void> => {
@@ -270,7 +270,7 @@ export const personsDeletePropertyCreate = async (
  */
 export const getPersonsPropertiesTimelineRetrieveUrl = (
     projectId: string,
-    id: string,
+    id: number,
     params?: PersonsPropertiesTimelineRetrieveParams
 ) => {
     const normalizedParams = new URLSearchParams()
@@ -290,7 +290,7 @@ export const getPersonsPropertiesTimelineRetrieveUrl = (
 
 export const personsPropertiesTimelineRetrieve = async (
     projectId: string,
-    id: string,
+    id: number,
     params?: PersonsPropertiesTimelineRetrieveParams,
     options?: RequestInit
 ): Promise<void> => {
@@ -303,7 +303,7 @@ export const personsPropertiesTimelineRetrieve = async (
 /**
  * This endpoint is meant for reading and deleting persons. To create or update persons, we recommend using the [capture API](https://posthog.com/docs/api/capture), the `$set` and `$unset` [properties](https://posthog.com/docs/product-analytics/user-properties), or one of our SDKs.
  */
-export const getPersonsSplitCreateUrl = (projectId: string, id: string, params?: PersonsSplitCreateParams) => {
+export const getPersonsSplitCreateUrl = (projectId: string, id: number, params?: PersonsSplitCreateParams) => {
     const normalizedParams = new URLSearchParams()
 
     Object.entries(params || {}).forEach(([key, value]) => {
@@ -321,7 +321,7 @@ export const getPersonsSplitCreateUrl = (projectId: string, id: string, params?:
 
 export const personsSplitCreate = async (
     projectId: string,
-    id: string,
+    id: number,
     personRecordApi: NonReadonly<PersonRecordApi>,
     params?: PersonsSplitCreateParams,
     options?: RequestInit
