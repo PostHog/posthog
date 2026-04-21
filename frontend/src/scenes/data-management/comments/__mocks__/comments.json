@@ -3,31 +3,6 @@
     "previous": null,
     "results": [
         {
-            "id": "01984696-0000-0000-0000-00000000aaaa",
-            "created_by": {
-                "id": 1,
-                "uuid": "019838c5-64ac-0000-9f43-17f1bf64f508",
-                "distinct_id": "xugZUZjVMSe5Ceo67Y1KX85kiQqB4Gp5OSdC02cjsWl",
-                "first_name": "fasda",
-                "last_name": "",
-                "email": "paul@posthog.com",
-                "is_email_verified": false,
-                "hedgehog_config": null,
-                "role_at_organization": "other"
-            },
-            "deleted": false,
-            "content": "User struggled to find the export button — it's hidden behind the overflow menu and they spent about 40 seconds hovering over the top-right area before giving up.\n\nFollow-ups:\n- Promote the export action out of the overflow menu on the trends view\n- Check whether the same issue shows up for funnels and retention\n- Write a short loom walking through what the user tried",
-            "rich_content": null,
-            "version": 0,
-            "created_at": "2025-07-26T12:00:00.000000Z",
-            "item_id": "019838c8-8f12-7dfa-b651-abf957639b4b",
-            "item_context": {
-                "time_in_recording": "2025-07-23T19:35:47.216Z"
-            },
-            "scope": "recording",
-            "source_comment": null
-        },
-        {
             "id": "01984695-c93f-0000-a115-d4fa40b8a1e5",
             "created_by": {
                 "id": 1,

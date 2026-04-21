@@ -45,7 +45,7 @@ export function Comments(): JSX.Element {
             render: function RenderComment(_, comment: CommentType): JSX.Element {
                 return (
                     <div
-                        className="font-semibold whitespace-pre-wrap break-words max-h-64 overflow-y-auto"
+                        className="whitespace-pre-wrap break-words max-h-64 overflow-y-auto"
                         data-attr="comment-scene-comment-title-rendered-content"
                     >
                         {getText(comment)}
