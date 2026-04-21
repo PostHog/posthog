@@ -1027,21 +1027,53 @@ class TestExports(APIBaseTest):
         self.assertEqual(error_data["attr"], "export_limit_exceeded")
         self.assertIn(f"reached the limit of {expected_limit} full video exports this month", error_data["detail"])
 
+    @parameterized.expand(
+        [
+            # (name, available_product_features, override, effective_limit)
+            # Override bumps above tier → effective limit is the override.
+            (
+                "paid_override_above_tier_wins",
+                [{"key": "recordings_file_export", "name": "Recordings file export"}],
+                20,
+                20,
+            ),
+            # Override below tier default is a no-op — tier default wins, so legacy
+            # flat-10 overrides can't silently downgrade enterprise orgs post-deploy.
+            (
+                "enterprise_override_below_tier_is_floored",
+                [
+                    {"key": "recordings_file_export", "name": "Recordings file export"},
+                    {"key": "saml", "name": "SAML"},
+                ],
+                10,
+                25,
+            ),
+            # Free tier with an override-bump also works.
+            ("free_override_above_tier_wins", [], 30, 30),
+        ]
+    )
     @patch("posthog.api.exports.async_to_sync")
     @patch("posthog.api.exports.async_connect")
-    def test_video_export_extra_settings_override_wins_over_plan_tier(
-        self, mock_async_connect, mock_async_to_sync
+    def test_video_export_extra_settings_override_acts_as_floor_above_plan_tier(
+        self,
+        _name: str,
+        available_product_features: list[dict],
+        override: int,
+        effective_limit: int,
+        mock_async_connect,
+        mock_async_to_sync,
     ) -> None:
-        """A per-team override in extra_settings takes precedence over the plan default (e.g. support bumps)."""
-        # Paid tier: default would be 15, but the team has a manual override of 20.
-        self.organization.available_product_features = [
-            {"key": "recordings_file_export", "name": "Recordings file export"}
-        ]
+        """The per-team override bumps the limit *above* the tier default but never below it.
+
+        Preserves the "support bump" purpose without silently downgrading orgs whose tier
+        default is now higher than a legacy override set during the flat-10 era.
+        """
+        self.organization.available_product_features = available_product_features
         self.organization.save()
-        self.team.extra_settings = {"full_video_exports_limit": 20}
+        self.team.extra_settings = {"full_video_exports_limit": override}
         self.team.save()
 
-        for i in range(20):
+        for i in range(effective_limit):
             ExportedAsset.objects.create(
                 team=self.team,
                 export_format="video/mp4",
@@ -1059,7 +1091,9 @@ class TestExports(APIBaseTest):
             },
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("reached the limit of 20 full video exports this month", response.json()["detail"])
+        self.assertIn(
+            f"reached the limit of {effective_limit} full video exports this month", response.json()["detail"]
+        )
 
     @patch("posthog.tasks.exports.image_exporter.export_image")
     def test_export_records_failure_on_query_error(self, mock_export_direct) -> None:

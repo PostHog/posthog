@@ -137,7 +137,10 @@ class ExportedAssetSerializer(serializers.ModelSerializer):
                 created_at__gte=start_of_month,
             ).count()
 
-            # Plan-tier default, with an optional per-team override in extra_settings.
+            # Plan-tier default with an optional per-team override that acts as a floor.
+            # Taking max() preserves the override's original purpose — bumping a team above
+            # their tier default — without silently downgrading orgs whose tier default is
+            # now higher than a legacy override set during the flat-10 era.
             get_organization = self.context.get("get_organization")
             organization = get_organization() if get_organization is not None else None
             team_limit = get_full_video_exports_limit_for_organization(organization)
@@ -150,7 +153,7 @@ class ExportedAssetSerializer(serializers.ModelSerializer):
                     override_limit = int(limit_value)
                     if override_limit <= 0:
                         raise ValueError("Limit must be positive")
-                    team_limit = override_limit
+                    team_limit = max(team_limit, override_limit)
                 except (ValueError, TypeError):
                     logger.warning(
                         "invalid_full_video_exports_limit",
