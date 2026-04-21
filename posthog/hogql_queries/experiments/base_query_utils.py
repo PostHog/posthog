@@ -371,11 +371,25 @@ def get_source_aggregation_expr(
     return parse_expr(f"sum(coalesce(toFloat({table_alias}.value), 0))")
 
 
-def funnel_steps_to_filter(team: Team, funnel_steps: list[EventsNode | ActionsNode]) -> ast.Expr:
+def funnel_steps_to_filter(
+    team: Team, funnel_steps: list[EventsNode | ActionsNode | ExperimentDataWarehouseNode]
+) -> ast.Expr:
     """
     Returns the OR expression for a list of funnel steps. Will match if any of the funnel steps are true.
+
+    Note: This function filters out ExperimentDataWarehouseNode entries since they cannot be
+    evaluated as boolean filters (they require separate UNION ALL query pattern).
     """
-    return ast.Or(exprs=[event_or_action_to_filter(team, funnel_step) for funnel_step in funnel_steps])
+    # Filter out DW nodes - they require UNION ALL pattern, not boolean filters
+    event_and_action_steps = [step for step in funnel_steps if not isinstance(step, ExperimentDataWarehouseNode)]
+
+    # Guard against empty list (all DW nodes case)
+    if not event_and_action_steps:
+        # Return a constant false expression - this prevents empty ast.Or
+        # This case should be caught earlier by validation, but we guard defensively
+        return ast.Constant(value=False)
+
+    return ast.Or(exprs=[event_or_action_to_filter(team, funnel_step) for funnel_step in event_and_action_steps])
 
 
 def funnel_evaluation_expr(

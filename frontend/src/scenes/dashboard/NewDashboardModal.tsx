@@ -4,15 +4,10 @@ import { useMemo } from 'react'
 import { IconPlus } from '@posthog/icons'
 import { LemonButton, LemonInput } from '@posthog/lemon-ui'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { DialogClose, DialogPrimitive, DialogPrimitiveTitle } from 'lib/ui/DialogPrimitive/DialogPrimitive'
 import { pluralize } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
-import {
-    dashboardTemplateChooserLogic,
-    resolveDashboardTemplateChooserExperimentVariant,
-} from 'scenes/dashboard/dashboards/templates/dashboardTemplateChooserLogic'
+import { dashboardTemplateChooserLogic } from 'scenes/dashboard/dashboards/templates/dashboardTemplateChooserLogic'
 import { dashboardTemplatesLogic } from 'scenes/dashboard/dashboards/templates/dashboardTemplatesLogic'
 import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
 
@@ -34,18 +29,13 @@ export function NewDashboardModal(): JSX.Element {
     const { templateFilter } = useValues(templatesLogic)
     const { setTemplateFilter } = useActions(templatesLogic)
 
-    const { featureFlags } = useValues(featureFlagLogic)
-    const experimentVariant = resolveDashboardTemplateChooserExperimentVariant(
-        featureFlags[FEATURE_FLAGS.DASHBOARD_TEMPLATE_CHOOSER_EXPERIMENT]
-    )
     const createChooserLogic = useMemo(
         () =>
             dashboardTemplateChooserLogic({
                 scope: templateScope,
-                experimentVariant,
                 availabilityContexts: undefined,
             }),
-        [templateScope, experimentVariant]
+        [templateScope]
     )
     const { isLoading: blankDashboardLoading } = useValues(createChooserLogic)
     const { blankTileClicked } = useActions(createChooserLogic)
@@ -91,7 +81,13 @@ export function NewDashboardModal(): JSX.Element {
         <DialogPrimitive
             open={newDashboardModalVisible}
             onOpenChange={(open) => !open && hideNewDashboardModal()}
-            className={cn('w-[min(100vw-3rem,1200px)] max-h-[calc(100vh-4rem)] top-8', 'bg-surface-primary')}
+            className={cn(
+                'w-[min(100vw-3rem,1200px)] max-h-[calc(100vh-4rem)] top-8',
+                'bg-surface-primary',
+                // Variable selectors in ActionFilter portal to the popover layer; keep this modal just below
+                // that layer so dropdown options render above the dialog instead of behind it.
+                'z-[calc(var(--z-popover)-1)]'
+            )}
         >
             <div className="flex shrink-0 flex-col gap-3 border-b border-primary px-4 py-3 pr-2">
                 <div className="flex items-start justify-between gap-2">
@@ -107,7 +103,7 @@ export function NewDashboardModal(): JSX.Element {
                     {activeDashboardTemplate ? (
                         <DashboardTemplateVariables />
                     ) : (
-                        <DashboardTemplateChooser scope={templateScope} experimentVariant={experimentVariant} />
+                        <DashboardTemplateChooser scope={templateScope} />
                     )}
                 </div>
             </div>

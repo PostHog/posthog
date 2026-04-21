@@ -59,7 +59,7 @@ import {
     TrendsFilterType,
 } from '~/types'
 
-import { integer, numerical_key } from './type-utils'
+import { integer, numerical_key, positive_integer } from './type-utils'
 
 export { ChartDisplayCategory }
 
@@ -320,6 +320,9 @@ export type QuerySchema =
     // Misc
     | DatabaseSchemaQuery
 
+    // Session Recordings
+    | RecordingsQuery
+
     // Logs
     | LogsQuery
     | LogAttributesQuery
@@ -414,6 +417,8 @@ export interface HogQLQueryModifiers {
     inCohortVia?: 'auto' | 'leftjoin' | 'subquery' | 'leftjoin_conjoined'
     materializationMode?: 'auto' | 'legacy_null_as_string' | 'legacy_null_as_null' | 'disabled'
     optimizeJoinedFilters?: boolean
+    /** Push a `session_id_v7 IN (SELECT … FROM events WHERE …)` predicate into the raw_sessions subquery to limit aggregation to sessions that participate in the outer events filter. */
+    sessionIdPushdown?: boolean
     dataWarehouseEventsModifiers?: DataWarehouseEventsModifier[]
     debug?: boolean
     timings?: boolean
@@ -512,12 +517,14 @@ export interface HogQuery extends DataNode<HogQueryResponse> {
     code?: string
 }
 
-export interface RecordingsQueryResponse {
+export interface RecordingsQueryResponse extends AnalyticsQueryResponseBase {
     results: SessionRecordingType[]
     has_next: boolean
     /** Cursor for the next page. Contains the ordering value and session_id from the last record. */
     next_cursor?: string
 }
+
+export type CachedRecordingsQueryResponse = CachedQueryResponse<RecordingsQueryResponse>
 
 export const VALID_RECORDING_ORDERS = [
     'duration',
@@ -950,7 +957,7 @@ export interface SessionsQuery extends DataNode<SessionsQueryResponse> {
      * Filter sessions by action - sessions that contain events matching this action
      */
     actionId?: integer
-    /** Event property filters - only applies when event or actionId is set */
+    /** Event property filters - filters sessions that contain events matching these properties */
     eventProperties?: AnyPropertyFilter[]
 }
 
@@ -1085,7 +1092,7 @@ export interface ChartSettingsDisplay {
     label?: string
     trendLine?: boolean
     yAxisPosition?: 'left' | 'right'
-    displayType?: 'auto' | 'line' | 'bar'
+    displayType?: 'auto' | 'line' | 'bar' | 'area'
 }
 
 export interface HeatmapGradientStop {
@@ -1136,7 +1143,9 @@ export interface ChartSettings {
     showXAxisBorder?: boolean
     showYAxisBorder?: boolean
     showLegend?: boolean
+    showValuesOnSeries?: boolean
     showTotalRow?: boolean
+    showPieTotal?: boolean
     showNullsAsZero?: boolean
     heatmap?: HeatmapSettings
 }
@@ -1435,7 +1444,7 @@ export interface TrendsQueryResponse extends AnalyticsQueryResponseBase {
     results: Record<string, any>[]
     /** Wether more breakdown values are available. */
     hasMore?: boolean
-    /** Box plot data when display type is BoxPlot */
+    /** @deprecated Box plot data is now returned in results. This field is no longer populated. */
     boxplot_data?: BoxPlotDatum[]
 }
 
@@ -1749,7 +1758,7 @@ export type StickinessComputationMode = (typeof StickinessComputationModes)[keyo
 
 export interface StickinessCriteria {
     operator: StickinessOperator
-    value: integer
+    value: positive_integer
 }
 
 export type StickinessFilter = {
@@ -1797,7 +1806,7 @@ export interface StickinessQuery extends Omit<
     /**
      * How many intervals comprise a period. Only used for cohorts, otherwise default 1.
      */
-    intervalCount?: integer
+    intervalCount?: positive_integer
     /** Events and actions to include */
     series: AnyEntityNode[]
     /** Properties specific to the stickiness insight */
@@ -1886,6 +1895,15 @@ export interface EndpointRunRequest {
      * Unknown variable names will return a 400 error.
      */
     variables?: Record<string, any>
+    /**
+     * @deprecated Use `variables` instead. Will be removed in a future release.
+     *
+     * Override dashboard filters for insight endpoints (TrendsQuery, FunnelsQuery, etc.).
+     * Not allowed for HogQL endpoints.
+     *
+     * For date filtering, use variables: `{"date_from": "2024-01-01", "date_to": "2024-01-31"}`
+     */
+    filters_override?: DashboardFilter
     /** Specific endpoint version to execute. If not provided, the latest version is used. */
     version?: integer
     /**
@@ -3280,6 +3298,88 @@ export interface ExperimentEventExposureConfig extends Node {
     properties: AnyPropertyFilter[]
 }
 
+// ── Slim API types for experiment create/update ──────────────────────
+// These are intentionally simplified versions of the full query types.
+// The full types (EventsNode, ExperimentMeanMetric, …) pull in
+// AnyPropertyFilter (18-subtype union) which explodes the OpenAPI/MCP
+// schema via inline expansion. These slim types use EventPropertyFilter
+// directly, keeping the generated schema compact.
+
+/** Slim event/action source for experiment API payloads. */
+export interface ExperimentApiEventSource {
+    kind: 'EventsNode' | 'ActionsNode'
+    /** Event name, e.g. '$pageview'. Required for EventsNode. */
+    event?: string
+    /** Action ID. Required for ActionsNode. */
+    id?: integer
+    /** Event property filters to narrow which events are counted. */
+    properties?: EventPropertyFilter[]
+}
+
+/** Experiment metric for API create/update. All metric-type-specific
+ *  fields are optional; discriminated by metric_type at runtime. */
+export interface ExperimentApiMetric {
+    kind: NodeKind.ExperimentMetric
+    metric_type: ExperimentMetricType
+    /** Human-readable metric name. */
+    name?: string
+    /** Unique identifier. Auto-generated if omitted. */
+    uuid?: string
+    /** Whether higher or lower values indicate success. */
+    goal?: ExperimentMetricGoal
+    /** Conversion window duration. */
+    conversion_window?: integer
+    /** For mean metrics: event source. */
+    source?: ExperimentApiEventSource
+    /** For funnel metrics: array of EventsNode/ActionsNode steps. */
+    series?: ExperimentApiEventSource[]
+    /** For ratio metrics: numerator source. */
+    numerator?: ExperimentApiEventSource
+    /** For ratio metrics: denominator source. */
+    denominator?: ExperimentApiEventSource
+    /** For retention metrics: start event. */
+    start_event?: ExperimentApiEventSource
+    /** For retention metrics: completion event. */
+    completion_event?: ExperimentApiEventSource
+    retention_window_start?: integer
+    retention_window_end?: integer
+    retention_window_unit?: FunnelConversionWindowTimeUnit
+    start_handling?: 'first_seen' | 'last_seen'
+}
+
+export interface ExperimentVariant {
+    /** Variant key, e.g. 'control', 'test', 'variant_a'. */
+    key: string
+    /** Human-readable variant name. */
+    name?: string
+    /** @deprecated Use split_percent instead. Accepted for backward compatibility. */
+    rollout_percentage?: number
+    /** Percentage of users assigned to this variant (0–100). All variants must sum to 100. One of split_percent (recommended) or rollout_percentage must be provided. */
+    split_percent?: number
+}
+
+export interface ExperimentParameters {
+    /** Experiment variants. If not specified, defaults to a 50/50 control/test split. */
+    feature_flag_variants?: ExperimentVariant[]
+    /** Minimum detectable effect as a percentage. Lower values need more users but catch smaller changes. Suggest 20–30% for most experiments. */
+    minimum_detectable_effect?: number
+}
+
+/** Slim exposure config for experiment API payloads. */
+export interface ExperimentApiExposureConfig {
+    kind: NodeKind.ExperimentEventExposureConfig
+    /** Custom exposure event name. */
+    event: string
+    /** Event property filters. Pass an empty array if no filters needed. */
+    properties: EventPropertyFilter[]
+}
+
+/** Exposure criteria for experiment API payloads. */
+export interface ExperimentApiExposureCriteria {
+    filterTestAccounts?: boolean
+    exposure_config?: ExperimentApiExposureConfig
+}
+
 export const enum ExperimentMetricType {
     FUNNEL = 'funnel',
     MEAN = 'mean',
@@ -3316,7 +3416,7 @@ export interface ExperimentDataWarehouseNode extends EntityNode {
 
 export type ExperimentMetricSource = EventsNode | ActionsNode | ExperimentDataWarehouseNode
 
-export type ExperimentFunnelMetricStep = EventsNode | ActionsNode // ExperimentDataWarehouseNode is not supported yet
+export type ExperimentFunnelMetricStep = EventsNode | ActionsNode | ExperimentDataWarehouseNode
 
 export type ExperimentMeanMetric = ExperimentMetricBaseProperties &
     ExperimentMetricOutlierHandling & {
@@ -3397,6 +3497,8 @@ export interface ExperimentQuery extends DataNode<ExperimentQueryResponse> {
     experiment_id?: integer
     name?: string
     precomputation_mode?: 'precomputed' | 'direct'
+    /** @deprecated Now always enabled, kept for backward compatibility */
+    metric_events_precomputation?: boolean
 }
 
 export interface ExperimentExposureQuery extends DataNode<ExperimentExposureQueryResponse> {
@@ -3461,6 +3563,12 @@ export interface ExperimentActorsQuery extends InsightActorsQueryBase {
     funnelStep?: integer
     /** The variant key for filtering actors. For experiments, this filters by feature flag variant (e.g., 'control', 'test'). */
     funnelStepBreakdown?: BreakdownKeyType
+    /** Exposure configuration for filtering events. Defines when users were first exposed to the experiment. */
+    exposureConfig?: ExperimentExposureConfig
+    /** How to handle users with multiple variant exposures. */
+    multipleVariantHandling?: 'exclude' | 'first_seen'
+    /** Feature flag key for breakdown filtering. */
+    featureFlagKey?: string
 }
 
 export interface SessionData {
@@ -4445,6 +4553,8 @@ export interface LLMTrace {
     outputTokens?: number
     inputCost?: number
     outputCost?: number
+    requestCost?: number
+    webSearchCost?: number
     totalCost?: number
     inputState?: any
     outputState?: any
@@ -5134,6 +5244,9 @@ export enum MarketingAnalyticsDrillDownLevel {
     Channel = 'channel',
     Source = 'source',
     Campaign = 'campaign',
+    Medium = 'medium',
+    Content = 'content',
+    Term = 'term',
 }
 
 export enum MarketingAnalyticsBaseColumns {
@@ -5179,6 +5292,18 @@ export const MARKETING_ANALYTICS_DRILL_DOWN_CONFIG: Record<
     [MarketingAnalyticsDrillDownLevel.Campaign]: {
         columnAlias: MarketingAnalyticsBaseColumns.Campaign,
         excludedBaseColumns: [],
+    },
+    [MarketingAnalyticsDrillDownLevel.Medium]: {
+        columnAlias: 'Medium',
+        excludedBaseColumns: Object.values(MarketingAnalyticsBaseColumns),
+    },
+    [MarketingAnalyticsDrillDownLevel.Content]: {
+        columnAlias: 'Content',
+        excludedBaseColumns: Object.values(MarketingAnalyticsBaseColumns),
+    },
+    [MarketingAnalyticsDrillDownLevel.Term]: {
+        columnAlias: 'Term',
+        excludedBaseColumns: Object.values(MarketingAnalyticsBaseColumns),
     },
 }
 
@@ -5473,6 +5598,7 @@ export const externalDataSources = [
     'Granola',
     'BuildBetter',
     'Convex',
+    'ClickHouse',
 ] as const
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]
@@ -5858,10 +5984,22 @@ export interface CustomerAnalyticsConfig {
  */
 export interface ProductItem {
     path: string
-    category: string | null
+    category: ProductItemCategory | null
     iconType: string | null
     type: string | null
     intents: ProductKey[]
+}
+
+export enum ProductItemCategory {
+    ANALYTICS = 'Analytics',
+    AI_ENGINEERING = 'AI engineering',
+    BEHAVIOR = 'Behavior',
+    FEATURES = 'Features',
+    TOOLS = 'Tools',
+    SCHEMA = 'Schema',
+    PIPELINE = 'Pipeline',
+    METADATA = 'Metadata',
+    UNRELEASED = 'Unreleased',
 }
 
 /**
@@ -5939,6 +6077,7 @@ export enum ProductKey {
     SESSION_REPLAY = 'session_replay',
     SITE_APPS = 'site_apps',
     SUBSCRIPTIONS = 'subscriptions',
+    STREAMLIT_APPS = 'streamlit_apps',
     SURVEYS = 'surveys',
     TASKS = 'tasks',
     TEAMS = 'teams',

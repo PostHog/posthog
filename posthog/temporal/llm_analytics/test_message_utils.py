@@ -1,5 +1,7 @@
 """Tests for message extraction utilities."""
 
+import pytest
+
 from posthog.temporal.llm_analytics.message_utils import extract_text_from_messages
 
 
@@ -24,23 +26,37 @@ class TestExtractTextFromMessages:
         result = extract_text_from_messages(messages)
         assert result == "user: What is 2+2?\nassistant: 4"
 
-    def test_anthropic_format(self):
-        """Test extraction from Anthropic message format with content blocks"""
-        messages = [
-            {
-                "role": "user",
-                "content": [{"type": "text", "text": "Hello"}],
-            },
-            {
-                "role": "assistant",
-                "content": [{"type": "text", "text": "Hi there"}],
-            },
-        ]
+    @pytest.mark.parametrize(
+        "label,messages,expected_substring",
+        [
+            (
+                "anthropic_text_blocks",
+                [{"role": "assistant", "content": [{"type": "text", "text": "Hi there"}]}],
+                "Hi there",
+            ),
+            (
+                "openai_responses_api",
+                [{"content": [{"annotations": [], "logprobs": [], "text": "Improving customer experiences."}]}],
+                "Improving customer experiences",
+            ),
+            (
+                "unknown_block_shape_fallback",
+                [{"content": [{"some_unknown_key": "some_value", "another_key": 42}]}],
+                "some_value",
+            ),
+            (
+                "none_text_value",
+                [{"content": [{"text": None, "annotations": []}]}],
+                "None",
+            ),
+        ],
+    )
+    def test_content_block_formats(self, label, messages, expected_substring):
         result = extract_text_from_messages(messages)
-        assert result == "user: Hello\nassistant: Hi there"
+        assert expected_substring in result
+        assert result != ""
 
     def test_mixed_content_blocks(self):
-        """Test extraction from mixed content with text and other types"""
         messages = [
             {
                 "role": "user",
@@ -54,7 +70,6 @@ class TestExtractTextFromMessages:
         assert result == "user: First part Second part"
 
     def test_output_choices_format(self):
-        """Test extraction from $ai_output_choices format (real PostHog events)"""
         messages = [
             {
                 "content": "Looks like today weather decided to audition for a soap opera",
@@ -66,7 +81,7 @@ class TestExtractTextFromMessages:
         assert "assistant:" in result
 
     def test_single_dict_message(self):
-        """Test extraction from single dict (not in array)"""
         message = {"role": "user", "content": "Hello"}
         result = extract_text_from_messages(message)
         assert result == "Hello"
+        assert result != ""

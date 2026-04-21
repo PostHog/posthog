@@ -17,7 +17,7 @@ async def run_sandbox_agent_get_structured_output(
     context: CustomPromptSandboxContext,
     model_to_validate: type[_ModelT],
     *,
-    branch: str = "master",
+    branch: str | None = None,
     step_name: str = "",
     verbose: bool = False,
     output_fn: OutputFn = None,

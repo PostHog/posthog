@@ -99,7 +99,7 @@ export function IntegrationView({
                             </div>
                         ) : null}
                         {isGitHub &&
-                            (githubRepositoriesLoading ? (
+                            (githubRepositoriesLoading && repositories.length === 0 ? (
                                 <div className="flex items-center gap-1 text-xs text-muted mr-4 min-h-5">
                                     <Spinner className="text-sm" />
                                     Loading repositories...
@@ -180,7 +180,7 @@ export function IntegrationView({
                         }}
                     >
                         {errors[0] === 'TOKEN_REFRESH_FAILED'
-                            ? 'Authentication token could not be refreshed. Please reconnect.'
+                            ? 'Authentication token could not be refreshed. You can reconnect this account or disconnect it and connect a different one.'
                             : `There was an error with this integration: ${errors[0]}`}
                     </LemonBanner>
                 </div>

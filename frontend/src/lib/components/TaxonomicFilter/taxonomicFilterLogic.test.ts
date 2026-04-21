@@ -4,6 +4,7 @@ import { expectLogic } from 'kea-test-utils'
 
 import {
     isSkeletonItem,
+    propertyTaxonomicGroupProps,
     redistributeTopMatches,
     SKELETON_ROWS_PER_GROUP,
     taxonomicFilterLogic,
@@ -14,9 +15,10 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useMocks } from '~/mocks/jest'
 import { actionsModel } from '~/models/actionsModel'
 import { groupsModel } from '~/models/groupsModel'
+import { CORE_FILTER_DEFINITIONS_BY_GROUP } from '~/taxonomy/taxonomy'
 import { initKeaTests } from '~/test/init'
 import { mockEventDefinitions, mockSessionPropertyDefinitions } from '~/test/mocks'
-import { AppContext, EventDefinition } from '~/types'
+import { AppContext, EventDefinition, PropertyDefinition } from '~/types'
 
 import { infiniteListLogic } from './infiniteListLogic'
 
@@ -800,5 +802,52 @@ describe('isSkeletonItem', () => {
         },
     ])('$description', ({ item, expected }) => {
         expect(isSkeletonItem(item)).toBe(expected)
+    })
+})
+
+describe('propertyTaxonomicGroupProps', () => {
+    const makePropDef = (name: string): PropertyDefinition => ({ name }) as PropertyDefinition
+
+    describe('person properties group labels only core person properties as PostHog properties', () => {
+        const { getPopoverHeader } = propertyTaxonomicGroupProps(CORE_FILTER_DEFINITIONS_BY_GROUP.person_properties)
+
+        it.each([
+            {
+                property: 'email',
+                expected: 'PostHog property',
+                description: 'email is a core PostHog person property',
+            },
+            {
+                property: '$email',
+                expected: 'Property',
+                description: '$email is not a core person property despite the $ prefix',
+            },
+            {
+                property: 'emaill',
+                expected: 'Property',
+                description: 'misspelled emaill is a custom property',
+            },
+        ])('$description', ({ property, expected }) => {
+            expect(getPopoverHeader!(makePropDef(property))).toBe(expected)
+        })
+    })
+
+    describe('event properties group uses event_properties core definitions by default', () => {
+        const { getPopoverHeader } = propertyTaxonomicGroupProps()
+
+        it.each([
+            {
+                property: '$browser',
+                expected: 'PostHog property',
+                description: '$browser is a core PostHog event property',
+            },
+            {
+                property: 'my_custom_prop',
+                expected: 'Property',
+                description: 'custom event properties are not labeled as PostHog properties',
+            },
+        ])('$description', ({ property, expected }) => {
+            expect(getPopoverHeader!(makePropDef(property))).toBe(expected)
+        })
     })
 })

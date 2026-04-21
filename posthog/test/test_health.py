@@ -1,8 +1,9 @@
 import os
+import json
 import random
 import logging
 from contextlib import contextmanager
-from typing import Optional
+from typing import Any, Optional
 
 import pytest
 from unittest import mock
@@ -14,7 +15,7 @@ from django.db import (
     Error as DjangoDatabaseError,
     connections,
 )
-from django.http import HttpResponse, JsonResponse
+from django.http import JsonResponse
 from django.test import Client
 
 import psycopg2
@@ -273,11 +274,11 @@ def test_readyz_complains_if_role_does_not_exist(client: Client):
     assert data["error"] == "InvalidRole"
 
 
-def get_readyz(client: Client, exclude: Optional[list[str]] = None, role: Optional[str] = None) -> HttpResponse:
+def get_readyz(client: Client, exclude: Optional[list[str]] = None, role: Optional[str] = None) -> Any:
     return client.get("/_readyz", data={"exclude": exclude or [], "role": role or ""})
 
 
-def get_livez(client: Client) -> HttpResponse:
+def get_livez(client: Client) -> Any:
     return client.get("/_livez")
 
 
@@ -392,7 +393,7 @@ def test_readyz_returns_503_when_prestop_marker_exists(client: Client):
 
     assert isinstance(resp, JsonResponse)
     assert resp.status_code == 503
-    assert resp.json() == {"shutting_down": True}  # type: ignore[attr-defined]
+    assert json.loads(resp.content) == {"shutting_down": True}
 
 
 @pytest.mark.django_db
@@ -402,7 +403,7 @@ def test_readyz_returns_503_when_prestop_marker_exists_with_role(client: Client)
 
     assert isinstance(resp, JsonResponse)
     assert resp.status_code == 503
-    assert resp.json() == {"shutting_down": True}  # type: ignore[attr-defined]
+    assert json.loads(resp.content) == {"shutting_down": True}
 
 
 @pytest.mark.django_db

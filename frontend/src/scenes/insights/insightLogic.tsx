@@ -698,7 +698,6 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
             }
 
             if (persist) {
-                actions.setInsight(insight, { fromPersistentApi: true, overrideQuery: true })
                 eventUsageLogic.actions.reportInsightSaved(insight, values.query, true, 'save_as')
             }
             actions.reloadSavedInsights() // Load insights afresh

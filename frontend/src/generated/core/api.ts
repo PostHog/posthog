@@ -9,6 +9,8 @@ import { apiMutator } from '../../lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
+    BulkUpdateTagsRequestApi,
+    BulkUpdateTagsResponseApi,
     DashboardTemplateApi,
     DomainsListParams,
     EnterprisePropertyDefinitionApi,
@@ -31,6 +33,7 @@ import type {
     PaginatedOrganizationOAuthApplicationListApi,
     PaginatedProjectBackwardCompatBasicListApi,
     PaginatedProjectSecretAPIKeyListApi,
+    PaginatedSubscriptionDeliveryListApi,
     PaginatedSubscriptionListApi,
     PaginatedUserListApi,
     PatchedDashboardTemplateApi,
@@ -47,6 +50,8 @@ import type {
     PropertyDefinitionsListParams,
     SharingConfigurationApi,
     SubscriptionApi,
+    SubscriptionDeliveryApi,
+    SubscriptionsDeliveriesListParams,
     SubscriptionsListParams,
     UserApi,
     UsersListParams,
@@ -68,6 +73,65 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
           [P in keyof Writable<T>]: T[P] extends object ? NonReadonly<NonNullable<T[P]>> : T[P]
       }
     : DistributeReadOnlyOverUnions<T>
+
+/**
+ * Paginated delivery history for a subscription. Requires premium subscriptions.
+ * @summary List subscription deliveries
+ */
+export const getSubscriptionsDeliveriesListUrl = (
+    projectId: string,
+    subscriptionId: number,
+    params?: SubscriptionsDeliveriesListParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/environments/${projectId}/subscriptions/${subscriptionId}/deliveries/?${stringifiedParams}`
+        : `/api/environments/${projectId}/subscriptions/${subscriptionId}/deliveries/`
+}
+
+export const subscriptionsDeliveriesList = async (
+    projectId: string,
+    subscriptionId: number,
+    params?: SubscriptionsDeliveriesListParams,
+    options?: RequestInit
+): Promise<PaginatedSubscriptionDeliveryListApi> => {
+    return apiMutator<PaginatedSubscriptionDeliveryListApi>(
+        getSubscriptionsDeliveriesListUrl(projectId, subscriptionId, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+/**
+ * Fetch one delivery row by id.
+ * @summary Retrieve subscription delivery
+ */
+export const getSubscriptionsDeliveriesRetrieveUrl = (projectId: string, subscriptionId: number, id: string) => {
+    return `/api/environments/${projectId}/subscriptions/${subscriptionId}/deliveries/${id}/`
+}
+
+export const subscriptionsDeliveriesRetrieve = async (
+    projectId: string,
+    subscriptionId: number,
+    id: string,
+    options?: RequestInit
+): Promise<SubscriptionDeliveryApi> => {
+    return apiMutator<SubscriptionDeliveryApi>(getSubscriptionsDeliveriesRetrieveUrl(projectId, subscriptionId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
 
 export const getDomainsListUrl = (organizationId: string, params?: DomainsListParams) => {
     const normalizedParams = new URLSearchParams()
@@ -1335,6 +1399,34 @@ export const propertyDefinitionsDestroy = async (
 }
 
 /**
+ * Bulk update tags on multiple objects.
+
+Accepts:
+- {"ids": [...], "action": "add"|"remove"|"set", "tags": ["tag1", "tag2"]}
+
+Actions:
+- "add": Add tags to existing tags on each object
+- "remove": Remove specific tags from each object
+- "set": Replace all tags on each object with the provided list
+ */
+export const getPropertyDefinitionsBulkUpdateTagsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/property_definitions/bulk_update_tags/`
+}
+
+export const propertyDefinitionsBulkUpdateTagsCreate = async (
+    projectId: string,
+    bulkUpdateTagsRequestApi: BulkUpdateTagsRequestApi,
+    options?: RequestInit
+): Promise<BulkUpdateTagsResponseApi> => {
+    return apiMutator<BulkUpdateTagsResponseApi>(getPropertyDefinitionsBulkUpdateTagsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(bulkUpdateTagsRequestApi),
+    })
+}
+
+/**
  * Allows a caller to provide a list of event names and a single property name
 Returns a map of the event names to a boolean representing whether that property has ever been seen with that event_name
  */
@@ -1627,6 +1719,17 @@ export const usersDestroy = async (uuid: string, options?: RequestInit): Promise
     return apiMutator<void>(getUsersDestroyUrl(uuid), {
         ...options,
         method: 'DELETE',
+    })
+}
+
+export const getUsersGithubLoginRetrieveUrl = (uuid: string) => {
+    return `/api/users/${uuid}/github_login/`
+}
+
+export const usersGithubLoginRetrieve = async (uuid: string, options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getUsersGithubLoginRetrieveUrl(uuid), {
+        ...options,
+        method: 'GET',
     })
 }
 

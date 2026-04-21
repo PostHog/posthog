@@ -63,8 +63,10 @@ type Model struct {
 	copyAnchor int
 	copyCursor int
 
-	// Search mode: output line filtering
+	// Search / filter query — shared between searchMode (highlights matches)
+	// and filterMode (shows only matching lines)
 	searchMode    bool
+	filterMode    bool
 	searchQuery   string
 	searchMatches []int // line indices that contain the match
 	searchCursor  int   // index into searchMatches (current highlighted match)
@@ -74,6 +76,11 @@ type Model struct {
 	servicesCursor int
 	servicesOffset int
 	sortMode       SortMode
+	groupDims      []string       // available grouping dimensions from config (e.g. ["layer", "tech"])
+	groupDimIndex  int            // -1 = no grouping, 0+ = index into groupDims
+	sidebarEntries []sidebarEntry // grouped view; rebuilt when grouping or services change
+	entryCursor    int            // cursor into sidebarEntries (skips headers and spacers)
+	cfg            *config.Config // retained for group_order lookups
 
 	// Docker container sidebar (visible when docker-compose proc is selected)
 	containers         []docker.DockerContainer
@@ -85,6 +92,10 @@ type Model struct {
 
 	// Buffered text for PTY input when the output pane is focused
 	inputBuffer string
+
+	// Show-all mode: display registry processes not in the current intent config
+	showAllRegProcs      bool
+	standbyRegProcs     []*process.Process // standby processes from registry (not in intent config)
 
 	// Setup mode: full-screen intent selection for dev environment config
 	setupMode    bool
@@ -133,7 +144,7 @@ func New(mgr *process.Manager, cfg *config.Config, configPath string, logger *lo
 	h := help.New()
 	h.Styles = helpStyles()
 
-	return Model{
+	m := Model{
 		mgr:              mgr,
 		services:         mgr.Procs(),
 		servicesCursor:   0,
@@ -145,11 +156,17 @@ func New(mgr *process.Manager, cfg *config.Config, configPath string, logger *lo
 		hideHelp:         cfg.HideKeymapWindow,
 		procListWidth:    cfg.ProcListWidth,
 		configPath:       configPath,
+		cfg:              cfg,
+		groupDims:        groupDimensions(cfg),
+		groupDimIndex:    -1,
 		keys:             keys,
 		help:             h,
 		spinner:          spinner.New(spinner.WithSpinner(spinner.MiniDot)),
 		log:              logger,
 	}
+	m.rebuildSidebarEntries()
+	m.keys.Group.SetEnabled(len(m.groupDims) > 0)
+	return m
 }
 
 func (m Model) dbg(format string, args ...any) {
@@ -204,33 +221,22 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				break
 			}
 			m.reloadActiveLines()
-			if m.searchQuery != "" {
+			if m.filterMode {
+				m.recomputeFilter()
+			} else if m.searchQuery != "" {
 				m.recomputeSearch()
 			}
 			// Don't auto-scroll while the user is selecting text in copy mode
-			if m.viewportAtBottom && !m.copyMode && !m.searchMode {
+			if m.viewportAtBottom && !m.copyMode && !m.searchMode && !m.filterMode {
 				m.viewport.GotoBottom()
 			}
 		}
 
 	case process.StatusMsg:
 		m.dbg("status: proc=%s status=%s", msg.Name, msg.Status)
-		// Capture the active name before re-fetching so sortServices
-		// can restore the cursor to the same process.
-		activeName := ""
-		if p := m.activeProc(); p != nil {
-			activeName = p.Name
-		}
-		// Re-fetch the process slice so status icons refresh on next render
-		m.services = m.mgr.Procs()
-		// Restore cursor to the same process in the new (unsorted) slice
-		m.servicesCursor = 0
-		for i, p := range m.services {
-			if p.Name == activeName {
-				m.servicesCursor = i
-				break
-			}
-		}
+		// Re-fetch the process slice (merging standbys if show-all is active)
+		// so status icons refresh on next render
+		m.refetchServices()
 		m.sortServices()
 		m.updateProcKeys()
 
@@ -282,11 +288,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			m.containerLines = append(m.containerLines, msg.Line)
 			lineIndex := len(m.containerLines) - 1
-			m.viewport.SetContent(strings.Join(m.containerLines, "\n"))
-			if m.viewportAtBottom && !m.copyMode && !m.searchMode {
+			if m.filterMode {
+				m.recomputeFilter()
+			} else {
+				m.viewport.SetContent(strings.Join(m.containerLines, "\n"))
+			}
+			if m.viewportAtBottom && !m.copyMode && !m.searchMode && !m.filterMode {
 				m.viewport.GotoBottom()
 			}
-			if m.searchQuery != "" {
+			if !m.filterMode && m.searchQuery != "" {
 				m.updateSearchForLine(msg.Line, lineIndex, evicted)
 			}
 		}
@@ -302,6 +312,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		var handled bool
 		if m.searchMode {
 			m, cmds, handled = m.handleSearchKey(msg, cmds)
+		} else if m.filterMode {
+			m, cmds, handled = m.handleFilterKey(msg, cmds)
 		} else if m.copyMode {
 			m, cmds, handled = m.handleCopyKey(msg, cmds)
 		} else if m.infoMode {
@@ -320,16 +332,30 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tea.MouseWheelMsg:
 		if msg.X < sidebarWidth {
-			delta := 0
+			moved := false
 			switch msg.Button {
 			case tea.MouseWheelDown:
-				delta = 1
+				if m.isGrouped() {
+					moved = m.nextProcEntry()
+				} else {
+					newCursor := min(m.servicesCursor+1, len(m.services)-1)
+					if newCursor != m.servicesCursor {
+						m.servicesCursor = newCursor
+						moved = true
+					}
+				}
 			case tea.MouseWheelUp:
-				delta = -1
+				if m.isGrouped() {
+					moved = m.prevProcEntry()
+				} else {
+					newCursor := max(m.servicesCursor-1, 0)
+					if newCursor != m.servicesCursor {
+						m.servicesCursor = newCursor
+						moved = true
+					}
+				}
 			}
-			newCursor := max(0, min(m.servicesCursor+delta, len(m.services)-1))
-			if newCursor != m.servicesCursor {
-				m.servicesCursor = newCursor
+			if moved {
 				m.ensureSidebarCursorVisible()
 				m.updateProcKeys()
 				var loadCmds []tea.Cmd
@@ -390,7 +416,7 @@ func (m Model) View() tea.View {
 // Returns true when sidebars should be hidden and the output pane
 // fills the full width (copy mode or any search state).
 func (m Model) isFullScreen() bool {
-	return m.copyMode || m.searchMode || m.setupMode
+	return m.copyMode || m.searchMode || m.filterMode || m.setupMode
 }
 
 func (m Model) activeProc() *process.Process {
@@ -477,6 +503,7 @@ func (m Model) loadActiveProc() (Model, []tea.Cmd) {
 
 	m.copyMode = false
 	m.searchMode = false
+	m.filterMode = false
 	m.inputBuffer = ""
 	m.viewport.StyleLineFunc = nil
 
@@ -542,6 +569,8 @@ func (m *Model) reloadActiveLines() {
 	p := m.activeProc()
 	if p == nil {
 		m.activeLines = nil
+	} else if p.IsStandby() {
+		m.activeLines = m.standbyInfoLines(p)
 	} else {
 		m.activeLines = p.Lines()
 	}
@@ -562,6 +591,8 @@ func statusSortOrder(s process.Status) int {
 		return 3
 	case process.StatusDone:
 		return 4
+	case process.StatusStandby:
+		return 6
 	default:
 		return 5
 	}
@@ -611,7 +642,115 @@ func (m *Model) sortServices() {
 			break
 		}
 	}
+	m.rebuildSidebarEntries()
 	m.ensureSidebarCursorVisible()
+}
+
+// activeGroupDim returns the current grouping dimension name, or "" if grouping is off.
+func (m Model) activeGroupDim() string {
+	if m.groupDimIndex < 0 || m.groupDimIndex >= len(m.groupDims) {
+		return ""
+	}
+	return m.groupDims[m.groupDimIndex]
+}
+
+// isGrouped returns true when a grouping dimension is active.
+func (m Model) isGrouped() bool {
+	return m.activeGroupDim() != ""
+}
+
+// cycleGroup advances to the next grouping dimension, or back to no grouping.
+func (m *Model) cycleGroup() {
+	if len(m.groupDims) == 0 {
+		return
+	}
+	m.groupDimIndex++
+	if m.groupDimIndex >= len(m.groupDims) {
+		m.groupDimIndex = -1
+	}
+}
+
+// refetchServices gets the latest process list and keeps the cursor stable.
+// When showAllRegProcs is active, standby processes from the registry are appended.
+func (m *Model) refetchServices() {
+	// Capture the active name before re-fetching so sortServices
+	// can restore the cursor to the same process.
+	activeName := ""
+	if p := m.activeProc(); p != nil {
+		activeName = p.Name
+	}
+
+	// Re-fetch the process slice so status icons refresh on next render
+	real := m.mgr.Procs()
+	if m.showAllRegProcs && len(m.standbyRegProcs) > 0 {
+		// Filter out standbys that were promoted to real (user started them)
+		realNames := make(map[string]bool, len(real))
+		for _, p := range real {
+			realNames[p.Name] = true
+		}
+		var standbys []*process.Process
+		for _, p := range m.standbyRegProcs {
+			if !realNames[p.Name] {
+				standbys = append(standbys, p)
+			}
+		}
+		m.standbyRegProcs = standbys
+		m.services = append(real, standbys...)
+	} else {
+		m.services = real
+	}
+
+	// Restore cursor to the same process in the new (unsorted) slice
+	m.servicesCursor = 0
+	for i, p := range m.services {
+		if p.Name == activeName {
+			m.servicesCursor = i
+			break
+		}
+	}
+}
+
+// rebuildSidebarEntries regenerates the sidebar entries from the
+// current services slice and grouping dimension. It preserves the cursor on the
+// same process by finding its entry in the new list.
+func (m *Model) rebuildSidebarEntries() {
+	activeName := ""
+	if p := m.activeProc(); p != nil {
+		activeName = p.Name
+	}
+	m.sidebarEntries = buildGroupedEntries(m.services, m.activeGroupDim(), m.cfg)
+	// Restore entryCursor to the same process
+	m.entryCursor = 0
+	for i, e := range m.sidebarEntries {
+		if e.proc != nil && e.proc.Name == activeName {
+			m.entryCursor = i
+			break
+		}
+	}
+}
+
+// nextProcEntry moves the entryCursor forward to the next process entry, skipping headers and spacers.
+func (m *Model) nextProcEntry() bool {
+	for i := m.entryCursor + 1; i < len(m.sidebarEntries); i++ {
+		if !m.sidebarEntries[i].isNonSelectable() {
+			m.entryCursor = i
+			m.servicesCursor = m.sidebarEntries[i].procIndex
+			return true
+		}
+	}
+	return false
+}
+
+// prevProcEntry moves the entryCursor backward to the previous process entry, skipping headers and spacers.
+func (m *Model) prevProcEntry() bool {
+	for i := m.entryCursor - 1; i >= 0; i-- {
+		if !m.sidebarEntries[i].isNonSelectable() {
+			m.entryCursor = i
+			m.servicesCursor = m.sidebarEntries[i].procIndex
+			return true
+		}
+	}
+	return false
 }
 
 func (m Model) toggleMetricsOnSelectedProc() {

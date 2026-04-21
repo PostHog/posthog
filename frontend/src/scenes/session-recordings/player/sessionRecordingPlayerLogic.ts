@@ -2238,6 +2238,16 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 actions.syncSnapshotsWithPlayer()
             }
         },
+        isWaitingForPlayableFullSnapshot: (isWaiting: boolean, wasWaiting: boolean | undefined) => {
+            // Force a buffering re-check when the scheduler gives up on seek
+            // without loading new snapshots. checkBufferingCompleted normally
+            // fires via syncSnapshotsWithPlayer on new data, but a silent
+            // seek → buffer_ahead transition delivers none, so the player
+            // would stay stuck in BUFFER without this listener (#53893).
+            if (wasWaiting && !isWaiting) {
+                actions.checkBufferingCompleted()
+            }
+        },
         timestampChangeTracking: (value) => {
             if (value.timestampMatchesPrevious < 10) {
                 return

@@ -317,14 +317,20 @@
                                 "description": "Human-readable variant name",
                                 "type": "string"
                             },
-                            "rollout_percentage": {
+                            "split_percent": {
+                                "description": "Percentage of traffic allocated to this variant (0-100). All variants must sum to 100. One of split_percent (recommended) or rollout_percentage (deprecated) must be provided per variant.",
                                 "type": "number",
                                 "minimum": 0,
-                                "maximum": 100,
-                                "description": "Percentage of users to show this variant"
+                                "maximum": 100
+                            },
+                            "rollout_percentage": {
+                                "description": "Deprecated: use split_percent instead. Accepted for backward compatibility.",
+                                "type": "number",
+                                "minimum": 0,
+                                "maximum": 100
                             }
                         },
-                        "required": ["key", "rollout_percentage"]
+                        "required": ["key"]
                     }
                 },
                 "minimum_detectable_effect": {
@@ -367,36 +373,6 @@
                 "experimentId": {
                     "type": "number",
                     "description": "The ID of the experiment to delete"
-                }
-            },
-            "required": ["experimentId"]
-        },
-        "ExperimentGetAllSchema": {
-            "type": "object",
-            "properties": {
-                "data": {
-                    "type": "object",
-                    "properties": {
-                        "limit": {
-                            "type": "integer",
-                            "exclusiveMinimum": 0,
-                            "maximum": 9007199254740991
-                        },
-                        "offset": {
-                            "type": "integer",
-                            "minimum": 0,
-                            "maximum": 9007199254740991
-                        }
-                    }
-                }
-            }
-        },
-        "ExperimentGetSchema": {
-            "type": "object",
-            "properties": {
-                "experimentId": {
-                    "type": "number",
-                    "description": "The ID of the experiment to retrieve"
                 }
             },
             "required": ["experimentId"]
@@ -830,63 +806,6 @@
             },
             "required": ["experimentId", "data"]
         },
-        "InsightCreateSchema": {
-            "type": "object",
-            "properties": {
-                "data": {
-                    "type": "object",
-                    "properties": {
-                        "name": {
-                            "type": "string"
-                        },
-                        "query": {
-                            "type": "object",
-                            "properties": {
-                                "kind": {
-                                    "anyOf": [
-                                        {
-                                            "type": "string",
-                                            "const": "InsightVizNode"
-                                        },
-                                        {
-                                            "type": "string",
-                                            "const": "DataVisualizationNode"
-                                        }
-                                    ]
-                                },
-                                "source": {
-                                    "description": "For new insights, use the query from your successful query-run tool call. For updates, the existing query can optionally be reused."
-                                }
-                            },
-                            "required": ["kind", "source"]
-                        },
-                        "description": {
-                            "type": "string"
-                        },
-                        "favorited": {
-                            "type": "boolean"
-                        },
-                        "tags": {
-                            "type": "array",
-                            "items": {
-                                "type": "string"
-                            }
-                        }
-                    },
-                    "required": ["name", "query", "favorited"]
-                }
-            },
-            "required": ["data"]
-        },
-        "InsightDeleteSchema": {
-            "type": "object",
-            "properties": {
-                "insightId": {
-                    "type": "string"
-                }
-            },
-            "required": ["insightId"]
-        },
         "InsightGenerateHogQLFromQuestionSchema": {
             "type": "object",
             "properties": {
@@ -898,109 +817,21 @@
             },
             "required": ["question"]
         },
-        "InsightGetAllSchema": {
-            "type": "object",
-            "properties": {
-                "data": {
-                    "type": "object",
-                    "properties": {
-                        "limit": {
-                            "type": "number"
-                        },
-                        "offset": {
-                            "type": "number"
-                        },
-                        "favorited": {
-                            "type": "boolean"
-                        },
-                        "search": {
-                            "type": "string"
-                        }
-                    }
-                }
-            }
-        },
-        "InsightGetSchema": {
-            "type": "object",
-            "properties": {
-                "insightId": {
-                    "type": "string"
-                }
-            },
-            "required": ["insightId"]
-        },
         "InsightQueryInputSchema": {
             "type": "object",
             "properties": {
                 "insightId": {
-                    "type": "string"
+                    "type": "string",
+                    "description": "The insight ID or short_id to run."
+                },
+                "output_format": {
+                    "default": "optimized",
+                    "description": "Output format. \"optimized\" returns a human-readable summary from server-side formatters (recommended for analysis). \"json\" returns the raw query results as JSON.",
+                    "type": "string",
+                    "enum": ["optimized", "json"]
                 }
             },
             "required": ["insightId"]
-        },
-        "InsightUpdateSchema": {
-            "type": "object",
-            "properties": {
-                "insightId": {
-                    "type": "string"
-                },
-                "data": {
-                    "type": "object",
-                    "properties": {
-                        "name": {
-                            "type": "string"
-                        },
-                        "description": {
-                            "type": "string"
-                        },
-                        "filters": {
-                            "type": "object",
-                            "propertyNames": {
-                                "type": "string"
-                            },
-                            "additionalProperties": {}
-                        },
-                        "query": {
-                            "type": "object",
-                            "properties": {
-                                "kind": {
-                                    "anyOf": [
-                                        {
-                                            "type": "string",
-                                            "const": "InsightVizNode"
-                                        },
-                                        {
-                                            "type": "string",
-                                            "const": "DataVisualizationNode"
-                                        }
-                                    ]
-                                },
-                                "source": {
-                                    "description": "For new insights, use the query from your successful query-run tool call. For updates, the existing query can optionally be reused"
-                                }
-                            },
-                            "required": ["kind", "source"]
-                        },
-                        "favorited": {
-                            "type": "boolean"
-                        },
-                        "dashboards": {
-                            "description": "Dashboard IDs this insight should belong to. This is a full replacement — always include all existing dashboard IDs when adding a new one.",
-                            "type": "array",
-                            "items": {
-                                "type": "number"
-                            }
-                        },
-                        "tags": {
-                            "type": "array",
-                            "items": {
-                                "type": "string"
-                            }
-                        }
-                    }
-                }
-            },
-            "required": ["insightId", "data"]
         },
         "LLMAnalyticsGetCostsSchema": {
             "type": "object",
@@ -1015,14 +846,6 @@
                 }
             },
             "required": ["projectId"]
-        },
-        "OrganizationGetAllSchema": {
-            "type": "object",
-            "properties": {}
-        },
-        "OrganizationGetDetailsSchema": {
-            "type": "object",
-            "properties": {}
         },
         "OrganizationSetActiveSchema": {
             "type": "object",

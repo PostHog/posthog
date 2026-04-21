@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { act, cleanup, render, screen } from '@testing-library/react'
+import { act, cleanup, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { BindLogic, Provider } from 'kea'
 
@@ -39,6 +39,23 @@ function makeTrendsQuery(): TrendsQuery {
     return {
         kind: NodeKind.TrendsQuery,
         series: [{ kind: NodeKind.EventsNode, name: '$pageview', event: '$pageview', math: BaseMathType.TotalCount }],
+    }
+}
+
+function makeDataWarehouseTrendsQuery(): TrendsQuery {
+    return {
+        kind: NodeKind.TrendsQuery,
+        series: [
+            {
+                kind: NodeKind.DataWarehouseNode,
+                id: 'warehouse_orders',
+                table_name: 'warehouse_orders',
+                name: 'Orders',
+                timestamp_field: 'created_at',
+                id_field: 'order_id',
+                distinct_id_field: 'customer_id',
+            },
+        ],
     }
 }
 
@@ -203,6 +220,22 @@ describe('EditorFilters', () => {
             await userEvent.click(screen.getByRole('button', { name: /Advanced options/ }))
 
             expect(screen.getByText('Use person properties from query time')).toBeInTheDocument()
+        })
+
+        it('disables query-time person properties for data warehouse insights', async () => {
+            setupAndRender(makeDataWarehouseTrendsQuery())
+
+            await userEvent.click(screen.getByRole('button', { name: /Advanced options/ }))
+
+            const disabledArea = screen.getByText('Use person properties from query time').closest('.LemonDisabledArea')
+            expect(disabledArea).toHaveAttribute('aria-disabled', 'true')
+
+            await userEvent.hover(disabledArea as HTMLElement)
+
+            expect(
+                await screen.findByText('Data warehouse insights always use the latest table properties.')
+            ).toBeInTheDocument()
+            expect(within(disabledArea as HTMLElement).getByRole('switch')).toBeDisabled()
         })
     })
 

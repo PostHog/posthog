@@ -106,6 +106,7 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str]]:
         "OAuthGrant",
         "OAuthIDToken",
         "OAuthRefreshToken",
+        "DeviceGrant",
         "StaticDevice",
         "TOTPDevice",
         "UserSocialAuth",
@@ -130,6 +131,7 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str]]:
         "CodeInviteRedemption",
         "EndpointVersion",
         "ErrorTrackingIssueAssignment",
+        "StreamlitAppVersion",
         "FeatureFlagEvaluationContext",
         "Run",
         "RunSnapshot",
@@ -150,6 +152,7 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str]]:
         "TeamMarketingAnalyticsConfig",
         "TeamRevenueAnalyticsConfig",
         "TeamJsSnippetConfig",
+        "TeamProvisioningConfig",
         # --- User preferences with no IDOR risk (read own data only) ---
         "FeatureFlagOverride",
         "NotificationReadState",

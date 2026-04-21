@@ -9,10 +9,12 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
+    PaginatedAsyncDeletionStatusListApi,
     PaginatedPersonListApi,
     PatchedPersonApi,
     PersonApi,
     PersonBulkDeleteRequestApi,
+    PersonBulkDeleteResponseApi,
     PersonDeletePropertyRequestApi,
     PersonPropertiesAtTimeResponseApi,
     PersonUpdatePropertyRequestApi,
@@ -23,6 +25,7 @@ import type {
     PersonsBulkDeleteCreateParams,
     PersonsCohortsRetrieveParams,
     PersonsDeletePropertyCreateParams,
+    PersonsDeletionStatusListParams,
     PersonsFunnelCorrelationCreateParams,
     PersonsFunnelCorrelationRetrieveParams,
     PersonsFunnelCreateParams,
@@ -492,8 +495,8 @@ export const personsBulkDeleteCreate = async (
     personBulkDeleteRequestApi: PersonBulkDeleteRequestApi,
     params?: PersonsBulkDeleteCreateParams,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getPersonsBulkDeleteCreateUrl(projectId, params), {
+): Promise<PersonBulkDeleteResponseApi> => {
+    return apiMutator<PersonBulkDeleteResponseApi>(getPersonsBulkDeleteCreateUrl(projectId, params), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -526,6 +529,36 @@ export const personsCohortsRetrieve = async (
     options?: RequestInit
 ): Promise<void> => {
     return apiMutator<void>(getPersonsCohortsRetrieveUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+/**
+ * List the status of queued event deletions for persons. When you delete a person with `delete_events=true`, an async deletion is queued. Use this endpoint to check whether those deletions are still pending or have been completed.
+ */
+export const getPersonsDeletionStatusListUrl = (projectId: string, params?: PersonsDeletionStatusListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/persons/deletion_status/?${stringifiedParams}`
+        : `/api/projects/${projectId}/persons/deletion_status/`
+}
+
+export const personsDeletionStatusList = async (
+    projectId: string,
+    params?: PersonsDeletionStatusListParams,
+    options?: RequestInit
+): Promise<PaginatedAsyncDeletionStatusListApi> => {
+    return apiMutator<PaginatedAsyncDeletionStatusListApi>(getPersonsDeletionStatusListUrl(projectId, params), {
         ...options,
         method: 'GET',
     })

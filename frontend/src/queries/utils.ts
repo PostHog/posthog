@@ -436,8 +436,9 @@ export function shouldQueryBeAsync(query: Node): boolean {
     return (
         isInsightQueryNode(query) ||
         isHogQLQuery(query) ||
-        (isDataTableNode(query) && isInsightQueryNode(query.source)) ||
-        (isDataVisualizationNode(query) && isInsightQueryNode(query.source))
+        isTracesQuery(query) ||
+        (isDataTableNode(query) && (isInsightQueryNode(query.source) || isTracesQuery(query.source))) ||
+        (isDataVisualizationNode(query) && (isInsightQueryNode(query.source) || isTracesQuery(query.source)))
     )
 }
 
@@ -701,6 +702,18 @@ export function escapePropertyAsHogQLIdentifier(identifier: string): string {
         return identifier // This identifier is already quoted
     }
     return !identifier.includes('"') ? `"${identifier}"` : `\`${identifier}\``
+}
+
+/** Quote each segment of a dotted HogQL reference independently. */
+export function escapeDottedHogQLIdentifier(identifier: string): string {
+    if (isQuoted(identifier) || !identifier.includes('.')) {
+        return escapePropertyAsHogQLIdentifier(identifier)
+    }
+
+    return identifier
+        .split('.')
+        .map((segment) => escapePropertyAsHogQLIdentifier(segment))
+        .join('.')
 }
 
 export function taxonomicEventFilterToHogQL(

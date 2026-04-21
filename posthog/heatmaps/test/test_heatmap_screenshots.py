@@ -7,6 +7,7 @@ from django.utils import timezone
 
 from rest_framework.test import APIClient
 
+from posthog.jwt import PosthogJwtAudience, encode_jwt
 from posthog.models import HeatmapSnapshot, SavedHeatmap, Team
 
 
@@ -83,6 +84,34 @@ class TestHeatmapsAPI(APIBaseTest):
         other = SavedHeatmap.objects.create(team=other_team, url="https://example.com")
         r = self.client.get(f"/api/environments/{self.team.id}/heatmap_screenshots/{other.id}/content/")
         self.assertEqual(r.status_code, 404)
+
+    def test_content_endpoint_accepts_export_renderer_jwt(self):
+        # Screenshot exports render the heatmap in a headless browser that
+        # authenticates with an EXPORT_RENDERER JWT. This regression test
+        # guards against HeatmapScreenshotViewSet dropping that auth class:
+        # if it does, the exporter can't fetch the background image and the
+        # resulting PNG renders an `<img alt="Heatmap">` placeholder.
+        saved = SavedHeatmap.objects.create(
+            team=self.team,
+            url="https://example.com",
+            created_by=self.user,
+            status=SavedHeatmap.Status.COMPLETED,
+        )
+        HeatmapSnapshot.objects.create(heatmap=saved, width=1024, content=b"jpegdata1024")
+
+        token = encode_jwt(
+            {"id": self.user.id},
+            timedelta(minutes=5),
+            PosthogJwtAudience.EXPORT_RENDERER,
+        )
+        unauthenticated = APIClient()
+        r = unauthenticated.get(
+            f"/api/environments/{self.team.id}/heatmap_screenshots/{saved.id}/content/?width=1024",
+            headers={"authorization": f"Bearer {token}"},
+        )
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r["Content-Type"], "image/jpeg")
+        self.assertEqual(r.content, b"jpegdata1024")
 
     @patch("posthog.heatmaps.heatmaps_api.generate_heatmap_screenshot")
     def test_retrieve_auto_recovers_stale_processing_heatmap(self, mock_task):
