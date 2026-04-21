@@ -232,6 +232,18 @@ class ExperimentQueryRunner(QueryRunner):
         config = get_or_create_team_extension(self.team, TeamExperimentsConfig)
         return config.experiment_precomputation_enabled
 
+    def _resolve_funnel_steps_data_disabled(self) -> bool:
+        """Resolve funnel_steps_data_disabled: experiment parameter > team config > False."""
+        parameters = self.experiment.parameters or {}
+        if "funnel_steps_data_disabled" in parameters:
+            return bool(parameters["funnel_steps_data_disabled"])
+
+        config = get_or_create_team_extension(self.team, TeamExperimentsConfig)
+        if config.funnel_steps_data_disabled is not None:
+            return config.funnel_steps_data_disabled
+
+        return False
+
     def _get_experiment_query(self) -> ast.SelectQuery:
         """
         Returns the main experiment query.
@@ -248,7 +260,7 @@ class ExperimentQueryRunner(QueryRunner):
             filter_test_accounts,
         ) = get_exposure_config_params_for_builder(self.experiment.exposure_criteria)
 
-        funnel_steps_data_disabled = (self.experiment.parameters or {}).get("funnel_steps_data_disabled", False)
+        funnel_steps_data_disabled = self._resolve_funnel_steps_data_disabled()
 
         builder = ExperimentQueryBuilder(
             team=self.team,

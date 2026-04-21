@@ -45,5 +45,15 @@ class TeamExperimentsConfig(models.Model):
         help_text="Default value for 'only count matured users' on new experiments in this environment.",
     )
 
+    funnel_steps_data_disabled = models.BooleanField(
+        null=True,
+        blank=True,
+        help_text=(
+            "Default for disabling per-step session/event sample data on funnel experiment metrics. "
+            "Overridden by the experiment-level `funnel_steps_data_disabled` parameter when set. "
+            "Leave unset to fall back to the built-in default (False)."
+        ),
+    )
+
 
 register_team_extension_signal(TeamExperimentsConfig, logger=logger)
