@@ -39,7 +39,7 @@ export function AIConsentPopoverWrapper({
             // Note: Sync the copy below with organization-ai-consent in SettingsMap.tsx
             overlay={
                 <div className="flex flex-col m-1.5 max-w-sm">
-                    <p className="font-medium text-pretty mb-0">
+                    <p className="font-medium text-pretty mb-2">
                         PostHog AI needs your approval to potentially process identifying user data with{' '}
                         <Tooltip title={`As of ${dayjs().format('MMMM YYYY')}: Anthropic and OpenAI`}>
                             <dfn>external AI providers</dfn>
