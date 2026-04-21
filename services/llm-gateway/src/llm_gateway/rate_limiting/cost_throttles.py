@@ -9,8 +9,7 @@ from redis.asyncio import Redis
 
 from llm_gateway.config import (
     DEFAULT_USER_COST_LIMIT,
-    FREE_PLAN_EXPIRED_COST_LIMIT,
-    FREE_PLAN_TRIAL_COST_LIMIT,
+    FREE_PLAN_COST_LIMIT,
     get_settings,
 )
 
@@ -205,9 +204,7 @@ class _UserCostThrottleBase(CostThrottle):
 
     def _get_config(self, context: ThrottleContext) -> UserCostLimit:
         if _is_free_plan_throttled(context):
-            if context.in_trial_period:
-                return FREE_PLAN_TRIAL_COST_LIMIT
-            return FREE_PLAN_EXPIRED_COST_LIMIT
+            return FREE_PLAN_COST_LIMIT
 
         config = get_settings().user_cost_limits.get(context.product)
         if not config:
