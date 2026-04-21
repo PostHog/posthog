@@ -1,5 +1,6 @@
 from typing import Any
 
+from drf_spectacular.utils import extend_schema
 from rest_framework import mixins, serializers, viewsets
 from rest_framework.response import Response
 
@@ -40,6 +41,7 @@ class CIMDVerificationTokenSerializer(serializers.ModelSerializer):
         return value
 
 
+@extend_schema(tags=["core"])
 class CIMDVerificationTokenViewSet(
     TeamAndOrgViewSetMixin,
     mixins.CreateModelMixin,

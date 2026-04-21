@@ -361,9 +361,24 @@ def _update_cimd_application(app: OAuthApplication, metadata: CIMDMetadataDocume
     verification = _resolve_verification_token(metadata)
     new_org = verification.organization if verification else None
     update_fields = ["name", "redirect_uris", "logo_uri", "cimd_metadata_last_fetched"]
-    if app.organization_id != (new_org.id if new_org else None):
+    old_org_id = app.organization_id
+    new_org_id = new_org.id if new_org else None
+    if old_org_id != new_org_id:
         app.organization = new_org
         update_fields.append("organization")
+        # When verification status flips on an already-provisioning app, keep
+        # the rate-limit tier in sync. Only bump when the current value is one
+        # of our well-known tier defaults — admin overrides stay put.
+        if app.is_provisioning_partner:
+            became_verified = old_org_id is None and new_org_id is not None
+            became_unverified = old_org_id is not None and new_org_id is None
+            current_limit = app.provisioning_rate_limit_account_requests
+            if became_verified and current_limit == CIMD_PROVISIONING_ACCOUNT_REQUESTS_DEFAULT_RATE_LIMIT:
+                app.provisioning_rate_limit_account_requests = CIMD_PROVISIONING_ACCOUNT_REQUESTS_VERIFIED_RATE_LIMIT
+                update_fields.append("provisioning_rate_limit_account_requests")
+            elif became_unverified and current_limit == CIMD_PROVISIONING_ACCOUNT_REQUESTS_VERIFIED_RATE_LIMIT:
+                app.provisioning_rate_limit_account_requests = CIMD_PROVISIONING_ACCOUNT_REQUESTS_DEFAULT_RATE_LIMIT
+                update_fields.append("provisioning_rate_limit_account_requests")
 
     try:
         app.full_clean()

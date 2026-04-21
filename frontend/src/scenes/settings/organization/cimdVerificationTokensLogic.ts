@@ -1,26 +1,22 @@
 import { actions, afterMount, kea, listeners, path, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 
-import api, { PaginatedResponse } from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { organizationLogic } from 'scenes/organizationLogic'
 
+import {
+    cimdVerificationTokensCreate,
+    cimdVerificationTokensDestroy,
+    cimdVerificationTokensList,
+} from '~/generated/core/api'
+import { CIMDVerificationTokenApi } from '~/generated/core/api.schemas'
+
 import type { cimdVerificationTokensLogicType } from './cimdVerificationTokensLogicType'
 
-export interface CIMDVerificationToken {
-    id: string
-    label: string
-    mask_value: string | null
-    created_by: { first_name: string; email: string } | null
-    created_at: string
-    last_used_at: string | null
-}
-
-export interface CIMDVerificationTokenWithValue extends CIMDVerificationToken {
+export type CIMDVerificationToken = CIMDVerificationTokenApi
+export interface CIMDVerificationTokenWithValue extends CIMDVerificationTokenApi {
     value: string
 }
-
-const listUrl = (orgId: string): string => `api/organizations/${orgId}/cimd_verification_tokens/`
 
 export const cimdVerificationTokensLogic = kea<cimdVerificationTokensLogicType>([
     path(['scenes', 'settings', 'organization', 'cimdVerificationTokensLogic']),
@@ -67,7 +63,7 @@ export const cimdVerificationTokensLogic = kea<cimdVerificationTokensLogicType>(
                     if (!orgId) {
                         return []
                     }
-                    const response = await api.get<PaginatedResponse<CIMDVerificationToken>>(listUrl(orgId))
+                    const response = await cimdVerificationTokensList(orgId)
                     return response.results
                 },
             },
@@ -86,7 +82,9 @@ export const cimdVerificationTokensLogic = kea<cimdVerificationTokensLogicType>(
                 return
             }
             try {
-                const created = await api.create<CIMDVerificationTokenWithValue>(listUrl(orgId), { label })
+                const created = (await cimdVerificationTokensCreate(orgId, {
+                    label,
+                } as unknown as CIMDVerificationTokenApi)) as CIMDVerificationTokenWithValue
                 actions.setJustCreatedToken(created)
                 actions.hideCreateDialog()
                 actions.loadTokens()
@@ -100,7 +98,7 @@ export const cimdVerificationTokensLogic = kea<cimdVerificationTokensLogicType>(
                 return
             }
             try {
-                await api.delete(`${listUrl(orgId)}${token.id}/`)
+                await cimdVerificationTokensDestroy(orgId, token.id)
                 lemonToast.success('Token revoked')
                 actions.loadTokens()
             } catch (e: any) {
