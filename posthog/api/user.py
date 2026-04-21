@@ -1050,7 +1050,7 @@ def prepare_toolbar_preloaded_flags(request):
             flag_key: (
                 flag_data.get("variant") if flag_data.get("variant") is not None else flag_data.get("enabled", False)
             )
-            for flag_key, flag_data in result.get("feature_flags", {}).items()
+            for flag_key, flag_data in result.get("flags", {}).items()
         }
 
         key = secrets.token_urlsafe(16)

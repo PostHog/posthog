@@ -42,7 +42,7 @@ def get_flags_from_service(
 
     Returns:
         The full response from the flags service as a dict, typically containing:
-        - "feature_flags": dict of flag key -> flag data (enabled, variant, etc.)
+        - "flags": dict of flag key -> flag data (enabled, variant, etc.)
         - "featureFlagPayloads": dict of flag key -> payload (if requested)
         - Other metadata depending on API version
 
@@ -56,7 +56,7 @@ def get_flags_from_service(
         ...     distinct_id="user_123",
         ...     groups={"company": "acme"}
         ... )
-        >>> flags_data = response.get("feature_flags", {})
+        >>> flags_data = response.get("flags", {})
         >>> if flags_data.get("new-feature", {}).get("enabled"):
         ...     # Feature is enabled
     """
