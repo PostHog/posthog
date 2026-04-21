@@ -65,6 +65,31 @@ class TestChannelMessagesGeneratorResumable:
                 0,
                 [],
             ),
+            (
+                "multi_page_saves_after_thread_replies_are_drained",
+                # page 1 has a parent with 2 replies -> conversations.replies is called
+                # between page 1 and page 2. save_state must fire only after the replies
+                # have been yielded, producing exactly one save with cursor_page_2.
+                [
+                    _make_page(
+                        [{"ts": "1700000000.000001", "reply_count": 2}],
+                        next_cursor="cursor_page_2",
+                    ),
+                    _make_page(
+                        [
+                            # conversations.replies includes the parent; it gets filtered.
+                            {"ts": "1700000000.000001", "thread_ts": "1700000000.000001"},
+                            {"ts": "1700000000.000002", "thread_ts": "1700000000.000001"},
+                            {"ts": "1700000000.000003", "thread_ts": "1700000000.000001"},
+                        ],
+                        next_cursor="",
+                    ),
+                    _make_page([{"ts": "1700000001.000001"}], next_cursor=""),
+                ],
+                None,
+                4,  # 1 parent + 2 replies from page 1 + 1 message on page 2
+                [SlackResumeConfig(channel_id="C123", next_cursor="cursor_page_2", oldest_ts=None)],
+            ),
         ]
     )
     def test_fresh_run(
