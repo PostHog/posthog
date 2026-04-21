@@ -1,3 +1,4 @@
+import os
 import time
 from typing import Optional, cast
 
@@ -717,8 +718,15 @@ class PostHogFeatureFlagPermission(BasePermission):
         else:
             config = flag
 
+        # Allow force-enabling specific flags via environment variable (for CI/local testing).
+        force_enabled_raw = os.environ.get("POSTHOG_FEATURE_FLAGS_FORCE_ENABLED", "")
+        forced_flags = {f.strip() for f in force_enabled_raw.split(",") if f.strip()}
+
         for required_flag, actions in config.items():
             if "*" in actions or view.action in actions:
+                if required_flag in forced_flags:
+                    return True
+
                 org_id = str(organization.id)
 
                 enabled = posthoganalytics.feature_enabled(
