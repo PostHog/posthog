@@ -111,7 +111,7 @@ class LinkedinAdsClient:
         wait=wait_exponential_jitter(initial=1, max=30),
         reraise=True,
     )
-    def _call_finder(self, resource_path: str, finder: str, params: dict) -> Any:
+    def _call_finder(self, resource_path: str, finder: str, params: dict[str, Any]) -> Any:
         """Call the Restli finder with bounded retries on transient transport and 5xx/429 errors.
 
         LinkedIn's edge occasionally drops TLS connections mid-handshake (SSLEOFError) or
