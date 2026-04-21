@@ -19,6 +19,12 @@ type DisposablesManager = {
     registry: Map<string, DisposableEntry>
     keyCounter: number
     logicPath: string
+    /**
+     * Set to true by the plugin's beforeUnmount to make add/dispose safe no-ops.
+     * Guards against deferred code paths (resolved promises, timers, pending listeners)
+     * that invoke cache.disposables.add(...) after the logic has unmounted.
+     */
+    disposed: boolean
 }
 
 // Type for logic with disposables added
@@ -106,18 +112,29 @@ const detachGlobalVisibilityListener = (): void => {
 }
 
 const initializeDisposablesManager = (logic: LogicWithCache): void => {
-    if (logic.cache.disposables) {
+    // If a prior mount left behind a disposed manager, drop it so we start fresh.
+    if (logic.cache.disposables && !logic.cache.disposables.disposed) {
         return
     }
-
-    const getManager = (): DisposablesManager => logic.cache.disposables!
 
     const manager: DisposablesManager = {
         registry: new Map(),
         keyCounter: 0,
         logicPath: logic.pathString,
+        disposed: false,
         add: (setup: SetupFunction, key?: string, options?: DisposableOptions) => {
-            const manager = getManager()
+            if (manager.disposed) {
+                // The logic unmounted between scheduling and invocation (e.g. a resolved
+                // promise, setTimeout callback, or pending listener). Silently drop instead
+                // of throwing, and surface a debug breadcrumb for investigation.
+                // oxlint-disable-next-line no-console
+                console.debug(
+                    `[KEA] Ignoring cache.disposables.add after unmount in logic ${manager.logicPath}${
+                        key ? ` (key: ${key})` : ''
+                    }`
+                )
+                return
+            }
             const disposableKey = key ?? `__auto_${manager.keyCounter++}`
             const disposableOptions: DisposableOptions = { pauseOnPageHidden: true, ...options }
 
@@ -138,7 +155,9 @@ const initializeDisposablesManager = (logic: LogicWithCache): void => {
             }
         },
         dispose: (key: string) => {
-            const manager = getManager()
+            if (manager.disposed) {
+                return false
+            }
             if (!manager.registry.has(key)) {
                 return false
             }
@@ -253,15 +272,20 @@ export const disposablesPlugin: KeaPlugin = {
         beforeUnmount(logic) {
             const typedLogic = logic as LogicWithCache
             // Only dispose on final unmount when logic.isMounted() becomes false
-            if (!typedLogic.isMounted() && typedLogic.cache.disposables) {
+            const manager = typedLogic.cache.disposables
+            if (!typedLogic.isMounted() && manager && !manager.disposed) {
                 // Unregister from global visibility tracking
-                globalVisibilityState.allManagers.delete(typedLogic.cache.disposables)
+                globalVisibilityState.allManagers.delete(manager)
 
                 // Clean up all disposables
-                typedLogic.cache.disposables.registry.forEach((entry) => {
+                manager.registry.forEach((entry) => {
                     safeCleanup(entry.cleanup, typedLogic.pathString)
                 })
-                typedLogic.cache.disposables = null
+                manager.registry.clear()
+                // Mark as disposed but keep the manager in place so that deferred callbacks
+                // invoking cache.disposables.add(...) become safe no-ops instead of throwing
+                // on a null dereference (e.g. Mobile Safari: "null is not an object").
+                manager.disposed = true
 
                 // Detach global listener if no more managers
                 detachGlobalVisibilityListener()
