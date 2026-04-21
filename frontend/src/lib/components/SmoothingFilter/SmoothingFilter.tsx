@@ -9,7 +9,7 @@ import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 
 import { smoothingOptions } from './smoothings'
 
-export function SmoothingFilter(): JSX.Element | null {
+export function SmoothingFilter({ fullWidth }: { fullWidth?: boolean } = {}): JSX.Element | null {
     const { insightProps, editingDisabledReason } = useValues(insightLogic)
     const { isTrends, interval, trendsFilter } = useValues(trendsDataLogic(insightProps))
     const { updateInsightFilter } = useActions(insightVizDataLogic(insightProps))
@@ -38,6 +38,7 @@ export function SmoothingFilter(): JSX.Element | null {
     return options.length ? (
         <LemonSelect
             key={interval}
+            fullWidth={fullWidth}
             value={smoothingIntervals || 1}
             dropdownMatchSelectWidth={false}
             onChange={(key) => {

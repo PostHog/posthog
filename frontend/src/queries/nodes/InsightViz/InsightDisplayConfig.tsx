@@ -178,6 +178,44 @@ export function InsightDisplayConfig(): JSX.Element {
                   },
               ]
             : []),
+        ...(showCompare
+            ? [
+                  {
+                      title: 'Compare',
+                      items: [
+                          {
+                              label: () => (
+                                  <div className="mx-2 mb-2.5">
+                                      <CompareFilter
+                                          compareFilter={compareFilter}
+                                          updateCompareFilter={updateCompareFilter}
+                                          disabled={!canEditInsight || !supportsCompare}
+                                          disableReason={editingDisabledReason}
+                                          fullWidth
+                                      />
+                                  </div>
+                              ),
+                          },
+                      ],
+                  },
+              ]
+            : []),
+        ...(showSmoothing
+            ? [
+                  {
+                      title: 'Smoothing',
+                      items: [
+                          {
+                              label: () => (
+                                  <div className="mx-2 mb-2.5">
+                                      <SmoothingFilter fullWidth />
+                                  </div>
+                              ),
+                          },
+                      ],
+                  },
+              ]
+            : []),
         ...(supportsResultCustomizationBy
             ? [
                   {
@@ -317,7 +355,9 @@ export function InsightDisplayConfig(): JSX.Element {
         (hasLegend && showLegend ? 1 : 0) +
         (!!yAxisScaleType && yAxisScaleType !== 'linear' ? 1 : 0) +
         (showMultipleYAxes ? 1 : 0) +
-        (trendsFilter?.hideWeekends && hideWeekendsEnabled ? 1 : 0)
+        (trendsFilter?.hideWeekends && hideWeekendsEnabled ? 1 : 0) +
+        (showCompare && !!compareFilter?.compare ? 1 : 0) +
+        (showSmoothing && !!trendsFilter?.smoothingIntervals && trendsFilter.smoothingIntervals > 1 ? 1 : 0)
 
     return (
         <div
@@ -337,12 +377,6 @@ export function InsightDisplayConfig(): JSX.Element {
                     </ConfigFilter>
                 )}
 
-                {showSmoothing && (
-                    <ConfigFilter>
-                        <SmoothingFilter />
-                    </ConfigFilter>
-                )}
-
                 {!!isRetention && (
                     <ConfigFilter>
                         <RetentionDatePicker />
@@ -353,17 +387,6 @@ export function InsightDisplayConfig(): JSX.Element {
                 {!!isPaths && (
                     <ConfigFilter>
                         <PathStepPicker />
-                    </ConfigFilter>
-                )}
-
-                {showCompare && (
-                    <ConfigFilter>
-                        <CompareFilter
-                            compareFilter={compareFilter}
-                            updateCompareFilter={updateCompareFilter}
-                            disabled={!canEditInsight || !supportsCompare}
-                            disableReason={editingDisabledReason}
-                        />
                     </ConfigFilter>
                 )}
             </div>
