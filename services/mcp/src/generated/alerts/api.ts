@@ -993,6 +993,10 @@ export const AlertsRetrieveQueryParams = /* @__PURE__ */ zod.object({
         .number()
         .optional()
         .describe('Maximum number of check results to return (default 5, max 500). Applied after date filtering.'),
+    checks_offset: zod
+        .number()
+        .optional()
+        .describe('Number of newest checks to skip (0-based). Use with checks_limit for pagination. Default 0.'),
 })
 
 export const AlertsPartialUpdateParams = /* @__PURE__ */ zod.object({

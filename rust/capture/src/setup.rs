@@ -146,8 +146,57 @@ pub async fn build_components(config: Config, handles: LifecycleHandles) -> Capt
         CaptureMode::Recordings => config.kafka.kafka_producer_message_max_bytes as usize,
     };
 
+    // Build the overflow limiters here (not inside the sink) so routing
+    // policy lives in `router::State` alongside every other pipeline-level
+    // decision. The kafka sink used to own these; after the refactor it is
+    // a pure mechanism layer and reads `metadata.overflow_reason` that the
+    // pipeline stamps upstream. See `router::State::overflow_limiter` and
+    // `router::State::replay_overflow_limiter`.
+    let overflow_limiter: Option<Arc<OverflowLimiter>> = if config.overflow_enabled {
+        let partition = OverflowLimiter::new(
+            config.overflow_per_second_limit,
+            config.overflow_burst_limit,
+            config.ingestion_force_overflow_by_token_distinct_id.clone(),
+            config.overflow_preserve_partition_locality,
+        );
+
+        if config.export_prometheus {
+            let partition = partition.clone();
+            tokio::spawn(async move {
+                partition.report_metrics().await;
+            });
+        }
+
+        {
+            // Keep the governor's per-key state from growing unbounded.
+            let partition = partition.clone();
+            tokio::spawn(async move {
+                partition.clean_state().await;
+            });
+        }
+
+        Some(Arc::new(partition))
+    } else {
+        None
+    };
+
+    let replay_overflow_limiter: Option<Arc<RedisLimiter>> = match config.capture_mode {
+        CaptureMode::Recordings => Some(Arc::new(
+            RedisLimiter::new(
+                Duration::from_secs(5),
+                redis_client.clone(),
+                OVERFLOW_LIMITER_CACHE_KEY.to_string(),
+                config.redis_key_prefix.clone(),
+                QuotaResource::Replay,
+                ServiceName::Capture,
+            )
+            .expect("failed to start replay overflow limiter"),
+        )),
+        _ => None,
+    };
+
     let sink: Arc<dyn Event + Send + Sync> = Arc::from(
-        create_sink(&config, redis_client.clone(), sink_handle, advisory_handle)
+        create_sink(&config, sink_handle, advisory_handle)
             .await
             .expect("failed to create sink"),
     );
@@ -226,6 +275,8 @@ pub async fn build_components(config: Config, handles: LifecycleHandles) -> Capt
         config.request_timeout_seconds,
         config.body_chunk_read_timeout_ms,
         config.body_read_chunk_size_kb,
+        overflow_limiter,
+        replay_overflow_limiter,
     );
 
     info!(
@@ -243,7 +294,6 @@ pub async fn build_components(config: Config, handles: LifecycleHandles) -> Capt
 
 async fn create_sink(
     config: &Config,
-    redis_client: Arc<RedisClient>,
     sink_handle: Option<lifecycle::Handle>,
     advisory_handle: Option<lifecycle::Handle>,
 ) -> anyhow::Result<Box<dyn Event + Send + Sync>> {
@@ -254,62 +304,15 @@ async fn create_sink(
         Ok(Box::new(NoOpSink::new()))
     } else {
         let sink_handle = sink_handle.expect("sink lifecycle handle required for Kafka/S3 sinks");
-        let partition = match config.overflow_enabled {
-            false => None,
-            true => {
-                let partition = OverflowLimiter::new(
-                    config.overflow_per_second_limit,
-                    config.overflow_burst_limit,
-                    config.ingestion_force_overflow_by_token_distinct_id.clone(),
-                    config.overflow_preserve_partition_locality,
-                );
-
-                if config.export_prometheus {
-                    let partition = partition.clone();
-                    tokio::spawn(async move {
-                        partition.report_metrics().await;
-                    });
-                }
-
-                {
-                    // Ensure that the rate limiter state does not grow unbounded
-                    let partition = partition.clone();
-                    tokio::spawn(async move {
-                        partition.clean_state().await;
-                    });
-                }
-                Some(partition)
-            }
-        };
-
-        let replay_overflow_limiter = match config.capture_mode {
-            CaptureMode::Recordings => Some(
-                RedisLimiter::new(
-                    Duration::from_secs(5),
-                    redis_client.clone(),
-                    OVERFLOW_LIMITER_CACHE_KEY.to_string(),
-                    config.redis_key_prefix.clone(),
-                    QuotaResource::Replay,
-                    ServiceName::Capture,
-                )
-                .expect("failed to start replay overflow limiter"),
-            ),
-            _ => None,
-        };
 
         if config.s3_fallback_enabled {
             let kafka_handle =
                 advisory_handle.expect("kafka advisory handle required for fallback");
             let s3_handle = sink_handle;
 
-            let kafka_sink = KafkaSink::new(
-                config.kafka.clone(),
-                kafka_handle.clone(),
-                partition,
-                replay_overflow_limiter,
-            )
-            .await
-            .expect("failed to start Kafka sink");
+            let kafka_sink = KafkaSink::new(config.kafka.clone(), kafka_handle.clone())
+                .await
+                .expect("failed to start Kafka sink");
 
             let s3_sink = S3Sink::new(
                 config
@@ -329,14 +332,9 @@ async fn create_sink(
                 kafka_handle,
             )))
         } else {
-            let kafka_sink = KafkaSink::new(
-                config.kafka.clone(),
-                sink_handle,
-                partition,
-                replay_overflow_limiter,
-            )
-            .await
-            .expect("failed to start Kafka sink");
+            let kafka_sink = KafkaSink::new(config.kafka.clone(), sink_handle)
+                .await
+                .expect("failed to start Kafka sink");
 
             Ok(Box::new(kafka_sink))
         }

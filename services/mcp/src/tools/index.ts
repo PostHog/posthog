@@ -11,17 +11,8 @@ import { GENERATED_TOOL_MAP } from './generated'
 // Insights
 import queryInsight from './insights/query'
 // LLM Analytics
-import evaluationCreate from './llmAnalytics/evaluations/create'
-import evaluationDelete from './llmAnalytics/evaluations/delete'
-import evaluationGet from './llmAnalytics/evaluations/get'
-import evaluationsGet from './llmAnalytics/evaluations/getAll'
-import evaluationRun from './llmAnalytics/evaluations/run'
-import evaluationTestHog from './llmAnalytics/evaluations/testHog'
-import evaluationUpdate from './llmAnalytics/evaluations/update'
 import getLLMCosts from './llmAnalytics/getLLMCosts'
 // Organizations
-import getOrganizationDetails from './organizations/getDetails'
-import getOrganizations from './organizations/getOrganizations'
 import setActiveOrganization from './organizations/setActive'
 // PostHog AI tools
 import { executeSql, readDataSchema, readDataWarehouseSchema } from './posthogAiTools'
@@ -47,9 +38,7 @@ import type { Context, Tool, ToolBase, ZodObjectAny } from './types'
 // Map of tool names to tool factory functions
 export const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
     // Organizations
-    'organizations-get': getOrganizations,
     'switch-organization': setActiveOrganization,
-    'organization-details-get': getOrganizationDetails,
 
     // Projects
     'projects-get': getProjects,
@@ -73,13 +62,6 @@ export const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
 
     // LLM Analytics
     'get-llm-total-costs-for-project': getLLMCosts,
-    'evaluations-get': evaluationsGet,
-    'evaluation-get': evaluationGet,
-    'evaluation-create': evaluationCreate,
-    'evaluation-update': evaluationUpdate,
-    'evaluation-delete': evaluationDelete,
-    'evaluation-run': evaluationRun,
-    'evaluation-test-hog': evaluationTestHog,
 
     // Search
     'entity-search': entitySearch,

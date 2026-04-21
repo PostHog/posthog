@@ -16,6 +16,7 @@ import products.links.backend.api as link
 import products.tasks.backend.api as tasks
 import products.endpoints.backend.api as endpoints
 import products.signals.backend.views as signals
+import products.tasks.backend.seat_api as seats
 import products.conversations.backend.api as conversations
 import products.live_debugger.backend.api as live_debugger
 import products.surveys.backend.api.survey as survey
@@ -48,6 +49,7 @@ from products.error_tracking.backend.api import (
     ErrorTrackingFingerprintViewSet,
     ErrorTrackingGroupingRuleViewSet,
     ErrorTrackingIssueViewSet,
+    ErrorTrackingRecommendationViewSet,
     ErrorTrackingReleaseViewSet,
     ErrorTrackingSpikeDetectionConfigViewSet,
     ErrorTrackingSpikeEventViewSet,
@@ -62,6 +64,7 @@ from products.llm_analytics.backend.api import (
     DatasetItemViewSet,
     DatasetViewSet,
     EvaluationConfigViewSet,
+    EvaluationReportViewSet,
     EvaluationRunViewSet,
     EvaluationViewSet,
     LLMAnalyticsClusteringRunViewSet,
@@ -79,6 +82,7 @@ from products.llm_analytics.backend.api import (
     ScoreDefinitionViewSet,
     TraceReviewViewSet,
 )
+from products.llm_analytics.backend.api.skills import LLMSkillViewSet
 from products.messaging.backend.api.message_categories import MessageCategoryViewSet
 from products.messaging.backend.api.message_preferences import MessagePreferencesViewSet
 from products.messaging.backend.api.message_templates import MessageTemplatesViewSet
@@ -287,6 +291,7 @@ project_features_router = projects_router.register(
 # Tasks endpoints
 project_tasks_router = projects_router.register(r"tasks", tasks.TaskViewSet, "project_tasks", ["team_id"])
 project_tasks_router.register(r"runs", tasks.TaskRunViewSet, "project_task_runs", ["team_id", "task_id"])
+projects_router.register(r"task_automations", tasks.TaskAutomationViewSet, "project_task_automations", ["team_id"])
 projects_router.register(
     r"sandbox_environments",
     tasks.SandboxEnvironmentViewSet,
@@ -297,6 +302,8 @@ projects_router.register(
 # PostHog Code invites (not project-scoped)
 router.register(r"code/invites", tasks.CodeInviteViewSet, "code_invites")
 
+# Seats (proxied to billing service)
+router.register(r"seats", seats.SeatViewSet, "seats")
 
 projects_router.register(r"surveys", survey.SurveyViewSet, "project_surveys", ["project_id"])
 projects_router.register(r"product_tours", ProductTourViewSet, "project_product_tours", ["project_id"])
@@ -335,6 +342,13 @@ environments_router.register(
     r"llm_prompts",
     LLMPromptViewSet,
     "environment_llm_prompts",
+    ["team_id"],
+)
+
+environments_router.register(
+    r"llm_skills",
+    LLMSkillViewSet,
+    "environment_llm_skills",
     ["team_id"],
 )
 
@@ -933,6 +947,13 @@ environments_router.register(
 )
 
 environments_router.register(
+    r"error_tracking/recommendations",
+    ErrorTrackingRecommendationViewSet,
+    "environment_error_tracking_recommendation",
+    ["team_id"],
+)
+
+environments_router.register(
     r"error_tracking/fingerprints",
     ErrorTrackingFingerprintViewSet,
     "environment_error_tracking_fingerprint",
@@ -1399,6 +1420,13 @@ environments_router.register(
     r"llm_analytics/trace_reviews",
     TraceReviewViewSet,
     "environment_llm_analytics_trace_reviews",
+    ["team_id"],
+)
+
+environments_router.register(
+    r"llm_analytics/evaluation_reports",
+    EvaluationReportViewSet,
+    "environment_llm_analytics_evaluation_reports",
     ["team_id"],
 )
 

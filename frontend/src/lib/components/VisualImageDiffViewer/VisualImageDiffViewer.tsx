@@ -15,6 +15,8 @@ export interface VisualImageDiffViewerProps {
     diffPercentage: number | null
     result: VisualDiffResult
     className?: string
+    /** Natural image width — images under 600px render at 2x with pixelated scaling */
+    imageWidth?: number
 }
 
 const RESULT_LABELS: Record<VisualDiffResult, string> = {
@@ -47,16 +49,24 @@ interface ImagePanelProps {
     url: string | null
     label: string
     emptyTitle: string
+    imgClassName?: string
+    imgStyle?: React.CSSProperties
 }
 
-function ImagePanel({ url, label, emptyTitle }: ImagePanelProps): JSX.Element {
+function ImagePanel({ url, label, emptyTitle, imgClassName, imgStyle }: ImagePanelProps): JSX.Element {
     return (
-        <div className="relative overflow-hidden rounded-lg border bg-bg-light">
-            <div className="absolute top-2 left-2 z-10 rounded-md border bg-surface-primary/90 px-2 py-1 text-[11px] font-semibold uppercase tracking-wide">
+        <div className="overflow-hidden rounded-lg border bg-bg-light inline-block max-w-full">
+            <div className="px-2 py-1 text-[11px] font-semibold uppercase tracking-wide border-b bg-bg-3000">
                 {label}
             </div>
             {url ? (
-                <img src={url} alt={label} className="max-w-full bg-black/5" />
+                <img
+                    src={url}
+                    alt={label}
+                    className={cn('h-auto bg-black/5', imgClassName || 'max-w-full')}
+                    // eslint-disable-next-line react/forbid-dom-props
+                    style={imgStyle}
+                />
             ) : (
                 <EmptyImageState title={emptyTitle} />
             )}
@@ -75,6 +85,9 @@ function EmptyImageState({ title }: { title: string }): JSX.Element {
     )
 }
 
+/** Images smaller than this threshold render at 2x with pixelated scaling */
+const SMALL_IMAGE_THRESHOLD = 600
+
 export function VisualImageDiffViewer({
     baselineUrl,
     currentUrl,
@@ -82,10 +95,16 @@ export function VisualImageDiffViewer({
     diffPercentage,
     result,
     className,
+    imageWidth,
 }: VisualImageDiffViewerProps): JSX.Element {
     const supportsComparison = isComparisonResult(result)
     const hasBothImages = Boolean(baselineUrl && currentUrl)
     const hasDiffImage = Boolean(diffUrl)
+    const isSmallImage = imageWidth !== undefined && imageWidth < SMALL_IMAGE_THRESHOLD
+    const pixelatedStyle = isSmallImage
+        ? { imageRendering: 'pixelated' as const, width: (imageWidth ?? 0) * 2, maxWidth: '100%' }
+        : {}
+    const pixelatedClass = isSmallImage ? '' : 'max-w-full'
 
     const [mode, setMode] = useState<ComparisonMode>('sideBySide')
     const [splitPosition, setSplitPosition] = useState(50)
@@ -193,9 +212,21 @@ export function VisualImageDiffViewer({
 
         if (mode === 'sideBySide') {
             return (
-                <div className="grid grid-cols-1 gap-3 p-3 lg:grid-cols-2">
-                    <ImagePanel url={baselineUrl} label="Baseline" emptyTitle="Baseline snapshot missing" />
-                    <ImagePanel url={currentUrl} label="Current" emptyTitle="Current snapshot missing" />
+                <div className="flex flex-col gap-3 p-3 lg:flex-row lg:justify-center lg:items-start">
+                    <ImagePanel
+                        url={baselineUrl}
+                        label="Baseline"
+                        emptyTitle="Baseline snapshot missing"
+                        imgClassName={pixelatedClass}
+                        imgStyle={pixelatedStyle}
+                    />
+                    <ImagePanel
+                        url={currentUrl}
+                        label="Current"
+                        emptyTitle="Current snapshot missing"
+                        imgClassName={pixelatedClass}
+                        imgStyle={pixelatedStyle}
+                    />
                 </div>
             )
         }
@@ -208,78 +239,89 @@ export function VisualImageDiffViewer({
                 : currentUrl
 
         return (
-            <div className="p-3">
-                <div ref={overlayRef} className="relative overflow-hidden rounded-lg border bg-bg-light aspect-[16/10]">
-                    {baselineUrl ? (
-                        <img
-                            src={baselineUrl}
-                            alt="Baseline snapshot"
-                            className={cn('absolute inset-0 size-full object-contain bg-black/5')}
-                        />
-                    ) : (
-                        <EmptyImageState title="Baseline snapshot missing" />
-                    )}
-
-                    {activeOverlayUrl && (
-                        <div
-                            className="absolute inset-0 overflow-hidden"
-                            // eslint-disable-next-line react/forbid-dom-props
-                            style={{
-                                clipPath:
-                                    mode === 'split' && !flicker ? `inset(0 ${100 - splitPosition}% 0 0)` : undefined,
-                                opacity:
-                                    mode === 'blend' && !flicker ? Math.max(0, Math.min(1, blendPercentage / 100)) : 1,
-                            }}
-                        >
+            <div className="p-3 flex justify-center">
+                <div
+                    className="overflow-hidden rounded-lg border bg-bg-light inline-block max-w-full"
+                    // eslint-disable-next-line react/forbid-dom-props
+                    style={isSmallImage ? { width: (imageWidth ?? 0) * 2, maxWidth: '100%' } : undefined}
+                >
+                    <div className="flex items-center justify-between px-2 py-1 border-b bg-bg-3000 text-[11px] font-semibold uppercase tracking-wide">
+                        <span>Baseline</span>
+                        {mode === 'blend' && (
+                            <span className="font-normal normal-case tracking-normal tabular-nums text-muted">
+                                {100 - blendPercentage}% / {blendPercentage}%
+                            </span>
+                        )}
+                        <span>Current</span>
+                    </div>
+                    <div ref={overlayRef} className="relative overflow-hidden">
+                        {baselineUrl ? (
                             <img
-                                src={activeOverlayUrl}
-                                alt="Current snapshot"
-                                className="size-full object-contain bg-black/5"
+                                src={baselineUrl}
+                                alt="Baseline snapshot"
+                                className="w-full h-auto bg-black/5 block"
+                                // eslint-disable-next-line react/forbid-dom-props
+                                style={isSmallImage ? { imageRendering: 'pixelated' as const } : undefined}
                             />
-                        </div>
-                    )}
+                        ) : (
+                            <EmptyImageState title="Baseline snapshot missing" />
+                        )}
 
-                    {showDiffOverlay && hasDiffImage && (
-                        <img
-                            src={diffUrl as string}
-                            alt="Diff overlay"
-                            className="absolute inset-0 size-full object-contain mix-blend-screen pointer-events-none"
-                            // eslint-disable-next-line react/forbid-dom-props
-                            style={{ opacity: diffOverlayOpacity / 100 }}
-                        />
-                    )}
-
-                    {!flicker && mode === 'split' && hasBothImages && (
-                        <button
-                            type="button"
-                            className="absolute inset-y-0 z-20 w-8 -translate-x-1/2 cursor-col-resize focus:outline-none"
-                            // eslint-disable-next-line react/forbid-dom-props
-                            style={{ left: `${splitPosition}%` }}
-                            onMouseDown={(event) => {
-                                event.preventDefault()
-                                setDraggingSplit(true)
-                            }}
-                            onTouchStart={() => setDraggingSplit(true)}
-                            aria-label="Drag comparison split handle"
-                        >
-                            <div className="absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-border-bold" />
-                            <div className="absolute left-1/2 top-1/2 flex h-9 w-9 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border bg-surface-primary text-xs shadow-sm">
-                                ⇆
+                        {activeOverlayUrl && (
+                            <div
+                                className="absolute top-0 left-0 w-full h-full overflow-hidden"
+                                // eslint-disable-next-line react/forbid-dom-props
+                                style={{
+                                    clipPath:
+                                        mode === 'split' && !flicker
+                                            ? `inset(0 ${100 - splitPosition}% 0 0)`
+                                            : undefined,
+                                    opacity:
+                                        mode === 'blend' && !flicker
+                                            ? Math.max(0, Math.min(1, blendPercentage / 100))
+                                            : 1,
+                                }}
+                            >
+                                <img
+                                    src={activeOverlayUrl}
+                                    alt="Current snapshot"
+                                    className="w-full h-auto bg-black/5 block"
+                                    // eslint-disable-next-line react/forbid-dom-props
+                                    style={isSmallImage ? { imageRendering: 'pixelated' as const } : undefined}
+                                />
                             </div>
-                        </button>
-                    )}
+                        )}
 
-                    <div className="absolute top-2 left-2 rounded-md border bg-surface-primary/90 px-2 py-1 text-[11px] font-semibold uppercase tracking-wide">
-                        Baseline
+                        {showDiffOverlay && hasDiffImage && (
+                            <img
+                                src={diffUrl as string}
+                                alt="Diff overlay"
+                                className="absolute top-0 left-0 w-full h-auto mix-blend-screen pointer-events-none"
+                                // eslint-disable-next-line react/forbid-dom-props
+                                style={{ opacity: diffOverlayOpacity / 100 }}
+                            />
+                        )}
+
+                        {!flicker && mode === 'split' && hasBothImages && (
+                            <button
+                                type="button"
+                                className="absolute inset-y-0 z-20 w-8 -translate-x-1/2 cursor-col-resize focus:outline-none"
+                                // eslint-disable-next-line react/forbid-dom-props
+                                style={{ left: `${splitPosition}%` }}
+                                onMouseDown={(event) => {
+                                    event.preventDefault()
+                                    setDraggingSplit(true)
+                                }}
+                                onTouchStart={() => setDraggingSplit(true)}
+                                aria-label="Drag comparison split handle"
+                            >
+                                <div className="absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-border-bold" />
+                                <div className="absolute left-1/2 top-1/2 flex h-9 w-9 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border bg-surface-primary text-xs shadow-sm">
+                                    ⇆
+                                </div>
+                            </button>
+                        )}
                     </div>
-                    <div className="absolute top-2 right-2 rounded-md border bg-surface-primary/90 px-2 py-1 text-[11px] font-semibold uppercase tracking-wide">
-                        Current
-                    </div>
-                    {mode === 'blend' && (
-                        <div className="absolute bottom-2 left-1/2 -translate-x-1/2 rounded-md border bg-surface-primary/90 px-2 py-1 text-[11px] font-semibold tabular-nums">
-                            Baseline {100 - blendPercentage}% · Current {blendPercentage}%
-                        </div>
-                    )}
                 </div>
             </div>
         )
@@ -293,8 +335,14 @@ export function VisualImageDiffViewer({
             result === 'new' ? 'New snapshot is missing an image' : 'Removed snapshot has no baseline image'
 
         return (
-            <div className="p-3">
-                <ImagePanel url={singleImage} label={singleLabel} emptyTitle={emptyTitle} />
+            <div className="p-3 flex justify-center">
+                <ImagePanel
+                    url={singleImage}
+                    label={singleLabel}
+                    emptyTitle={emptyTitle}
+                    imgClassName={pixelatedClass}
+                    imgStyle={pixelatedStyle}
+                />
             </div>
         )
     }
@@ -306,6 +354,11 @@ export function VisualImageDiffViewer({
                     <div className="flex flex-wrap items-center gap-2">
                         <LemonTag type={RESULT_TAG_TYPES[result]}>{RESULT_LABELS[result]}</LemonTag>
                         {diffLabel && <LemonTag type="muted">{diffLabel}</LemonTag>}
+                        {isSmallImage && (
+                            <LemonTag type="highlight" className="font-bold">
+                                Enlarged 2x for review
+                            </LemonTag>
+                        )}
                     </div>
                     {supportsComparison && (
                         <LemonSegmentedButton

@@ -203,6 +203,11 @@ export interface LogsAlertConfigurationApi {
     /** @nullable */
     readonly last_checked_at: string | null
     readonly consecutive_failures: number
+    /**
+     * Error message from the most recent errored check, or null if the alert's most recent check was successful. Sourced from LogsAlertEvent without denormalization so retention-aware cleanup rules stay the only source of truth.
+     * @nullable
+     */
+    readonly last_error_message: string | null
     readonly created_at: string
     readonly created_by: UserBasicApi
     /** @nullable */
@@ -268,6 +273,11 @@ export interface PatchedLogsAlertConfigurationApi {
     /** @nullable */
     readonly last_checked_at?: string | null
     readonly consecutive_failures?: number
+    /**
+     * Error message from the most recent errored check, or null if the alert's most recent check was successful. Sourced from LogsAlertEvent without denormalization so retention-aware cleanup rules stay the only source of truth.
+     * @nullable
+     */
+    readonly last_error_message?: string | null
     readonly created_at?: string
     readonly created_by?: UserBasicApi
     /** @nullable */
@@ -312,6 +322,51 @@ export interface LogsAlertDeleteDestinationApi {
      * @minItems 1
      */
     hog_function_ids: string[]
+}
+
+/**
+ * * `check` - Check
+ * `reset` - Reset
+ * `enable` - Enable
+ * `disable` - Disable
+ * `snooze` - Snooze
+ * `unsnooze` - Unsnooze
+ * `threshold_change` - Threshold change
+ */
+export type LogsAlertEventKindEnumApi = (typeof LogsAlertEventKindEnumApi)[keyof typeof LogsAlertEventKindEnumApi]
+
+export const LogsAlertEventKindEnumApi = {
+    Check: 'check',
+    Reset: 'reset',
+    Enable: 'enable',
+    Disable: 'disable',
+    Snooze: 'snooze',
+    Unsnooze: 'unsnooze',
+    ThresholdChange: 'threshold_change',
+} as const
+
+export interface LogsAlertEventApi {
+    readonly id: string
+    readonly created_at: string
+    readonly kind: LogsAlertEventKindEnumApi
+    readonly state_before: string
+    readonly state_after: string
+    readonly threshold_breached: boolean
+    /** @nullable */
+    readonly result_count: number | null
+    /** @nullable */
+    readonly error_message: string | null
+    /** @nullable */
+    readonly query_duration_ms: number | null
+}
+
+export interface PaginatedLogsAlertEventListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: LogsAlertEventApi[]
 }
 
 export interface LogsAlertSimulateRequestApi {
@@ -624,6 +679,17 @@ export type LogsViewsListParams = {
 }
 
 export type LogsAlertsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type LogsAlertsEventsListParams = {
     /**
      * Number of results to return per page.
      */

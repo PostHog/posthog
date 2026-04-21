@@ -104,6 +104,7 @@ rules:
                               |ErrorTrackingIssue
                               |ErrorTrackingIssueFingerprintV2
                               |ErrorTrackingRelease
+                              |ErrorTrackingRecommendation
                               |ErrorTrackingSpikeDetectionConfig
                               |ErrorTrackingSpikeEvent
                               |ErrorTrackingStackFrame
@@ -142,6 +143,7 @@ rules:
                               |LLMModelConfiguration
                               |LLMPrompt
                               |LLMProviderKey
+                              |LLMSkill
                               |LLMTraceSummary
                               |MarketingAnalyticsGoalMapping
                               |MessageCategory
@@ -176,14 +178,17 @@ rules:
                               |SignalSourceConfig
                               |SingleSessionSummary
                               |SlackThreadTaskMapping
+                              |StreamlitApp
                               |Subscription
                               |SubscriptionDelivery
                               |Survey
                               |SurveyResponseArchive
                               |Tag
                               |Task
+                              |TaskAutomation
                               |TaskRun
                               |EmailChannel
+                              |EvaluationReport
                               |Text
                               |Threshold
                               |Ticket
@@ -297,6 +302,7 @@ rules:
                         |ErrorTrackingIssue
                         |ErrorTrackingIssueFingerprintV2
                         |ErrorTrackingRelease
+                        |ErrorTrackingRecommendation
                         |ErrorTrackingSpikeDetectionConfig
                         |ErrorTrackingSpikeEvent
                         |ErrorTrackingStackFrame
@@ -333,6 +339,7 @@ rules:
                         |LLMModelConfiguration
                         |LLMPrompt
                         |LLMProviderKey
+                        |LLMSkill
                         |LLMTraceSummary
                         |MarketingAnalyticsGoalMapping
                         |MessageCategory
@@ -366,14 +373,17 @@ rules:
                         |SignalSourceConfig
                         |SingleSessionSummary
                         |SlackThreadTaskMapping
+                        |StreamlitApp
                         |Subscription
                         |SubscriptionDelivery
                         |Survey
                         |SurveyResponseArchive
                         |Tag
                         |Task
+                        |TaskAutomation
                         |TaskRun
                         |EmailChannel
+                        |EvaluationReport
                         |Text
                         |Threshold
                         |Ticket

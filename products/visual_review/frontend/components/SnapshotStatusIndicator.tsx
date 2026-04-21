@@ -1,17 +1,20 @@
-import { IconCheck } from '@posthog/icons'
+import { IconCheck, IconX } from '@posthog/icons'
 import { Tooltip } from '@posthog/lemon-ui'
 
 interface SnapshotStatusIndicatorProps {
     result: string
     reviewState: string
     classificationReason?: string
+    /** 'small' = filmstrip dot, 'medium' = table inline, 'full' = detail view */
+    size?: 'small' | 'medium' | 'full'
+    /** @deprecated Use size='small' instead */
     compact?: boolean
 }
 
-const RESULT_STYLES: Record<string, { dot: string; text: string; label: string; bg: string }> = {
+const RESULT_STYLES: Record<string, { dot: string; text: string; label: string; bg: string; shape?: 'x' }> = {
     changed: { dot: 'bg-warning', text: 'text-warning-dark', label: 'Changed', bg: 'bg-warning-highlight' },
-    new: { dot: 'bg-primary', text: 'text-primary-dark', label: 'New', bg: 'bg-primary-highlight' },
-    removed: { dot: 'bg-danger', text: 'text-danger', label: 'Removed', bg: 'bg-danger-highlight' },
+    new: { dot: 'bg-success', text: 'text-success', label: 'New', bg: 'bg-success-highlight' },
+    removed: { dot: 'text-danger', text: 'text-danger', label: 'Removed', bg: 'bg-danger-highlight', shape: 'x' },
     unchanged: { dot: 'bg-muted', text: 'text-muted', label: 'Unchanged', bg: 'bg-fill-secondary' },
 }
 
@@ -36,19 +39,25 @@ export function SnapshotStatusIndicator({
     result,
     reviewState,
     classificationReason,
+    size,
     compact = false,
 }: SnapshotStatusIndicatorProps): JSX.Element {
+    const effectiveSize = size ?? (compact ? 'small' : 'full')
     const styles = RESULT_STYLES[result] || RESULT_STYLES.unchanged
     const review = reviewBadge(reviewState)
     const label = resultLabel(result, classificationReason)
     const hasBaseline = result !== 'new'
 
-    if (compact) {
+    if (effectiveSize === 'small') {
         const tooltip = [label, review?.text].filter(Boolean).join(' · ')
         return (
             <Tooltip title={tooltip}>
                 <span className="flex items-center gap-0.5">
-                    <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${styles.dot}`} />
+                    {styles.shape === 'x' ? (
+                        <IconX className={`w-3 h-3 shrink-0 ${styles.dot}`} />
+                    ) : (
+                        <span className={`w-2 h-2 rounded-full shrink-0 ${styles.dot}`} />
+                    )}
                     {review && (
                         <span className={`text-[9px] leading-none shrink-0 ${review.className}`}>
                             {reviewState === 'approved' ? '✓' : '~'}
@@ -56,6 +65,27 @@ export function SnapshotStatusIndicator({
                     )}
                 </span>
             </Tooltip>
+        )
+    }
+
+    if (effectiveSize === 'medium') {
+        return (
+            <span className="flex items-center gap-1.5">
+                <span className="flex items-center gap-1">
+                    {styles.shape === 'x' ? (
+                        <IconX className={`w-3.5 h-3.5 shrink-0 ${styles.dot}`} />
+                    ) : (
+                        <span className={`w-2 h-2 rounded-full shrink-0 ${styles.dot}`} />
+                    )}
+                    <span className={`text-xs font-medium ${styles.text}`}>{label}</span>
+                </span>
+                {review && (
+                    <span className={`text-xs ${review.className}`}>
+                        {reviewState === 'approved' && <IconCheck className="w-3.5 h-3.5 inline" />}
+                        {reviewState === 'tolerated' && '~'}
+                    </span>
+                )}
+            </span>
         )
     }
 

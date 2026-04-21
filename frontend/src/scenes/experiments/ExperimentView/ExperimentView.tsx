@@ -4,7 +4,6 @@ import { IconSparkles } from '@posthog/icons'
 import { LemonBanner, LemonTabs } from '@posthog/lemon-ui'
 
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { PendingChangeRequestBanner } from 'scenes/approvals/PendingChangeRequestBanner'
 import { EXPERIMENT_MIN_EXPOSURES_FOR_RESULTS } from 'scenes/experiments/constants'
 import { WebExperimentImplementationDetails } from 'scenes/experiments/WebExperimentImplementationDetails'
@@ -63,15 +62,26 @@ const AiAnalysisTab = (): JSX.Element => {
     const { experiment, hasMinimumExposureForResults } = useValues(experimentLogic)
 
     return (
-        <div className="flex flex-row gap-2">
-            <SummarizeExperimentButton
-                disabledReason={
-                    !hasMinimumExposureForResults
-                        ? 'Experiment needs at least 50 exposures to summarize results.'
-                        : undefined
-                }
-            />
-            <SummarizeSessionReplaysButton experiment={experiment} />
+        <div className="flex flex-col gap-4 items-start">
+            <div className="flex flex-col gap-1 items-start">
+                <SummarizeExperimentButton
+                    disabledReason={
+                        !hasMinimumExposureForResults
+                            ? `Experiment needs at least ${EXPERIMENT_MIN_EXPOSURES_FOR_RESULTS} exposures to summarize results.`
+                            : undefined
+                    }
+                />
+                <p className="text-muted text-xs m-0">
+                    Analyze your experiment's metric results, statistical significance, and variant performance using
+                    AI.
+                </p>
+            </div>
+            <div className="flex flex-col gap-1 items-start">
+                <SummarizeSessionReplaysButton experiment={experiment} />
+                <p className="text-muted text-xs m-0">
+                    Compare session recordings across variants to identify differences in user behavior.
+                </p>
+            </div>
         </div>
     )
 }
@@ -116,23 +126,9 @@ const MetricsTab = (): JSX.Element => {
         firstPrimaryMetric &&
         firstPrimaryMetricResult
 
-    const isAiAnalysisTabEnabled = useFeatureFlag('EXPERIMENT_AI_ANALYSIS_TAB')
-
     return (
         <>
             <ResultsNotificationBanner />
-            {usesNewQueryRunner && !isAiAnalysisTabEnabled && (
-                <div className="mt-1 mb-4 flex justify-start gap-2">
-                    <SummarizeExperimentButton
-                        disabledReason={
-                            !hasMinimumExposureForResults
-                                ? `Experiment needs at least ${EXPERIMENT_MIN_EXPOSURES_FOR_RESULTS} exposures to summarize results.`
-                                : undefined
-                        }
-                    />
-                    <SummarizeSessionReplaysButton experiment={experiment} />
-                </div>
-            )}
 
             {usesNewQueryRunner && (
                 <div className="w-full mb-4">
@@ -276,8 +272,6 @@ export function ExperimentView({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId
     const { closeExperimentMetricModal } = useActions(experimentMetricModalLogic)
     const { closeSharedMetricModal } = useActions(sharedMetricModalLogic)
 
-    const isAiAnalysisTabEnabled = useFeatureFlag('EXPERIMENT_AI_ANALYSIS_TAB')
-
     return (
         <SceneContent>
             <PageHeaderCustom />
@@ -326,7 +320,7 @@ export function ExperimentView({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId
                                 label: 'Metrics',
                                 content: <MetricsTab />,
                             },
-                            ...(isAiAnalysisTabEnabled && usesNewQueryRunner
+                            ...(usesNewQueryRunner
                                 ? [
                                       {
                                           key: 'ai_analysis',
