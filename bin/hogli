@@ -19,4 +19,23 @@ else
     PYTHON_CMD="$VIRTUAL_ENV/bin/python"
 fi
 
+# Migration aid: after the common/hogli/ -> tools/hogli/ + tools/hogli-commands/
+# restructure, users with stale venvs see `ModuleNotFoundError: hogli`. Catch it
+# early and point at `uv sync`. Safe to delete once everyone has re-activated.
+HOGLI_IMPORT_ERR="$("$PYTHON_CMD" -c "import hogli" 2>&1)" || true
+if [[ -n "$HOGLI_IMPORT_ERR" && "$HOGLI_IMPORT_ERR" == *"No module named 'hogli'"* ]]; then
+    cat >&2 <<'EOF'
+error: the `hogli` package is not importable from your active venv.
+
+It recently moved to tools/hogli/ (framework) + tools/hogli-commands/ (commands).
+Your venv has stale paths — re-sync it:
+
+    flox activate            # recommended (flox auto-runs uv sync)
+    uv sync --active         # or sync directly
+
+Then rerun your hogli command.
+EOF
+    exit 127
+fi
+
 exec "$PYTHON_CMD" -m hogli "$@"
