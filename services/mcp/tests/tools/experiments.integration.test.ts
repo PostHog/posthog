@@ -127,9 +127,9 @@ describe('Experiments', { concurrent: false }, () => {
                 feature_flag_key: flagKey,
                 parameters: {
                     feature_flag_variants: [
-                        { key: 'control', name: 'Control Group', rollout_percentage: 33 },
-                        { key: 'variant_a', name: 'Variant A', rollout_percentage: 33 },
-                        { key: 'variant_b', name: 'Variant B', rollout_percentage: 34 },
+                        { key: 'control', name: 'Control Group', split_percent: 33 },
+                        { key: 'variant_a', name: 'Variant A', split_percent: 33 },
+                        { key: 'variant_b', name: 'Variant B', split_percent: 34 },
                     ],
                 },
                 allow_unknown_events: true,
@@ -142,7 +142,7 @@ describe('Experiments', { concurrent: false }, () => {
             expect(experiment.id).toBeTruthy()
             expect(experiment.parameters?.feature_flag_variants).toHaveLength(3)
             expect(experiment.parameters?.feature_flag_variants?.[0]?.key).toBe('control')
-            expect(experiment.parameters?.feature_flag_variants?.[0]?.rollout_percentage).toBe(33)
+            expect(experiment.parameters?.feature_flag_variants?.[0]?.split_percent).toBe(33)
         })
 
         it('should create an experiment with mean metric', async () => {
@@ -539,8 +539,8 @@ describe('Experiments', { concurrent: false }, () => {
                 type: 'product',
                 parameters: {
                     feature_flag_variants: [
-                        { key: 'control', name: 'Control', rollout_percentage: 50 },
-                        { key: 'test', name: 'Test Variant', rollout_percentage: 50 },
+                        { key: 'control', name: 'Control', split_percent: 50 },
+                        { key: 'test', name: 'Test Variant', split_percent: 50 },
                     ],
                     minimum_detectable_effect: 20,
                 },
@@ -708,8 +708,8 @@ describe('Experiments', { concurrent: false }, () => {
                 feature_flag_key: flagKey,
                 parameters: {
                     feature_flag_variants: [
-                        { key: 'control', rollout_percentage: 60 },
-                        { key: 'test', rollout_percentage: 60 }, // Total > 100%
+                        { key: 'control', split_percent: 60 },
+                        { key: 'test', split_percent: 60 }, // Total > 100%
                     ],
                 },
                 allow_unknown_events: true,
@@ -1090,14 +1090,14 @@ describe('Experiments', { concurrent: false }, () => {
                 feature_flag_key: flagKey,
                 parameters: {
                     feature_flag_variants: [
-                        { key: 'control', rollout_percentage: 50 },
-                        { key: 'test', rollout_percentage: 50 },
+                        { key: 'control', split_percent: 50 },
+                        { key: 'test', split_percent: 50 },
                     ],
                 },
                 allow_unknown_events: true,
                 feature_flag_variants: [
-                    { key: 'control', rollout_percentage: 50 },
-                    { key: 'test', rollout_percentage: 50 },
+                    { key: 'control', split_percent: 50 },
+                    { key: 'test', split_percent: 50 },
                 ],
             }
 

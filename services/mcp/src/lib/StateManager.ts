@@ -275,6 +275,30 @@ export class StateManager {
         return buildActiveEnvironmentContextPrompt(user, org, project)
     }
 
+    /**
+     * Resolve the workspace identifiers used to attach analytics events to the
+     * `organization` and `project` PostHog groups. Reuses the cached user/org/project
+     * entities, so repeat calls within a session are cheap.
+     */
+    async getAnalyticsContext(): Promise<{
+        organizationId?: string
+        projectId?: string
+        projectUuid?: string
+        projectName?: string
+    }> {
+        const [orgId, project] = await Promise.all([
+            this._cache.get('orgId'),
+            this.getCachedOrFetchProject().catch(() => undefined),
+        ])
+
+        return {
+            ...(orgId ? { organizationId: orgId } : project?.organization ? { organizationId: project.organization } : {}),
+            ...(project?.id !== undefined ? { projectId: String(project.id) } : {}),
+            ...(project?.uuid ? { projectUuid: project.uuid } : {}),
+            ...(project?.name ? { projectName: project.name } : {}),
+        }
+    }
+
     async getAiConsentGiven(): Promise<boolean | undefined> {
         try {
             const org = await this.getCachedOrFetchOrg()

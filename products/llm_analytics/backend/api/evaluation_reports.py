@@ -186,6 +186,35 @@ class EvaluationReportSerializer(serializers.ModelSerializer):
         return super().create(validated_data)
 
 
+class EvaluationReportListSerializer(EvaluationReportSerializer):
+    """Slim list serializer for MCP callers — drops heavy per-item fields to save tokens.
+
+    Gated on the ``X-PostHog-Client: mcp`` header so the web UI keeps the full shape
+    it relies on for draft seeding and schedule editing (see
+    `EvaluationReportViewSet.get_serializer_class`).
+    """
+
+    class Meta(EvaluationReportSerializer.Meta):
+        fields = [
+            f
+            for f in EvaluationReportSerializer.Meta.fields
+            if f
+            not in (
+                "rrule",
+                "starts_at",
+                "timezone_name",
+                "delivery_targets",
+                "max_sample_size",
+                "deleted",
+                "report_prompt_guidance",
+                "cooldown_minutes",
+                "daily_run_cap",
+                "created_by",
+            )
+        ]
+        read_only_fields = [f for f in EvaluationReportSerializer.Meta.read_only_fields if f != "created_by"]
+
+
 class EvaluationReportRunSerializer(serializers.ModelSerializer):
     class Meta:
         model = EvaluationReportRun
@@ -221,6 +250,15 @@ class EvaluationReportViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewse
     permission_classes = [AccessControlPermission]
     serializer_class = EvaluationReportSerializer
     queryset = EvaluationReport.objects.all()
+
+    @staticmethod
+    def _is_mcp_request(request: Request) -> bool:
+        return request.META.get("HTTP_X_POSTHOG_CLIENT") == "mcp"
+
+    def get_serializer_class(self):
+        if self.action == "list" and self._is_mcp_request(self.request):
+            return EvaluationReportListSerializer
+        return super().get_serializer_class()
 
     def safely_get_queryset(self, queryset: QuerySet[EvaluationReport]) -> QuerySet[EvaluationReport]:
         queryset = queryset.filter(team_id=self.team_id).order_by("-created_at")
@@ -332,7 +370,7 @@ class EvaluationReportViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewse
             )
 
     @extend_schema(responses=EvaluationReportRunSerializer(many=True))
-    @action(detail=True, methods=["get"], url_path="runs")
+    @action(detail=True, methods=["get"], url_path="runs", required_scopes=["llm_analytics:read"])
     @llma_track_latency("llma_evaluation_report_runs_list")
     def runs(self, request: Request, **kwargs) -> Response:
         """List report runs (history) for this report."""
@@ -346,7 +384,7 @@ class EvaluationReportViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewse
         return Response(serializer.data)
 
     @extend_schema(request=None, responses={202: None})
-    @action(detail=True, methods=["post"], url_path="generate")
+    @action(detail=True, methods=["post"], url_path="generate", required_scopes=["llm_analytics:write"])
     @llma_track_latency("llma_evaluation_report_generate")
     def generate(self, request: Request, **kwargs) -> Response:
         """Trigger immediate report generation."""
