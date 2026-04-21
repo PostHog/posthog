@@ -2977,15 +2977,15 @@ snapshots:
     mcp-apps-error-tracking--with-external-links--light:
         hash: v1.k794b7964.0c775f7ec50ebee84ae295ad7d2399cd35074bab7145a38daca1d5bd2a4cff93.mv9TIthC3KkFaeIfVpI0BZj9ggw5tP_Wm9irrxcPwpg
     mcp-apps-experiments--completed--light:
-        hash: v1.k794b7964.267c944336cfbb9bc74db34d8e9880f7203382567d55269d2fd99f7714210ebd.wZQCXBpVeusWgx7KILhiJCWen9igQBhqbO4jG0XSG-s
+        hash: v1.k794b7964.bf0d6acd905a6a5a1bd1099a5faa3a6913ab9dd2ee8b132b6fb9e3147fe225e2.u1ZzjeU596RqUzIT5rogY-eEJz4-2tUL5zCjMlX5_-U
     mcp-apps-experiments--draft--light:
-        hash: v1.k794b7964.4f2138129a8fc568d16c0b9f0fd94f0e05f89bf116c73394b32d3775e4dab86b.uqquDkgjfepwLt9zemeh5V1gK4B4cOUZ_-rH4xO9HJg
+        hash: v1.k794b7964.9e5c276cd568ef1dc4d6907d31b292da0ee3175c50811710413b1f043319fd9e.Vlc3tvfVs1NWsF2gHZXPt9coXiqgTlwxOPY9zR4LK_8
     mcp-apps-experiments--list--light:
         hash: v1.k794b7964.3d52439825189f2e93eaae4bf6f3837dee931a45f27fc57f7a17c53a245eb55a.JJr2yqga2ta-5kVB5POaOM5S3lRGpUkPKUxDLdk7V_U
     mcp-apps-experiments--results--light:
         hash: v1.k794b7964.369efe275cc0243c2c6131a9d19e31941764aee030e8296e188e2ad3f5b072ae.pMS2T6lIyVxFJhwWepVAopGMyZuxhqU_OgXWcxnsH8k
     mcp-apps-experiments--running--light:
-        hash: v1.k794b7964.a36e31a09862a0ceb8ff26991d31b983913c2e7b1a87d6db68ff1bb14cdacce7.oigjzUlBHxQSnJfjW8-isCHa_8dJEK7CFi76k169DOQ
+        hash: v1.k794b7964.d8e1be138d2137b5b1324c22dbe38ea26848506658576f64708a24124d1dce3b.NXTrrjZaVNbtVFAuZanfnC6VLmobcNvhZ1QjH_1dd5I
     mcp-apps-feature-flags--boolean-flag--light:
         hash: v1.k794b7964.c0924f9d13e6e5033eaf8dc5297e644f8a5767d67a4a9316c234d26a32a59e7d.dAFmKgcdxcd2OEhwGLm4DZk6l2C9kSrRToQeTF7BDDA
     mcp-apps-feature-flags--flag-list--light:
@@ -3322,6 +3322,14 @@ snapshots:
         hash: v1.k794b7964.3d40a598e34c131c2e4137d79d3f83e15b25d981d6a3c87fab8014e19b1e0a70.4uJx5kfNEOWr_YAyrHEP02UQ4G1nYxQ3IYKT4dfYuK8
     scenes-app-customer-analytics-dashboard--b-2-c-mode--light:
         hash: v1.k794b7964.3d7f3af7986832471aa1536791eecfc1b39300940a5dedf0a798613d56e47249.PgwuUjL5ikBVHC18Ys6xPkM30_Fgbp6KWnJXG4kqsME
+    scenes-app-customer-analytics-dashboard--gated-with-feature-toggle--dark:
+        hash: v1.k794b7964.9edc2e9d72d1545eed17e33a96922993df9830cbc63b84c04f998656bd2ddf9f.8VjQ12KwIxcvgyP1UQ3KvvS-CDlHfdGaHJx4aY2J0ZY
+    scenes-app-customer-analytics-dashboard--gated-with-feature-toggle--light:
+        hash: v1.k794b7964.14d8fbe18d89362332525e60401b4ec9ec83a5dceb13869fab4a4e9d4e35c18b.yU7R5P72hbsF6e41OLEGoykgVA9Kh9T4KgoiIU3CsFw
+    scenes-app-customer-analytics-dashboard--gated-without-matching-early-access-feature--dark:
+        hash: v1.k794b7964.eb87a17fe0dc783f0fd77fb750afbfab668f27ceaee2b2a16bd1a635ec5e4947.DbexcWqAdod7Gna66Rsk6eFnRSnE9TeefHSyvFVRCJg
+    scenes-app-customer-analytics-dashboard--gated-without-matching-early-access-feature--light:
+        hash: v1.k794b7964.46556d656f3a56cd9a5a885b9dba878915576dadb2f98e3f23970ad403e4eb78.ZVLSny2nK7XllxTrsXVsy4XKBVSpqUD8uS42SqnaPHA
     scenes-app-customer-analytics-journey-builder--new-journey--dark:
         hash: v1.k794b7964.587110a398ba49d0653058c48afff269856be364f0f3322cc8fd64e08eb34d25.y21zzDm1MDgtkhMArCH03hUGrfVn4dT31gFliEi9OKM
     scenes-app-customer-analytics-journey-builder--new-journey--light:
@@ -3547,9 +3555,13 @@ snapshots:
     scenes-app-data-management-actions--screen-action--light:
         hash: v1.k794b7964.d8bf73932b4afa31b9f38a86a55d96c1e4c12f6970168badd52faccbae7b890f.b6EHh73OZeepK8-PbH0_B-xwdwe_loNTxYBXcCb_95s
     scenes-app-data-management-comments--comments--dark:
-        hash: v1.k794b7964.f92f6adf84258a051a53309111d82ddf1716fda3e936e7a99e156ef463d94398.sEZd0u4LuriA2sJ3yRJMLMyBDKKq6YzHHCPsmNjI5UI
+        hash: v1.k794b7964.4718fab57e9c454d3f9fec825cda6dd0ef9eb2e9e6fe3a61453df043dca2e251.BT46ByXB1FNK-bIuw2rzM81XA3V6pi4NzIkmW1nDPTw
     scenes-app-data-management-comments--comments--light:
-        hash: v1.k794b7964.139627df6d1c67f48f415ca84d6ee071b3fda3f84cc46b2ce7b049c767920963.7KfE_3ucLeSKjH7p130nGbjftIDLW5Ari3URSA9MZzs
+        hash: v1.k794b7964.a90a254fb0fda5a4053b1b5d966a1dd5a52dbbad69d4a6bacdcc8d0dadf8422f.oXtSQ_Vv4RU1Eyw120Q_m-jF4c63rd5ck5ShCnQd3Ck
+    scenes-app-data-management-comments--long-content--dark:
+        hash: v1.k794b7964.4dd3aa5aa87124df2bfd7b43ba0c918a3c822bcd13bd9ef0caf4258e028ede38.Fqcb1ozn9DqcPxCf9sUotPw9NOBxblWu5IjqzyLjVqs
+    scenes-app-data-management-comments--long-content--light:
+        hash: v1.k794b7964.4198d7931a0c423c93d1fd8f5024c23d923ef8b25e1e016f26adf24cb45750b9.N8kMJ6McV90YxBhB292YEU3XSIIUTPsZB4ZJyRPxGZM
     scenes-app-data-management-event-definitions--default--dark:
         hash: v1.k794b7964.8abd2bae0fcc4c0e2c987577a452c624fa1da6bec82e38496ebbe0d5e36a1e78.VqAaVrKlhQfXUM8cYv325-g5ZbkUmY-fiDC4sqLXuzE
     scenes-app-data-management-event-definitions--default--light:

@@ -3,7 +3,7 @@ import avro from 'avsc'
 import { Histogram } from 'prom-client'
 import { Readable } from 'stream'
 
-import { instrumentFn } from '~/common/tracing/tracing-utils'
+import { instrumented } from '~/common/tracing/tracing-utils'
 
 import type { LogsSettings } from '../types'
 import { type LogBodyParseResult, parseLogBodyForIngestion } from './log-body-parse'
@@ -11,8 +11,11 @@ import { scrubLogRecord } from './log-pii-scrub'
 
 const MAX_JSON_ATTRIBUTES = 50
 
-const SPAN_LOGS_JSON_PARSE = 'logsIngestionConsumer.handleEachBatch.jsonParseLogRecords'
+const SPAN_LOGS_DECODE = 'logsIngestionConsumer.handleEachBatch.decodeLogRecords'
+const SPAN_LOGS_PARSE_BODIES = 'logsIngestionConsumer.handleEachBatch.parseLogBodies'
+const SPAN_LOGS_ENRICH_JSON = 'logsIngestionConsumer.handleEachBatch.enrichJsonAttributes'
 const SPAN_LOGS_PII_SCRUB = 'logsIngestionConsumer.handleEachBatch.piiScrubLogRecords'
+const SPAN_LOGS_ENCODE = 'logsIngestionConsumer.handleEachBatch.encodeLogRecords'
 
 const logRecordProcessInstrumentOpts = { measureTime: false, sendException: false } as const
 
@@ -93,6 +96,11 @@ export async function decodeLogRecords(buffer: Buffer): Promise<[avro.Type | und
     })
 }
 
+const decodeLogRecordsInstrumented = instrumented({
+    key: SPAN_LOGS_DECODE,
+    ...logRecordProcessInstrumentOpts,
+})(decodeLogRecords)
+
 export async function encodeLogRecords(logRecordType: avro.Type, codec: string, records: LogRecord[]): Promise<Buffer> {
     return new Promise((resolve, reject) => {
         try {
@@ -131,6 +139,19 @@ export async function encodeLogRecords(logRecordType: avro.Type, codec: string, 
         }
     })
 }
+
+const parseLogBodiesForIngestion = instrumented({
+    key: SPAN_LOGS_PARSE_BODIES,
+    ...logRecordProcessInstrumentOpts,
+})(
+    (records: LogRecord[]): Promise<LogBodyParseResult[]> =>
+        Promise.resolve(records.map((r) => parseLogBodyForIngestion(r.body)))
+)
+
+const encodeLogRecordsInstrumented = instrumented({
+    key: SPAN_LOGS_ENCODE,
+    ...logRecordProcessInstrumentOpts,
+})(encodeLogRecords)
 
 /**
  * Flattens a JSON object into a flat key-value map with dot-notation keys.
@@ -220,10 +241,30 @@ export function enrichLogRecordWithJsonAttributes(record: LogRecord, bodyParse?:
     return record
 }
 
+const enrichBatchJsonAttributes = instrumented({
+    key: SPAN_LOGS_ENRICH_JSON,
+    ...logRecordProcessInstrumentOpts,
+})((records: LogRecord[], bodyParses: LogBodyParseResult[]): Promise<void> => {
+    for (let i = 0; i < records.length; i++) {
+        enrichLogRecordWithJsonAttributes(records[i], bodyParses[i])
+    }
+    return Promise.resolve()
+})
+
+const scrubBatchWithBodyParses = instrumented({
+    key: SPAN_LOGS_PII_SCRUB,
+    ...logRecordProcessInstrumentOpts,
+})((records: LogRecord[], bodyParses: LogBodyParseResult[]): Promise<void> => {
+    for (let i = 0; i < records.length; i++) {
+        scrubLogRecord(records[i], { bodyParse: bodyParses[i] })
+    }
+    return Promise.resolve()
+})
+
 /**
  * Processes an AVRO-encoded log message buffer containing multiple records.
  * Passthrough (no decode) when both json_parse_logs and pii_scrub_logs are off.
- * Otherwise: decode → optional JSON enrich → optional PII scrub → encode.
+ * Otherwise: decode → optional parse bodies → optional JSON enrich → optional PII scrub → encode.
  */
 export async function processLogMessageBuffer(buffer: Buffer, settings: LogsSettings): Promise<Buffer> {
     const jsonParse = settings.json_parse_logs ?? false
@@ -237,7 +278,7 @@ export async function processLogMessageBuffer(buffer: Buffer, settings: LogsSett
     let codec = 'unknown'
 
     try {
-        const [logRecordType, compressionCodec, records] = await decodeLogRecords(buffer)
+        const [logRecordType, compressionCodec, records] = await decodeLogRecordsInstrumented(buffer)
         codec = compressionCodec
 
         if (!logRecordType) {
@@ -245,42 +286,18 @@ export async function processLogMessageBuffer(buffer: Buffer, settings: LogsSett
         }
 
         if (jsonParse && piiScrub) {
-            const bodyParses = await instrumentFn(
-                { key: SPAN_LOGS_JSON_PARSE, ...logRecordProcessInstrumentOpts },
-                (): Promise<LogBodyParseResult[]> => {
-                    const parses = records.map((r) => parseLogBodyForIngestion(r.body))
-                    for (let i = 0; i < records.length; i++) {
-                        enrichLogRecordWithJsonAttributes(records[i], parses[i])
-                    }
-                    return Promise.resolve(parses)
-                }
-            )
-            await instrumentFn({ key: SPAN_LOGS_PII_SCRUB, ...logRecordProcessInstrumentOpts }, () => {
-                for (let i = 0; i < records.length; i++) {
-                    scrubLogRecord(records[i], { bodyParse: bodyParses[i] })
-                }
-                return Promise.resolve()
-            })
+            const bodyParses = await parseLogBodiesForIngestion(records)
+            await enrichBatchJsonAttributes(records, bodyParses)
+            await scrubBatchWithBodyParses(records, bodyParses)
         } else if (jsonParse) {
-            await instrumentFn({ key: SPAN_LOGS_JSON_PARSE, ...logRecordProcessInstrumentOpts }, () => {
-                for (const record of records) {
-                    const bodyParse = parseLogBodyForIngestion(record.body)
-                    enrichLogRecordWithJsonAttributes(record, bodyParse)
-                }
-                return Promise.resolve()
-            })
+            const bodyParses = await parseLogBodiesForIngestion(records)
+            await enrichBatchJsonAttributes(records, bodyParses)
         } else if (piiScrub) {
-            await instrumentFn({ key: SPAN_LOGS_PII_SCRUB, ...logRecordProcessInstrumentOpts }, () => {
-                for (const record of records) {
-                    const bodyParse = parseLogBodyForIngestion(record.body)
-                    scrubLogRecord(record, { bodyParse })
-                }
-                return Promise.resolve()
-            })
+            const bodyParses = await parseLogBodiesForIngestion(records)
+            await scrubBatchWithBodyParses(records, bodyParses)
         }
 
-        const resultBuffer = await encodeLogRecords(logRecordType, codec, records)
-        return resultBuffer
+        return encodeLogRecordsInstrumented(logRecordType, codec, records)
     } finally {
         const durationSeconds = (Date.now() - startTime) / 1000
         logProcessingDurationHistogram.observe(
