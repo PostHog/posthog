@@ -798,6 +798,19 @@ class MCPOAuthRedirectViewSet(viewsets.ViewSet):
                 posthog_code_callback_url=posthog_code_callback_url,
             )
 
+        if server is None:
+            logger.warning(
+                "OAuth redirect: oauth state missing server reference",
+                server_url=installation.url,
+                install_source=install_source,
+            )
+            return self._build_oauth_redirect(
+                install_source,
+                installation,
+                error="invalid_state",
+                posthog_code_callback_url=posthog_code_callback_url,
+            )
+
         try:
             self._exchange_and_store_tokens(installation, server, code, oauth_state.pkce_verifier)
         except OAuthTokenExchangeError:
