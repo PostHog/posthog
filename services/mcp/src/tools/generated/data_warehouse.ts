@@ -14,7 +14,6 @@ import {
     ExternalDataSchemasResyncCreateParams,
     ExternalDataSchemasRetrieveParams,
     ExternalDataSourcesCreateBody,
-    ExternalDataSourcesDatabaseSchemaCreateBody,
     ExternalDataSourcesDestroyParams,
     ExternalDataSourcesJobsRetrieveParams,
     ExternalDataSourcesListQueryParams,
@@ -247,38 +246,6 @@ const externalDataSourcesReload = (): ToolBase<typeof ExternalDataSourcesReloadS
         const result = await context.api.request<unknown>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/external_data_sources/${encodeURIComponent(String(params.id))}/reload/`,
-        })
-        return result
-    },
-})
-
-const ExternalDataSourcesDbSchemaSchema = ExternalDataSourcesDatabaseSchemaCreateBody
-
-const externalDataSourcesDbSchema = (): ToolBase<typeof ExternalDataSourcesDbSchemaSchema, unknown> => ({
-    name: 'external-data-sources-db-schema',
-    schema: ExternalDataSourcesDbSchemaSchema,
-    handler: async (context: Context, params: z.infer<typeof ExternalDataSourcesDbSchemaSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const body: Record<string, unknown> = {}
-        if (params.client_secret !== undefined) {
-            body['client_secret'] = params.client_secret
-        }
-        if (params.account_id !== undefined) {
-            body['account_id'] = params.account_id
-        }
-        if (params.prefix !== undefined) {
-            body['prefix'] = params.prefix
-        }
-        if (params.description !== undefined) {
-            body['description'] = params.description
-        }
-        if (params.job_inputs !== undefined) {
-            body['job_inputs'] = params.job_inputs
-        }
-        const result = await context.api.request<unknown>({
-            method: 'POST',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/external_data_sources/database_schema/`,
-            body,
         })
         return result
     },
@@ -725,7 +692,6 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'external-data-sources-jobs': externalDataSourcesJobs,
     'external-data-sources-refresh-schemas': externalDataSourcesRefreshSchemas,
     'external-data-sources-reload': externalDataSourcesReload,
-    'external-data-sources-db-schema': externalDataSourcesDbSchema,
     'external-data-sources-wizard': externalDataSourcesWizard,
     'view-list': viewList,
     'view-create': viewCreate,
