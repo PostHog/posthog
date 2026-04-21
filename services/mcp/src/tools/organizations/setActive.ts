@@ -16,7 +16,6 @@ export const setActiveHandler: ToolBase<typeof schema, Result>['handler'] = asyn
 ) => {
     const { orgId } = params
     await context.cache.set('orgId', orgId)
-    await context.stateManager.invalidateAiConsent()
 
     // Fetch fresh org data and cache it
     let org: CachedOrg | undefined

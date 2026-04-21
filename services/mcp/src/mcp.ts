@@ -4,7 +4,7 @@ import guidelines from '@shared/guidelines.md'
 import { McpAgent } from 'agents/mcp'
 import type { z } from 'zod'
 
-import { ApiClient, type GroupType } from '@/api/client'
+import { ApiClient } from '@/api/client'
 import { AnalyticsEvent, evaluateFeatureFlags, getPostHogClient, isFeatureFlagEnabled } from '@/lib/analytics'
 import { DurableObjectCache } from '@/lib/cache/DurableObjectCache'
 import {
@@ -62,11 +62,7 @@ export class MCP extends McpAgent<Env> {
         region: undefined,
         apiKey: undefined,
         clientName: undefined,
-        aiConsentGiven: undefined,
-        aiConsentFetchedAt: undefined,
     }
-
-    private readonly CACHE_TTL_MS = 10 * 60 * 1000 // 10 minutes
 
     _cache: DurableObjectCache<State> | undefined
 
@@ -415,15 +411,16 @@ export class MCP extends McpAgent<Env> {
             await context.stateManager.setDefaultOrganizationAndProject()
         }
 
-        const flagVersion = await flagPromise
-        const toolFeatureFlags = await toolFlagsPromise
+        const [flagVersion, toolFeatureFlags] = await Promise.all([flagPromise, toolFlagsPromise])
         const version = flagVersion ?? clientVersion ?? 1
 
         // Fetch group types and metadata in parallel (cache is now seeded)
         const resolvedProjectId = projectId || (await this.cache.get('projectId'))
         const [groupTypes, metadata] = await Promise.all([
-            resolvedProjectId ? this.getOrFetchGroupTypes(resolvedProjectId) : Promise.resolve(undefined),
-            context.stateManager.getCachedOrFetchMetadata(),
+            resolvedProjectId
+                ? context.stateManager.getOrFetchGroupTypes(resolvedProjectId)
+                : Promise.resolve(undefined),
+            context.stateManager.getEnvironmentPrompt(),
         ])
         const instructions =
             version === 2
@@ -442,9 +439,11 @@ export class MCP extends McpAgent<Env> {
         }
 
         // Register prompts and resources
-        await registerPrompts(this.server)
-        await registerResources(this.server, context)
-        await registerUiAppResources(this.server, context)
+        await Promise.all([
+            registerPrompts(this.server),
+            registerResources(this.server, context),
+            registerUiAppResources(this.server, context),
+        ])
 
         // Register tools
         const { getToolsFromContext } = await import('@/tools')
@@ -522,64 +521,5 @@ export class MCP extends McpAgent<Env> {
         } catch {
             return undefined
         }
-    }
-
-    /**
-     * Generic stale-while-revalidate cache helper.
-     * Returns cached data immediately if fresh; if stale, returns cached data and revalidates in the background;
-     * if missing, fetches synchronously.
-     */
-    private async getOrFetchCached<D extends keyof State, T extends keyof State>(opts: {
-        name: string
-        cacheKey: D
-        fetchedAtKey: T
-        fetcher: () => Promise<State[D]>
-    }): Promise<State[D] | undefined> {
-        try {
-            const cached = await this.cache.get(opts.cacheKey)
-            const fetchedAt = (await this.cache.get(opts.fetchedAtKey)) as number | undefined
-            const isStale = !fetchedAt || Date.now() - fetchedAt > this.CACHE_TTL_MS
-
-            if (cached !== undefined && !isStale) {
-                return cached
-            }
-
-            const fetchAndCache = async (): Promise<State[D]> => {
-                const data = await opts.fetcher()
-                await this.cache.set(opts.cacheKey, data)
-                await this.cache.set(opts.fetchedAtKey, Date.now() as State[T])
-                return data
-            }
-
-            if (cached !== undefined) {
-                this.ctx.waitUntil(
-                    fetchAndCache().catch((error) => {
-                        getPostHogClient().captureException(error, undefined, {
-                            tag: 'max_ai',
-                            context: `${opts.name}_background_revalidation`,
-                        })
-                    })
-                )
-                return cached
-            }
-
-            return await fetchAndCache()
-        } catch (error) {
-            getPostHogClient().captureException(error, undefined, {
-                tag: 'max_ai',
-                context: `get_or_fetch_${opts.name}`,
-            })
-            return undefined
-        }
-    }
-
-    private async getOrFetchGroupTypes(projectId: string): Promise<GroupType[] | undefined> {
-        const api = await this.api()
-        return this.getOrFetchCached({
-            name: 'group_types',
-            cacheKey: `groupTypes:${projectId}`,
-            fetchedAtKey: `groupTypesFetchedAt:${projectId}`,
-            fetcher: async () => api.getGroupTypes(projectId),
-        })
     }
 }
