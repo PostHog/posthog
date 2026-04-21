@@ -361,7 +361,7 @@ class IntegrationViewSet(
         "github_repos",
         "github_branches",
     ]
-    scope_object_write_actions = ["refresh_github_repos"]
+    scope_object_write_actions = ["create", "update", "partial_update", "patch", "destroy", "refresh_github_repos"]
     permission_classes = [TeamMemberStrictManagementPermission]
     queryset = Integration.objects.all()
     serializer_class = IntegrationSerializer
