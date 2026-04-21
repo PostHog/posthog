@@ -198,7 +198,16 @@ export const ExperimentCreateSchema = z.object({
                     .number()
                     .min(0)
                     .max(100)
-                    .describe('Percentage of traffic allocated to this variant (0-100). All variants must sum to 100.'),
+                    .optional()
+                    .describe(
+                        'Percentage of traffic allocated to this variant (0-100). All variants must sum to 100. One of split_percent (recommended) or rollout_percentage (deprecated) must be provided per variant.'
+                    ),
+                rollout_percentage: z
+                    .number()
+                    .min(0)
+                    .max(100)
+                    .optional()
+                    .describe('Deprecated: use split_percent instead. Accepted for backward compatibility.'),
             })
         )
         .optional()

@@ -15317,8 +15317,11 @@ export namespace Schemas {
       name?: string | null;
       /** @nullable */
       rollout_percentage?: number | null;
-      /** Percentage of users assigned to this variant (0–100). All variants must sum to 100. */
-      split_percent: number;
+      /**
+       * Percentage of users assigned to this variant (0–100). All variants must sum to 100. One of split_percent (recommended) or rollout_percentage must be provided.
+       * @nullable
+       */
+      split_percent?: number | null;
     }
 
     export interface ExperimentParameters {
