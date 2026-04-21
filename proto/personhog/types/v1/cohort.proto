@@ -18,3 +18,62 @@ message CheckCohortMembershipRequest {
 message CohortMembershipResponse {
   repeated CohortMembership memberships = 1;
 }
+
+// CountCohortMembers returns the total member count across the given cohort IDs.
+message CountCohortMembersRequest {
+  repeated int64 cohort_ids = 1;
+  int64 team_id = 2;
+  ReadOptions read_options = 3;
+}
+
+message CountCohortMembersResponse {
+  int64 count = 1;
+}
+
+// DeleteCohortMember removes a single person from a cohort.
+message DeleteCohortMemberRequest {
+  int64 cohort_id = 1;
+  int64 team_id = 2;
+  int64 person_id = 3;
+}
+
+message DeleteCohortMemberResponse {
+  bool deleted = 1;
+}
+
+// DeleteCohortMembersBulk removes members for the given cohort IDs in batches.
+message DeleteCohortMembersBulkRequest {
+  repeated int64 cohort_ids = 1;
+  int64 team_id = 2;
+  int32 batch_size = 3;
+}
+
+message DeleteCohortMembersBulkResponse {
+  int64 deleted_count = 1;
+}
+
+// InsertCohortMembers adds persons to a static cohort.
+message InsertCohortMembersRequest {
+  int64 cohort_id = 1;
+  int64 team_id = 2;
+  repeated int64 person_ids = 3;
+  optional int32 version = 4;
+}
+
+message InsertCohortMembersResponse {
+  int64 inserted_count = 1;
+}
+
+// ListCohortMemberIds returns person IDs for a cohort with keyset pagination.
+message ListCohortMemberIdsRequest {
+  int64 cohort_id = 1;
+  int64 team_id = 2;
+  int64 cursor = 3;
+  int32 limit = 4;
+  ReadOptions read_options = 5;
+}
+
+message ListCohortMemberIdsResponse {
+  repeated int64 person_ids = 1;
+  int64 next_cursor = 2;
+}
