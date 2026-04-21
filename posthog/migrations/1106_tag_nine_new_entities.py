@@ -44,17 +44,21 @@ FK_TARGETS: dict[str, tuple[str, str, str]] = {
     "error_tracking_issue": ("posthog_errortrackingissue", "id", "uuid"),
 }
 
-
-def _index_name(field: str) -> str:
-    return f"posthog_taggeditem_{field}_id_idx"
+TARGET_MODEL_LABEL: dict[str, str] = {
+    "experiment": "experiments.experiment",
+    "cohort": "posthog.cohort",
+    "notebook": "notebooks.notebook",
+    "survey": "surveys.survey",
+    "session_recording_playlist": "posthog.sessionrecordingplaylist",
+    "data_warehouse_saved_query": "data_warehouse.datawarehousesavedquery",
+    "hog_function": "posthog.hogfunction",
+    "batch_export": "posthog.batchexport",
+    "error_tracking_issue": "error_tracking.errortrackingissue",
+}
 
 
 def _partial_unique_index_name(field: str) -> str:
     return f"unique_{field}_tagged_item"
-
-
-def _composite_unique_index_name() -> str:
-    return "posthog_taggeditem_all_related_object_id_uniq"
 
 
 def _build_check_sql() -> str:
@@ -68,23 +72,6 @@ def _build_check_sql() -> str:
                 parts.append(f'"{other}_id" IS NULL')
         clauses.append("(" + " AND ".join(parts) + ")")
     return " OR ".join(clauses)
-
-
-def _build_composite_columns_sql() -> str:
-    return ", ".join(f'"{field}_id"' for field in ALL_RELATED_OBJECTS) + ', "tag_id"'
-
-
-TARGET_MODEL_LABEL: dict[str, str] = {
-    "experiment": "experiments.Experiment",
-    "cohort": "Cohort",
-    "notebook": "notebooks.Notebook",
-    "survey": "surveys.Survey",
-    "session_recording_playlist": "SessionRecordingPlaylist",
-    "data_warehouse_saved_query": "data_warehouse.DataWarehouseSavedQuery",
-    "hog_function": "HogFunction",
-    "batch_export": "BatchExport",
-    "error_tracking_issue": "error_tracking.ErrorTrackingIssue",
-}
 
 
 def _field_fk(field: str) -> models.ForeignKey:
@@ -114,7 +101,11 @@ def _drop_column_sql(field: str) -> str:
 
 
 class Migration(migrations.Migration):
-    atomic = False  # required for CREATE INDEX CONCURRENTLY
+    # Pairs with the follow-up migration 1107 which contains the
+    # CONCURRENTLY index/constraint builds. This migration stays atomic so any
+    # failure rolls back cleanly — splitting non-CONCURRENTLY from
+    # CONCURRENTLY work keeps each side deploy-safe.
+    atomic = True
 
     dependencies = [
         ("posthog", "1105_alter_oauthapplication_authorization_grant_type"),
@@ -175,7 +166,8 @@ class Migration(migrations.Migration):
                     sql='ALTER TABLE "posthog_taggeditem" DROP CONSTRAINT IF EXISTS "exactly_one_related_object";',
                     reverse_sql=migrations.RunSQL.noop,
                 ),
-                # 2. Drop the old composite unique constraint/index.
+                # 2. Drop the old composite unique constraint. Migration 1107
+                #    rebuilds the widened version CONCURRENTLY.
                 migrations.RunSQL(
                     sql='ALTER TABLE "posthog_taggeditem" DROP CONSTRAINT IF EXISTS "posthog_taggeditem_tag_id_dashboard_id_insi_734394e1_uniq";',
                     reverse_sql=migrations.RunSQL.noop,
@@ -189,62 +181,7 @@ class Migration(migrations.Migration):
                     )
                     for field in NEW_RELATED_OBJECTS
                 ],
-                # 4. btree index per FK column, built CONCURRENTLY.
-                *[
-                    migrations.RunSQL(
-                        sql=(
-                            f"CREATE INDEX CONCURRENTLY IF NOT EXISTS "
-                            f'"{_index_name(field)}" ON "posthog_taggeditem" ("{field}_id");'
-                        ),
-                        reverse_sql=f'DROP INDEX CONCURRENTLY IF EXISTS "{_index_name(field)}";',
-                    )
-                    for field in NEW_RELATED_OBJECTS
-                ],
-                # 5. Partial unique index per new FK column (mirrors the
-                #    state-side UniqueConstraint).
-                *[
-                    migrations.RunSQL(
-                        sql=(
-                            f"CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS "
-                            f'"{_partial_unique_index_name(field)}" '
-                            f'ON "posthog_taggeditem" ("tag_id", "{field}_id") '
-                            f'WHERE "{field}_id" IS NOT NULL; '
-                            f"-- not-null-ignore"
-                        ),
-                        reverse_sql=(
-                            f"DROP INDEX CONCURRENTLY IF EXISTS "
-                            f'"{_partial_unique_index_name(field)}";'
-                        ),
-                    )
-                    for field in NEW_RELATED_OBJECTS
-                ],
-                # 6. Widened composite unique index over (tag, all FKs). Built
-                #    CONCURRENTLY, then promoted to a UNIQUE constraint using
-                #    that index so downgrade does not require a re-build.
-                migrations.RunSQL(
-                    sql=(
-                        f"CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS "
-                        f'"{_composite_unique_index_name()}" '
-                        f'ON "posthog_taggeditem" ({_build_composite_columns_sql()});'
-                    ),
-                    reverse_sql=(
-                        f"DROP INDEX CONCURRENTLY IF EXISTS "
-                        f'"{_composite_unique_index_name()}";'
-                    ),
-                ),
-                migrations.RunSQL(
-                    sql=(
-                        f'ALTER TABLE "posthog_taggeditem" '
-                        f'ADD CONSTRAINT "{_composite_unique_index_name()}" '
-                        f'UNIQUE USING INDEX "{_composite_unique_index_name()}"; '
-                        f"-- existing-table-constraint-ignore"
-                    ),
-                    reverse_sql=(
-                        f'ALTER TABLE "posthog_taggeditem" '
-                        f'DROP CONSTRAINT IF EXISTS "{_composite_unique_index_name()}";'
-                    ),
-                ),
-                # 7. New check constraint with NOT VALID so existing rows are
+                # 4. New check constraint with NOT VALID so existing rows are
                 #    not scanned. Existing rows remain compliant because the
                 #    new columns are all NULL for them and the original 8
                 #    fields retain their "exactly one is set" invariant.

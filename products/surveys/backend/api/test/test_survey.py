@@ -2198,6 +2198,7 @@ class TestSurvey(APIBaseTest):
                     "response_sampling_daily_limits": None,
                     "form_content": None,
                     "user_access_level": "manager",
+                    "tags": [],
                 }
             ],
         }

@@ -16,6 +16,15 @@ export const tagsLogic = kea<tagsLogicType>([
         closeMergeDialog: true,
         openItemsDrawer: (tag: TagType) => ({ tag }),
         closeItemsDrawer: true,
+        // Explicit action payloads for every loader so kea-loaders can infer the
+        // correct action shape — destructuring inside the loader function alone
+        // produces a payload type that conflicts with the state default.
+        loadTags: true,
+        createTag: (name: string) => ({ name }),
+        renameTag: (id: string, name: string) => ({ id, name }),
+        deleteTag: (id: string) => ({ id }),
+        mergeTag: (sourceId: string, targetId: string) => ({ sourceId, targetId }),
+        loadItemsForTag: (id: string) => ({ id }),
     }),
     reducers({
         search: [
@@ -47,7 +56,7 @@ export const tagsLogic = kea<tagsLogicType>([
                     const response = await api.tags.listFull({ limit: 500 })
                     return response.results
                 },
-                createTag: async (name: string) => {
+                createTag: async ({ name }) => {
                     const cleaned = name.trim().toLowerCase()
                     if (!cleaned) {
                         lemonToast.error('Tag name must not be empty.')
@@ -57,7 +66,7 @@ export const tagsLogic = kea<tagsLogicType>([
                     lemonToast.success(`Created tag "${created.name}".`)
                     return [...values.tags, created].sort((a, b) => a.name.localeCompare(b.name))
                 },
-                renameTag: async ({ id, name }: { id: TagType['id']; name: string }) => {
+                renameTag: async ({ id, name }) => {
                     const cleaned = name.trim().toLowerCase()
                     if (!cleaned) {
                         lemonToast.error('Tag name must not be empty.')
@@ -69,12 +78,12 @@ export const tagsLogic = kea<tagsLogicType>([
                         .map((tag) => (tag.id === id ? updated : tag))
                         .sort((a, b) => a.name.localeCompare(b.name))
                 },
-                deleteTag: async (id: TagType['id']) => {
+                deleteTag: async ({ id }) => {
                     await api.tags.delete(id)
                     lemonToast.success('Tag deleted.')
                     return values.tags.filter((tag) => tag.id !== id)
                 },
-                mergeTag: async ({ sourceId, targetId }: { sourceId: TagType['id']; targetId: TagType['id'] }) => {
+                mergeTag: async ({ sourceId, targetId }) => {
                     const merged = await api.tags.merge(sourceId, targetId)
                     lemonToast.success(`Merged into "${merged.name}".`)
                     return values.tags
@@ -86,7 +95,7 @@ export const tagsLogic = kea<tagsLogicType>([
         itemsForTag: [
             [] as TagItemType[],
             {
-                loadItemsForTag: async (id: TagType['id']) => {
+                loadItemsForTag: async ({ id }) => {
                     return await api.tags.items(id)
                 },
             },

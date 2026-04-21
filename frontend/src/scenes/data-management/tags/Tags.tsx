@@ -1,17 +1,18 @@
 import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
-import { IconMerge, IconPencil, IconPlus, IconTrash } from '@posthog/icons'
+import { IconArrowRight, IconPencil, IconPlus, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonModal, LemonSelect, LemonTable, LemonTableColumns } from '@posthog/lemon-ui'
 
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
+import { LemonField } from 'lib/lemon-ui/LemonField'
 import { Link } from 'lib/lemon-ui/Link'
+import { SceneExport } from 'scenes/sceneTypes'
+import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import { SceneExport } from 'scenes/sceneTypes'
-import { urls } from 'scenes/urls'
 import { TagItemType, TagType } from '~/types'
 
 import { tagsLogic } from './tagsLogic'
@@ -117,23 +118,20 @@ export function Tags(): JSX.Element {
                                 title: `Rename tag "${tag.name}"`,
                                 initialValues: { name: tag.name },
                                 content: (
-                                    <LemonInput
-                                        name="name"
-                                        placeholder="new-tag-name"
-                                        autoFocus
-                                        autoComplete="off"
-                                    />
+                                    <LemonField name="name" label="New tag name">
+                                        <LemonInput placeholder="new-tag-name" autoFocus autoComplete="off" />
+                                    </LemonField>
                                 ),
                                 errors: {
                                     name: (name) => (!name ? 'Name is required' : undefined),
                                 },
-                                onSubmit: ({ name }) => renameTag({ id: tag.id, name }),
+                                onSubmit: ({ name }) => renameTag(tag.id, name),
                             })
                         }
                     />
                     <LemonButton
                         size="small"
-                        icon={<IconMerge />}
+                        icon={<IconArrowRight />}
                         tooltip="Merge into another tag"
                         onClick={() => openMergeDialog(tag)}
                     />
@@ -161,7 +159,11 @@ export function Tags(): JSX.Element {
 
     return (
         <SceneContent>
-            <SceneTitleSection name="Tags" description="Manage tags used across dashboards, insights, notebooks, cohorts, feature flags, and more." />
+            <SceneTitleSection
+                name="Tags"
+                description="Manage tags used across dashboards, insights, notebooks, cohorts, feature flags, and more."
+                resourceType={{ type: 'tag' }}
+            />
 
             <div className="flex gap-2 items-center">
                 <LemonInput
@@ -213,7 +215,7 @@ export function Tags(): JSX.Element {
                     targets={tags.filter((tag) => tag.id !== mergeDialogSource.id)}
                     onClose={closeMergeDialog}
                     onSubmit={(targetId) => {
-                        mergeTag({ sourceId: mergeDialogSource.id, targetId })
+                        mergeTag(mergeDialogSource.id, targetId)
                         closeMergeDialog()
                     }}
                 />

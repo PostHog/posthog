@@ -2895,10 +2895,7 @@ const api = {
         ): Promise<TagType> {
             return new ApiRequest().tag(id, projectId).update({ data: { name } })
         },
-        async delete(
-            id: TagType['id'],
-            projectId: TeamType['id'] = ApiConfig.getCurrentProjectId()
-        ): Promise<void> {
+        async delete(id: TagType['id'], projectId: TeamType['id'] = ApiConfig.getCurrentProjectId()): Promise<void> {
             return new ApiRequest().tag(id, projectId).delete()
         },
         async items(

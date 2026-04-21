@@ -148,4 +148,12 @@ class TestEnterpriseTaggedItemSerializerMixin(APIBaseTest):
 
         response = self.client.get(f"/api/projects/{self.team.id}/tags")
         assert response.status_code == status.HTTP_200_OK
-        assert response.json() == ["dashboard tag", "feature flag tag", "insight tag"]
+        body = response.json()
+        assert sorted(tag["name"] for tag in body["results"]) == ["dashboard tag", "feature flag tag", "insight tag"]
+        assert all(tag["usage_count"] == 1 for tag in body["results"])
+
+        # Legacy `?shape=names` returns the flat array shape for any callers
+        # still on the pre-TagViewSet contract.
+        legacy_response = self.client.get(f"/api/projects/{self.team.id}/tags?shape=names")
+        assert legacy_response.status_code == status.HTTP_200_OK
+        assert legacy_response.json() == ["dashboard tag", "feature flag tag", "insight tag"]
