@@ -3186,7 +3186,11 @@ class TestExperimentCRUD(APILicensedTest):
         assert duplicate_data["filters"] == original_experiment["filters"]
 
         # feature_flag_variants should come from the new flag; other parameters should match the original
-        assert duplicate_data["parameters"]["feature_flag_variants"] == new_flag.filters["multivariate"]["variants"]
+        # The API response includes split_percent alongside rollout_percentage
+        expected_variants = [
+            {**v, "split_percent": v["rollout_percentage"]} for v in new_flag.filters["multivariate"]["variants"]
+        ]
+        assert duplicate_data["parameters"]["feature_flag_variants"] == expected_variants
         assert {**duplicate_data["parameters"], "feature_flag_variants": None} == {
             **original_experiment["parameters"],
             "feature_flag_variants": None,
@@ -3252,7 +3256,9 @@ class TestExperimentCRUD(APILicensedTest):
 
         # The duplicate should use the NEW flag's variants, not the original's
         assert duplicate_data["feature_flag_key"] == "new-flag-with-different-variants"
-        assert duplicate_data["parameters"]["feature_flag_variants"] == new_flag_variants
+        # The API response includes split_percent alongside rollout_percentage
+        expected_variants = [{**v, "split_percent": v["rollout_percentage"]} for v in new_flag_variants]
+        assert duplicate_data["parameters"]["feature_flag_variants"] == expected_variants
 
     def test_duplicate_experiment_rejects_blank_feature_flag_key(self) -> None:
         original_response = self.client.post(
@@ -5814,3 +5820,52 @@ class TestExperimentAuxiliaryEndpoints(ClickhouseTestMixin, APILicensedTest):
         ordering = response.json()["primary_metrics_ordered_uuids"]
         self.assertIn(inline_uuid, ordering)
         self.assertIn(saved_metric_uuid, ordering)
+
+
+class TestExperimentParametersFieldMutation(APILicensedTest):
+    """
+    ExperimentParametersField translates split_percent <-> rollout_percentage at the API
+    boundary. Both methods must be pure transformations — mutating caller state would leak
+    the alias translation into serializer.initial_data, request.data, activity logs, Sentry
+    reports, and any downstream consumer that reads the original input/output.
+    """
+
+    def test_to_internal_value_does_not_mutate_input_dict(self):
+        from ee.clickhouse.views.experiments import ExperimentParametersField
+
+        input_dict = {
+            "feature_flag_variants": [
+                {"key": "control", "split_percent": 50},
+                {"key": "test", "split_percent": 50},
+            ]
+        }
+
+        ExperimentParametersField().to_internal_value(input_dict)
+
+        # Caller's dict must still have split_percent (not replaced by rollout_percentage)
+        assert input_dict == {
+            "feature_flag_variants": [
+                {"key": "control", "split_percent": 50},
+                {"key": "test", "split_percent": 50},
+            ]
+        }
+
+    def test_to_representation_does_not_mutate_stored_value(self):
+        from ee.clickhouse.views.experiments import ExperimentParametersField
+
+        stored_value = {
+            "feature_flag_variants": [
+                {"key": "control", "rollout_percentage": 50},
+                {"key": "test", "rollout_percentage": 50},
+            ]
+        }
+
+        ExperimentParametersField().to_representation(stored_value)
+
+        # Stored value (the model's in-memory parameters dict) must not gain split_percent
+        assert stored_value == {
+            "feature_flag_variants": [
+                {"key": "control", "rollout_percentage": 50},
+                {"key": "test", "rollout_percentage": 50},
+            ]
+        }

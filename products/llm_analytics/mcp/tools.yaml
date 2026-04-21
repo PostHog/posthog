@@ -14,18 +14,6 @@ ui_apps:
         data_type: LLMCostsData
         view_component: LLMCostsView
 tools:
-    evaluation-runs-create:
-        operation: evaluation_runs_create
-        enabled: false
-    evaluations-list:
-        operation: evaluations_list
-        enabled: false
-    evaluations-create:
-        operation: evaluations_create
-        enabled: false
-    evaluations-test-hog-create:
-        operation: evaluations_test_hog_create
-        enabled: false
     llm-analytics-clustering-config-retrieve:
         operation: llm_analytics_clustering_config_retrieve
         enabled: false
@@ -291,30 +279,6 @@ tools:
     llm-analytics-provider-keys-assign-create:
         operation: llm_analytics_provider_keys_assign_create
         enabled: false
-    llm-analytics-evaluation-reports-list:
-        operation: llm_analytics_evaluation_reports_list
-        enabled: false
-    llm-analytics-evaluation-reports-create:
-        operation: llm_analytics_evaluation_reports_create
-        enabled: false
-    llm-analytics-evaluation-reports-retrieve:
-        operation: llm_analytics_evaluation_reports_retrieve
-        enabled: false
-    llm-analytics-evaluation-reports-update:
-        operation: llm_analytics_evaluation_reports_update
-        enabled: false
-    llm-analytics-evaluation-reports-partial-update:
-        operation: llm_analytics_evaluation_reports_partial_update
-        enabled: false
-    llm-analytics-evaluation-reports-destroy:
-        operation: llm_analytics_evaluation_reports_destroy
-        enabled: false
-    llm-analytics-evaluation-reports-generate-create:
-        operation: llm_analytics_evaluation_reports_generate_create
-        enabled: false
-    llm-analytics-evaluation-reports-runs-list:
-        operation: llm_analytics_evaluation_reports_runs_list
-        enabled: false
     llm-skills-list:
         operation: llm_skills_list
         enabled: false
@@ -338,4 +302,52 @@ tools:
         enabled: false
     llm-skills-resolve-name-retrieve:
         operation: llm_skills_resolve_name_retrieve
+        enabled: false
+    evaluation-runs-create:
+        operation: evaluation_runs_create
+        enabled: false
+    evaluations-list:
+        operation: evaluations_list
+        enabled: false
+    evaluations-create:
+        operation: evaluations_create
+        enabled: false
+    evaluations-retrieve:
+        operation: evaluations_retrieve
+        enabled: false
+    evaluations-update:
+        operation: evaluations_update
+        enabled: false
+    evaluations-partial-update:
+        operation: evaluations_partial_update
+        enabled: false
+    evaluations-destroy:
+        operation: evaluations_destroy
+        enabled: false
+    evaluations-test-hog-create:
+        operation: evaluations_test_hog_create
+        enabled: false
+    llm-analytics-evaluation-reports-list:
+        operation: llm_analytics_evaluation_reports_list
+        enabled: false
+    llm-analytics-evaluation-reports-create:
+        operation: llm_analytics_evaluation_reports_create
+        enabled: false
+    llm-analytics-evaluation-reports-retrieve:
+        operation: llm_analytics_evaluation_reports_retrieve
+        enabled: false
+    llm-analytics-evaluation-reports-update:
+        operation: llm_analytics_evaluation_reports_update
+        enabled: false
+    llm-analytics-evaluation-reports-partial-update:
+        operation: llm_analytics_evaluation_reports_partial_update
+        enabled: false
+    llm-analytics-evaluation-reports-destroy:
+        operation: llm_analytics_evaluation_reports_destroy
+        enabled: false
+    llm-analytics-evaluation-reports-generate-create:
+        operation: llm_analytics_evaluation_reports_generate_create
+        enabled: false
+    llm-analytics-evaluation-reports-runs-list:
+        operation: llm_analytics_evaluation_reports_runs_list
         enabled: false

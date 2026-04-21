@@ -1,6 +1,7 @@
 import sys
 from datetime import datetime, timedelta
-from typing import TYPE_CHECKING, Any, Optional, TypedDict, Union
+from functools import cache as functools_cache
+from typing import TYPE_CHECKING, Any, Literal, Optional, TypedDict, Union
 
 from django.conf import settings
 from django.contrib.postgres.fields import ArrayField
@@ -67,6 +68,25 @@ class ProductFeature(TypedDict):
     limit: int | None
     note: str | None
     is_plan_default: bool
+
+
+@functools_cache
+def _enterprise_only_feature_keys() -> frozenset[str]:
+    """Enterprise-plan-only feature keys, computed once per process.
+
+    Sourced from `License.ENTERPRISE_FEATURES - SCALE_FEATURES`, plus `ACCESS_CONTROL`
+    (the successor to `ADVANCED_PERMISSIONS` per the `AvailableFeature` enum) which
+    isn't reflected in `License.ENTERPRISE_FEATURES` yet but should classify the same way.
+    """
+    keys: set[str] = {str(AvailableFeature.ACCESS_CONTROL)}
+    try:
+        from ee.models.license import License
+
+        scale_features = {str(f) for f in License.SCALE_FEATURES}
+        keys |= {str(f) for f in License.ENTERPRISE_FEATURES} - scale_features
+    except ImportError:
+        pass
+    return frozenset(keys)
 
 
 class OrganizationManager(models.Manager):
@@ -320,6 +340,27 @@ class Organization(ModelActivityMixin, UUIDTModel):  # type: ignore[django-manag
 
     def is_feature_available(self, feature: Union[AvailableFeature, str]) -> bool:
         return bool(self.get_available_feature(feature))
+
+    def get_plan_tier(self) -> Literal["free", "paid", "enterprise"]:
+        """Best-effort plan tier derived from `available_product_features`.
+
+        "enterprise" if any Enterprise-only feature is present (per `License.ENTERPRISE_FEATURES`
+        minus `SCALE_FEATURES`, plus `access_control` — the successor to `advanced_permissions`
+        per `AvailableFeature` in constants.py — which is not yet reflected in `License`).
+        "paid" if any feature is present, otherwise "free". Paid uses "any feature present"
+        rather than an allow-list because the billing service grants features (alerts,
+        surveys_styling, ...) that postdate `License.SCALE_FEATURES`, and an allow-list
+        silently downgrades those orgs to free.
+        """
+        available_keys = {
+            feature.get("key") for feature in (self.available_product_features or []) if feature and feature.get("key")
+        }
+        if not available_keys:
+            return "free"
+
+        if available_keys & _enterprise_only_feature_keys():
+            return "enterprise"
+        return "paid"
 
     def limit_product_until_end_of_billing_cycle(self, resource: "QuotaResource") -> None:
         """
