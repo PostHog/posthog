@@ -547,9 +547,9 @@ export type TaskRunCreateRequestSchemaApi =
  * `tree_snapshot` - tree_snapshot
  * `user_attachment` - user_attachment
  */
-export type Type46fEnumApi = (typeof Type46fEnumApi)[keyof typeof Type46fEnumApi]
+export type TypeE8eEnumApi = (typeof TypeE8eEnumApi)[keyof typeof TypeE8eEnumApi]
 
-export const Type46fEnumApi = {
+export const TypeE8eEnumApi = {
     Plan: 'plan',
     Context: 'context',
     Reference: 'reference',
@@ -576,7 +576,7 @@ export interface TaskStagedArtifactFinalizeUploadApi {
 * `artifact` - artifact
 * `tree_snapshot` - tree_snapshot
 * `user_attachment` - user_attachment */
-    type: Type46fEnumApi
+    type: TypeE8eEnumApi
     /**
      * Optional source label for the artifact, such as agent_output or user_attachment
      * @maxLength 64
@@ -638,7 +638,7 @@ export interface TaskStagedArtifactPrepareUploadApi {
 * `artifact` - artifact
 * `tree_snapshot` - tree_snapshot
 * `user_attachment` - user_attachment */
-    type: Type46fEnumApi
+    type: TypeE8eEnumApi
     /**
      * Optional source label for the artifact, such as agent_output or user_attachment
      * @maxLength 64
@@ -893,7 +893,7 @@ export interface TaskRunArtifactUploadApi {
 * `artifact` - artifact
 * `tree_snapshot` - tree_snapshot
 * `user_attachment` - user_attachment */
-    type: Type46fEnumApi
+    type: TypeE8eEnumApi
     /**
      * Optional source label for the artifact, such as agent_output or user_attachment
      * @maxLength 64
@@ -948,7 +948,7 @@ export interface TaskRunArtifactFinalizeUploadApi {
 * `artifact` - artifact
 * `tree_snapshot` - tree_snapshot
 * `user_attachment` - user_attachment */
-    type: Type46fEnumApi
+    type: TypeE8eEnumApi
     /**
      * Optional source label for the artifact, such as agent_output or user_attachment
      * @maxLength 64
@@ -991,7 +991,7 @@ export interface TaskRunArtifactPrepareUploadApi {
 * `artifact` - artifact
 * `tree_snapshot` - tree_snapshot
 * `user_attachment` - user_attachment */
-    type: Type46fEnumApi
+    type: TypeE8eEnumApi
     /**
      * Optional source label for the artifact, such as agent_output or user_attachment
      * @maxLength 64
