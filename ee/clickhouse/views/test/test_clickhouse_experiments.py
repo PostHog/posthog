@@ -2401,6 +2401,41 @@ class TestExperimentCRUD(APILicensedTest):
         self.assertEqual(response.json()["name"], "Test Experiment")
         self.assertEqual(response.json()["feature_flag_key"], ff_key)
 
+    def test_create_experiment_inherits_team_default_only_count_matured_users(self):
+        config = get_or_create_team_extension(self.team, TeamExperimentsConfig)
+        config.default_only_count_matured_users = True
+        config.save()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Team Default Matured",
+                "feature_flag_key": "team-default-matured",
+                "parameters": None,
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertTrue(response.json()["only_count_matured_users"])
+
+    def test_create_experiment_explicit_false_overrides_team_default_only_count_matured_users(self):
+        config = get_or_create_team_extension(self.team, TeamExperimentsConfig)
+        config.default_only_count_matured_users = True
+        config.save()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Override Matured",
+                "feature_flag_key": "override-matured",
+                "parameters": None,
+                "only_count_matured_users": False,
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertFalse(response.json()["only_count_matured_users"])
+
     def test_create_experiment_with_feature_flag_missing_control(self):
         feature_flag = FeatureFlag.objects.create(
             team=self.team,
