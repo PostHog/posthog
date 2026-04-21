@@ -123,7 +123,7 @@ posthog:skill-update
 
 ## Porting a local skill
 
-To move a skill from a local SKILL.md directory (e.g. `~/.claude/skills/<name>/` with `scripts/`, `references/`, `assets/` subdirs) into PostHog:
+To move a skill from a local SKILL.md directory (e.g. a local skills folder with `scripts/`, `references/`, `assets/` subdirs) into PostHog:
 
 1. Read the local `SKILL.md` — use its frontmatter for `name`, `description`, `license`, `compatibility`, `allowed_tools`, `metadata`; the body after the frontmatter becomes `body`
 2. Walk the `scripts/`, `references/`, and `assets/` subdirs and collect each file as `{ path, content, content_type }`
@@ -133,9 +133,9 @@ The skill is then available to the whole team via `posthog:skill-get`.
 
 ## Quick access: local bridge skill
 
-Typing `/phs my-github` is faster and more deterministic than asking the agent to "use the PostHog skills store to load my-github". A local bridge skill gives you a slash command that routes straight to the skills API.
+Most coding agents support local skills or slash commands. A local bridge skill gives you a shortcut (e.g. `/phs my-github`) that routes straight to the PostHog skills API — faster and more deterministic than asking the agent to "use the PostHog skills store to load my-github".
 
-Save the following as `~/.claude/skills/phs/SKILL.md` (or any short name you prefer):
+Create a local skill in your agent's skills directory with these instructions:
 
 ```markdown
 ---
@@ -172,6 +172,8 @@ skill-get → note version → skill-update(skill_name="...", base_version=N, bo
 ```
 
 The bridge is intentionally minimal — it just routes to the MCP tools. The real instructions live in PostHog and update without touching local files.
+
+> **Agent-specific setup:** Where to save this depends on your agent. For Claude Code, save as `~/.claude/skills/phs/SKILL.md`. For other agents, consult your agent's docs on local skill or slash command configuration.
 
 ## Default behavior
 
