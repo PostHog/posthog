@@ -435,6 +435,153 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
         check = AlertCheck.objects.filter(alert_configuration=firing_alert.id).latest("created_at")
         assert check.state == AlertState.SNOOZED
 
+    def _create_alert(self, **overrides) -> dict:
+        creation_request = {
+            "insight": self.insight["id"],
+            "subscribed_users": [self.user.id],
+            "condition": {"type": AlertConditionType.ABSOLUTE_VALUE},
+            "config": {"type": "TrendsAlertConfig", "series_index": 0},
+            "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {}}},
+            "name": "test alert",
+            **overrides,
+        }
+        return self.client.post(f"/api/projects/{self.team.id}/alerts", creation_request).json()
+
+    def test_checks_action_returns_paginated_history(self) -> None:
+        alert = self._create_alert(name="checks action test")
+        alert_obj = AlertConfiguration.objects.get(id=alert["id"])
+        now = datetime.now(UTC)
+        for i in range(6):
+            check = AlertCheck.objects.create(
+                alert_configuration=alert_obj,
+                calculated_value=float(i),
+                state=AlertState.NOT_FIRING,
+            )
+            AlertCheck.objects.filter(id=check.id).update(created_at=now - timedelta(seconds=6 - i))
+
+        response = self.client.get(f"/api/projects/{self.team.id}/alerts/{alert['id']}/checks")
+        assert response.status_code == status.HTTP_200_OK, response.content
+        body = response.json()
+        assert body["count"] == 6
+        assert [c["calculated_value"] for c in body["results"]] == [5.0, 4.0, 3.0, 2.0, 1.0, 0.0]
+
+        response = self.client.get(f"/api/projects/{self.team.id}/alerts/{alert['id']}/checks?limit=2&offset=2")
+        body = response.json()
+        assert body["count"] == 6
+        assert [c["calculated_value"] for c in body["results"]] == [3.0, 2.0]
+
+    def test_checks_action_filters_by_date_and_state(self) -> None:
+        alert = self._create_alert(name="checks filter test")
+        alert_obj = AlertConfiguration.objects.get(id=alert["id"])
+        now = datetime.now(UTC)
+
+        old_firing = AlertCheck.objects.create(
+            alert_configuration=alert_obj, calculated_value=1.0, state=AlertState.FIRING
+        )
+        AlertCheck.objects.filter(id=old_firing.id).update(created_at=now - timedelta(hours=48))
+        AlertCheck.objects.create(alert_configuration=alert_obj, calculated_value=2.0, state=AlertState.FIRING)
+        AlertCheck.objects.create(alert_configuration=alert_obj, calculated_value=3.0, state=AlertState.NOT_FIRING)
+
+        response = self.client.get(f"/api/projects/{self.team.id}/alerts/{alert['id']}/checks?date_from=-24h")
+        body = response.json()
+        assert body["count"] == 2
+        assert {c["calculated_value"] for c in body["results"]} == {2.0, 3.0}
+
+        response = self.client.get(f"/api/projects/{self.team.id}/alerts/{alert['id']}/checks?state=Firing")
+        body = response.json()
+        assert body["count"] == 2
+        assert {c["calculated_value"] for c in body["results"]} == {1.0, 2.0}
+
+    def test_checks_action_scoped_to_team(self) -> None:
+        alert = self._create_alert(name="scoping test")
+        other_team = Team.objects.create(organization=self.organization, api_token=self.CONFIG_API_TOKEN + "2")
+        response = self.client.get(f"/api/projects/{other_team.id}/alerts/{alert['id']}/checks")
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_snooze_action(self) -> None:
+        alert = self._create_alert(name="snooze action test")
+        alert_obj = AlertConfiguration.objects.get(id=alert["id"])
+        alert_obj.state = AlertState.FIRING
+        alert_obj.save()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/alerts/{alert['id']}/snooze",
+            {"duration": "2h"},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK, response.content
+        body = response.json()
+        assert body["state"] == AlertState.SNOOZED
+        assert body["snoozed_until"] is not None
+
+        alert_obj.refresh_from_db()
+        assert alert_obj.state == AlertState.SNOOZED
+        assert alert_obj.snoozed_until is not None
+        assert alert_obj.snoozed_until > datetime.now(UTC)
+
+        check = AlertCheck.objects.filter(alert_configuration=alert_obj).latest("created_at")
+        assert check.state == AlertState.SNOOZED
+        assert check.calculated_value is None
+
+    def test_snooze_action_rejects_invalid_duration(self) -> None:
+        alert = self._create_alert(name="snooze validation test")
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/alerts/{alert['id']}/snooze",
+            {"duration": "not a duration"},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/alerts/{alert['id']}/snooze",
+            {},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    @parameterized.expand(
+        [
+            ("disable_an_enabled_alert", True, False),
+            ("enable_a_disabled_alert", False, True),
+            ("toggle_is_idempotent", True, True),
+        ]
+    )
+    def test_toggle_action(self, _label: str, initial_enabled: bool, target_enabled: bool) -> None:
+        alert = self._create_alert(name=f"toggle test {_label}")
+        alert_obj = AlertConfiguration.objects.get(id=alert["id"])
+        if alert_obj.enabled != initial_enabled:
+            alert_obj.enabled = initial_enabled
+            alert_obj.save()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/alerts/{alert['id']}/toggle",
+            {"enabled": target_enabled},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert response.json()["enabled"] == target_enabled
+
+        alert_obj.refresh_from_db()
+        assert alert_obj.enabled == target_enabled
+
+    def test_toggle_reenable_marks_for_recheck(self) -> None:
+        alert = self._create_alert(name="toggle reenable test")
+        alert_obj = AlertConfiguration.objects.get(id=alert["id"])
+        alert_obj.enabled = False
+        alert_obj.next_check_at = datetime.now(UTC) + timedelta(days=1)
+        alert_obj.save()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/alerts/{alert['id']}/toggle",
+            {"enabled": True},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK
+
+        alert_obj.refresh_from_db()
+        assert alert_obj.enabled is True
+        assert alert_obj.next_check_at is None
+
     @parameterized.expand(
         [
             (

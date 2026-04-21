@@ -119,6 +119,50 @@ tools:
             lof, ocsvm, pca, or ensemble). Optionally specify date_from (e.g. '-48h', '-30d') to control how far back to
             simulate, and series_index to pick which series to analyze. Returns data values, anomaly scores per point,
             triggered indices and dates, and for ensemble detectors, per-sub-detector score breakdowns.
+    alert-checks-list:
+        operation: alerts_checks_retrieve
+        enabled: true
+        scopes:
+            - alert:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: List alert checks
+        description: >
+            List historical checks for a specific alert without returning the full alert record. Each check includes
+            calculated_value, state (Firing, Not firing, Errored, Snoozed), triggered_points, triggered_dates, and
+            anomaly_scores for detector-based alerts. Use date_from and date_to (e.g. '-24h', '-7d') to scope the
+            window; retention is 14 days. Filter by state to surface only firing or errored checks. Prefer this over
+            alert-get when you only need check history.
+    alert-snooze:
+        operation: alerts_snooze_create
+        enabled: true
+        scopes:
+            - alert:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Snooze alert
+        description: >
+            Pause an alert for a relative duration (e.g. '2h', '1d', '1w'). The alert resumes evaluation automatically
+            when the duration elapses and a snoozed AlertCheck record is written. To unsnooze early, use alert-update
+            with snoozed_until set to null.
+    alert-toggle:
+        operation: alerts_toggle_create
+        enabled: true
+        scopes:
+            - alert:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Enable or disable alert
+        description: >
+            Turn an alert's evaluation on or off. Re-enabling schedules a fresh check. Prefer this over alert-update
+            when the only change is the enabled flag so the intent reads clearly in activity logs.
     logs-alerts-list:
         operation: logs_alerts_list
         enabled: false

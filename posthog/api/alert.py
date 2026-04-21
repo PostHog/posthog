@@ -563,6 +563,30 @@ class BreakdownSimulationResultSerializer(serializers.Serializer):
     )
 
 
+class AlertSnoozeSerializer(serializers.Serializer):
+    duration = serializers.CharField(
+        help_text="Relative duration to snooze for (e.g. '2h', '1d', '1w'). Alert resumes when the duration elapses.",
+    )
+
+    def validate_duration(self, value):
+        if not value:
+            raise ValidationError("duration is required.")
+        try:
+            relative_date_parse(value, ZoneInfo("UTC"), increase=True, always_truncate=True)
+        except Exception:
+            raise ValidationError("Invalid duration. Use a relative duration like '2h', '1d', or '1w'.")
+        return value
+
+
+class AlertToggleSerializer(serializers.Serializer):
+    enabled = serializers.BooleanField(help_text="Enable or disable the alert.")
+
+
+class AlertCheckListResponseSerializer(serializers.Serializer):
+    count = serializers.IntegerField(help_text="Total checks matching the filters.")
+    results = AlertCheckSerializer(many=True)  # type: ignore[assignment]
+
+
 class AlertSimulateResponseSerializer(serializers.Serializer):
     data = serializers.ListField(child=serializers.FloatField(), help_text="Data values for each point.")  # type: ignore[assignment]
     dates = serializers.ListField(child=serializers.CharField(), help_text="Date labels for each point.")
@@ -747,6 +771,151 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         response_serializer = AlertSimulateResponseSerializer(result)
         return Response(response_serializer.data)
+
+    CHECKS_LIST_DEFAULT_LIMIT = 50
+
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                name="date_from",
+                type=str,
+                required=False,
+                description="Relative date string for the start of the check history window (e.g. '-24h', '-7d'). Max retention is 14 days.",
+            ),
+            OpenApiParameter(
+                name="date_to",
+                type=str,
+                required=False,
+                description="Relative date string for the end of the check history window (e.g. '-1h'). Defaults to now if not specified.",
+            ),
+            OpenApiParameter(
+                name="limit",
+                type=int,
+                required=False,
+                description="Maximum number of check results to return (default 50, max 500).",
+            ),
+            OpenApiParameter(
+                name="offset",
+                type=int,
+                required=False,
+                description="Number of newest checks to skip (0-based). Default 0.",
+            ),
+            OpenApiParameter(
+                name="state",
+                type=str,
+                required=False,
+                description="Filter by check state: Firing, Not firing, Errored, or Snoozed.",
+            ),
+        ],
+        responses={200: AlertCheckListResponseSerializer},
+        description="List historical checks for an alert without returning the full alert record.",
+    )
+    @action(detail=True, methods=["GET"], url_path="checks", required_scopes=["alert:read"])
+    def checks(self, request, *args, **kwargs):
+        instance = self.get_object()
+        checks_qs = instance.alertcheck_set.all().order_by("-created_at")
+
+        date_from = request.query_params.get("date_from")
+        if date_from:
+            checks_qs = checks_qs.filter(created_at__gte=relative_date_parse(date_from, ZoneInfo("UTC")))
+
+        date_to = request.query_params.get("date_to")
+        if date_to:
+            checks_qs = checks_qs.filter(created_at__lte=relative_date_parse(date_to, ZoneInfo("UTC")))
+
+        state = request.query_params.get("state")
+        if state:
+            checks_qs = checks_qs.filter(state=state)
+
+        raw_limit = request.query_params.get("limit")
+        if raw_limit is not None:
+            try:
+                limit = max(1, min(int(raw_limit), self.CHECKS_MAX_LIMIT))
+            except (ValueError, TypeError):
+                limit = self.CHECKS_LIST_DEFAULT_LIMIT
+        else:
+            limit = self.CHECKS_LIST_DEFAULT_LIMIT
+
+        raw_offset = request.query_params.get("offset")
+        if raw_offset is not None:
+            try:
+                offset = max(0, int(raw_offset))
+            except (ValueError, TypeError):
+                offset = 0
+        else:
+            offset = 0
+
+        count = checks_qs.count()
+        offset = min(offset, count)
+        results = list(checks_qs[offset : offset + limit])
+
+        return Response(
+            {
+                "count": count,
+                "results": AlertCheckSerializer(results, many=True).data,
+            }
+        )
+
+    @extend_schema(
+        request=AlertSnoozeSerializer,
+        responses={200: AlertSerializer},
+        description="Snooze an alert for a relative duration. Creates a snoozed AlertCheck record.",
+    )
+    @action(detail=True, methods=["POST"], url_path="snooze", required_scopes=["alert:write"])
+    def snooze(self, request, *args, **kwargs):
+        instance = self.get_object()
+        serializer = AlertSnoozeSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        duration = serializer.validated_data["duration"]
+
+        snoozed_until = relative_date_parse(duration, ZoneInfo("UTC"), increase=True, always_truncate=True)
+        instance.state = AlertState.SNOOZED
+        instance.snoozed_until = snoozed_until
+        instance.save(update_fields=["state", "snoozed_until"])
+
+        AlertCheck.objects.create(
+            alert_configuration=instance,
+            calculated_value=None,
+            condition=instance.condition,
+            targets_notified={},
+            state=instance.state,
+            error=None,
+        )
+
+        instance.report_updated(
+            request.user,
+            analytics_props=get_request_analytics_properties(request),
+        )
+        instance.checks = list(instance.alertcheck_set.all().order_by("-created_at")[: self.CHECKS_DEFAULT_LIMIT])
+        return Response(self.get_serializer(instance).data)
+
+    @extend_schema(
+        request=AlertToggleSerializer,
+        responses={200: AlertSerializer},
+        description="Enable or disable an alert. Re-enabling schedules a fresh check.",
+    )
+    @action(detail=True, methods=["POST"], url_path="toggle", required_scopes=["alert:write"])
+    def toggle(self, request, *args, **kwargs):
+        instance = self.get_object()
+        serializer = AlertToggleSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        enabled = serializer.validated_data["enabled"]
+
+        if instance.enabled != enabled:
+            was_disabled = not instance.enabled
+            instance.enabled = enabled
+            update_fields = ["enabled"]
+            if enabled and was_disabled:
+                update_fields.extend(instance.mark_for_recheck(reset_state=False))
+            instance.save(update_fields=update_fields)
+
+            instance.report_updated(
+                request.user,
+                analytics_props=get_request_analytics_properties(request),
+            )
+
+        instance.checks = list(instance.alertcheck_set.all().order_by("-created_at")[: self.CHECKS_DEFAULT_LIMIT])
+        return Response(self.get_serializer(instance).data)
 
 
 class ThresholdWithAlertSerializer(ThresholdSerializer):
