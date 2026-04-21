@@ -64,6 +64,7 @@ from posthog.hogql_queries.insights.trends.display import TrendsDisplay
 from posthog.hogql_queries.insights.trends.series_with_extras import SeriesWithExtras
 from posthog.hogql_queries.insights.trends.trends_actors_query_builder import TrendsActorsQueryBuilder
 from posthog.hogql_queries.insights.trends.trends_query_builder import TrendsQueryBuilder
+from posthog.hogql_queries.insights.utils.breakdowns import has_breakdown_filter
 from posthog.hogql_queries.insights.utils.utils import get_response_hogql
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.hogql_queries.utils.formula_ast import FormulaAST
@@ -265,10 +266,8 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
             ]
 
         # Breakdowns
-        if self.query.breakdownFilter is not None and (
-            self.query.breakdownFilter.breakdown is not None
-            or (self.query.breakdownFilter.breakdowns is not None and len(self.query.breakdownFilter.breakdowns) > 0)
-        ):
+        if has_breakdown_filter(self.query.breakdownFilter):
+            assert self.query.breakdownFilter is not None  # type checking
             if self.query.breakdownFilter.breakdown_type == "cohort":
                 assert isinstance(self.query.breakdownFilter.breakdown, list)
 
@@ -1216,10 +1215,7 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
 
     @cached_property
     def breakdown_enabled(self):
-        return self.query.breakdownFilter is not None and (
-            self.query.breakdownFilter.breakdown is not None
-            or (self.query.breakdownFilter.breakdowns is not None and len(self.query.breakdownFilter.breakdowns) > 0)
-        )
+        return has_breakdown_filter(self.query.breakdownFilter)
 
     def _get_breakdown_items(
         self,
