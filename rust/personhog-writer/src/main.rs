@@ -112,6 +112,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
     let pool = get_pool_with_config(&config.database_url, pool_config)?;
 
+    // Sample pool state into Prometheus gauges every 5s. Useful for tuning
+    // PG_MAX_CONNECTIONS against observed utilization during fallback.
+    {
+        let pool = pool.clone();
+        tokio::spawn(async move {
+            let mut ticker = tokio::time::interval(std::time::Duration::from_secs(5));
+            loop {
+                ticker.tick().await;
+                metrics::gauge!("personhog_writer_pg_pool_size").set(pool.size() as f64);
+                metrics::gauge!("personhog_writer_pg_pool_idle").set(pool.num_idle() as f64);
+            }
+        });
+    }
+
     let (flush_tx, flush_rx) = mpsc::channel(config.flush_channel_capacity);
 
     // Kafka consumer
@@ -141,12 +155,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     // Writer task
-    let pg_store = PgStore::new(
-        pool,
+    let pg_store = PgStore::new(pool, config.pg_target_table.clone());
+    let store = PersonWriteStore::new(
+        pg_store,
         config.upsert_batch_size,
-        config.pg_target_table.clone(),
+        config.row_fallback_concurrency,
     );
-    let store = PersonWriteStore::new(pg_store);
     let writer_task = WriterTask::new(
         Arc::clone(&kafka_consumer),
         store,

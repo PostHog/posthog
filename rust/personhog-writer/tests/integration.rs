@@ -14,7 +14,7 @@ use personhog_writer::consumer::{ConsumerTask, FlushBatch};
 use personhog_writer::kafka::PersonConsumer;
 use personhog_writer::pg::PgStore;
 use personhog_writer::store::{
-    PersonStore, PersonWriteStore, RowResult, WriteError, WriteErrorKind,
+    BatchOutcome, PersonDb, PersonWriteStore, RowResult, WriteError, WriteErrorKind,
 };
 use personhog_writer::writer::WriterTask;
 use prost::Message;
@@ -32,10 +32,14 @@ async fn writer_upserts_person_to_pg() {
     let team_id: i32 = 99_001;
     cleanup_team(&pool, team_id).await;
 
-    let writer = PersonWriteStore::new(PgStore::new(pool.clone(), 500, TARGET_TABLE.to_string()));
+    let writer =
+        PersonWriteStore::new(PgStore::new(pool.clone(), TARGET_TABLE.to_string()), 500, 8);
     let person = make_person(team_id as i64, 1, 1);
 
-    writer.upsert_batch(&[person]).await.unwrap();
+    assert!(matches!(
+        writer.upsert_batch(vec![person]).await,
+        BatchOutcome::Success
+    ));
 
     let row: (i64, i64, bool) = sqlx::query_as(
         "SELECT id, version, is_identified FROM personhog_person_tmp WHERE team_id = $1 AND id = $2",
@@ -59,17 +63,24 @@ async fn writer_version_guard_skips_stale_updates() {
     let team_id: i32 = 99_002;
     cleanup_team(&pool, team_id).await;
 
-    let writer = PersonWriteStore::new(PgStore::new(pool.clone(), 500, TARGET_TABLE.to_string()));
+    let writer =
+        PersonWriteStore::new(PgStore::new(pool.clone(), TARGET_TABLE.to_string()), 500, 8);
 
     // Write version 5
     let person_v5 = make_person(team_id as i64, 1, 5);
-    writer.upsert_batch(&[person_v5]).await.unwrap();
+    assert!(matches!(
+        writer.upsert_batch(vec![person_v5]).await,
+        BatchOutcome::Success
+    ));
 
     // Attempt to write version 3 (stale) -- should be a no-op
     let mut person_v3 = make_person(team_id as i64, 1, 3);
     person_v3.properties =
         serde_json::to_vec(&serde_json::json!({"email": "stale@example.com"})).unwrap();
-    writer.upsert_batch(&[person_v3]).await.unwrap();
+    assert!(matches!(
+        writer.upsert_batch(vec![person_v3]).await,
+        BatchOutcome::Success
+    ));
 
     let row: (i64,) =
         sqlx::query_as("SELECT version FROM personhog_person_tmp WHERE team_id = $1 AND id = $2")
@@ -90,12 +101,16 @@ async fn writer_upsert_batch_multiple_persons() {
     let team_id: i32 = 99_003;
     cleanup_team(&pool, team_id).await;
 
-    let writer = PersonWriteStore::new(PgStore::new(pool.clone(), 500, TARGET_TABLE.to_string()));
+    let writer =
+        PersonWriteStore::new(PgStore::new(pool.clone(), TARGET_TABLE.to_string()), 500, 8);
     let persons: Vec<Person> = (1..=10)
         .map(|i| make_person(team_id as i64, i, 1))
         .collect();
 
-    writer.upsert_batch(&persons).await.unwrap();
+    assert!(matches!(
+        writer.upsert_batch(persons).await,
+        BatchOutcome::Success
+    ));
 
     let count: (i64,) =
         sqlx::query_as("SELECT COUNT(*) FROM personhog_person_tmp WHERE team_id = $1")
@@ -115,7 +130,8 @@ async fn writer_skips_invalid_uuids_without_failing_batch() {
     let team_id: i32 = 99_004;
     cleanup_team(&pool, team_id).await;
 
-    let writer = PersonWriteStore::new(PgStore::new(pool.clone(), 500, TARGET_TABLE.to_string()));
+    let writer =
+        PersonWriteStore::new(PgStore::new(pool.clone(), TARGET_TABLE.to_string()), 500, 8);
 
     let valid_person = make_person(team_id as i64, 1, 1);
     let mut bad_person = make_person(team_id as i64, 2, 1);
@@ -124,10 +140,12 @@ async fn writer_skips_invalid_uuids_without_failing_batch() {
 
     // Batch contains one invalid UUID -- it should be skipped,
     // and the valid persons should still be written.
-    writer
-        .upsert_batch(&[valid_person, bad_person, another_valid])
-        .await
-        .unwrap();
+    assert!(matches!(
+        writer
+            .upsert_batch(vec![valid_person, bad_person, another_valid])
+            .await,
+        BatchOutcome::Success
+    ));
 
     let count: (i64,) =
         sqlx::query_as("SELECT COUNT(*) FROM personhog_person_tmp WHERE team_id = $1")
@@ -177,7 +195,8 @@ async fn consumer_flushes_on_buffer_size_threshold() {
     let _monitor = manager.monitor_background();
 
     // Start writer task
-    let writer = PersonWriteStore::new(PgStore::new(pool.clone(), 500, TARGET_TABLE.to_string()));
+    let writer =
+        PersonWriteStore::new(PgStore::new(pool.clone(), TARGET_TABLE.to_string()), 500, 8);
     let writer_task = WriterTask::new(
         Arc::clone(&kafka_consumer),
         writer,
@@ -275,7 +294,8 @@ async fn consumer_flushes_on_timer() {
     );
     let _monitor = manager.monitor_background();
 
-    let writer = PersonWriteStore::new(PgStore::new(pool.clone(), 500, TARGET_TABLE.to_string()));
+    let writer =
+        PersonWriteStore::new(PgStore::new(pool.clone(), TARGET_TABLE.to_string()), 500, 8);
     let writer_task = WriterTask::new(
         Arc::clone(&kafka_consumer),
         writer,
@@ -373,7 +393,8 @@ async fn consumer_deduplicates_multiple_updates_for_same_person() {
     );
     let _monitor = manager.monitor_background();
 
-    let writer = PersonWriteStore::new(PgStore::new(pool.clone(), 500, TARGET_TABLE.to_string()));
+    let writer =
+        PersonWriteStore::new(PgStore::new(pool.clone(), TARGET_TABLE.to_string()), 500, 8);
     let writer_task = WriterTask::new(
         Arc::clone(&kafka_consumer),
         writer,
@@ -474,7 +495,8 @@ async fn writer_processes_batch_from_channel() {
     let writer_handle = manager.register("writer", lifecycle::ComponentOptions::new());
     let _monitor = manager.monitor_background();
 
-    let writer = PersonWriteStore::new(PgStore::new(pool.clone(), 500, TARGET_TABLE.to_string()));
+    let writer =
+        PersonWriteStore::new(PgStore::new(pool.clone(), TARGET_TABLE.to_string()), 500, 8);
     let writer_task = WriterTask::new(
         Arc::clone(&kafka_consumer),
         writer,
@@ -523,33 +545,37 @@ async fn writer_processes_batch_from_channel() {
 // Writer task: failure and recovery (mock-based)
 // ============================================================
 
-/// Mock writer that fails a configurable number of times, then succeeds.
-struct MockWriter {
-    remaining_failures: std::sync::atomic::AtomicU32,
-    error_kind: WriteErrorKind,
+/// Mock DB that fails chunks a configurable number of times, then succeeds.
+/// Rows always succeed. Exercises the full orchestration layer above it.
+struct MockDb {
+    chunk_remaining_failures: std::sync::atomic::AtomicU32,
+    chunk_error_kind: WriteErrorKind,
 }
 
 #[async_trait::async_trait]
-impl PersonStore for MockWriter {
-    async fn upsert_batch(&self, _persons: &[Person]) -> Result<(), WriteError> {
-        let remaining = self.remaining_failures.fetch_update(
+impl PersonDb for MockDb {
+    async fn execute_chunk(&self, _chunk: &[Person]) -> Result<(), WriteError> {
+        let remaining = self.chunk_remaining_failures.fetch_update(
             std::sync::atomic::Ordering::SeqCst,
             std::sync::atomic::Ordering::SeqCst,
             |v| if v > 0 { Some(v - 1) } else { None },
         );
-
         if remaining.is_ok() {
             Err(WriteError {
                 message: "mock failure".to_string(),
-                kind: self.error_kind,
+                kind: self.chunk_error_kind,
             })
         } else {
             Ok(())
         }
     }
 
-    async fn upsert_row(&self, _person: &Person) -> RowResult {
-        RowResult::Written
+    async fn execute_row(
+        &self,
+        _person: &Person,
+        _override: Option<&str>,
+    ) -> Result<(), WriteError> {
+        Ok(())
     }
 }
 
@@ -573,14 +599,15 @@ async fn writer_crashes_after_exhausting_transient_retries() {
     let monitor = manager.monitor_background();
 
     // Always fail with transient errors
-    let mock_writer = MockWriter {
-        remaining_failures: std::sync::atomic::AtomicU32::new(100),
-        error_kind: WriteErrorKind::Transient,
+    let mock_db = MockDb {
+        chunk_remaining_failures: std::sync::atomic::AtomicU32::new(100),
+        chunk_error_kind: WriteErrorKind::Transient,
     };
+    let store = PersonWriteStore::new(mock_db, 10, 4);
 
     let writer_task = WriterTask::new(
         Arc::clone(&kafka_consumer),
-        mock_writer,
+        store,
         flush_rx,
         writer_handle,
         None,
@@ -623,14 +650,15 @@ async fn writer_recovers_on_transient_retry() {
     let _monitor = manager.monitor_background();
 
     // Fail once, then succeed
-    let mock_writer = MockWriter {
-        remaining_failures: std::sync::atomic::AtomicU32::new(1),
-        error_kind: WriteErrorKind::Transient,
+    let mock_db = MockDb {
+        chunk_remaining_failures: std::sync::atomic::AtomicU32::new(1),
+        chunk_error_kind: WriteErrorKind::Transient,
     };
+    let store = PersonWriteStore::new(mock_db, 10, 4);
 
     let writer_task = WriterTask::new(
         Arc::clone(&kafka_consumer),
-        mock_writer,
+        store,
         flush_rx,
         writer_handle,
         None,
@@ -677,14 +705,15 @@ async fn writer_falls_back_to_per_row_on_data_error() {
     let _monitor = manager.monitor_background();
 
     // Batch always fails with data error, per-row always succeeds
-    let mock_writer = MockWriter {
-        remaining_failures: std::sync::atomic::AtomicU32::new(100),
-        error_kind: WriteErrorKind::Data,
+    let mock_db = MockDb {
+        chunk_remaining_failures: std::sync::atomic::AtomicU32::new(100),
+        chunk_error_kind: WriteErrorKind::Data,
     };
+    let store = PersonWriteStore::new(mock_db, 10, 4);
 
     let writer_task = WriterTask::new(
         Arc::clone(&kafka_consumer),
-        mock_writer,
+        store,
         flush_rx,
         writer_handle,
         None,
@@ -721,7 +750,7 @@ async fn properties_size_violation_trim_succeeds() {
     let team_id: i32 = 99_050;
     cleanup_team(&pool, team_id).await;
 
-    let store = PersonWriteStore::new(PgStore::new(pool.clone(), 500, TARGET_TABLE.to_string()));
+    let store = PersonWriteStore::new(PgStore::new(pool.clone(), TARGET_TABLE.to_string()), 500, 8);
 
     // Build properties that exceed 640KB total but fit once custom keys are
     // trimmed. Protected "email" is small; two large custom properties push
@@ -784,7 +813,7 @@ async fn properties_size_violation_untrimable_skips() {
     let team_id: i32 = 99_051;
     cleanup_team(&pool, team_id).await;
 
-    let store = PersonWriteStore::new(PgStore::new(pool.clone(), 500, TARGET_TABLE.to_string()));
+    let store = PersonWriteStore::new(PgStore::new(pool.clone(), TARGET_TABLE.to_string()), 500, 8);
 
     // Only protected properties, and they exceed 640KB on their own.
     let mut props = serde_json::Map::new();
@@ -867,7 +896,8 @@ async fn e2e_produce_to_kafka_and_verify_pg_write() {
     );
     let _monitor = manager.monitor_background();
 
-    let writer = PersonWriteStore::new(PgStore::new(pool.clone(), 500, TARGET_TABLE.to_string()));
+    let writer =
+        PersonWriteStore::new(PgStore::new(pool.clone(), TARGET_TABLE.to_string()), 500, 8);
     let writer_task = WriterTask::new(
         Arc::clone(&kafka_consumer),
         writer,

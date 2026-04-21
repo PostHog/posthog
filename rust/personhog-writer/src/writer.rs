@@ -1,21 +1,23 @@
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
 use lifecycle::Handle;
 use metrics::{counter, histogram};
+use personhog_proto::personhog::types::v1::Person;
 use tokio::sync::mpsc;
 use tracing::{debug, error, info, warn};
 
 use crate::consumer::FlushBatch;
 use crate::kafka::{PersonConsumer, WarningsProducer};
-use crate::store::{PersonStore, RowResult, WriteErrorKind};
+use crate::store::{BatchOutcome, IngestionWarning, PersonDb, PersonWriteStore, RowResult};
 
 /// Receives batches from the consumer task, writes to the persistent
 /// store, and commits Kafka offsets. Runs on its own tokio task so
 /// writes don't block consumption.
-pub struct WriterTask<S: PersonStore> {
+pub struct WriterTask<D: PersonDb + 'static> {
     consumer: Arc<PersonConsumer>,
-    store: S,
+    store: PersonWriteStore<D>,
     flush_rx: mpsc::Receiver<FlushBatch>,
     handle: Handle,
     warnings: Option<WarningsProducer>,
@@ -26,10 +28,10 @@ const MAX_CONSECUTIVE_FAILURES: u32 = 3;
 const BASE_BACKOFF: Duration = Duration::from_secs(1);
 const MAX_BACKOFF: Duration = Duration::from_secs(5);
 
-impl<S: PersonStore> WriterTask<S> {
+impl<D: PersonDb + 'static> WriterTask<D> {
     pub fn new(
         consumer: Arc<PersonConsumer>,
-        store: S,
+        store: PersonWriteStore<D>,
         flush_rx: mpsc::Receiver<FlushBatch>,
         handle: Handle,
         warnings: Option<WarningsProducer>,
@@ -72,84 +74,110 @@ impl<S: PersonStore> WriterTask<S> {
     }
 
     async fn process_batch(&mut self, batch: FlushBatch) {
-        let count = batch.persons.len();
+        let FlushBatch {
+            persons,
+            offsets,
+            oldest_message_ts_ms,
+        } = batch;
+        let total_rows = persons.len();
         counter!("personhog_writer_flushes_total").increment(1);
 
+        let mut remaining: Vec<Person> = persons;
+        let mut warnings: Vec<IngestionWarning> = Vec::new();
+
         loop {
-            match self.store.upsert_batch(&batch.persons).await {
-                Ok(()) => {
-                    self.consecutive_failures = 0;
-                    self.handle.report_healthy();
-                    self.commit_and_record(&batch, count);
+            let to_process = std::mem::take(&mut remaining);
+            match self.store.upsert_batch(to_process).await {
+                BatchOutcome::Success => {
+                    self.finish(total_rows, &offsets, oldest_message_ts_ms, warnings);
                     return;
                 }
-                Err(e) => match e.kind {
-                    WriteErrorKind::Data | WriteErrorKind::PropertiesSizeViolation => {
-                        // Data error: fall back to per-row inserts to isolate
-                        // bad records. The store handles trimming internally.
+
+                BatchOutcome::Partial {
+                    transient,
+                    data_failed,
+                } => {
+                    if !data_failed.is_empty() {
                         counter!("personhog_writer_batch_fallback_total").increment(1);
-                        warn!(rows = count, error = %e, "batch failed, falling back to per-row");
-
-                        let mut succeeded = 0;
-                        let mut warnings = Vec::new();
-                        for person in &batch.persons {
-                            match self.store.upsert_row(person).await {
-                                RowResult::Written => succeeded += 1,
-                                RowResult::Trimmed(w) => {
-                                    succeeded += 1;
-                                    warnings.push(w);
-                                }
-                                RowResult::Skipped(w) => warnings.push(w),
+                        warn!(
+                            rows = data_failed.len(),
+                            "batch had data-failed chunks, falling back to per-row"
+                        );
+                        for r in self.store.upsert_rows_parallel(data_failed).await {
+                            match r {
+                                RowResult::Written => {}
+                                RowResult::Trimmed(w) | RowResult::Skipped(w) => warnings.push(w),
                             }
                         }
+                    }
 
-                        if let Some(producer) = &self.warnings {
-                            for warning in &warnings {
-                                producer.emit(warning);
-                            }
-                        }
-
-                        self.consecutive_failures = 0;
-                        self.handle.report_healthy();
-                        self.commit_and_record(&batch, succeeded);
+                    if transient.is_empty() {
+                        self.finish(total_rows, &offsets, oldest_message_ts_ms, warnings);
                         return;
                     }
-                    WriteErrorKind::Transient => {
-                        // Transient error: retry the same batch with backoff
-                        self.consecutive_failures += 1;
-                        let backoff = backoff_duration(self.consecutive_failures);
-                        error!(
-                            error = %e,
-                            consecutive_failures = self.consecutive_failures,
-                            rows = count,
-                            backoff_ms = backoff.as_millis() as u64,
-                            "transient error, retrying batch"
-                        );
 
-                        if self.consecutive_failures >= MAX_CONSECUTIVE_FAILURES {
-                            self.handle.signal_failure(format!(
-                                "store flush failed {MAX_CONSECUTIVE_FAILURES} consecutive times: {e}"
-                            ));
-                            return;
-                        }
+                    // Transient chunks remain — retry just those with backoff.
+                    self.consecutive_failures += 1;
+                    let backoff = backoff_duration(self.consecutive_failures);
+                    error!(
+                        consecutive_failures = self.consecutive_failures,
+                        transient_rows = transient.len(),
+                        backoff_ms = backoff.as_millis() as u64,
+                        "transient chunk failures, retrying"
+                    );
 
-                        tokio::time::sleep(backoff).await;
-                        // Loop back to retry the same batch
+                    if self.consecutive_failures >= MAX_CONSECUTIVE_FAILURES {
+                        self.handle.signal_failure(format!(
+                            "store flush failed {MAX_CONSECUTIVE_FAILURES} consecutive times"
+                        ));
+                        return;
                     }
-                },
+
+                    tokio::time::sleep(backoff).await;
+                    remaining = transient;
+                }
+
+                BatchOutcome::Fatal(fatal) => {
+                    self.handle
+                        .signal_failure(format!("upsert_batch fatal: {fatal}"));
+                    return;
+                }
             }
         }
     }
 
-    fn commit_and_record(&self, batch: &FlushBatch, rows_written: usize) {
-        if let Err(e) = self.consumer.commit_offsets(&batch.offsets) {
+    fn finish(
+        &mut self,
+        rows: usize,
+        offsets: &HashMap<i32, i64>,
+        oldest_ts_ms: Option<i64>,
+        warnings: Vec<IngestionWarning>,
+    ) {
+        if let Some(producer) = &self.warnings {
+            for w in &warnings {
+                producer.emit(w);
+            }
+        }
+
+        self.consecutive_failures = 0;
+        self.handle.report_healthy();
+        self.commit_and_record(offsets, oldest_ts_ms, rows);
+    }
+
+    fn commit_and_record(
+        &self,
+        offsets: &HashMap<i32, i64>,
+        oldest_ts_ms: Option<i64>,
+        rows_written: usize,
+    ) {
+        if let Err(e) = self.consumer.commit_offsets(offsets) {
             counter!("personhog_writer_offset_commit_errors_total").increment(1);
             error!(error = %e, "failed to commit offsets");
         }
 
         counter!("personhog_writer_offset_commits_total").increment(1);
 
-        if let Some(ts_ms) = batch.oldest_message_ts_ms {
+        if let Some(ts_ms) = oldest_ts_ms {
             let now_ms = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap_or_default()

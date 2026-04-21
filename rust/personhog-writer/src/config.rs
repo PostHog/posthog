@@ -21,7 +21,7 @@ pub struct Config {
     // ── Postgres ─────────────────────────────────────────────────
     pub database_url: String,
 
-    #[envconfig(default = "10")]
+    #[envconfig(default = "20")]
     pub pg_max_connections: u32,
 
     /// Target table for person upserts. Set to "posthog_person" for
@@ -30,22 +30,32 @@ pub struct Config {
     pub pg_target_table: String,
 
     // ── Flush tuning ─────────────────────────────────────────────
-    /// How often to flush the buffer to Postgres, in milliseconds.
-    #[envconfig(default = "5000")]
+    /// How often to flush the buffer to Postgres, in milliseconds. Longer
+    /// windows trade latency for better dedup on hot persons.
+    #[envconfig(default = "30000")]
     pub flush_interval_ms: u64,
 
-    /// Flush when the buffer reaches this many entries.
-    #[envconfig(default = "1000")]
+    /// Flush when the buffer reaches this many entries. Sized to produce
+    /// multi-chunk batches that exercise the parallel chunk path.
+    #[envconfig(default = "10000")]
     pub flush_buffer_size: usize,
 
     /// Hard cap on buffer entries. When full, stop consuming from
-    /// Kafka until a flush completes (backpressure).
-    #[envconfig(default = "50000")]
+    /// Kafka until a flush completes (backpressure). ~10× flush_buffer_size
+    /// worth of headroom for bursts.
+    #[envconfig(default = "100000")]
     pub buffer_capacity: usize,
 
-    /// Max rows per INSERT statement.
-    #[envconfig(default = "500")]
+    /// Max rows per INSERT statement. Chunks larger than this are
+    /// executed as parallel statements.
+    #[envconfig(default = "5000")]
     pub upsert_batch_size: usize,
+
+    /// Max concurrent per-row upserts when a batch falls back to the
+    /// per-row path. Size against `pg_max_connections`; pgbouncer handles
+    /// backpressure to PG itself.
+    #[envconfig(default = "16")]
+    pub row_fallback_concurrency: usize,
 
     /// Channel capacity between consumer and writer tasks.
     /// Higher values allow more buffered batches but use more memory.

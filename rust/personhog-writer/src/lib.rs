@@ -1,6 +1,7 @@
 pub mod buffer;
 pub mod config;
 pub mod consumer;
+pub mod error;
 pub mod kafka;
 pub mod pg;
 pub mod properties;

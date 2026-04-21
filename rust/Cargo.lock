@@ -6729,6 +6729,7 @@ dependencies = [
  "common-kafka",
  "common-metrics",
  "envconfig",
+ "futures",
  "health",
  "lifecycle",
  "metrics",
