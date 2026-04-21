@@ -6,6 +6,7 @@ import { memo, useMemo } from 'react'
 import { IconDatabase, IconGear, IconInfo, IconPlayFilled, IconSidebarClose } from '@posthog/icons'
 import { LemonDivider } from '@posthog/lemon-ui'
 
+import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
 import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -24,6 +25,7 @@ import { Scene } from 'scenes/sceneTypes'
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { SceneTitlePanelButton } from '~/layout/scenes/components/SceneTitleSection'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { FixErrorButton } from './components/FixErrorButton'
 import { ConnectionSelector } from './ConnectionSelector'
@@ -155,15 +157,21 @@ export function QueryWindow({
                         disabledReason={editingView ? 'Variables are not allowed in views.' : undefined}
                     />
                     {editingView ? (
-                        <LemonButton
-                            type="secondary"
-                            size="small"
-                            icon={<IconDatabase />}
-                            onClick={() => openMaterializationModal(editingView)}
-                            data-attr="sql-editor-materialization-button"
+                        <AccessControlAction
+                            resourceType={AccessControlResourceType.WarehouseView}
+                            minAccessLevel={AccessControlLevel.Editor}
+                            userAccessLevel={editingView.user_access_level}
                         >
-                            Materialization
-                        </LemonButton>
+                            <LemonButton
+                                type="secondary"
+                                size="small"
+                                icon={<IconDatabase />}
+                                onClick={() => openMaterializationModal(editingView)}
+                                data-attr="sql-editor-materialization-button"
+                            >
+                                Materialization
+                            </LemonButton>
+                        </AccessControlAction>
                     ) : null}
                 </div>
 

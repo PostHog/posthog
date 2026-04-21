@@ -3,6 +3,7 @@ import { useActions, useValues } from 'kea'
 import { IconRefresh, IconRevert, IconTarget, IconX } from '@posthog/icons'
 import { LemonDialog, LemonTable, Link, Spinner } from '@posthog/lemon-ui'
 
+import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjsUtcToTimezone } from 'lib/dayjs'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -19,6 +20,8 @@ import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import {
+    AccessControlLevel,
+    AccessControlResourceType,
     DataModelingJob,
     DataWarehouseSavedQuery,
     DataModelingSyncInterval,
@@ -192,30 +195,37 @@ export function QueryInfo({ tabId, view }: QueryInfoProps): JSX.Element {
                                     </div>
                                 )}
                                 <div className="flex gap-4 mt-2">
-                                    <LemonButton
-                                        className="whitespace-nowrap"
-                                        loading={startingMaterialization || currentJobStatus === 'Running'}
-                                        disabledReason={sync}
-                                        onClick={() => {
-                                            if (targetView) {
-                                                setStartingMaterialization(true)
-                                                runDataWarehouseSavedQuery(targetView.id)
-                                            }
-                                        }}
-                                        type="secondary"
-                                        sideAction={{
-                                            icon: <IconX fontSize={16} />,
-                                            tooltip: 'Cancel materialization',
-                                            onClick: () => targetView && cancelDataWarehouseSavedQuery(targetView.id),
-                                            disabledReason: cancel,
-                                        }}
+                                    <AccessControlAction
+                                        resourceType={AccessControlResourceType.WarehouseView}
+                                        minAccessLevel={AccessControlLevel.Editor}
+                                        userAccessLevel={savedQuery?.user_access_level}
                                     >
-                                        {startingMaterialization
-                                            ? 'Starting...'
-                                            : currentJobStatus === 'Running'
-                                              ? 'Running...'
-                                              : 'Sync now'}
-                                    </LemonButton>
+                                        <LemonButton
+                                            className="whitespace-nowrap"
+                                            loading={startingMaterialization || currentJobStatus === 'Running'}
+                                            disabledReason={sync}
+                                            onClick={() => {
+                                                if (targetView) {
+                                                    setStartingMaterialization(true)
+                                                    runDataWarehouseSavedQuery(targetView.id)
+                                                }
+                                            }}
+                                            type="secondary"
+                                            sideAction={{
+                                                icon: <IconX fontSize={16} />,
+                                                tooltip: 'Cancel materialization',
+                                                onClick: () =>
+                                                    targetView && cancelDataWarehouseSavedQuery(targetView.id),
+                                                disabledReason: cancel,
+                                            }}
+                                        >
+                                            {startingMaterialization
+                                                ? 'Starting...'
+                                                : currentJobStatus === 'Running'
+                                                  ? 'Running...'
+                                                  : 'Sync now'}
+                                        </LemonButton>
+                                    </AccessControlAction>
                                     {!isDagSchedulesOnly && (
                                         <LemonSelect
                                             className="h-9"
@@ -241,29 +251,35 @@ export function QueryInfo({ tabId, view }: QueryInfoProps): JSX.Element {
                                         />
                                     )}
                                     {targetView && (
-                                        <LemonButton
-                                            type="secondary"
-                                            size="small"
-                                            tooltip="Revert materialized view to view"
-                                            disabledReason={revert}
-                                            icon={<IconRevert />}
-                                            onClick={() => {
-                                                LemonDialog.open({
-                                                    title: 'Revert materialization',
-                                                    maxWidth: '30rem',
-                                                    description:
-                                                        'Are you sure you want to revert this materialized view to a regular view? This will stop all future materializations and remove the materialized table. You will always be able to go back to a materialized view at any time.',
-                                                    primaryButton: {
-                                                        status: 'danger',
-                                                        children: 'Revert materialization',
-                                                        onClick: () => revertMaterialization(targetView.id),
-                                                    },
-                                                    secondaryButton: {
-                                                        children: 'Cancel',
-                                                    },
-                                                })
-                                            }}
-                                        />
+                                        <AccessControlAction
+                                            resourceType={AccessControlResourceType.WarehouseView}
+                                            minAccessLevel={AccessControlLevel.Editor}
+                                            userAccessLevel={savedQuery?.user_access_level}
+                                        >
+                                            <LemonButton
+                                                type="secondary"
+                                                size="small"
+                                                tooltip="Revert materialized view to view"
+                                                disabledReason={revert}
+                                                icon={<IconRevert />}
+                                                onClick={() => {
+                                                    LemonDialog.open({
+                                                        title: 'Revert materialization',
+                                                        maxWidth: '30rem',
+                                                        description:
+                                                            'Are you sure you want to revert this materialized view to a regular view? This will stop all future materializations and remove the materialized table. You will always be able to go back to a materialized view at any time.',
+                                                        primaryButton: {
+                                                            status: 'danger',
+                                                            children: 'Revert materialization',
+                                                            onClick: () => revertMaterialization(targetView.id),
+                                                        },
+                                                        secondaryButton: {
+                                                            children: 'Cancel',
+                                                        },
+                                                    })
+                                                }}
+                                            />
+                                        </AccessControlAction>
                                     )}
                                 </div>
                             </div>
@@ -282,20 +298,26 @@ export function QueryInfo({ tabId, view }: QueryInfoProps): JSX.Element {
                                     </Link>
                                     .
                                 </p>
-                                <LemonButton
-                                    size="small"
-                                    onClick={() => {
-                                        if (targetView) {
-                                            materializeDataWarehouseSavedQuery(targetView.id)
-                                        } else {
-                                            saveAsView({ materializeAfterSave: true })
-                                        }
-                                    }}
-                                    type="primary"
-                                    loading={updatingDataWarehouseSavedQuery}
+                                <AccessControlAction
+                                    resourceType={AccessControlResourceType.WarehouseView}
+                                    minAccessLevel={AccessControlLevel.Editor}
+                                    userAccessLevel={savedQuery?.user_access_level}
                                 >
-                                    {targetView ? 'Materialize' : 'Save and materialize'}
-                                </LemonButton>
+                                    <LemonButton
+                                        size="small"
+                                        onClick={() => {
+                                            if (targetView) {
+                                                materializeDataWarehouseSavedQuery(targetView.id)
+                                            } else {
+                                                saveAsView({ materializeAfterSave: true })
+                                            }
+                                        }}
+                                        type="primary"
+                                        loading={updatingDataWarehouseSavedQuery}
+                                    >
+                                        {targetView ? 'Materialize' : 'Save and materialize'}
+                                    </LemonButton>
+                                </AccessControlAction>
                             </div>
                         )}
                     </div>
