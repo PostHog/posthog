@@ -5,10 +5,8 @@ import { router } from 'kea-router'
 
 import api from 'lib/api'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { hasFormErrors, toParams } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { addProjectIdIfMissing } from 'lib/utils/router-utils'
@@ -195,7 +193,6 @@ interface MetricLoadingConfig {
     isRetry: boolean
     metricIndexOffset: number
     orderedUuids?: string[] | null
-    metricEventsPrecomputation?: boolean
     onSetLegacyResults: (
         results: (
             | CachedLegacyExperimentQueryResponse
@@ -325,7 +322,6 @@ const loadMetrics = async ({
     isRetry,
     metricIndexOffset,
     orderedUuids,
-    metricEventsPrecomputation,
     onSetLegacyResults,
     onSetResults,
     onSetErrors,
@@ -363,7 +359,6 @@ const loadMetrics = async ({
                         kind: NodeKind.ExperimentQuery,
                         metric: metric,
                         experiment_id: experimentId,
-                        ...(metricEventsPrecomputation ? { metric_events_precomputation: true } : {}),
                     }
                 } else {
                     queryWithExperimentId = {
@@ -571,8 +566,6 @@ export const experimentLogic = kea<experimentLogicType>([
             ['currentTeamId'],
             groupsModel,
             ['aggregationLabel', 'groupTypes', 'showGroupsOptions'],
-            featureFlagLogic,
-            ['featureFlags'],
             holdoutsLogic,
             ['holdouts'],
             billingLogic,
@@ -2025,8 +2018,6 @@ export const experimentLogic = kea<experimentLogicType>([
                 isRetry: false,
                 metricIndexOffset: 0,
                 orderedUuids: values.experiment?.primary_metrics_ordered_uuids,
-                metricEventsPrecomputation:
-                    !!values.featureFlags[FEATURE_FLAGS.EXPERIMENTS_METRIC_EVENTS_PRECOMPUTATION],
                 onSetLegacyResults: actions.setLegacyPrimaryMetricsResults,
                 onSetResults: actions.setPrimaryMetricsResults,
                 onSetErrors: actions.setPrimaryMetricsResultsErrors,
@@ -2066,8 +2057,6 @@ export const experimentLogic = kea<experimentLogicType>([
                 isRetry: false,
                 metricIndexOffset: 0,
                 orderedUuids: values.experiment?.secondary_metrics_ordered_uuids,
-                metricEventsPrecomputation:
-                    !!values.featureFlags[FEATURE_FLAGS.EXPERIMENTS_METRIC_EVENTS_PRECOMPUTATION],
                 onSetLegacyResults: actions.setLegacySecondaryMetricsResults,
                 onSetResults: actions.setSecondaryMetricsResults,
                 onSetErrors: actions.setSecondaryMetricsResultsErrors,
@@ -2115,8 +2104,6 @@ export const experimentLogic = kea<experimentLogicType>([
                 isPrimary: true,
                 isRetry: true,
                 metricIndexOffset: index,
-                metricEventsPrecomputation:
-                    !!values.featureFlags[FEATURE_FLAGS.EXPERIMENTS_METRIC_EVENTS_PRECOMPUTATION],
                 onSetLegacyResults: (results) => {
                     currentLegacyResults[index] = results[0]
                     actions.setLegacyPrimaryMetricsResults(currentLegacyResults)
@@ -2165,8 +2152,6 @@ export const experimentLogic = kea<experimentLogicType>([
                 isPrimary: false,
                 isRetry: true,
                 metricIndexOffset: index,
-                metricEventsPrecomputation:
-                    !!values.featureFlags[FEATURE_FLAGS.EXPERIMENTS_METRIC_EVENTS_PRECOMPUTATION],
                 onSetLegacyResults: (results) => {
                     currentLegacyResults[index] = results[0]
                     actions.setLegacySecondaryMetricsResults(currentLegacyResults)
