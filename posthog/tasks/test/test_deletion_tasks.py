@@ -3,9 +3,13 @@ from typing import Any
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
+from parameterized import parameterized
+
 from posthog.models.organization import Organization
+from posthog.models.person import Person, PersonDistinctId
 from posthog.models.project import Project
 from posthog.models.team import Team
+from posthog.personhog_client.fake_client import fake_personhog_client
 from posthog.tasks.tasks import delete_organization_data_and_notify_task, delete_project_data_and_notify_task
 
 
@@ -63,6 +67,53 @@ class TestDeleteProjectDataAndNotifyTask(BaseTest):
         )
 
 
+class TestDeleteProjectPersonsEndToEnd(BaseTest):
+    @parameterized.expand(
+        [
+            ("via_orm", False),
+            ("via_personhog", True),
+        ]
+    )
+    @patch("posthog.email.is_email_available", return_value=False)
+    def test_deletes_persons_and_distinct_ids_for_team(
+        self, _name: str, personhog_enabled: bool, mock_email: Any
+    ) -> None:
+        team = Team.objects.create(organization=self.organization, name="Team to delete")
+        other_team = Team.objects.create(organization=self.organization, name="Other team")
+
+        p1 = Person.objects.create(team=team, distinct_ids=["a", "b"])
+        p2 = Person.objects.create(team=team, distinct_ids=["c"])
+        p_other = Person.objects.create(team=other_team, distinct_ids=["d"])
+
+        with fake_personhog_client(gate_enabled=personhog_enabled) as fake:
+            if personhog_enabled:
+                fake.add_person(team_id=team.id, person_id=p1.pk, uuid=str(p1.uuid), distinct_ids=["a", "b"])
+                fake.add_person(team_id=team.id, person_id=p2.pk, uuid=str(p2.uuid), distinct_ids=["c"])
+                fake.add_person(team_id=other_team.id, person_id=p_other.pk, uuid=str(p_other.uuid), distinct_ids=["d"])
+
+            delete_project_data_and_notify_task(
+                team_ids=[team.id],
+                project_id=None,
+                user_id=self.user.id,
+                project_name="Team to delete",
+            )
+
+            self.assertFalse(Team.objects.filter(id=team.id).exists())
+
+            if personhog_enabled:
+                # Fake client doesn't touch Django DB — verify the RPC was called correctly
+                calls = fake.assert_called("delete_persons_batch_for_team")
+                team_ids_called = {c.request.team_id for c in calls}
+                self.assertIn(team.id, team_ids_called)
+                self.assertNotIn(other_team.id, team_ids_called)
+            else:
+                self.assertEqual(Person.objects.filter(team_id=team.id).count(), 0)
+                self.assertEqual(PersonDistinctId.objects.filter(team_id=team.id).count(), 0)
+
+                self.assertTrue(Person.objects.filter(id=p_other.id).exists())
+                self.assertEqual(PersonDistinctId.objects.filter(team_id=other_team.id).count(), 1)
+
+
 class TestDeleteOrganizationDataAndNotifyTask(BaseTest):
     @patch("posthog.email.is_email_available", return_value=False)
     def test_deletes_organization_and_teams(self, mock_email: Any) -> None:
@@ -83,9 +134,10 @@ class TestDeleteOrganizationDataAndNotifyTask(BaseTest):
         self.assertFalse(Organization.objects.filter(id=org_id).exists())
         self.assertFalse(Team.objects.filter(id=team_id).exists())
 
-    @patch("posthog.event_usage.posthoganalytics.capture")
+    @patch("posthog.ph_client.is_cloud", return_value=True)
+    @patch("posthog.ph_client.get_client")
     @patch("posthog.email.is_email_available", return_value=False)
-    def test_fires_deletion_completed_event(self, mock_email: Any, mock_capture: Any) -> None:
+    def test_fires_deletion_completed_event(self, mock_email: Any, mock_get_client: Any, mock_is_cloud: Any) -> None:
         org = Organization.objects.create(name="Org to delete")
         org.members.add(self.user)
         team = Team.objects.create(organization=org, name="Team in org")
@@ -99,8 +151,10 @@ class TestDeleteOrganizationDataAndNotifyTask(BaseTest):
             project_names=["Team in org"],
         )
 
-        event_names = [call.kwargs.get("event") for call in mock_capture.call_args_list]
+        ph_client = mock_get_client.return_value
+        event_names = [call.kwargs.get("event") for call in ph_client.capture.call_args_list]
         self.assertIn("organization deletion completed", event_names)
+        ph_client.shutdown.assert_called()
 
     @patch("posthog.email.is_email_available", return_value=False)
     def test_deletes_organization_with_data_warehouse_saved_query_and_node(self, mock_email: Any) -> None:

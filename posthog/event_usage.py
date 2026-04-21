@@ -473,16 +473,18 @@ def report_organization_deletion_initiated(user: User, organization: Organizatio
 
 def report_organization_deletion_completed(user_id: int, organization_id: str) -> None:
     from posthog.models import User as UserModel
+    from posthog.ph_client import ph_scoped_capture
 
     user = UserModel.objects.filter(id=user_id).first()
     if not user or not user.distinct_id:
         return
-    posthoganalytics.capture(
-        distinct_id=user.distinct_id,
-        event="organization deletion completed",
-        properties={"organization_id": organization_id},
-        groups={"instance": SITE_URL, "organization": organization_id},
-    )
+    with ph_scoped_capture() as capture_ph_event:
+        capture_ph_event(
+            distinct_id=user.distinct_id,
+            event="organization deletion completed",
+            properties={"organization_id": organization_id},
+            groups={"instance": SITE_URL, "organization": organization_id},
+        )
 
 
 def report_user_deleted_account(user: User):

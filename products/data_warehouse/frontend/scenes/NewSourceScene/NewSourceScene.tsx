@@ -1,12 +1,24 @@
 import { BindLogic, useActions, useValues } from 'kea'
-import { useCallback, useEffect } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 
-import { IconQuestion } from '@posthog/icons'
-import { LemonButton, LemonDivider, LemonSkeleton, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
+import { IconCopy, IconQuestion } from '@posthog/icons'
+import {
+    LemonButton,
+    LemonCheckbox,
+    LemonDivider,
+    LemonModal,
+    LemonSkeleton,
+    LemonTag,
+    Link,
+    Tooltip,
+} from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { useFloatingContainer } from 'lib/hooks/useFloatingContainerContext'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { nonHogFunctionTemplatesLogic } from 'scenes/data-pipelines/utils/nonHogFunctionTemplatesLogic'
 import { HogFunctionTemplateList } from 'scenes/hog-functions/list/HogFunctionTemplateList'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -17,7 +29,7 @@ import { ExternalDataSourceType, SourceConfig } from '~/queries/schema/schema-ge
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import SchemaForm from '../../shared/components/forms/SchemaForm'
-import SourceForm from '../../shared/components/forms/SourceForm'
+import SourceForm, { SourceAccessMethodSelector } from '../../shared/components/forms/SourceForm'
 import { SyncProgressStep } from '../../shared/components/forms/SyncProgressStep'
 import { WebhookSetupForm } from '../../shared/components/forms/WebhookSetupForm'
 import { FreeHistoricalSyncsBanner } from '../../shared/components/FreeHistoricalSyncsBanner'
@@ -27,6 +39,17 @@ import { BillingLimitNotice } from './components/BillingLimitNotice'
 import { SelfManagedSourceForm } from './components/SelfManagedSourceForm'
 import { selfManagedSourceLogic } from './selfManagedSourceLogic'
 import { sourceWizardLogic } from './sourceWizardLogic'
+
+export const getEffectiveAccessMethod = (
+    currentStep: number,
+    draftAccessMethod: 'warehouse' | 'direct' | undefined,
+    persistedAccessMethod: 'warehouse' | 'direct'
+): 'warehouse' | 'direct' => {
+    if (currentStep === 2 && draftAccessMethod) {
+        return draftAccessMethod
+    }
+    return persistedAccessMethod
+}
 
 export const scene: SceneExport = {
     component: NewSourceScene,
@@ -106,8 +129,20 @@ function InternalSourcesWizard(props: NewSourcesWizardProps): JSX.Element {
         connectors,
         isSelfManagedSource,
         source,
+        sourceConnectionDetails,
+        featureFlags,
     } = useValues(sourceWizardLogic)
-    const { onBack, onSubmit, setInitialConnector } = useActions(sourceWizardLogic)
+    const { onBack, onSubmit, setInitialConnector, setSourceConnectionDetailsValue, updateSource } =
+        useActions(sourceWizardLogic)
+    const selectedAccessMethod = getEffectiveAccessMethod(
+        currentStep,
+        sourceConnectionDetails?.access_method,
+        source.access_method
+    )
+    const showAccessMethodSelector =
+        currentStep === 2 &&
+        selectedConnector?.name === 'Postgres' &&
+        !!featureFlags[FEATURE_FLAGS.DWH_POSTGRES_DIRECT_QUERY]
     const { tableLoading: manualLinkIsLoading } = useValues(selfManagedSourceLogic)
 
     const mainContainer = useFloatingContainer()
@@ -186,21 +221,34 @@ function InternalSourcesWizard(props: NewSourcesWizardProps): JSX.Element {
         <div>
             {!isWrapped && <BillingLimitNotice />}
             <>
+                {showAccessMethodSelector && (
+                    <>
+                        <SourceAccessMethodSelector
+                            value={selectedAccessMethod}
+                            onChange={(accessMethod) => {
+                                updateSource({ access_method: accessMethod })
+                                setSourceConnectionDetailsValue('access_method', accessMethod)
+                            }}
+                        />
+                        <LemonDivider className="my-4" />
+                    </>
+                )}
+
                 {selectedConnector && (
                     <div className="flex items-center gap-3 mb-4">
                         <SourceIcon type={selectedConnector.name} size="small" disableTooltip />
                         <div>
                             <h4 className="text-lg font-semibold mb-0">{modalTitle}</h4>
                             <p className="text-sm text-muted-alt mb-0">
-                                {source.access_method === 'direct'
-                                    ? `Query ${selectedConnector.label ?? selectedConnector.name} directly from PostHog without warehouse syncs.`
+                                {selectedAccessMethod === 'direct'
+                                    ? `Query selected ${selectedConnector.label ?? selectedConnector.name} tables live from PostHog. Tables stay in the source database and are not synced into the data warehouse.`
                                     : `Sync data from ${selectedConnector.label ?? selectedConnector.name} into the PostHog data warehouse.`}
                             </p>
                         </div>
                     </div>
                 )}
 
-                {selectedConnector && source.access_method !== 'direct' && (
+                {selectedConnector && selectedAccessMethod !== 'direct' && (
                     <FreeHistoricalSyncsBanner hideGetStarted={true} />
                 )}
 
@@ -220,7 +268,125 @@ function InternalSourcesWizard(props: NewSourcesWizardProps): JSX.Element {
 
                 {footer()}
             </>
+            <CDCSelfManagedSetupDialog />
         </div>
+    )
+}
+
+function CDCSelfManagedSetupDialog(): JSX.Element | null {
+    const {
+        cdcSelfManagedSetupDialogOpen,
+        source,
+        databaseSchema,
+        sourceConnectionDetails,
+        cdcSelfManagedVerifyResult,
+        cdcSelfManagedVerifyResultLoading,
+    } = useValues(sourceWizardLogic)
+    const { closeCdcSelfManagedSetupDialog, verifyCdcSelfManagedSetup } = useActions(sourceWizardLogic)
+
+    // Checkbox state is pure UI toggle — no business logic, stays local.
+    const [confirmed, setConfirmed] = useState(false)
+
+    const payload = (source?.payload || {}) as Record<string, any>
+    const cdcTableNames = useMemo(
+        () =>
+            (databaseSchema || [])
+                .filter((s: any) => s.should_sync && s.sync_type === 'cdc')
+                .map((s: any) => s.table as string),
+        [databaseSchema]
+    )
+    const schema = (sourceConnectionDetails?.payload?.schema as string) || 'public'
+    const pubName = (payload.cdc_publication_name as string) || 'posthog_pub'
+    const dbUser = (sourceConnectionDetails?.payload?.user as string) || '<your_user>'
+
+    const tableList =
+        cdcTableNames.length > 0
+            ? cdcTableNames.map((t) => `"${schema}"."${t}"`).join(', ')
+            : `"${schema}"."your_table"`
+
+    const sql = `-- 1. Grants for the PostHog user
+--    Reading a replication slot requires REPLICATION (or rds_replication on RDS).
+--    Run ONE of the lines below, depending on your environment:
+ALTER USER "${dbUser}" WITH REPLICATION;             -- self-hosted / most clouds
+-- GRANT rds_replication TO "${dbUser}";             -- AWS RDS
+GRANT USAGE ON SCHEMA "${schema}" TO "${dbUser}";
+GRANT SELECT ON ${tableList} TO "${dbUser}";
+
+-- 2. Publication covering the ${cdcTableNames.length} selected table${cdcTableNames.length === 1 ? '' : 's'}
+--    Run this as the table owner (or a superuser). PostHog will create and manage
+--    the replication slot itself once the source is created.
+CREATE PUBLICATION "${pubName}" FOR TABLE ${tableList}
+  WITH (publish_via_partition_root = true);
+
+-- Later, to add a new table to the publication:
+-- ALTER PUBLICATION "${pubName}" ADD TABLE "${schema}"."new_table";`
+
+    const handleCopy = async (): Promise<void> => {
+        await copyToClipboard(sql, 'Setup SQL')
+    }
+
+    if (!cdcSelfManagedSetupDialogOpen) {
+        return null
+    }
+
+    const errors =
+        cdcSelfManagedVerifyResult && !cdcSelfManagedVerifyResult.valid ? cdcSelfManagedVerifyResult.errors : null
+
+    return (
+        <LemonModal
+            isOpen
+            onClose={closeCdcSelfManagedSetupDialog}
+            title="Create your publication"
+            description={`Self-managed CDC needs the publication to exist before PostHog connects — PostHog will create and manage the replication slot itself. Run the SQL below (covering the ${cdcTableNames.length} table${cdcTableNames.length === 1 ? '' : 's'} you selected for CDC) as the table owner, then click Verify & create.`}
+            width={720}
+            footer={
+                <>
+                    <LemonButton
+                        type="tertiary"
+                        onClick={closeCdcSelfManagedSetupDialog}
+                        disabledReason={cdcSelfManagedVerifyResultLoading ? 'Verifying...' : undefined}
+                    >
+                        Back
+                    </LemonButton>
+                    <LemonButton
+                        type="primary"
+                        loading={cdcSelfManagedVerifyResultLoading}
+                        disabledReason={!confirmed ? 'Confirm you have executed the SQL' : undefined}
+                        onClick={verifyCdcSelfManagedSetup}
+                    >
+                        Verify & create source
+                    </LemonButton>
+                </>
+            }
+        >
+            <div className="space-y-3">
+                <div className="flex justify-end">
+                    <LemonButton size="small" type="secondary" icon={<IconCopy />} onClick={() => void handleCopy()}>
+                        Copy SQL
+                    </LemonButton>
+                </div>
+                <pre className="text-xs bg-surface-primary p-3 rounded overflow-x-auto whitespace-pre-wrap border border-border">
+                    {sql}
+                </pre>
+
+                <LemonCheckbox
+                    checked={confirmed}
+                    onChange={setConfirmed}
+                    label="I have executed the SQL above on my PostgreSQL database"
+                />
+
+                {errors && errors.length > 0 && (
+                    <LemonBanner type="error">
+                        <p className="font-semibold mb-1">Verification failed — please fix the following and retry:</p>
+                        <ul className="list-disc ml-5 mb-0 text-sm">
+                            {errors.map((err, i) => (
+                                <li key={i}>{err}</li>
+                            ))}
+                        </ul>
+                    </LemonBanner>
+                )}
+            </div>
+        </LemonModal>
     )
 }
 
@@ -260,11 +426,16 @@ function FirstStep({ allowedSources }: NewSourcesWizardProps): JSX.Element {
 }
 
 function SecondStep(): JSX.Element {
-    const { selectedConnector, source } = useValues(sourceWizardLogic)
+    const { selectedConnector, source, sourceConnectionDetails } = useValues(sourceWizardLogic)
+    const selectedAccessMethod = getEffectiveAccessMethod(
+        2,
+        sourceConnectionDetails?.access_method,
+        source.access_method
+    )
 
     return selectedConnector ? (
         <div className="space-y-4">
-            {selectedConnector.caption && (
+            {selectedConnector.caption && selectedAccessMethod !== 'direct' && (
                 <LemonMarkdown className="text-sm">{selectedConnector.caption}</LemonMarkdown>
             )}
 
@@ -291,7 +462,11 @@ function SecondStep(): JSX.Element {
 
             <LemonDivider />
 
-            <SourceForm sourceConfig={selectedConnector} initialAccessMethod={source.access_method} />
+            <SourceForm
+                sourceConfig={selectedConnector}
+                initialAccessMethod={sourceConnectionDetails?.access_method ?? source.access_method}
+                showAccessMethodSelector={false}
+            />
         </div>
     ) : (
         <BindLogic logic={selfManagedSourceLogic} props={{ id: 'new' }}>

@@ -168,10 +168,18 @@ class ExperimentService:
                 try:
                     validated_metric = ExperimentMetric.model_validate(metric)
 
-                    # Additional validation for funnel metrics with DW steps
                     # ExperimentMetric is a RootModel wrapping a union, so access .root to get the actual type
                     actual_metric = validated_metric.root
                     if isinstance(actual_metric, ExperimentFunnelMetric):
+                        # The experiment exposure event is prepended as step_0 at query time,
+                        # so series must contain at least one user-supplied step for the funnel
+                        # to yield a meaningful conversion metric.
+                        if not actual_metric.series:
+                            raise ValidationError(
+                                f"Invalid metric at index {i}: funnel metrics require at least one step. "
+                                "The experiment exposure event is added as the initial step automatically."
+                            )
+                        # Additional validation for funnel metrics with DW steps
                         FunnelDWValidator.validate_funnel_metric(actual_metric)
 
                 except pydantic.ValidationError as e:
@@ -1260,13 +1268,21 @@ class ExperimentService:
         if "saved_metrics_ids" in update_data:
             self.validate_saved_metrics_ids(update_data["saved_metrics_ids"], self.team.id)
         if "metrics" in update_data:
+            self.validate_experiment_metrics(update_data["metrics"])
             self.validate_metric_action_ids(update_data["metrics"], self.team.id)
             if not allow_unknown_events:
                 self.validate_metric_event_names(update_data["metrics"])
+            for metric in update_data["metrics"] or []:
+                if not metric.get("uuid"):
+                    metric["uuid"] = str(uuid4())
         if "metrics_secondary" in update_data:
+            self.validate_experiment_metrics(update_data["metrics_secondary"])
             self.validate_metric_action_ids(update_data["metrics_secondary"], self.team.id)
             if not allow_unknown_events:
                 self.validate_metric_event_names(update_data["metrics_secondary"])
+            for metric in update_data["metrics_secondary"] or []:
+                if not metric.get("uuid"):
+                    metric["uuid"] = str(uuid4())
 
         context = serializer_context or self._build_serializer_context()
         feature_flag = experiment.feature_flag
@@ -1406,9 +1422,16 @@ class ExperimentService:
 
     def _validate_update_payload(self, experiment: Experiment, update_data: dict, feature_flag: FeatureFlag) -> None:
         """Validate update payload before any database mutations occur."""
+        # Prevent restoring a deleted experiment if the linked feature flag is also deleted
+        if experiment.deleted and update_data.get("deleted") is False and feature_flag.deleted:
+            raise ValidationError(
+                "Cannot restore experiment: the linked feature flag has been deleted. "
+                "Restore the feature flag first, then restore the experiment."
+            )
+
         # Check for legacy metrics first
         if experiment_has_legacy_metrics(experiment):
-            allowed_fields = {"name", "description", "end_date"}
+            allowed_fields = {"name", "description", "end_date", "deleted"}
             update_fields = set(update_data.keys())
 
             # Remove internal fields that are handled separately
@@ -1427,12 +1450,6 @@ class ExperimentService:
 
             # If only allowed fields are being updated, skip the rest of the validation
             return
-
-        if experiment.deleted and update_data.get("deleted") is False and feature_flag.deleted:
-            raise ValidationError(
-                "Cannot restore experiment: the linked feature flag has been deleted. "
-                "Restore the feature flag first, then restore the experiment."
-            )
 
         expected_keys = {
             "name",

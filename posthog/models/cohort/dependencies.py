@@ -10,9 +10,12 @@ from structlog import get_logger
 
 from posthog.models.cohort.cohort import Cohort, CohortType, is_cohort_recalculation_only_save
 from posthog.models.team.team import Team
+from posthog.redis import get_client as get_redis_client
 
 logger = get_logger(__name__)
 DEPENDENCY_CACHE_TIMEOUT = 7 * 24 * 60 * 60  # 1 week
+COHORT_BACKFILL_DEBOUNCE_SECONDS = 300  # 5 minutes
+COHORT_BACKFILL_REDIS_TTL_SECONDS = 300  # matches countdown; task reads fresh state at execution time
 
 
 # Prometheus metrics for cache hit/miss tracking
@@ -248,20 +251,39 @@ def _extract_person_property_filters(cohort: Cohort) -> str:
 def _trigger_cohort_backfill(cohort: Cohort) -> None:
     """
     Trigger backfill for a realtime cohort with person properties.
-    Uses Celery to avoid blocking the caller.
+    Debounces with a 5-minute delay so rapid re-saves only trigger one backfill.
     """
     try:
         from posthog.tasks.calculate_cohort import trigger_cohort_backfill_task
 
-        logger.info(
-            "triggering_cohort_backfill_on_conditions_change",
-            cohort_id=cohort.pk,
-            team_id=cohort.team_id,
-            cohort_type=cohort.cohort_type,
-        )
+        redis_client = get_redis_client()
+        lock_key = f"cohort_backfill_pending:{cohort.pk}"
 
-        # Use Celery task to avoid blocking network I/O
-        trigger_cohort_backfill_task.delay(cohort.team_id, cohort.pk)
+        # Atomic set-if-not-exists with TTL. Returns True only for the first
+        # caller within the window; subsequent saves are debounced.
+        if redis_client.set(lock_key, 1, nx=True, ex=COHORT_BACKFILL_REDIS_TTL_SECONDS):
+            logger.info(
+                "triggering_cohort_backfill_on_conditions_change",
+                cohort_id=cohort.pk,
+                team_id=cohort.team_id,
+                cohort_type=cohort.cohort_type,
+                debounce_seconds=COHORT_BACKFILL_DEBOUNCE_SECONDS,
+            )
+            try:
+                trigger_cohort_backfill_task.apply_async(
+                    args=[cohort.team_id, cohort.pk],
+                    countdown=COHORT_BACKFILL_DEBOUNCE_SECONDS,
+                )
+            except Exception:
+                # Release the lock so the next save can retry scheduling
+                redis_client.delete(lock_key)
+                raise
+        else:
+            logger.info(
+                "cohort_backfill_already_pending",
+                cohort_id=cohort.pk,
+                team_id=cohort.team_id,
+            )
 
     except Exception as e:
         logger.exception(
@@ -270,7 +292,6 @@ def _trigger_cohort_backfill(cohort: Cohort) -> None:
             team_id=cohort.team_id,
             error=str(e),
         )
-        # Don't re-raise the exception to avoid breaking the main save operation
 
 
 @receiver(pre_save, sender=Cohort)

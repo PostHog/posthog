@@ -5,8 +5,8 @@ export interface RasterizeRecordingInput {
     team_id: number
     max_virtual_time?: number // max virtual-time seconds before stopping capture (default: unlimited)
     playback_speed?: number // 1-360, defaults to 4
-    start_timestamp?: number // ms since epoch
-    end_timestamp?: number // ms since epoch
+    start_offset_s?: number // seconds from session start to begin playback
+    end_offset_s?: number // seconds from session start to stop playback
     recording_fps?: number // target FPS for final video
     skip_inactivity?: boolean // skip inactive sections during playback (default: true)
     mouse_tail?: boolean // show mouse trail (default: true)
@@ -15,6 +15,7 @@ export interface RasterizeRecordingInput {
     trim?: number // optional max output duration in seconds (only trims if video is longer)
     viewport_width?: number // override capture width (default: 1280)
     viewport_height?: number // override capture height (default: 720)
+    output_format?: 'mp4' | 'webm' | 'gif' // output video format (default: mp4)
     screenshot_format?: 'jpeg' | 'png' // capture format for each frame (default: jpeg)
     screenshot_quality?: number // JPEG quality 0-100 (default: 80, ignored for png)
     s3_bucket: string
@@ -67,6 +68,7 @@ export interface CaptureConfig {
     trim?: number // max output seconds
     trimFrameLimit: number // trim * outputFps — for early loop stop
     maxVirtualTimeMs: number // max virtual time before stopping capture (default: unlimited)
+    outputFormat: 'mp4' | 'webm' | 'gif'
     ffmpegOutputOpts: string[]
     ffmpegVideoFilters: string[]
     screenshotFormat: 'jpeg' | 'png'

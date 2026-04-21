@@ -248,9 +248,9 @@ export interface PaginatedFeatureFlagListApi {
  * `person` - person
  * `group` - group
  */
-export type Type380EnumApi = (typeof Type380EnumApi)[keyof typeof Type380EnumApi]
+export type Type576EnumApi = (typeof Type576EnumApi)[keyof typeof Type576EnumApi]
 
-export const Type380EnumApi = {
+export const Type576EnumApi = {
     Cohort: 'cohort',
     Person: 'person',
     Group: 'group',
@@ -292,7 +292,7 @@ export interface FeatureFlagFilterPropertyGenericSchemaApi {
 * `cohort` - cohort
 * `person` - person
 * `group` - group */
-    type?: Type380EnumApi
+    type?: Type576EnumApi
     /**
      * Resolved cohort name for cohort-type filters.
      * @nullable
@@ -324,9 +324,9 @@ export interface FeatureFlagFilterPropertyGenericSchemaApi {
  * * `is_set` - is_set
  * `is_not_set` - is_not_set
  */
-export type Operator3e6EnumApi = (typeof Operator3e6EnumApi)[keyof typeof Operator3e6EnumApi]
+export type OperatorA04EnumApi = (typeof OperatorA04EnumApi)[keyof typeof OperatorA04EnumApi]
 
-export const Operator3e6EnumApi = {
+export const OperatorA04EnumApi = {
     IsSet: 'is_set',
     IsNotSet: 'is_not_set',
 } as const
@@ -339,7 +339,7 @@ export interface FeatureFlagFilterPropertyExistsSchemaApi {
 * `cohort` - cohort
 * `person` - person
 * `group` - group */
-    type?: Type380EnumApi
+    type?: Type576EnumApi
     /**
      * Resolved cohort name for cohort-type filters.
      * @nullable
@@ -354,23 +354,22 @@ export interface FeatureFlagFilterPropertyExistsSchemaApi {
 
 * `is_set` - is_set
 * `is_not_set` - is_not_set */
-    operator: Operator3e6EnumApi
+    operator: OperatorA04EnumApi
     /** Optional value. Runtime behavior determines whether this is ignored. */
     value?: unknown
 }
 
 /**
  * * `is_date_exact` - is_date_exact
- * `is_date_after` - is_date_after
  * `is_date_before` - is_date_before
+ * `is_date_after` - is_date_after
  */
-export type FeatureFlagFilterPropertyDateSchemaOperatorEnumApi =
-    (typeof FeatureFlagFilterPropertyDateSchemaOperatorEnumApi)[keyof typeof FeatureFlagFilterPropertyDateSchemaOperatorEnumApi]
+export type Operator382EnumApi = (typeof Operator382EnumApi)[keyof typeof Operator382EnumApi]
 
-export const FeatureFlagFilterPropertyDateSchemaOperatorEnumApi = {
+export const Operator382EnumApi = {
     IsDateExact: 'is_date_exact',
-    IsDateAfter: 'is_date_after',
     IsDateBefore: 'is_date_before',
+    IsDateAfter: 'is_date_after',
 } as const
 
 export interface FeatureFlagFilterPropertyDateSchemaApi {
@@ -381,7 +380,7 @@ export interface FeatureFlagFilterPropertyDateSchemaApi {
 * `cohort` - cohort
 * `person` - person
 * `group` - group */
-    type?: Type380EnumApi
+    type?: Type576EnumApi
     /**
      * Resolved cohort name for cohort-type filters.
      * @nullable
@@ -397,7 +396,7 @@ export interface FeatureFlagFilterPropertyDateSchemaApi {
 * `is_date_exact` - is_date_exact
 * `is_date_after` - is_date_after
 * `is_date_before` - is_date_before */
-    operator: FeatureFlagFilterPropertyDateSchemaOperatorEnumApi
+    operator: Operator382EnumApi
     /** Date value in ISO format or relative date expression. */
     value: string
 }
@@ -436,7 +435,7 @@ export interface FeatureFlagFilterPropertySemverSchemaApi {
 * `cohort` - cohort
 * `person` - person
 * `group` - group */
-    type?: Type380EnumApi
+    type?: Type576EnumApi
     /**
      * Resolved cohort name for cohort-type filters.
      * @nullable
@@ -483,7 +482,7 @@ export interface FeatureFlagFilterPropertyMultiContainsSchemaApi {
 * `cohort` - cohort
 * `person` - person
 * `group` - group */
-    type?: Type380EnumApi
+    type?: Type576EnumApi
     /**
      * Resolved cohort name for cohort-type filters.
      * @nullable
@@ -766,6 +765,110 @@ export interface FeatureFlagStatusResponseApi {
     status: string
     /** Human-readable explanation of the status */
     reason: string
+}
+
+export type FeatureFlagVersionResponseApiFilters = { [key: string]: unknown }
+
+/**
+ * Feature flag state at a given version plus reconstruction metadata.
+ */
+export interface FeatureFlagVersionResponseApi {
+    readonly id: number
+    /** @maxLength 400 */
+    key: string
+    name?: string
+    readonly filters: FeatureFlagVersionResponseApiFilters
+    active?: boolean
+    deleted?: boolean
+    /**
+     * @minimum -2147483648
+     * @maximum 2147483647
+     * @nullable
+     */
+    version?: number | null
+    rollback_conditions?: unknown | null
+    /** @nullable */
+    performed_rollback?: boolean | null
+    /** @nullable */
+    ensure_experience_continuity?: boolean | null
+    /** @nullable */
+    has_enriched_analytics?: boolean | null
+    /** @nullable */
+    is_remote_configuration?: boolean | null
+    /** @nullable */
+    has_encrypted_payloads?: boolean | null
+    /** Specifies where this feature flag should be evaluated
+
+* `server` - Server
+* `client` - Client
+* `all` - All */
+    evaluation_runtime?: EvaluationRuntimeEnumApi | BlankEnumApi | NullEnumApi | null
+    /** Identifier used for bucketing users into rollout and variants
+
+* `distinct_id` - User ID (default)
+* `device_id` - Device ID */
+    bucketing_identifier?: BucketingIdentifierEnumApi | BlankEnumApi | NullEnumApi | null
+    /**
+     * Last time this feature flag was called (from $feature_flag_called events)
+     * @nullable
+     */
+    last_called_at?: string | null
+    created_at?: string
+    /** @nullable */
+    readonly created_by: number | null
+    /** False for the current version; true for reconstructed historical versions. */
+    readonly is_historical: boolean
+    /** @nullable */
+    readonly version_timestamp: string | null
+    /**
+     * User from the activity log entry that produced this version.
+     * @nullable
+     */
+    readonly modified_by: number | null
+}
+
+/**
+ * * `add` - add
+ * `remove` - remove
+ * `set` - set
+ */
+export type ActionEnumApi = (typeof ActionEnumApi)[keyof typeof ActionEnumApi]
+
+export const ActionEnumApi = {
+    Add: 'add',
+    Remove: 'remove',
+    Set: 'set',
+} as const
+
+export interface BulkUpdateTagsRequestApi {
+    /**
+     * List of object IDs to update tags on.
+     * @maxItems 500
+     */
+    ids: number[]
+    /** 'add' merges with existing tags, 'remove' deletes specific tags, 'set' replaces all tags.
+
+* `add` - add
+* `remove` - remove
+* `set` - set */
+    action: ActionEnumApi
+    /** Tag names to add, remove, or set. */
+    tags: string[]
+}
+
+export interface BulkUpdateTagsItemApi {
+    id: number
+    tags: string[]
+}
+
+export interface BulkUpdateTagsErrorApi {
+    id: number
+    reason: string
+}
+
+export interface BulkUpdateTagsResponseApi {
+    updated: BulkUpdateTagsItemApi[]
+    skipped: BulkUpdateTagsErrorApi[]
 }
 
 export type LocalEvaluationResponseApiGroupTypeMapping = { [key: string]: string }
