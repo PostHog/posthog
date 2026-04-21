@@ -7,6 +7,7 @@ import type { z } from 'zod'
 import { ApiClient } from '@/api/client'
 import { AnalyticsEvent, evaluateFeatureFlags, getPostHogClient, isFeatureFlagEnabled } from '@/lib/analytics'
 import { DurableObjectCache } from '@/lib/cache/DurableObjectCache'
+import { isCodingAgentClient } from '@/lib/coding-clients'
 import {
     CUSTOM_API_BASE_URL,
     POSTHOG_EU_BASE_URL,
@@ -344,6 +345,15 @@ export class MCP extends McpAgent<Env> {
                 const useJson = tool._meta?.[POSTHOG_META_KEY]?.responseFormat === 'json'
                 const text = formattedResults ?? (useJson ? JSON.stringify(rawResult) : formatResponse(rawResult))
 
+                // Coding-agent clients (e.g. Claude Code) surface structuredContent
+                // to the model in preference to content[].text. When we have a formattedResults
+                // override, emitting structuredContent would hide the formatted view behind the
+                // raw JSON. Drop structuredContent in that case so `text` wins — unless the
+                // caller explicitly asked for JSON via `output_format=json`.
+                const callerWantsJson = (params as { output_format?: unknown } | undefined)?.output_format === 'json'
+                const suppressStructuredContent =
+                    formattedResults !== undefined && !callerWantsJson && isCodingAgentClient(this._mcpClientName)
+
                 return {
                     content: [
                         {
@@ -352,7 +362,7 @@ export class MCP extends McpAgent<Env> {
                         },
                     ],
                     // Include raw result as structuredContent for UI apps to consume only in case there is a UI resource
-                    ...(hasUiResource ? { structuredContent } : {}),
+                    ...(hasUiResource && !suppressStructuredContent ? { structuredContent } : {}),
                 }
             } catch (error: any) {
                 const distinctId = await this.getDistinctId()
