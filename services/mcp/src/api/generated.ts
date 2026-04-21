@@ -7393,6 +7393,7 @@ export namespace Schemas {
       Auto: 'auto',
       Line: 'line',
       Bar: 'bar',
+      Area: 'area',
     } as const;
 
     export type YAxisPosition = typeof YAxisPosition[keyof typeof YAxisPosition];
@@ -9096,11 +9097,6 @@ export namespace Schemas {
       explicitDate?: boolean | null;
       /** @nullable */
       properties?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
-    }
-
-    export interface DashboardGeneratedMetadata {
-      name: string;
-      description: string;
     }
 
     /**
@@ -14809,6 +14805,17 @@ export namespace Schemas {
       readonly updated_at: string;
     }
 
+    export interface ErrorTrackingSuppressionRuleCreateRequest {
+      /** Optional property-group filters that define which incoming error events should be suppressed. Omit this field or provide an empty `values` array to create a match-all suppression rule. */
+      filters?: PropertyGroupFilterValue;
+      /**
+       * Fraction of matching events to suppress. Use `1.0` to suppress all matching events.
+       * @minimum 0
+       * @maximum 1
+       */
+      sampling_rate?: number;
+    }
+
     /**
      * Release associated with this symbol set
      * @nullable
@@ -19955,15 +19962,20 @@ export namespace Schemas {
     } as const;
 
     export interface LogsAlertConfiguration {
+      /** Unique identifier for this alert. */
       readonly id: string;
-      /** @maxLength 255 */
+      /**
+       * Human-readable name for this alert.
+       * @maxLength 255
+       */
       name: string;
+      /** Whether the alert is actively being evaluated. Disabling resets the state to not_firing. */
       enabled?: boolean;
       /** Filter criteria — subset of LogsViewerFilters. Must contain at least one of: severityLevels (list of severity strings), serviceNames (list of service name strings), or filterGroup (property filter group object). */
       filters: unknown;
       /**
+       * Number of matching log entries that constitutes a threshold breach within the evaluation window.
        * @minimum 1
-       * @maximum 2147483647
        */
       threshold_count: number;
       /** Whether the alert fires when the count is above or below the threshold.
@@ -19971,12 +19983,18 @@ export namespace Schemas {
     * `above` - Above
     * `below` - Below */
       threshold_operator?: ThresholdOperatorEnum;
-      /**
-       * @minimum 0
-       * @maximum 2147483647
-       */
+      /** Time window in minutes over which log entries are counted. Allowed values: 5, 10, 15, 30, 60. */
       window_minutes?: number;
+      /** How often the alert is evaluated, in minutes. Server-managed. */
       readonly check_interval_minutes: number;
+      /** Current alert state: not_firing, firing, pending_resolve, errored, or snoozed. Server-managed.
+
+    * `not_firing` - Not firing
+    * `firing` - Firing
+    * `pending_resolve` - Pending resolve
+    * `errored` - Errored
+    * `snoozed` - Snoozed
+    * `broken` - Broken */
       readonly state: LogsAlertConfigurationStateEnum;
       /**
        * Total number of check periods in the sliding evaluation window for firing (M in N-of-M).
@@ -19991,27 +20009,44 @@ export namespace Schemas {
        */
       datapoints_to_alarm?: number;
       /**
+       * Minimum minutes between repeated notifications after the alert fires. 0 means no cooldown.
        * @minimum 0
-       * @maximum 2147483647
        */
       cooldown_minutes?: number;
-      /** @nullable */
+      /**
+       * ISO 8601 timestamp until which the alert is snoozed. Set to null to unsnooze.
+       * @nullable
+       */
       snooze_until?: string | null;
-      /** @nullable */
+      /**
+       * When the next evaluation is scheduled. Server-managed.
+       * @nullable
+       */
       readonly next_check_at: string | null;
-      /** @nullable */
+      /**
+       * When the last notification was sent. Server-managed.
+       * @nullable
+       */
       readonly last_notified_at: string | null;
-      /** @nullable */
+      /**
+       * When the alert was last evaluated. Server-managed.
+       * @nullable
+       */
       readonly last_checked_at: string | null;
+      /** Number of consecutive evaluation failures. Resets on success. Server-managed. */
       readonly consecutive_failures: number;
       /**
        * Error message from the most recent errored check, or null if the alert's most recent check was successful. Sourced from LogsAlertEvent without denormalization so retention-aware cleanup rules stay the only source of truth.
        * @nullable
        */
       readonly last_error_message: string | null;
+      /** When the alert was created. */
       readonly created_at: string;
       readonly created_by: UserBasic;
-      /** @nullable */
+      /**
+       * When the alert was last modified.
+       * @nullable
+       */
       readonly updated_at: string | null;
     }
 
@@ -26129,15 +26164,20 @@ export namespace Schemas {
     }
 
     export interface PatchedLogsAlertConfiguration {
+      /** Unique identifier for this alert. */
       readonly id?: string;
-      /** @maxLength 255 */
+      /**
+       * Human-readable name for this alert.
+       * @maxLength 255
+       */
       name?: string;
+      /** Whether the alert is actively being evaluated. Disabling resets the state to not_firing. */
       enabled?: boolean;
       /** Filter criteria — subset of LogsViewerFilters. Must contain at least one of: severityLevels (list of severity strings), serviceNames (list of service name strings), or filterGroup (property filter group object). */
       filters?: unknown;
       /**
+       * Number of matching log entries that constitutes a threshold breach within the evaluation window.
        * @minimum 1
-       * @maximum 2147483647
        */
       threshold_count?: number;
       /** Whether the alert fires when the count is above or below the threshold.
@@ -26145,12 +26185,18 @@ export namespace Schemas {
     * `above` - Above
     * `below` - Below */
       threshold_operator?: ThresholdOperatorEnum;
-      /**
-       * @minimum 0
-       * @maximum 2147483647
-       */
+      /** Time window in minutes over which log entries are counted. Allowed values: 5, 10, 15, 30, 60. */
       window_minutes?: number;
+      /** How often the alert is evaluated, in minutes. Server-managed. */
       readonly check_interval_minutes?: number;
+      /** Current alert state: not_firing, firing, pending_resolve, errored, or snoozed. Server-managed.
+
+    * `not_firing` - Not firing
+    * `firing` - Firing
+    * `pending_resolve` - Pending resolve
+    * `errored` - Errored
+    * `snoozed` - Snoozed
+    * `broken` - Broken */
       readonly state?: LogsAlertConfigurationStateEnum;
       /**
        * Total number of check periods in the sliding evaluation window for firing (M in N-of-M).
@@ -26165,27 +26211,44 @@ export namespace Schemas {
        */
       datapoints_to_alarm?: number;
       /**
+       * Minimum minutes between repeated notifications after the alert fires. 0 means no cooldown.
        * @minimum 0
-       * @maximum 2147483647
        */
       cooldown_minutes?: number;
-      /** @nullable */
+      /**
+       * ISO 8601 timestamp until which the alert is snoozed. Set to null to unsnooze.
+       * @nullable
+       */
       snooze_until?: string | null;
-      /** @nullable */
+      /**
+       * When the next evaluation is scheduled. Server-managed.
+       * @nullable
+       */
       readonly next_check_at?: string | null;
-      /** @nullable */
+      /**
+       * When the last notification was sent. Server-managed.
+       * @nullable
+       */
       readonly last_notified_at?: string | null;
-      /** @nullable */
+      /**
+       * When the alert was last evaluated. Server-managed.
+       * @nullable
+       */
       readonly last_checked_at?: string | null;
+      /** Number of consecutive evaluation failures. Resets on success. Server-managed. */
       readonly consecutive_failures?: number;
       /**
        * Error message from the most recent errored check, or null if the alert's most recent check was successful. Sourced from LogsAlertEvent without denormalization so retention-aware cleanup rules stay the only source of truth.
        * @nullable
        */
       readonly last_error_message?: string | null;
+      /** When the alert was created. */
       readonly created_at?: string;
       readonly created_by?: UserBasic;
-      /** @nullable */
+      /**
+       * When the alert was last modified.
+       * @nullable
+       */
       readonly updated_at?: string | null;
     }
 
@@ -33577,18 +33640,6 @@ export namespace Schemas {
       Txt: 'txt',
     } as const;
 
-    export type EnvironmentsDashboardsGenerateMetadataCreateParams = {
-    format?: EnvironmentsDashboardsGenerateMetadataCreateFormat;
-    };
-
-    export type EnvironmentsDashboardsGenerateMetadataCreateFormat = typeof EnvironmentsDashboardsGenerateMetadataCreateFormat[keyof typeof EnvironmentsDashboardsGenerateMetadataCreateFormat];
-
-
-    export const EnvironmentsDashboardsGenerateMetadataCreateFormat = {
-      Json: 'json',
-      Txt: 'txt',
-    } as const;
-
     export type EnvironmentsDashboardsMoveTilePartialUpdateParams = {
     format?: EnvironmentsDashboardsMoveTilePartialUpdateFormat;
     };
@@ -37405,18 +37456,6 @@ export namespace Schemas {
 
 
     export const DashboardsCopyTileCreateFormat = {
-      Json: 'json',
-      Txt: 'txt',
-    } as const;
-
-    export type DashboardsGenerateMetadataCreateParams = {
-    format?: DashboardsGenerateMetadataCreateFormat;
-    };
-
-    export type DashboardsGenerateMetadataCreateFormat = typeof DashboardsGenerateMetadataCreateFormat[keyof typeof DashboardsGenerateMetadataCreateFormat];
-
-
-    export const DashboardsGenerateMetadataCreateFormat = {
       Json: 'json',
       Txt: 'txt',
     } as const;

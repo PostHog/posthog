@@ -94,6 +94,36 @@ function stripNullDefaults(obj) {
 }
 
 /**
+ * Strip `default` values from Patched* (PATCH request body) schemas.
+ *
+ * drf-spectacular copies serializer defaults into both the create and
+ * partial-update schemas. When Orval sees `default: 5` it generates
+ * `.default(5)` in Zod, which fills in the value during `.parse()` even
+ * when the caller didn't provide the field. The generated PATCH handler
+ * then can't distinguish "caller sent 5" from "Zod filled in 5", so it
+ * sends the default to the API — silently overwriting the stored value.
+ *
+ * Stripping defaults from Patched* schemas makes Zod treat omitted
+ * fields as undefined, which is the correct semantics for partial updates.
+ */
+function stripDefaultsFromPatchedSchemas(schema) {
+    const schemas = schema?.components?.schemas
+    if (!schemas) {
+        return
+    }
+    for (const [name, definition] of Object.entries(schemas)) {
+        if (!name.startsWith('Patched') || !definition.properties) {
+            continue
+        }
+        for (const prop of Object.values(definition.properties)) {
+            if ('default' in prop && !prop.readOnly) {
+                delete prop.default
+            }
+        }
+    }
+}
+
+/**
  * Remove readOnly properties from `required` arrays in the schema.
  *
  * drf-spectacular includes readOnly fields in `required` because they're
@@ -222,6 +252,7 @@ for (const def of definitions) {
     filtered.info.title = `${fullSchema.info?.title ?? 'API'} - MCP ${operationIds.size} enabled ops`
 
     filtered = stripNullDefaults(filtered)
+    stripDefaultsFromPatchedSchemas(filtered)
     stripUuidFormat(filtered)
     stripReadOnlyFromRequired(filtered)
     applyNestedExclusions(filtered, schemaExclusions)
