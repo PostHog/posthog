@@ -45,6 +45,9 @@ const DEFAULT_USAGE_STATS: UsageStats = {
 
 export type UsageStatsByTeam = Map<number, UsageStats>
 
+/** Ingestion default when `logs_settings.retention_days` is unset; must be in `TeamSerializer.VALID_RETENTION_DAYS`. */
+export const DEFAULT_LOGS_RETENTION_DAYS = 14
+
 export const logMessageDroppedCounter = new Counter({
     name: 'logs_ingestion_message_dropped_count',
     help: 'The number of logs ingestion messages dropped',
@@ -296,7 +299,7 @@ export class LogsIngestionConsumer {
 
                     // Extract settings with defaults
                     const jsonParse = logsSettings.json_parse_logs ?? false
-                    const retentionDays = logsSettings.retention_days ?? 15
+                    const retentionDays = logsSettings.retention_days ?? DEFAULT_LOGS_RETENTION_DAYS
 
                     // ignore empty messages
                     if (message.message.value === null) {
