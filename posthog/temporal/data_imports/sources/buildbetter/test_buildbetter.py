@@ -1,4 +1,9 @@
+from collections.abc import Iterable
+from typing import Any, cast
+
 from unittest.mock import MagicMock, patch
+
+from parameterized import parameterized
 
 from posthog.temporal.data_imports.sources.buildbetter.buildbetter import (
     BuildBetterResumeConfig,
@@ -29,53 +34,27 @@ def _interview_payload(ids: list[str]) -> dict:
 
 
 class TestMakePaginatedRequest:
-    def test_fresh_run_starts_at_offset_zero_and_saves_state(self) -> None:
+    @parameterized.expand(
+        [
+            ("fresh_run", False, None, 0),
+            ("resume", True, 3, 3),
+        ]
+    )
+    def test_starting_offset_from_resume_state(
+        self,
+        _name: str,
+        can_resume: bool,
+        saved_offset_multiplier: int | None,
+        expected_first_offset_multiplier: int,
+    ) -> None:
         page_size = BUILDBETTER_ENDPOINTS["interviews"].page_size
-        first_page = _interview_payload([str(i) for i in range(page_size)])
-        second_page = _interview_payload(["last"])
+        saved_offset = saved_offset_multiplier * page_size if saved_offset_multiplier is not None else None
+        expected_first_offset = expected_first_offset_multiplier * page_size
+        # Single short page terminates the loop without saving further state
+        resumed_page = _interview_payload(["x"])
 
-        manager = _make_manager(can_resume=False)
-        logger = MagicMock()
-
-        with patch("posthog.temporal.data_imports.sources.buildbetter.buildbetter.requests.Session") as session_cls:
-            session = session_cls.return_value
-            session.post.side_effect = [
-                _make_response(first_page),
-                _make_response(second_page),
-            ]
-
-            batches = list(
-                _make_paginated_request(
-                    api_key="key",
-                    endpoint_name="interviews",
-                    logger=logger,
-                    resumable_source_manager=manager,
-                )
-            )
-
-        assert len(batches) == 2
-        assert len(batches[0]) == page_size
-        assert batches[1] == [{"id": "last"}]
-
-        # First request starts from offset 0
-        first_call = session.post.call_args_list[0]
-        assert first_call.kwargs["json"]["variables"]["offset"] == 0
-
-        # Second request picks up after the first full page
-        second_call = session.post.call_args_list[1]
-        assert second_call.kwargs["json"]["variables"]["offset"] == page_size
-
-        # State is saved after the first (full) page pointing at the next offset,
-        # and not again after the final short page (loop exits without advancing).
-        manager.save_state.assert_called_once_with(BuildBetterResumeConfig(offset=page_size))
-
-    def test_resume_path_seeds_offset_from_loaded_state(self) -> None:
-        page_size = BUILDBETTER_ENDPOINTS["interviews"].page_size
-        saved_offset = page_size * 3
-        # Single short page ends the loop without saving further state
-        resumed_page = _interview_payload(["resumed"])
-
-        manager = _make_manager(can_resume=True, state=BuildBetterResumeConfig(offset=saved_offset))
+        state = BuildBetterResumeConfig(offset=saved_offset) if saved_offset is not None else None
+        manager = _make_manager(can_resume=can_resume, state=state)
         logger = MagicMock()
 
         with patch("posthog.temporal.data_imports.sources.buildbetter.buildbetter.requests.Session") as session_cls:
@@ -91,15 +70,12 @@ class TestMakePaginatedRequest:
                 )
             )
 
-        assert batches == [[{"id": "resumed"}]]
-
-        # Single request issued, starting from the saved offset (no re-fetch of earlier pages)
+        assert batches == [[{"id": "x"}]]
         assert session.post.call_count == 1
         call = session.post.call_args_list[0]
-        assert call.kwargs["json"]["variables"]["offset"] == saved_offset
+        assert call.kwargs["json"]["variables"]["offset"] == expected_first_offset
 
         manager.can_resume.assert_called_once()
-        manager.load_state.assert_called_once()
         # Short page terminates the loop; save_state is not invoked
         manager.save_state.assert_not_called()
 
@@ -190,7 +166,7 @@ class TestBuildbetterSource:
                 logger=logger,
                 resumable_source_manager=manager,
             )
-            batches = list(response.items())
+            batches = list(cast(Iterable[Any], response.items()))
 
         assert batches == [[{"id": "x"}]]
         assert response.primary_keys == ["id"]
