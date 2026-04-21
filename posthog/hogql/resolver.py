@@ -178,9 +178,6 @@ class Resolver(CloningVisitor):
         parent_ctes = self.ctes
         self.ctes = dict(parent_ctes)
 
-        if node.limit_with_ties and self.dialect in _POSTGRES_FAMILY:
-            raise QueryError("WITH TIES is not supported in postgres dialect")
-
         initial = self.visit(node.initial_select_query)
 
         # Root WITH propagates to all subsequent branches. Branch-level CTEs shadow root CTEs.
@@ -599,8 +596,6 @@ class Resolver(CloningVisitor):
 
     def visit_select_query(self, node: ast.SelectQuery):
         """Visit each SELECT query or subquery."""
-        if node.limit_with_ties and self.dialect in _POSTGRES_FAMILY:
-            raise QueryError("WITH TIES is not supported in postgres dialect")
         # This "SelectQueryType" is also a new scope for variables in the SELECT query.
         # We will add fields to it when we encounter them. This is used to resolve fields later.
         node_type = ast.SelectQueryType()

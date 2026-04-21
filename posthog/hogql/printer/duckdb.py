@@ -34,3 +34,7 @@ class DuckDBPrinter(PostgresPrinter):
         # in place would shadow our rename.
         parent_handlers = super()._get_function_handlers()
         return {k: v for k, v in parent_handlers.items() if k not in DUCKDB_FUNCTION_RENAMES_LOWER}
+
+    def _assert_with_ties_supported(self) -> None:
+        # DuckDB supports ``FETCH FIRST n ROWS WITH TIES`` (standard SQL), unlike Postgres.
+        return

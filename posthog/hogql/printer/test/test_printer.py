@@ -5707,3 +5707,19 @@ class TestDuckDBPrinter(BaseTest):
         printer = DuckDBPrinter(context=HogQLContext(team_id=self.team.pk))
         # Simple alphanumeric identifier — returned verbatim without quoting.
         self.assertEqual(printer._print_identifier(long_name), long_name)
+
+    @parameterized.expand(
+        [
+            ("pivot",),
+            ("unpivot",),
+            ("qualify",),
+            ("exclude",),
+            ("replace",),
+        ]
+    )
+    def test_duckdb_extra_reserved_keywords_are_quoted(self, name: str):
+        # DuckDB reserves these even though Postgres doesn't — an unquoted identifier would parse-error.
+        from posthog.hogql.printer.duckdb import DuckDBPrinter
+
+        printer = DuckDBPrinter(context=HogQLContext(team_id=self.team.pk))
+        self.assertEqual(printer._print_identifier(name), f'"{name}"')

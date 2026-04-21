@@ -160,21 +160,38 @@ POSTGRES_RESERVED_KEYWORDS = {
 }
 
 
+# DuckDB reserves a handful of additional keywords that Postgres doesn't, so identifiers
+# colliding with these must be quoted when emitting DuckDB SQL even though they'd be
+# unambiguous in Postgres.
+DUCKDB_EXTRA_RESERVED_KEYWORDS = {
+    "EXCLUDE",
+    "PIVOT",
+    "QUALIFY",
+    "REPLACE",
+    "UNPIVOT",
+}
+
+
 def escape_postgres_identifier(v: str) -> str:
     if len(v) > 63:
         raise QueryError(f'The Postgres identifier "{v}" is too long. Maximum length is 63 characters.')
 
-    return _quote_postgres_wire_identifier(v)
+    return _quote_postgres_wire_identifier(v, extra_reserved_keywords=None)
 
 
 def escape_duckdb_identifier(v: str) -> str:
-    """Escape an identifier for DuckDB. Same quoting rules as Postgres but no length limit."""
-    return _quote_postgres_wire_identifier(v)
+    """Escape an identifier for DuckDB. Same quoting rules as Postgres but no length limit,
+    and with DuckDB's additional reserved keywords treated as requiring quotes."""
+    return _quote_postgres_wire_identifier(v, extra_reserved_keywords=DUCKDB_EXTRA_RESERVED_KEYWORDS)
 
 
-def _quote_postgres_wire_identifier(v: str) -> str:
-    if POSTGRES_SIMPLE_IDENTIFIER_REGEX.match(v) and v.upper() not in POSTGRES_RESERVED_KEYWORDS:
-        return v
+def _quote_postgres_wire_identifier(v: str, extra_reserved_keywords: set[str] | None) -> str:
+    if POSTGRES_SIMPLE_IDENTIFIER_REGEX.match(v):
+        upper = v.upper()
+        if upper not in POSTGRES_RESERVED_KEYWORDS and (
+            extra_reserved_keywords is None or upper not in extra_reserved_keywords
+        ):
+            return v
 
     return '"' + v.replace('"', '""') + '"'
 
