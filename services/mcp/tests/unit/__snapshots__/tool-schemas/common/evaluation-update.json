@@ -62,7 +62,7 @@
                             "type": "string"
                         },
                         "provider": {
-                            "description": "* `openai` - Openai\n* `anthropic` - Anthropic\n* `gemini` - Gemini\n* `openrouter` - Openrouter\n* `fireworks` - Fireworks",
+                            "description": "* `openai` - openai\n* `anthropic` - anthropic\n* `gemini` - gemini\n* `openrouter` - openrouter\n* `fireworks` - fireworks",
                             "enum": ["openai", "anthropic", "gemini", "openrouter", "fireworks"],
                             "type": "string"
                         },
