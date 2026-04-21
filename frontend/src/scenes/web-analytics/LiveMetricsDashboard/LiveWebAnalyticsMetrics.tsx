@@ -244,6 +244,9 @@ export const LiveWebAnalyticsMetrics = (): JSX.Element => {
                     />
                 )
             case 'bot_events_chart':
+                if (!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_BOT_ANALYSIS]) {
+                    return null
+                }
                 return (
                     <LiveChartCard
                         title="Bot requests per minute"
@@ -256,6 +259,9 @@ export const LiveWebAnalyticsMetrics = (): JSX.Element => {
                     </LiveChartCard>
                 )
             case 'bot_traffic':
+                if (!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_BOT_ANALYSIS]) {
+                    return null
+                }
                 return (
                     <LiveBotTrafficCard
                         data={botBreakdown}
