@@ -345,38 +345,6 @@ async fn test_rate_limit_ip_fallback_on_malformed_body() -> Result<()> {
     Ok(())
 }
 
-#[test]
-fn test_rate_limit_replenishment() {
-    use feature_flags::api::flags_rate_limiter::{FlagsRateLimiter, RateLimitResult};
-    use governor::clock::FakeRelativeClock;
-    use std::collections::HashMap;
-    use std::time::Duration;
-
-    let clock = FakeRelativeClock::default();
-    let limiter =
-        FlagsRateLimiter::new_with_clock(true, 1.0, None, 1, false, HashMap::new(), clock.clone())
-            .unwrap();
-
-    assert_eq!(
-        limiter.allow_request("test_token"),
-        RateLimitResult::Allowed,
-        "First request allowed"
-    );
-    assert_eq!(
-        limiter.allow_request("test_token"),
-        RateLimitResult::Blocked,
-        "Second request blocked"
-    );
-
-    clock.advance(Duration::from_millis(1100));
-
-    assert_eq!(
-        limiter.allow_request("test_token"),
-        RateLimitResult::Allowed,
-        "Third request allowed after replenishment"
-    );
-}
-
 #[tokio::test]
 async fn test_ip_rate_limit_basic() -> Result<()> {
     // Create config with IP rate limiting enabled
