@@ -813,3 +813,99 @@ func TestBuildCmd_cmdBypassesShell(t *testing.T) {
 		t.Errorf("Cmd mode should bypass shell, got Args[0]=%q", cmd.Args[0])
 	}
 }
+
+func TestProcess_logFileTee(t *testing.T) {
+	dir := t.TempDir()
+	p := NewProcess("svc", config.ProcConfig{Shell: `echo hello-log-tee; sleep 0.1`}, 100, "")
+	p.SetLogDir(dir)
+
+	send, _, _ := collectMsgs()
+	if err := p.Start(send); err != nil {
+		t.Skipf("cannot spawn subprocess: %v", err)
+	}
+
+	// Wait for the process to exit so the log file flush is complete.
+	deadline := time.After(5 * time.Second)
+	for p.IsRunning() {
+		select {
+		case <-deadline:
+			t.Fatal("process did not exit in time")
+		case <-time.After(25 * time.Millisecond):
+		}
+	}
+
+	data, err := os.ReadFile(dir + "/svc.log")
+	if err != nil {
+		t.Fatalf("read log file: %v", err)
+	}
+	if !strings.Contains(string(data), "hello-log-tee") {
+		t.Errorf("expected log file to contain 'hello-log-tee', got %q", string(data))
+	}
+}
+
+func TestProcess_logFileTruncatesOnRestart(t *testing.T) {
+	dir := t.TempDir()
+	p := NewProcess("svc", config.ProcConfig{Shell: `echo first-run; sleep 0.05`}, 100, "")
+	p.SetLogDir(dir)
+
+	send, _, _ := collectMsgs()
+	if err := p.Start(send); err != nil {
+		t.Skipf("cannot spawn subprocess: %v", err)
+	}
+	// Wait for first run to finish.
+	deadline := time.After(5 * time.Second)
+	for p.IsRunning() {
+		select {
+		case <-deadline:
+			t.Fatal("first run did not finish")
+		case <-time.After(25 * time.Millisecond):
+		}
+	}
+
+	// Replace shell and restart to verify truncation.
+	p.Cfg.Shell = `echo second-run; sleep 0.05`
+	if err := p.Start(send); err != nil {
+		t.Fatalf("restart: %v", err)
+	}
+	deadline = time.After(5 * time.Second)
+	for p.IsRunning() {
+		select {
+		case <-deadline:
+			t.Fatal("second run did not finish")
+		case <-time.After(25 * time.Millisecond):
+		}
+	}
+
+	data, err := os.ReadFile(dir + "/svc.log")
+	if err != nil {
+		t.Fatalf("read log file: %v", err)
+	}
+	if strings.Contains(string(data), "first-run") {
+		t.Errorf("expected first-run to be truncated, got %q", string(data))
+	}
+	if !strings.Contains(string(data), "second-run") {
+		t.Errorf("expected second-run in log, got %q", string(data))
+	}
+}
+
+func TestProcess_logFileDisabledByDefault(t *testing.T) {
+	dir := t.TempDir()
+	p := NewProcess("svc", config.ProcConfig{Shell: `echo no-log; sleep 0.05`}, 100, "")
+	// Note: no SetLogDir call.
+
+	send, _, _ := collectMsgs()
+	if err := p.Start(send); err != nil {
+		t.Skipf("cannot spawn subprocess: %v", err)
+	}
+	deadline := time.After(5 * time.Second)
+	for p.IsRunning() {
+		select {
+		case <-deadline:
+			t.Fatal("did not finish")
+		case <-time.After(25 * time.Millisecond):
+		}
+	}
+	if _, err := os.Stat(dir + "/svc.log"); !os.IsNotExist(err) {
+		t.Errorf("expected no log file when logDir unset; got err=%v", err)
+	}
+}

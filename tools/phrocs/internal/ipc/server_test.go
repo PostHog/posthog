@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/posthog/posthog/phrocs/internal/config"
@@ -89,6 +90,61 @@ func sendRaw(t *testing.T, path string, raw string) map[string]any {
 		t.Fatalf("unmarshal response %q: %v", line, err)
 	}
 	return resp
+}
+
+func TestRemoveOwnedSocket_guardAgainstReplacedFile(t *testing.T) {
+	dir, err := os.MkdirTemp("/tmp", "phrocs-test-*")
+	if err != nil {
+		t.Fatalf("MkdirTemp: %v", err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	path := filepath.Join(dir, "s.sock")
+
+	ln, err := Listen(path)
+	if err != nil {
+		t.Fatalf("Listen: %v", err)
+	}
+	origInode := SocketInode(path)
+	if origInode == 0 {
+		t.Fatal("SocketInode returned 0 for bound socket")
+	}
+
+	// Simulate a second phrocs replacing the file at this path — close the
+	// original then bind a fresh listener so the inode changes.
+	_ = ln.Close()
+	_ = os.Remove(path)
+	ln2, err := Listen(path)
+	if err != nil {
+		t.Fatalf("Listen (second): %v", err)
+	}
+	t.Cleanup(func() { _ = ln2.Close() })
+
+	RemoveOwnedSocket(path, origInode)
+
+	if _, err := os.Lstat(path); err != nil {
+		t.Fatalf("expected replacement socket to survive RemoveOwnedSocket, got error %v", err)
+	}
+}
+
+func TestRemoveOwnedSocket_removesOwnSocket(t *testing.T) {
+	dir, err := os.MkdirTemp("/tmp", "phrocs-test-*")
+	if err != nil {
+		t.Fatalf("MkdirTemp: %v", err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	path := filepath.Join(dir, "s.sock")
+
+	ln, err := Listen(path)
+	if err != nil {
+		t.Fatalf("Listen: %v", err)
+	}
+	inode := SocketInode(path)
+	_ = ln.Close()
+
+	RemoveOwnedSocket(path, inode)
+	if _, err := os.Lstat(path); !os.IsNotExist(err) {
+		t.Fatalf("expected socket removed; Lstat err=%v", err)
+	}
 }
 
 func TestServe_list(t *testing.T) {
@@ -458,6 +514,82 @@ func TestServe_toggleProc_stoppedProcess(t *testing.T) {
 
 	if resp["ok"] != true {
 		t.Fatalf("ok: got %v, want true; error: %v", resp["ok"], resp["error"])
+	}
+}
+
+func TestServe_quit(t *testing.T) {
+	mgr := testManager(t, "web")
+	path := startServe(t, mgr)
+
+	resp := send(t, path, map[string]any{"cmd": "quit"})
+	if resp["ok"] != true {
+		t.Fatalf("ok: got %v, want true", resp["ok"])
+	}
+
+	select {
+	case <-mgr.QuitCh():
+	case <-time.After(time.Second):
+		t.Fatal("QuitCh not closed after quit command")
+	}
+}
+
+func TestServe_quit_idempotent(t *testing.T) {
+	mgr := testManager(t, "web")
+	path := startServe(t, mgr)
+
+	for i := 0; i < 3; i++ {
+		resp := send(t, path, map[string]any{"cmd": "quit"})
+		if resp["ok"] != true {
+			t.Fatalf("quit #%d ok: got %v, want true", i, resp["ok"])
+		}
+	}
+	select {
+	case <-mgr.QuitCh():
+	case <-time.After(time.Second):
+		t.Fatal("QuitCh not closed")
+	}
+}
+
+// TestServe_quit_replyBeforeShutdown guards against the daemon closing
+// QuitCh before the quit reply is flushed. The race was real: `dispatch`
+// used to call `mgr.Quit()` inline, so the daemon main loop could tear
+// down before `writeJSON` returned. Regression test: read the quit reply
+// and assert it arrived before QuitCh was observed closed.
+func TestServe_quit_replyBeforeShutdown(t *testing.T) {
+	mgr := testManager(t, "web")
+	path := startServe(t, mgr)
+
+	conn, err := net.Dial("unix", path)
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	defer func() { _ = conn.Close() }()
+
+	if _, err := conn.Write([]byte(`{"cmd":"quit"}` + "\n")); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	// At this point either the reply or the QuitCh close may be observable
+	// first. Read the reply line — it must succeed with ok:true, proving
+	// the server wrote it before signaling shutdown.
+	_ = conn.SetReadDeadline(time.Now().Add(time.Second))
+	line, err := bufio.NewReader(conn).ReadString('\n')
+	if err != nil {
+		t.Fatalf("read reply (race regressed?): %v", err)
+	}
+	var resp map[string]any
+	if err := json.Unmarshal([]byte(line), &resp); err != nil {
+		t.Fatalf("unmarshal %q: %v", line, err)
+	}
+	if resp["ok"] != true {
+		t.Fatalf("ok: got %v, want true", resp["ok"])
+	}
+
+	// And confirm QuitCh eventually closes — the dispatch side effect.
+	select {
+	case <-mgr.QuitCh():
+	case <-time.After(time.Second):
+		t.Fatal("QuitCh not closed after quit reply")
 	}
 }
 

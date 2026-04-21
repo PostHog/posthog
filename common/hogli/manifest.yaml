@@ -207,6 +207,8 @@ start:
             - kafka
             - clickhouse
             - temporal
+    start:wait: null # Click-defined in hogli/headless.py
+    start:stop: null # Click-defined in hogli/headless.py
     start:backend:
         bin_script: start-backend
         description: Run Django development server on port 8000 with auto-reload
