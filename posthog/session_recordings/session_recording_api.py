@@ -65,7 +65,6 @@ from posthog.auth import (
 )
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.cloud_utils import is_cloud
-from posthog.constants import AvailableFeature
 from posthog.errors import CHQueryErrorCannotScheduleTask, CHQueryErrorTooManySimultaneousQueries
 from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
@@ -581,27 +580,17 @@ def listing_rates() -> dict[str, dict[str, str]]:
 
 LISTING_RATES = listing_rates()
 
-_ENTERPRISE_FEATURE_KEYS = {AvailableFeature.SAML, AvailableFeature.SCIM}
-
-
-def org_tier_from_features(features: list[dict[str, Any]] | None) -> str:
-    if not features:
-        return "free"
-    feature_keys = {f.get("key") for f in features if isinstance(f, dict)}
-    if feature_keys.intersection(_ENTERPRISE_FEATURE_KEYS):
-        return "enterprise"
-    return "paid"
-
 
 def get_cached_org_tier(team_id: int) -> str:
-    cache_key = f"replay_org_tier_{team_id}"
+    # v2 cache key: classifier was widened to the full ENTERPRISE_FEATURES - SCALE_FEATURES
+    # set plus ACCESS_CONTROL; keyed separately so stale pre-migration values don't serve.
+    cache_key = f"replay_org_tier_v2_{team_id}"
     tier = cache.get(cache_key)
     if tier is not None:
         return tier
 
-    features = Organization.objects.filter(team=team_id).values_list("available_product_features", flat=True).first()
-
-    tier = org_tier_from_features(features)
+    organization = Organization.objects.filter(team=team_id).first()
+    tier = organization.get_plan_tier() if organization is not None else SNAPSHOT_DEFAULT_TIER
     cache.set(cache_key, tier, REPLAY_TIER_CACHE_TTL_SECONDS)
     return tier
 
