@@ -133,6 +133,7 @@ class TestLegalDocumentAPI(APIBaseTest):
         self.assertIsNotNone(log)
         assert log is not None  # mypy
         self.assertEqual(str(log.organization_id), str(self.organization.id))
+        assert log.detail is not None  # mypy
         self.assertEqual(log.detail["context"]["document_type"], "DPA")
         self.assertEqual(log.detail["context"]["company_name"], "Acme, Inc.")
 

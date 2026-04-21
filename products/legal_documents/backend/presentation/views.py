@@ -96,4 +96,4 @@ class LegalDocumentViewSet(
 
     def perform_create(self, serializer) -> None:
         super().perform_create(serializer)
-        _fire_event(serializer.instance, distinct_id=str(self.request.user.distinct_id))
+        _fire_event(serializer.instance, distinct_id=str(cast(User, self.request.user).distinct_id))
