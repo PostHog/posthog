@@ -147,7 +147,7 @@ tools:
             unique respondents, conversion rates, and timing data. Supports optional date filtering.
         ui_app: survey-stats
     surveys-global-stats:
-        operation: surveys_stats_retrieve
+        operation: surveys_global_stats_retrieve
         enabled: true
         scopes:
             - survey:read
@@ -189,7 +189,4 @@ tools:
         enabled: false
     surveys-all-activity-retrieve:
         operation: surveys_all_activity_retrieve
-        enabled: false
-    surveys-global-stats-retrieve:
-        operation: surveys_global_stats_retrieve
         enabled: false

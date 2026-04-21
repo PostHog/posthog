@@ -470,6 +470,10 @@ class BatchImportViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 return BatchImportDateRangeSourceCreateSerializer
             elif source_type is not None:
                 raise serializers.ValidationError("Invalid source type")
+            elif getattr(self, "swagger_fake_view", False):
+                return BatchImportSerializer
+            else:
+                raise serializers.ValidationError("Invalid source type")
         return BatchImportSerializer
 
     def safely_get_queryset(self, queryset=None):

@@ -5,6 +5,7 @@ import type { Schemas } from '@/api/generated'
 import {
     SurveysCreateBody,
     SurveysDestroyParams,
+    SurveysGlobalStatsRetrieveQueryParams,
     SurveysListQueryParams,
     SurveysPartialUpdateBody,
     SurveysPartialUpdateParams,
@@ -269,19 +270,17 @@ const surveyStats = (): ToolBase<typeof SurveyStatsSchema, WithPostHogUrl<Schema
         },
     })
 
-const SurveysGlobalStatsSchema = SurveysStatsRetrieveParams.omit({ project_id: true }).extend(
-    SurveysStatsRetrieveQueryParams.shape
-)
+const SurveysGlobalStatsSchema = SurveysGlobalStatsRetrieveQueryParams
 
-const surveysGlobalStats = (): ToolBase<typeof SurveysGlobalStatsSchema, Schemas.SurveyStatsResponse> =>
+const surveysGlobalStats = (): ToolBase<typeof SurveysGlobalStatsSchema, Schemas.SurveyGlobalStatsResponse> =>
     withUiApp('survey-global-stats', {
         name: 'surveys-global-stats',
         schema: SurveysGlobalStatsSchema,
         handler: async (context: Context, params: z.infer<typeof SurveysGlobalStatsSchema>) => {
             const projectId = await context.stateManager.getProjectId()
-            const result = await context.api.request<Schemas.SurveyStatsResponse>({
+            const result = await context.api.request<Schemas.SurveyGlobalStatsResponse>({
                 method: 'GET',
-                path: `/api/projects/${encodeURIComponent(String(projectId))}/surveys/${encodeURIComponent(String(params.id))}/stats/`,
+                path: `/api/projects/${encodeURIComponent(String(projectId))}/surveys/stats/`,
                 query: {
                     date_from: params.date_from,
                     date_to: params.date_to,
