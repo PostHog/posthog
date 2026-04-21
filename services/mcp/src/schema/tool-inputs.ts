@@ -2,6 +2,49 @@ import { z } from 'zod'
 
 import { InsightQuerySchema, PropertyFilter } from './query'
 
+export const ExternalDataSourceTypeSchema = z
+    .enum([
+        'Postgres',
+        'MySQL',
+        'MSSQL',
+        'Snowflake',
+        'BigQuery',
+        'Redshift',
+        'MongoDB',
+        'Supabase',
+        'Stripe',
+        'Hubspot',
+        'Salesforce',
+        'Zendesk',
+        'Shopify',
+        'GoogleSheets',
+        'GoogleAds',
+        'MetaAds',
+        'LinkedinAds',
+        'TikTokAds',
+        'RedditAds',
+        'SnapchatAds',
+        'BingAds',
+        'PinterestAds',
+        'Chargebee',
+        'Klaviyo',
+        'Mailchimp',
+        'Attio',
+        'Linear',
+        'Sentry',
+        'Github',
+        'Vitally',
+        'Clerk',
+        'Convex',
+        'DoIt',
+        'BuildBetter',
+        'Typeform',
+        'TemporalIO',
+    ])
+    .describe(
+        'The type of external data source to create. Use external-data-sources-wizard to see available types and their required fields.'
+    )
+
 export const PromptListInputSchema = z.object({
     search: z.string().optional().describe('Optional substring filter applied to prompt names and prompt content.'),
     content: z

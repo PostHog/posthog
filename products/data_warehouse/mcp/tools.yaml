@@ -125,6 +125,9 @@ tools:
         exclude_params:
             - client_secret
             - account_id
+        param_overrides:
+            source_type:
+                input_schema: ExternalDataSourceTypeSchema
     external-data-sources-retrieve:
         operation: external_data_sources_retrieve
         enabled: true
@@ -575,3 +578,82 @@ tools:
     external-data-sources-check-cdc-prerequisites-create:
         operation: external_data_sources_check_cdc_prerequisites_create
         enabled: false
+    external-data-schemas-retrieve:
+        operation: external_data_schemas_retrieve
+        enabled: true
+        scopes:
+            - external_data_source:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get data import schema
+        description: >
+            Get a single table schema by ID. Returns full details including sync status, sync frequency,
+            incremental field, latest error, and the associated source and table metadata.
+    external-data-schemas-update:
+        operation: external_data_schemas_update
+        enabled: false
+    external-data-schemas-partial-update:
+        operation: external_data_schemas_partial_update
+        enabled: true
+        scopes:
+            - external_data_source:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Update data import schema
+        description: >
+            Update a table schema's sync configuration. Can change the sync frequency ('24hour', '12hour',
+            '6hour', '1hour', '30min'), enable/disable the schema, or update the incremental field settings.
+    external-data-schemas-destroy:
+        operation: external_data_schemas_destroy
+        enabled: false
+    external-data-schemas-cancel:
+        operation: external_data_schemas_cancel_create
+        enabled: true
+        scopes:
+            - external_data_source:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Cancel running sync
+        description: >
+            Cancel a currently running sync job for a specific table schema. If no sync is running, returns
+            an error. Use 'external-data-schemas-list' to check which schemas have status 'Running' before
+            calling this.
+    external-data-schemas-delete-data-destroy:
+        operation: external_data_schemas_delete_data_destroy
+        enabled: false
+    external-data-schemas-incremental-fields-create:
+        operation: external_data_schemas_incremental_fields_create
+        enabled: false
+    external-data-schemas-reload:
+        operation: external_data_schemas_reload_create
+        enabled: true
+        scopes:
+            - external_data_source:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Trigger sync for a table schema
+        description: >
+            Trigger an incremental sync for a single table schema. Picks up where the last sync left off.
+            Use this to manually sync a specific table without triggering all tables in the source.
+    external-data-schemas-resync:
+        operation: external_data_schemas_resync_create
+        enabled: true
+        scopes:
+            - external_data_source:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Resync table schema from scratch
+        description: >
+            Trigger a full resync for a table schema, discarding all previously synced data and re-importing
+            from the source. This cancels any running sync first, then resets the pipeline state. Use this
+            when data is corrupt or out of sync.

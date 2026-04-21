@@ -974,6 +974,81 @@
             "readOnlyHint": true
         }
     },
+    "external-data-schemas-retrieve": {
+        "description": "Get a single table schema by ID. Returns full details including sync status, sync frequency, incremental field, latest error, and the associated source and table metadata.",
+        "category": "Data warehouse",
+        "feature": "data_warehouse",
+        "summary": "Get data import schema",
+        "title": "Get data import schema",
+        "required_scopes": ["external_data_source:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "external-data-schemas-partial-update": {
+        "description": "Update a table schema's sync configuration. Can change the sync frequency ('24hour', '12hour', '6hour', '1hour', '30min'), enable/disable the schema, or update the incremental field settings.",
+        "category": "Data warehouse",
+        "feature": "data_warehouse",
+        "summary": "Update data import schema",
+        "title": "Update data import schema",
+        "required_scopes": ["external_data_source:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "external-data-schemas-cancel": {
+        "description": "Cancel a currently running sync job for a specific table schema. If no sync is running, returns an error. Use 'external-data-schemas-list' to check which schemas have status 'Running' before calling this.",
+        "category": "Data warehouse",
+        "feature": "data_warehouse",
+        "summary": "Cancel running sync",
+        "title": "Cancel running sync",
+        "required_scopes": ["external_data_source:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "external-data-schemas-reload": {
+        "description": "Trigger an incremental sync for a single table schema. Picks up where the last sync left off. Use this to manually sync a specific table without triggering all tables in the source.",
+        "category": "Data warehouse",
+        "feature": "data_warehouse",
+        "summary": "Trigger sync for a table schema",
+        "title": "Trigger sync for a table schema",
+        "required_scopes": ["external_data_source:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "external-data-schemas-resync": {
+        "description": "Trigger a full resync for a table schema, discarding all previously synced data and re-importing from the source. This cancels any running sync first, then resets the pipeline state. Use this when data is corrupt or out of sync.",
+        "category": "Data warehouse",
+        "feature": "data_warehouse",
+        "summary": "Resync table schema from scratch",
+        "title": "Resync table schema from scratch",
+        "required_scopes": ["external_data_source:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "early-access-feature-list": {
         "description": "List early access features in the current project. Returns name, stage, description, linked feature flag, and creation date for each feature.",
         "category": "Early access features",
