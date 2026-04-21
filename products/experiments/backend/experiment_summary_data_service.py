@@ -293,10 +293,10 @@ class ExperimentSummaryDataService:
         primary_count = len(primary_metric_tasks)
         secondary_count = len(secondary_metric_tasks)
 
-        primary_query_results: list[MetricQueryResult | BaseException] = all_results[:primary_count]  # type: ignore[assignment]
+        primary_query_results: list[MetricQueryResult | BaseException] = all_results[:primary_count]  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
         secondary_query_results: list[MetricQueryResult | BaseException] = all_results[
             primary_count : primary_count + secondary_count
-        ]  # type: ignore[assignment]
+        ]  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
         exposure_query_result = all_results[-1]
 
         # Aggregate results

@@ -33,7 +33,6 @@ from rest_framework.utils.serializer_helpers import ReturnDict
 
 from posthog.schema import InsightVizNode
 
-from posthog.api.dashboard_metadata import build_dashboard_tiles_naming_summary, generate_dashboard_metadata
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.insight import DashboardTileBasicSerializer, InsightSerializer, InsightViewSet
 from posthog.api.insight_suggestions import summarize_insight_result
@@ -58,11 +57,6 @@ from posthog.models.quick_filter import QuickFilter
 from posthog.models.signals import model_activity_signal, mutable_receiver
 from posthog.models.tagged_item import TaggedItem
 from posthog.models.user import User
-from posthog.rate_limit import (
-    LLMAnalyticsSummarizationBurstThrottle,
-    LLMAnalyticsSummarizationDailyThrottle,
-    LLMAnalyticsSummarizationSustainedThrottle,
-)
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControl, UserAccessControlSerializerMixin
 from posthog.renderers import SafeJSONRenderer, ServerSentEventRenderer
@@ -188,11 +182,6 @@ class DashboardSnapshotSerializer(serializers.Serializer):
         required=False,
         allow_null=True,
     )
-
-
-class DashboardGeneratedMetadataSerializer(serializers.Serializer):
-    name = serializers.CharField()
-    description = serializers.CharField()
 
 
 class TextSerializer(serializers.ModelSerializer):
@@ -967,19 +956,6 @@ class DashboardsViewSet(
 
     TEMPLATE_MAP = {"llm-analytics": get_llm_analytics_default_template}
 
-    def get_throttles(self):
-        if self.action == "generate_metadata":
-            return [
-                LLMAnalyticsSummarizationBurstThrottle(),
-                LLMAnalyticsSummarizationSustainedThrottle(),
-                LLMAnalyticsSummarizationDailyThrottle(),
-            ]
-        return super().get_throttles()
-
-    def _validate_ai_feature_access(self) -> None:
-        if not self.organization.is_ai_data_processing_approved:
-            raise exceptions.PermissionDenied("AI data processing must be approved by your organization")
-
     @tracer.start_as_current_span("DashboardViewSet.get_serializer_context")
     def get_serializer_context(self) -> dict[str, Any]:
         context = super().get_serializer_context()
@@ -1195,39 +1171,6 @@ class DashboardsViewSet(
             return Response({"result": "No significant changes detected in the dashboard data."})
 
         return Response({"result": analysis})
-
-    @extend_schema(
-        request=None,
-        responses={200: DashboardGeneratedMetadataSerializer},
-    )
-    @action(methods=["POST"], detail=True, required_scopes=["dashboard:write"])
-    def generate_metadata(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        """Generate an AI-suggested name and description from this dashboard's tiles."""
-        self._validate_ai_feature_access()
-        dashboard = self.get_object()
-        if not dashboard.tiles.filter(Q(insight__isnull=False) | Q(text__isnull=False)).exists():
-            return Response(
-                {
-                    "error": "Add at least one insight or text card before generating a title and description. "
-                    "Button tiles are not used for generation."
-                },
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-        try:
-            summary = build_dashboard_tiles_naming_summary(dashboard)
-            metadata = generate_dashboard_metadata(
-                self.team,
-                summary,
-                current_name=(dashboard.name or "").strip() or None,
-                current_description=(dashboard.description or "").strip() or None,
-            )
-        except Exception:
-            logger.exception("dashboard_generate_metadata_failed", dashboard_id=dashboard.pk)
-            return Response(
-                {"error": "Failed to generate dashboard metadata. Please try again."},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            )
-        return Response({"name": metadata.name, "description": metadata.description})
 
     # ******************************************
     # /projects/:id/dashboard/:id/stream_tiles

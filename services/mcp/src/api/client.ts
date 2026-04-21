@@ -1,7 +1,7 @@
 import { z } from 'zod'
 
 import { getUserAgent } from '@/lib/constants'
-import { ErrorCode } from '@/lib/errors'
+import { ErrorCode, PostHogPermissionError } from '@/lib/errors'
 import { getSearchParamsFromRecord } from '@/lib/utils.js'
 import type {
     ApiEventDefinition,
@@ -167,7 +167,9 @@ export class ApiClient {
         const result = await this.fetchJson<T>(url, fetchOptions)
 
         if (!result.success) {
-            throw new Error(result.error.message)
+            // Re-throw the original error instance so callers can instanceof-check
+            // typed errors (e.g. PostHogPermissionError) that fetchJson throws.
+            throw result.error
         }
         return result.data as T
     }
@@ -222,6 +224,20 @@ export class ApiClient {
                         errorData = JSON.parse(errorText)
                     } catch {
                         errorData = { detail: errorText }
+                    }
+
+                    if (response.status === 403 && errorData?.code === 'permission_denied') {
+                        const scopeMatch = /required scope ['"]([^'"]+)['"]/.exec(errorData.detail || '')
+                        const missingScope = scopeMatch?.[1]
+                        console.error(
+                            `[API] Permission denied on ${method} ${url}: ${errorData.detail || 'unknown'}${missingScope ? ` (missing scope: ${missingScope})` : ''}`
+                        )
+                        throw new PostHogPermissionError({
+                            detail: errorData.detail || 'permission denied',
+                            missingScope,
+                            url,
+                            method,
+                        })
                     }
 
                     if (errorData.type === 'validation_error') {
