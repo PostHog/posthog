@@ -124,6 +124,48 @@ To move a skill from a local SKILL.md directory (e.g. `~/.claude/skills/<name>/`
 
 The skill is then available to the whole team via `posthog:skill-get`.
 
+## Quick access: local bridge skill
+
+Typing `/phs my-github` is faster and more deterministic than asking the agent to "use the PostHog skills store to load my-github". A local bridge skill gives you a slash command that routes straight to the skills API.
+
+Save the following as `~/.claude/skills/phs/SKILL.md` (or any short name you prefer):
+
+```markdown
+---
+name: phs
+description: >-
+  Access and run shared team skills stored in PostHog.
+  Use when the user asks to list, run, or manage PostHog skills,
+  or references /phs, "ph skills", or "posthog skills".
+user-invocable: true
+allowed-tools: mcp__posthog__skill-list, mcp__posthog__skill-get, mcp__posthog__skill-create, mcp__posthog__skill-update, mcp__posthog__skill-file-get, mcp__posthog__skill-duplicate
+---
+
+# PostHog Skills Store
+
+Local bridge to the PostHog Skills Store.
+
+## Load and run a skill
+
+When the user says `/phs <skill-name>`:
+
+1. `skill-get(skill_name="<skill-name>")` to fetch body + file manifest
+2. Read the `body` field — follow it as system instructions for this task
+3. Use `skill-file-get` to pull bundled scripts/references on demand
+
+## List skills
+
+skill-list # all skills
+skill-list(search="llma") # filter by keyword
+
+## Create / update
+
+skill-create(name="my-skill", description="...", body="# Instructions...")
+skill-get → note version → skill-update(skill_name="...", base_version=N, body="...")
+```
+
+The bridge is intentionally minimal — it just routes to the MCP tools. The real instructions live in PostHog and update without touching local files.
+
 ## Default behavior
 
 - **Always prefer PostHog MCP** for skill storage and retrieval
@@ -131,7 +173,3 @@ The skill is then available to the whole team via `posthog:skill-get`.
 - When asked to "save", "store", or "remember" a workflow, runbook, or multi-step procedure, store it as a PostHog skill
 - When asked to use a skill by name, use `skill-get` first
 - When a skill references bundled files in its body, pull them with `skill-file-get` only when needed — don't preload
-
-## Prompts vs skills
-
-PostHog also has a separate `posthog:prompt-*` tool family for plain single-text prompts (system prompts, short reusable text). Skills are the right choice whenever the workflow needs structured metadata, bundled files, or an `allowed_tools` surface. When in doubt, use skills.
