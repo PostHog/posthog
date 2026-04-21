@@ -10,12 +10,10 @@ import {
     LemonSwitch,
     LemonTable,
     LemonTag,
-    LemonTagType,
     Link,
     Tooltip,
 } from '@posthog/lemon-ui'
 
-import { AccessControlAction, AccessControlActionChildrenProps } from 'lib/components/AccessControlAction'
 import { AppMetricsSparkline } from 'lib/components/AppMetrics/AppMetricsSparkline'
 import { TZLabel } from 'lib/components/TZLabel'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -26,48 +24,14 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { ExternalDataSourceType, ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
-import {
-    AccessControlLevel,
-    AccessControlResourceType,
-    ExternalDataJobStatus,
-    ExternalDataSchemaStatus,
-    ExternalDataSource,
-    ExternalDataSourceSchema,
-} from '~/types'
+import { ExternalDataSource, ExternalDataSourceSchema } from '~/types'
 
 import { DATA_WAREHOUSE_APP_SOURCE } from 'products/data_warehouse/frontend/shared/components/metrics/DataWarehouseMetrics'
-import { SyncTypeLabelMap } from 'products/data_warehouse/frontend/utils'
+import { SourceEditorAction } from 'products/data_warehouse/frontend/shared/components/SourceEditorAction'
+import { StatusTagSetting, SyncTypeLabelMap } from 'products/data_warehouse/frontend/utils'
 
 import { DirectQuerySchemasTab } from './DirectQuerySchemasTab'
 import { sourceSettingsLogic } from './sourceSettingsLogic'
-
-const SourceEditorAction = ({
-    source,
-    children,
-}: {
-    source: ExternalDataSource | null
-    children:
-        | React.ComponentType<AccessControlActionChildrenProps>
-        | React.ReactElement<AccessControlActionChildrenProps>
-}): JSX.Element => (
-    <AccessControlAction
-        resourceType={AccessControlResourceType.ExternalDataSource}
-        minAccessLevel={AccessControlLevel.Editor}
-        userAccessLevel={source?.user_access_level}
-    >
-        {children}
-    </AccessControlAction>
-)
-
-const StatusTagSetting: Record<ExternalDataSchemaStatus | ExternalDataJobStatus, LemonTagType> = {
-    Running: 'primary',
-    Completed: 'success',
-    Failed: 'danger',
-    'Billing limits': 'danger',
-    'Billing limit too low': 'danger',
-    Cancelled: 'warning',
-    Paused: 'warning',
-}
 
 const REVENUE_ENABLED_SOURCES: ExternalDataSourceType[] = ['Stripe']
 

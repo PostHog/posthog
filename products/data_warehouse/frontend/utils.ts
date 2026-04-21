@@ -8,6 +8,7 @@ import {
     DataModelingSyncInterval,
     DataWarehouseSyncInterval,
     ExternalDataJobStatus,
+    ExternalDataSchemaStatus,
     ExternalDataSourceSyncSchema,
     HogFunctionTemplateType,
 } from '~/types'
@@ -166,12 +167,14 @@ export const SyncTypeLabelMap: Record<NonNullable<ExternalDataSourceSyncSchema['
     cdc: 'CDC',
 }
 
-export const StatusTagSetting: Record<ExternalDataJobStatus, LemonTagType> = {
+export const StatusTagSetting: Record<ExternalDataJobStatus | ExternalDataSchemaStatus, LemonTagType> = {
     [ExternalDataJobStatus.Running]: 'primary',
     [ExternalDataJobStatus.Completed]: 'success',
     [ExternalDataJobStatus.Failed]: 'danger',
     [ExternalDataJobStatus.BillingLimits]: 'danger',
     [ExternalDataJobStatus.BillingLimitTooLow]: 'danger',
+    [ExternalDataSchemaStatus.Paused]: 'warning',
+    [ExternalDataSchemaStatus.Cancelled]: 'warning',
 }
 
 /**

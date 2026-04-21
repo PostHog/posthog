@@ -1,4 +1,5 @@
 import { BindLogic, useActions, useValues } from 'kea'
+import { useEffect } from 'react'
 
 import { LemonSkeleton } from '@posthog/lemon-ui'
 
@@ -50,6 +51,12 @@ function SchemaSceneContent({ sourceId, schemaId }: SchemaSceneProps): JSX.Eleme
 
     const cleanedSourceId = cleanSourceId(sourceId)
     const showMetrics = !!featureFlags[FEATURE_FLAGS.DWH_SOURCE_METRICS]
+
+    useEffect(() => {
+        if (!showMetrics && currentTab === 'metrics') {
+            setCurrentTab('configuration')
+        }
+    }, [showMetrics, currentTab, setCurrentTab])
 
     if (sourceLoading && !source) {
         return (

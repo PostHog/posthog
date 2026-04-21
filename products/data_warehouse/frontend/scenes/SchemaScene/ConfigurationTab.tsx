@@ -13,12 +13,10 @@ import {
     LemonSkeleton,
     LemonSwitch,
     LemonTag,
-    LemonTagType,
     Link,
     Tooltip,
 } from '@posthog/lemon-ui'
 
-import { AccessControlAction, AccessControlActionChildrenProps } from 'lib/components/AccessControlAction'
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
 import { newInternalTab } from 'lib/utils/newInternalTab'
@@ -26,18 +24,12 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
-import {
-    AccessControlLevel,
-    AccessControlResourceType,
-    DataWarehouseSyncInterval,
-    ExternalDataJobStatus,
-    ExternalDataSchemaStatus,
-    ExternalDataSource,
-    ExternalDataSourceSchema,
-} from '~/types'
+import { DataWarehouseSyncInterval, ExternalDataSource, ExternalDataSourceSchema } from '~/types'
 
 import { SyncMethodForm } from 'products/data_warehouse/frontend/shared/components/forms/SyncMethodForm'
+import { SourceEditorAction } from 'products/data_warehouse/frontend/shared/components/SourceEditorAction'
 import {
+    StatusTagSetting,
     SyncTypeLabelMap,
     defaultQuery,
     syncAnchorIntervalToHumanReadable,
@@ -45,34 +37,6 @@ import {
 
 import { syncMethodModalLogic } from '../SourceScene/syncMethodModalLogic'
 import { sourceSettingsLogic } from '../SourceScene/tabs/sourceSettingsLogic'
-
-const StatusTagSetting: Record<ExternalDataSchemaStatus | ExternalDataJobStatus, LemonTagType> = {
-    Running: 'primary',
-    Completed: 'success',
-    Failed: 'danger',
-    'Billing limits': 'danger',
-    'Billing limit too low': 'danger',
-    Cancelled: 'warning',
-    Paused: 'warning',
-}
-
-const SourceEditorAction = ({
-    source,
-    children,
-}: {
-    source: ExternalDataSource | null
-    children:
-        | React.ComponentType<AccessControlActionChildrenProps>
-        | React.ReactElement<AccessControlActionChildrenProps>
-}): JSX.Element => (
-    <AccessControlAction
-        resourceType={AccessControlResourceType.ExternalDataSource}
-        minAccessLevel={AccessControlLevel.Editor}
-        userAccessLevel={source?.user_access_level}
-    >
-        {children}
-    </AccessControlAction>
-)
 
 export function ConfigurationTab({
     sourceId,
@@ -269,15 +233,20 @@ function ScheduleSection({
                 <div className="flex flex-col gap-1">
                     <span className="text-xs text-muted">Sync frequency</span>
                     <SourceEditorAction source={source}>
-                        <LemonSelect
-                            fullWidth
-                            disabled={!schema.should_sync}
-                            value={schema.sync_frequency || (isCdc ? '5min' : '6hour')}
-                            onChange={(value) =>
-                                updateSchema({ ...schema, sync_frequency: value as DataWarehouseSyncInterval })
-                            }
-                            options={isCdc ? [...cdcOnlyOptions, ...standardOptions] : standardOptions}
-                        />
+                        {({ disabledReason: accessDisabledReason }) => (
+                            <LemonSelect
+                                fullWidth
+                                disabledReason={
+                                    accessDisabledReason ??
+                                    (!schema.should_sync ? 'Enable syncing to set frequency' : undefined)
+                                }
+                                value={schema.sync_frequency || (isCdc ? '5min' : '6hour')}
+                                onChange={(value) =>
+                                    updateSchema({ ...schema, sync_frequency: value as DataWarehouseSyncInterval })
+                                }
+                                options={isCdc ? [...cdcOnlyOptions, ...standardOptions] : standardOptions}
+                            />
+                        )}
                     </SourceEditorAction>
                 </div>
                 <AnchorTimeField
@@ -349,44 +318,49 @@ function AnchorTimeField({
                     </div>
                 )}
             </div>
-            <div className="flex items-center gap-2">
-                <SourceEditorAction source={source}>
-                    <LemonSwitch
-                        checked={isSyncTimeSet}
-                        disabledReason={!schema.should_sync ? 'Enable syncing to set anchor time' : undefined}
-                        onChange={(checked) => {
-                            setIsSyncTimeSet(checked)
-                            updateSchema({
-                                ...schema,
-                                sync_time_of_day: checked ? (isProjectTime ? localTime : utcTime) : null,
-                            })
-                        }}
-                    />
-                </SourceEditorAction>
-                <LemonInput
-                    className="flex-1"
-                    type="time"
-                    disabledReason={disabledReasonForInput()}
-                    value={isSyncTimeSet ? localTime.substring(0, 5) : undefined}
-                    onChange={(value) => {
-                        const newValue = `${value}:00`
-                        const utcValue = isProjectTime
-                            ? dayjs(`${dayjs().format('YYYY-MM-DD')}T${newValue}`)
-                                  .tz(currentTeam?.timezone || 'UTC')
-                                  .utc()
-                                  .format('HH:mm:00')
-                            : newValue
-                        updateSchema({ ...schema, sync_time_of_day: utcValue })
-                    }}
-                    suffix={
-                        isSyncTimeSet && schema.should_sync ? (
-                            <Tooltip title={syncAnchorIntervalToHumanReadable(utcTime, schema.sync_frequency)}>
-                                <IconInfo className="text-muted-alt" />
-                            </Tooltip>
-                        ) : undefined
-                    }
-                />
-            </div>
+            <SourceEditorAction source={source}>
+                {({ disabledReason: accessDisabledReason }) => (
+                    <div className="flex items-center gap-2">
+                        <LemonSwitch
+                            checked={isSyncTimeSet}
+                            disabledReason={
+                                accessDisabledReason ??
+                                (!schema.should_sync ? 'Enable syncing to set anchor time' : undefined)
+                            }
+                            onChange={(checked) => {
+                                setIsSyncTimeSet(checked)
+                                updateSchema({
+                                    ...schema,
+                                    sync_time_of_day: checked ? (isProjectTime ? localTime : utcTime) : null,
+                                })
+                            }}
+                        />
+                        <LemonInput
+                            className="flex-1"
+                            type="time"
+                            disabledReason={accessDisabledReason ?? disabledReasonForInput()}
+                            value={isSyncTimeSet ? localTime.substring(0, 5) : undefined}
+                            onChange={(value) => {
+                                const newValue = `${value}:00`
+                                const utcValue = isProjectTime
+                                    ? dayjs(`${dayjs().format('YYYY-MM-DD')}T${newValue}`)
+                                          .tz(currentTeam?.timezone || 'UTC')
+                                          .utc()
+                                          .format('HH:mm:00')
+                                    : newValue
+                                updateSchema({ ...schema, sync_time_of_day: utcValue })
+                            }}
+                            suffix={
+                                isSyncTimeSet && schema.should_sync ? (
+                                    <Tooltip title={syncAnchorIntervalToHumanReadable(utcTime, schema.sync_frequency)}>
+                                        <IconInfo className="text-muted-alt" />
+                                    </Tooltip>
+                                ) : undefined
+                            }
+                        />
+                    </div>
+                )}
+            </SourceEditorAction>
         </div>
     )
 }
@@ -557,13 +531,18 @@ function ActionsSection({
                                         type="secondary"
                                         status="danger"
                                         onClick={() => {
-                                            if (
-                                                window.confirm(
-                                                    `Are you sure you want to delete the table ${schema.table?.name} from PostHog?`
-                                                )
-                                            ) {
-                                                deleteTable(schema)
-                                            }
+                                            LemonDialog.open({
+                                                title: `Delete ${schema.table?.name ?? schema.name} from PostHog?`,
+                                                description: source?.source_type
+                                                    ? `The data in ${source.source_type} will not be touched.`
+                                                    : undefined,
+                                                primaryButton: {
+                                                    children: 'Delete',
+                                                    status: 'danger',
+                                                    onClick: () => deleteTable(schema),
+                                                },
+                                                secondaryButton: { children: 'Cancel', type: 'tertiary' },
+                                            })
                                         }}
                                         disabledReason={disabledReason}
                                     >

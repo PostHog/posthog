@@ -13,33 +13,15 @@ import {
     Tooltip,
 } from '@posthog/lemon-ui'
 
-import { AccessControlAction, AccessControlActionChildrenProps } from 'lib/components/AccessControlAction'
 import { groupBy, pluralize } from 'lib/utils'
 import { newInternalTab } from 'lib/utils/newInternalTab'
 
-import { AccessControlLevel, AccessControlResourceType, ExternalDataSource, ExternalDataSourceSchema } from '~/types'
+import { ExternalDataSource, ExternalDataSourceSchema } from '~/types'
 
+import { SourceEditorAction } from 'products/data_warehouse/frontend/shared/components/SourceEditorAction'
 import { buildTableQueryUrl } from 'products/data_warehouse/frontend/utils'
 
 import { sourceSettingsLogic } from './sourceSettingsLogic'
-
-const SourceEditorAction = ({
-    source,
-    children,
-}: {
-    source: ExternalDataSource | null
-    children:
-        | React.ComponentType<AccessControlActionChildrenProps>
-        | React.ReactElement<AccessControlActionChildrenProps>
-}): JSX.Element => (
-    <AccessControlAction
-        resourceType={AccessControlResourceType.ExternalDataSource}
-        minAccessLevel={AccessControlLevel.Editor}
-        userAccessLevel={source?.user_access_level}
-    >
-        {children}
-    </AccessControlAction>
-)
 
 export function splitDirectQuerySchemaName(
     name: string,
@@ -233,11 +215,13 @@ function DirectQuerySchemaGroups({
                         header: (
                             <div className="flex items-center justify-between gap-3 w-full">
                                 <div className="flex items-center gap-2 min-w-0">
-                                    <LemonCheckbox
-                                        checked={getSchemaSelectionState(schemas)}
-                                        stopPropagation
-                                        onChange={(checked) => toggleDirectQuerySchemaGroup(schemaName, checked)}
-                                    />
+                                    <SourceEditorAction source={source}>
+                                        <LemonCheckbox
+                                            checked={getSchemaSelectionState(schemas)}
+                                            stopPropagation
+                                            onChange={(checked) => toggleDirectQuerySchemaGroup(schemaName, checked)}
+                                        />
+                                    </SourceEditorAction>
                                     <span className="font-semibold truncate">{schemaName}</span>
                                 </div>
                                 <span className="text-xs text-muted-alt whitespace-nowrap">
