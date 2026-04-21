@@ -314,8 +314,19 @@ export class MCP extends McpAgent<Env> {
                 // when present, is used as the text content instead of TOON-encoding the raw result.
                 // This is useful for tools that want to return pre-formatted text (e.g. tables)
                 // or return JSON for programmatic consumption.
-                const { [POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]: formattedResults, ...rawResult } =
-                    await handler(params)
+                const handlerResult = await handler(params)
+                // Guard against string results: object rest on a primitive string would
+                // expand it to a character-indexed object ({"0": "f", "1": "o", ...}).
+                const isStringResult = typeof handlerResult === 'string'
+                const formattedResults: string | undefined = isStringResult
+                    ? undefined
+                    : handlerResult?.[POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]
+                const rawResult: any = isStringResult
+                    ? handlerResult
+                    : (() => {
+                          const { [POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]: _ignored, ...rest } = handlerResult
+                          return rest
+                      })()
 
                 // For tools with UI resources, include structuredContent for better UI rendering
                 // structuredContent is not added to model context, only used by UI apps
@@ -323,7 +334,7 @@ export class MCP extends McpAgent<Env> {
 
                 // If there's a UI resource, include analytics metadata for the UI app
                 let structuredContent: WithAnalytics<typeof rawResult> | typeof rawResult = rawResult
-                if (hasUiResource) {
+                if (hasUiResource && !isStringResult) {
                     const distinctId = await this.getDistinctId()
                     const analyticsMetadata: AnalyticsMetadata = {
                         distinctId,
