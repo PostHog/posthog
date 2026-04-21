@@ -1646,7 +1646,7 @@ def _enforce_partner_account_request_rate_limit(partner: OAuthApplication) -> Re
 
 def _enforce_cimd_registration_throttle(request: Request) -> Response | None:
     """Rate-limit first-time CIMD app registration by IP and domain to match /authorize protections."""
-    from posthog.api.oauth.cimd import CIMD_THROTTLES, is_cimd_client_id
+    from posthog.api.oauth.cimd import CIMD_THROTTLE_CLASSES, is_cimd_client_id
 
     client_id = request.data.get("client_id") or request.query_params.get("client_id")
     if not is_cimd_client_id(client_id):
@@ -1654,7 +1654,8 @@ def _enforce_cimd_registration_throttle(request: Request) -> Response | None:
     if OAuthApplication.objects.filter(cimd_metadata_url=client_id).exists():
         return None
 
-    for throttle in CIMD_THROTTLES:
+    for throttle_cls in CIMD_THROTTLE_CLASSES:
+        throttle = throttle_cls()
         if not throttle.allow_request(request, view=None):  # type: ignore[arg-type]
             logger.warning("cimd_rate_limited", client_id=client_id, scope=throttle.scope, wait=throttle.wait())
             return Response(
