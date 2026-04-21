@@ -19,6 +19,32 @@ structured tool:
 - **Joins with data-warehouse tables** — "events where the person is in a data-warehouse cohort"
 - **Custom aggregation** — "p90 of `properties.duration` per day, filtered to logged-in users"
 
+## HogQL quantile template
+
+When you need per-bucket distribution stats — especially with a segment dimension that
+box plots can't express as a `breakdownFilter` — use `quantiles()` in HogQL. Used by
+[box-plot-playbook.md](./box-plot-playbook.md) steps 3 and 4.
+
+```sql
+SELECT
+    toStartOfDay(timestamp) AS day,
+    properties.plan         AS segment,
+    quantiles(0.25, 0.5, 0.75, 0.9)(toFloat(properties.order_value)) AS q,
+    count()                 AS n
+FROM events
+WHERE event = 'checkout_completed'
+  AND timestamp >= now() - INTERVAL 30 DAY
+GROUP BY day, segment
+ORDER BY day, segment
+```
+
+- `toFloat(properties.X)` — event properties are loosely typed; cast explicitly or the
+  quantile silently treats them as strings and returns nonsense.
+- Report `n` alongside the quantiles — a p75 swing on a small `(day, segment)` cell is
+  usually noise (see **interpreting breakdown results**).
+- For a single-tail actor query (not per-bucket stats), use `quantile(0.9)(...)` in a
+  subquery filter — see `box-plot-playbook.md` §4.
+
 ## Property discovery
 
 Before breaking down, discover what's attached. A breakdown on a non-existent property

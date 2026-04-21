@@ -52,6 +52,13 @@ Map `kind` to the playbook file:
 | `LifecycleQuery`  | [lifecycle-playbook.md](./references/lifecycle-playbook.md)   |
 | `PathsQuery`      | [paths-playbook.md](./references/paths-playbook.md)           |
 
+**TrendsQuery sub-check.** If `kind === "TrendsQuery"`, also read `trendsFilter.display`
+(from the payload, or from `insight.query.source.trendsFilter.display` on a saved
+insight). If it equals `"BoxPlot"`, use
+[box-plot-playbook.md](./references/box-plot-playbook.md) instead of the trend playbook —
+the metric is a distribution of a numeric `math_property`, not a count, and breakdowns
+are unsupported. All other display values route to the trend playbook.
+
 ### If the user hasn't pointed at anything
 
 If the user reports a metric change in free text without giving you an insight, dashboard, or query,
@@ -189,6 +196,7 @@ Include direct links where useful: `[Insight: name](/insights/short_id)`, `[Dash
 
 - **Playbooks** (one per metric kind — open the one matching your classification):
   - [trend-playbook.md](./references/trend-playbook.md)
+  - [box-plot-playbook.md](./references/box-plot-playbook.md) — TrendsQuery with `trendsFilter.display = "BoxPlot"`
   - [funnel-playbook.md](./references/funnel-playbook.md)
   - [retention-playbook.md](./references/retention-playbook.md)
   - [stickiness-playbook.md](./references/stickiness-playbook.md)
