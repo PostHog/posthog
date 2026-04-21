@@ -4,7 +4,7 @@ import { useActions, useValues } from 'kea'
 import { useEffect, useRef, useState } from 'react'
 
 import { IconCollapse, IconEllipsis, IconWarning } from '@posthog/icons'
-import { LemonButton, LemonMenu, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonCheckbox, LemonMenu, Tooltip } from '@posthog/lemon-ui'
 
 import { DraggableWithSnapZones, DraggableWithSnapZonesRef } from 'lib/components/DraggableWithSnapZones'
 import { dayjs } from 'lib/dayjs'
@@ -13,7 +13,7 @@ import { IconDragHandle } from 'lib/lemon-ui/icons'
 import { cn } from 'lib/utils/css-classes'
 import { userLogic } from 'scenes/userLogic'
 
-import { ImpersonationTicketContext, impersonationNoticeLogic } from './impersonationNoticeLogic'
+import { ExpiredSessionInfo, ImpersonationTicketContext, impersonationNoticeLogic } from './impersonationNoticeLogic'
 import { ImpersonationReasonModal } from './ImpersonationReasonModal'
 
 function CountDown({ datetime, callback }: { datetime: dayjs.Dayjs; callback?: () => void }): JSX.Element {
@@ -93,11 +93,49 @@ function LoginAsContent({
     )
 }
 
+function ImpersonationExpiredOverlay({ expiredSessionInfo }: { expiredSessionInfo: ExpiredSessionInfo }): JSX.Element {
+    const { isReImpersonating } = useValues(impersonationNoticeLogic)
+    const { reImpersonate } = useActions(impersonationNoticeLogic)
+
+    const [readOnly, setReadOnly] = useState(true)
+
+    return (
+        <ImpersonationReasonModal
+            isOpen
+            closable={false}
+            title="Impersonation session expired"
+            description={`Your session impersonating ${expiredSessionInfo.email} has expired.`}
+            confirmText="Re-impersonate"
+            loading={isReImpersonating}
+            onConfirm={(reason) => reImpersonate(reason, readOnly)}
+            cancelButton={{
+                label: 'Return to admin',
+                status: 'danger',
+                onClick: () => {
+                    window.location.href = '/admin/'
+                },
+            }}
+        >
+            <LemonCheckbox checked={readOnly} onChange={setReadOnly} label="Read-only mode (recommended)" />
+        </ImpersonationReasonModal>
+    )
+}
+
 function ImpersonationNoticeContent(): JSX.Element {
     const { user, userLoading } = useValues(userLogic)
     const { logout, loadUser } = useActions(userLogic)
     const { isReadOnly, isUpgradeModalOpen, isImpersonationUpgradeInProgress } = useValues(impersonationNoticeLogic)
-    const { closeUpgradeModal, upgradeImpersonation } = useActions(impersonationNoticeLogic)
+    const { closeUpgradeModal, upgradeImpersonation, setSessionExpired } = useActions(impersonationNoticeLogic)
+
+    const handleSessionExpired = (): void => {
+        if (user) {
+            setSessionExpired({
+                email: user.email,
+                userId: user.id,
+                isImpersonatedUntil: user.is_impersonated_until ?? null,
+            })
+        }
+    }
 
     return (
         <>
@@ -113,7 +151,8 @@ function ImpersonationNoticeContent(): JSX.Element {
                 {user?.is_impersonated_until && (
                     <>
                         {' '}
-                        Expires in <CountDown datetime={dayjs(user.is_impersonated_until)} callback={loadUser} />.
+                        Expires in{' '}
+                        <CountDown datetime={dayjs(user.is_impersonated_until)} callback={handleSessionExpired} />.
                     </>
                 )}
             </p>
@@ -143,8 +182,15 @@ function ImpersonationNoticeContent(): JSX.Element {
 export function ImpersonationNotice(): JSX.Element | null {
     const { user } = useValues(userLogic)
 
-    const { isMinimized, isReadOnly, isImpersonated, ticketContext, adminLoginUrl } =
-        useValues(impersonationNoticeLogic)
+    const {
+        isMinimized,
+        isReadOnly,
+        isImpersonated,
+        isSessionExpired,
+        expiredSessionInfo,
+        ticketContext,
+        adminLoginUrl,
+    } = useValues(impersonationNoticeLogic)
     const { minimize, maximize, openUpgradeModal, setPageVisible } = useActions(impersonationNoticeLogic)
 
     const { isVisible: isPageVisible } = usePageVisibility()
@@ -160,6 +206,10 @@ export function ImpersonationNotice(): JSX.Element | null {
     useEffect(() => {
         setPageVisible(isPageVisible)
     }, [isPageVisible, setPageVisible])
+
+    if (isSessionExpired && expiredSessionInfo) {
+        return <ImpersonationExpiredOverlay expiredSessionInfo={expiredSessionInfo} />
+    }
 
     const showLoginAs = user?.is_staff && !isImpersonated && !!ticketContext
 

@@ -114,7 +114,7 @@ def parse_string_template(
         if placeholders:
             with timings.measure("replace_placeholders"):
                 node = replace_placeholders(node, placeholders)
-    return node
+    return cast("ast.Call", node)
 
 
 def parse_expr(
@@ -135,7 +135,7 @@ def parse_expr(
         if placeholders:
             with timings.measure("replace_placeholders"):
                 node = replace_placeholders(node, placeholders)
-    return node
+    return cast("ast.Expr", node)
 
 
 def parse_order_expr(
@@ -153,7 +153,7 @@ def parse_order_expr(
         if placeholders:
             with timings.measure("replace_placeholders"):
                 node = replace_placeholders(node, placeholders)
-    return node
+    return cast("ast.OrderExpr", node)
 
 
 def parse_select(
@@ -174,7 +174,7 @@ def parse_select(
         if placeholders:
             with timings.measure("replace_placeholders"), tracer.start_as_current_span("replace_placeholders"):
                 node = replace_placeholders(node, placeholders)
-    return node
+    return cast("ast.SelectQuery | ast.SelectSetQuery", node)
 
 
 def parse_program(
@@ -279,7 +279,10 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         return ast.ReturnStatement(expr=self.visit(ctx.expression()) if ctx.expression() else None)
 
     def visitThrowStmt(self, ctx: HogQLParser.ThrowStmtContext):
-        return ast.ThrowStatement(expr=self.visit(ctx.expression()) if ctx.expression() else None)
+        expression = ctx.expression()
+        if expression is None:
+            raise SyntaxError("THROW requires an expression")
+        return ast.ThrowStatement(expr=self.visit(expression))
 
     def visitCatchBlock(self, ctx: HogQLParser.CatchBlockContext):
         return (
@@ -303,10 +306,10 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         )
 
     def visitWhileStmt(self, ctx: HogQLParser.WhileStmtContext):
-        return ast.WhileStatement(
-            expr=self.visit(ctx.expression()),
-            body=self.visit(ctx.statement()) if ctx.statement() else None,
-        )
+        statement = ctx.statement()
+        if statement is None:
+            raise SyntaxError("WHILE requires a statement body")
+        return ast.WhileStatement(expr=self.visit(ctx.expression()), body=self.visit(statement))
 
     def visitForInStmt(self, ctx: HogQLParser.ForInStmtContext):
         first_identifier = ctx.identifier(0).getText()
@@ -1269,7 +1272,8 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
 
     def visitColumnExprCase(self, ctx: HogQLParser.ColumnExprCaseContext):
         columns = [self.visit(column) for column in ctx.columnExpr()]
-        if ctx.caseExpr:
+        case_expr = getattr(ctx, "caseExpr", None)
+        if case_expr is not None:
             args = [columns[0], ast.Array(exprs=[]), ast.Array(exprs=[]), columns[-1]]
             for index, column in enumerate(columns):
                 if 0 < index < len(columns) - 1:

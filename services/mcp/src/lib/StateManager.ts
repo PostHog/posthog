@@ -1,5 +1,5 @@
 import type { ApiClient } from '@/api/client'
-import { ErrorCode } from '@/lib/errors'
+import { ErrorCode, wrapError } from '@/lib/errors'
 import { sanitizeHeaderValue } from '@/lib/utils'
 import type { ApiUser } from '@/schema/api'
 import type { State } from '@/tools/types'
@@ -20,7 +20,7 @@ export class StateManager {
     private async _fetchUser(): Promise<ApiUser> {
         const userResult = await this._api.users().me()
         if (!userResult.success) {
-            throw new Error(`Failed to get user: ${userResult.error.message}`)
+            throw wrapError(`Failed to get user: ${userResult.error.message}`, userResult.error)
         }
         return userResult.data
     }

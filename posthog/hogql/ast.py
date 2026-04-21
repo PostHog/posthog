@@ -1281,9 +1281,9 @@ class HogQLXTag(Expr):
         }
 
 
-def create_ast_classes_mapping() -> dict[str, AST]:
+def create_ast_classes_mapping() -> dict[str, type[AST]]:
     current_module = sys.modules[__name__]
-    ast_classes: dict[str, AST] = {}
+    ast_classes: dict[str, type[AST]] = {}
 
     for name, obj in inspect.getmembers(current_module, inspect.isclass):
         if issubclass(obj, AST) and obj is not AST:
