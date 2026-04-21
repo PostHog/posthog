@@ -5,6 +5,8 @@ from django.conf import settings
 import psycopg
 import pytest_asyncio
 
+from posthog.models import Integration
+
 
 @pytest.fixture
 def postgres_config():
@@ -81,3 +83,26 @@ async def postgres_batch_export(ateam, table_name, postgres_config, interval, ex
     yield batch_export
 
     await adelete_batch_export(batch_export, temporal_client)
+
+
+@pytest_asyncio.fixture
+async def integration(ateam, postgres_config) -> Integration:
+    host = postgres_config["host"]
+    port = postgres_config["port"]
+    user = postgres_config["user"]
+
+    integration = await Integration.objects.acreate(
+        team_id=ateam.pk,
+        kind=Integration.IntegrationKind.POSTGRESQL,
+        integration_id=f"{ateam.id}-{host}-{port}-{user}",
+        config={
+            "host": host,
+            "port": port,
+            "user": user,
+            "ssl_mode": "prefer",
+        },
+        sensitive_config={
+            "password": postgres_config["password"],
+        },
+    )
+    return integration
