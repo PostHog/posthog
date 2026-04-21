@@ -230,7 +230,7 @@ class TestMultiTurnSessionRetry:
             return "\n".join(fixture_lines[:visible])
 
         session = self._make_session()
-        session._workflow_handle.signal = AsyncMock(side_effect=record_signal)  # type: ignore[union-attr,method-assign]
+        session._workflow_handle.signal = AsyncMock(side_effect=record_signal)  # type: ignore[union-attr,method-assign]  # ty: ignore[invalid-assignment]
         # Session state as if MultiTurnSession.start already consumed the initial turn.
         session.log_lines_seen = 2
         session.printed_lines = 2
