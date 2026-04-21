@@ -1,6 +1,6 @@
 import posthog from 'posthog-js'
 
-import api, { ApiConfig, ApiRequest } from 'lib/api'
+import api, { ApiConfig, ApiError, ApiRequest } from 'lib/api'
 
 import { NodeKind } from '~/queries/schema/schema-general'
 import { PropertyFilterType, PropertyOperator } from '~/types'
@@ -121,30 +121,26 @@ describe('API helper', () => {
         })
     })
 
-    it('rejects project-based requests with void project ID', async () => {
-        await expect(api.get('/api/projects/2/')).resolves.not.toThrow()
-        await expect(api.get('/api/projects/089908')).resolves.not.toThrow()
-        await expect(api.get('/api/projects/089908?x')).resolves.not.toThrow()
-        await expect(api.get('/api/projects/xyz/dings/')).resolves.not.toThrow()
-        await expect(api.get('/api/projects/null/')).rejects.toStrictEqual({
-            detail: 'Cannot make request - project ID is unknown.',
-            status: 0,
+    describe('rejects project-based requests with void project ID', () => {
+        it.each([
+            ['/api/projects/2/'],
+            ['/api/projects/089908'],
+            ['/api/projects/089908?x'],
+            ['/api/projects/xyz/dings/'],
+        ])('resolves valid URL %s', async (url) => {
+            await expect(api.get(url)).resolves.not.toThrow()
         })
-        await expect(api.get('/api/projects/null')).rejects.toStrictEqual({
-            detail: 'Cannot make request - project ID is unknown.',
-            status: 0,
-        })
-        await expect(api.get('/api/projects/null?x')).rejects.toStrictEqual({
-            detail: 'Cannot make request - project ID is unknown.',
-            status: 0,
-        })
-        await expect(api.get('/api/projects/null#x')).rejects.toStrictEqual({
-            detail: 'Cannot make request - project ID is unknown.',
-            status: 0,
-        })
-        await expect(api.get('/api/projects/null/dings')).rejects.toStrictEqual({
-            detail: 'Cannot make request - project ID is unknown.',
-            status: 0,
+
+        it.each([
+            ['/api/projects/null/'],
+            ['/api/projects/null'],
+            ['/api/projects/null?x'],
+            ['/api/projects/null#x'],
+            ['/api/projects/null/dings'],
+        ])('rejects void project ID URL %s with an ApiError carrying status=0 and detail', async (url) => {
+            const expected = { detail: 'Cannot make request - project ID is unknown.', status: 0 }
+            await expect(api.get(url)).rejects.toBeInstanceOf(ApiError)
+            await expect(api.get(url)).rejects.toMatchObject(expected)
         })
     })
 

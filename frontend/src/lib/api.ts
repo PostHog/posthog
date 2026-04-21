@@ -2033,10 +2033,11 @@ const ensureProjectIdNotInvalid = (url: string): void => {
     if (projectIdMatch) {
         const projectId = projectIdMatch[2].trim()
         if (projectId === 'null' || projectId === 'undefined') {
-            throw {
-                status: 0,
-                detail: `Cannot make request - ${projectIdMatch[1]} ID is unknown.`,
-            }
+            // Throw an ApiError (not a plain object) so the synthesized exception has a real stack trace
+            // when captured via posthog.captureException (e.g. via kea loaders' onFailure). The { status, detail }
+            // shape that downstream consumers rely on is preserved as fields on ApiError.
+            const detail = `Cannot make request - ${projectIdMatch[1]} ID is unknown.`
+            throw new ApiError(detail, 0, undefined, { detail })
         }
     }
 }
