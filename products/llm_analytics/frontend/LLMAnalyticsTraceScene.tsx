@@ -1490,7 +1490,7 @@ const EventContent = React.memo(
             const provider = event.properties.$ai_provider
             const tools = event.properties.$ai_tools
 
-            openInPlayground({ model, provider, input: loadedInput, tools })
+            openInPlayground({ model, provider, input: loadedInput, output: loadedOutput, tools })
         }
 
         return (

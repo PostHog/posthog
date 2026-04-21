@@ -11,6 +11,7 @@ from parameterized import parameterized
 from posthog.errors import QueryErrorCategory
 
 from products.logs.backend.alert_check_query import AlertCheckCountResult
+from products.logs.backend.alert_state_machine import AlertState, NotificationAction
 from products.logs.backend.models import MAX_EVALUATION_PERIODS, LogsAlertConfiguration, LogsAlertEvent
 from products.logs.backend.temporal.activities import CheckAlertsOutput, _check_alerts_sync, _evaluate_single_alert
 
@@ -108,8 +109,49 @@ class TestCheckAlertsSync(APIBaseTest):
         assert result.alerts_errored == 1
         assert result.alerts_checked == 0
 
+    @parameterized.expand(
+        [
+            ("with_due_alerts", True, 2),
+            ("none_due", False, 0),
+        ]
+    )
+    @freeze_time("2025-01-01T00:01:00Z")
+    @patch("products.logs.backend.temporal.activities.record_alerts_active")
+    @patch("products.logs.backend.temporal.activities.AlertCheckQuery")
+    def test_records_alerts_active_gauge(self, _name, seed_alerts, expected_count, mock_query_cls, mock_record_gauge):
+        if seed_alerts:
+            mock_query_cls.return_value.execute.return_value = AlertCheckCountResult(count=5, query_duration_ms=100)
+            self._make_alert()
+            self._make_alert(name="Second")
+            # Disabled and snoozed alerts should not count toward the gauge.
+            self._make_alert(name="Disabled", enabled=False)
+            self._make_alert(
+                name="Snoozed",
+                state=LogsAlertConfiguration.State.SNOOZED,
+                snooze_until=datetime(2025, 1, 2, 0, 0, 0, tzinfo=UTC),
+            )
+
+        _check_alerts_sync()
+
+        mock_record_gauge.assert_called_once_with(expected_count)
+
 
 class TestEvaluateSingleAlert(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        # Silence the per-alert metric helpers at class level — they raise outside
+        # Temporal context and the try/except in activities.py swallows the first raise,
+        # skipping later helpers that individual tests want to assert on.
+        for target in (
+            "products.logs.backend.temporal.activities.record_check_duration",
+            "products.logs.backend.temporal.activities.record_scheduler_lag",
+            "products.logs.backend.temporal.activities.increment_checks_total",
+            "products.logs.backend.temporal.activities.increment_check_errors",
+        ):
+            p = patch(target)
+            p.start()
+            self.addCleanup(p.stop)
+
     def _make_alert(self, **kwargs) -> LogsAlertConfiguration:
         defaults = {
             "team": self.team,
@@ -558,3 +600,122 @@ class TestEvaluateSingleAlert(APIBaseTest):
             # Auto-disabled event surfaces the classified user message, never the raw CH exception.
             assert props["last_error_message"] == "Query is too expensive. Try narrower filters or a shorter window."
             assert "DB::Exception" not in props["last_error_message"]
+
+    @freeze_time("2025-01-01T00:01:00Z")
+    @patch("products.logs.backend.temporal.activities.increment_state_transition")
+    @patch("products.logs.backend.temporal.activities.AlertCheckQuery")
+    @patch("products.logs.backend.temporal.activities.produce_internal_event")
+    def test_state_transition_counter_fires_on_state_change(self, _mock_produce, mock_query_cls, mock_transition):
+        mock_query_cls.return_value.execute.return_value = AlertCheckCountResult(count=50, query_duration_ms=100)
+        alert = self._make_alert()
+
+        _evaluate_single_alert(alert, datetime(2025, 1, 1, 0, 1, 0, tzinfo=UTC), _make_stats())
+
+        mock_transition.assert_called_once_with(AlertState.NOT_FIRING, AlertState.FIRING)
+
+    @freeze_time("2025-01-01T00:01:00Z")
+    @patch("products.logs.backend.temporal.activities.increment_state_transition")
+    @patch("products.logs.backend.temporal.activities.AlertCheckQuery")
+    @patch("products.logs.backend.temporal.activities.produce_internal_event")
+    def test_state_transition_counter_silent_when_state_unchanged(self, _mock_produce, mock_query_cls, mock_transition):
+        mock_query_cls.return_value.execute.return_value = AlertCheckCountResult(count=5, query_duration_ms=100)
+        self._make_alert()
+
+        _evaluate_single_alert(
+            LogsAlertConfiguration.objects.get(), datetime(2025, 1, 1, 0, 1, 0, tzinfo=UTC), _make_stats()
+        )
+
+        mock_transition.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("fire", 50, LogsAlertConfiguration.State.NOT_FIRING),
+            ("resolve", 0, LogsAlertConfiguration.State.FIRING),
+        ]
+    )
+    @freeze_time("2025-01-01T00:01:00Z")
+    @patch("products.logs.backend.temporal.activities.increment_notification_failures")
+    @patch("products.logs.backend.temporal.activities.AlertCheckQuery")
+    @patch("products.logs.backend.temporal.activities.produce_internal_event", side_effect=Exception("Kafka down"))
+    @patch("products.logs.backend.temporal.activities.capture_exception")
+    def test_notification_failures_counter(
+        self,
+        expected_action_name,
+        result_count,
+        initial_state,
+        _mock_capture,
+        _mock_produce,
+        mock_query_cls,
+        mock_notif_failures,
+    ):
+        mock_query_cls.return_value.execute.return_value = AlertCheckCountResult(
+            count=result_count, query_duration_ms=100
+        )
+        self._make_alert(state=initial_state)
+
+        _evaluate_single_alert(
+            LogsAlertConfiguration.objects.get(), datetime(2025, 1, 1, 0, 1, 0, tzinfo=UTC), _make_stats()
+        )
+
+        mock_notif_failures.assert_called_once_with(NotificationAction(expected_action_name))
+
+    @freeze_time("2025-01-01T00:01:00Z")
+    @patch("products.logs.backend.temporal.activities.increment_notification_failures")
+    @patch("products.logs.backend.temporal.activities.AlertCheckQuery")
+    @patch("products.logs.backend.temporal.activities.produce_internal_event")
+    def test_notification_failures_silent_on_success(self, _mock_produce, mock_query_cls, mock_notif_failures):
+        mock_query_cls.return_value.execute.return_value = AlertCheckCountResult(count=50, query_duration_ms=100)
+        self._make_alert()
+
+        _evaluate_single_alert(
+            LogsAlertConfiguration.objects.get(), datetime(2025, 1, 1, 0, 1, 0, tzinfo=UTC), _make_stats()
+        )
+
+        mock_notif_failures.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("server_busy", QueryErrorCategory.RATE_LIMITED),
+            ("query_performance", QueryErrorCategory.QUERY_PERFORMANCE_ERROR),
+            ("cancelled", QueryErrorCategory.CANCELLED),
+            ("unknown", QueryErrorCategory.ERROR),
+        ]
+    )
+    @freeze_time("2025-01-01T00:01:00Z")
+    @patch("products.logs.backend.temporal.activities.increment_check_errors")
+    @patch("products.logs.backend.temporal.activities.AlertCheckQuery")
+    @patch("products.logs.backend.temporal.activities.produce_internal_event")
+    def test_check_errors_counter_labelled_by_classifier(
+        self,
+        expected_category,
+        classifier_category,
+        _mock_produce,
+        mock_query_cls,
+        mock_check_errors,
+    ):
+        mock_query_cls.return_value.execute.side_effect = Exception("boom")
+        self._make_alert()
+
+        with patch(
+            "products.logs.backend.alert_error_classifier.classify_query_error",
+            return_value=classifier_category,
+        ):
+            _evaluate_single_alert(
+                LogsAlertConfiguration.objects.get(), datetime(2025, 1, 1, 0, 1, 0, tzinfo=UTC), _make_stats()
+            )
+
+        mock_check_errors.assert_called_once_with(expected_category)
+
+    @freeze_time("2025-01-01T00:01:00Z")
+    @patch("products.logs.backend.temporal.activities.increment_check_errors")
+    @patch("products.logs.backend.temporal.activities.AlertCheckQuery")
+    @patch("products.logs.backend.temporal.activities.produce_internal_event")
+    def test_check_errors_counter_silent_on_success(self, _mock_produce, mock_query_cls, mock_check_errors):
+        mock_query_cls.return_value.execute.return_value = AlertCheckCountResult(count=5, query_duration_ms=100)
+        self._make_alert()
+
+        _evaluate_single_alert(
+            LogsAlertConfiguration.objects.get(), datetime(2025, 1, 1, 0, 1, 0, tzinfo=UTC), _make_stats()
+        )
+
+        mock_check_errors.assert_not_called()

@@ -22,6 +22,7 @@ from posthog.schema import (
     MaxExperimentMetricResult,
     MaxExperimentSummaryContext,
     MaxExperimentVariantResultBayesian,
+    MaxExperimentVariantResultFrequentist,
 )
 
 from posthog.models import FeatureFlag
@@ -294,11 +295,50 @@ MOCK_BAYESIAN_MIXED_METRICS = MaxExperimentSummaryContext(
 )
 
 
+# Frequentist significant winner: test variant has a low p-value and
+# confidence interval entirely above zero. Exercises the Frequentist
+# formatting branch (p-values and confidence intervals instead of
+# chance-to-win and credible intervals). Checks that Claude correctly
+# interprets p-values — low means significant, high means not.
+MOCK_FREQUENTIST_SIGNIFICANT = MaxExperimentSummaryContext(
+    experiment_id=0,  # replaced at runtime
+    experiment_name="Search Ranking Algorithm Test",
+    description="Testing whether a new search ranking algorithm improves click-through rate",
+    variants=["control", "test"],
+    exposures={"control": 6340.0, "test": 6285.0},
+    primary_metrics_results=[
+        MaxExperimentMetricResult(
+            name="1. Search click-through rate",
+            goal=Goal.INCREASE,
+            variant_results=[
+                MaxExperimentVariantResultFrequentist(
+                    key="control",
+                    p_value=0.73,
+                    confidence_interval=[-0.048, 0.019],
+                    delta=-0.0145,
+                    significant=False,
+                ),
+                MaxExperimentVariantResultFrequentist(
+                    key="test",
+                    p_value=0.003,
+                    confidence_interval=[0.012, 0.054],
+                    delta=0.033,
+                    significant=True,
+                ),
+            ],
+        ),
+    ],
+    secondary_metrics_results=[],
+    stats_method=ExperimentStatsMethod.FREQUENTIST,
+)
+
+
 MOCK_CONTEXTS: dict[str, MaxExperimentSummaryContext] = {
     "bayesian_significant": MOCK_BAYESIAN_SIGNIFICANT,
     "bayesian_non_significant": MOCK_BAYESIAN_NON_SIGNIFICANT,
     "bayesian_goal_decrease": MOCK_BAYESIAN_GOAL_DECREASE,
     "bayesian_mixed_metrics": MOCK_BAYESIAN_MIXED_METRICS,
+    "frequentist_significant": MOCK_FREQUENTIST_SIGNIFICANT,
 }
 
 
@@ -335,6 +375,11 @@ def experiment_with_mock_data(demo_org_team_user):
         )
 
         now = datetime.now(tz=ZoneInfo("UTC"))
+        stats_config = (
+            {"method": mock_template.stats_method.value}
+            if mock_template.stats_method != ExperimentStatsMethod.BAYESIAN
+            else None
+        )
         experiment = await Experiment.objects.acreate(
             name=mock_template.experiment_name,
             team=team,
@@ -342,6 +387,7 @@ def experiment_with_mock_data(demo_org_team_user):
             feature_flag=flag,
             description=mock_template.description or "",
             start_date=now - timedelta(days=14),
+            stats_config=stats_config,
             metrics=[
                 {
                     "metric_type": "funnel",
@@ -436,6 +482,13 @@ async def eval_experiment_summary(call_agent_for_summary, pytestconfig):
                     mock_key="bayesian_mixed_metrics",
                 ),
                 metadata={"test_type": "bayesian_mixed_metrics"},
+            ),
+            EvalCase(
+                input=EvalInput(
+                    input="Summarize experiment {experiment_id}. What do the results show?",
+                    mock_key="frequentist_significant",
+                ),
+                metadata={"test_type": "frequentist_significant"},
             ),
         ],
         pytestconfig=pytestconfig,
