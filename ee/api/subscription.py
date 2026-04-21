@@ -494,6 +494,27 @@ class SubscriptionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.M
 
 
 class SubscriptionDeliverySerializer(serializers.ModelSerializer):
+    # Narrow the OpenAPI schema for change_summary from a bare JSONField ({}) to an object
+    # whose shape the frontend can actually render. Reserved for future keys (backing data,
+    # stats, feedback) — kept open via additionalProperties=true.
+    change_summary = serializers.SerializerMethodField(
+        help_text=(
+            "AI-generated summary included in this delivery, when one was produced. "
+            'Shape: {"summary": string, ...}; reserved for future fields like backing data or stats.'
+        ),
+    )
+
+    @extend_schema_field(
+        {
+            "type": "object",
+            "nullable": True,
+            "properties": {"summary": {"type": "string", "nullable": True}},
+            "additionalProperties": True,
+        }
+    )
+    def get_change_summary(self, obj: SubscriptionDelivery) -> Optional[dict[str, Any]]:
+        return obj.change_summary
+
     class Meta:
         model = SubscriptionDelivery
         fields = [
@@ -540,10 +561,6 @@ class SubscriptionDeliverySerializer(serializers.ModelSerializer):
             "created_at": {"help_text": "When the delivery row was created."},
             "last_updated_at": {"help_text": "Last ORM update to this row."},
             "finished_at": {"help_text": "When the run finished, if applicable."},
-            "change_summary": {
-                "help_text": "AI-generated summary included in this delivery, when one was produced. "
-                'Shape: {"summary": string, ...}; reserved for future fields like backing data or stats.'
-            },
         }
 
 

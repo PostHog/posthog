@@ -68,7 +68,7 @@ export interface SubscriptionDeliveryApi {
      */
     readonly finished_at: string | null
     /** AI-generated summary included in this delivery, when one was produced. Shape: {"summary": string, ...}; reserved for future fields like backing data or stats. */
-    readonly change_summary: unknown | null
+    readonly change_summary: { summary?: string | null } | null
 }
 
 export interface PaginatedSubscriptionDeliveryListApi {
