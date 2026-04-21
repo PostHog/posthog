@@ -17197,6 +17197,7 @@
                     "$ref": "#/definitions/ExperimentMetric"
                 },
                 "metric_events_precomputation": {
+                    "deprecated": "Now always enabled, kept for backward compatibility",
                     "type": "boolean"
                 },
                 "modifiers": {

@@ -32,6 +32,7 @@ from posthog.personhog_client.proto.generated.personhog.types.v1 import cohort_p
 class _Call:
     method: str
     request: Any
+    response: Any = None
 
 
 class FakePersonHogClient:
@@ -334,7 +335,6 @@ class FakePersonHogClient:
     def delete_persons_batch_for_team(
         self, request: person_pb2.DeletePersonsBatchForTeamRequest, timeout: float | None = None
     ) -> person_pb2.DeletePersonsBatchForTeamResponse:
-        self.calls.append(_Call("delete_persons_batch_for_team", request))
         deleted_count = 0
         # Find up to batch_size persons for this team
         to_delete = []
@@ -350,7 +350,9 @@ class FakePersonHogClient:
             for did in dids:
                 self._persons_by_distinct_id.pop((team_id, did.distinct_id), None)
             deleted_count += 1
-        return person_pb2.DeletePersonsBatchForTeamResponse(deleted_count=deleted_count)
+        response = person_pb2.DeletePersonsBatchForTeamResponse(deleted_count=deleted_count)
+        self.calls.append(_Call("delete_persons_batch_for_team", request, response))
+        return response
 
     # ── Assertion helpers ────────────────────────────────────────────
 

@@ -71,11 +71,26 @@ export interface AlertFormLogicProps {
     onEditSuccess: (alertId?: AlertType['id']) => void
     insightVizDataLogicProps?: InsightLogicProps
     insightInterval?: IntervalType
+    /** Must match the `alertLogic` instance keyed on the same alertId — read from `useFeatureFlag('ALERTS_HISTORY_CHART')` in the parent. */
+    historyChartEnabled: boolean
 }
 
-/** Apply create/update/snooze API response to alertLogic so UI (e.g. next planned evaluation) updates immediately. */
-function hydrateAlertLogicFromSaveResponse(updatedAlert: AlertType): void {
-    alertLogic({ alertId: updatedAlert.id }).actions.loadAlertSuccess(updatedAlert)
+/**
+ * Hydrate alertLogic from the save response, then kick off a background refetch so pagination-aware
+ * `checks` / `checks_total` (which PATCH/POST bodies omit) catch up without blocking the UI.
+ * Preserves the previously loaded `checks` state so the history section doesn't flash empty.
+ */
+function hydrateAlertLogicFromSaveResponse(updatedAlert: AlertType, historyChartEnabled: boolean): void {
+    const logic = alertLogic({ alertId: updatedAlert.id, historyChartEnabled })
+    const previousAlert = logic.values.alert
+    const savedChecks = updatedAlert.checks ?? []
+    const mergedAlert: AlertType = {
+        ...updatedAlert,
+        checks: savedChecks.length > 0 ? savedChecks : (previousAlert?.checks ?? []),
+        checks_total: updatedAlert.checks_total ?? previousAlert?.checks_total,
+    }
+    logic.actions.loadAlertSuccess(mergedAlert)
+    void logic.asyncActions.loadAlert()
 }
 
 function insightIntervalToAlertInterval(interval?: IntervalType | null): AlertCalculationInterval {
@@ -239,7 +254,7 @@ export const alertFormLogic = kea<alertFormLogicType>([
                         const updatedAlert: AlertType = await api.alerts.create(payload)
 
                         await flushPendingNotifications(updatedAlert.id)
-                        hydrateAlertLogicFromSaveResponse(updatedAlert)
+                        hydrateAlertLogicFromSaveResponse(updatedAlert, props.historyChartEnabled)
                         lemonToast.success(`Alert created.`)
                         upsertToParent(updatedAlert)
                         props.onEditSuccess(updatedAlert.id)
@@ -250,7 +265,7 @@ export const alertFormLogic = kea<alertFormLogicType>([
                     const updatedAlert: AlertType = await api.alerts.update(alert.id, payload)
 
                     await flushPendingNotifications(updatedAlert.id)
-                    hydrateAlertLogicFromSaveResponse(updatedAlert)
+                    hydrateAlertLogicFromSaveResponse(updatedAlert, props.historyChartEnabled)
                     lemonToast.success(`Alert saved.`)
                     upsertToParent(updatedAlert)
                     props.onEditSuccess(updatedAlert.id)
@@ -297,7 +312,7 @@ export const alertFormLogic = kea<alertFormLogicType>([
                 const updatedAlert: AlertType = await api.alerts.update(values.alertForm.id, {
                     snoozed_until: snoozeUntil,
                 })
-                hydrateAlertLogicFromSaveResponse(updatedAlert)
+                hydrateAlertLogicFromSaveResponse(updatedAlert, props.historyChartEnabled)
                 const parent = getParentLogic()
                 if (parent) {
                     parent.actions.upsertAlert(updatedAlert)
@@ -312,7 +327,7 @@ export const alertFormLogic = kea<alertFormLogicType>([
                 const updatedAlert: AlertType = await api.alerts.update(values.alertForm.id, {
                     snoozed_until: null,
                 })
-                hydrateAlertLogicFromSaveResponse(updatedAlert)
+                hydrateAlertLogicFromSaveResponse(updatedAlert, props.historyChartEnabled)
                 const parent = getParentLogic()
                 if (parent) {
                     parent.actions.upsertAlert(updatedAlert)

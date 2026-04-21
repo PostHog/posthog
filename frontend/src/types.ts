@@ -6830,6 +6830,13 @@ export interface FileSystemType {
     iconColor?: FileSystemIconColor
 }
 
+export interface FeaturePreviewGateConfig {
+    flag: string
+    title: string
+    description: string
+    docsURL?: string
+}
+
 export interface ProductManifest {
     name: string
     scenes?: Record<string, SceneConfig>

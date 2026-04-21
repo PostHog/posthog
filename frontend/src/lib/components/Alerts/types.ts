@@ -96,6 +96,7 @@ export interface AlertType extends AlertTypeBase {
     last_notified_at: string
     last_checked_at: string
     next_check_at?: string | null
+    checks_total?: number
     checks: AlertCheck[]
     calculation_interval: AlertCalculationInterval
     snoozed_until?: string
