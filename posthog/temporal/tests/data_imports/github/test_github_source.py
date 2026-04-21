@@ -443,7 +443,9 @@ class TestGetRowsResume:
             side_effect=lambda logger, chunk_size, chunk_size_bytes: _ImmediateBatcher(),
         )
 
-    def test_fresh_run_saves_next_url_after_batch(self) -> None:
+    def test_fresh_run_saves_current_page_url_after_batch(self) -> None:
+        """save_state checkpoints the *current* page URL so resume re-fetches it;
+        duplicates are deduped via primary_keys merge semantics."""
         manager = _make_manager(can_resume=False)
         page1 = [{"id": 1, "updated_at": "2026-01-01T00:00:00Z"}]
         page2 = [{"id": 2, "updated_at": "2026-01-02T00:00:00Z"}]
@@ -474,10 +476,13 @@ class TestGetRowsResume:
         first_url = mock_get.call_args_list[0].args[0]
         assert first_url.startswith("https://api.github.com/repos/owner/repo/releases")
         manager.load_state.assert_not_called()
-        assert manager.save_state.call_count == 1
-        saved = manager.save_state.call_args.args[0]
-        assert isinstance(saved, GithubResumeConfig)
-        assert saved.next_url == "https://api.github.com/repos/owner/repo/releases?page=2"
+
+        # Two yields (one per page) → two checkpoints, each pointing at the page
+        # whose yield just completed.
+        assert manager.save_state.call_count == 2
+        saved_urls = [call.args[0].next_url for call in manager.save_state.call_args_list]
+        assert saved_urls[0] == first_url
+        assert saved_urls[1] == "https://api.github.com/repos/owner/repo/releases?page=2"
 
     def test_resume_uses_saved_url(self) -> None:
         saved_url = "https://api.github.com/repos/owner/repo/releases?page=4"
@@ -528,14 +533,16 @@ class TestGetRowsResume:
         assert rows == []
         manager.save_state.assert_not_called()
 
-    def test_final_page_does_not_save_state(self) -> None:
+    def test_single_page_saves_current_page_url(self) -> None:
+        """A single-page response still saves state for the page we yielded,
+        so a restart right after the yield would re-fetch and dedupe."""
         manager = _make_manager(can_resume=False)
         with (
             self._patch_batcher(),
             mock.patch(
                 "posthog.temporal.data_imports.sources.github.github.requests.get",
                 side_effect=[_make_response(body=[{"id": 1}], link="")],
-            ),
+            ) as mock_get,
         ):
             list(
                 get_rows(
@@ -548,4 +555,85 @@ class TestGetRowsResume:
                 )
             )
 
-        manager.save_state.assert_not_called()
+        assert manager.save_state.call_count == 1
+        saved = manager.save_state.call_args.args[0]
+        assert saved.next_url == mock_get.call_args_list[0].args[0]
+
+    def test_mid_page_chunk_boundary_checkpoints_current_page(self) -> None:
+        """If the chunk boundary lands mid-page, the checkpoint must point at
+        the CURRENT page (not the next), so trailing unyielded items are
+        re-fetched on resume instead of dropped.
+        """
+        manager = _make_manager(can_resume=False)
+        page1 = [{"id": 1}, {"id": 2}, {"id": 3}]
+        link_page1 = '<https://api.github.com/repos/owner/repo/releases?page=2>; rel="next"'
+        page2: list[dict[str, Any]] = []
+        responses = [
+            _make_response(body=page1, link=link_page1),
+            _make_response(body=page2, link=""),
+        ]
+
+        # Batcher yields after every 2 items — so page 1 (3 items) produces
+        # one yield at the 2nd item, with item 3 still buffered but not yielded.
+        def batcher_factory(logger: Any, chunk_size: int, chunk_size_bytes: int) -> Any:
+            return _ChunkingBatcher(yield_every=2)
+
+        with (
+            mock.patch(
+                "posthog.temporal.data_imports.sources.github.github.Batcher",
+                autospec=False,
+                side_effect=batcher_factory,
+            ),
+            mock.patch(
+                "posthog.temporal.data_imports.sources.github.github.requests.get",
+                side_effect=responses,
+            ) as mock_get,
+        ):
+            list(
+                get_rows(
+                    personal_access_token="tok",
+                    repository="owner/repo",
+                    endpoint="releases",
+                    logger=mock.Mock(),
+                    resumable_source_manager=manager,
+                    should_use_incremental_field=False,
+                )
+            )
+
+        # The mid-page save_state must checkpoint the CURRENT page URL, not
+        # the next-page URL — otherwise item 3 (batched but not yet yielded)
+        # would be skipped on resume.
+        first_save = manager.save_state.call_args_list[0].args[0]
+        assert first_save.next_url == mock_get.call_args_list[0].args[0]
+        assert first_save.next_url != "https://api.github.com/repos/owner/repo/releases?page=2"
+
+
+class _ChunkingBatcher:
+    """Test double for Batcher that yields after every `yield_every` batched items."""
+
+    def __init__(self, yield_every: int) -> None:
+        self._yield_every = yield_every
+        self._buffer: list[Any] = []
+        self._ready: list[Any] | None = None
+
+    def batch(self, item: Any) -> None:
+        self._buffer.append(item)
+        if len(self._buffer) >= self._yield_every:
+            self._ready = self._buffer
+            self._buffer = []
+
+    def should_yield(self, include_incomplete_chunk: bool = False) -> bool:
+        if include_incomplete_chunk:
+            return self._ready is not None or bool(self._buffer)
+        return self._ready is not None
+
+    def get_table(self) -> Any:
+        if self._ready is not None:
+            table = self._ready
+            self._ready = None
+            return table
+        if self._buffer:
+            table = self._buffer
+            self._buffer = []
+            return table
+        raise Exception("No chunks available to yield")

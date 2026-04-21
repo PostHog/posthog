@@ -3,6 +3,7 @@ import dataclasses
 from collections.abc import Callable, Iterator
 from datetime import date, datetime
 from typing import Any, Optional
+from urllib.parse import urlencode
 
 import requests
 from dateutil import parser as dateutil_parser
@@ -58,6 +59,10 @@ def _build_initial_params(
             "updated_at": "updated",
             "created_at": "created",
         }
+        if incremental not in sort_field_mapping:
+            raise ValueError(
+                f"Unsupported GitHub incremental field '{incremental}'. Expected one of: {sorted(sort_field_mapping)}."
+            )
         params["sort"] = sort_field_mapping[incremental]
         params["direction"] = config.sort_mode
         if endpoint in ("issues", "commits"):
@@ -70,8 +75,7 @@ def _build_initial_url(config: GithubEndpointConfig, repository: str, params: di
     path = config.path.format(repository=repository)
     if not params:
         return f"{GITHUB_BASE_URL}{path}"
-    query = "&".join(f"{key}={value}" for key, value in params.items())
-    return f"{GITHUB_BASE_URL}{path}?{query}"
+    return f"{GITHUB_BASE_URL}{path}?{urlencode(params)}"
 
 
 def _get_headers(access_token: str, endpoint: str) -> dict[str, str]:
@@ -284,11 +288,16 @@ def get_rows(
         if not isinstance(data, list) or not data:
             break
 
-        # Compute next URL before yielding so resume state can point at the
-        # next page. Duplicates on resume are safe — primary_keys dedupe via
-        # merge semantics.
         next_url = _parse_next_url(response.headers.get("Link", ""))
         stop_after_this_page = _should_stop_desc(data, actual_sort_mode, stop_field, stop_cutoff)
+
+        # Chunk boundaries don't align with page boundaries (issues drops
+        # PRs, items can also straddle the chunk_size cap), so checkpoint
+        # the CURRENT page URL. On resume we re-fetch the current page and
+        # rely on primary_keys merge semantics to dedupe already-yielded
+        # items; this avoids silently dropping items that were batched but
+        # not yet yielded when the worker restarts.
+        checkpoint_url = url
 
         for item in data:
             if item_filter and not item_filter(item):
@@ -301,8 +310,8 @@ def get_rows(
                 py_table = batcher.get_table()
                 yield py_table
 
-                if next_url and not stop_after_this_page:
-                    resumable_source_manager.save_state(GithubResumeConfig(next_url=next_url))
+                if not stop_after_this_page:
+                    resumable_source_manager.save_state(GithubResumeConfig(next_url=checkpoint_url))
 
         if stop_after_this_page or not next_url:
             break
