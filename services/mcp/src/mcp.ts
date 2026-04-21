@@ -321,12 +321,13 @@ export class MCP extends McpAgent<Env> {
                 const formattedResults: string | undefined = isStringResult
                     ? undefined
                     : handlerResult?.[POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]
-                const rawResult: any = isStringResult
-                    ? handlerResult
-                    : (() => {
-                          const { [POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]: _ignored, ...rest } = handlerResult
-                          return rest
-                      })()
+                let rawResult: any
+                if (isStringResult) {
+                    rawResult = handlerResult
+                } else {
+                    const { [POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]: _ignored, ...rest } = handlerResult
+                    rawResult = rest
+                }
 
                 // For tools with UI resources, include structuredContent for better UI rendering
                 // structuredContent is not added to model context, only used by UI apps
