@@ -189,10 +189,13 @@ def validate_teams_request(request: HttpRequest) -> dict:
 
     # Peek at unverified claims/header for diagnostics — helps us see why a token
     # is being rejected (wrong issuer, wrong aud, wrong kid, etc.) without having
-    # to reproduce the issue.
+    # to reproduce the issue. These claims are ONLY used for logging on the error
+    # path below; the actual authentication decision is made by the verified
+    # jwt.decode() call further down, which enforces signature + aud + exp.
     unverified_claims: dict = {}
     unverified_header: dict = {}
     try:
+        # nosemgrep: python.jwt.security.unverified-jwt-decode.unverified-jwt-decode (diagnostics only, not used for auth)
         unverified_claims = jwt.decode(token, options={"verify_signature": False})
         unverified_header = jwt.get_unverified_header(token)
     except Exception:
