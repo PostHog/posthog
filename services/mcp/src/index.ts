@@ -287,7 +287,7 @@ const handleRequest = async (
                     if (msg?.method === 'initialize') {
                         const name = msg?.params?.clientInfo?.name
                         if (typeof name === 'string') {
-                            earlyClientName = name
+                            earlyClientName = sanitizeHeaderValue(name)
                         }
                         break
                     }
