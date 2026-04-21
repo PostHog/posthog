@@ -31,9 +31,9 @@ from posthog.tasks.alerts.utils import (
     AlertEvaluationResult,
     calculation_interval_to_order,
     disable_invalid_alert,
+    dispatch_alert_notification,
     next_check_time,
-    send_notifications_for_breaches,
-    send_notifications_for_errors,
+    record_alert_delivery,
     skip_because_of_weekend,
     validate_alert_config,
 )
@@ -373,7 +373,7 @@ def check_alert_and_notify_atomically(alert: AlertConfiguration) -> None:
     triggered_metadata = (
         getattr(alert_evaluation_result, "triggered_metadata", None) if alert_evaluation_result else None
     )
-    alert_check = add_alert_check(
+    alert_check, notify = add_alert_check(
         alert,
         value,
         breaches,
@@ -386,20 +386,13 @@ def check_alert_and_notify_atomically(alert: AlertConfiguration) -> None:
     )
 
     # 3. Notify users if needed
-    if not alert_check.targets_notified:
+    if not notify:
         return
 
     try:
-        match alert_check.state:
-            case AlertState.NOT_FIRING:
-                logger.info("Check state is %s", alert_check.state, alert_id=alert.id)
-            case AlertState.ERRORED:
-                logger.info("Sending alert error notifications", alert_id=alert.id, error=alert_check.error)
-                if isinstance(alert_check.error, dict):
-                    send_notifications_for_errors(alert, alert_check.error)
-            case AlertState.FIRING:
-                assert breaches is not None
-                send_notifications_for_breaches(alert, breaches)
+        targets = dispatch_alert_notification(alert, alert_check, breaches)
+        if targets is not None:
+            record_alert_delivery(alert, alert_check, targets)
     except Exception as err:
         error_message = f"AlertCheckError: error sending notifications for alert_id = {alert.id}"
         logger.exception(error_message, exc_info=err)
@@ -449,9 +442,14 @@ def add_alert_check(
     triggered_dates: list[str] | None = None,
     interval: str | None = None,
     triggered_metadata: dict | None = None,
-) -> AlertCheck:
+) -> tuple[AlertCheck, bool]:
+    """Persist an AlertCheck row and return it plus a decision on whether notification is needed.
+
+    `targets_notified` is always created empty; `notify_alert_activity` fills it on
+    successful delivery and treats a non-empty value as the idempotency sentinel on retry.
+    `last_notified_at` is likewise set by the notify activity on success, not here.
+    """
     notify = False
-    targets_notified = {}
 
     if error:
         alert.state = AlertState.ERRORED
@@ -463,22 +461,17 @@ def add_alert_check(
         alert.state = AlertState.NOT_FIRING  # Set the Alert to not firing if the threshold is no longer met
         # TODO: Optionally send a resolved notification when alert goes from firing to not_firing?
 
-    now = datetime.now(UTC)
     alert.last_checked_at = datetime.now(UTC)
 
     # IMPORTANT: update next_check_at according to interval
     # ensure we don't recheck alert until the next interval is due
     alert.next_check_at = next_check_time(alert)
 
-    if notify:
-        alert.last_notified_at = now
-        targets_notified = {"users": alert.get_subscribed_users_emails()}
-
     alert_check = AlertCheck.objects.create(
         alert_configuration=alert,
         calculated_value=value,
         condition=alert.condition,
-        targets_notified=targets_notified,
+        targets_notified={},
         state=alert.state,
         triggered_metadata=triggered_metadata,
         error=error,
@@ -488,6 +481,6 @@ def add_alert_check(
         interval=interval,
     )
 
-    alert.save()
+    alert.save(update_fields=["state", "last_checked_at", "next_check_at"])
 
-    return alert_check
+    return alert_check, notify
