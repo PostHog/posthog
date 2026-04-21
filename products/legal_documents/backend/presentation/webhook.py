@@ -1,7 +1,3 @@
-import hmac
-
-from django.core.exceptions import ValidationError as DjangoValidationError
-
 import structlog
 from drf_spectacular.utils import OpenApiTypes, extend_schema
 from rest_framework import serializers, status
@@ -43,30 +39,26 @@ class LegalDocumentSignedWebhookSerializer(serializers.Serializer):
     responses={200: OpenApiTypes.OBJECT, 400: OpenApiTypes.OBJECT, 404: OpenApiTypes.OBJECT},
     description=(
         "Public webhook hit by Zapier/PandaDoc after a customer signs a legal document. "
-        "Requires a pre-shared `secret` (generated at submission time and echoed through "
-        "the PostHog event) that matches the document's stored `webhook_secret`. "
-        "On success, flips the document status to `signed` and stores the download URL."
+        "The request is authenticated by a per-document `secret` (generated at submission "
+        "time and echoed through the PostHog event) — we look the document up by that "
+        "secret, so a mismatch simply results in a 404. On success, flips the document "
+        "status to `signed` and stores the download URL."
     ),
 )
 @api_view(["POST"])
 @authentication_classes([])
 @permission_classes([])
 @throttle_classes([LegalDocumentSignedWebhookBurstThrottle, LegalDocumentSignedWebhookSustainedThrottle])
-def legal_document_signed_webhook(request: Request, document_id: str) -> Response:
+def legal_document_signed_webhook(request: Request) -> Response:
     serializer = LegalDocumentSignedWebhookSerializer(data=request.data)
     serializer.is_valid(raise_exception=True)
 
+    # The secret is 256 bits of entropy (secrets.token_urlsafe(32)) and is the sole
+    # auth factor for this public webhook — looking up by it is equivalent to
+    # authenticating, and avoids the IDOR surface of accepting an id from the caller.
     try:
-        document = LegalDocument.objects.get(id=document_id)
-    except (LegalDocument.DoesNotExist, ValueError, DjangoValidationError):
-        # 404 for missing and malformed IDs so we never signal which IDs exist.
-        return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
-
-    if not hmac.compare_digest(serializer.validated_data["secret"], document.webhook_secret):
-        logger.warning(
-            "Legal document signed webhook rejected — secret mismatch",
-            document_id=str(document.id),
-        )
+        document = LegalDocument.objects.get(webhook_secret=serializer.validated_data["secret"])
+    except LegalDocument.DoesNotExist:
         return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
 
     document.signed_document_url = serializer.validated_data["signed_document_url"]

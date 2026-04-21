@@ -69,7 +69,8 @@ def _fire_event(legal_document: LegalDocument, distinct_id: str) -> None:
                 "legal_document_id": str(legal_document.id),
                 # Pre-shared secret for the public signed-URL webhook. Lives only in
                 # the backend; Zapier reads it off the event and pipes it to PandaDoc,
-                # which posts it back to /api/legal_documents/<id>/signed.
+                # which posts it back to /api/legal_documents/signed where we look the
+                # row up by this secret.
                 "legal_document_secret": legal_document.webhook_secret,
             },
             groups=groups(legal_document.organization),

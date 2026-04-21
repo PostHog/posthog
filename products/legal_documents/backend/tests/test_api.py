@@ -278,7 +278,7 @@ class TestLegalDocumentSignedWebhook(APIBaseTest):
             dpa_mode="pretty",
             created_by=self.user,
         )
-        self.url = f"/api/legal_documents/{self.document.id}/signed"
+        self.url = "/api/legal_documents/signed"
         self.client.logout()  # webhook is public; no session cookie
 
     def _post(self, **overrides: Any):
@@ -303,17 +303,9 @@ class TestLegalDocumentSignedWebhook(APIBaseTest):
         self.assertEqual(self.document.status, "submitted_for_signature")
         self.assertEqual(self.document.signed_document_url, "")
 
-    def test_unknown_document_id_returns_404(self) -> None:
+    def test_unknown_secret_returns_404(self) -> None:
         response = self.client.post(
-            "/api/legal_documents/00000000-0000-0000-0000-000000000000/signed",
-            {"secret": "whatever", "signed_document_url": "https://app.pandadoc.com/s/x.pdf"},
-            format="json",
-        )
-        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
-
-    def test_malformed_id_returns_404(self) -> None:
-        response = self.client.post(
-            "/api/legal_documents/not-a-uuid/signed",
+            self.url,
             {"secret": "whatever", "signed_document_url": "https://app.pandadoc.com/s/x.pdf"},
             format="json",
         )

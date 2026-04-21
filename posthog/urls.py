@@ -205,7 +205,7 @@ urlpatterns = [
     path("api/unsubscribe", unsubscribe.unsubscribe),
     path("api/alerts/github", github.SecretAlert.as_view()),
     path(
-        "api/legal_documents/<str:document_id>/signed",
+        "api/legal_documents/signed",
         csrf_exempt(legal_document_signed_webhook),
         name="legal_document_signed_webhook",
     ),

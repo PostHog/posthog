@@ -81,6 +81,7 @@ depends_on = [
     "products.experiments",
     "products.feature_flags",
     "products.growth",
+    "products.legal_documents",
     "products.links",
     "products.live_debugger",
     "products.llm_analytics",
