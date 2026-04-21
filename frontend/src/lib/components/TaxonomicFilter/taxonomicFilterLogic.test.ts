@@ -670,6 +670,61 @@ describe('taxonomicFilterLogic', () => {
             ])
         })
     })
+
+    describe('keywordShortcuts on Events and EventProperties groups', () => {
+        let testLogic: ReturnType<typeof taxonomicFilterLogic.build>
+
+        beforeEach(() => {
+            testLogic = taxonomicFilterLogic({
+                taxonomicFilterLogicKey: 'keywordShortcutsGroupTest',
+                taxonomicGroupTypes: [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.EventProperties],
+            })
+            testLogic.mount()
+        })
+
+        afterEach(() => {
+            testLogic.unmount()
+        })
+
+        it('Events group returns shortcuts with eventName set to $autocapture', () => {
+            const eventsGroup = testLogic.values.taxonomicGroups.find((g) => g.type === TaxonomicFilterGroupType.Events)
+            expect(eventsGroup?.keywordShortcuts).toBeDefined() // oxlint-disable-line jest/no-restricted-matchers
+            const shortcuts = eventsGroup?.keywordShortcuts?.('click') ?? []
+            expect(shortcuts[0]).toMatchObject({
+                _type: 'quick_filter',
+                name: 'Click (autocapture)',
+                eventName: '$autocapture',
+                filterValue: 'click',
+            })
+        })
+
+        it('EventProperties group returns shortcuts without an eventName', () => {
+            const eventPropertiesGroup = testLogic.values.taxonomicGroups.find(
+                (g) => g.type === TaxonomicFilterGroupType.EventProperties
+            )
+            expect(eventPropertiesGroup?.keywordShortcuts).toBeDefined() // oxlint-disable-line jest/no-restricted-matchers
+            const [shortcut] = eventPropertiesGroup?.keywordShortcuts?.('click') ?? []
+            expect(shortcut).toMatchObject({
+                _type: 'quick_filter',
+                name: 'Click (event type)',
+                filterValue: 'click',
+            })
+            expect(shortcut.eventName).toBeUndefined()
+        })
+
+        it('getName/getValue/getIcon/getPopoverHeader branch on isQuickFilterItem', () => {
+            const eventsGroup = testLogic.values.taxonomicGroups.find((g) => g.type === TaxonomicFilterGroupType.Events)
+            const [shortcut] = eventsGroup?.keywordShortcuts?.('click') ?? []
+            expect(eventsGroup?.getName?.(shortcut)).toBe('Click (autocapture)')
+            expect(eventsGroup?.getValue?.(shortcut)).toBe('quick:$event_type:click:$autocapture')
+            expect(eventsGroup?.getIcon?.(shortcut)).toBeDefined() // oxlint-disable-line jest/no-restricted-matchers
+            expect(eventsGroup?.getPopoverHeader(shortcut)).toBe('Autocapture shortcut')
+
+            const realEvent = { id: 'uuid-evt', name: '$pageview' }
+            expect(eventsGroup?.getName?.(realEvent)).toBe('$pageview')
+            expect(eventsGroup?.getValue?.(realEvent)).toBe('$pageview')
+        })
+    })
 })
 
 describe('redistributeTopMatches', () => {

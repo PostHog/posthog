@@ -136,6 +136,7 @@ const Value = ({
                                     TaxonomicFilterGroupType.Events,
                                     TaxonomicFilterGroupType.Actions,
                                 ]}
+                                enableKeywordShortcuts
                             />
                         ) : (
                             <>
@@ -200,6 +201,7 @@ const AddFilterButton = (props: Omit<LemonButtonProps, 'onClick' | 'sideAction' 
                         setDropdownOpen(false)
                     }}
                     taxonomicGroupTypes={taxonomicGroupTypes}
+                    enableKeywordShortcuts
                 />
             }
             visible={dropdownOpen}
@@ -235,6 +237,7 @@ const PureTaxonomicFilter = ({
                 addGroupFilter(taxonomicGroup, value, item)
             }}
             taxonomicGroupTypes={taxonomicGroupTypes}
+            enableKeywordShortcuts
         />
     )
 }

@@ -20,6 +20,7 @@ import { hasPinnedContext } from 'lib/components/TaxonomicFilter/taxonomicFilter
 import {
     DataWarehousePopoverField,
     DefinitionPopoverRenderer,
+    isQuickFilterItem,
     isSkeletonItem,
     SkeletonItem,
     TaxonomicDefinitionTypes,
@@ -127,6 +128,22 @@ const renderItemContents = ({
     eventNames: string[]
     isActive: boolean
 }): JSX.Element | string => {
+    if (isQuickFilterItem(item)) {
+        const icon = itemGroup.getIcon ? (
+            <div className="taxonomic-list-row-contents-icon">{itemGroup.getIcon(item)}</div>
+        ) : null
+        return (
+            <div className="taxonomic-list-row-contents min-w-0 flex items-center gap-2">
+                {icon}
+                <span className="truncate" title={item.name}>
+                    {item.name}
+                </span>
+                <LemonTag type="primary" size="small">
+                    Shortcut
+                </LemonTag>
+            </div>
+        )
+    }
     if (hasLocalListContext(item)) {
         const icon = isActive ? (
             <div className="taxonomic-list-row-contents-icon">

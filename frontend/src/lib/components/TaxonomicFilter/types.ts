@@ -103,6 +103,10 @@ export interface TaxonomicFilterProps {
     minSearchQueryLength?: number
     /** Override the "Suggested filters" tab label for specific contexts. */
     suggestedFiltersLabel?: string
+    /** Surface inline `$event_type` shortcuts in Events/EventProperties groups when the search
+     *  query matches a known autocapture interaction keyword. Consumers must handle
+     *  `isQuickFilterItem(item)` in their onChange to avoid mis-selecting as an event name. */
+    enableKeywordShortcuts?: boolean
 }
 
 export interface DataWarehousePopoverField {
@@ -182,6 +186,10 @@ export interface TaxonomicFilterGroup {
     minSearchQueryLength?: number
     /** Description shown in the empty state when minSearchQueryLength is set. */
     searchDescription?: string
+    /** Synthetic results surfaced inline when the search query matches a keyword.
+     *  Returned items are QuickFilterItems and flow through existing isQuickFilterItem
+     *  handling in consumer onChange handlers. */
+    keywordShortcuts?: (searchQuery: string) => QuickFilterItem[]
 }
 
 export enum TaxonomicFilterGroupType {

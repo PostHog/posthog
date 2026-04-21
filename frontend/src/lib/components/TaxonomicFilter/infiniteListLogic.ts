@@ -15,6 +15,7 @@ import {
 } from 'lib/components/TaxonomicFilter/taxonomicFilterPinnedPropertiesLogic'
 import {
     InfiniteListLogicProps,
+    QuickFilterItem,
     SkeletonItem,
     isSkeletonItem,
     ListFuse,
@@ -709,6 +710,15 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 )
             },
         ],
+        keywordShortcutItems: [
+            (s) => [s.group, s.searchQuery, (_, props) => props.enableKeywordShortcuts],
+            (
+                group: TaxonomicFilterGroup | undefined,
+                searchQuery: string,
+                enableKeywordShortcuts: boolean | undefined
+            ): QuickFilterItem[] =>
+                enableKeywordShortcuts && searchQuery.trim() ? (group?.keywordShortcuts?.(searchQuery) ?? []) : [],
+        ],
         items: [
             (s) => [
                 s.remoteItems,
@@ -719,6 +729,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 s.contextFilteredRecentItems,
                 s.contextFilteredPinnedItems,
                 s.suggestedPinnedMatches,
+                s.keywordShortcutItems,
             ],
             (
                 remoteItems,
@@ -728,13 +739,15 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 searchQuery,
                 contextFilteredRecentItems,
                 contextFilteredPinnedItems,
-                suggestedPinnedMatches
+                suggestedPinnedMatches,
+                keywordShortcutItems
             ) => {
                 const isSuggested = listGroupType === TaxonomicFilterGroupType.SuggestedFilters
                 const topMatches = isSuggested ? topMatchItemsWithSkeletons : []
                 const recentPrefix = isSuggested && !searchQuery ? (contextFilteredRecentItems || []).slice(0, 3) : []
                 const pinnedPrefix = isSuggested && !searchQuery ? (contextFilteredPinnedItems || []).slice(0, 3) : []
                 const combinedResults = [
+                    ...keywordShortcutItems,
                     ...recentPrefix,
                     ...pinnedPrefix,
                     ...suggestedPinnedMatches,
@@ -745,6 +758,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 return {
                     results: searchQuery ? promoteMatchingProperties(combinedResults, searchQuery) : combinedResults,
                     count:
+                        keywordShortcutItems.length +
                         recentPrefix.length +
                         pinnedPrefix.length +
                         suggestedPinnedMatches.length +

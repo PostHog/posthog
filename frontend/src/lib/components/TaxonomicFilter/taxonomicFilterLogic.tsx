@@ -3,8 +3,9 @@ import { BuiltLogic, actions, connect, kea, key, listeners, path, props, reducer
 import { combineUrl } from 'kea-router'
 import posthog from 'posthog-js'
 
-import { IconFlag, IconServer } from '@posthog/icons'
+import { IconCursor, IconFlag, IconServer } from '@posthog/icons'
 
+import { buildEventTypeShortcuts } from 'lib/components/TaxonomicFilter/eventTypeShortcuts'
 import { infiniteListLogic } from 'lib/components/TaxonomicFilter/infiniteListLogic'
 import { infiniteListLogicType } from 'lib/components/TaxonomicFilter/infiniteListLogicType'
 import {
@@ -17,6 +18,7 @@ import {
     DataWarehousePopoverField,
     ExcludedProperties,
     ListStorage,
+    QuickFilterItem,
     SelectedProperties,
     SimpleOption,
     SkeletonItem,
@@ -219,6 +221,27 @@ export const propertyTaxonomicGroupProps = (
     },
     getIcon: getPropertyDefinitionIcon,
 })
+
+function keywordShortcutValue(item: QuickFilterItem): string {
+    return `quick:${item.propertyKey}:${item.filterValue}${item.eventName ? `:${item.eventName}` : ''}`
+}
+
+function withQuickFilterBranches(
+    base: Pick<TaxonomicFilterGroup, 'getName' | 'getValue' | 'getIcon' | 'getPopoverHeader'>
+): Pick<TaxonomicFilterGroup, 'getName' | 'getValue' | 'getIcon' | 'getPopoverHeader'> {
+    const wrapped: Pick<TaxonomicFilterGroup, 'getName' | 'getValue' | 'getIcon' | 'getPopoverHeader'> = {
+        getName: (item: any) => (isQuickFilterItem(item) ? item.name : (base.getName?.(item) ?? '')),
+        getValue: (item: any) =>
+            isQuickFilterItem(item) ? keywordShortcutValue(item) : (base.getValue?.(item) ?? null),
+        getPopoverHeader: (item: any) =>
+            isQuickFilterItem(item) ? 'Autocapture shortcut' : base.getPopoverHeader(item),
+    }
+    if (base.getIcon) {
+        const baseGetIcon = base.getIcon
+        wrapped.getIcon = (item: any) => (isQuickFilterItem(item) ? <IconCursor /> : baseGetIcon(item))
+    }
+    return wrapped
+}
 
 // Stable reference for CohortsWithAllUsers options to prevent cascading re-renders.
 // taxonomicGroups has 14 dependencies that change during initial mount. Each change creates
@@ -458,10 +481,14 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         }).url,
                         excludedProperties:
                             excludedProperties?.[TaxonomicFilterGroupType.Events]?.filter(isString) ?? [],
-                        getName: (eventDefinition: Record<string, any>) => eventDefinition.name,
-                        getValue: (eventDefinition: Record<string, any>) =>
-                            'id' in eventDefinition ? eventDefinition.name : eventDefinition.value,
-                        ...eventTaxonomicGroupProps,
+                        ...withQuickFilterBranches({
+                            getName: (eventDefinition: Record<string, any>) => eventDefinition.name,
+                            getValue: (eventDefinition: Record<string, any>) =>
+                                'id' in eventDefinition ? eventDefinition.name : eventDefinition.value,
+                            ...eventTaxonomicGroupProps,
+                        }),
+                        keywordShortcuts: (searchQuery: string): QuickFilterItem[] =>
+                            buildEventTypeShortcuts({ searchQuery, includeEventName: true }),
                     },
                     {
                         name: 'Internal Events',
@@ -598,8 +625,6 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                                 'have',
                                 false
                             )}n't been seen with ${pluralize(eventNames.length, 'this event', 'these events', false)}`,
-                        getName: (propertyDefinition: PropertyDefinition) => propertyDefinition.name,
-                        getValue: (propertyDefinition: PropertyDefinition) => propertyDefinition.name,
                         excludedProperties: [
                             ...(excludedProperties?.[TaxonomicFilterGroupType.EventProperties]?.filter(isString) ?? []),
                             ...(!featureFlags[FEATURE_FLAGS.TRAFFIC_TYPE_VIRTUAL_PROPERTIES]
@@ -608,7 +633,13 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         ],
                         propertyAllowList:
                             propertyAllowList?.[TaxonomicFilterGroupType.EventProperties]?.filter(isString),
-                        ...propertyTaxonomicGroupProps(),
+                        ...withQuickFilterBranches({
+                            getName: (propertyDefinition: PropertyDefinition) => propertyDefinition.name,
+                            getValue: (propertyDefinition: PropertyDefinition) => propertyDefinition.name,
+                            ...propertyTaxonomicGroupProps(),
+                        }),
+                        keywordShortcuts: (searchQuery: string): QuickFilterItem[] =>
+                            buildEventTypeShortcuts({ searchQuery, includeEventName: false }),
                     },
                     {
                         name: 'Internal event properties',
@@ -1551,6 +1582,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 // Record to recents (deferred to avoid render loop).
                 // Skip property groups — these are just the key-picking step;
                 // the complete filter (with operator + value) is recorded by propertyFilterLogic.
+                // Skip QuickFilterItem shortcuts — they are synthetic, not real data definitions.
                 const sourceGroupType = hasRecentContext(item) ? item._recentContext.sourceGroupType : group.type
                 const hasCompletePropertyFilter = hasRecentContext(item) && item._recentContext.propertyFilter
                 const isRecordedByPropertyFilterLogic =
@@ -1559,7 +1591,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         SHORTCUT_TO_PROPERTY_FILTER_GROUP_TYPES.has(sourceGroupType) ||
                         sourceGroupType.startsWith(TaxonomicFilterGroupType.GroupsPrefix))
 
-                if (!isRecordedByPropertyFilterLogic) {
+                if (!isRecordedByPropertyFilterLogic && !isQuickFilterItem(item)) {
                     setTimeout(() => {
                         if (recentTaxonomicFiltersLogic.isMounted()) {
                             const stripped = hasRecentContext(item) ? stripRecentContext(item) : item

@@ -732,4 +732,63 @@ describe('infiniteListLogic', () => {
             localItems: { count: 1, results: [{ name: 'selector' }], searchQuery: 'css' },
         })
     })
+
+    describe('keyword shortcuts', () => {
+        const mountEventsLogic = (enableKeywordShortcuts: boolean): ReturnType<typeof infiniteListLogic.build> => {
+            const listLogic = infiniteListLogic({
+                taxonomicFilterLogicKey: `keywordShortcutsTest-${enableKeywordShortcuts}`,
+                listGroupType: TaxonomicFilterGroupType.Events,
+                taxonomicGroupTypes: [TaxonomicFilterGroupType.Events],
+                showNumericalPropsOnly: false,
+                enableKeywordShortcuts,
+            })
+            listLogic.mount()
+            return listLogic
+        }
+
+        it('prepends matching shortcut items when enableKeywordShortcuts is true', async () => {
+            const listLogic = mountEventsLogic(true)
+
+            await expectLogic(listLogic, () => listLogic.actions.setSearchQuery('click'))
+                .toDispatchActions(['setSearchQuery', 'loadRemoteItems', 'loadRemoteItemsSuccess'])
+                .toFinishAllListeners()
+                .toMatchValues({
+                    keywordShortcutItems: partial([
+                        partial({
+                            _type: 'quick_filter',
+                            name: 'Click (autocapture)',
+                            filterValue: 'click',
+                            eventName: '$autocapture',
+                        }),
+                    ]),
+                })
+
+            expect(listLogic.values.items.results[0]).toMatchObject({
+                _type: 'quick_filter',
+                filterValue: 'click',
+            })
+        })
+
+        it('returns no shortcut items when enableKeywordShortcuts is false', async () => {
+            const listLogic = mountEventsLogic(false)
+
+            await expectLogic(listLogic, () => listLogic.actions.setSearchQuery('click'))
+                .toDispatchActions(['setSearchQuery', 'loadRemoteItems', 'loadRemoteItemsSuccess'])
+                .toFinishAllListeners()
+                .toMatchValues({
+                    keywordShortcutItems: [],
+                })
+        })
+
+        it('returns no shortcut items when the search query does not match a keyword', async () => {
+            const listLogic = mountEventsLogic(true)
+
+            await expectLogic(listLogic, () => listLogic.actions.setSearchQuery('xyz'))
+                .toDispatchActions(['setSearchQuery', 'loadRemoteItems', 'loadRemoteItemsSuccess'])
+                .toFinishAllListeners()
+                .toMatchValues({
+                    keywordShortcutItems: [],
+                })
+        })
+    })
 })
