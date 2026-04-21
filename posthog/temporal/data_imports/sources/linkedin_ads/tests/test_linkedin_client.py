@@ -1,7 +1,8 @@
 import json
-from unittest import mock
 
 import pytest
+from unittest import mock
+
 import requests
 
 from posthog.temporal.data_imports.sources.linkedin_ads.client import (
