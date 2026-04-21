@@ -153,31 +153,6 @@ class LogsAlertConfiguration(ModelActivityMixin, CreatedMetaFields, UpdatedMetaF
             )
 
 
-class LogsAlertCheck(UUIDModel):
-    """Defunct — kept in sync with the physical table `logs_logsalertcheck`.
-
-    All production reads and writes go through `LogsAlertEvent` (the new table). This
-    shell class exists solely to match Django's model state with the legacy table
-    created by `0001_initial.py`. PR 4 will drop the table and remove this class.
-    """
-
-    alert = models.ForeignKey(
-        LogsAlertConfiguration,
-        on_delete=models.CASCADE,
-        related_name="checks",
-    )
-    created_at = models.DateTimeField(auto_now_add=True)
-    result_count = models.PositiveIntegerField(null=True, blank=True)
-    threshold_breached = models.BooleanField()
-    state_before = models.CharField(max_length=20)
-    state_after = models.CharField(max_length=20)
-    error_message = models.TextField(null=True, blank=True)
-    query_duration_ms = models.PositiveIntegerField(null=True, blank=True)
-
-    class Meta:
-        db_table = "logs_logsalertcheck"
-
-
 class LogsAlertEvent(UUIDModel):
     # Events (errored, breached, state-transition rows) retained this long for forensics.
     # OK rows are capped by count (MAX_EVALUATION_PERIODS per alert) rather than by time.
