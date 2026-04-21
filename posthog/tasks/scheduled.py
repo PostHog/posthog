@@ -487,7 +487,7 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
     )
 
     # check_alerts_task is no longer registered here — alert checks run via the
-    # ScheduleAllAlertChecksWorkflow Temporal schedule (every 2 minutes on
+    # ScheduleDueAlertChecksWorkflow Temporal schedule (every 2 minutes on
     # ANALYTICS_PLATFORM_TASK_QUEUE). See posthog/temporal/alerts/schedule.py
     # and posthog/temporal/schedule.py. The Celery task function itself is
     # removed in PR4 of the stack.
