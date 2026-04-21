@@ -6626,8 +6626,8 @@ export namespace Schemas {
       records_total_count?: number | null;
       /**
        * The number of bytes that have been exported in this BatchExportRun.
-       * @minimum -9223372036854776000
-       * @maximum 9223372036854776000
+       * @minimum -2147483648
+       * @maximum 2147483647
        * @nullable
        */
       bytes_exported?: number | null;
@@ -6773,8 +6773,8 @@ export namespace Schemas {
       readonly last_updated_at: string;
       /**
        * The total number of records to export. Initially estimated, updated with actual count after completion.
-       * @minimum -9223372036854776000
-       * @maximum 9223372036854776000
+       * @minimum -2147483648
+       * @maximum 2147483647
        * @nullable
        */
       total_records_count?: number | null;
@@ -8831,8 +8831,8 @@ export namespace Schemas {
        */
       video_url?: string | null;
       /**
-       * @minimum -9223372036854776000
-       * @maximum 9223372036854776000
+       * @minimum -2147483648
+       * @maximum 2147483647
        * @nullable
        */
       video_size_bytes?: number | null;
@@ -13467,8 +13467,8 @@ export namespace Schemas {
        */
       video_url?: string | null;
       /**
-       * @minimum -9223372036854776000
-       * @maximum 9223372036854776000
+       * @minimum -2147483648
+       * @maximum 2147483647
        * @nullable
        */
       video_size_bytes?: number | null;
@@ -23638,8 +23638,8 @@ export namespace Schemas {
       readonly uuid: string;
       readonly organization: string;
       /**
-       * @minimum -9223372036854776000
-       * @maximum 9223372036854776000
+       * @minimum -2147483648
+       * @maximum 2147483647
        */
       readonly project_id: number;
       readonly api_token: string;
@@ -25019,8 +25019,8 @@ export namespace Schemas {
        */
       video_url?: string | null;
       /**
-       * @minimum -9223372036854776000
-       * @maximum 9223372036854776000
+       * @minimum -2147483648
+       * @maximum 2147483647
        * @nullable
        */
       video_size_bytes?: number | null;
@@ -28815,8 +28815,8 @@ export namespace Schemas {
       access_control?: boolean;
       readonly organization?: string;
       /**
-       * @minimum -9223372036854776000
-       * @maximum 9223372036854776000
+       * @minimum -2147483648
+       * @maximum 2147483647
        */
       readonly project_id?: number;
       readonly api_token?: string;
@@ -34284,8 +34284,8 @@ export namespace Schemas {
       access_control?: boolean;
       readonly organization: string;
       /**
-       * @minimum -9223372036854776000
-       * @maximum 9223372036854776000
+       * @minimum -2147483648
+       * @maximum 2147483647
        */
       readonly project_id: number;
       readonly api_token: string;

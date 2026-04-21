@@ -2755,8 +2755,8 @@ export interface TeamBasicApi {
     readonly uuid: string
     readonly organization: string
     /**
-     * @minimum -9223372036854776000
-     * @maximum 9223372036854776000
+     * @minimum -2147483648
+     * @maximum 2147483647
      */
     readonly project_id: number
     readonly api_token: string
