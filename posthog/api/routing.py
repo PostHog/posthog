@@ -281,11 +281,6 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):  # TODO: Rename to include "Env" 
                     detail="Project not found."  # TODO: "Environment" instead of "Project" when project environments are rolled out
                 )
 
-        # Wrap the organization access in try/except so an orphaned FK row (or replica lag
-        # hiding the organization) doesn't 500 the request. On the two branches above that
-        # did not select_related("organization") (token-auth and user.team), this access
-        # lazy-loads the organization — accepted as a per-request cost for uniform tagging
-        # coverage across all branches.
         org_id: Optional[UUID] = None
         ai_data_processing_approved: Optional[bool] = None
         try:
