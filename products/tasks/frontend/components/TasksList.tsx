@@ -26,8 +26,8 @@ import { TaskStatusBadge } from './TaskStatusBadge'
 import { UserFilter } from './UserFilter'
 
 export function TasksList(): JSX.Element {
-    const { filteredTasks, searchQuery, repository, status, isCreateModalOpen } = useValues(taskTrackerSceneLogic)
-    const { tasksLoading, repositories } = useValues(tasksLogic)
+    const { searchQuery, repository, status, isCreateModalOpen } = useValues(taskTrackerSceneLogic)
+    const { tasks, tasksLoading, repositories } = useValues(tasksLogic)
     const { setSearchQuery, setRepository, setStatus, openCreateModal, closeCreateModal } =
         useActions(taskTrackerSceneLogic)
     const columns: LemonTableColumn<Task, keyof Task | undefined>[] = [
@@ -144,7 +144,7 @@ export function TasksList(): JSX.Element {
                 </div>
             ) : (
                 <LemonTable
-                    dataSource={filteredTasks}
+                    dataSource={tasks}
                     columns={columns}
                     rowKey="id"
                     onRow={(task) => ({

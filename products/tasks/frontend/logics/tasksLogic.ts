@@ -1,4 +1,4 @@
-import { actions, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, kea, listeners, path, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 
@@ -9,7 +9,7 @@ import { addProductIntent } from 'lib/utils/product-intents'
 
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 
-import { Task, TaskUpsertProps } from '../types'
+import { Task, TaskListParams, TaskUpsertProps } from '../types'
 import type { tasksLogicType } from './tasksLogicType'
 
 export const tasksLogic = kea<tasksLogicType>([
@@ -24,8 +24,8 @@ export const tasksLogic = kea<tasksLogicType>([
         tasks: [
             [] as Task[],
             {
-                loadTasks: async () => {
-                    const response = await api.tasks.list()
+                loadTasks: async (params: TaskListParams = {}) => {
+                    const response = await api.tasks.list(params)
                     return response.results
                 },
                 createTask: async ({ data }: { data: TaskUpsertProps }) => {
@@ -44,22 +44,24 @@ export const tasksLogic = kea<tasksLogicType>([
                 },
             },
         ],
+        repositories: [
+            [] as string[],
+            {
+                // Repositories are loaded via a dedicated endpoint instead of being derived
+                // from `tasks` so the picker is not constrained by list pagination or by the
+                // filter currently applied to the task list.
+                loadRepositories: async () => {
+                    const response = await api.tasks.repositories()
+                    return response.repositories
+                },
+            },
+        ],
     })),
 
     reducers({
         tasks: {
             updateTask: (state, { task }) => state.map((t) => (t.id === task.id ? task : t)),
         },
-    }),
-
-    selectors({
-        repositories: [
-            (s) => [s.tasks],
-            (tasks): string[] => {
-                const repos = new Set(tasks.map((task) => task.repository ?? '').filter((repo) => repo !== ''))
-                return Array.from(repos).sort()
-            },
-        ],
     }),
 
     listeners(() => ({
