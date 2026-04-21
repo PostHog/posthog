@@ -5,7 +5,7 @@ import { useActions, useValues } from 'kea'
 import { combineUrl } from 'kea-router'
 import { useMemo, useState } from 'react'
 
-import { IconPencil, IconTrash, IconWarning } from '@posthog/icons'
+import { IconColumns, IconPencil, IconTrash, IconWarning } from '@posthog/icons'
 import { LemonCheckbox, LemonDialog, LemonInput, LemonMenu, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -212,6 +212,10 @@ export interface PropertiesTableProps extends BasePropertyType {
     /** Whether this table should be style for being embedded. Default: true. */
     embedded?: boolean
     onDelete?: (key: string) => void
+    /** When set, render a button per root-level property row that invokes this with the property key. */
+    onAddAsColumn?: (key: string) => void
+    /** When set, hide the add-as-column button for keys this returns true for (e.g. already a column). */
+    isColumnShown?: (key: string) => boolean
     className?: string
     /* only event types are detected and so describe-able. see https://github.com/PostHog/posthog/issues/9245 */
     useDetectedPropertyType?: boolean
@@ -235,6 +239,8 @@ export function PropertiesTable({
     embedded = true,
     nestingLevel = 0,
     onDelete,
+    onAddAsColumn,
+    isColumnShown,
     className,
     useDetectedPropertyType,
     tableProps,
@@ -460,6 +466,30 @@ export function PropertiesTable({
                 },
             },
         ]
+
+        if (onAddAsColumn && nestingLevel === 0) {
+            columns.push({
+                key: 'add-as-column',
+                title: '',
+                width: 0,
+                render: function AddAsColumn(_, item: any): JSX.Element | false {
+                    const propertyKey = String(item[0])
+                    if (isColumnShown?.(propertyKey)) {
+                        return false
+                    }
+                    return (
+                        <Tooltip title="Add to columns shown">
+                            <LemonButton
+                                icon={<IconColumns />}
+                                size="small"
+                                data-attr="add-property-as-column"
+                                onClick={() => onAddAsColumn(propertyKey)}
+                            />
+                        </Tooltip>
+                    )
+                },
+            })
+        }
 
         columns.push({
             key: 'copy',

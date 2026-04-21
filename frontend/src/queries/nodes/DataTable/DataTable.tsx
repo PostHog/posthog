@@ -182,6 +182,7 @@ export function DataTable({
 
     const canUseWebAnalyticsPreAggregatedTables = useFeatureFlag('SETTINGS_WEB_ANALYTICS_PRE_AGGREGATED_TABLES')
     const hasCustomerAnalyticsEnabled = useFeatureFlag('CUSTOMER_ANALYTICS')
+    const addPropertyAsColumnEnabled = useFeatureFlag('ADD_PROPERTY_AS_COLUMN')
     const usedWebAnalyticsPreAggregatedTables =
         canUseWebAnalyticsPreAggregatedTables &&
         response &&
@@ -236,6 +237,43 @@ export function DataTable({
         showActions && sourceFeatures.has(QueryFeature.eventActionsColumn) && columnsInResponse?.includes('*')
     const recordingColumnShown =
         showRecordingColumn && sourceFeatures.has(QueryFeature.eventActionsColumn) && columnsInResponse?.includes('*')
+
+    const canAddPropertyAsColumn =
+        !!addPropertyAsColumnEnabled &&
+        !isReadOnly &&
+        !!setQuery &&
+        sourceFeatures.has(QueryFeature.selectAndOrderByColumns) &&
+        columnFeatures.includes(ColumnFeature.canAddColumns) &&
+        (isEventsQuery(query.source) || isRevenueExampleEventsQuery(query.source))
+
+    const addPropertyAsColumn = canAddPropertyAsColumn
+        ? (key: string) => {
+              const column = taxonomicEventFilterToHogQL(TaxonomicFilterGroupType.EventProperties, key)
+              if (!column) {
+                  return
+              }
+              const source = query.source as EventsQuery
+              const currentSelect = source.select ?? getDataNodeDefaultColumns(source)
+              if (currentSelect.includes(column)) {
+                  return
+              }
+              setQuery({
+                  ...query,
+                  source: { ...source, select: [...currentSelect, column] },
+              })
+          }
+        : undefined
+
+    const isPropertyShownAsColumn = canAddPropertyAsColumn
+        ? (key: string) => {
+              const column = taxonomicEventFilterToHogQL(TaxonomicFilterGroupType.EventProperties, key)
+              if (!column) {
+                  return false
+              }
+              const source = query.source as EventsQuery
+              return (source.select ?? []).includes(column)
+          }
+        : undefined
 
     const allColumns = sourceFeatures.has(QueryFeature.columnsInResponse)
         ? (columnsInResponse ?? columnsInQuery)
@@ -903,11 +941,19 @@ export function DataTable({
                                                         return (
                                                             <EventDetails
                                                                 event={result[columnsInResponse.indexOf('*')] ?? {}}
+                                                                onAddAsColumn={addPropertyAsColumn}
+                                                                isColumnShown={isPropertyShownAsColumn}
                                                             />
                                                         )
                                                     }
                                                     if (result && !Array.isArray(result)) {
-                                                        return <EventDetails event={result as EventType} />
+                                                        return (
+                                                            <EventDetails
+                                                                event={result as EventType}
+                                                                onAddAsColumn={addPropertyAsColumn}
+                                                                isColumnShown={isPropertyShownAsColumn}
+                                                            />
+                                                        )
                                                     }
                                                 },
                                                 rowExpandable: ({ result }) => !!result,
