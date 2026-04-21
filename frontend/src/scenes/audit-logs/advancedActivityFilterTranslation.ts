@@ -1,10 +1,8 @@
 import { CyclotronJobFilterPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
 
-import { AdvancedActivityLogFilters, DetailFilter } from './advancedActivityLogsLogic'
+import { AdvancedActivityLogFilters, DEFAULT_START_DATE, DetailFilter } from './advancedActivityLogsLogic'
 
 const WHITELISTED_DETAIL_PATHS = new Set(['name', 'changes'])
-// Matches advancedActivityLogsLogic's DEFAULT_FILTERS.start_date — treat this as "no date filter applied".
-const DEFAULT_START_DATE = '-30d'
 
 const operationToOperator = (operation: DetailFilter['operation']): PropertyOperator => {
     switch (operation) {

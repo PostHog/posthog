@@ -1,11 +1,11 @@
 import { ActivityScope, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { advancedActivityFiltersToHogProperties } from './advancedActivityFilterTranslation'
-import { AdvancedActivityLogFilters } from './advancedActivityLogsLogic'
+import { AdvancedActivityLogFilters, DEFAULT_START_DATE } from './advancedActivityLogsLogic'
 
 describe('advancedActivityFiltersToHogProperties', () => {
     const baseFilter = (overrides: Partial<AdvancedActivityLogFilters> = {}): AdvancedActivityLogFilters => ({
-        start_date: '-30d',
+        start_date: DEFAULT_START_DATE,
         users: [],
         scopes: [],
         activities: [],
@@ -15,44 +15,39 @@ describe('advancedActivityFiltersToHogProperties', () => {
         ...overrides,
     })
 
-    it('maps scopes to a single scope property filter with Exact operator', () => {
-        const result = advancedActivityFiltersToHogProperties(
-            baseFilter({ scopes: [ActivityScope.INSIGHT, ActivityScope.DASHBOARD] })
-        )
-        expect(result.properties).toEqual([
-            {
-                key: 'scope',
-                type: PropertyFilterType.Event,
-                value: [ActivityScope.INSIGHT, ActivityScope.DASHBOARD],
-                operator: PropertyOperator.Exact,
-            },
-        ])
-        expect(result.droppedFields).toEqual([])
-    })
-
-    it('maps activities to an activity property filter', () => {
-        const result = advancedActivityFiltersToHogProperties(baseFilter({ activities: ['created', 'updated'] }))
-        expect(result.properties).toEqual([
-            {
-                key: 'activity',
-                type: PropertyFilterType.Event,
-                value: ['created', 'updated'],
-                operator: PropertyOperator.Exact,
-            },
-        ])
-    })
-
-    it('maps item_ids to an item_id property filter', () => {
-        const result = advancedActivityFiltersToHogProperties(baseFilter({ item_ids: ['abc', 'def'] }))
-        expect(result.properties).toEqual([
-            {
-                key: 'item_id',
-                type: PropertyFilterType.Event,
-                value: ['abc', 'def'],
-                operator: PropertyOperator.Exact,
-            },
-        ])
-    })
+    it.each([
+        {
+            field: 'scopes',
+            values: [ActivityScope.INSIGHT, ActivityScope.DASHBOARD],
+            expectedKey: 'scope',
+        },
+        {
+            field: 'activities',
+            values: ['created', 'updated'],
+            expectedKey: 'activity',
+        },
+        {
+            field: 'item_ids',
+            values: ['abc', 'def'],
+            expectedKey: 'item_id',
+        },
+    ] as const)(
+        'maps $field to "$expectedKey" property filter with Exact operator',
+        ({ field, values, expectedKey }) => {
+            const result = advancedActivityFiltersToHogProperties(
+                baseFilter({ [field]: values } as Partial<AdvancedActivityLogFilters>)
+            )
+            expect(result.properties).toEqual([
+                {
+                    key: expectedKey,
+                    type: PropertyFilterType.Event,
+                    value: values,
+                    operator: PropertyOperator.Exact,
+                },
+            ])
+            expect(result.droppedFields).toEqual([])
+        }
+    )
 
     it('maps was_impersonated and is_system booleans', () => {
         const result = advancedActivityFiltersToHogProperties(baseFilter({ was_impersonated: true, is_system: false }))
@@ -104,7 +99,7 @@ describe('advancedActivityFiltersToHogProperties', () => {
         const result = advancedActivityFiltersToHogProperties(
             baseFilter({
                 users: ['u1'],
-                start_date: '-30d',
+                start_date: DEFAULT_START_DATE,
                 end_date: '-1d',
                 detail_filters: {
                     name: { operation: 'exact', value: 'keep me' },

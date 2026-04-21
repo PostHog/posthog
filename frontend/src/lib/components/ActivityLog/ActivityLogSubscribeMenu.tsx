@@ -1,7 +1,7 @@
 import { combineUrl, router } from 'kea-router'
 
 import { IconBell } from '@posthog/icons'
-import { LemonButton, LemonMenu, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonMenu } from '@posthog/lemon-ui'
 
 import { LemonMenuItems } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { HOG_FUNCTION_SUB_TEMPLATES } from 'scenes/hog-functions/sub-templates/sub-templates'
@@ -71,7 +71,7 @@ export function ActivityLogSubscribeMenu({
     )
 
     if (disabledReason) {
-        return <Tooltip title={disabledReason}>{trigger}</Tooltip>
+        return trigger
     }
 
     return (
