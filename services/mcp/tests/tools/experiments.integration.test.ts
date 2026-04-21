@@ -753,6 +753,8 @@ describe('Experiments', { concurrent: false }, () => {
         })
 
         it('should handle funnel with single step', async () => {
+            // A single-step series is valid for experiments: the exposure event is
+            // prepended at query time, yielding a conversion-rate funnel from exposure to event.
             const flagKey = generateUniqueKey('exp-single-funnel-flag')
 
             const params = {

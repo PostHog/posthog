@@ -593,7 +593,7 @@ def get_distinct_ids_for_subquery(person: Person | None, team: Team) -> list[str
             .order_by("-id")
             .values_list("distinct_id", flat=True)[:last_ids_limit]
         )
-        distinct_ids = cast(Any, first_ids.union(last_ids))
+        distinct_ids = cast(Any, first_ids).union(last_ids)
     else:
         distinct_ids = []
     return list(map(str, distinct_ids))

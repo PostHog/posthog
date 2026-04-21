@@ -257,7 +257,7 @@ class TestTaskAPI(BaseTaskAPITest):
         self.assertEqual(data["repository"], "posthog/posthog")
 
     def test_create_task_with_signal_report_same_team(self):
-        from products.signals.backend.models import SignalReport
+        from products.signals.backend.models import SignalReport, SignalReportTask
 
         report = SignalReport.objects.create(team=self.team)
         response = self.client.post(
@@ -267,11 +267,18 @@ class TestTaskAPI(BaseTaskAPITest):
                 "description": "From a signal report",
                 "origin_product": "signal_report",
                 "signal_report": str(report.id),
+                "signal_report_task_relationship": SignalReportTask.Relationship.IMPLEMENTATION.value,
             },
             format="json",
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        self.assertEqual(response.json()["signal_report"], str(report.id))
+        data = response.json()
+        self.assertEqual(data["signal_report"], str(report.id))
+        link = SignalReportTask.objects.get(
+            report=report,
+            relationship=SignalReportTask.Relationship.IMPLEMENTATION,
+        )
+        self.assertEqual(str(link.task_id), data["id"])
 
     def test_create_task_with_signal_report_different_team_rejected(self):
         from products.signals.backend.models import SignalReport

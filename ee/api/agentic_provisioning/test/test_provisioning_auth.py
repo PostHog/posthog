@@ -46,7 +46,7 @@ _RSA_KEY = _generate_rsa_key()
 
 @pytest.mark.requires_secrets
 @override_settings(
-    STRIPE_APP_SECRET_KEY=HMAC_SECRET,
+    STRIPE_SIGNING_SECRET=HMAC_SECRET,
     STRIPE_POSTHOG_OAUTH_CLIENT_ID=TEST_STRIPE_OAUTH_CLIENT_ID,
     STRIPE_ORCHESTRATOR_CALLBACK_URL="https://stripe.com/callback",
     OIDC_RSA_PRIVATE_KEY=_RSA_KEY,

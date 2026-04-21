@@ -8,6 +8,7 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { logsViewerFiltersLogic } from 'products/logs/frontend/components/LogsViewer/Filters/logsViewerFiltersLogic'
 import { LogsViewApi, LogsViewApiFilters } from 'products/logs/frontend/generated/api.schemas'
+import { DEFAULT_ACTIVE_TAB, logsSceneLogic } from 'products/logs/frontend/logsSceneLogic'
 
 import type { logsViewsLogicType } from './logsViewsLogicType'
 
@@ -26,7 +27,12 @@ export const logsViewsLogic = kea<logsViewsLogicType>([
 
     connect((props: LogsViewsLogicProps) => ({
         values: [teamLogic, ['currentTeamId']],
-        actions: [logsViewerFiltersLogic({ id: props.id }), ['setFilters']],
+        actions: [
+            logsViewerFiltersLogic({ id: props.id }),
+            ['setFilters'],
+            logsSceneLogic({ tabId: props.id }),
+            ['setActiveTab'],
+        ],
     })),
 
     actions({
@@ -72,6 +78,7 @@ export const logsViewsLogic = kea<logsViewsLogicType>([
         },
         loadView: ({ view }) => {
             actions.setFilters(view.filters || {})
+            actions.setActiveTab(DEFAULT_ACTIVE_TAB)
         },
         createViewFailure: () => {
             lemonToast.error('Failed to save view')

@@ -994,6 +994,68 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             process_person_profile=True,
         )
 
+    @mock.patch("posthog.api.person.capture_internal")
+    def test_update_person_property_with_null_value(self, mock_capture) -> None:
+        person = _create_person(
+            team=self.team,
+            distinct_ids=["some_distinct_id"],
+            properties={"$browser": "whatever", "$os": "Mac OS X"},
+            immediate=True,
+        )
+
+        response = self.client.post(
+            f"/api/person/{person.uuid}/update_property",
+            {"key": "foo", "value": None},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 202)
+        mock_capture.assert_called_once_with(
+            token=self.team.api_token,
+            event_name="$set",
+            event_source="person_viewset",
+            distinct_id="some_distinct_id",
+            timestamp=mock.ANY,
+            properties={
+                "$set": {"foo": None},
+            },
+            process_person_profile=True,
+        )
+
+    def test_update_person_property_missing_value_returns_400(self) -> None:
+        person = _create_person(
+            team=self.team,
+            distinct_ids=["some_distinct_id"],
+            properties={"$browser": "whatever"},
+            immediate=True,
+        )
+
+        response = self.client.post(
+            f"/api/person/{person.uuid}/update_property",
+            {"key": "foo"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["attr"], "value")
+
+    def test_update_person_property_missing_key_returns_400(self) -> None:
+        person = _create_person(
+            team=self.team,
+            distinct_ids=["some_distinct_id"],
+            properties={"$browser": "whatever"},
+            immediate=True,
+        )
+
+        response = self.client.post(
+            f"/api/person/{person.uuid}/update_property",
+            {"value": "bar"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["attr"], "key")
+
     def test_return_non_anonymous_name(self) -> None:
         _create_person(
             team=self.team,
