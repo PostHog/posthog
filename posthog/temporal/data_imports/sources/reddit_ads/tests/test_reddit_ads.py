@@ -184,3 +184,57 @@ class TestRedditAdsPaginator:
 
         # URL should remain unchanged
         assert mock_request.url == original_url
+
+    def test_get_resume_state_fresh_paginator(self):
+        """A freshly constructed paginator has no page to resume to."""
+        paginator = RedditAdsPaginator()
+        assert paginator.get_resume_state() is None
+
+    def test_get_resume_state_after_update(self):
+        """Once update_state has parsed a next_url, it becomes the resume state."""
+        paginator = RedditAdsPaginator()
+
+        mock_response = mock.MagicMock()
+        mock_response.json.return_value = {"pagination": {"next_url": "https://api.reddit.com/page-2"}}
+        paginator.update_state(mock_response)
+
+        assert paginator.get_resume_state() == {"next_url": "https://api.reddit.com/page-2"}
+
+    def test_get_resume_state_after_terminal_page(self):
+        """On the terminal page there is nothing to resume to."""
+        paginator = RedditAdsPaginator()
+
+        mock_response = mock.MagicMock()
+        mock_response.json.return_value = {"pagination": {}}
+        paginator.update_state(mock_response)
+
+        assert paginator.get_resume_state() is None
+
+    def test_set_resume_state_round_trip(self):
+        """set_resume_state then get_resume_state returns the same value."""
+        paginator = RedditAdsPaginator()
+        paginator.set_resume_state({"next_url": "https://api.reddit.com/page-5"})
+
+        assert paginator._next_url == "https://api.reddit.com/page-5"
+        assert paginator._has_next_page is True
+        assert paginator.get_resume_state() == {"next_url": "https://api.reddit.com/page-5"}
+
+    def test_init_request_uses_seeded_next_url(self):
+        """A paginator seeded via set_resume_state rewrites the initial request URL."""
+        paginator = RedditAdsPaginator()
+        paginator.set_resume_state({"next_url": "https://api.reddit.com/page-3"})
+
+        mock_request = mock.MagicMock()
+        paginator.init_request(mock_request)
+
+        assert mock_request.url == "https://api.reddit.com/page-3"
+
+    def test_init_request_no_seeded_url(self):
+        """Without resume state the initial request URL is left untouched."""
+        paginator = RedditAdsPaginator()
+
+        mock_request = mock.MagicMock()
+        original_url = mock_request.url
+        paginator.init_request(mock_request)
+
+        assert mock_request.url == original_url
