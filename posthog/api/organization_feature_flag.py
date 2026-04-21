@@ -2,11 +2,13 @@ import copy
 from typing import cast
 
 import structlog
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import OpenApiParameter
 from rest_framework import mixins, serializers, status, viewsets
 from rest_framework.response import Response
 
 from posthog.api.cohort import CohortSerializer
-from posthog.api.documentation import extend_schema
+from posthog.api.documentation import _FallbackSerializer, extend_schema
 from posthog.api.feature_flag import FeatureFlagSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
@@ -63,12 +65,17 @@ class OrganizationFeatureFlagView(
     mixins.RetrieveModelMixin,
 ):
     scope_object = "INTERNAL"
+    serializer_class = _FallbackSerializer
     """
     Retrieves all feature flags for a given organization and key.
     """
 
     lookup_field = "feature_flag_key"
 
+    @extend_schema(
+        operation_id="org_feature_flags_retrieve",
+        parameters=[OpenApiParameter("feature_flag_key", OpenApiTypes.STR, OpenApiParameter.PATH)],
+    )
     def retrieve(self, request, *args, **kwargs):
         feature_flag_key = kwargs.get(self.lookup_field)
 

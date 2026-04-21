@@ -7,6 +7,7 @@ from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
+from posthog.api.documentation import _FallbackSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
 
 from products.data_warehouse.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
@@ -16,6 +17,7 @@ from products.data_warehouse.backend.models.table import DataWarehouseTable
 class LineageViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     permission_classes = [IsAuthenticated]
     scope_object = "INTERNAL"
+    serializer_class = _FallbackSerializer
 
     def safely_get_queryset(self, queryset=None):
         return super().safely_get_queryset(queryset).filter(team_id=self.team_id)
