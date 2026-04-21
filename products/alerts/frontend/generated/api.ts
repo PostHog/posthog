@@ -35,6 +35,9 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
       }
     : DistributeReadOnlyOverUnions<T>
 
+/**
+ * @summary List insight alerts
+ */
 export const getAlertsListUrl = (projectId: string, params?: AlertsListParams) => {
     const normalizedParams = new URLSearchParams()
 

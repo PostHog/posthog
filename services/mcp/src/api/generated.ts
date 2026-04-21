@@ -33488,9 +33488,17 @@ export namespace Schemas {
 
     export type EnvironmentsAlertsListParams = {
     /**
+     * Only return alerts attached to this insight ID.
+     */
+    insight_id?: number;
+    /**
      * Number of results to return per page.
      */
     limit?: number;
+    /**
+     * Case-insensitive substring match on alert name.
+     */
+    name?: string;
     /**
      * The initial index from which to return the results.
      */
@@ -37112,9 +37120,17 @@ export namespace Schemas {
 
     export type AlertsListParams = {
     /**
+     * Only return alerts attached to this insight ID.
+     */
+    insight_id?: number;
+    /**
      * Number of results to return per page.
      */
     limit?: number;
+    /**
+     * Case-insensitive substring match on alert name.
+     */
+    name?: string;
     /**
      * The initial index from which to return the results.
      */

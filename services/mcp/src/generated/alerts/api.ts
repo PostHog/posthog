@@ -8,6 +8,9 @@
  */
 import * as zod from 'zod'
 
+/**
+ * @summary List insight alerts
+ */
 export const AlertsListParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
