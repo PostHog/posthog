@@ -7,7 +7,6 @@ from typing import Any, Optional
 
 from django.conf import settings
 
-import temporalio
 from temporalio import workflow
 from temporalio.common import RetryPolicy
 from temporalio.workflow import ParentClosePolicy
@@ -84,6 +83,9 @@ CI_FOLLOW_UP_DELAY = timedelta(minutes=15)
 RELAY_SANDBOX_EVENTS_START_TO_CLOSE_TIMEOUT = timedelta(hours=24)
 PENDING_MESSAGE_FORWARD_TIMEOUT_SECONDS = 180
 MAX_CI_REPETITIONS = 3
+RUNNER_INACTIVITY_TIMEOUT = timedelta(minutes=6)
+PR_DEBOUNCE_TIME = timedelta(minutes=1)
+PR_MAX_WAIT_TIME = timedelta(minutes=10)
 DEFAULT_CI_MESSAGE = """\
 You are re-entering this run to address CI feedback on the pull request you opened.
 
@@ -127,7 +129,7 @@ def _deprecate_ci_follow_up_pr_context_patch() -> None:
     workflow.deprecate_patch(_PATCH_ID_CI_FOLLOW_UP_PR_CONTEXT)
 
 
-@temporalio.workflow.defn(name="process-task")
+@workflow.defn(name="process-task")
 class ProcessTaskWorkflow(PostHogWorkflow):
     def __init__(self) -> None:
         self._context: Optional[TaskProcessingContext] = None
@@ -141,6 +143,10 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         self._pending_followup: Optional[dict[str, Any]] = None
         self._ci_repetitions: int = 0
         self._last_active_time: Optional[datetime] = None
+        self._pr_event_received: bool = False
+        self._pr_event_time: Optional[datetime] = None
+        self._pr_waiting_since: Optional[datetime] = None
+        self._pr_fingerprint: Optional[str] = None
         # Tracks which progress step is currently in-progress (step, label,
         # group) so we can emit a "failed" transition from the workflow-level
         # exception handler onto the right card.
@@ -176,6 +182,29 @@ class ProcessTaskWorkflow(PostHogWorkflow):
     async def _wait_for_inactivity(self, timeout: timedelta = INACTIVITY_TIMEOUT):
         await workflow.sleep(timeout.total_seconds())
         return TaskEvent.TIMEOUT_REACHED
+
+    def _time_until_inactive(self) -> timedelta:
+        if self._last_active_time is None:
+            return timedelta(seconds=0)
+        return RUNNER_INACTIVITY_TIMEOUT - (workflow.now() - self._last_active_time)
+
+    async def _wait_for_runner_inactivity(self):
+        if self._time_until_inactive().total_seconds() > 0:
+            await workflow.sleep(self._time_until_inactive().total_seconds())
+
+    async def _debounce_pr_events(self):
+        if not self._pr_event_time:
+            raise RuntimeError("PR event time is not set for debounce")
+        await self._wait_for_runner_inactivity()
+        elapsed = workflow.now() - self._pr_event_time
+        if elapsed < PR_DEBOUNCE_TIME:
+            workflow.logger.info(
+                "Debouncing PR event",
+                run_id=self.context.run_id,
+                elapsed_seconds=elapsed.total_seconds(),
+            )
+            await workflow.sleep((PR_DEBOUNCE_TIME - elapsed).total_seconds())
+        return TaskEvent.CI_FOLLOW_UP
 
     async def _wait_for_ci_follow_up(self):
         if self._last_active_time:
@@ -214,6 +243,12 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         ]
         if ci_follow_up_scheduled:
             possible_events.append(asyncio.create_task(self._wait_for_ci_follow_up()))
+        if self._pr_event_time:
+            workflow.logger.info(
+                "Waiting for PR event debounce",
+                run_id=self.context.run_id,
+            )
+            possible_events.append(asyncio.create_task(self._debounce_pr_events()))
         done, pending = await workflow.wait(possible_events, return_when=asyncio.FIRST_COMPLETED)
         for task in pending:
             task.cancel()
@@ -421,6 +456,13 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                             )
                             self._heartbeat_received = False
                             continue
+                        if self._pr_event_received:
+                            workflow.logger.info(
+                                "PR event received, debouncing and checking for follow-up",
+                                run_id=self.context.run_id,
+                            )
+                            self._pr_event_received = False
+                            self._pr_event_time = workflow.now()
                     case _:
                         raise ValueError(f"Unknown event type: {event}")
 
@@ -837,19 +879,19 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             retry_policy=RetryPolicy(maximum_attempts=2),
         )
 
-    @temporalio.workflow.signal
+    @workflow.signal
     async def complete_task(self, status: str = "completed", error_message: Optional[str] = None) -> None:
         self._completion_status = status
         self._completion_error = error_message
         self._task_completed = True
 
-    @temporalio.workflow.signal
+    @workflow.signal
     async def heartbeat(self, agent_active: bool = False) -> None:
         self._heartbeat_received = True
         if agent_active:
             self._last_active_time = workflow.now()
 
-    @temporalio.workflow.signal
+    @workflow.signal
     async def send_followup_message(self, message: str | None = None, artifact_ids: Optional[list[str]] = None) -> None:
         # Log signal arrival so we can correlate it with the adapter's "begin dispatch"
         # log below — gaps between the two point at workflow-loop backpressure.
@@ -863,6 +905,10 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             "message": message,
             "artifact_ids": artifact_ids or [],
         }
+
+    @workflow.signal
+    async def pr_event(self) -> None:
+        self._pr_event_received = True
 
     async def _send_followup_to_sandbox(self, message: str | None, artifact_ids: list[str]) -> None:
         workflow.logger.info(

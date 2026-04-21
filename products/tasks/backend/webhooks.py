@@ -7,7 +7,6 @@ from datetime import timedelta
 from typing import TYPE_CHECKING
 
 from django.http import HttpRequest, HttpResponse
-from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
 
 import structlog
@@ -29,6 +28,8 @@ TASK_RUN_SELECT_RELATED = ("task", "task__created_by", "team")
 MAX_COMMENT_BODY_LENGTH = 4000
 
 RESUME_COOLDOWN = timedelta(seconds=60)
+
+CHECK_RUN_ACCEPTABLE_CONCLUSIONS = {"success", "neutral", "cancelled", "skipped"}
 
 
 def find_task_run(
@@ -127,12 +128,47 @@ def github_pr_webhook(request: HttpRequest) -> HttpResponse:
 
     if event_type == "pull_request":
         return _handle_pull_request_event(payload)
-    elif event_type == "issue_comment":
-        return _handle_issue_comment_event(payload)
-    elif event_type == "pull_request_review_comment":
-        return _handle_review_comment_event(payload)
+    elif event_type in ("issue_comment", "pull_request_review_comment", "pull_request_review"):
+        return _handle_comment_event(payload)
+    elif event_type == "check_run":
+        return _handle_check_run_event(payload)
     else:
         return HttpResponse(status=200)
+
+
+def _handle_check_run_event(payload: dict) -> HttpResponse:
+    # This is a placeholder for handling GitHub Actions workflow_run events if needed in the future.
+    # For now, we simply log the event and return a 200 response.
+    logger.info(
+        "github_workflow_run_webhook_received",
+        action=payload.get("action"),
+        workflow_run_name=payload.get("workflow_run", {}).get("name"),
+        repository=payload.get("repository", {}).get("full_name"),
+    )
+    if payload.get("action") != "completed":
+        return HttpResponse(status=200)
+
+    check_run = payload.get("check_run", {})
+    pr_url = check_run.get("pull_requests", [{}])[0].get("url")
+    conclusion = check_run.get("conclusion")
+    if conclusion not in CHECK_RUN_ACCEPTABLE_CONCLUSIONS:
+        logger.info(
+            "github_check_run_unacceptable_conclusion",
+            conclusion=conclusion,
+            check_run_name=check_run.get("name"),
+        )
+        if pr_url:
+            task_run = find_task_run(pr_url=pr_url, branch=None)
+            if task_run:
+                task_run.emit_console_event(
+                    "info", f"Check run '{check_run.get('name')}' completed with conclusion: {conclusion}"
+                )
+                task_run.capture_event(
+                    "check_run_completed", {"check_run_name": check_run.get("name"), "conclusion": conclusion}
+                )
+                _forward_pr_activity_to_task(pr_url=pr_url, branch=None)
+
+    return HttpResponse(status=200)
 
 
 def _handle_pull_request_event(payload: dict) -> HttpResponse:
@@ -191,74 +227,27 @@ def _handle_pull_request_event(payload: dict) -> HttpResponse:
     return HttpResponse(status=200)
 
 
-def _handle_issue_comment_event(payload: dict) -> HttpResponse:
-    action = payload.get("action")
-    if action != "created":
+def _handle_comment_event(payload: dict) -> HttpResponse:
+    if payload.get("action") != "created":
         return HttpResponse(status=200)
 
-    comment = payload.get("comment", {})
-    issue = payload.get("issue", {})
-
-    # Only process comments on PRs (issue_comment fires for issues too)
-    if "pull_request" not in issue:
-        return HttpResponse(status=200)
-
-    commenter = comment.get("user", {})
-    if commenter.get("type") == "Bot":
-        return HttpResponse(status=200)
-
-    pr_url = issue.get("pull_request", {}).get("html_url")
-    if not pr_url:
-        return HttpResponse(status=200)
-
-    comment_body = comment.get("body", "")[:MAX_COMMENT_BODY_LENGTH]
-    commenter_login = commenter.get("login", "unknown")
-
-    message = f"[GitHub PR Comment from @{commenter_login}]\n{comment_body}"
-
-    _forward_comment_to_task(pr_url=pr_url, branch=None, message=message)
-    return HttpResponse(status=200)
-
-
-def _handle_review_comment_event(payload: dict) -> HttpResponse:
-    action = payload.get("action")
-    if action != "created":
-        return HttpResponse(status=200)
-
-    comment = payload.get("comment", {})
-    pull_request = payload.get("pull_request", {})
-
-    commenter = comment.get("user", {})
-    if commenter.get("type") == "Bot":
+    # issue_comment fires for issues too — only PR comments have issue.pull_request
+    pull_request = payload.get("pull_request") or payload.get("issue", {}).get("pull_request")
+    if not pull_request:
         return HttpResponse(status=200)
 
     pr_url = pull_request.get("html_url")
     if not pr_url:
         return HttpResponse(status=200)
 
-    comment_body = comment.get("body", "")[:MAX_COMMENT_BODY_LENGTH]
-    commenter_login = commenter.get("login", "unknown")
-    file_path = comment.get("path", "")
-    line = comment.get("original_line") or comment.get("line")
-    diff_hunk = comment.get("diff_hunk", "")
-
-    location = f" on `{file_path}`" if file_path else ""
-    location += f" (line {line})" if line else ""
-
-    message = f"[GitHub Review Comment from @{commenter_login}{location}]\n"
-    if diff_hunk:
-        message += f"```diff\n{diff_hunk}\n```\n"
-    message += comment_body
-
     branch = pull_request.get("head", {}).get("ref")
-    _forward_comment_to_task(pr_url=pr_url, branch=branch, message=message)
+    _forward_pr_activity_to_task(pr_url=pr_url, branch=branch)
     return HttpResponse(status=200)
 
 
-def _forward_comment_to_task(
-    pr_url: str | None,
+def _forward_pr_activity_to_task(
+    pr_url: str,
     branch: str | None,
-    message: str,
 ) -> None:
     task_run = find_task_run(pr_url=pr_url, branch=branch)
     if not task_run:
@@ -282,17 +271,17 @@ def _forward_comment_to_task(
     task_run.capture_event("pr_comment_received", {"pr_url": pr_url})
 
     if not task_run.is_terminal:
-        _signal_running_workflow(task_run, message)
+        _signal_running_workflow(task_run)
     else:
-        _create_resume_run(task_run, message, pr_url)
+        _create_resume_run(task_run, pr_url)
 
 
-def _signal_running_workflow(task_run: TaskRun, message: str) -> None:
+def _signal_running_workflow(task_run: TaskRun) -> None:
     try:
         client = sync_connect()
         handle = client.get_workflow_handle(task_run.workflow_id)
 
-        asyncio.run(handle.signal(ProcessTaskWorkflow.send_followup_message, message))
+        asyncio.run(handle.signal(ProcessTaskWorkflow.pr_event))
 
         logger.info(
             "github_comment_signaled_workflow",
@@ -307,7 +296,7 @@ def _signal_running_workflow(task_run: TaskRun, message: str) -> None:
         )
 
 
-def _create_resume_run(task_run: TaskRun, message: str, pr_url: str | None) -> None:
+def _create_resume_run(task_run: TaskRun, pr_url: str) -> None:
     from products.tasks.backend.temporal.client import execute_task_processing_workflow
 
     task = task_run.task
@@ -321,18 +310,6 @@ def _create_resume_run(task_run: TaskRun, message: str, pr_url: str | None) -> N
         )
         return
 
-    # Rate limit: if a non-terminal run was created recently for this task, signal it instead
-    recent_run = (
-        TaskRun.objects.filter(task=task, created_at__gt=timezone.now() - RESUME_COOLDOWN)
-        .order_by("-created_at")
-        .select_related(*TASK_RUN_SELECT_RELATED)
-        .first()
-    )
-    if recent_run and not recent_run.is_terminal:
-        logger.info("github_comment_signaling_recent_run", task_id=str(task.id), run_id=str(recent_run.id))
-        _signal_running_workflow(recent_run, message)
-        return
-
     snapshot_ext_id = (task_run.state or {}).get("snapshot_external_id")
 
     if pr_url:
@@ -340,10 +317,10 @@ def _create_resume_run(task_run: TaskRun, message: str, pr_url: str | None) -> N
             f"[CONTEXT: This task already has an open pull request: {pr_url}\n"
             f"Check out the existing PR branch with `gh pr checkout {pr_url}`, "
             "make your changes, commit, and push to that branch. "
-            "Do NOT create a new branch or PR.]\n\n" + message
+            "Do NOT create a new branch or PR. Inspect the PR and address any new findings]\n\n"
         )
     else:
-        contextualized_message = message
+        contextualized_message = ""
 
     extra_state: dict = {
         "resume_from_run_id": str(task_run.id),
