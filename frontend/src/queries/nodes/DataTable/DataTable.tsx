@@ -271,7 +271,7 @@ export function DataTable({
                   return false
               }
               const source = query.source as EventsQuery
-              return (source.select ?? []).includes(column)
+              return (source.select ?? getDataNodeDefaultColumns(source)).includes(column)
           }
         : undefined
 

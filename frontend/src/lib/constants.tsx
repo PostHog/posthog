@@ -225,7 +225,7 @@ export const FEATURE_FLAGS = {
     AA_TEST_BAYESIAN_LEGACY: 'aa-test-bayesian-legacy', // owner: #team-experiments
     AA_TEST_BAYESIAN_NEW: 'aa-test-bayesian-new', // owner: #team-experiments
     ACTION_REFERENCE_COUNT: 'action-reference-count', // owner: @andyzzhao #team-product-analytics, gates bulk action reference counting on actions list
-    ADD_PROPERTY_AS_COLUMN: 'add-property-as-column', // inline button on event property rows to add that property as a DataTable column
+    ADD_PROPERTY_AS_COLUMN: 'add-property-as-column', // owner: #team-product-analytics, inline button on event property rows to add that property as a DataTable column
     ADVANCE_MARKETING_ANALYTICS_SETTINGS: 'advance-marketing-analytics-settings', // owner: @jabahamondes  #team-web-analytics
     AI_ONLY_MODE: 'ai-only-mode', // owner: #team-posthog-ai
     AI_SESSION_SUMMARY: 'ai-session-summary', // owner: #team-replay
