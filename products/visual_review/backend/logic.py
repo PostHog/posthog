@@ -18,15 +18,8 @@ from django.utils import timezone
 
 import structlog
 
-from .facade.enums import (
-    ClassificationReason,
-    ReviewDecision,
-    ReviewState,
-    RunPurpose,
-    RunStatus,
-    SnapshotResult,
-    ToleratedReason,
-)
+from .classifier import SnapshotClassifier
+from .facade.enums import ReviewDecision, ReviewState, RunPurpose, RunStatus, SnapshotResult, ToleratedReason
 from .models import Artifact, QuarantinedIdentifier, Repo, Run, RunSnapshot, ToleratedHash
 from .signing import sign_snapshot_hash, verify_signed_hash
 from .storage import ArtifactStorage
@@ -605,74 +598,8 @@ def complete_run(run_id: UUID) -> Run:
         ):
             tolerated_lookup[(t.identifier, t.baseline_hash, t.alternate_hash)] = t
 
-    # Classify existing snapshots against baseline
-    for snapshot in run.snapshots.using(WRITER_DB).all():
-        baseline_hash = baseline.get(snapshot.identifier)
-        baseline_artifact = get_artifact(repo.id, baseline_hash) if baseline_hash else None
-        classification_reason = ""
-        tolerated_match = None
-
-        if baseline_hash is None:
-            result = SnapshotResult.NEW
-        elif snapshot.current_hash == baseline_hash:
-            result = SnapshotResult.UNCHANGED
-            classification_reason = ClassificationReason.EXACT
-        else:
-            match = tolerated_lookup.get((snapshot.identifier, baseline_hash, snapshot.current_hash))
-            if match is not None:
-                result = SnapshotResult.UNCHANGED
-                classification_reason = ClassificationReason.TOLERATED_HASH
-                tolerated_match = match
-            else:
-                result = SnapshotResult.CHANGED
-
-        # review_state is only set on actionable snapshots
-        review_state = (
-            ReviewState.PENDING
-            if result in (SnapshotResult.CHANGED, SnapshotResult.NEW, SnapshotResult.REMOVED)
-            else ""
-        )
-
-        snapshot.result = result
-        snapshot.classification_reason = classification_reason
-        snapshot.review_state = review_state
-        snapshot.tolerated_hash_match = tolerated_match
-        snapshot.baseline_hash = baseline_hash or ""
-        snapshot.baseline_artifact = baseline_artifact
-        snapshot.current_artifact = get_artifact(repo.id, snapshot.current_hash)
-        snapshot.save(
-            using=WRITER_DB,
-            update_fields=[
-                "result",
-                "classification_reason",
-                "review_state",
-                "tolerated_hash_match",
-                "baseline_hash",
-                "baseline_artifact",
-                "current_artifact",
-            ],
-        )
-
-    # Detect removed: baseline identifiers with no RunSnapshot row
-    if baseline:
-        produced = set(run.snapshots.using(WRITER_DB).values_list("identifier", flat=True))
-        for identifier in baseline:
-            if identifier not in produced:
-                b_hash = baseline[identifier]
-                b_artifact = get_artifact(repo.id, b_hash) if b_hash else None
-                RunSnapshot.objects.using(WRITER_DB).get_or_create(
-                    run=run,
-                    team_id=repo.team_id,
-                    identifier=identifier,
-                    defaults={
-                        "current_hash": "",
-                        "baseline_hash": b_hash or "",
-                        "baseline_artifact": b_artifact,
-                        "result": SnapshotResult.REMOVED,
-                        "review_state": ReviewState.PENDING,
-                        "metadata": {},
-                    },
-                )
+    classifier = SnapshotClassifier(run, baseline, tolerated_lookup)
+    classifier.classify()
 
     # Update total and counts from actual RunSnapshot rows
     run.total_snapshots = run.snapshots.using(WRITER_DB).count()
