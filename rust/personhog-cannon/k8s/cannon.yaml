@@ -47,6 +47,8 @@ spec:
     - name: cannon
       image: ghcr.io/posthog/posthog/personhog-cannon:latest
       command: ["sleep", "infinity"]
+      securityContext:
+        allowPrivilegeEscalation: false
       env:
         - name: ROUTER_URL
           value: "http://personhog-router:50052"

@@ -102,7 +102,7 @@ impl EtcdState {
     }
 
     pub async fn wait_for_stable(&self, timeout: Duration) -> Result<()> {
-        let total = self.get_total_partitions().await.unwrap_or(0);
+        let total = self.get_total_partitions().await?;
         let start = std::time::Instant::now();
         while start.elapsed() < timeout {
             let handoffs = self.list_handoffs().await?;
