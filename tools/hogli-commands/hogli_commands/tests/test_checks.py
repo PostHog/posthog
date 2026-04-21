@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from posthog_hogli.product.checks import (
+from hogli_commands.product.checks import (
     CheckContext,
     PackageJsonScriptsCheck,
     _has_test_files,

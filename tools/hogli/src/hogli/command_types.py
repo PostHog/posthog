@@ -185,11 +185,11 @@ def _run_prechecks(prechecks: list[dict[str, Any]], yes: bool = False) -> bool:
     Returns True if prechecks passed or user chose to continue, False if user aborted.
     Handlers are registered via hogli.hooks.register_precheck().
     """
-    from hogli.hooks import get_precheck_handler
+    from hogli.hooks import precheck_handlers
 
     for check in prechecks:
         check_type = check.get("type")
-        handler = get_precheck_handler(check_type) if check_type else None
+        handler = precheck_handlers.get(check_type) if check_type else None
         if handler is None:
             click.secho(f"\u26a0\ufe0f  Unknown precheck type: {check_type}", fg="yellow", err=True)
             continue

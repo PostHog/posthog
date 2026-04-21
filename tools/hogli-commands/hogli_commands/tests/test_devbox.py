@@ -13,7 +13,7 @@ from unittest.mock import MagicMock, patch
 import click
 from click.testing import CliRunner
 from hogli.cli import cli
-from posthog_hogli.devbox import (
+from hogli_commands.devbox import (
     cli as devbox_cli,
     coder,
     config as devbox_config,
@@ -194,7 +194,7 @@ class TestCoderConfig:
         monkeypatch.setenv(env_key, env_value)
 
         with patch(
-            "posthog_hogli.devbox.coder.load_manifest", return_value={"metadata": {"devbox": {"coder_url": "ignored"}}}
+            "hogli_commands.devbox.coder.load_manifest", return_value={"metadata": {"devbox": {"coder_url": "ignored"}}}
         ):
             assert coder.get_coder_url() == expected_url
 
@@ -203,7 +203,7 @@ class TestCoderConfig:
         monkeypatch.delenv("CODER_URL", raising=False)
 
         with patch(
-            "posthog_hogli.devbox.coder.load_manifest",
+            "hogli_commands.devbox.coder.load_manifest",
             return_value={"metadata": {"devbox": {"coder_url": "https://manifest.example.com"}}},
         ):
             assert coder.get_coder_url() == "https://manifest.example.com"
@@ -239,7 +239,7 @@ class TestCoderVersion:
         mock_resp = MagicMock()
         mock_resp.json.return_value = {"version": "v2.30.5+abc123"}
 
-        with patch("posthog_hogli.devbox.coder.requests.get", return_value=mock_resp) as mock_get:
+        with patch("hogli_commands.devbox.coder.requests.get", return_value=mock_resp) as mock_get:
             assert coder.get_server_version() == "2.30.5"
             mock_get.assert_called_once_with("https://coder.example.com/api/v2/buildinfo", timeout=5)
 

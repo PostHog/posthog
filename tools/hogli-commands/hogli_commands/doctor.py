@@ -1661,7 +1661,7 @@ def _check_docker() -> CheckResult:
 def _check_migrations() -> CheckResult:
     """Check for unapplied Django migrations."""
     try:
-        from posthog_hogli.migrations import _compute_migration_diff
+        from hogli_commands.migrations import _compute_migration_diff
 
         diff = _compute_migration_diff()
         pending = len(diff.pending)

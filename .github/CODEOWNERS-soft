@@ -153,7 +153,7 @@ package-lock.json @PostHog/team-devex
 mypy.ini @PostHog/team-devex
 posthog/management/migration_analysis/ @PostHog/team-devex
 tools/hogli/ @PostHog/team-devex
-common/posthog_hogli/ @PostHog/team-devex
+tools/hogli-commands/ @PostHog/team-devex
 hogli.yaml @PostHog/team-devex
 tach.toml @PostHog/team-devex
 bin/ @PostHog/team-devex

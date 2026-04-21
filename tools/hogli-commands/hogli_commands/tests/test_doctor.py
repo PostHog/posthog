@@ -1,6 +1,6 @@
 import pytest
 
-from posthog_hogli.doctor import _is_excluded
+from hogli_commands.doctor import _is_excluded
 
 
 @pytest.mark.parametrize(

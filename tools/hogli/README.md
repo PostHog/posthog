@@ -139,6 +139,58 @@ config:
   commands_dir: tools/cli # Defaults to hogli/ next to hogli.yaml
 ```
 
+## Extension Hooks
+
+Extensions can inject behavior at three framework call sites without forking. Register from a module that runs at command-load time (e.g. your `commands_dir` package's `__init__.py` or `commands.py`). Exceptions raised by hooks are swallowed — one extension can't break another.
+
+### Prechecks
+
+Run validation before a command executes, keyed by `type:` in a `precheck:` entry in `hogli.yaml`. Return `False` to abort, `True`/`None` to continue.
+
+```python
+from hogli.hooks import register_precheck
+
+def check_migrations(check: dict, yes: bool) -> bool | None:
+    # inspect check config, prompt user, decide
+    return None
+
+register_precheck("migrations", check_migrations)
+```
+
+```yaml
+dev:start:
+  cmd: docker compose up -d
+  precheck:
+    - type: migrations
+```
+
+### Telemetry properties
+
+Inject extra key/value pairs into the `command_completed` telemetry event. Receives the invoked command name.
+
+```python
+from hogli.hooks import register_telemetry_properties
+
+def env_props(command: str | None) -> dict[str, object]:
+    return {"in_my_env": True}
+
+register_telemetry_properties(env_props)
+```
+
+### Post-command hooks
+
+Run after every command completes, regardless of success. Good for contextual hints, cleanup, or notifications.
+
+```python
+from hogli.hooks import register_post_command_hook
+
+def maybe_show_hint(command: str | None, exit_code: int) -> None:
+    if exit_code == 0:
+        ...
+
+register_post_command_hook(maybe_show_hint)
+```
+
 ## Configuration Reference
 
 ```yaml

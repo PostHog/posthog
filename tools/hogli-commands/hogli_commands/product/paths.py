@@ -6,7 +6,7 @@ from pathlib import Path
 
 import yaml
 
-# product/ -> posthog_hogli/ -> common/ -> repo root
+# product/ -> hogli_commands/ -> common/ -> repo root
 REPO_ROOT = Path(__file__).parent.parent.parent.parent
 STRUCTURE_FILE = Path(__file__).parent.parent / "product_structure.yaml"
 PRODUCTS_DIR = REPO_ROOT / "products"

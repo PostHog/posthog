@@ -71,7 +71,8 @@ jobs:
                         # but makes it always match because the checked file always isn't `ee/frontend/**` 🙈
                         - 'ee/**/*'
                         - 'common/__init__.py'
-                        - 'common/hogli/**'
+                        - 'tools/hogli/**'
+                        - 'tools/hogli-commands/**'
                         - 'common/hogql_parser/**'
                         - 'common/hogvm/**'
                         - 'common/ingestion/**'

@@ -9,10 +9,10 @@ from typing import Any
 import pytest
 
 import yaml
+from hogli_commands.devenv.generator import DevenvConfig, MprocsGenerator, load_devenv_config
+from hogli_commands.devenv.registry import ProcessRegistry, create_mprocs_registry
+from hogli_commands.devenv.resolver import Capability, Intent, IntentMap, IntentResolver, load_intent_map
 from parameterized import parameterized
-from posthog_hogli.devenv.generator import DevenvConfig, MprocsGenerator, load_devenv_config
-from posthog_hogli.devenv.registry import ProcessRegistry, create_mprocs_registry
-from posthog_hogli.devenv.resolver import Capability, Intent, IntentMap, IntentResolver, load_intent_map
 
 
 class MockRegistry(ProcessRegistry):

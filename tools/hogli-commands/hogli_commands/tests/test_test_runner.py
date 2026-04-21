@@ -8,8 +8,7 @@ import pytest
 from unittest.mock import patch
 
 import click
-from parameterized import parameterized
-from posthog_hogli.test_runner import (
+from hogli_commands.test_runner import (
     _batch_find_rs_cfg_test,
     _detect_all,
     _find_test_files_for_source,
@@ -20,6 +19,7 @@ from posthog_hogli.test_runner import (
     _run_grouped,
     detect_test_type,
 )
+from parameterized import parameterized
 
 
 class TestDetectTestType:
@@ -180,7 +180,11 @@ class TestDetectTestType:
         [
             ("posthog/api/test", "python", ["pytest", "-s", "posthog/api/test"]),
             ("ee/hogai", "python", ["pytest", "-s", "ee/hogai"]),
-            ("common/posthog_hogli/tests", "python", ["pytest", "-s", "common/posthog_hogli/tests"]),
+            (
+                "tools/hogli-commands/hogli_commands/tests",
+                "python",
+                ["pytest", "-s", "tools/hogli-commands/hogli_commands/tests"],
+            ),
         ]
     )
     def test_python_directory(self, dir_path: str, expected_type: str, expected_command: list[str]) -> None:
@@ -242,13 +246,13 @@ class TestDetectTestType:
         with pytest.raises(click.UsageError, match="Could not detect test type"):
             detect_test_type("somewhere/test_foo.py")
 
-    @patch("posthog_hogli.test_runner.platform")
+    @patch("hogli_commands.test_runner.platform")
     def test_macos_env_var(self, mock_platform) -> None:
         mock_platform.system.return_value = "Darwin"
         config = detect_test_type("posthog/api/test/test_user.py")
         assert config.env["OBJC_DISABLE_INITIALIZE_FORK_SAFETY"] == "YES"
 
-    @patch("posthog_hogli.test_runner.platform")
+    @patch("hogli_commands.test_runner.platform")
     def test_linux_no_objc_env_var(self, mock_platform) -> None:
         mock_platform.system.return_value = "Linux"
         config = detect_test_type("posthog/api/test/test_user.py")
@@ -257,7 +261,7 @@ class TestDetectTestType:
 
 class TestResolveToRepoRelative:
     def test_relative_path_unchanged(self) -> None:
-        with patch("posthog_hogli.test_runner.Path.cwd", return_value=Path(str(_get_repo_root()))):
+        with patch("hogli_commands.test_runner.Path.cwd", return_value=Path(str(_get_repo_root()))):
             result = _resolve_to_repo_relative("posthog/api/test/test_user.py")
             assert result == "posthog/api/test/test_user.py"
 
@@ -272,7 +276,7 @@ class TestResolveToRepoRelative:
         assert result == "posthog/test_foo.py::TestBar::test_baz"
 
     def test_relative_with_node_id(self) -> None:
-        with patch("posthog_hogli.test_runner.Path.cwd", return_value=Path(str(_get_repo_root()))):
+        with patch("hogli_commands.test_runner.Path.cwd", return_value=Path(str(_get_repo_root()))):
             result = _resolve_to_repo_relative("posthog/test_foo.py::TestBar")
             assert result == "posthog/test_foo.py::TestBar"
 
@@ -336,7 +340,10 @@ class TestFindTestFilesForSource:
     @parameterized.expand(
         [
             ("posthog/api/comments.py", "posthog/api/test/test_comments.py"),
-            ("common/posthog_hogli/test_runner.py", "common/posthog_hogli/tests/test_test_runner.py"),
+            (
+                "tools/hogli-commands/hogli_commands/test_runner.py",
+                "tools/hogli-commands/hogli_commands/tests/test_test_runner.py",
+            ),
             (
                 "frontend/src/scenes/dashboard/DashboardHeader.tsx",
                 "frontend/src/scenes/dashboard/DashboardHeader.test.tsx",
@@ -356,8 +363,8 @@ class TestFindTestFilesForSource:
 
 
 class TestRunChanged:
-    @patch("posthog_hogli.test_runner._run")
-    @patch("posthog_hogli.test_runner._get_changed_files")
+    @patch("hogli_commands.test_runner._run")
+    @patch("hogli_commands.test_runner._get_changed_files")
     def test_runs_changed_python_files(self, mock_changed, mock_run) -> None:
         mock_changed.return_value = [
             "posthog/api/test/test_user.py",
@@ -373,8 +380,8 @@ class TestRunChanged:
         assert "posthog/api/test/test_comments.py" in command
         assert "posthog/api/views.py" not in command
 
-    @patch("posthog_hogli.test_runner._run")
-    @patch("posthog_hogli.test_runner._get_changed_files")
+    @patch("hogli_commands.test_runner._run")
+    @patch("hogli_commands.test_runner._get_changed_files")
     def test_jest_files_grouped_by_package(self, mock_changed, mock_run) -> None:
         mock_changed.return_value = [
             "frontend/src/scenes/dashboard/Dashboard.test.tsx",
@@ -392,8 +399,8 @@ class TestRunChanged:
         assert "frontend/src/lib/utils.test.ts" in frontend_cmd
         assert "nodejs/tests/cdp/cdp-api.test.ts" in nodejs_cmd
 
-    @patch("posthog_hogli.test_runner._run")
-    @patch("posthog_hogli.test_runner._get_changed_files")
+    @patch("hogli_commands.test_runner._run")
+    @patch("hogli_commands.test_runner._get_changed_files")
     def test_discovers_tests_for_changed_source_files(self, mock_changed, mock_run) -> None:
         mock_changed.return_value = ["posthog/api/comments.py"]
         _run_changed([])
@@ -402,8 +409,8 @@ class TestRunChanged:
         command = mock_run.call_args[0][0]
         assert "posthog/api/test/test_comments.py" in command
 
-    @patch("posthog_hogli.test_runner._run")
-    @patch("posthog_hogli.test_runner._get_changed_files")
+    @patch("hogli_commands.test_runner._run")
+    @patch("hogli_commands.test_runner._get_changed_files")
     def test_deduplicates_direct_and_discovered_tests(self, mock_changed, mock_run) -> None:
         mock_changed.return_value = [
             "posthog/api/comments.py",
@@ -415,13 +422,13 @@ class TestRunChanged:
         command = mock_run.call_args[0][0]
         assert command.count("posthog/api/test/test_comments.py") == 1
 
-    @patch("posthog_hogli.test_runner._get_changed_files")
+    @patch("hogli_commands.test_runner._get_changed_files")
     def test_no_changed_files_exits(self, mock_changed) -> None:
         mock_changed.return_value = ["posthog/api/views.py"]
         with pytest.raises(SystemExit):
             _run_changed([])
 
-    @patch("posthog_hogli.test_runner._get_changed_files")
+    @patch("hogli_commands.test_runner._get_changed_files")
     def test_changed_on_master_raises(self, mock_changed) -> None:
         mock_changed.side_effect = click.UsageError("Cannot use --changed on the master branch.")
         with pytest.raises(click.UsageError, match="master"):
@@ -429,7 +436,7 @@ class TestRunChanged:
 
 
 class TestRunGrouped:
-    @patch("posthog_hogli.test_runner._run")
+    @patch("hogli_commands.test_runner._run")
     def test_mixed_python_and_jest(self, mock_run) -> None:
         detected = _detect_all(
             [
@@ -445,7 +452,7 @@ class TestRunGrouped:
         assert "posthog/api/test/test_user.py" in python_cmd
         assert "frontend/src/scenes/dashboard/Dashboard.test.tsx" in jest_cmd
 
-    @patch("posthog_hogli.test_runner._run")
+    @patch("hogli_commands.test_runner._run")
     def test_passes_extra_args(self, mock_run) -> None:
         detected = _detect_all(["posthog/api/test/test_user.py"])
         _run_grouped(detected, ["-v", "--tb=short"])
@@ -453,7 +460,7 @@ class TestRunGrouped:
         assert "-v" in command
         assert "--tb=short" in command
 
-    @patch("posthog_hogli.test_runner._run")
+    @patch("hogli_commands.test_runner._run")
     def test_jest_grouped_by_package(self, mock_run) -> None:
         detected = _detect_all(
             [

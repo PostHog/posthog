@@ -35,6 +35,16 @@ hogli my:command --help
 hogli my:command -v
 ```
 
+## Framework Hooks This Package Registers
+
+On top of `@cli.command` definitions, `commands.py` also registers into hogli's extension hook API (`hogli.hooks`):
+
+- **Precheck** `migrations` — detects orphaned migrations before `dev:start` and prompts to sync.
+- **Telemetry properties** — adds PostHog-specific environment props (`in_flox`, `is_worktree`, `is_posthog_dev`, `process_manager`, `has_devenv_config`) to every `command_completed` event.
+- **Post-command hook** — shows a contextual hint (`hogli.hints`) after successful commands.
+
+That's why `commands.py` has top-level `register_*` calls alongside the command imports. See `tools/hogli/README.md` for the hook API.
+
 ## When to Use Python vs YAML
 
 | Use Python here when...            | Use YAML (`hogli.yaml`) when...  |
@@ -47,7 +57,7 @@ hogli my:command -v
 ## File Structure
 
 ```text
-common/posthog_hogli/
+tools/hogli-commands/hogli_commands/
 ├── __init__.py    # Package init (imports commands.py)
 ├── commands.py    # Imports all command modules
 ├── doctor.py      # Health/cleanup commands

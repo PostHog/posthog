@@ -31,12 +31,7 @@ def _find_manifest_file(repo_root: Path) -> Path:
     if env_manifest := os.environ.get("HOGLI_MANIFEST"):
         return Path(env_manifest)
 
-    # Standard location
-    if (repo_root / "hogli.yaml").exists():
-        return repo_root / "hogli.yaml"
-
-    # Fallback for backwards compatibility (PostHog-specific)
-    return repo_root / "common" / "hogli" / "manifest.yaml"
+    return repo_root / "hogli.yaml"
 
 
 REPO_ROOT = _find_repo_root()

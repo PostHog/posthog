@@ -1,5 +1,5 @@
 config:
-    commands_dir: common/posthog_hogli
+    commands_dir: tools/hogli-commands/hogli_commands
     scripts_exclude:
         - mprocs.yaml
         - mprocs-test.yaml

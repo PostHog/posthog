@@ -74,7 +74,7 @@ def get_coder_url() -> str:
     if isinstance(devbox_metadata, dict) and isinstance(devbox_metadata.get("coder_url"), str):
         return devbox_metadata["coder_url"]
 
-    raise RuntimeError("Missing `metadata.devbox.coder_url` in common/hogli/manifest.yaml.")
+    raise RuntimeError("Missing `metadata.devbox.coder_url` in hogli.yaml.")
 
 
 def _normalize_version(version: str) -> str:

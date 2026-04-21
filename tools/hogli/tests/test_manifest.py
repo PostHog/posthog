@@ -163,7 +163,7 @@ class TestManifestCommandEnumeration:
     def test_get_all_commands_excludes_config_section(self) -> None:
         """Config keys should not be returned as commands."""
         test_data = {
-            "config": {"commands_dir": "common/posthog_hogli"},
+            "config": {"commands_dir": "tools/hogli-commands/hogli_commands"},
             "core": {
                 "dev:setup": None,
                 "dev:reset": {"cmd": "echo reset"},

@@ -111,7 +111,7 @@ def _render(help_text: str, command_help_sections: list[tuple[str, str]]) -> str
             "\\fItools/hogli/src/hogli/cli.py\\fR",
             "CLI group and command registration.",
             ".TP",
-            "\\fIcommon/posthog_hogli/commands.py\\fR",
+            "\\fItools/hogli-commands/hogli_commands/commands.py\\fR",
             "Custom Click commands.",
             "",
         ]

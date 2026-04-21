@@ -307,7 +307,7 @@ def _import_custom_commands() -> None:
     """Import custom commands from configured commands_dir.
 
     Looks for commands in:
-    1. config.commands_dir in hogli.yaml (e.g., common/posthog_hogli)
+    1. config.commands_dir in hogli.yaml (e.g., tools/hogli-commands/hogli_commands)
     2. Default: hogli/ folder next to hogli.yaml
     """
     import sys
@@ -323,7 +323,7 @@ def _import_custom_commands() -> None:
         return
 
     # Skip if another import chain is already loading the commands package (directly or via a
-    # parent package like `common.posthog_hogli`). Importing again would create a second module
+    # parent package like `hogli_commands`). Importing again would create a second module
     # object and duplicate `@cli.command` registrations against different module identities,
     # which breaks test patches that target one path or the other.
     # NOTE: commands_dir should NOT be named "hogli" to avoid clobbering the hogli package
@@ -368,7 +368,7 @@ _import_custom_commands()
 
 def _env_properties(command: str | None = None) -> dict[str, Any]:
     """Static environment properties shared across telemetry events."""
-    from hogli.hooks import get_telemetry_property_hooks
+    from hogli.hooks import telemetry_property_hooks
 
     ci_env_vars = ("CI", "GITHUB_ACTIONS", "JENKINS_URL", "GITLAB_CI", "CIRCLECI", "BUILDKITE")
     props: dict[str, Any] = {
@@ -378,7 +378,7 @@ def _env_properties(command: str | None = None) -> dict[str, Any]:
         "python_version": platform.python_version(),
         "is_ci": any(os.environ.get(v) for v in ci_env_vars),
     }
-    for hook in get_telemetry_property_hooks():
+    for hook in telemetry_property_hooks:
         try:
             props.update(hook(command))
         except Exception:
@@ -414,9 +414,9 @@ def _fire_telemetry(ctx: click.Context, exit_code: int) -> None:
 
 def _fire_post_command_hooks(command: str | None, exit_code: int) -> None:
     """Run registered post-command hooks. Never raises."""
-    from hogli.hooks import get_post_command_hooks
+    from hogli.hooks import post_command_hooks
 
-    for hook in get_post_command_hooks():
+    for hook in post_command_hooks:
         try:
             hook(command, exit_code)
         except Exception:

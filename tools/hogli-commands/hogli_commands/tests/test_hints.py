@@ -6,7 +6,7 @@ from datetime import UTC, datetime, timedelta
 import pytest
 from unittest.mock import patch
 
-from posthog_hogli import hints
+from hogli_commands import hints
 
 
 @pytest.fixture(autouse=True)

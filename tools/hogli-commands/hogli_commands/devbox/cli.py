@@ -107,6 +107,7 @@ def resolve_workspace_name(workspace: str | None) -> tuple[str, list[dict[str, A
     # No default among multiple -- require explicit workspace argument
     labels = [extract_workspace_label(ws["name"]) or "(default)" for ws in workspaces]
     _fail("Multiple workspaces found. Specify which one:\n" + "".join(f"  {lbl}\n" for lbl in labels))
+    raise SystemExit(1)  # unreachable; helps ty see the function doesn't fall through
 
 
 def _local_port_is_available(port: int) -> bool:
@@ -175,6 +176,7 @@ def _get_workspace_or_fail(name: str, workspaces: list[dict[str, Any]] | None = 
     if workspace is not None:
         return workspace
     _fail("No devbox found. Run 'hogli devbox:start' to create one.")
+    raise SystemExit(1)  # unreachable; helps ty see the function doesn't fall through
 
 
 def _workspace_status_color(status: str) -> str:
