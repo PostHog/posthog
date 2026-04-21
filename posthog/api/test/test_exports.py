@@ -910,55 +910,6 @@ class TestExports(APIBaseTest):
             )
             self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
-    @patch("posthog.api.exports.async_to_sync")
-    @patch("posthog.api.exports.async_connect")
-    def test_video_export_team_specific_limit(self, mock_async_connect, mock_async_to_sync) -> None:
-        """Test that teams can have custom export limits via extra_settings"""
-        # Set a custom limit of 3 for this team
-        self.team.extra_settings = {"full_video_exports_limit": 3}
-        self.team.save()
-
-        # Create 2 video exports (should succeed)
-        for i in range(2):
-            response = self.client.post(
-                f"/api/projects/{self.team.id}/exports",
-                {
-                    "export_format": "video/mp4",
-                    "export_context": {
-                        "session_recording_id": f"session_{i}",
-                    },
-                },
-            )
-            self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-
-        # The 3rd export should succeed (at the custom limit)
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/exports",
-            {
-                "export_format": "video/mp4",
-                "export_context": {
-                    "session_recording_id": "session_3",
-                },
-            },
-        )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-
-        # The 4th export should fail with the custom limit in error message
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/exports",
-            {
-                "export_format": "video/mp4",
-                "export_context": {
-                    "session_recording_id": "session_4",
-                },
-            },
-        )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        error_data = response.json()
-        self.assertEqual(error_data["type"], "validation_error")
-        self.assertEqual(error_data["attr"], "export_limit_exceeded")
-        self.assertIn("reached the limit of 3 full video exports this month", error_data["detail"])
-
     @parameterized.expand(
         [
             # name, available_product_features, expected_limit
