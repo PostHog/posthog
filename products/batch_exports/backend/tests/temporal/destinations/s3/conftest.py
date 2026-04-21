@@ -67,7 +67,7 @@ def file_format(request) -> str:
     try:
         return request.param
     except AttributeError:
-        return "JSONLines"
+        return f"JSONLines"
 
 
 @pytest_asyncio.fixture

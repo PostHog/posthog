@@ -65,7 +65,7 @@ async def insert_person_values_in_clickhouse(client: ClickHouseClient, persons: 
     """Execute an insert query to insert provided PersonValues into person."""
     await execute_query(
         client,
-        """
+        f"""
         INSERT INTO `person` (
             id,
             team_id,
@@ -183,7 +183,7 @@ async def insert_person_distinct_id2_values_in_clickhouse(
     """Execute an insert query to insert provided PersonDistinctId2Values into person."""
     await execute_query(
         client,
-        """
+        f"""
         INSERT INTO `person_distinct_id2` (
              team_id,
              distinct_id,

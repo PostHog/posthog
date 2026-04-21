@@ -344,7 +344,7 @@ class ModalSandbox(SandboxBase):
     ) -> ExecutionResult:
         if not self.is_running():
             raise SandboxExecutionError(
-                "Sandbox not in running state.",
+                f"Sandbox not in running state.",
                 {"sandbox_id": self.id},
                 cause=RuntimeError(f"Sandbox {self.id} is not running"),
             )
@@ -380,7 +380,7 @@ class ModalSandbox(SandboxBase):
             capture_exception(e)
             logger.exception(f"Failed to execute command: {e}")
             raise SandboxExecutionError(
-                "Failed to execute command",
+                f"Failed to execute command",
                 {"sandbox_id": self.id, "command": command, "error": str(e)},
                 cause=e,
             )
@@ -392,7 +392,7 @@ class ModalSandbox(SandboxBase):
     ) -> ExecutionStream:
         if not self.is_running():
             raise SandboxExecutionError(
-                "Sandbox not in running state.",
+                f"Sandbox not in running state.",
                 {"sandbox_id": self.id},
                 cause=RuntimeError(f"Sandbox {self.id} is not running"),
             )
@@ -413,7 +413,7 @@ class ModalSandbox(SandboxBase):
             capture_exception(e)
             logger.exception(f"Failed to execute command: {e}")
             raise SandboxExecutionError(
-                "Failed to execute command",
+                f"Failed to execute command",
                 {"sandbox_id": self.id, "command": command, "error": str(e)},
                 cause=e,
             )
@@ -485,7 +485,7 @@ class ModalSandbox(SandboxBase):
 
     def is_git_clean(self, repository: str) -> tuple[bool, str]:
         if not self.is_running():
-            raise RuntimeError("Sandbox not in running state.")
+            raise RuntimeError(f"Sandbox not in running state.")
 
         org, repo = repository.lower().split("/")
         repo_path = f"/tmp/workspace/repos/{org}/{repo}"
@@ -684,7 +684,7 @@ class ModalSandbox(SandboxBase):
     def create_snapshot(self) -> str:
         if not self.is_running():
             raise SandboxExecutionError(
-                "Sandbox not in running state.",
+                f"Sandbox not in running state.",
                 {"sandbox_id": self.id},
                 cause=RuntimeError(f"Sandbox {self.id} is not running"),
             )

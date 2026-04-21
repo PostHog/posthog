@@ -20,8 +20,7 @@ class Link(FileSystemSyncMixin, CreatedMetaFields, UpdatedMetaFields, UUIDTModel
     redirect_url = models.URLField(max_length=2048)
     short_link_domain = models.CharField(max_length=255, help_text="Domain where the short link is hosted, e.g. hog.gg")
     short_code = models.CharField(
-        max_length=255,
-        help_text="The unique code/path that identifies the short link, e.g. 'abc123'",
+        max_length=255, help_text="The unique code/path that identifies the short link, e.g. 'abc123'"
     )
     team = models.ForeignKey(
         Team,

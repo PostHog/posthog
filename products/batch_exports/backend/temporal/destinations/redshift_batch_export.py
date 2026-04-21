@@ -110,7 +110,7 @@ class StringLimitExceededError(Exception):
         if column:
             msg = f"Column '{column}' "
         else:
-            msg = "A column "
+            msg = f"A column "
 
         msg += (
             f"in '{schema}.{table}' exceeds Redshift's string limit and cannot be exported."

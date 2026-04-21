@@ -84,8 +84,7 @@ class UserInterviewSerializer(serializers.ModelSerializer):
     def _attempt_to_map_speaker_names(self, transcript: str, interviewee_emails: list[str]) -> dict[str, str] | None:
         participant_emails_joined = "\n".join(f"- {email}" for email in interviewee_emails)
         assignment_response = OpenAI(
-            posthog_client=posthoganalytics.default_client,
-            base_url=settings.OPENAI_BASE_URL,
+            posthog_client=posthoganalytics.default_client, base_url=settings.OPENAI_BASE_URL
         ).responses.create(  # type: ignore
             model="gpt-4.1-mini",
             posthog_trace_id=self._ai_trace_id,

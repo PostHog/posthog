@@ -17,13 +17,7 @@ class DesktopRecordingAdmin(admin.ModelAdmin):
         "duration_seconds",
     )
     list_filter = ("status", "platform", "started_at", "created_at")
-    search_fields = (
-        "id",
-        "meeting_title",
-        "meeting_url",
-        "team__name",
-        "created_by__email",
-    )
+    search_fields = ("id", "meeting_title", "meeting_url", "team__name", "created_by__email")
     readonly_fields = (
         "id",
         "sdk_upload_id",

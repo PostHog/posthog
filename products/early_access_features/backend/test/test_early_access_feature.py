@@ -892,7 +892,7 @@ class TestPreviewList(BaseTest, QueryMatchingTest):
         ip="127.0.0.1",
     ):
         return self.client.get(
-            "/api/early_access_features/",
+            f"/api/early_access_features/",
             data={"token": token or self.team.api_token},
             headers={"origin": origin},
             REMOTE_ADDR=ip,
@@ -908,13 +908,13 @@ class TestPreviewList(BaseTest, QueryMatchingTest):
 
         feature_flag = FeatureFlag.objects.create(
             team=self.team,
-            name="Feature Flag for Feature Sprocket",
+            name=f"Feature Flag for Feature Sprocket",
             key="sprocket",
             created_by=self.user,
         )
         feature_flag2 = FeatureFlag.objects.create(
             team=self.team,
-            name="Feature Flag for Feature Sprocket",
+            name=f"Feature Flag for Feature Sprocket",
             key="sprocket2",
             created_by=self.user,
         )
@@ -978,7 +978,7 @@ class TestPreviewList(BaseTest, QueryMatchingTest):
         )
         feature_flag = FeatureFlag.objects.create(
             team=self.team,
-            name="Feature Flag for Feature Sprocket",
+            name=f"Feature Flag for Feature Sprocket",
             key="sprocket",
             created_by=self.user,
         )
@@ -1024,7 +1024,7 @@ class TestPreviewList(BaseTest, QueryMatchingTest):
         set_team_in_cache(self.team.api_token)
         feature_flag = FeatureFlag.objects.create(
             team=self.team,
-            name="Feature Flag for Feature Sprocket",
+            name=f"Feature Flag for Feature Sprocket",
             key="sprocket",
             created_by=self.user,
         )
@@ -1067,19 +1067,19 @@ class TestPreviewList(BaseTest, QueryMatchingTest):
 
         feature_flag = FeatureFlag.objects.create(
             team=self.team,
-            name="Feature Flag for Feature Sprocket",
+            name=f"Feature Flag for Feature Sprocket",
             key="sprocket",
             created_by=self.user,
         )
         feature_flag2 = FeatureFlag.objects.create(
             team=self.team,
-            name="Feature Flag for Feature Sprocket",
+            name=f"Feature Flag for Feature Sprocket",
             key="sprocket2",
             created_by=self.user,
         )
         feature_flag3 = FeatureFlag.objects.create(
             team=self.team,
-            name="Feature Flag for Feature Sprocket",
+            name=f"Feature Flag for Feature Sprocket",
             key="sprocket3",
             created_by=self.user,
         )
@@ -1142,7 +1142,7 @@ class TestPreviewList(BaseTest, QueryMatchingTest):
         self.client.logout()
 
         with self.assertNumQueries(0):
-            response = self.client.get("/api/early_access_features/")
+            response = self.client.get(f"/api/early_access_features/")
             self.assertEqual(response.status_code, 401)
             self.assertEqual(
                 response.json()["detail"],
@@ -1186,7 +1186,7 @@ class TestPreviewList(BaseTest, QueryMatchingTest):
 
         feature_flag = FeatureFlag.objects.create(
             team=self.team,
-            name="Feature Flag for Feature Sprocket",
+            name=f"Feature Flag for Feature Sprocket",
             key="sprocket",
             created_by=self.user,
         )

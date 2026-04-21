@@ -864,8 +864,8 @@ class TestSurvey(APIBaseTest):
         self.client.post(
             f"/api/projects/{self.team.id}/feature_flags/",
             data={
-                "name": "flag",
-                "key": "flag_0",
+                "name": f"flag",
+                "key": f"flag_0",
                 "filters": {"groups": [{"rollout_percentage": 5}]},
             },
             format="json",

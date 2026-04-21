@@ -83,10 +83,7 @@ class DesktopRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         from posthog.settings.integrations import RECALL_AI_API_KEY, RECALL_AI_API_URL
 
         if not RECALL_AI_API_KEY:
-            return Response(
-                {"detail": "Recall.ai API key not configured"},
-                status=status.HTTP_503_SERVICE_UNAVAILABLE,
-            )
+            return Response({"detail": "Recall.ai API key not configured"}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
 
         request_serializer = CreateRecordingRequestSerializer(data=request.data)
         request_serializer.is_valid(raise_exception=True)

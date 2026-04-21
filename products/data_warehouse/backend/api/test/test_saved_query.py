@@ -1351,7 +1351,7 @@ class TestSavedQuery(APIBaseTest):
                 "name": "child_view",
                 "query": {
                     "kind": "HogQLQuery",
-                    "query": "select event as event from parent_view LIMIT 50",
+                    "query": f"select event as event from parent_view LIMIT 50",
                 },
             },
         )
@@ -1365,7 +1365,7 @@ class TestSavedQuery(APIBaseTest):
                 "name": "grandchild_view",
                 "query": {
                     "kind": "HogQLQuery",
-                    "query": "select event as event from child_view LIMIT 25",
+                    "query": f"select event as event from child_view LIMIT 25",
                 },
             },
         )

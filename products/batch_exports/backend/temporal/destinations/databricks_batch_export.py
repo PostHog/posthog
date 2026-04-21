@@ -306,7 +306,7 @@ class DatabricksClient:
                 self.http_path,
             )
             raise DatabricksConnectionError(
-                "Timed out while trying to connect to Databricks. Please check that the server_hostname and http_path are valid."
+                f"Timed out while trying to connect to Databricks. Please check that the server_hostname and http_path are valid."
             )
         # for some reason, Databricks reports some connection failures as a ValueError
         except (ValueError, urllib3.exceptions.HTTPError, urllib3.exceptions.MaxRetryError) as err:
@@ -573,7 +573,7 @@ class DatabricksClient:
                 select_fields.append(f"`{field[0]}`")
         select_fields_str = ", ".join(select_fields)
 
-        merge_schema = "true" if with_schema_evolution else "false"
+        merge_schema = f"true" if with_schema_evolution else "false"
 
         return f"""
         COPY INTO `{table_name}`

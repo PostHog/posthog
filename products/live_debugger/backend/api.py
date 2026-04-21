@@ -53,8 +53,7 @@ class BreakpointHitsRequestSerializer(serializers.Serializer):
 
 class ActiveBreakpointsRequestSerializer(serializers.Serializer):
     repository = serializers.CharField(
-        required=False,
-        help_text="Filter breakpoints for specific repository (e.g., 'PostHog/posthog')",
+        required=False, help_text="Filter breakpoints for specific repository (e.g., 'PostHog/posthog')"
     )
     filename = serializers.CharField(required=False, help_text="Filter breakpoints for specific file")
     enabled = serializers.BooleanField(required=False, default=True, help_text="Only return enabled breakpoints")
@@ -86,17 +85,13 @@ class ActiveBreakpointSerializer(serializers.Serializer):
 
     id = serializers.UUIDField(help_text="Unique identifier for the breakpoint")
     repository = serializers.CharField(
-        required=False,
-        allow_null=True,
-        help_text="Repository identifier (e.g., 'PostHog/posthog')",
+        required=False, allow_null=True, help_text="Repository identifier (e.g., 'PostHog/posthog')"
     )
     filename = serializers.CharField(help_text="File path where the breakpoint is set")
     line_number = serializers.IntegerField(help_text="Line number of the breakpoint")
     enabled = serializers.BooleanField(help_text="Whether the breakpoint is enabled")
     condition = serializers.CharField(
-        required=False,
-        allow_null=True,
-        help_text="Optional condition for the breakpoint",
+        required=False, allow_null=True, help_text="Optional condition for the breakpoint"
     )
 
 
@@ -118,12 +113,7 @@ class LiveDebuggerBreakpointViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
     """
 
     scope_object = "live_debugger"
-    scope_object_read_actions = [
-        "list",
-        "retrieve",
-        "active_breakpoints",
-        "breakpoint_hits",
-    ]
+    scope_object_read_actions = ["list", "retrieve", "active_breakpoints", "breakpoint_hits"]
     scope_object_write_actions = ["create", "update", "partial_update", "destroy"]
     queryset = LiveDebuggerBreakpoint.objects.all()
     serializer_class = LiveDebuggerBreakpointSerializer

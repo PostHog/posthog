@@ -1025,7 +1025,7 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
         except Exception as e:
             logger.exception("Failed to cancel workflow", workflow_id=workflow_id, error=str(e))
             return response.Response(
-                {"error": "Failed to cancel workflow"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                {"error": f"Failed to cancel workflow"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
 
     @action(methods=["GET"], detail=True)

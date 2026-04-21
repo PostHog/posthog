@@ -362,10 +362,7 @@ def find_existing_jobs(
             query_hash=query_hash,
             time_range_start__lt=end,
             time_range_end__gt=start,
-            status__in=[
-                PreaggregationJob.Status.READY,
-                PreaggregationJob.Status.PENDING,
-            ],
+            status__in=[PreaggregationJob.Status.READY, PreaggregationJob.Status.PENDING],
         )
         .filter(
             # Only include jobs with expires_at far enough in the future.
@@ -1014,13 +1011,7 @@ def ensure_precomputed(
 
     ttl_schedule = parse_ttl_schedule(ttl_seconds, team.timezone)
     executor = LazyComputationExecutor(ttl_schedule=ttl_schedule)
-    return executor.execute(
-        team,
-        query_info,
-        time_range_start,
-        time_range_end,
-        run_insert=_run_manual_insert,
-    )
+    return executor.execute(team, query_info, time_range_start, time_range_end, run_insert=_run_manual_insert)
 
 
 def _build_manual_insert_sql(

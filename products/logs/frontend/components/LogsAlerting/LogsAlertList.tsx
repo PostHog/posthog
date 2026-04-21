@@ -22,7 +22,7 @@ function formatThreshold(alert: LogsAlertConfigurationApi): string {
 
 export function LogsAlertList(): JSX.Element {
     const { alerts, alertsLoading, resettingAlertIds } = useValues(logsAlertingLogic)
-    const { setEditingAlert, setIsCreating, deleteAlert, toggleAlertEnabled, resetAlert } =
+    const { setEditingAlert, setIsCreating, deleteAlert, toggleAlertEnabled, resetAlert, setViewingHistoryAlert } =
         useActions(logsAlertingLogic)
 
     const columns: LemonTableColumns<LogsAlertConfigurationApi> = [
@@ -81,6 +81,10 @@ export function LogsAlertList(): JSX.Element {
                                 {
                                     label: 'Edit',
                                     onClick: () => setEditingAlert(alert),
+                                },
+                                {
+                                    label: 'View history',
+                                    onClick: () => setViewingHistoryAlert(alert),
                                 },
                                 ...(alert.state === LogsAlertConfigurationStateEnumApi.Broken
                                     ? [

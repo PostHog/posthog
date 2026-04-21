@@ -67,9 +67,7 @@ def validate_installation_auth(
 
     if sensitive.get("needs_reauth"):
         logger.warning(
-            "Proxy auth failed: needs re-authentication",
-            installation_id=str(installation.id),
-            url=installation.url,
+            "Proxy auth failed: needs re-authentication", installation_id=str(installation.id), url=installation.url
         )
         return False, HttpResponse(
             '{"error": "Installation needs re-authentication"}',
@@ -80,9 +78,7 @@ def validate_installation_auth(
     if installation.auth_type == "oauth":
         if not sensitive.get("access_token"):
             logger.warning(
-                "Proxy auth failed: no OAuth credentials",
-                installation_id=str(installation.id),
-                url=installation.url,
+                "Proxy auth failed: no OAuth credentials", installation_id=str(installation.id), url=installation.url
             )
             return False, HttpResponse(
                 '{"error": "No credentials configured"}',
@@ -101,9 +97,7 @@ def validate_installation_auth(
 
     if installation.auth_type == "api_key" and not sensitive.get("api_key"):
         logger.warning(
-            "Proxy auth failed: no API key configured",
-            installation_id=str(installation.id),
-            url=installation.url,
+            "Proxy auth failed: no API key configured", installation_id=str(installation.id), url=installation.url
         )
         return False, HttpResponse(
             '{"error": "No credentials configured"}',
@@ -136,11 +130,7 @@ def proxy_mcp_request(request: Any, installation: MCPServerInstallation) -> Http
     body = json.dumps(data).encode()
 
     if len(body) > MAX_PROXY_BODY_SIZE:
-        logger.warning(
-            "Proxy request rejected: body too large",
-            url=installation.url,
-            body_size=len(body),
-        )
+        logger.warning("Proxy request rejected: body too large", url=installation.url, body_size=len(body))
         return HttpResponse(
             '{"error": "Request body too large"}',
             content_type="application/json",

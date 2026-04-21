@@ -49,23 +49,23 @@ for trace in traces:
             continue
         found += 1
         error = " [ERROR]" if p.get("$ai_is_error") else ""
-        print(f"\n{'=' * 80}")
+        print(f"\n{'='*80}")
         print(f"SPAN: {name}  ({p.get('$ai_latency', '?')}s){error}")
         print(f"Created: {ev.get('createdAt', '?')}")
         print(f"Parent: {p.get('$ai_parent_id', '(root)')}")
-        print(f"{'=' * 80}")
+        print(f"{'='*80}")
 
         inp = p.get("$ai_input_state")
         out = p.get("$ai_output_state")
 
         if inp is not None:
             formatted = json.dumps(inp, indent=2, default=str) if not isinstance(inp, str) else inp
-            print("\n--- INPUT STATE ---")
+            print(f"\n--- INPUT STATE ---")
             print(truncate(formatted, max_len))
 
         if out is not None:
             formatted = json.dumps(out, indent=2, default=str) if not isinstance(out, str) else out
-            print("\n--- OUTPUT STATE ---")
+            print(f"\n--- OUTPUT STATE ---")
             print(truncate(formatted, max_len))
 
         if not inp and not out:

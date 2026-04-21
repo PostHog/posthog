@@ -89,20 +89,12 @@ class WebAnalyticsFilterOptionsToolkit(TaxonomyAgentToolkit):
         self, property_name: str, property_type: Literal["event", "session", "person"]
     ) -> str:
         if property_type == "person":
-            with tags_context(
-                product=Product.MAX_AI,
-                team_id=self._team.pk,
-                org_id=self._team.organization_id,
-            ):
+            with tags_context(product=Product.MAX_AI, team_id=self._team.pk, org_id=self._team.organization_id):
                 values = await database_sync_to_async(get_person_property_values_for_key)(
                     property_name, self._team, value=None
                 )
         elif property_type in ("event", "session"):
-            with tags_context(
-                product=Product.MAX_AI,
-                team_id=self._team.pk,
-                org_id=self._team.organization_id,
-            ):
+            with tags_context(product=Product.MAX_AI, team_id=self._team.pk, org_id=self._team.organization_id):
                 values = await database_sync_to_async(get_property_values_for_key)(
                     property_name, self._team, event_names=None, value=None
                 )

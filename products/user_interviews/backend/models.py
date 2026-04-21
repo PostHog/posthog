@@ -25,8 +25,7 @@ class EmailWithDisplayNameValidator:
 class UserInterview(UUIDTModel, CreatedMetaFields):
     team = models.ForeignKey(Team, on_delete=models.CASCADE)
     interviewee_emails = ArrayField(
-        models.CharField(max_length=254, validators=[EmailWithDisplayNameValidator()]),
-        default=list,
+        models.CharField(max_length=254, validators=[EmailWithDisplayNameValidator()]), default=list
     )
     transcript = models.TextField(blank=True)
     summary = models.TextField(blank=True)

@@ -222,10 +222,7 @@ class UpsertAlertTool(MaxTool):
                 created_by=user,
                 configuration={
                     "type": action.threshold_type,
-                    "bounds": {
-                        "lower": action.lower_threshold,
-                        "upper": action.upper_threshold,
-                    },
+                    "bounds": {"lower": action.lower_threshold, "upper": action.upper_threshold},
                 },
             )
 
@@ -241,10 +238,7 @@ class UpsertAlertTool(MaxTool):
                 name=truncated_name,
                 threshold_to_persist=unsaved_threshold,
                 condition={"type": action.condition_type},
-                config={
-                    "type": "TrendsAlertConfig",
-                    "series_index": action.series_index,
-                },
+                config={"type": "TrendsAlertConfig", "series_index": action.series_index},
                 calculation_interval=action.calculation_interval,
                 enabled=action.enabled,
                 skip_weekend=action.skip_weekend,
@@ -304,10 +298,7 @@ class UpsertAlertTool(MaxTool):
                 update_fields.append("calculation_interval")
 
             if action.series_index is not None:
-                alert.config = {
-                    **(alert.config or {}),
-                    "series_index": action.series_index,
-                }
+                alert.config = {**(alert.config or {}), "series_index": action.series_index}
                 update_fields.append("config")
 
             if action.enabled is not None:

@@ -835,7 +835,7 @@ class TestTable(APIBaseTest):
         """Test file upload using actual MinIO bucket instead of mocking."""
 
         # Create a unique bucket name for testing
-        test_bucket_name = "test-warehouse"
+        test_bucket_name = f"test-warehouse"
 
         # Setup real S3 client
         s3_client = boto3.client(

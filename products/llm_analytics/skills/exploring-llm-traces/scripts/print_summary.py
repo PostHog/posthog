@@ -45,9 +45,9 @@ max_len = int(os.environ.get("MAX_LEN", "500"))
 
 traces = load_trace_file(sys.argv[1])
 for trace in traces:
-    print(f"{'=' * 80}")
-    print("TRACE SUMMARY")
-    print(f"{'=' * 80}")
+    print(f"{'='*80}")
+    print(f"TRACE SUMMARY")
+    print(f"{'='*80}")
     print(f"  ID:        {trace.get('id', '?')}")
     print(f"  Name:      {trace.get('traceName', '?')}")
     print(f"  Created:   {trace.get('createdAt', '?')}")
@@ -61,7 +61,7 @@ for trace in traces:
     inp = trace.get("inputState")
     out = trace.get("outputState")
     if inp:
-        print("\n--- Trace input state ---")
+        print(f"\n--- Trace input state ---")
         print(f"  {summarize(inp, max_len)}")
     if out:
         print(f"\n--- Trace output state (first {max_len} chars) ---")
@@ -113,10 +113,10 @@ for trace in traces:
         last_gen = generations[-1]
         p = last_gen["properties"]
         text, thinking = extract_final_output(p.get("$ai_output_choices", []))
-        print(f"\n{'=' * 80}")
+        print(f"\n{'='*80}")
         print(f"FINAL LLM OUTPUT ({p.get('$ai_model', '?')})")
-        print(f"{'=' * 80}")
+        print(f"{'='*80}")
         if thinking:
             print(f"\n  [thinking] {thinking[:max_len]}{'...' if len(thinking) > max_len else ''}")
         if text:
-            print(f"\n  {text[: max_len * 2]}{'...' if len(text) > max_len * 2 else ''}")
+            print(f"\n  {text[:max_len * 2]}{'...' if len(text) > max_len * 2 else ''}")

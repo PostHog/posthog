@@ -12,7 +12,7 @@ class TestView(APIBaseTest):
                 "name": "event_view",
                 "query": {
                     "kind": "HogQLQuery",
-                    "query": "select event as event from events LIMIT 100",
+                    "query": f"select event as event from events LIMIT 100",
                 },
             },
         )
@@ -41,7 +41,7 @@ class TestView(APIBaseTest):
                 "name": "event_view",
                 "query": {
                     "kind": "HogQLQuery",
-                    "query": "select event as event from event_view LIMIT 100",
+                    "query": f"select event as event from event_view LIMIT 100",
                 },
             },
         )
@@ -54,7 +54,7 @@ class TestView(APIBaseTest):
                 "name": "event_view",
                 "query": {
                     "kind": "HogQLQuery",
-                    "query": "select event as event from events LIMIT 100",
+                    "query": f"select event as event from events LIMIT 100",
                 },
             },
         )
@@ -65,7 +65,7 @@ class TestView(APIBaseTest):
             {
                 "query": {
                     "kind": "HogQLQuery",
-                    "query": "select distinct_id as distinct_id from events LIMIT 100",
+                    "query": f"select distinct_id as distinct_id from events LIMIT 100",
                 },
                 "edited_history_id": view["latest_history_id"],
             },
@@ -123,7 +123,7 @@ class TestView(APIBaseTest):
                 "name": "event_view",
                 "query": {
                     "kind": "HogQLQuery",
-                    "query": "select id as id, a_column as a_column from whatever LIMIT 100",
+                    "query": f"select id as id, a_column as a_column from whatever LIMIT 100",
                 },
             },
         )

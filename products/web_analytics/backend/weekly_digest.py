@@ -37,11 +37,7 @@ def _default_overview() -> dict:
 
 def get_overview_for_team(team: Team) -> dict:
     """Get visitors, pageviews, sessions, bounce rate and avg session duration with week-over-week comparison."""
-    tag_queries(
-        product=ProductKey.WEB_ANALYTICS,
-        team_id=team.pk,
-        name="weekly_digest:web_overview",
-    )
+    tag_queries(product=ProductKey.WEB_ANALYTICS, team_id=team.pk, name="weekly_digest:web_overview")
     result = _default_overview()
 
     try:
@@ -124,11 +120,7 @@ def _format_duration(seconds: float | None) -> str:
 
 def get_top_pages(team: Team, limit: int = 5) -> list[dict]:
     """Get top pages by unique visitors for the last 7 days, with week-over-week comparison."""
-    tag_queries(
-        product=ProductKey.WEB_ANALYTICS,
-        team_id=team.pk,
-        name="weekly_digest:top_pages",
-    )
+    tag_queries(product=ProductKey.WEB_ANALYTICS, team_id=team.pk, name="weekly_digest:top_pages")
 
     try:
         query = WebStatsTableQuery(
@@ -136,10 +128,7 @@ def get_top_pages(team: Team, limit: int = 5) -> list[dict]:
             dateRange=DateRange(date_from="-7d"),
             compareFilter=CompareFilter(compare=True),
             limit=limit,
-            orderBy=[
-                WebAnalyticsOrderByFields.VISITORS,
-                WebAnalyticsOrderByDirection.DESC,
-            ],
+            orderBy=[WebAnalyticsOrderByFields.VISITORS, WebAnalyticsOrderByDirection.DESC],
             filterTestAccounts=True,
             properties=[],
         )
@@ -165,11 +154,7 @@ def get_top_pages(team: Team, limit: int = 5) -> list[dict]:
 
 def get_top_sources(team: Team, limit: int = 5) -> list[dict]:
     """Get top traffic sources by unique visitors for the last 7 days, with week-over-week comparison."""
-    tag_queries(
-        product=ProductKey.WEB_ANALYTICS,
-        team_id=team.pk,
-        name="weekly_digest:top_sources",
-    )
+    tag_queries(product=ProductKey.WEB_ANALYTICS, team_id=team.pk, name="weekly_digest:top_sources")
 
     try:
         query = WebStatsTableQuery(
@@ -177,10 +162,7 @@ def get_top_sources(team: Team, limit: int = 5) -> list[dict]:
             dateRange=DateRange(date_from="-7d"),
             compareFilter=CompareFilter(compare=True),
             limit=limit,
-            orderBy=[
-                WebAnalyticsOrderByFields.VISITORS,
-                WebAnalyticsOrderByDirection.DESC,
-            ],
+            orderBy=[WebAnalyticsOrderByFields.VISITORS, WebAnalyticsOrderByDirection.DESC],
             filterTestAccounts=True,
             properties=[],
         )

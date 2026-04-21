@@ -29,13 +29,8 @@ def parse_result(raw):
                 col_name = columns[i] if i < len(columns) else ""
                 # Extract run metadata from known columns
                 if isinstance(cell, str) and col_name in (
-                    "run_id",
-                    "level",
-                    "job_id",
-                    "job_name",
-                    "window_start",
-                    "window_end",
-                    "total_items",
+                    "run_id", "level", "job_id", "job_name",
+                    "window_start", "window_end", "total_items",
                 ):
                     meta[col_name] = cell
                 elif isinstance(cell, (int, float)) and col_name == "total_items":
@@ -65,7 +60,7 @@ if __name__ == "__main__":
 
     clusters.sort(key=lambda c: c.get("size", 0), reverse=True)
 
-    print(f"\n{'=' * 80}")
+    print(f"\n{'='*80}")
     if meta:
         if meta.get("job_name"):
             print(f"  Job: {meta['job_name']}")
@@ -79,9 +74,9 @@ if __name__ == "__main__":
             print(f"  Window: {meta.get('window_start', '?')} → {meta.get('window_end', '?')}")
         if meta.get("total_items"):
             print(f"  Items analyzed: {meta['total_items']}")
-        print("  ---")
+        print(f"  ---")
     print(f"  {len(clusters)} clusters, {sum(c.get('size', 0) for c in clusters)} total items")
-    print(f"{'=' * 80}")
+    print(f"{'='*80}")
 
     for c in clusters:
         cid = c.get("cluster_id", "?")
@@ -100,7 +95,7 @@ if __name__ == "__main__":
         traces = c.get("traces", {})
         ranked = sorted(traces.items(), key=lambda t: t[1].get("rank", 999))[:5]
         if ranked:
-            print("  Top traces (by centroid proximity):")
+            print(f"  Top traces (by centroid proximity):")
             for tid, info in ranked:
                 dist = info.get("distance_to_centroid")
                 ts = info.get("timestamp", "?")

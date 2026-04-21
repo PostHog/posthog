@@ -78,7 +78,7 @@ class TestExternalSurveys(APIBaseTest):
     def test_valid_survey_id_required(self):
         """Test that invalid survey IDs are rejected"""
         # Invalid UUID format
-        response = self.client.get("/external_surveys/invalid-id/")
+        response = self.client.get(f"/external_surveys/invalid-id/")
         assert response.status_code == 400
         assert "Invalid request" in response.content.decode()
 
