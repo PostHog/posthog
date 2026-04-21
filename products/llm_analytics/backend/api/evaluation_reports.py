@@ -332,7 +332,7 @@ class EvaluationReportViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewse
             )
 
     @extend_schema(responses=EvaluationReportRunSerializer(many=True))
-    @action(detail=True, methods=["get"], url_path="runs")
+    @action(detail=True, methods=["get"], url_path="runs", required_scopes=["llm_analytics:read"])
     @llma_track_latency("llma_evaluation_report_runs_list")
     def runs(self, request: Request, **kwargs) -> Response:
         """List report runs (history) for this report."""
@@ -346,7 +346,7 @@ class EvaluationReportViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewse
         return Response(serializer.data)
 
     @extend_schema(request=None, responses={202: None})
-    @action(detail=True, methods=["post"], url_path="generate")
+    @action(detail=True, methods=["post"], url_path="generate", required_scopes=["llm_analytics:write"])
     @llma_track_latency("llma_evaluation_report_generate")
     def generate(self, request: Request, **kwargs) -> Response:
         """Trigger immediate report generation."""
