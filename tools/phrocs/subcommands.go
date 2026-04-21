@@ -24,28 +24,31 @@ func runWait(timeoutSec int, asJSON bool) int {
 	deadline := start.Add(time.Duration(timeoutSec) * time.Second)
 	var lastNotReady []string
 	notReachableUntil := start.Add(socketGracePeriod)
+	sawResponse := false
 
 	for {
 		resp, err := query(map[string]any{"cmd": "status_all"}, 2*time.Second)
 		if err != nil {
 			// Daemon may not have bound yet — allow a grace period before failing.
 			if time.Now().After(notReachableUntil) {
-				if asJSON {
-					printJSON(map[string]any{"verdict": "not_reachable", "error": err.Error()})
-				} else {
-					fmt.Fprintf(os.Stderr, "phrocs: daemon not reachable: %v\n", err)
-				}
-				return 3
+				return notReachable(asJSON, err.Error())
 			}
+			// Short --timeout (< socketGracePeriod) means the deadline can fire
+			// before we ever reach the daemon. Treat that as not_reachable, not
+			// timeout — the former is semantically correct and keeps --json
+			// callers from seeing an empty notReady list.
 			if time.Now().After(deadline) {
+				if !sawResponse {
+					return notReachable(asJSON, "deadline exceeded before daemon bound")
+				}
 				return waitTimeout(asJSON, lastNotReady)
 			}
 			time.Sleep(500 * time.Millisecond)
 			continue
 		}
+		sawResponse = true
 		if resp["ok"] != true {
-			fmt.Fprintf(os.Stderr, "phrocs: daemon error: %v\n", resp["error"])
-			return 3
+			return notReachable(asJSON, fmt.Sprintf("%v", resp["error"]))
 		}
 		procs, _ := resp["processes"].(map[string]any)
 		verdict, crashed, notReady := classify(procs)
@@ -116,6 +119,15 @@ func waitTimeout(asJSON bool, notReady []string) int {
 		fmt.Fprintf(os.Stderr, "timeout: still not ready: %s\n", strings.Join(notReady, ", "))
 	}
 	return 2
+}
+
+func notReachable(asJSON bool, reason string) int {
+	if asJSON {
+		printJSON(map[string]any{"verdict": "not_reachable", "error": reason})
+	} else {
+		fmt.Fprintf(os.Stderr, "phrocs: daemon not reachable: %s\n", reason)
+	}
+	return 3
 }
 
 func tailLogs(name string) {

@@ -6,6 +6,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -177,7 +178,7 @@ func TestServe_statusUnknown(t *testing.T) {
 		t.Fatal("error: expected non-empty error message")
 	}
 	const wantSubstr = "process not found"
-	if !containsSubstr(errMsg, wantSubstr) {
+	if !strings.Contains(errMsg, wantSubstr) {
 		t.Errorf("error %q does not contain %q", errMsg, wantSubstr)
 	}
 }
@@ -329,7 +330,7 @@ func TestServe_unknownCommand(t *testing.T) {
 	}
 	errMsg, _ := resp["error"].(string)
 	const wantSubstr = "unknown command"
-	if !containsSubstr(errMsg, wantSubstr) {
+	if !strings.Contains(errMsg, wantSubstr) {
 		t.Errorf("error %q does not contain %q", errMsg, wantSubstr)
 	}
 }
@@ -345,7 +346,7 @@ func TestServe_invalidJSON(t *testing.T) {
 	}
 	errMsg, _ := resp["error"].(string)
 	const wantSubstr = "invalid JSON"
-	if !containsSubstr(errMsg, wantSubstr) {
+	if !strings.Contains(errMsg, wantSubstr) {
 		t.Errorf("error %q does not contain %q", errMsg, wantSubstr)
 	}
 }
@@ -360,7 +361,7 @@ func TestServe_sendKeys_unknownProcess(t *testing.T) {
 		t.Fatalf("ok: got %v, want false", resp["ok"])
 	}
 	errMsg, _ := resp["error"].(string)
-	if !containsSubstr(errMsg, "process not found") {
+	if !strings.Contains(errMsg, "process not found") {
 		t.Errorf("error %q does not contain 'process not found'", errMsg)
 	}
 }
@@ -375,7 +376,7 @@ func TestServe_sendKeys_missingKeys(t *testing.T) {
 		t.Fatalf("ok: got %v, want false", resp["ok"])
 	}
 	errMsg, _ := resp["error"].(string)
-	if !containsSubstr(errMsg, "missing keys") {
+	if !strings.Contains(errMsg, "missing keys") {
 		t.Errorf("error %q does not contain 'missing keys'", errMsg)
 	}
 }
@@ -409,7 +410,7 @@ func TestServe_addProc_duplicate(t *testing.T) {
 		t.Fatalf("ok: got %v, want false", resp["ok"])
 	}
 	errMsg, _ := resp["error"].(string)
-	if !containsSubstr(errMsg, "already exists") {
+	if !strings.Contains(errMsg, "already exists") {
 		t.Errorf("error %q does not contain 'already exists'", errMsg)
 	}
 }
@@ -455,7 +456,7 @@ func TestServe_removeProc_unknown(t *testing.T) {
 		t.Fatalf("ok: got %v, want false", resp["ok"])
 	}
 	errMsg, _ := resp["error"].(string)
-	if !containsSubstr(errMsg, "process not found") {
+	if !strings.Contains(errMsg, "process not found") {
 		t.Errorf("error %q does not contain 'process not found'", errMsg)
 	}
 }
@@ -589,18 +590,4 @@ func TestServe_quit_replyBeforeShutdown(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("QuitCh not closed after quit reply")
 	}
-}
-
-// containsSubstr reports whether s contains substr.
-func containsSubstr(s, substr string) bool {
-	return len(s) >= len(substr) && (s == substr || len(s) > 0 && indexSubstr(s, substr) >= 0)
-}
-
-func indexSubstr(s, substr string) int {
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return i
-		}
-	}
-	return -1
 }
