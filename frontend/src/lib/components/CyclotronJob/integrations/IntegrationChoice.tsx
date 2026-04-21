@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
-import { IconExternal, IconX } from '@posthog/icons'
+import { IconExternal, IconTrash, IconX } from '@posthog/icons'
 import { LemonButton, LemonMenu, LemonSkeleton } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
@@ -33,7 +33,8 @@ export function IntegrationChoice({
     beforeRedirect,
 }: IntegrationConfigureProps): JSX.Element | null {
     const { integrationsLoading, integrations, newIntegrationModalKind } = useValues(integrationsLogic)
-    const { newGoogleCloudKey, openNewIntegrationModal, closeNewIntegrationModal } = useActions(integrationsLogic)
+    const { newGoogleCloudKey, openNewIntegrationModal, closeNewIntegrationModal, deleteIntegration } =
+        useActions(integrationsLogic)
     const kind = integration
 
     const integrationsOfKind = integrations?.filter((x) => x.kind === kind)
@@ -120,8 +121,18 @@ export function IntegrationChoice({
                         value
                             ? {
                                   onClick: () => onChange?.(null),
-                                  label: 'Clear',
+                                  label: 'Clear selection',
                                   sideIcon: <IconX />,
+                              }
+                            : null,
+                        integrationKind
+                            ? {
+                                  onClick: () => {
+                                      deleteIntegration(integrationKind.id)
+                                  },
+                                  label: 'Disconnect integration',
+                                  status: 'danger' as const,
+                                  sideIcon: <IconTrash />,
                               }
                             : null,
                     ],
