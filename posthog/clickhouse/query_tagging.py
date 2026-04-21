@@ -10,15 +10,17 @@ from enum import StrEnum
 from typing import TYPE_CHECKING, Any, Optional
 
 if TYPE_CHECKING:
-    from posthog.models.organization import Organization
     from posthog.models.team import Team
 
 # from posthog.clickhouse.client.connection import Workload
 # from posthog.schema import PersonsOnEventsMode
+import structlog
 from cachetools import cached
 from pydantic import BaseModel, ConfigDict
 
 from posthog.schema import ProductKey
+
+logger = structlog.get_logger(__name__)
 
 
 class AccessMethod(StrEnum):
@@ -313,11 +315,7 @@ def tag_queries(**kwargs) -> None:
     query_tags.set(updated_tags)
 
 
-def get_team_query_tags(
-    team: "int | Team",
-    *,
-    organization: "Optional[Organization]" = None,
-) -> dict[str, Any]:
+def get_team_query_tags(team: "int | Team") -> dict[str, Any]:
     """
     Returns a dict of tags derived from the team — team_id, org_id, and
     ai_data_processing_approved — for the caller to pass to tag_queries(). Use from
@@ -326,30 +324,20 @@ def get_team_query_tags(
 
         tag_queries(**get_team_query_tags(insight.team), insight_id=insight.pk, ...)
 
-    `team` accepts either a team_id (int) — which triggers one select_related'd Team
-    fetch — or a Team instance, which skips the fetch. If a Team is passed without its
-    organization prefetched, accessing .organization will lazy-load it (one extra query).
+    Accepts either a team_id (int) — which triggers one select_related'd Team fetch — or
+    a Team instance, which skips the fetch. If a Team is passed without its organization
+    prefetched, accessing .organization will lazy-load it (one extra query); prefetch with
+    `select_related("team__organization")` upstream to avoid that.
 
-    `organization`, if provided, is used directly for org_id and ai_data_processing_approved,
-    skipping any lookup of the team's organization. Use this when the caller already has
-    an Organization in scope. The caller is responsible for ensuring it matches the team.
-
-    Returns only {"team_id": team_id} if the id doesn't resolve to an existing team and
-    no organization was supplied.
+    Returns only {"team_id": team_id} if the id doesn't resolve to an existing team; emits
+    a structured warning so the gap is observable.
     """
-    if organization is not None:
-        team_id = team if isinstance(team, int) else team.pk
-        return {
-            "team_id": team_id,
-            "org_id": organization.pk,
-            "ai_data_processing_approved": organization.is_ai_data_processing_approved,
-        }
-
     if isinstance(team, int):
         from posthog.models.team import Team as TeamModel
 
         resolved = TeamModel.objects.select_related("organization").filter(id=team).first()
         if resolved is None:
+            logger.warning("get_team_query_tags_team_not_found", team_id=team)
             return {"team_id": team}
         team = resolved
 

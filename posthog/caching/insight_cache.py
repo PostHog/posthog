@@ -43,7 +43,11 @@ CACHE_UPDATE_SHARED_GAUGE = Gauge(
 
 def update_cache(caching_state_id: UUID):
     # nosemgrep: idor-lookup-without-team (Celery task, ID from internal scheduling)
-    caching_state = InsightCachingState.objects.get(pk=caching_state_id)
+    caching_state = InsightCachingState.objects.select_related(
+        "insight__team__organization",
+        "dashboard_tile__insight__team__organization",
+        "dashboard_tile__dashboard",
+    ).get(pk=caching_state_id)
 
     if caching_state.target_cache_age_seconds is None or (
         caching_state.last_refresh is not None
