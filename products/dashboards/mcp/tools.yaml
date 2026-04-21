@@ -315,9 +315,6 @@ tools:
     dashboards-copy-tile-create:
         operation: dashboards_copy_tile_create
         enabled: false
-    dashboards-generate-metadata-create:
-        operation: dashboards_generate_metadata_create
-        enabled: false
     dashboards-bulk-update-tags-create:
         operation: dashboards_bulk_update_tags_create
         enabled: false
