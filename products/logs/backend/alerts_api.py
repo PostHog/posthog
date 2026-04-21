@@ -1,10 +1,10 @@
 import datetime as dt
 from datetime import UTC, datetime
-from typing import Final, cast
+from typing import Final, TypedDict, cast
 from zoneinfo import ZoneInfo
 
 from django.db import transaction
-from django.db.models import F, OuterRef, Q, QuerySet, Subquery
+from django.db.models import F, OuterRef, Prefetch, Q, QuerySet, Subquery
 
 from drf_spectacular.utils import extend_schema, extend_schema_field
 from loginas.utils import is_impersonated_session
@@ -50,6 +50,7 @@ ALLOWED_WINDOW_MINUTES = {5, 10, 15, 30, 60}
 MAX_ALERTS_PER_TEAM = 20
 MAX_SIMULATE_LOOKBACK_DAYS = 30
 MAX_SIMULATE_BUCKETS = 15_000
+SPARKLINE_LOOKBACK_HOURS = 24
 _SENTINEL: Final = object()
 _NOT_ANNOTATED: Final = object()
 
@@ -58,17 +59,62 @@ def _any_field_changed(instance: LogsAlertConfiguration, validated_data: dict, f
     return any(f in validated_data and validated_data[f] != getattr(instance, f) for f in fields)
 
 
+class LogsAlertSparklineBucketSerializer(serializers.Serializer):
+    timestamp = serializers.DateTimeField(help_text="Bucket start timestamp (UTC, hourly).")
+    breached = serializers.IntegerField(help_text="Count of breached checks in this hour.")
+    errored = serializers.IntegerField(help_text="Count of errored checks in this hour.")
+
+
+class SparklineBucket(TypedDict):
+    timestamp: datetime
+    breached: int
+    errored: int
+
+
+def _sparkline_window_start() -> datetime:
+    current_hour = datetime.now(UTC).replace(minute=0, second=0, microsecond=0)
+    return current_hour - dt.timedelta(hours=SPARKLINE_LOOKBACK_HOURS - 1)
+
+
 class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
-    created_by = UserBasicSerializer(read_only=True)
+    id = serializers.UUIDField(
+        read_only=True,
+        help_text="Unique identifier for this alert.",
+    )
+    name = serializers.CharField(
+        max_length=255,
+        help_text="Human-readable name for this alert.",
+    )
+    enabled = serializers.BooleanField(
+        default=True,
+        help_text="Whether the alert is actively being evaluated. Disabling resets the state to not_firing.",
+    )
     filters = serializers.JSONField(
         help_text="Filter criteria — subset of LogsViewerFilters. Must contain at least one of: "
         "severityLevels (list of severity strings), serviceNames (list of service name strings), "
         "or filterGroup (property filter group object)."
     )
+    threshold_count = serializers.IntegerField(
+        min_value=1,
+        help_text="Number of matching log entries that constitutes a threshold breach within the evaluation window.",
+    )
     threshold_operator = serializers.ChoiceField(
         choices=LogsAlertConfiguration.ThresholdOperator.choices,
         default=LogsAlertConfiguration.ThresholdOperator.ABOVE,
         help_text="Whether the alert fires when the count is above or below the threshold.",
+    )
+    window_minutes = serializers.IntegerField(
+        default=5,
+        help_text="Time window in minutes over which log entries are counted. Allowed values: 5, 10, 15, 30, 60.",
+    )
+    check_interval_minutes = serializers.IntegerField(
+        read_only=True,
+        help_text="How often the alert is evaluated, in minutes. Server-managed.",
+    )
+    state = serializers.ChoiceField(
+        choices=LogsAlertConfiguration.State.choices,
+        read_only=True,
+        help_text="Current alert state: not_firing, firing, pending_resolve, errored, or snoozed. Server-managed.",
     )
     evaluation_periods = serializers.IntegerField(
         default=1,
@@ -82,6 +128,35 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
         max_value=MAX_EVALUATION_PERIODS,
         help_text="How many periods within the evaluation window must breach the threshold to fire (N in N-of-M).",
     )
+    cooldown_minutes = serializers.IntegerField(
+        default=0,
+        min_value=0,
+        help_text="Minimum minutes between repeated notifications after the alert fires. 0 means no cooldown.",
+    )
+    snooze_until = serializers.DateTimeField(
+        required=False,
+        allow_null=True,
+        help_text="ISO 8601 timestamp until which the alert is snoozed. Set to null to unsnooze.",
+    )
+    next_check_at = serializers.DateTimeField(
+        read_only=True,
+        allow_null=True,
+        help_text="When the next evaluation is scheduled. Server-managed.",
+    )
+    last_notified_at = serializers.DateTimeField(
+        read_only=True,
+        allow_null=True,
+        help_text="When the last notification was sent. Server-managed.",
+    )
+    last_checked_at = serializers.DateTimeField(
+        read_only=True,
+        allow_null=True,
+        help_text="When the alert was last evaluated. Server-managed.",
+    )
+    consecutive_failures = serializers.IntegerField(
+        read_only=True,
+        help_text="Number of consecutive evaluation failures. Resets on success. Server-managed.",
+    )
     last_error_message = serializers.SerializerMethodField(
         help_text=(
             "Error message from the most recent errored check, or null if the alert's "
@@ -89,6 +164,57 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
             "denormalization so retention-aware cleanup rules stay the only source of truth."
         ),
     )
+    created_at = serializers.DateTimeField(
+        read_only=True,
+        help_text="When the alert was created.",
+    )
+    created_by = UserBasicSerializer(read_only=True)
+    updated_at = serializers.DateTimeField(
+        read_only=True,
+        allow_null=True,
+        help_text="When the alert was last modified.",
+    )
+    sparkline = serializers.SerializerMethodField(
+        help_text=(
+            f"{SPARKLINE_LOOKBACK_HOURS} hourly buckets of breached + errored check counts "
+            "for the last 24h, ordered oldest-first. Drives the activity column on the "
+            "alert list — empty sparkline = healthy alert. Ok checks are not included: "
+            "retention caps OK rows at MAX_EVALUATION_PERIODS (~50min at 5-min cadence), "
+            "so only events that survive the prune (breached + errored) are meaningful "
+            "over a 24h window."
+        ),
+    )
+
+    @extend_schema_field(LogsAlertSparklineBucketSerializer(many=True))
+    def get_sparkline(self, obj: LogsAlertConfiguration) -> list[SparklineBucket]:
+        start = self.context.get("sparkline_start") or _sparkline_window_start()
+
+        buckets: list[SparklineBucket] = [
+            {
+                "timestamp": start + dt.timedelta(hours=i),
+                "breached": 0,
+                "errored": 0,
+            }
+            for i in range(SPARKLINE_LOOKBACK_HOURS)
+        ]
+
+        events = getattr(obj, "recent_checks", None)
+        if events is None:
+            events = LogsAlertEvent.objects.filter(
+                alert=obj,
+                kind=LogsAlertEvent.Kind.CHECK,
+                created_at__gte=start,
+            )
+
+        for event in events:
+            hour_offset = int((event.created_at - start).total_seconds() // 3600)
+            if 0 <= hour_offset < SPARKLINE_LOOKBACK_HOURS:
+                if event.error_message:
+                    buckets[hour_offset]["errored"] += 1
+                elif event.threshold_breached:
+                    buckets[hour_offset]["breached"] += 1
+
+        return buckets
 
     @extend_schema_field(serializers.CharField(allow_null=True))
     def get_last_error_message(self, obj: LogsAlertConfiguration) -> str | None:
@@ -131,6 +257,7 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
             "last_checked_at",
             "consecutive_failures",
             "last_error_message",
+            "sparkline",
             "created_at",
             "created_by",
             "updated_at",
@@ -144,6 +271,7 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
             "last_checked_at",
             "consecutive_failures",
             "last_error_message",
+            "sparkline",
             "created_at",
             "created_by",
             "updated_at",
@@ -497,7 +625,23 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             .order_by("-created_at")
             .values("error_message")[:1]
         )
-        return queryset.filter(team_id=self.team_id).annotate(_latest_error_message=Subquery(latest_error))
+        # Anchor the prefetch window and the serializer's bucket grid to the same
+        # instant so they can't drift across an hour-boundary rollover mid-request.
+        self._sparkline_start = _sparkline_window_start()
+        sparkline_events = LogsAlertEvent.objects.filter(
+            kind=LogsAlertEvent.Kind.CHECK,
+            created_at__gte=self._sparkline_start,
+        ).order_by("created_at")
+        return (
+            queryset.filter(team_id=self.team_id)
+            .annotate(_latest_error_message=Subquery(latest_error))
+            .prefetch_related(Prefetch("events", queryset=sparkline_events, to_attr="recent_checks"))
+        )
+
+    def get_serializer_context(self) -> dict:
+        context = super().get_serializer_context()
+        context["sparkline_start"] = getattr(self, "_sparkline_start", None) or _sparkline_window_start()
+        return context
 
     @extend_schema(
         request=LogsAlertCreateDestinationSerializer,

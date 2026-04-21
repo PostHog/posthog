@@ -191,6 +191,38 @@ class TestExperimentService(APIBaseTest):
         assert experiment.stats_config["bayesian"]["ci_level"] == 0.99
 
     # ------------------------------------------------------------------
+    # Only count matured users defaults
+    # ------------------------------------------------------------------
+
+    def test_only_count_matured_users_defaults_from_team(self):
+        config = get_or_create_team_extension(self.team, TeamExperimentsConfig)
+        config.default_only_count_matured_users = True
+        config.save()
+
+        self._create_flag(key="matured-default")
+        service = self._service()
+
+        experiment = service.create_experiment(name="Matured Default", feature_flag_key="matured-default")
+
+        assert experiment.only_count_matured_users is True
+
+    def test_only_count_matured_users_explicit_override(self):
+        config = get_or_create_team_extension(self.team, TeamExperimentsConfig)
+        config.default_only_count_matured_users = True
+        config.save()
+
+        self._create_flag(key="matured-override")
+        service = self._service()
+
+        experiment = service.create_experiment(
+            name="Matured Override",
+            feature_flag_key="matured-override",
+            only_count_matured_users=False,
+        )
+
+        assert experiment.only_count_matured_users is False
+
+    # ------------------------------------------------------------------
     # Metric fingerprints
     # ------------------------------------------------------------------
 
@@ -2844,6 +2876,37 @@ class TestExperimentService(APIBaseTest):
                 feature_flag_key="bad-variant-flag-2",
                 parameters={"feature_flag_variants": ["control", "test"]},
             )
+
+    def test_variant_missing_both_percentages_raises_validation_error(self):
+        """Variant without split_percent or rollout_percentage should be rejected."""
+        service = self._service()
+        with self.assertRaises(ValidationError) as ctx:
+            service.create_experiment(
+                name="Missing Percentages",
+                feature_flag_key="missing-pct-flag",
+                parameters={
+                    "feature_flag_variants": [
+                        {"key": "control"},
+                        {"key": "test", "rollout_percentage": 50},
+                    ]
+                },
+            )
+        assert "split_percent" in str(ctx.exception)
+
+    def test_variant_with_only_rollout_percentage_succeeds(self):
+        """Legacy clients sending only rollout_percentage must still work (deprecated but accepted)."""
+        service = self._service()
+        experiment = service.create_experiment(
+            name="Legacy rollout only",
+            feature_flag_key="legacy-rollout-flag",
+            parameters={
+                "feature_flag_variants": [
+                    {"key": "control", "rollout_percentage": 50},
+                    {"key": "test", "rollout_percentage": 50},
+                ]
+            },
+        )
+        assert experiment.id is not None
 
     def test_duplicate_metric_uuids_raises_validation_error(self):
         """Metrics with duplicate UUIDs should be rejected."""
