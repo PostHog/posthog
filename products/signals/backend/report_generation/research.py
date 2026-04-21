@@ -253,16 +253,15 @@ def _render_previous_presentation_context(previous_title: str | None, previous_s
 
 def _render_signal_for_research(signal: SignalData, index: int, total: int) -> str:
     """Render a single signal for the research prompt, with numbering."""
+    from products.signals.backend.temporal.types import _render_extra_to_text
+
     lines = [f"### Signal {index}/{total} (id: `{signal.signal_id}`)"]
     lines.append(f"- **Source:** {signal.source_product} / {signal.source_type}")
     lines.append(f"- **Source ID:** {signal.source_id}")
     lines.append(f"- **Weight:** {signal.weight}")
     lines.append(f"- **Timestamp:** {signal.timestamp}")
     if signal.extra:
-        if "url" in signal.extra:
-            lines.append(f"- **URL:** {signal.extra['url']}")
-        if "labels" in signal.extra:
-            lines.append(f"- **Labels:** {', '.join(signal.extra['labels'])}")
+        lines.extend(_render_extra_to_text(signal.extra))
     lines.append(f"- **Description:** {signal.content}")
     return "\n".join(lines)
 
@@ -534,6 +533,18 @@ async def run_multi_turn_research(
         origin_product="signal_report",
         signal_report_id=signal_report_id,
     )
+
+    # Record the research task relationship immediately after task creation
+    if signal_report_id:
+        from products.signals.backend.models import SignalReportTask
+
+        await SignalReportTask.objects.acreate(
+            team_id=context.team_id,
+            report_id=signal_report_id,
+            task_id=str(session.task.id),
+            relationship=SignalReportTask.Relationship.RESEARCH,
+        )
+
     first_finding = _enforce_signal_id(first_finding, signals[0].signal_id)
     findings: list[SignalFinding] = [first_finding]
     if output_fn:

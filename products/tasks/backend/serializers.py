@@ -1,14 +1,26 @@
+from zoneinfo import available_timezones
+
 from django.core.cache import cache
+from django.db import transaction
 from django.utils import timezone
 
-from drf_spectacular.utils import extend_schema_field
+from croniter import croniter  # type: ignore[import-untyped,unused-ignore]
+from drf_spectacular.utils import PolymorphicProxySerializer, extend_schema_field
 from rest_framework import serializers
 
+from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.api.shared import UserBasicSerializer
 from posthog.models.integration import Integration
 from posthog.storage import object_storage
 
-from .models import SandboxEnvironment, Task, TaskRun
+from products.signals.backend.models import SignalReportTask
+
+from .constants import (
+    ALL_INITIAL_PERMISSION_MODE_CHOICES,
+    CODEX_INITIAL_PERMISSION_MODE_CHOICES,
+    INITIAL_PERMISSION_MODE_CHOICES,
+)
+from .models import SandboxEnvironment, Task, TaskAutomation, TaskRun
 from .services.title_generator import generate_task_title
 from .temporal.process_task.utils import (
     PUBLIC_REASONING_EFFORTS,
@@ -32,6 +44,19 @@ class TaskSerializer(serializers.ModelSerializer):
     title = serializers.CharField(max_length=255, required=False, allow_blank=True)
     description = serializers.CharField(required=False, allow_blank=True)
     origin_product = serializers.ChoiceField(choices=Task.OriginProduct.choices, required=False)
+    # Write-only: which SignalReportTask row to create when linking a task to a report from the
+    # public task API (e.g. PostHog Code inbox). Only implementation is supported; research/repo
+    # selection links are created by server-side flows.
+    signal_report_task_relationship = serializers.ChoiceField(
+        choices=[
+            (
+                SignalReportTask.Relationship.IMPLEMENTATION.value,
+                SignalReportTask.Relationship.IMPLEMENTATION.label,
+            ),
+        ],
+        required=False,
+        write_only=True,
+    )
 
     class Meta:
         model = Task
@@ -46,12 +71,14 @@ class TaskSerializer(serializers.ModelSerializer):
             "repository",
             "github_integration",
             "signal_report",
+            "signal_report_task_relationship",
             "json_schema",
             "internal",
             "latest_run",
             "created_at",
             "updated_at",
             "created_by",
+            "ci_prompt",
         ]
         read_only_fields = [
             "id",
@@ -92,11 +119,29 @@ class TaskSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("Signal report must belong to the same team")
         return value
 
+    def validate(self, attrs: dict) -> dict:
+        rel = attrs.get("signal_report_task_relationship")
+        if rel is not None:
+            if not attrs.get("signal_report"):
+                raise serializers.ValidationError(
+                    {"signal_report_task_relationship": "Requires signal_report when set."}
+                )
+            if attrs.get("origin_product") != Task.OriginProduct.SIGNAL_REPORT:
+                raise serializers.ValidationError(
+                    {"signal_report_task_relationship": ("Requires origin_product signal_report when set.")}
+                )
+        return attrs
+
     def create(self, validated_data):
         validated_data["team"] = self.context["team"]
 
         if "request" in self.context and hasattr(self.context["request"], "user"):
             validated_data["created_by"] = self.context["request"].user
+
+        link_relationship = validated_data.pop(
+            "signal_report_task_relationship",
+            SignalReportTask.Relationship.IMPLEMENTATION,
+        )
 
         # Set default GitHub integration if not provided
         if not validated_data.get("github_integration"):
@@ -111,7 +156,20 @@ class TaskSerializer(serializers.ModelSerializer):
         elif title:
             validated_data.setdefault("title_manually_set", True)
 
-        return super().create(validated_data)
+        # Inbox / PostHog Code: tasks created via this API with a signal report use the same
+        # origin_product as server-side flows, but only those flows previously called
+        # SignalReportTask.objects.create. Link implementation tasks here so report task
+        # listings (e.g. getSignalReportTasks) match autostarted implementations.
+        with transaction.atomic():
+            task = super().create(validated_data)
+            if task.signal_report_id and task.origin_product == Task.OriginProduct.SIGNAL_REPORT:
+                SignalReportTask.objects.create(
+                    team_id=task.team_id,
+                    report_id=task.signal_report_id,
+                    task=task,
+                    relationship=link_relationship,
+                )
+            return task
 
     def update(self, instance, validated_data):
         if "title" in validated_data and "title_manually_set" not in validated_data:
@@ -519,20 +577,45 @@ class TaskRunCreateRequestSerializer(serializers.Serializer):
         help_text="Ephemeral GitHub user token from PostHog Code for user-authored cloud pull requests.",
     )
     initial_permission_mode = serializers.ChoiceField(
-        choices=["default", "acceptEdits", "plan", "bypassPermissions"],
+        choices=ALL_INITIAL_PERMISSION_MODE_CHOICES,
         required=False,
         default=None,
-        help_text="Initial permission mode for the agent session (e.g., 'plan' to start in plan mode).",
+        help_text=(
+            "Initial permission mode for the agent session. Claude runtimes accept PostHog permission "
+            "presets like 'plan'. Codex runtimes accept native Codex modes like 'auto' and "
+            "'read-only'."
+        ),
     )
 
     def validate(self, attrs):
+        errors: dict[str, str] = {}
+        initial_permission_mode = attrs.get("initial_permission_mode")
+        runtime_adapter = attrs.get("runtime_adapter")
+        if initial_permission_mode is not None:
+            if runtime_adapter is None:
+                errors["initial_permission_mode"] = "This field requires runtime_adapter to be set."
+            else:
+                allowed_permission_modes = (
+                    list(CODEX_INITIAL_PERMISSION_MODE_CHOICES)
+                    if runtime_adapter == RuntimeAdapter.CODEX.value
+                    else list(INITIAL_PERMISSION_MODE_CHOICES)
+                )
+
+                if initial_permission_mode not in allowed_permission_modes:
+                    allowed_values = ", ".join(f"'{value}'" for value in allowed_permission_modes)
+                    errors["initial_permission_mode"] = (
+                        f"Invalid choice '{initial_permission_mode}' for runtime_adapter "
+                        f"'{runtime_adapter}'. Supported values: {allowed_values}."
+                    )
+
         runtime_fields = ("runtime_adapter", "model")
         has_runtime_selection = any(attrs.get(field) is not None for field in (*runtime_fields, "reasoning_effort"))
 
         if not has_runtime_selection:
+            if errors:
+                raise serializers.ValidationError(errors)
             return attrs
 
-        errors: dict[str, str] = {}
         for field in runtime_fields:
             if attrs.get(field) is None:
                 errors[field] = "This field is required when selecting a cloud runtime."
@@ -549,6 +632,112 @@ class TaskRunCreateRequestSerializer(serializers.Serializer):
             raise serializers.ValidationError(errors)
 
         return attrs
+
+
+class ClaudeTaskRunCreateSchemaSerializer(TaskRunCreateRequestSerializer):
+    runtime_adapter = serializers.ChoiceField(
+        choices=[RuntimeAdapter.CLAUDE.value],
+        required=True,
+        help_text="Agent runtime adapter to launch for this run. Must be 'claude' for Claude runtimes.",
+    )
+    model = serializers.CharField(
+        required=True,
+        allow_blank=False,
+        help_text="LLM model identifier to run in the Claude runtime.",
+    )
+    initial_permission_mode = serializers.ChoiceField(
+        choices=INITIAL_PERMISSION_MODE_CHOICES,
+        required=False,
+        default=None,
+        help_text="Initial permission mode for Claude runtimes.",
+    )
+
+
+class CodexTaskRunCreateSchemaSerializer(TaskRunCreateRequestSerializer):
+    runtime_adapter = serializers.ChoiceField(
+        choices=[RuntimeAdapter.CODEX.value],
+        required=True,
+        help_text="Agent runtime adapter to launch for this run. Must be 'codex' for Codex runtimes.",
+    )
+    model = serializers.CharField(
+        required=True,
+        allow_blank=False,
+        help_text="LLM model identifier to run in the Codex runtime.",
+    )
+    initial_permission_mode = serializers.ChoiceField(
+        choices=CODEX_INITIAL_PERMISSION_MODE_CHOICES,
+        required=False,
+        default=None,
+        help_text="Initial permission mode for Codex runtimes.",
+    )
+
+
+class TaskRunResumeRequestSchemaSerializer(serializers.Serializer):
+    mode = serializers.ChoiceField(
+        choices=["interactive", "background"],
+        required=False,
+        default="background",
+        help_text="Execution mode: 'interactive' for user-connected runs, 'background' for autonomous runs",
+    )
+    branch = serializers.CharField(
+        required=False,
+        allow_null=True,
+        default=None,
+        max_length=255,
+        help_text="Git branch to checkout in the sandbox",
+    )
+    resume_from_run_id = serializers.UUIDField(
+        required=False,
+        default=None,
+        help_text="ID of a previous run to resume from. Must belong to the same task.",
+    )
+    pending_user_message = serializers.CharField(
+        required=False,
+        default=None,
+        allow_blank=False,
+        help_text="Initial or follow-up user message to include in the run prompt.",
+    )
+    sandbox_environment_id = serializers.UUIDField(
+        required=False,
+        default=None,
+        help_text="Optional sandbox environment to apply for this cloud run.",
+    )
+    pr_authorship_mode = serializers.ChoiceField(
+        choices=TaskRunCreateRequestSerializer.PR_AUTHORSHIP_MODE_CHOICES,
+        required=False,
+        default=None,
+        help_text="Whether pull requests for this run should be authored by the user or the bot.",
+    )
+    run_source = serializers.ChoiceField(
+        choices=TaskRunCreateRequestSerializer.RUN_SOURCE_CHOICES,
+        required=False,
+        default=None,
+        help_text="High-level source that triggered this run, used to distinguish manual and signal-based cloud runs.",
+    )
+    signal_report_id = serializers.CharField(
+        required=False,
+        default=None,
+        allow_blank=False,
+        help_text="Optional signal report identifier when this run was started from Inbox.",
+    )
+    github_user_token = serializers.CharField(
+        required=False,
+        default=None,
+        allow_blank=False,
+        write_only=True,
+        help_text="Ephemeral GitHub user token from PostHog Code for user-authored cloud pull requests.",
+    )
+
+
+TaskRunCreateRequestSchemaSerializer = PolymorphicProxySerializer(
+    component_name="TaskRunCreateRequestSchema",
+    serializers=[
+        ClaudeTaskRunCreateSchemaSerializer,
+        CodexTaskRunCreateSchemaSerializer,
+        TaskRunResumeRequestSchemaSerializer,
+    ],
+    resource_type_field_name=None,
+)
 
 
 class TaskRunCommandRequestSerializer(serializers.Serializer):
@@ -586,13 +775,23 @@ class TaskRunCommandRequestSerializer(serializers.Serializer):
             raise serializers.ValidationError("id must be a string or number")
         return value
 
+    @staticmethod
+    def _require_nonempty_string(params: dict, key: str) -> None:
+        value = params.get(key)
+        if not value or not isinstance(value, str) or not value.strip():
+            raise serializers.ValidationError({"params": f"{key} is required and must be a non-empty string"})
+
     def validate(self, attrs):
         method = attrs["method"]
         params = attrs.get("params", {})
         if method == "user_message":
-            content = params.get("content")
-            if not content or not isinstance(content, str) or not content.strip():
-                raise serializers.ValidationError({"params": "content is required and must be a non-empty string"})
+            self._require_nonempty_string(params, "content")
+        elif method == "permission_response":
+            self._require_nonempty_string(params, "requestId")
+            self._require_nonempty_string(params, "optionId")
+        elif method == "set_config_option":
+            self._require_nonempty_string(params, "configId")
+            self._require_nonempty_string(params, "value")
         return attrs
 
 
@@ -637,6 +836,133 @@ class TaskRunSessionLogsQuerySerializer(serializers.Serializer):
         min_value=0,
         help_text="Zero-based offset into the filtered log entries",
     )
+
+
+class TaskAutomationSerializer(serializers.ModelSerializer):
+    name = serializers.CharField(max_length=255)
+    prompt = serializers.CharField()
+    repository = serializers.CharField(max_length=255)
+    github_integration = TeamScopedPrimaryKeyRelatedField(
+        queryset=Integration.objects.filter(kind="github"),
+        required=False,
+        allow_null=True,
+    )
+    last_task_id = serializers.SerializerMethodField()
+    last_task_run_id = serializers.SerializerMethodField()
+
+    class Meta:
+        model = TaskAutomation
+        fields = [
+            "id",
+            "name",
+            "prompt",
+            "repository",
+            "github_integration",
+            "cron_expression",
+            "timezone",
+            "template_id",
+            "enabled",
+            "last_run_at",
+            "last_run_status",
+            "last_task_id",
+            "last_task_run_id",
+            "last_error",
+            "created_at",
+            "updated_at",
+        ]
+        read_only_fields = [
+            "id",
+            "last_run_at",
+            "last_run_status",
+            "last_task_id",
+            "last_task_run_id",
+            "last_error",
+            "created_at",
+            "updated_at",
+        ]
+
+    def get_last_task_id(self, instance: TaskAutomation) -> str | None:
+        return str(instance.task_id)
+
+    def get_last_task_run_id(self, instance: TaskAutomation) -> str | None:
+        return str(instance.last_task_run_id) if instance.last_task_run_id else None
+
+    def validate_github_integration(self, value):
+        if value and value.team_id != self.context["team"].id:
+            raise serializers.ValidationError("Integration must belong to the same team")
+        return value
+
+    def validate_repository(self, value: str) -> str:
+        normalized = value.strip().lower()
+        parts = normalized.split("/")
+        if len(parts) != 2 or not parts[0] or not parts[1]:
+            raise serializers.ValidationError("Repository must be in the format organization/repository")
+        return normalized
+
+    def validate_cron_expression(self, value: str) -> str:
+        normalized = value.strip()
+        parts = normalized.split()
+        if len(parts) != 5:
+            raise serializers.ValidationError(
+                "Only standard 5-field cron expressions are supported "
+                "(minute hour day month weekday). Example: '0 9 * * 1-5'."
+            )
+        if not croniter.is_valid(normalized):
+            raise serializers.ValidationError(
+                "Invalid cron expression. Use standard 5-field cron syntax (e.g., '0 9 * * 1-5')."
+            )
+        return normalized
+
+    def validate_timezone(self, value: str) -> str:
+        if value not in available_timezones():
+            raise serializers.ValidationError(f"'{value}' is not a valid IANA timezone.")
+        return value
+
+    def create(self, validated_data):
+        if not validated_data.get("github_integration"):
+            default_integration = Integration.objects.filter(team=self.context["team"], kind="github").first()
+            if default_integration:
+                validated_data["github_integration"] = default_integration
+
+        with transaction.atomic():
+            task = Task.objects.create(
+                team=self.context["team"],
+                created_by=self.context["request"].user,
+                title=validated_data.pop("name"),
+                description=validated_data.pop("prompt"),
+                origin_product=Task.OriginProduct.AUTOMATION,
+                repository=validated_data.pop("repository"),
+                github_integration=validated_data.pop("github_integration", None),
+            )
+            return TaskAutomation.objects.create(task=task, **validated_data)
+
+    def update(self, instance, validated_data):
+        task_fields = {
+            "name": "title",
+            "prompt": "description",
+            "repository": "repository",
+            "github_integration": "github_integration",
+        }
+        task_updates = {}
+        for serializer_field, task_field in task_fields.items():
+            if serializer_field in validated_data:
+                task_updates[task_field] = validated_data.pop(serializer_field)
+
+        with transaction.atomic():
+            automation = super().update(instance, validated_data)
+
+            if task_updates:
+                task = automation.task
+                fields_to_update = []
+                for field, value in task_updates.items():
+                    if getattr(task, field) != value:
+                        setattr(task, field, value)
+                        fields_to_update.append(field)
+                if fields_to_update:
+                    fields_to_update.append("updated_at")
+                    task.save(update_fields=fields_to_update)
+
+        return automation
 
 
 class SandboxEnvironmentSerializer(serializers.ModelSerializer):

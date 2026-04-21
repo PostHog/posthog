@@ -6,7 +6,7 @@ import api from 'lib/api'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { CommentsLogicProps } from 'scenes/comments/commentsLogic'
 
-import { sidePanelContextLogic } from '../sidePanelContextLogic'
+import { sidePanelContextLogic } from '../../sidePanelContextLogic'
 import type { sidePanelDiscussionLogicType } from './sidePanelDiscussionLogicType'
 
 export const sidePanelDiscussionLogic = kea<sidePanelDiscussionLogicType>([

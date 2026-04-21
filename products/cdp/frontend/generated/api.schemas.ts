@@ -261,6 +261,7 @@ export const HogFunctionTypeEnumApi = {
  * `native_email` - native_email
  * `posthog_assignee` - posthog_assignee
  * `posthog_ticket_tags` - posthog_ticket_tags
+ * `posthog_business_hours` - posthog_business_hours
  */
 export type InputsSchemaItemTypeEnumApi = (typeof InputsSchemaItemTypeEnumApi)[keyof typeof InputsSchemaItemTypeEnumApi]
 
@@ -277,6 +278,7 @@ export const InputsSchemaItemTypeEnumApi = {
     NativeEmail: 'native_email',
     PosthogAssignee: 'posthog_assignee',
     PosthogTicketTags: 'posthog_ticket_tags',
+    PosthogBusinessHours: 'posthog_business_hours',
 } as const
 
 /**

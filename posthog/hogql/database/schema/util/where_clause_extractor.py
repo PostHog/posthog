@@ -447,6 +447,129 @@ class SessionMinTimestampWhereClauseExtractorV3(SessionMinTimestampWhereClauseEx
         return timestamp_expr
 
 
+class EventsOnlyWhereClauseExtractor(WhereClauseExtractor):
+    """Extract predicates from the outer WHERE that only reference the events table.
+
+    Used to build a ``session_id_v7 IN (SELECT $session_id_uuid FROM events WHERE <events-only>)``
+    pushdown into the raw_sessions subquery, so aggregation state only covers sessions that
+    actually participate in the outer events filter.
+
+    **This is a targeted fix for one customer's ExperimentQuery OOMs, not a general-purpose
+    optimization.** Benchmarks in the analysis doc show the pushdown *regresses* most other
+    traffic — e.g. a healthy ``WebStatsTableQuery`` got +93% runtime / +32% memory once the
+    pushdown kicked in, because a ``$pageview OR $screen`` filter doesn't narrow the session
+    set and the ``GLOBAL IN`` broadcast + double events scan dominate. The modifier that
+    activates this code path (``sessionIdPushdown``) is therefore off by default and is only
+    turned on by ``ExperimentQueryRunner``, gated by a per-team feature flag so we can enable
+    it for the single affected team without touching anyone else.
+
+    Background, numbers, and the rollout decision:
+    https://github.com/PostHog/query-performance-analysis/blob/main/analysis/2026-04-17-experiment-sessions-oom.md
+
+    Inverts the field-tracking semantics of ``WhereClauseExtractor``: we keep fields that
+    resolve to the EventsTable and tombstone everything else, letting the base AND/OR/NOT
+    logic drop unsafe branches.
+    """
+
+    def visit_compare_operation(self, node: ast.CompareOperation) -> ast.Expr:
+        if has_tombstone(node, self.tombstone_string):
+            return ast.Constant(value=self.tombstone_string)
+
+        is_left_constant = is_time_or_interval_constant(node.left, self.tombstone_string)
+        is_right_constant = is_time_or_interval_constant(node.right, self.tombstone_string)
+        if is_left_constant and is_right_constant:
+            return ast.Constant(value=True)
+
+        left = self.visit(node.left)
+        if isinstance(node.right, ast.SelectQuery):
+            right = clone_expr(node.right, clear_types=False, clear_locations=False, inline_subquery_field_names=True)
+        else:
+            right = self.visit(node.right)
+
+        if has_tombstone(left, self.tombstone_string) or has_tombstone(right, self.tombstone_string):
+            return ast.Constant(value=self.tombstone_string)
+        return ast.CompareOperation(op=node.op, left=left, right=right)
+
+    def visit_field(self, node: ast.Field) -> ast.Expr:
+        if is_events_only_field(node):
+            return cast(ast.Field, clone_expr(node))
+        return ast.Constant(value=self.tombstone_string)
+
+
+def is_events_only_field(node: ast.Field) -> bool:
+    """True iff the field resolves to a direct field on the EventsTable (not a traversal to
+    person/groups/sessions/etc. via a virtual/lazy join)."""
+    from posthog.hogql.database.schema.events import EventsTable
+
+    type_ = node.type
+    if isinstance(type_, ast.PropertyType):
+        type_ = type_.field_type
+    if isinstance(type_, ast.FieldAliasType):
+        type_ = type_.type
+    if not isinstance(type_, ast.FieldType):
+        return False
+
+    table_type = type_.table_type
+    while isinstance(table_type, (ast.TableAliasType, ast.ColumnAliasedTableType)):
+        table_type = table_type.table_type
+    # Virtual tables (e.g. person, group) pivot to another underlying table, so they are not
+    # safely "events-only" even if they hang off an events row.
+
+    if isinstance(table_type, ast.TableType):
+        return isinstance(table_type.table, EventsTable)
+    return False
+
+
+def build_session_id_v7_pushdown_predicate(
+    outer_node: ast.SelectQuery,
+    join_to_add: LazyJoinToAdd,
+    context: HogQLContext,
+    session_id_v7_field: ast.Expr,
+    events_session_id_field: list[str | int],
+) -> Optional[ast.Expr]:
+    """Build ``raw_sessions.session_id_v7 IN (SELECT DISTINCT events.<session_id_field>
+    FROM events WHERE <events-only WHERE of outer query>)``.
+
+    Returns None if the outer query shape or WHERE can't be safely pushed down.
+    """
+    events_join = _find_join_for_alias(outer_node.select_from, join_to_add.from_table)
+    if events_join is None or not isinstance(events_join.table, ast.Field):
+        return None
+
+    events_where = EventsOnlyWhereClauseExtractor(context).get_inner_where(outer_node)
+    if events_where is None:
+        return None
+
+    events_alias = join_to_add.from_table
+    subquery = ast.SelectQuery(
+        select=[ast.Field(chain=[events_alias, *events_session_id_field])],
+        distinct=True,
+        select_from=ast.JoinExpr(
+            table=ast.Field(chain=list(events_join.table.chain)),
+            alias=events_alias,
+        ),
+        where=events_where,
+    )
+
+    return ast.CompareOperation(
+        op=CompareOperationOp.In,
+        left=session_id_v7_field,
+        right=subquery,
+    )
+
+
+def _find_join_for_alias(select_from: Optional[ast.JoinExpr], alias: str) -> Optional[ast.JoinExpr]:
+    ptr = select_from
+    while ptr:
+        current_alias = ptr.alias
+        if current_alias is None and isinstance(ptr.table, ast.Field) and ptr.table.chain:
+            current_alias = str(ptr.table.chain[0])
+        if current_alias == alias:
+            return ptr
+        ptr = ptr.next_join
+    return None
+
+
 def has_tombstone(expr: ast.Expr, tombstone_string: str) -> bool:
     visitor = HasTombstoneVisitor(tombstone_string)
     visitor.visit(expr)
