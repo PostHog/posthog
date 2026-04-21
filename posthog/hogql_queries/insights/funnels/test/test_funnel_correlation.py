@@ -17,6 +17,7 @@ from rest_framework.exceptions import ValidationError
 
 from posthog.schema import (
     ActionsNode,
+    BreakdownFilter,
     DateRange,
     EventPropertyFilter,
     EventsNode,
@@ -104,6 +105,44 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
             funnelCorrelationPropertyValues=funnelCorrelationPropertyValues,
         )
         return [str(row[0]) for row in serialized_actors]
+
+    def test_funnel_correlation_with_datetime64_hogql_breakdown_does_not_error(self):
+        # Regression: funnel correlation queries against a funnel whose breakdown expression
+        # resolves to a DateTime64 column (e.g. `timestamp`) used to fail at ClickHouse with
+        # `Illegal type DateTime64 of argument of function notEmpty` because the breakdown
+        # expression was inserted into prop_basic without String coercion.
+        for i in range(5):
+            _create_person(distinct_ids=[f"user_{i}"], team_id=self.team.pk)
+            _create_event(
+                team=self.team,
+                event="user signed up",
+                distinct_id=f"user_{i}",
+                timestamp="2020-01-02T14:00:00Z",
+            )
+            _create_event(
+                team=self.team,
+                event="positively_related",
+                distinct_id=f"user_{i}",
+                timestamp="2020-01-03T14:00:00Z",
+            )
+            _create_event(
+                team=self.team,
+                event="paid",
+                distinct_id=f"user_{i}",
+                timestamp="2020-01-04T14:00:00Z",
+            )
+
+        funnels_query = FunnelsQuery(
+            series=[EventsNode(event="user signed up"), EventsNode(event="paid")],
+            dateRange=DateRange(date_from="2020-01-01", date_to="2020-01-14"),
+            breakdownFilter=BreakdownFilter(breakdown="timestamp", breakdown_type="hogql"),
+        )
+
+        # Must not raise CHQueryErrorIllegalTypeOfArgument
+        result, _ = self._get_events_for_query(
+            funnels_query, funnelCorrelationType=FunnelCorrelationResultsType.EVENTS
+        )
+        assert isinstance(result, list)
 
     def test_basic_funnel_correlation_with_events(self):
         query = FunnelsQuery(

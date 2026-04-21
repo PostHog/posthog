@@ -849,6 +849,42 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(results[0]["count"], 2)
 
+    @parameterized.expand(
+        [
+            ("hogql", "timestamp"),
+            ("event_metadata", "timestamp"),
+        ]
+    )
+    def test_funnel_breakdown_with_datetime64_hogql_expression(self, breakdown_type, breakdown_expr):
+        # Regression: a hogql / event_metadata breakdown that resolves to a DateTime64 column
+        # (for example `timestamp`) used to produce an `Illegal type DateTime64 of argument of function notEmpty`
+        # error from ClickHouse. The breakdown expression must be coerced to String before it reaches
+        # aggregations like notEmpty/argMinIf. See funnel_event_query._get_breakdown_expr.
+        _create_person(distinct_ids=["user_1"], team_id=self.team.pk)
+        _create_event(
+            team=self.team,
+            event="user signed up",
+            distinct_id="user_1",
+            timestamp="2020-01-02T14:00:00Z",
+        )
+        _create_event(
+            team=self.team,
+            event="paid",
+            distinct_id="user_1",
+            timestamp="2020-01-10T14:00:00Z",
+        )
+
+        query = FunnelsQuery(
+            dateRange=DateRange(date_from="2020-01-01", date_to="2020-01-14"),
+            series=[EventsNode(event="user signed up"), EventsNode(event="paid")],
+            breakdownFilter=BreakdownFilter(breakdown=breakdown_expr, breakdown_type=breakdown_type),
+        )
+
+        # Must not raise CHQueryErrorIllegalTypeOfArgument
+        results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
+
+        assert len(results) >= 1
+
     def test_basic_funnel_default_funnel_days(self):
         query = FunnelsQuery(
             dateRange=DateRange(

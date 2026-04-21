@@ -432,13 +432,32 @@ class FunnelEventQuery(DataWarehouseSchemaMixin):
             return get_breakdown_expr(breakdown, properties_column)
         elif breakdownType == "hogql" or breakdownType == "event_metadata":
             assert isinstance(breakdown, list)
+            # Wrap each expression in ifNull(toString(...), '') so that types like DateTime64
+            # don't break downstream aggregations (e.g. notEmpty) which only accept String/Array/UUID.
             return ast.Alias(
                 alias="value",
-                expr=ast.Array(exprs=[parse_expr(str(value)) for value in breakdown]),
+                expr=ast.Array(
+                    exprs=[
+                        ast.Call(
+                            name="ifNull",
+                            args=[
+                                ast.Call(name="toString", args=[parse_expr(str(value))]),
+                                ast.Constant(value=""),
+                            ],
+                        )
+                        for value in breakdown
+                    ]
+                ),
             )
         elif breakdownType == "data_warehouse_person_property":
             assert isinstance(breakdown, str)
-            return ast.Field(chain=["person", *breakdown.split(".")])
+            return ast.Call(
+                name="ifNull",
+                args=[
+                    ast.Call(name="toString", args=[ast.Field(chain=["person", *breakdown.split(".")])]),
+                    ast.Constant(value=""),
+                ],
+            )
         elif breakdownType == "data_warehouse":
             return get_breakdown_expr(breakdown, None)
         else:
