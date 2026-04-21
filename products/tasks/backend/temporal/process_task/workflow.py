@@ -85,7 +85,8 @@ mypy and typechecks should be addressed with high priority.
 After implementing the fixes, make sure to commit and push any changes up for review.
 If there are no fixes to be made or the PR has not been updated since last check,
 send a short concise message to the user stating that there are no changes to be made.
-Example: "Checked the pull request, no changes have been made. It seems that the PR is in good shape!"
+Make sure not to renotify the user about failing checks if no updates have been made.
+Example: "Checked the pull request, no updates from last check."
 """.replace("\n", " ").strip()
 
 
