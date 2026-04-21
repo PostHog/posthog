@@ -443,8 +443,8 @@
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
-            "openWorldHint": false,
-            "readOnlyHint": true
+            "openWorldHint": true,
+            "readOnlyHint": false
         }
     },
     "external-data-sources-jobs": {
