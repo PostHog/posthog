@@ -4,12 +4,16 @@ import { z } from 'zod'
 import type { Schemas } from '@/api/generated'
 import {
     SubscriptionsCreateBody,
+    SubscriptionsDeliveriesListParams,
+    SubscriptionsDeliveriesListQueryParams,
+    SubscriptionsDeliveriesRetrieveParams,
     SubscriptionsListQueryParams,
     SubscriptionsPartialUpdateBody,
     SubscriptionsPartialUpdateParams,
     SubscriptionsRetrieveParams,
+    SubscriptionsTestDeliveryCreateParams,
 } from '@/generated/core/api'
-import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
+import { withPostHogUrl, omitResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const SubscriptionsListSchema = SubscriptionsListQueryParams
@@ -200,9 +204,76 @@ const subscriptionsPartialUpdate = (): ToolBase<typeof SubscriptionsPartialUpdat
     },
 })
 
+const SubscriptionsTestDeliveryCreateSchema = SubscriptionsTestDeliveryCreateParams.omit({ project_id: true })
+
+const subscriptionsTestDeliveryCreate = (): ToolBase<typeof SubscriptionsTestDeliveryCreateSchema, unknown> => ({
+    name: 'subscriptions-test-delivery-create',
+    schema: SubscriptionsTestDeliveryCreateSchema,
+    handler: async (context: Context, params: z.infer<typeof SubscriptionsTestDeliveryCreateSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<unknown>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/subscriptions/${encodeURIComponent(String(params.id))}/test-delivery/`,
+        })
+        return result
+    },
+})
+
+const SubscriptionsDeliveriesListSchema = SubscriptionsDeliveriesListParams.omit({ project_id: true }).extend(
+    SubscriptionsDeliveriesListQueryParams.shape
+)
+
+const subscriptionsDeliveriesList = (): ToolBase<
+    typeof SubscriptionsDeliveriesListSchema,
+    WithPostHogUrl<Schemas.PaginatedSubscriptionDeliveryList>
+> => ({
+    name: 'subscriptions-deliveries-list',
+    schema: SubscriptionsDeliveriesListSchema,
+    handler: async (context: Context, params: z.infer<typeof SubscriptionsDeliveriesListSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.PaginatedSubscriptionDeliveryList>({
+            method: 'GET',
+            path: `/api/environments/${encodeURIComponent(String(projectId))}/subscriptions/${encodeURIComponent(String(params.subscription_id))}/deliveries/`,
+            query: {
+                cursor: params.cursor,
+                status: params.status,
+            },
+        })
+        const filtered = {
+            ...result,
+            results: (result.results ?? []).map((item: any) =>
+                omitResponseFields(item, ['content_snapshot', 'recipient_results', 'error'])
+            ),
+        } as typeof result
+        return await withPostHogUrl(context, filtered, '/')
+    },
+})
+
+const SubscriptionsDeliveriesRetrieveSchema = SubscriptionsDeliveriesRetrieveParams.omit({ project_id: true })
+
+const subscriptionsDeliveriesRetrieve = (): ToolBase<
+    typeof SubscriptionsDeliveriesRetrieveSchema,
+    Schemas.SubscriptionDelivery
+> => ({
+    name: 'subscriptions-deliveries-retrieve',
+    schema: SubscriptionsDeliveriesRetrieveSchema,
+    handler: async (context: Context, params: z.infer<typeof SubscriptionsDeliveriesRetrieveSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.SubscriptionDelivery>({
+            method: 'GET',
+            path: `/api/environments/${encodeURIComponent(String(projectId))}/subscriptions/${encodeURIComponent(String(params.subscription_id))}/deliveries/${encodeURIComponent(String(params.id))}/`,
+        })
+        const filtered = omitResponseFields(result, ['content_snapshot', 'recipient_results', 'error']) as typeof result
+        return filtered
+    },
+})
+
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'subscriptions-list': subscriptionsList,
     'subscriptions-create': subscriptionsCreate,
     'subscriptions-retrieve': subscriptionsRetrieve,
     'subscriptions-partial-update': subscriptionsPartialUpdate,
+    'subscriptions-test-delivery-create': subscriptionsTestDeliveryCreate,
+    'subscriptions-deliveries-list': subscriptionsDeliveriesList,
+    'subscriptions-deliveries-retrieve': subscriptionsDeliveriesRetrieve,
 }

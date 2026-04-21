@@ -9,6 +9,7 @@ import { ItemCategory, ItemCollector, ItemLoader, ItemRenderer, TimelineItem } f
 
 const meta: Meta = {
     title: 'Components/SessionTimeline',
+    tags: ['test-skip'],
     parameters: {
         layout: 'centered',
         viewMode: 'story',
@@ -279,7 +280,6 @@ export const SlowLoading: StoryFn = () => {
         </div>
     )
 }
-SlowLoading.tags = ['test-skip']
 
 /** Many items — 200 per category, for scroll performance testing. */
 export const ManyItems: StoryFn = () => {

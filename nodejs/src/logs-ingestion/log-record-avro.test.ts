@@ -1,6 +1,7 @@
 import avro from 'avsc'
 
 import { parseJSON } from '../utils/json-parse'
+import * as logBodyParse from './log-body-parse'
 import { PII_REDACTED, encodeAttributeCell } from './log-pii-scrub'
 import {
     LogRecord,
@@ -543,6 +544,53 @@ describe('log-record-avro', () => {
                 message: encodeAttributeCell(PII_REDACTED),
                 note: encodeAttributeCell(PII_REDACTED),
             })
+        })
+
+        it('calls parseLogBodyForIngestion once per record when both JSON parse and PII scrub are on', async () => {
+            const spy = jest.spyOn(logBodyParse, 'parseLogBodyForIngestion')
+            const records: LogRecord[] = [
+                {
+                    uuid: 'test-uuid',
+                    trace_id: null,
+                    span_id: null,
+                    trace_flags: null,
+                    timestamp: null,
+                    observed_timestamp: null,
+                    body: JSON.stringify({ level: 'info', message: 'once@parse.test' }),
+                    severity_text: null,
+                    severity_number: null,
+                    service_name: null,
+                    resource_attributes: null,
+                    instrumentation_scope: null,
+                    event_name: null,
+                    attributes: null,
+                },
+                {
+                    uuid: 'test-uuid-2',
+                    trace_id: null,
+                    span_id: null,
+                    trace_flags: null,
+                    timestamp: null,
+                    observed_timestamp: null,
+                    body: JSON.stringify({ level: 'warn', message: 'two@parse.test' }),
+                    severity_text: null,
+                    severity_number: null,
+                    service_name: null,
+                    resource_attributes: null,
+                    instrumentation_scope: null,
+                    event_name: null,
+                    attributes: null,
+                },
+            ]
+
+            const inputBuffer = await encodeLogRecords(LOG_RECORD_SCHEMA, 'zstandard', records)
+            await processLogMessageBuffer(inputBuffer, {
+                json_parse_logs: true,
+                pii_scrub_logs: true,
+            })
+
+            expect(spy).toHaveBeenCalledTimes(2)
+            spy.mockRestore()
         })
 
         it('flattens nested JSON keys then scrubs sensitive flattened attribute keys when both flags are on', async () => {

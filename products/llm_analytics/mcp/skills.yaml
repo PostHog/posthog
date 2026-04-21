@@ -1,0 +1,113 @@
+# MCP tool definition — tool entries are scaffolded from the OpenAPI schema.
+# The tool list and operation IDs are kept in sync automatically:
+#   pnpm --filter=@posthog/mcp run scaffold-yaml -- --sync-all
+#
+# To enable a tool, set enabled: true and add required scopes + annotations.
+# All other fields (title, description, enrich_url, etc.) are yours to configure.
+category: Skills
+feature: skills
+url_prefix: /llm-analytics/skills
+ui_apps: {}
+tools:
+    skill-list:
+        operation: llm_skills_list
+        enabled: true
+        scopes:
+            - llm_skill:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: List skills
+        description: >
+            List all agent skills stored for the current team. Returns skill names and descriptions
+            for discovery — use descriptions to determine which skill to fetch for a given task.
+            Does not return skill body content (use skill-get to fetch full content).
+    skill-get:
+        operation: llm_skills_name_retrieve
+        enabled: true
+        scopes:
+            - llm_skill:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get skill
+        description: >
+            Get a specific agent skill by name, including its full body content, metadata, and
+            file manifest. Follows the Agent Skills specification (agentskills.io).
+    skill-create:
+        operation: llm_skills_create
+        enabled: true
+        scopes:
+            - llm_skill:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Create skill
+        description: >
+            Create a new agent skill. Requires a unique kebab-case name (lowercase letters,
+            numbers, hyphens), a description explaining when to use it, and the skill body
+            (SKILL.md instruction content as markdown). Optionally include license,
+            compatibility, allowed_tools, metadata, and bundled files.
+        include_params:
+            - name
+            - description
+            - body
+            - license
+            - compatibility
+            - allowed_tools
+            - metadata
+            - files
+    skill-update:
+        operation: llm_skills_name_partial_update
+        enabled: true
+        scopes:
+            - llm_skill:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Update skill
+        description: >
+            Publish a new version of an existing agent skill by name. Any field not provided
+            is carried forward from the current latest version. Requires base_version for
+            optimistic concurrency. If files are provided, they replace all files from the
+            previous version; if omitted, files are carried forward.
+        include_params:
+            - body
+            - description
+            - license
+            - compatibility
+            - allowed_tools
+            - metadata
+            - files
+            - base_version
+    skill-duplicate:
+        operation: llm_skills_name_duplicate_create
+        enabled: true
+        scopes:
+            - llm_skill:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Duplicate skill
+        description: >
+            Duplicate an existing agent skill under a new name. Copies the latest version's
+            content, metadata, and bundled files to create a new skill at version 1.
+    skill-file-get:
+        operation: llm_skills_name_files_retrieve
+        enabled: true
+        scopes:
+            - llm_skill:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get skill file
+        description: >
+            Fetch a single bundled file from an agent skill by its path. Use the file manifest
+            from skill-get to discover available files. Supports progressive disclosure — only
+            load files when needed rather than fetching all content upfront.

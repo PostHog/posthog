@@ -703,6 +703,11 @@
                                 "enum": ["first_time_for_user", "first_time_for_user_with_filters"],
                                 "type": "string"
                             },
+                            "optionalInFunnel": {
+                                "default": false,
+                                "description": "If true, this step can be skipped without breaking the funnel — conversion between the surrounding required steps still counts even if this step didn't happen. Set this when the user asks for a non-required, skippable, or optional step in the funnel. Do not set it on the first or last step (those must be required).",
+                                "type": "boolean"
+                            },
                             "properties": {
                                 "items": {
                                     "anyOf": [
@@ -1241,6 +1246,11 @@
                             "name": {
                                 "description": "Action name from the plan.",
                                 "type": "string"
+                            },
+                            "optionalInFunnel": {
+                                "default": false,
+                                "description": "If true, this step can be skipped without breaking the funnel — conversion between the surrounding required steps still counts even if this step didn't happen. Set this when the user asks for a non-required, skippable, or optional step in the funnel. Do not set it on the first or last step (those must be required).",
+                                "type": "boolean"
                             },
                             "properties": {
                                 "items": {

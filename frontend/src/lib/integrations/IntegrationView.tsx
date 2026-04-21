@@ -180,7 +180,7 @@ export function IntegrationView({
                         }}
                     >
                         {errors[0] === 'TOKEN_REFRESH_FAILED'
-                            ? 'Authentication token could not be refreshed. Please reconnect.'
+                            ? 'Authentication token could not be refreshed. You can reconnect this account or disconnect it and connect a different one.'
                             : `There was an error with this integration: ${errors[0]}`}
                     </LemonBanner>
                 </div>

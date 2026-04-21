@@ -39,7 +39,7 @@ export function SessionRecordingDetail({ id }: SessionRecordingDetailLogicProps)
                 {id ? (
                     <SessionRecordingPlayer sessionRecordingId={id} playerKey={`${id}-detail`} />
                 ) : (
-                    <RecordingNotFound />
+                    <RecordingNotFound sessionRecordingId={id} />
                 )}
             </div>
         </div>

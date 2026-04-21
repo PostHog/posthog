@@ -5,7 +5,6 @@ export type { IFuseOptions }
 
 const FUSE_DEFAULTS = {
     threshold: 0.3,
-    useTokenSearch: true,
     ignoreDiacritics: true,
 }
 
