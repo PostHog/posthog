@@ -1,6 +1,6 @@
 import sys
 from datetime import datetime, timedelta
-from typing import TYPE_CHECKING, Any, Optional, TypedDict, Union
+from typing import TYPE_CHECKING, Any, Literal, Optional, TypedDict, Union
 
 from django.conf import settings
 from django.contrib.postgres.fields import ArrayField
@@ -320,6 +320,33 @@ class Organization(ModelActivityMixin, UUIDTModel):  # type: ignore[django-manag
 
     def is_feature_available(self, feature: Union[AvailableFeature, str]) -> bool:
         return bool(self.get_available_feature(feature))
+
+    def get_plan_tier(self) -> Literal["free", "paid", "enterprise"]:
+        """Best-effort plan tier derived from `available_product_features`.
+
+        "enterprise" if any Enterprise-only feature is present (per `License.ENTERPRISE_FEATURES`
+        minus `SCALE_FEATURES`), "paid" if any Scale feature is present, otherwise "free".
+        Source of truth for features is the billing service; this just classifies what's synced.
+        """
+        try:
+            from ee.models.license import License
+        except ImportError:
+            return "free"
+
+        available_keys = {
+            feature.get("key") for feature in (self.available_product_features or []) if feature and feature.get("key")
+        }
+        if not available_keys:
+            return "free"
+
+        scale_features = {str(f) for f in License.SCALE_FEATURES}
+        enterprise_only = {str(f) for f in License.ENTERPRISE_FEATURES} - scale_features
+
+        if available_keys & enterprise_only:
+            return "enterprise"
+        if available_keys & scale_features:
+            return "paid"
+        return "free"
 
     def limit_product_until_end_of_billing_cycle(self, resource: "QuotaResource") -> None:
         """

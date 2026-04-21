@@ -115,6 +115,27 @@ class TestOrganization(BaseTest):
                 {"key": "test2", "name": "test2"},
             ]
 
+    @parameterized.expand(
+        [
+            ("no_features", None, "free"),
+            ("empty_features", [], "free"),
+            ("only_unknown_feature", [{"key": "made_up_feature"}], "free"),
+            ("scale_feature_present", [{"key": "recordings_file_export"}], "paid"),
+            ("multiple_scale_features", [{"key": "zapier"}, {"key": "group_analytics"}], "paid"),
+            (
+                "enterprise_only_feature_present",
+                [{"key": "recordings_file_export"}, {"key": "role_based_access"}],
+                "enterprise",
+            ),
+            ("saml_flags_enterprise", [{"key": "saml"}], "enterprise"),
+            ("malformed_entries_ignored", [None, {}, {"key": None}], "free"),
+        ]
+    )
+    def test_get_plan_tier(self, _name, available_product_features, expected_tier):
+        self.organization.available_product_features = available_product_features
+        self.organization.save()
+        self.assertEqual(self.organization.get_plan_tier(), expected_tier)
+
     def test_session_age_caching(self):
         # Test caching when session_cookie_age is set
         self.organization.session_cookie_age = 3600

@@ -18,7 +18,6 @@ from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
-from posthog.constants import AvailableFeature
 from posthog.event_usage import EventSource, get_event_source, groups
 from posthog.models import Insight, Team, User
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
@@ -33,39 +32,13 @@ from posthog.temporal.exports.workflows import ExportAssetWorkflow, ExportAssetW
 from posthog.temporal.session_replay.rasterize_recording.types import RasterizeRecordingInputs
 
 # Full video exports per team per calendar month, tiered by plan.
-FREE_FULL_VIDEO_EXPORTS_LIMIT = 10
-PAID_FULL_VIDEO_EXPORTS_LIMIT = 15
-ENTERPRISE_FULL_VIDEO_EXPORTS_LIMIT = 25
-
-# Features only granted on the Enterprise plan (see ee.models.license.ENTERPRISE_FEATURES).
-# Presence of any of these signals the org is on Enterprise.
-_ENTERPRISE_ONLY_FEATURES: frozenset[str] = frozenset(
-    {
-        AvailableFeature.ADVANCED_PERMISSIONS,
-        AvailableFeature.SAML,
-        AvailableFeature.SCIM,
-        AvailableFeature.SSO_ENFORCEMENT,
-        AvailableFeature.ROLE_BASED_ACCESS,
-    }
-)
+FULL_VIDEO_EXPORTS_LIMIT_BY_TIER: dict[str, int] = {"free": 10, "paid": 15, "enterprise": 25}
 
 
 def get_full_video_exports_limit_for_organization(organization: Organization | None) -> int:
-    """Return the monthly full video export limit based on the organization's plan tier."""
-    if organization is None:
-        return FREE_FULL_VIDEO_EXPORTS_LIMIT
-
-    available_keys = {
-        feature.get("key")
-        for feature in (organization.available_product_features or [])
-        if feature and feature.get("key")
-    }
-
-    if available_keys & _ENTERPRISE_ONLY_FEATURES:
-        return ENTERPRISE_FULL_VIDEO_EXPORTS_LIMIT
-    if AvailableFeature.RECORDINGS_FILE_EXPORT in available_keys:
-        return PAID_FULL_VIDEO_EXPORTS_LIMIT
-    return FREE_FULL_VIDEO_EXPORTS_LIMIT
+    """Monthly full video export limit for the organization's plan tier."""
+    tier = organization.get_plan_tier() if organization is not None else "free"
+    return FULL_VIDEO_EXPORTS_LIMIT_BY_TIER[tier]
 
 
 logger = structlog.get_logger(__name__)
