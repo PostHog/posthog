@@ -810,7 +810,7 @@
         }
     },
     "external-data-sources-db-schema": {
-        "description": "Validate source credentials and return the available tables and columns from the remote database. Use this before creating a source to verify connectivity and discover which tables can be imported. Requires source_type and the same credential fields as source creation.",
+        "description": "Validate source credentials and return the available tables and columns from the remote database. Use this before creating a source to verify connectivity and discover which tables can be imported. Pass source_type and credential fields in the payload object (host, port, database, user, password, schema for database sources).",
         "category": "Data warehouse",
         "feature": "data_warehouse",
         "summary": "Preview remote database schema",
