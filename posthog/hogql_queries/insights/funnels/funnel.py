@@ -192,8 +192,8 @@ class FunnelUDF(FunnelUDFMixin, FunnelBase):
                 ))), 1, {MAX_EVENTS_PER_ENTITY}) as events_array,
                 {prop_vals} as prop,
                 arrayJoin({fn}(
-                    toUInt8({self.context.max_steps}),
-                    toUInt64({self.conversion_window_limit()}),
+                    CAST({self.context.max_steps} AS UInt8),
+                    CAST({self.conversion_window_limit()} AS UInt64),
                     '{breakdown_attribution_string}',
                     '{self.context.funnelsFilter.funnelOrderType}',
                     CAST({prop_arg} AS {prop_vals_type}),

@@ -445,8 +445,8 @@ def funnel_evaluation_expr(
                 )
             ),
             aggregate_funnel_array(
-                toUInt8({num_steps}),
-                toUInt64({conversion_window_seconds}),
+                CAST({num_steps} AS UInt8),
+                CAST({conversion_window_seconds} AS UInt64),
                 'first_touch',
                 '{funnel_order_type}',
                 CAST(array(array('')) AS Array(Array(String))),
