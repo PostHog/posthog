@@ -78,7 +78,8 @@ app.autodiscover_tasks()
 # https://stackoverflow.com/questions/47106592/redis-connections-not-being-released-after-celery-task-is-complete
 app.conf.broker_pool_limit = 0
 
-app.steps["worker"].add(DjangoStructLogInitStep)
+if app.steps:
+    app.steps["worker"].add(DjangoStructLogInitStep)
 
 task_timings: dict[str, float] = {}
 

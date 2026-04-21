@@ -2000,45 +2000,18 @@ export const ErrorTrackingIssuesPartialUpdateBody = /* @__PURE__ */ zod.object({
     external_issues: zod
         .array(
             zod.object({
-                external_url: zod.string(),
-                id: zod.string(),
-                integration: zod.object({
-                    display_name: zod.string(),
-                    id: zod.number(),
-                    kind: zod.enum([
-                        'slack',
-                        'slack-posthog-code',
-                        'salesforce',
-                        'hubspot',
-                        'google-pubsub',
-                        'google-cloud-service-account',
-                        'google-cloud-storage',
-                        'google-ads',
-                        'google-sheets',
-                        'linkedin-ads',
-                        'snapchat',
-                        'intercom',
-                        'email',
-                        'twilio',
-                        'linear',
-                        'github',
-                        'gitlab',
-                        'meta-ads',
-                        'clickup',
-                        'reddit-ads',
-                        'databricks',
-                        'tiktok-ads',
-                        'bing-ads',
-                        'vercel',
-                        'azure-blob',
-                        'firebase',
-                        'jira',
-                        'pinterest-ads',
-                        'customerio-app',
-                        'customerio-webhook',
-                        'customerio-track',
-                    ]),
-                }),
+                id: zod.string().optional(),
+                integration: zod
+                    .object({
+                        id: zod.number().optional(),
+                        kind: zod.string().optional(),
+                        display_name: zod.string().optional(),
+                    })
+                    .optional(),
+                integration_id: zod.number(),
+                config: zod.unknown(),
+                issue: zod.string(),
+                external_url: zod.string().optional(),
             })
         )
         .optional(),

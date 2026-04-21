@@ -64,9 +64,9 @@ export const OutputTypeEnumApi = {
  * `openrouter` - Openrouter
  * `fireworks` - Fireworks
  */
-export type Provider519EnumApi = (typeof Provider519EnumApi)[keyof typeof Provider519EnumApi]
+export type Provider2f4EnumApi = (typeof Provider2f4EnumApi)[keyof typeof Provider2f4EnumApi]
 
-export const Provider519EnumApi = {
+export const Provider2f4EnumApi = {
     Openai: 'openai',
     Anthropic: 'anthropic',
     Gemini: 'gemini',
@@ -78,7 +78,7 @@ export const Provider519EnumApi = {
  * Nested serializer for model configuration.
  */
 export interface ModelConfigurationApi {
-    provider: Provider519EnumApi
+    provider: Provider2f4EnumApi
     /** @maxLength 100 */
     model: string
     /** @nullable */
@@ -573,7 +573,7 @@ export const LLMProviderKeyStateEnumApi = {
 
 export interface LLMProviderKeyApi {
     readonly id: string
-    provider: Provider519EnumApi
+    provider: Provider2f4EnumApi
     /** @maxLength 255 */
     name: string
     readonly state: LLMProviderKeyStateEnumApi
@@ -599,7 +599,7 @@ export interface PaginatedLLMProviderKeyListApi {
 
 export interface PatchedLLMProviderKeyApi {
     readonly id?: string
-    provider?: Provider519EnumApi
+    provider?: Provider2f4EnumApi
     /** @maxLength 255 */
     name?: string
     readonly state?: LLMProviderKeyStateEnumApi
@@ -698,9 +698,9 @@ export interface PatchedReviewQueueUpdateApi {
  * `numeric` - numeric
  * `boolean` - boolean
  */
-export type Kind01eEnumApi = (typeof Kind01eEnumApi)[keyof typeof Kind01eEnumApi]
+export type KindD08EnumApi = (typeof KindD08EnumApi)[keyof typeof KindD08EnumApi]
 
-export const Kind01eEnumApi = {
+export const KindD08EnumApi = {
     Categorical: 'categorical',
     Numeric: 'numeric',
     Boolean: 'boolean',
@@ -786,7 +786,7 @@ export interface ScoreDefinitionApi {
     readonly id: string
     readonly name: string
     readonly description: string
-    readonly kind: Kind01eEnumApi
+    readonly kind: KindD08EnumApi
     readonly archived: boolean
     /** Current immutable configuration version number. */
     readonly current_version: number
@@ -825,7 +825,7 @@ export interface ScoreDefinitionCreateApi {
 * `categorical` - categorical
 * `numeric` - numeric
 * `boolean` - boolean */
-    kind: Kind01eEnumApi
+    kind: KindD08EnumApi
     /** New scorers are always created as active. */
     archived?: boolean
     /** Initial immutable scorer configuration. */
@@ -907,9 +907,9 @@ export const SummarizeTypeEnumApi = {
  * * `minimal` - minimal
  * `detailed` - detailed
  */
-export type Mode02aEnumApi = (typeof Mode02aEnumApi)[keyof typeof Mode02aEnumApi]
+export type ModeE35EnumApi = (typeof ModeE35EnumApi)[keyof typeof ModeE35EnumApi]
 
-export const Mode02aEnumApi = {
+export const ModeE35EnumApi = {
     Minimal: 'minimal',
     Detailed: 'detailed',
 } as const
@@ -924,7 +924,7 @@ export interface SummarizeRequestApi {
 
 * `minimal` - minimal
 * `detailed` - detailed */
-    mode?: Mode02aEnumApi
+    mode?: ModeE35EnumApi
     /** Data to summarize. For traces: {trace, hierarchy}. For events: {event}. Not required when using trace_id or generation_id. */
     data?: unknown
     /** Force regenerate summary, bypassing cache */
@@ -990,7 +990,7 @@ export interface BatchCheckRequestApi {
 
 * `minimal` - minimal
 * `detailed` - detailed */
-    mode?: Mode02aEnumApi
+    mode?: ModeE35EnumApi
     /**
      * LLM model used for cached summaries
      * @nullable
@@ -1327,19 +1327,15 @@ export interface LLMPromptResolveResponseApi {
     has_more: boolean
 }
 
-export interface LLMSkillFileInputApi {
+export interface LLMSkillOutlineEntryApi {
     /**
-     * File path relative to skill root, e.g. 'scripts/setup.sh' or 'references/guide.md'.
-     * @maxLength 500
+     * Markdown heading level (1-6).
+     * @minimum 1
+     * @maximum 6
      */
-    path: string
-    /** Text content of the file. */
-    content: string
-    /**
-     * MIME type of the file content.
-     * @maxLength 100
-     */
-    content_type?: string
+    level: number
+    /** Heading text. */
+    text: string
 }
 
 /**
@@ -1348,7 +1344,7 @@ export interface LLMSkillFileInputApi {
 export type LLMSkillListApiMetadata = { [key: string]: unknown }
 
 /**
- * List serializer that omits the body field for progressive disclosure (Level 1).
+ * List serializer that omits body and file manifest — progressive disclosure (Level 1).
  */
 export interface LLMSkillListApi {
     readonly id: string
@@ -1376,8 +1372,8 @@ export interface LLMSkillListApi {
     allowed_tools?: string[]
     /** Arbitrary key-value metadata. */
     metadata?: LLMSkillListApiMetadata
-    /** Bundled files to include with the initial version (scripts, references, assets). */
-    files?: LLMSkillFileInputApi[]
+    /** Flat list of markdown headings parsed from the skill body. Useful as a lightweight table of contents. */
+    readonly outline: readonly LLMSkillOutlineEntryApi[]
     readonly version: number
     readonly created_by: UserBasicApi
     readonly created_at: string
@@ -1401,7 +1397,80 @@ export interface PaginatedLLMSkillListListApi {
 /**
  * Arbitrary key-value metadata.
  */
+export type LLMSkillCreateApiMetadata = { [key: string]: unknown }
+
+export interface LLMSkillFileInputApi {
+    /**
+     * File path relative to skill root, e.g. 'scripts/setup.sh' or 'references/guide.md'.
+     * @maxLength 500
+     */
+    path: string
+    /** Text content of the file. */
+    content: string
+    /**
+     * MIME type of the file content.
+     * @maxLength 100
+     */
+    content_type?: string
+}
+
+/**
+ * Create serializer — accepts bundled files as write-only input on POST.
+ */
+export interface LLMSkillCreateApi {
+    readonly id: string
+    /**
+     * Unique skill name. Lowercase letters, numbers, and hyphens only. Max 64 characters.
+     * @maxLength 64
+     */
+    name: string
+    /**
+     * What this skill does and when to use it. Max 4096 characters.
+     * @maxLength 4096
+     */
+    description: string
+    /** The SKILL.md instruction content (markdown). */
+    body: string
+    /**
+     * License name or reference to a bundled license file.
+     * @maxLength 255
+     */
+    license?: string
+    /**
+     * Environment requirements (intended product, system packages, network access, etc.).
+     * @maxLength 500
+     */
+    compatibility?: string
+    /** List of pre-approved tools the skill may use. */
+    allowed_tools?: string[]
+    /** Arbitrary key-value metadata. */
+    metadata?: LLMSkillCreateApiMetadata
+    /** Bundled files to include with the initial version (scripts, references, assets). */
+    files?: LLMSkillFileInputApi[]
+    /** Flat list of markdown headings parsed from the skill body. Useful as a lightweight table of contents. */
+    readonly outline: readonly LLMSkillOutlineEntryApi[]
+    readonly version: number
+    readonly created_by: UserBasicApi
+    readonly created_at: string
+    readonly updated_at: string
+    readonly deleted: boolean
+    readonly is_latest: boolean
+    readonly latest_version: number
+    readonly version_count: number
+    readonly first_version_created_at: string
+}
+
+/**
+ * Arbitrary key-value metadata.
+ */
 export type LLMSkillApiMetadata = { [key: string]: unknown }
+
+export interface LLMSkillFileManifestApi {
+    /** @maxLength 500 */
+    path: string
+    /** @maxLength 100 */
+    content_type?: string
+}
 
 export interface LLMSkillApi {
     readonly id: string
@@ -1431,8 +1500,10 @@ export interface LLMSkillApi {
     allowed_tools?: string[]
     /** Arbitrary key-value metadata. */
     metadata?: LLMSkillApiMetadata
-    /** Bundled files to include with the initial version (scripts, references, assets). */
-    files?: LLMSkillFileInputApi[]
+    /** Bundled files manifest. Each entry is path + content_type only; fetch content via /llm_skills/name/{name}/files/{path}/. */
+    readonly files: readonly LLMSkillFileManifestApi[]
+    /** Flat list of markdown headings parsed from the skill body. Useful as a lightweight table of contents. */
+    readonly outline: readonly LLMSkillOutlineEntryApi[]
     readonly version: number
     readonly created_by: UserBasicApi
     readonly created_at: string
