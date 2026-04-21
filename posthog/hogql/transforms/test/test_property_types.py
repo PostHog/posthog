@@ -227,6 +227,12 @@ class TestPropertyTypes(BaseTest):
 
 
 class TestJSONExtractToMaterializedColumn(ClickhouseTestMixin, BaseTest):
+    # Value semantics after the rewrite are NOT always equivalent to raw JSONExtractString.
+    # The non-nullable mat column path adds nullIf(nullIf(mat_col, ''), 'null') wrapping,
+    # which collapses unset/empty/'null' results into SQL NULL (original path returns '').
+    # The nullable mat column path skips the nullIf wrapping, so empty string and the
+    # literal string 'null' round-trip unchanged — only unset keys diverge (NULL vs '').
+    # See test_rewrite_value_semantics_* for the concrete matrix.
     def _print_select(self, select: str):
         expr = parse_select(select)
         query, _ = prepare_and_print_ast(
@@ -267,6 +273,71 @@ class TestJSONExtractToMaterializedColumn(ClickhouseTestMixin, BaseTest):
         with materialized("events", "$browser"):
             printed = self._print_select("select JSONExtractInt(properties, '$browser') from events")
             assert "mat_" not in printed, f"Expected no mat_ column in output, got: {printed}"
+
+    def _seed_edge_case_events(self):
+        _create_event(
+            team=self.team,
+            distinct_id="u_set",
+            event="pageview",
+            properties={"$browser": "Chrome", "tag": "set"},
+        )
+        _create_event(
+            team=self.team,
+            distinct_id="u_empty",
+            event="pageview",
+            properties={"$browser": "", "tag": "empty"},
+        )
+        _create_event(
+            team=self.team,
+            distinct_id="u_null_str",
+            event="pageview",
+            properties={"$browser": "null", "tag": "null_str"},
+        )
+        _create_event(
+            team=self.team,
+            distinct_id="u_unset",
+            event="pageview",
+            properties={"tag": "unset"},
+        )
+        flush_persons_and_events()
+
+    def _run_and_collect(self) -> dict[str, Any]:
+        hogql = (
+            "SELECT properties.tag, JSONExtractString(properties, '$browser') "
+            "FROM events WHERE event = 'pageview' ORDER BY properties.tag"
+        )
+        response = execute_hogql_query(hogql, team=self.team)
+        assert response.results is not None
+        return {row[0]: row[1] for row in response.results}
+
+    def test_rewrite_value_semantics_no_mat_column(self):
+        # Baseline: no materialized column, no rewrite. JSONExtractString returns ''
+        # for every non-string case (unset, empty string), and 'null' for the literal string.
+        self._seed_edge_case_events()
+        values = self._run_and_collect()
+        assert values == {"set": "Chrome", "empty": "", "null_str": "null", "unset": ""}
+
+    def test_rewrite_value_semantics_non_nullable_mat_column(self):
+        # Non-nullable mat column: the printer applies nullIf(nullIf(mat_col, ''), 'null'),
+        # which collapses unset, empty string, and the literal string 'null' into SQL NULL.
+        # This diverges from the raw JSONExtractString behavior (returns '' / '' / 'null').
+        from posthog.test.base import materialized
+
+        self._seed_edge_case_events()
+        with materialized("events", "$browser", is_nullable=False):
+            values = self._run_and_collect()
+        assert values == {"set": "Chrome", "empty": None, "null_str": None, "unset": None}
+
+    def test_rewrite_value_semantics_nullable_mat_column(self):
+        # Nullable mat column: no nullIf wrapping. Empty string and the literal string 'null'
+        # round-trip unchanged. Only unset keys diverge from raw JSONExtractString: the mat
+        # column stores NULL for missing keys while raw extract returns ''.
+        from posthog.test.base import materialized
+
+        self._seed_edge_case_events()
+        with materialized("events", "$browser", is_nullable=True):
+            values = self._run_and_collect()
+        assert values == {"set": "Chrome", "empty": "", "null_str": "null", "unset": None}
 
 
 # ── Timezone index pruning tests ──────────────────────────────────────────────
