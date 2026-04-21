@@ -20,11 +20,7 @@ pub trait CohortStorage: Send + Sync {
         consistency: ConsistencyLevel,
     ) -> StorageResult<i64>;
 
-    async fn delete_cohort_member(
-        &self,
-        cohort_id: i64,
-        person_id: i64,
-    ) -> StorageResult<bool>;
+    async fn delete_cohort_member(&self, cohort_id: i64, person_id: i64) -> StorageResult<bool>;
 
     async fn delete_cohort_members_bulk(
         &self,

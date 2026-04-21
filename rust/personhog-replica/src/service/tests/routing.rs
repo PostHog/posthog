@@ -586,7 +586,6 @@ async fn test_count_cohort_members_accepts_strong_consistency() {
     let result = service
         .count_cohort_members(Request::new(CountCohortMembersRequest {
             cohort_ids: vec![1],
-            team_id: 1,
             read_options: strong_consistency(),
         }))
         .await;
@@ -601,7 +600,6 @@ async fn test_count_cohort_members_accepts_eventual_consistency() {
     let result = service
         .count_cohort_members(Request::new(CountCohortMembersRequest {
             cohort_ids: vec![1],
-            team_id: 1,
             read_options: eventual_consistency(),
         }))
         .await;
@@ -617,7 +615,6 @@ async fn test_count_cohort_members_routes_strong_to_primary() {
     service
         .count_cohort_members(Request::new(CountCohortMembersRequest {
             cohort_ids: vec![1],
-            team_id: 1,
             read_options: strong_consistency(),
         }))
         .await
@@ -637,7 +634,6 @@ async fn test_count_cohort_members_routes_eventual_to_replica() {
     service
         .count_cohort_members(Request::new(CountCohortMembersRequest {
             cohort_ids: vec![1],
-            team_id: 1,
             read_options: eventual_consistency(),
         }))
         .await
@@ -657,7 +653,6 @@ async fn test_count_cohort_members_routes_unspecified_to_replica() {
     service
         .count_cohort_members(Request::new(CountCohortMembersRequest {
             cohort_ids: vec![1],
-            team_id: 1,
             read_options: None,
         }))
         .await
@@ -676,7 +671,6 @@ async fn test_list_cohort_member_ids_accepts_strong_consistency() {
     let result = service
         .list_cohort_member_ids(Request::new(ListCohortMemberIdsRequest {
             cohort_id: 1,
-            team_id: 1,
             cursor: 0,
             limit: 100,
             read_options: strong_consistency(),
@@ -693,7 +687,6 @@ async fn test_list_cohort_member_ids_accepts_eventual_consistency() {
     let result = service
         .list_cohort_member_ids(Request::new(ListCohortMemberIdsRequest {
             cohort_id: 1,
-            team_id: 1,
             cursor: 0,
             limit: 100,
             read_options: eventual_consistency(),
@@ -711,7 +704,6 @@ async fn test_list_cohort_member_ids_routes_strong_to_primary() {
     service
         .list_cohort_member_ids(Request::new(ListCohortMemberIdsRequest {
             cohort_id: 1,
-            team_id: 1,
             cursor: 0,
             limit: 100,
             read_options: strong_consistency(),
@@ -733,7 +725,6 @@ async fn test_list_cohort_member_ids_routes_eventual_to_replica() {
     service
         .list_cohort_member_ids(Request::new(ListCohortMemberIdsRequest {
             cohort_id: 1,
-            team_id: 1,
             cursor: 0,
             limit: 100,
             read_options: eventual_consistency(),
@@ -755,7 +746,6 @@ async fn test_list_cohort_member_ids_routes_unspecified_to_replica() {
     service
         .list_cohort_member_ids(Request::new(ListCohortMemberIdsRequest {
             cohort_id: 1,
-            team_id: 1,
             cursor: 0,
             limit: 100,
             read_options: None,

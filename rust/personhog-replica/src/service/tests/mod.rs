@@ -263,7 +263,6 @@ async fn test_count_cohort_members_storage_error(
     let result = service
         .count_cohort_members(Request::new(CountCohortMembersRequest {
             cohort_ids: vec![1],
-            team_id: 1,
             read_options: None,
         }))
         .await;
@@ -278,7 +277,6 @@ async fn test_count_cohort_members_empty_cohort_ids_returns_zero() {
     let result = service
         .count_cohort_members(Request::new(CountCohortMembersRequest {
             cohort_ids: vec![],
-            team_id: 1,
             read_options: None,
         }))
         .await;
@@ -293,7 +291,6 @@ async fn test_count_cohort_members_success() {
     let result = service
         .count_cohort_members(Request::new(CountCohortMembersRequest {
             cohort_ids: vec![1, 2, 3],
-            team_id: 1,
             read_options: None,
         }))
         .await;
@@ -319,7 +316,6 @@ async fn test_delete_cohort_member_storage_error(
     let result = service
         .delete_cohort_member(Request::new(DeleteCohortMemberRequest {
             cohort_id: 1,
-            team_id: 1,
             person_id: 42,
         }))
         .await;
@@ -334,7 +330,6 @@ async fn test_delete_cohort_member_success() {
     let result = service
         .delete_cohort_member(Request::new(DeleteCohortMemberRequest {
             cohort_id: 1,
-            team_id: 1,
             person_id: 42,
         }))
         .await;
@@ -361,7 +356,6 @@ async fn test_delete_cohort_members_bulk_storage_error(
     let result = service
         .delete_cohort_members_bulk(Request::new(DeleteCohortMembersBulkRequest {
             cohort_ids: vec![1],
-            team_id: 1,
             batch_size: 1000,
         }))
         .await;
@@ -380,7 +374,6 @@ async fn test_delete_cohort_members_bulk_invalid_batch_size(#[case] batch_size: 
     let status = service
         .delete_cohort_members_bulk(Request::new(DeleteCohortMembersBulkRequest {
             cohort_ids: vec![1],
-            team_id: 1,
             batch_size,
         }))
         .await
@@ -397,7 +390,6 @@ async fn test_delete_cohort_members_bulk_empty_cohort_ids_returns_zero() {
     let result = service
         .delete_cohort_members_bulk(Request::new(DeleteCohortMembersBulkRequest {
             cohort_ids: vec![],
-            team_id: 1,
             batch_size: 1000,
         }))
         .await;
@@ -412,7 +404,6 @@ async fn test_delete_cohort_members_bulk_success() {
     let result = service
         .delete_cohort_members_bulk(Request::new(DeleteCohortMembersBulkRequest {
             cohort_ids: vec![1, 2],
-            team_id: 1,
             batch_size: 5000,
         }))
         .await;
@@ -438,7 +429,6 @@ async fn test_insert_cohort_members_storage_error(
     let result = service
         .insert_cohort_members(Request::new(InsertCohortMembersRequest {
             cohort_id: 1,
-            team_id: 1,
             person_ids: vec![42],
             version: None,
         }))
@@ -454,7 +444,6 @@ async fn test_insert_cohort_members_too_many_person_ids() {
     let status = service
         .insert_cohort_members(Request::new(InsertCohortMembersRequest {
             cohort_id: 1,
-            team_id: 1,
             person_ids: (0..10001).collect(),
             version: None,
         }))
@@ -472,7 +461,6 @@ async fn test_insert_cohort_members_empty_person_ids_returns_zero() {
     let result = service
         .insert_cohort_members(Request::new(InsertCohortMembersRequest {
             cohort_id: 1,
-            team_id: 1,
             person_ids: vec![],
             version: None,
         }))
@@ -492,7 +480,6 @@ async fn test_insert_cohort_members_success(#[case] person_ids: Vec<i64>) {
     let result = service
         .insert_cohort_members(Request::new(InsertCohortMembersRequest {
             cohort_id: 1,
-            team_id: 1,
             person_ids,
             version: Some(1),
         }))
@@ -518,7 +505,6 @@ async fn test_list_cohort_member_ids_storage_error(
     let result = service
         .list_cohort_member_ids(Request::new(ListCohortMemberIdsRequest {
             cohort_id: 1,
-            team_id: 1,
             cursor: 0,
             limit: 100,
             read_options: None,
@@ -535,7 +521,6 @@ async fn test_list_cohort_member_ids_success() {
     let result = service
         .list_cohort_member_ids(Request::new(ListCohortMemberIdsRequest {
             cohort_id: 1,
-            team_id: 1,
             cursor: 0,
             limit: 100,
             read_options: None,
@@ -554,7 +539,6 @@ async fn test_list_cohort_member_ids_clamps_invalid_limit() {
     let result = service
         .list_cohort_member_ids(Request::new(ListCohortMemberIdsRequest {
             cohort_id: 1,
-            team_id: 1,
             cursor: 0,
             limit: 0,
             read_options: None,

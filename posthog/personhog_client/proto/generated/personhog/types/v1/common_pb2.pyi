@@ -26,7 +26,6 @@ class ReadOptions(_message.Message):
     __slots__ = ("consistency",)
     CONSISTENCY_FIELD_NUMBER: _ClassVar[int]
     consistency: ConsistencyLevel
-
     def __init__(self, consistency: _Optional[_Union[ConsistencyLevel, str]] = ...) -> None: ...
 
 class TeamDistinctId(_message.Message):
@@ -35,7 +34,6 @@ class TeamDistinctId(_message.Message):
     DISTINCT_ID_FIELD_NUMBER: _ClassVar[int]
     team_id: int
     distinct_id: str
-
     def __init__(self, team_id: _Optional[int] = ..., distinct_id: _Optional[str] = ...) -> None: ...
 
 class GroupKey(_message.Message):
@@ -46,7 +44,6 @@ class GroupKey(_message.Message):
     team_id: int
     group_type_index: int
     group_key: str
-
     def __init__(
         self, team_id: _Optional[int] = ..., group_type_index: _Optional[int] = ..., group_key: _Optional[str] = ...
     ) -> None: ...
@@ -57,5 +54,4 @@ class GroupIdentifier(_message.Message):
     GROUP_KEY_FIELD_NUMBER: _ClassVar[int]
     group_type_index: int
     group_key: str
-
     def __init__(self, group_type_index: _Optional[int] = ..., group_key: _Optional[str] = ...) -> None: ...

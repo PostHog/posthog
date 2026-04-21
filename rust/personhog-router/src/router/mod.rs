@@ -343,24 +343,14 @@ impl PersonHogRouter {
         &self,
         request: CountCohortMembersRequest,
     ) -> Result<CountCohortMembersResponse, Status> {
-        call_backend!(
-            self,
-            "CountCohortMembers",
-            count_cohort_members,
-            request
-        )
+        call_backend!(self, "CountCohortMembers", count_cohort_members, request)
     }
 
     pub async fn delete_cohort_member(
         &self,
         request: DeleteCohortMemberRequest,
     ) -> Result<DeleteCohortMemberResponse, Status> {
-        call_backend!(
-            self,
-            "DeleteCohortMember",
-            delete_cohort_member,
-            request
-        )
+        call_backend!(self, "DeleteCohortMember", delete_cohort_member, request)
     }
 
     pub async fn delete_cohort_members_bulk(
@@ -379,24 +369,14 @@ impl PersonHogRouter {
         &self,
         request: InsertCohortMembersRequest,
     ) -> Result<InsertCohortMembersResponse, Status> {
-        call_backend!(
-            self,
-            "InsertCohortMembers",
-            insert_cohort_members,
-            request
-        )
+        call_backend!(self, "InsertCohortMembers", insert_cohort_members, request)
     }
 
     pub async fn list_cohort_member_ids(
         &self,
         request: ListCohortMemberIdsRequest,
     ) -> Result<ListCohortMemberIdsResponse, Status> {
-        call_backend!(
-            self,
-            "ListCohortMemberIds",
-            list_cohort_member_ids,
-            request
-        )
+        call_backend!(self, "ListCohortMemberIds", list_cohort_member_ids, request)
     }
 
     // ============================================================

@@ -85,10 +85,7 @@ impl CohortStorage for PostgresStorage {
         let client = current_client_name();
         let pool_label = PostgresStorage::pool_label(consistency);
         let labels = [
-            (
-                "operation".to_string(),
-                "count_cohort_members".to_string(),
-            ),
+            ("operation".to_string(), "count_cohort_members".to_string()),
             ("pool".to_string(), pool_label.to_string()),
             ("client".to_string(), client.to_string()),
         ];
@@ -113,17 +110,10 @@ impl CohortStorage for PostgresStorage {
         Ok(count)
     }
 
-    async fn delete_cohort_member(
-        &self,
-        cohort_id: i64,
-        person_id: i64,
-    ) -> StorageResult<bool> {
+    async fn delete_cohort_member(&self, cohort_id: i64, person_id: i64) -> StorageResult<bool> {
         let client = current_client_name();
         let labels = [
-            (
-                "operation".to_string(),
-                "delete_cohort_member".to_string(),
-            ),
+            ("operation".to_string(), "delete_cohort_member".to_string()),
             ("pool".to_string(), "primary".to_string()),
             ("client".to_string(), client.to_string()),
         ];
@@ -211,10 +201,7 @@ impl CohortStorage for PostgresStorage {
 
         let client = current_client_name();
         let labels = [
-            (
-                "operation".to_string(),
-                "insert_cohort_members".to_string(),
-            ),
+            ("operation".to_string(), "insert_cohort_members".to_string()),
             ("pool".to_string(), "primary".to_string()),
             ("client".to_string(), client.to_string()),
         ];
@@ -239,10 +226,7 @@ impl CohortStorage for PostgresStorage {
         common_metrics::histogram(
             DB_ROWS_RETURNED,
             &[
-                (
-                    "operation".to_string(),
-                    "insert_cohort_members".to_string(),
-                ),
+                ("operation".to_string(), "insert_cohort_members".to_string()),
                 ("client".to_string(), client.to_string()),
             ],
             result.rows_affected() as f64,

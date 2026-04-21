@@ -317,8 +317,9 @@ class FakePersonHogClient:
         if request.cursor > 0:
             all_pids = [p for p in all_pids if p > request.cursor]
         limit = request.limit if request.limit > 0 else 10000
+        has_more = len(all_pids) > limit
         page = all_pids[:limit]
-        next_cursor = page[-1] if len(all_pids) > limit else 0
+        next_cursor = page[-1] if has_more else 0
         return cohort_pb2.ListCohortMemberIdsResponse(person_ids=page, next_cursor=next_cursor)
 
     def get_group(self, request: group_pb2.GetGroupRequest) -> group_pb2.GetGroupResponse:
