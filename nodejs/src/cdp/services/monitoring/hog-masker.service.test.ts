@@ -253,6 +253,87 @@ describe('HogMasker', () => {
                 ).toHaveLength(1)
             })
 
+            describe('calendar day masking', () => {
+                it('should deduplicate per person per calendar day', async () => {
+                    const hogFunctionPersonPerDay = createHogFunction({
+                        ...HOG_MASK_EXAMPLES.personPerDay,
+                    })
+
+                    const globals1 = createHogExecutionGlobals({
+                        person: { id: '1' } as any,
+                    })
+                    const globals2 = createHogExecutionGlobals({
+                        person: { id: '2' } as any,
+                    })
+
+                    const inv1 = createExampleInvocation(hogFunctionPersonPerDay, globals1)
+                    const inv2 = createExampleInvocation(hogFunctionPersonPerDay, globals2)
+
+                    // First call: both persons should fire
+                    const res1 = await masker.filterByMasking([inv1, inv2])
+                    expect(res1.notMasked).toHaveLength(2)
+                    expect(res1.masked).toHaveLength(0)
+
+                    // Second call same day: both should be masked
+                    const res2 = await masker.filterByMasking([inv1, inv2])
+                    expect(res2.notMasked).toHaveLength(0)
+                    expect(res2.masked).toHaveLength(2)
+                })
+
+                it('should allow events on different calendar days', async () => {
+                    const hogFunctionPersonPerDay = createHogFunction({
+                        ...HOG_MASK_EXAMPLES.personPerDay,
+                    })
+
+                    const globals = createHogExecutionGlobals({
+                        person: { id: '1' } as any,
+                    })
+                    const inv = createExampleInvocation(hogFunctionPersonPerDay, globals)
+
+                    // Day 1: should fire
+                    const res1 = await masker.filterByMasking([inv])
+                    expect(res1.notMasked).toHaveLength(1)
+
+                    // Same day: should be masked
+                    const res2 = await masker.filterByMasking([inv])
+                    expect(res2.notMasked).toHaveLength(0)
+
+                    // Advance to next calendar day (move time forward 24h)
+                    advanceTime(24 * 60 * 60 * 1000)
+
+                    // Next day: now() returns a different date, so the hash is different — should fire
+                    const res3 = await masker.filterByMasking([inv])
+                    expect(res3.notMasked).toHaveLength(1)
+                })
+
+                it('should deduplicate per person per event name per calendar day', async () => {
+                    const hogFunctionPerEventPerDay = createHogFunction({
+                        ...HOG_MASK_EXAMPLES.personPerEventPerDay,
+                    })
+
+                    const globalsPageview = createHogExecutionGlobals({
+                        person: { id: '1' } as any,
+                        event: { event: '$pageview' } as any,
+                    })
+                    const globalsClick = createHogExecutionGlobals({
+                        person: { id: '1' } as any,
+                        event: { event: '$autocapture' } as any,
+                    })
+
+                    const inv1 = createExampleInvocation(hogFunctionPerEventPerDay, globalsPageview)
+                    const inv2 = createExampleInvocation(hogFunctionPerEventPerDay, globalsClick)
+
+                    // First call: both event types should fire for same person
+                    const res1 = await masker.filterByMasking([inv1, inv2])
+                    expect(res1.notMasked).toHaveLength(2)
+
+                    // Second call same day: both should be masked
+                    const res2 = await masker.filterByMasking([inv1, inv2])
+                    expect(res2.notMasked).toHaveLength(0)
+                    expect(res2.masked).toHaveLength(2)
+                })
+            })
+
             describe('ttl constraints', () => {
                 const getRedisKeyTtl = async (): Promise<number> => {
                     const keys = await redis.useClient({ name: 'test-keys' }, async (client) => {
