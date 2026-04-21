@@ -647,17 +647,15 @@ class SessionAgeMiddleware:
 
 
 class KnownLoginDeviceCookieMiddleware:
-    """(Re)issues the known-device cookie on every authenticated response"""
+    """(Re)issues the known-device cookie on every session-authenticated response"""
 
     def __init__(self, get_response):
         self.get_response = get_response
 
     def __call__(self, request: HttpRequest):
         response = self.get_response(request)
-        # `request.user` is None on endpoints with no AuthenticationMiddleware (e.g. public widget API)
-        user = getattr(request, "user", None)
-        if isinstance(user, User) and not is_impersonated_session(request):
-            set_known_device_cookie(response, user)
+        if request.session.accessed and request.user.is_authenticated and not is_impersonated_session(request):
+            set_known_device_cookie(response, request.user)
         return response
 
 
