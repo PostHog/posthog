@@ -5474,6 +5474,18 @@ snapshots:
         hash: v1.k794b7964.201433ed7ef608260796ca59a45e699ae75ad798a5c570d7288ca0d1b3d6eee2.Wj1ulHeBOQK9_FUTFUaczGiHoi_aDiG_m2Kampdomc4
     scenes-other-verify-email--verifying-email--light:
         hash: v1.k794b7964.403cfa6f89e0a7b49e2d9ed4e4bd75c01777838b133496f036607e57a1e04c75.vL8d6dCAlSqSxVi2Kr-URc7P-dIKe9vd4w3y8qJXOVw
+    scenes-other-welcome-dialog--default--dark:
+        hash: v1.k794b7964.7d084d929f66b5ef512ee7cf8f0063a5e59acf6f2860e0a7375cbf29db62da86.oOjMSziIs8QxBPDaa9uRR1i839jeQ8tMKw-8FGmi_8w
+    scenes-other-welcome-dialog--default--light:
+        hash: v1.k794b7964.c13aabb191bbf29102180a577d85c7de555a1410d863cde4b7c8f06aafdc8234.s9koAflwD_O5OFea7HgI_QYcPDgoHEmHp6EC7NEBIOI
+    scenes-other-welcome-dialog--empty-organization--dark:
+        hash: v1.k794b7964.b2905d5e3208c3d11e4b6b460a8a11ebcb14a82c1487bc632b290cf5ef350f47.4PG6_Z28V754hEoCY0WsNZpmZ0AOIxrCa-4maD0HOyw
+    scenes-other-welcome-dialog--empty-organization--light:
+        hash: v1.k794b7964.e688de57d4fc7f2aad8c27edb27bb3e4758ae48daa25468b0177e941d5203a6b.sAubHgiJUnw2zymDnfXAqlOAl-4Sd2Dur9HI9RniYx8
+    scenes-other-welcome-dialog--no-inviter--dark:
+        hash: v1.k794b7964.d973b0b85c1e84ecb134e50c3b72115d72973f94eb270c46798ba9aaa1eac4e1.DEeFg7-yxydnhWEhOr22NHmcB2S0hO7Bee2MyhnLqJk
+    scenes-other-welcome-dialog--no-inviter--light:
+        hash: v1.k794b7964.5e1918bfbd9214c6ea13958dabe42b00a3e5a53b20c48df07c97227b839e78f2.tWzOhY2BwP0Sdd_n5NcAqVaW3DmWfKskhL4Vo5RFXmQ
     scenes-session-recordings-networkview--default--dark:
         hash: v1.k794b7964.c95519213cb2d5d46ab210146a256ffd290c23a0a5d8ca154f91a0a110ee5044.UZWQYqSjdOJo4fE9zV19pCXD3DQFBl3twACpSTWf1Xg
     scenes-session-recordings-networkview--default--light:
