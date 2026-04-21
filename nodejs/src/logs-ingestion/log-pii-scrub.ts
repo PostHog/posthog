@@ -1,18 +1,19 @@
 /**
- * Lossy ingestion scrub: replace matches with PII_REDACTED ({{REDACTED}}). Plain text applies Bearer-token,
- * Stripe sk_*-shaped, email, and Luhn-valid 13–19 digit (card-like) patterns. JSON bodies are parsed when possible
- * and scrubbed recursively (object keys use the same sensitive-key substrings as attribute maps); opaque bodies get
- * plain rules only. Attribute maps redact the whole value on sensitive
- * key substrings, otherwise pattern-scrub values. Map values are JSON-string cells (JSON.stringify) so ClickHouse
- * JSONExtractString matches Rust OTLP encoding. Misses: secrets without those shapes, digit runs that fail Luhn,
- * keys outside the sensitive substring list (those values still get plain-text patterns only).
+ * Lossy ingestion scrub: replace matches with PII_REDACTED ({{REDACTED}}). The log `body` is **not** parsed as
+ * JSON; the same RE2-backed patterns run on the raw UTF-8 string (emails and similar literals inside serialized JSON
+ * still match). Attribute and resource maps still use sensitive-key substring checks (full value redaction) plus
+ * pattern scrub on other values. Map values are JSON-string cells (JSON.stringify) so ClickHouse JSONExtractString
+ * matches Rust OTLP encoding.
+ *
+ * **Not guaranteed:** secrets only discoverable by JSON object keys inside `body` (no tree walk), values only in
+ * JSON number/boolean leaves, or digit runs that fail Luhn. Card-like patterns on raw JSON can replace digit spans
+ * inside the body string and may yield invalid JSON if a PAN-shaped number appeared unquoted in text.
  *
  * The four main match rules use RE2 (via createTrackedRE2) for linear-time matching and consistency with other
  * nodejs regex paths; patterns use ASCII-explicit classes so behavior stays stable under node-re2’s Unicode mode.
  */
 import { parseJSON } from '../utils/json-parse'
 import { createTrackedRE2 } from '../utils/tracked-re2'
-import type { LogBodyParseResult } from './log-body-parse'
 import type { LogRecord } from './log-record-avro'
 
 export const PII_REDACTED = '{{REDACTED}}'
@@ -101,63 +102,12 @@ export function scrubPlainString(input: string): string {
     return s
 }
 
-/** Walk parsed JSON: scrub strings, recurse arrays and objects; leave numbers/bools/null unchanged. */
-function scrubJsonValue(value: unknown): unknown {
-    if (typeof value === 'string') {
-        return scrubPlainString(value)
-    }
-    if (Array.isArray(value)) {
-        return value.map(scrubJsonValue)
-    }
-    if (value !== null && typeof value === 'object') {
-        const out: Record<string, unknown> = {}
-        for (const [k, v] of Object.entries(value)) {
-            out[k] = isSensitiveAttributeKey(k) ? PII_REDACTED : scrubJsonValue(v)
-        }
-        return out
-    }
-    return value
-}
-
-/** If body is JSON object/array, scrub nested strings and re-serialize; if invalid JSON, scrub as plain text. */
-function scrubBodyField(record: LogRecord, bodyParse?: LogBodyParseResult): void {
+/** Pattern-scrub `body` as a single string (no JSON parse). */
+function scrubBodyField(record: LogRecord): void {
     if (record.body == null) {
         return
     }
-    const body = record.body
-
-    if (bodyParse) {
-        switch (bodyParse.kind) {
-            case 'empty':
-                return
-            case 'invalid_json':
-                record.body = scrubPlainString(bodyParse.raw)
-                return
-            case 'json_object_or_array':
-                record.body = JSON.stringify(scrubJsonValue(bodyParse.value))
-                return
-            case 'json_string':
-                record.body = JSON.stringify(scrubPlainString(bodyParse.value))
-                return
-            case 'json_primitive':
-                return
-        }
-    }
-
-    try {
-        const parsed = parseJSON(body)
-        if (parsed !== null && typeof parsed === 'object') {
-            record.body = JSON.stringify(scrubJsonValue(parsed))
-            return
-        }
-        if (typeof parsed === 'string') {
-            record.body = JSON.stringify(scrubPlainString(parsed))
-            return
-        }
-        // JSON primitives other than string (number, boolean, null): keep canonical serialization
-    } catch {
-        record.body = scrubPlainString(body)
-    }
+    record.body = scrubPlainString(record.body)
 }
 
 /** Copy string map: full redaction for sensitive keys, else pattern-scrub semantic values; CH-safe JSON cells. */
@@ -177,14 +127,9 @@ function scrubStringMap(map: Record<string, string> | null): Record<string, stri
     return out
 }
 
-export type ScrubLogRecordOptions = {
-    /** When set, body scrubbing reuses this parse so callers can parse `record.body` once (e.g. with JSON enrich). */
-    bodyParse?: LogBodyParseResult
-}
-
 /** Mutate record in place: body, attributes, resource_attributes, and common string metadata fields. */
-export function scrubLogRecord(record: LogRecord, options?: ScrubLogRecordOptions): void {
-    scrubBodyField(record, options?.bodyParse)
+export function scrubLogRecord(record: LogRecord): void {
+    scrubBodyField(record)
     record.attributes = scrubStringMap(record.attributes)
     record.resource_attributes = scrubStringMap(record.resource_attributes)
     if (record.service_name) {
