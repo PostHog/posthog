@@ -910,6 +910,24 @@ export class ApiClient {
                 hasMore: boolean
                 offset: number
             }> => {
+                // The hardcoded select/orderBy below reference `actor_id` and `event_count`,
+                // aliases that only exist on the output of TrendsActorsQueryBuilder. Forwarding
+                // any other source lets those names fall through to the persons table and
+                // ClickHouse rejects the query with a confusing `Unknown column: *` error.
+                if (query.kind !== 'InsightActorsQuery') {
+                    throw new Error(
+                        `trendsActors expected an InsightActorsQuery, got kind=${JSON.stringify(query.kind)}`
+                    )
+                }
+                const source = query.source
+                if (!source || typeof source !== 'object' || (source as { kind?: unknown }).kind !== 'TrendsQuery') {
+                    throw new Error(
+                        `trendsActors only supports TrendsQuery sources, got source.kind=${JSON.stringify(
+                            (source as { kind?: unknown } | null | undefined)?.kind
+                        )}`
+                    )
+                }
+
                 const wrappedQuery = {
                     kind: 'ActorsQuery',
                     source: normalizeQuery(query),

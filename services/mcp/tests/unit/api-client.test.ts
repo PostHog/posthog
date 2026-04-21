@@ -78,4 +78,58 @@ describe('ApiClient', () => {
 
         vi.unstubAllGlobals()
     })
+
+    describe('query().trendsActors', () => {
+        function createClient(): ApiClient {
+            return new ApiClient({
+                apiToken: 'test-token',
+                baseUrl: 'https://example.com',
+            })
+        }
+
+        it('rejects queries whose kind is not InsightActorsQuery', async () => {
+            const mockFetch = vi.fn()
+            vi.stubGlobal('fetch', mockFetch)
+
+            const client = createClient()
+            await expect(
+                client.query({ projectId: '1' }).trendsActors({
+                    query: { kind: 'ActorsQuery', source: { kind: 'TrendsQuery' } },
+                })
+            ).rejects.toThrow(/InsightActorsQuery/)
+            expect(mockFetch).not.toHaveBeenCalled()
+
+            vi.unstubAllGlobals()
+        })
+
+        it('rejects InsightActorsQuery whose source is not a TrendsQuery', async () => {
+            const mockFetch = vi.fn()
+            vi.stubGlobal('fetch', mockFetch)
+
+            const client = createClient()
+            await expect(
+                client.query({ projectId: '1' }).trendsActors({
+                    query: { kind: 'InsightActorsQuery', source: { kind: 'FunnelsQuery' } },
+                })
+            ).rejects.toThrow(/TrendsQuery/)
+            expect(mockFetch).not.toHaveBeenCalled()
+
+            vi.unstubAllGlobals()
+        })
+
+        it('rejects InsightActorsQuery with a missing source', async () => {
+            const mockFetch = vi.fn()
+            vi.stubGlobal('fetch', mockFetch)
+
+            const client = createClient()
+            await expect(
+                client.query({ projectId: '1' }).trendsActors({
+                    query: { kind: 'InsightActorsQuery' },
+                })
+            ).rejects.toThrow(/TrendsQuery/)
+            expect(mockFetch).not.toHaveBeenCalled()
+
+            vi.unstubAllGlobals()
+        })
+    })
 })
