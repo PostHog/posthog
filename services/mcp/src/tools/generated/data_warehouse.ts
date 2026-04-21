@@ -84,16 +84,7 @@ const externalDataSourcesList = (): ToolBase<
                 search: params.search,
             },
         })
-        return await withPostHogUrl(
-            context,
-            {
-                ...result,
-                results: await Promise.all(
-                    (result.results ?? []).map((item) => withPostHogUrl(context, item, `/sql//sources/${item.id}`))
-                ),
-            },
-            '/sql'
-        )
+        return await withPostHogUrl(context, result, '/sql')
     },
 })
 
@@ -104,7 +95,7 @@ const ExternalDataSourcesCreateSchema = ExternalDataSourcesCreateBody.extend({
 
 const externalDataSourcesCreate = (): ToolBase<
     typeof ExternalDataSourcesCreateSchema,
-    WithPostHogUrl<Schemas.ExternalDataSourceSerializers>
+    Schemas.ExternalDataSourceSerializers
 > => ({
     name: 'external-data-sources-create',
     schema: ExternalDataSourcesCreateSchema,
@@ -128,7 +119,7 @@ const externalDataSourcesCreate = (): ToolBase<
             path: `/api/projects/${encodeURIComponent(String(projectId))}/external_data_sources/`,
             body,
         })
-        return await withPostHogUrl(context, result, `/sql//sources/${result.id}`)
+        return result
     },
 })
 
@@ -136,7 +127,7 @@ const ExternalDataSourcesRetrieveSchema = ExternalDataSourcesRetrieveParams.omit
 
 const externalDataSourcesRetrieve = (): ToolBase<
     typeof ExternalDataSourcesRetrieveSchema,
-    WithPostHogUrl<Schemas.ExternalDataSourceSerializers>
+    Schemas.ExternalDataSourceSerializers
 > => ({
     name: 'external-data-sources-retrieve',
     schema: ExternalDataSourcesRetrieveSchema,
@@ -146,7 +137,7 @@ const externalDataSourcesRetrieve = (): ToolBase<
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/external_data_sources/${encodeURIComponent(String(params.id))}/`,
         })
-        return await withPostHogUrl(context, result, `/sql//sources/${result.id}`)
+        return result
     },
 })
 
@@ -156,7 +147,7 @@ const ExternalDataSourcesPartialUpdateSchema = ExternalDataSourcesPartialUpdateP
 
 const externalDataSourcesPartialUpdate = (): ToolBase<
     typeof ExternalDataSourcesPartialUpdateSchema,
-    WithPostHogUrl<Schemas.ExternalDataSourceSerializers>
+    Schemas.ExternalDataSourceSerializers
 > => ({
     name: 'external-data-sources-partial-update',
     schema: ExternalDataSourcesPartialUpdateSchema,
@@ -183,7 +174,7 @@ const externalDataSourcesPartialUpdate = (): ToolBase<
             path: `/api/projects/${encodeURIComponent(String(projectId))}/external_data_sources/${encodeURIComponent(String(params.id))}/`,
             body,
         })
-        return await withPostHogUrl(context, result, `/sql//sources/${result.id}`)
+        return result
     },
 })
 

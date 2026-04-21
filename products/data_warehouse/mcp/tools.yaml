@@ -99,7 +99,7 @@ tools:
             readOnly: true
             destructive: false
             idempotent: true
-        enrich_url: /sources/{id}
+
         list: true
         title: List data warehouse sources
         description: >
@@ -115,7 +115,7 @@ tools:
             readOnly: false
             destructive: false
             idempotent: false
-        enrich_url: /sources/{id}
+
         title: Create data warehouse source
         description: >
             Create a new external data source connection. Requires source_type and credentials specific to the source
@@ -140,7 +140,7 @@ tools:
             readOnly: true
             destructive: false
             idempotent: true
-        enrich_url: /sources/{id}
+
         title: Get data warehouse source
         description: >
             Get a single data warehouse source by ID. Returns full details including source type, connection status,
@@ -157,7 +157,7 @@ tools:
             readOnly: false
             destructive: false
             idempotent: true
-        enrich_url: /sources/{id}
+
         title: Update data warehouse source
         description: >
             Update an existing data warehouse source. Can change the prefix (table name prefix in HogQL), description,
