@@ -1287,8 +1287,8 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                         viewName: (name) =>
                             !name
                                 ? 'You must enter a name'
-                                : !/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(name)
-                                  ? 'Name must be valid'
+                                : !/^[A-Za-z_$][A-Za-z0-9_.$]*$/.test(name)
+                                  ? "View names must start with a letter, '_', or '$' and can only contain letters, numbers, '_', '.', or '$'"
                                   : undefined,
                         dagId: (dagId) => (multiDagEnabled && !dagId ? 'Please select a DAG' : undefined),
                     },
