@@ -12,3 +12,10 @@ class OrganizationMemberInline(TabularInlinePaginated):
     readonly_fields = ("organization", "user", "joined_at", "updated_at")
     autocomplete_fields = ("organization",)
     ordering = ("-level",)  # Order by level descending (Owner -> Admin -> Member)
+
+
+class OrganizationMemberForUserInline(OrganizationMemberInline):
+    """Variant used under UserAdmin — disambiguates the two FKs from OrganizationMembership
+    to User (``user`` vs the newer ``invited_by``)."""
+
+    fk_name = "user"
