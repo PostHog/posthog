@@ -1385,10 +1385,9 @@ class TestGitHubBranches:
             offset=50,
         )
 
-    @patch("posthog.models.integration.GitHubIntegration.get_default_branch", return_value="main")
-    @patch("posthog.models.integration.GitHubIntegration.list_branches")
-    def test_api_endpoint_default_branch_first_on_page_one(self, mock_list, mock_default, client: HttpClient):
-        mock_list.return_value = (["alpha", "main", "zebra"], False)
+    @patch("posthog.models.integration.GitHubIntegration.list_cached_branches")
+    def test_api_endpoint_default_branch_first_on_page_one(self, mock_list_cached, client: HttpClient):
+        mock_list_cached.return_value = (["main", "alpha", "zebra"], "main", False)
         client.force_login(self.user)
 
         response = client.get(
@@ -1400,10 +1399,9 @@ class TestGitHubBranches:
         assert data["branches"][0] == "main"
         assert data["default_branch"] == "main"
 
-    @patch("posthog.models.integration.GitHubIntegration.get_default_branch", return_value="main")
-    @patch("posthog.models.integration.GitHubIntegration.list_branches")
-    def test_api_endpoint_removes_default_branch_on_subsequent_pages(self, mock_list, mock_default, client: HttpClient):
-        mock_list.return_value = (["main", "other"], False)
+    @patch("posthog.models.integration.GitHubIntegration.list_cached_branches")
+    def test_api_endpoint_pages_cached_branches_without_reinserting_default(self, mock_list_cached, client: HttpClient):
+        mock_list_cached.return_value = (["other"], "main", False)
         client.force_login(self.user)
 
         response = client.get(
@@ -1414,13 +1412,9 @@ class TestGitHubBranches:
         data = response.json()
         assert data["branches"] == ["other"]
 
-    @patch("posthog.models.integration.GitHubIntegration.get_default_branch", return_value="main")
-    @patch("posthog.models.integration.GitHubIntegration.list_branches")
-    def test_api_endpoint_prepends_default_branch_even_when_not_in_list(
-        self, mock_list, mock_default, client: HttpClient
-    ):
-        """Default branch is prepended on page 1 even if it isn't in the alphabetical window."""
-        mock_list.return_value = (["alpha", "beta"], False)
+    @patch("posthog.models.integration.GitHubIntegration.list_cached_branches")
+    def test_api_endpoint_prepends_default_branch_even_when_not_in_list(self, mock_list_cached, client: HttpClient):
+        mock_list_cached.return_value = (["main", "alpha", "beta"], "main", False)
         client.force_login(self.user)
 
         response = client.get(
