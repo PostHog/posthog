@@ -388,11 +388,11 @@ export function HogFunctionFilters({
                                     },
                                     {
                                         value: MASKING_HASH_PER_PERSON_PER_DAY,
-                                        label: 'Run once per person per calendar day',
+                                        label: 'Run once per person per calendar day (UTC)',
                                     },
                                     {
                                         value: MASKING_HASH_PER_PERSON_PER_EVENT_PER_DAY,
-                                        label: 'Run once per person per event name per calendar day',
+                                        label: 'Run once per person per event name per calendar day (UTC)',
                                     },
                                 ]}
                                 value={value?.hash ?? null}
