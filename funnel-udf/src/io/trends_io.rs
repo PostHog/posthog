@@ -3,7 +3,7 @@ use clickhouse_types::{Column, DataTypeNode};
 use crate::codec::rowbinary::{RowBinaryRead, RowBinaryWrite};
 use crate::codec::{CodecError, CodecResult};
 use crate::io::column::{
-    array_elem, read_array_i8, read_f64_nonnull, read_string_bytes_nonnull, read_uint_as_u64,
+    array_elem, read_array_i8, read_nullable_f64, read_string, read_u64_col, read_u8_col,
     read_uuid, tuple_fields,
 };
 use crate::io::propval::{read_propval, read_propval_array, shape_output_type, write_propval};
@@ -33,14 +33,13 @@ pub fn read_args<R: RowBinaryRead + ?Sized>(
         });
     }
 
-    let from_step = read_uint_as_u64(r, &columns[0].data_type)? as usize;
-    let to_step = read_uint_as_u64(r, &columns[1].data_type)? as usize;
-    let num_steps = read_uint_as_u64(r, &columns[2].data_type)? as usize;
-    let conversion_window_limit = read_uint_as_u64(r, &columns[3].data_type)?;
-    let breakdown_attribution_type =
-        String::from_utf8(read_string_bytes_nonnull(r, &columns[4].data_type)?)
-            .map_err(|_| CodecError::InvalidUtf8)?;
-    let funnel_order_type = String::from_utf8(read_string_bytes_nonnull(r, &columns[5].data_type)?)
+    let from_step = read_u8_col(r, &columns[0].data_type)? as usize;
+    let to_step = read_u8_col(r, &columns[1].data_type)? as usize;
+    let num_steps = read_u8_col(r, &columns[2].data_type)? as usize;
+    let conversion_window_limit = read_u64_col(r, &columns[3].data_type)?;
+    let breakdown_attribution_type = String::from_utf8(read_string(r, &columns[4].data_type)?)
+        .map_err(|_| CodecError::InvalidUtf8)?;
+    let funnel_order_type = String::from_utf8(read_string(r, &columns[5].data_type)?)
         .map_err(|_| CodecError::InvalidUtf8)?;
     let prop_vals = read_propval_array(r, shape, &columns[6].data_type)?;
 
@@ -70,8 +69,8 @@ fn read_event<R: RowBinaryRead + ?Sized>(
     shape: BreakdownShape,
     fields: &[DataTypeNode],
 ) -> CodecResult<Event> {
-    let timestamp = read_f64_nonnull(r, &fields[0])?;
-    let interval_start = read_uint_as_u64(r, &fields[1])?;
+    let timestamp = read_nullable_f64(r, &fields[0])?;
+    let interval_start = read_u64_col(r, &fields[1])?;
     let uuid = read_uuid(r, &fields[2])?;
     let breakdown = read_propval(r, shape, &fields[3])?;
     let steps = read_array_i8(r, &fields[4])?;
@@ -119,13 +118,13 @@ mod tests {
     use uuid::Uuid;
 
     #[test]
-    fn trends_args_roundtrip_tolerates_nonnullable_wire() {
+    fn trends_args_roundtrip_strict_wire() {
         let uuid = Uuid::parse_str("550e8400-e29b-41d4-a716-446655440000").unwrap();
         let mut buf = Vec::new();
         buf.write_u8(0).unwrap();
         buf.write_u8(2).unwrap();
         buf.write_u8(3).unwrap();
-        buf.write_u32_le(86_400).unwrap();
+        buf.write_u64_le(86_400).unwrap();
         buf.write_bytes(b"step_1").unwrap();
         buf.write_bytes(b"unordered").unwrap();
         buf.write_varint(1).unwrap();
@@ -133,6 +132,7 @@ mod tests {
         buf.write_bytes(b"a").unwrap();
         buf.write_bytes(b"b").unwrap();
         buf.write_varint(1).unwrap();
+        buf.write_u8(0).unwrap(); // timestamp not-null marker
         buf.write_f64_le(1.5).unwrap();
         buf.write_u64_le(1_700_000_000).unwrap();
         buf.write_uuid(uuid).unwrap();
@@ -148,7 +148,7 @@ mod tests {
             Column::new("from_step".into(), DataTypeNode::UInt8),
             Column::new("to_step".into(), DataTypeNode::UInt8),
             Column::new("num_steps".into(), DataTypeNode::UInt8),
-            Column::new("conversion_window_limit".into(), DataTypeNode::UInt32),
+            Column::new("conversion_window_limit".into(), DataTypeNode::UInt64),
             Column::new("breakdown_attribution_type".into(), DataTypeNode::String),
             Column::new("funnel_order_type".into(), DataTypeNode::String),
             Column::new(
@@ -160,7 +160,7 @@ mod tests {
             Column::new(
                 "value".into(),
                 DataTypeNode::Array(Box::new(DataTypeNode::Tuple(vec![
-                    DataTypeNode::Float64,
+                    DataTypeNode::Nullable(Box::new(DataTypeNode::Float64)),
                     DataTypeNode::UInt64,
                     DataTypeNode::UUID,
                     DataTypeNode::Array(Box::new(DataTypeNode::String)),

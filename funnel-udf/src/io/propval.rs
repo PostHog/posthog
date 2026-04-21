@@ -2,7 +2,7 @@ use clickhouse_types::DataTypeNode;
 
 use crate::codec::rowbinary::{RowBinaryRead, RowBinaryWrite};
 use crate::codec::{CodecError, CodecResult};
-use crate::io::column::{array_elem, read_string_bytes_nonnull, read_uint_as_u64};
+use crate::io::column::{array_elem, read_nullable_string, read_string, read_u64_col};
 use crate::types::{BreakdownShape, Bytes, PropVal};
 
 // Reads a single breakdown value — at either a `prop_vals` element position or
@@ -15,19 +15,17 @@ pub fn read_propval<R: RowBinaryRead + ?Sized>(
     t: &DataTypeNode,
 ) -> CodecResult<PropVal> {
     match shape {
-        BreakdownShape::NullableString => {
-            Ok(PropVal::String(Bytes(read_string_bytes_nonnull(r, t)?)))
-        }
+        BreakdownShape::NullableString => Ok(PropVal::String(Bytes(read_nullable_string(r, t)?))),
         BreakdownShape::ArrayString => {
             let inner = array_elem(t, "breakdown")?;
             let len = r.read_varint()? as usize;
             let mut out = Vec::with_capacity(len);
             for _ in 0..len {
-                out.push(Bytes(read_string_bytes_nonnull(r, inner)?));
+                out.push(Bytes(read_string(r, inner)?));
             }
             Ok(PropVal::Vec(out))
         }
-        BreakdownShape::U64 => Ok(PropVal::Int(read_uint_as_u64(r, t)?)),
+        BreakdownShape::U64 => Ok(PropVal::Int(read_u64_col(r, t)?)),
     }
 }
 
@@ -77,22 +75,17 @@ pub fn shape_output_type(shape: BreakdownShape) -> DataTypeNode {
 }
 
 /// Detects the intended `BreakdownShape` from the actual `prop_vals` column type
-/// on the wire. This is what drives all downstream shape dispatch, replacing
-/// the CLI arg that used to ship the shape out-of-band.
-///
-/// Detection rules (match the 3 SQL callers in `funnel.py`):
-/// - `Array(UInt*)` → `U64`   (cohort breakdown)
-/// - `Array(Array(...))` → `ArrayString`   (array breakdown)
-/// - `Array(<anything string-like>)` → `NullableString`   (default)
+/// on the wire. Callers cast to exactly one of the three XML shapes.
 pub fn detect_shape(prop_vals_type: &DataTypeNode) -> CodecResult<BreakdownShape> {
     let inner = array_elem(prop_vals_type, "detect_shape on prop_vals")?;
     match inner {
-        DataTypeNode::UInt8
-        | DataTypeNode::UInt16
-        | DataTypeNode::UInt32
-        | DataTypeNode::UInt64 => Ok(BreakdownShape::U64),
-        DataTypeNode::Array(_) => Ok(BreakdownShape::ArrayString),
-        DataTypeNode::String | DataTypeNode::Nullable(_) => Ok(BreakdownShape::NullableString),
+        DataTypeNode::UInt64 => Ok(BreakdownShape::U64),
+        DataTypeNode::Array(el) if matches!(**el, DataTypeNode::String) => {
+            Ok(BreakdownShape::ArrayString)
+        }
+        DataTypeNode::Nullable(el) if matches!(**el, DataTypeNode::String) => {
+            Ok(BreakdownShape::NullableString)
+        }
         other => Err(CodecError::TypeMismatch(format!(
             "prop_vals: unsupported element type {other}"
         ))),
@@ -103,17 +96,14 @@ pub fn detect_shape(prop_vals_type: &DataTypeNode) -> CodecResult<BreakdownShape
 mod tests {
     use super::*;
 
+    fn nullable_string() -> DataTypeNode {
+        DataTypeNode::Nullable(Box::new(DataTypeNode::String))
+    }
+
     #[test]
     fn shape_detection() {
         assert_eq!(
-            detect_shape(&DataTypeNode::Array(Box::new(DataTypeNode::String))).unwrap(),
-            BreakdownShape::NullableString
-        );
-        assert_eq!(
-            detect_shape(&DataTypeNode::Array(Box::new(DataTypeNode::Nullable(
-                Box::new(DataTypeNode::String)
-            ))))
-            .unwrap(),
+            detect_shape(&DataTypeNode::Array(Box::new(nullable_string()))).unwrap(),
             BreakdownShape::NullableString
         );
         assert_eq!(
@@ -130,38 +120,32 @@ mod tests {
     }
 
     #[test]
-    fn nullable_string_accepts_plain_string_wire() {
+    fn shape_detection_rejects_plain_string() {
+        let err = detect_shape(&DataTypeNode::Array(Box::new(DataTypeNode::String))).unwrap_err();
+        assert!(matches!(err, CodecError::TypeMismatch(_)));
+    }
+
+    #[test]
+    fn nullable_string_reads_nullable_wire() {
         let mut buf = Vec::new();
+        buf.write_u8(0).unwrap();
         buf.write_bytes(b"hi").unwrap();
         let mut slice = buf.as_slice();
         let got = read_propval(
             &mut slice,
             BreakdownShape::NullableString,
-            &DataTypeNode::String,
+            &nullable_string(),
         )
         .unwrap();
         assert_eq!(got, PropVal::String(Bytes(b"hi".to_vec())));
     }
 
     #[test]
-    fn nullable_string_accepts_nullable_wire() {
+    fn u64_reads_uint64_wire() {
         let mut buf = Vec::new();
-        buf.write_u8(0).unwrap();
-        buf.write_bytes(b"hi").unwrap();
+        buf.write_u64_le(1209600).unwrap();
         let mut slice = buf.as_slice();
-        let t = DataTypeNode::Nullable(Box::new(DataTypeNode::String));
-        let got = read_propval(&mut slice, BreakdownShape::NullableString, &t).unwrap();
-        assert_eq!(got, PropVal::String(Bytes(b"hi".to_vec())));
-    }
-
-    #[test]
-    fn u64_accepts_uint32_wire() {
-        // Real-world: funnel.py passes conversion_window_limit as UInt32 literal
-        // but XML declares UInt64. Adapter must widen.
-        let mut buf = Vec::new();
-        buf.write_u32_le(1209600).unwrap();
-        let mut slice = buf.as_slice();
-        let got = read_propval(&mut slice, BreakdownShape::U64, &DataTypeNode::UInt32).unwrap();
+        let got = read_propval(&mut slice, BreakdownShape::U64, &DataTypeNode::UInt64).unwrap();
         assert_eq!(got, PropVal::Int(1209600));
     }
 
@@ -169,12 +153,13 @@ mod tests {
     fn non_utf8_bytes_survive() {
         let bad = vec![0xff, 0xfe, 0x00, 0x80];
         let mut buf = Vec::new();
+        buf.write_u8(0).unwrap();
         buf.write_bytes(&bad).unwrap();
         let mut slice = buf.as_slice();
         let got = read_propval(
             &mut slice,
             BreakdownShape::NullableString,
-            &DataTypeNode::String,
+            &nullable_string(),
         )
         .unwrap();
         assert_eq!(got, PropVal::String(Bytes(bad)));
@@ -185,8 +170,12 @@ mod tests {
         let mut buf = Vec::new();
         buf.write_u8(1).unwrap();
         let mut slice = buf.as_slice();
-        let t = DataTypeNode::Nullable(Box::new(DataTypeNode::String));
-        let err = read_propval(&mut slice, BreakdownShape::NullableString, &t).unwrap_err();
+        let err = read_propval(
+            &mut slice,
+            BreakdownShape::NullableString,
+            &nullable_string(),
+        )
+        .unwrap_err();
         assert!(matches!(err, CodecError::UnexpectedNull));
     }
 }

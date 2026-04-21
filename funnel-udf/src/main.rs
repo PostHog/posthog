@@ -49,20 +49,19 @@ mod e2e {
     use std::io::Cursor;
     use uuid::Uuid;
 
-    // Writes a block header where every slot is intentionally the NON-nullable /
-    // widened variant — exactly what ClickHouse sends today (UInt32 limit,
-    // plain String columns, non-Nullable tuple fields). Exercising the full
-    // pipeline with this shape verifies our tolerant decoders work end-to-end
-    // *and* that shape detection picks `NullableString` from `Array(String)`.
+    // Writes a block header whose types exactly match the XML-declared shapes
+    // — the same shapes the Python callers CAST to before invoking the UDF.
     fn write_steps_header(buf: &mut Vec<u8>) {
+        let nullable_string = DataTypeNode::Nullable(Box::new(DataTypeNode::String));
+        let nullable_f64 = DataTypeNode::Nullable(Box::new(DataTypeNode::Float64));
         let cols = vec![
             Column::new("num_steps".into(), DataTypeNode::UInt8),
-            Column::new("conversion_window_limit".into(), DataTypeNode::UInt32),
+            Column::new("conversion_window_limit".into(), DataTypeNode::UInt64),
             Column::new("breakdown_attribution_type".into(), DataTypeNode::String),
             Column::new("funnel_order_type".into(), DataTypeNode::String),
             Column::new(
                 "prop_vals".into(),
-                DataTypeNode::Array(Box::new(DataTypeNode::String)),
+                DataTypeNode::Array(Box::new(nullable_string.clone())),
             ),
             Column::new(
                 "optional_steps".into(),
@@ -71,9 +70,9 @@ mod e2e {
             Column::new(
                 "value".into(),
                 DataTypeNode::Array(Box::new(DataTypeNode::Tuple(vec![
-                    DataTypeNode::Float64,
+                    nullable_f64,
                     DataTypeNode::UUID,
-                    DataTypeNode::String,
+                    nullable_string,
                     DataTypeNode::Array(Box::new(DataTypeNode::Int8)),
                 ]))),
             ),
@@ -82,7 +81,7 @@ mod e2e {
     }
 
     #[test]
-    fn rowbinary_steps_round_trip_tolerates_nonnullable_wire() {
+    fn rowbinary_steps_round_trip_strict_wire() {
         let uuid0 = Uuid::parse_str("00000000-0000-0000-0000-000000000001").unwrap();
         let uuid1 = Uuid::parse_str("00000000-0000-0000-0000-000000000002").unwrap();
         let uuid2 = Uuid::parse_str("00000000-0000-0000-0000-000000000003").unwrap();
@@ -92,16 +91,19 @@ mod e2e {
         write_steps_header(&mut input_buf);
 
         input_buf.write_u8(3).unwrap();
-        input_buf.write_u32_le(3600).unwrap();
+        input_buf.write_u64_le(3600).unwrap();
         input_buf.write_bytes(b"first_touch").unwrap();
         input_buf.write_bytes(b"ordered").unwrap();
         input_buf.write_varint(1).unwrap();
+        input_buf.write_u8(0).unwrap(); // prop_vals[0] not-null marker
         input_buf.write_bytes(b"en").unwrap();
         input_buf.write_varint(0).unwrap();
         input_buf.write_varint(3).unwrap();
         for (ts, uuid, step) in [(1.0_f64, uuid0, 1_i8), (2.0, uuid1, 2), (3.0, uuid2, 3)] {
+            input_buf.write_u8(0).unwrap(); // timestamp not-null marker
             input_buf.write_f64_le(ts).unwrap();
             input_buf.write_uuid(uuid).unwrap();
+            input_buf.write_u8(0).unwrap(); // breakdown not-null marker
             input_buf.write_bytes(b"en").unwrap();
             input_buf.write_varint(1).unwrap();
             input_buf.write_i8(step).unwrap();

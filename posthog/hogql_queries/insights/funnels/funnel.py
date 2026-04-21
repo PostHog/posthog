@@ -136,10 +136,16 @@ class FunnelUDF(FunnelUDFMixin, FunnelBase):
 
         if self.context.breakdownType == BreakdownType.COHORT:
             fn = "aggregate_funnel_cohort"
+            prop_vals_type = "Array(UInt64)"
+            value_type = "Array(Tuple(Nullable(Float64), UUID, UInt64, Array(Int8)))"
         elif self._query_has_array_breakdown():
             fn = "aggregate_funnel_array"
+            prop_vals_type = "Array(Array(String))"
+            value_type = "Array(Tuple(Nullable(Float64), UUID, Array(String), Array(Int8)))"
         else:
             fn = "aggregate_funnel"
+            prop_vals_type = "Array(Nullable(String))"
+            value_type = "Array(Tuple(Nullable(Float64), UUID, Nullable(String), Array(Int8)))"
 
         if not self.context.breakdown:
             prop_selector = self._default_breakdown_selector()
@@ -186,13 +192,13 @@ class FunnelUDF(FunnelUDFMixin, FunnelBase):
                 ))), 1, {MAX_EVENTS_PER_ENTITY}) as events_array,
                 {prop_vals} as prop,
                 arrayJoin({fn}(
-                    {self.context.max_steps},
-                    {self.conversion_window_limit()},
+                    toUInt8({self.context.max_steps}),
+                    toUInt64({self.conversion_window_limit()}),
                     '{breakdown_attribution_string}',
                     '{self.context.funnelsFilter.funnelOrderType}',
-                    {prop_arg},
-                    [{optional_steps}],
-                    {self.event_array_filter()}
+                    CAST({prop_arg} AS {prop_vals_type}),
+                    CAST([{optional_steps}] AS Array(Int8)),
+                    CAST({self.event_array_filter()} AS {value_type})
                 )) as af_tuple,
                 af_tuple.1 as step_reached,
                 af_tuple.1 + 1 as steps, -- Backward compatibility

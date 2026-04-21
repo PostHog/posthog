@@ -3,7 +3,7 @@ use clickhouse_types::{Column, DataTypeNode};
 use crate::codec::rowbinary::{RowBinaryRead, RowBinaryWrite};
 use crate::codec::{CodecError, CodecResult};
 use crate::io::column::{
-    array_elem, read_array_i8, read_f64_nonnull, read_string_bytes_nonnull, read_uint_as_u64,
+    array_elem, read_array_i8, read_nullable_f64, read_string, read_u64_col, read_u8_col,
     read_uuid, tuple_fields,
 };
 use crate::io::propval::{read_propval, read_propval_array, shape_output_type, write_propval};
@@ -19,8 +19,8 @@ use crate::types::BreakdownShape;
 //   5  Array(Int8)                optional_steps
 //   6  Array(Tuple(Nullable(Float64), UUID, <breakdown shape>, Array(Int8)))  value
 //
-// Reader is tolerant of the shape actually arriving on the wire (UInt32 vs
-// UInt64, plain String vs Nullable(String), etc.) — see column.rs.
+// Types are strict: the Python callers CAST every arg to the XML-declared
+// shape, so any wire mismatch is a caller bug we fail fast on.
 const COLUMN_COUNT: usize = 7;
 
 pub fn read_args<R: RowBinaryRead + ?Sized>(
@@ -35,12 +35,11 @@ pub fn read_args<R: RowBinaryRead + ?Sized>(
         });
     }
 
-    let num_steps = read_uint_as_u64(r, &columns[0].data_type)? as usize;
-    let conversion_window_limit = read_uint_as_u64(r, &columns[1].data_type)?;
-    let breakdown_attribution_type =
-        String::from_utf8(read_string_bytes_nonnull(r, &columns[2].data_type)?)
-            .map_err(|_| CodecError::InvalidUtf8)?;
-    let funnel_order_type = String::from_utf8(read_string_bytes_nonnull(r, &columns[3].data_type)?)
+    let num_steps = read_u8_col(r, &columns[0].data_type)? as usize;
+    let conversion_window_limit = read_u64_col(r, &columns[1].data_type)?;
+    let breakdown_attribution_type = String::from_utf8(read_string(r, &columns[2].data_type)?)
+        .map_err(|_| CodecError::InvalidUtf8)?;
+    let funnel_order_type = String::from_utf8(read_string(r, &columns[3].data_type)?)
         .map_err(|_| CodecError::InvalidUtf8)?;
     let prop_vals = read_propval_array(r, shape, &columns[4].data_type)?;
     let optional_steps = read_array_i8(r, &columns[5].data_type)?;
@@ -70,7 +69,7 @@ fn read_event<R: RowBinaryRead + ?Sized>(
     shape: BreakdownShape,
     fields: &[DataTypeNode],
 ) -> CodecResult<Event> {
-    let timestamp = read_f64_nonnull(r, &fields[0])?;
+    let timestamp = read_nullable_f64(r, &fields[0])?;
     let uuid = read_uuid(r, &fields[1])?;
     let breakdown = read_propval(r, shape, &fields[2])?;
     let steps = read_array_i8(r, &fields[3])?;
@@ -119,17 +118,23 @@ mod tests {
     use crate::types::{Bytes, PropVal};
     use uuid::Uuid;
 
+    fn nullable_string() -> DataTypeNode {
+        DataTypeNode::Nullable(Box::new(DataTypeNode::String))
+    }
+
+    fn nullable_float64() -> DataTypeNode {
+        DataTypeNode::Nullable(Box::new(DataTypeNode::Float64))
+    }
+
     fn nullable_string_columns() -> Vec<Column> {
         vec![
             Column::new("num_steps".into(), DataTypeNode::UInt8),
-            // Real-world: SQL passes UInt32 literal even though XML says UInt64.
-            Column::new("conversion_window_limit".into(), DataTypeNode::UInt32),
+            Column::new("conversion_window_limit".into(), DataTypeNode::UInt64),
             Column::new("breakdown_attribution_type".into(), DataTypeNode::String),
             Column::new("funnel_order_type".into(), DataTypeNode::String),
             Column::new(
                 "prop_vals".into(),
-                // Real-world: `ifNull(...)` makes inner String, not Nullable(String).
-                DataTypeNode::Array(Box::new(DataTypeNode::String)),
+                DataTypeNode::Array(Box::new(nullable_string())),
             ),
             Column::new(
                 "optional_steps".into(),
@@ -138,9 +143,9 @@ mod tests {
             Column::new(
                 "value".into(),
                 DataTypeNode::Array(Box::new(DataTypeNode::Tuple(vec![
-                    DataTypeNode::Float64, // not Nullable
+                    nullable_float64(),
                     DataTypeNode::UUID,
-                    DataTypeNode::String, // not Nullable
+                    nullable_string(),
                     DataTypeNode::Array(Box::new(DataTypeNode::Int8)),
                 ]))),
             ),
@@ -148,21 +153,24 @@ mod tests {
     }
 
     #[test]
-    fn args_roundtrip_tolerates_nonnullable_wire() {
+    fn args_roundtrip_strict_wire() {
         let uuid = Uuid::parse_str("550e8400-e29b-41d4-a716-446655440000").unwrap();
         let mut buf = Vec::new();
 
         buf.write_u8(3).unwrap();
-        buf.write_u32_le(3600).unwrap(); // UInt32, not UInt64!
+        buf.write_u64_le(3600).unwrap();
         buf.write_bytes(b"first_touch").unwrap();
         buf.write_bytes(b"ordered").unwrap();
         buf.write_varint(1).unwrap();
+        buf.write_u8(0).unwrap(); // not-null marker
         buf.write_bytes(b"en").unwrap();
         buf.write_varint(0).unwrap();
         buf.write_varint(1).unwrap();
-        buf.write_f64_le(1.5).unwrap(); // plain Float64
+        buf.write_u8(0).unwrap(); // not-null marker for timestamp
+        buf.write_f64_le(1.5).unwrap();
         buf.write_uuid(uuid).unwrap();
-        buf.write_bytes(b"en").unwrap(); // plain String
+        buf.write_u8(0).unwrap(); // not-null marker for breakdown
+        buf.write_bytes(b"en").unwrap();
         buf.write_varint(1).unwrap();
         buf.write_i8(1).unwrap();
 
@@ -187,6 +195,16 @@ mod tests {
             PropVal::String(Bytes(b"en".to_vec()))
         );
         assert_eq!(args.value[0].steps, vec![1]);
+    }
+
+    #[test]
+    fn args_rejects_wrong_wire_type() {
+        let mut cols = nullable_string_columns();
+        cols[1] = Column::new("conversion_window_limit".into(), DataTypeNode::UInt32);
+        let buf = [0u8; 1];
+        let mut slice = buf.as_slice();
+        let err = read_args(&mut slice, BreakdownShape::NullableString, &cols).unwrap_err();
+        assert!(matches!(err, CodecError::TypeMismatch(_)));
     }
 
     #[test]
