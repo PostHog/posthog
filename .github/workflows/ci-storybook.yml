@@ -1,9 +1,6 @@
 name: Storybook
 on:
     pull_request:
-        paths-ignore:
-            - 'frontend/src/generated/**'
-            - 'products/*/frontend/generated/**'
     merge_group:
     push:
         branches:
