@@ -10,7 +10,8 @@ from unittest.mock import ANY, patch
 
 from rest_framework import status
 
-from posthog.models import Action, Tag, User
+from posthog.models import Action, Cohort, Insight, Tag, User
+from posthog.models.hog_functions.hog_function import HogFunction
 
 
 class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
@@ -459,3 +460,363 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert "Special Folder/Actions" in fs_entry.path, (
             f"Expected folder to include 'Special Folder/Actions' but got '{fs_entry.path}'."
         )
+
+    def test_references_returns_insight_using_action(self):
+        action = Action.objects.create(team=self.team, name="test action", steps_json=[{"event": "$pageview"}])
+        insight = Insight.objects.create(
+            team=self.team,
+            name="My insight",
+            query={
+                "kind": "DataTableNode",
+                "source": {
+                    "kind": "TrendsQuery",
+                    "series": [{"kind": "ActionsNode", "id": action.id}],
+                },
+            },
+        )
+        response = self.client.get(f"/api/projects/{self.team.id}/actions/{action.id}/references/")
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert len(data) == 1
+        assert data[0]["type"] == "insight"
+        assert data[0]["name"] == "My insight"
+        assert data[0]["id"] == str(insight.short_id)
+        assert data[0]["url"] == f"/insights/{insight.short_id}"
+
+    def test_references_returns_insight_with_legacy_filters(self):
+        action = Action.objects.create(team=self.team, name="test action", steps_json=[{"event": "$pageview"}])
+        Insight.objects.create(
+            team=self.team,
+            name="Legacy insight",
+            filters={"actions": [{"id": action.id, "type": "actions"}]},
+        )
+        response = self.client.get(f"/api/projects/{self.team.id}/actions/{action.id}/references/")
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert len(data) == 1
+        assert data[0]["type"] == "insight"
+        assert data[0]["name"] == "Legacy insight"
+
+    def test_references_returns_experiment_using_action(self):
+        from posthog.models.feature_flag import FeatureFlag
+
+        from products.experiments.backend.models.experiment import Experiment
+
+        action = Action.objects.create(team=self.team, name="test action", steps_json=[{"event": "$pageview"}])
+        flag = FeatureFlag.objects.create(team=self.team, key="exp-flag", created_by=self.user)
+        exp = Experiment.objects.create(
+            team=self.team,
+            name="My experiment",
+            created_by=self.user,
+            feature_flag=flag,
+            metrics=[
+                {
+                    "kind": "ExperimentTrendsQuery",
+                    "count_query": {
+                        "kind": "TrendsQuery",
+                        "series": [{"kind": "ActionsNode", "id": action.id}],
+                    },
+                }
+            ],
+        )
+        response = self.client.get(f"/api/projects/{self.team.id}/actions/{action.id}/references/")
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert len(data) == 1
+        assert data[0]["type"] == "experiment"
+        assert data[0]["name"] == "My experiment"
+        assert data[0]["url"] == f"/experiments/{exp.id}"
+
+    def test_references_returns_cohort_using_action(self):
+        action = Action.objects.create(team=self.team, name="test action", steps_json=[{"event": "$pageview"}])
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="My cohort",
+            filters={
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "type": "AND",
+                            "values": [
+                                {
+                                    "type": "behavioral",
+                                    "event_type": "actions",
+                                    "key": action.id,
+                                }
+                            ],
+                        }
+                    ],
+                }
+            },
+        )
+        response = self.client.get(f"/api/projects/{self.team.id}/actions/{action.id}/references/")
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert len(data) == 1
+        assert data[0]["type"] == "cohort"
+        assert data[0]["name"] == "My cohort"
+        assert data[0]["url"] == f"/cohorts/{cohort.id}"
+
+    def test_references_returns_hog_function_using_action(self):
+        action = Action.objects.create(team=self.team, name="test action", steps_json=[{"event": "$pageview"}])
+        hf = HogFunction.objects.create(
+            team=self.team,
+            name="My destination",
+            filters={"actions": [{"id": str(action.id), "type": "actions"}]},
+        )
+        response = self.client.get(f"/api/projects/{self.team.id}/actions/{action.id}/references/")
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert len(data) == 1
+        assert data[0]["type"] == "hog_function"
+        assert data[0]["name"] == "My destination"
+        assert data[0]["url"] == f"/functions/{hf.id}"
+
+    def test_references_returns_empty_list_when_no_references(self):
+        action = Action.objects.create(team=self.team, name="orphan action", steps_json=[{"event": "$pageview"}])
+        response = self.client.get(f"/api/projects/{self.team.id}/actions/{action.id}/references/")
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == []
+
+    def test_references_does_not_return_deleted_insights(self):
+        action = Action.objects.create(team=self.team, name="test action", steps_json=[{"event": "$pageview"}])
+        Insight.objects.create(
+            team=self.team,
+            name="Deleted insight",
+            deleted=True,
+            query={
+                "kind": "DataTableNode",
+                "source": {
+                    "kind": "TrendsQuery",
+                    "series": [{"kind": "ActionsNode", "id": action.id}],
+                },
+            },
+        )
+        response = self.client.get(f"/api/projects/{self.team.id}/actions/{action.id}/references/")
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == []
+
+    def test_references_does_not_return_deleted_experiments(self):
+        from posthog.models.feature_flag import FeatureFlag
+
+        from products.experiments.backend.models.experiment import Experiment
+
+        action = Action.objects.create(team=self.team, name="test action", steps_json=[{"event": "$pageview"}])
+        flag = FeatureFlag.objects.create(team=self.team, key="deleted-exp-flag", created_by=self.user)
+        Experiment.objects.create(
+            team=self.team,
+            name="Deleted experiment",
+            created_by=self.user,
+            feature_flag=flag,
+            deleted=True,
+            metrics=[
+                {
+                    "kind": "ExperimentTrendsQuery",
+                    "count_query": {
+                        "kind": "TrendsQuery",
+                        "series": [{"kind": "ActionsNode", "id": action.id}],
+                    },
+                }
+            ],
+        )
+        response = self.client.get(f"/api/projects/{self.team.id}/actions/{action.id}/references/")
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == []
+
+    def test_references_does_not_return_deleted_cohorts(self):
+        action = Action.objects.create(team=self.team, name="test action", steps_json=[{"event": "$pageview"}])
+        Cohort.objects.create(
+            team=self.team,
+            name="Deleted cohort",
+            deleted=True,
+            filters={
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "type": "AND",
+                            "values": [
+                                {
+                                    "type": "behavioral",
+                                    "event_type": "actions",
+                                    "key": action.id,
+                                }
+                            ],
+                        }
+                    ],
+                }
+            },
+        )
+        response = self.client.get(f"/api/projects/{self.team.id}/actions/{action.id}/references/")
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == []
+
+    def test_references_does_not_return_deleted_hog_functions(self):
+        action = Action.objects.create(team=self.team, name="test action", steps_json=[{"event": "$pageview"}])
+        HogFunction.objects.create(
+            team=self.team,
+            name="Deleted destination",
+            deleted=True,
+            filters={"actions": [{"id": str(action.id), "type": "actions"}]},
+        )
+        response = self.client.get(f"/api/projects/{self.team.id}/actions/{action.id}/references/")
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == []
+
+    def test_references_matches_action_id_stored_as_string(self):
+        action = Action.objects.create(team=self.team, name="test action", steps_json=[{"event": "$pageview"}])
+        hf = HogFunction.objects.create(
+            team=self.team,
+            name="String ID destination",
+            filters={"actions": [{"id": str(action.id), "type": "actions"}]},
+        )
+        response = self.client.get(f"/api/projects/{self.team.id}/actions/{action.id}/references/")
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert len(data) == 1
+        assert data[0]["type"] == "hog_function"
+        assert data[0]["id"] == str(hf.id)
+
+    def test_references_does_not_return_other_team_resources(self):
+        from posthog.models import Team
+
+        action = Action.objects.create(team=self.team, name="test action", steps_json=[{"event": "$pageview"}])
+        other_team = Team.objects.create(organization=self.organization)
+        Insight.objects.create(
+            team=other_team,
+            name="Other team insight",
+            query={
+                "kind": "DataTableNode",
+                "source": {
+                    "kind": "TrendsQuery",
+                    "series": [{"kind": "ActionsNode", "id": action.id}],
+                },
+            },
+        )
+        response = self.client.get(f"/api/projects/{self.team.id}/actions/{action.id}/references/")
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == []
+
+    def test_include_reference_count_param_adds_count_to_list(self):
+        action = Action.objects.create(team=self.team, name="action with refs", steps_json=[{"event": "$pageview"}])
+        Insight.objects.create(
+            team=self.team,
+            name="Referencing insight",
+            query={
+                "kind": "DataTableNode",
+                "source": {
+                    "kind": "TrendsQuery",
+                    "series": [{"kind": "ActionsNode", "id": action.id}],
+                },
+            },
+        )
+        response = self.client.get(f"/api/projects/{self.team.id}/actions/?include_reference_count=1")
+        assert response.status_code == status.HTTP_200_OK
+        results = response.json()["results"]
+        action_result = next(r for r in results if r["id"] == action.id)
+        assert action_result["reference_count"] == 1
+
+    def test_list_without_include_reference_count_omits_count(self):
+        Action.objects.create(team=self.team, name="some action", steps_json=[{"event": "$pageview"}])
+        response = self.client.get(f"/api/projects/{self.team.id}/actions/")
+        assert response.status_code == status.HTTP_200_OK
+        results = response.json()["results"]
+        assert len(results) > 0
+        for result in results:
+            assert "reference_count" not in result
+
+    def test_include_reference_count_returns_correct_counts_for_multiple_actions(self):
+        action_with_refs = Action.objects.create(
+            team=self.team, name="action with refs", steps_json=[{"event": "$pageview"}]
+        )
+        action_without_refs = Action.objects.create(
+            team=self.team, name="action without refs", steps_json=[{"event": "$pageleave"}]
+        )
+        Insight.objects.create(
+            team=self.team,
+            name="Referencing insight",
+            query={
+                "kind": "DataTableNode",
+                "source": {
+                    "kind": "TrendsQuery",
+                    "series": [{"kind": "ActionsNode", "id": action_with_refs.id}],
+                },
+            },
+        )
+        response = self.client.get(f"/api/projects/{self.team.id}/actions/?include_reference_count=1")
+        assert response.status_code == status.HTTP_200_OK
+        results = response.json()["results"]
+        counts = {r["id"]: r["reference_count"] for r in results}
+        assert counts[action_with_refs.id] == 1
+        assert counts[action_without_refs.id] == 0
+
+    def test_include_reference_count_counts_across_all_resource_types(self):
+        from posthog.models.feature_flag import FeatureFlag
+
+        from products.experiments.backend.models.experiment import Experiment
+
+        action = Action.objects.create(team=self.team, name="widely used action", steps_json=[{"event": "$pageview"}])
+
+        Insight.objects.create(
+            team=self.team,
+            name="Insight ref",
+            query={
+                "kind": "DataTableNode",
+                "source": {
+                    "kind": "TrendsQuery",
+                    "series": [{"kind": "ActionsNode", "id": action.id}],
+                },
+            },
+        )
+
+        flag = FeatureFlag.objects.create(team=self.team, key="bulk-count-flag", created_by=self.user)
+        Experiment.objects.create(
+            team=self.team,
+            name="Experiment ref",
+            created_by=self.user,
+            feature_flag=flag,
+            metrics=[
+                {
+                    "kind": "ExperimentTrendsQuery",
+                    "count_query": {
+                        "kind": "TrendsQuery",
+                        "series": [{"kind": "ActionsNode", "id": action.id}],
+                    },
+                }
+            ],
+        )
+
+        Cohort.objects.create(
+            team=self.team,
+            name="Cohort ref",
+            filters={
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "type": "AND",
+                            "values": [
+                                {
+                                    "type": "behavioral",
+                                    "event_type": "actions",
+                                    "key": action.id,
+                                }
+                            ],
+                        }
+                    ],
+                }
+            },
+        )
+
+        HogFunction.objects.create(
+            team=self.team,
+            name="Hog function ref",
+            filters={"actions": [{"id": str(action.id), "type": "actions"}]},
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/actions/?include_reference_count=1")
+        assert response.status_code == status.HTTP_200_OK
+        results = response.json()["results"]
+        action_result = next(r for r in results if r["id"] == action.id)
+        assert action_result["reference_count"] == 4

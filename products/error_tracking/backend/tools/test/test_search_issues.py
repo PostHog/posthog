@@ -17,9 +17,9 @@ from parameterized import parameterized
 from posthog.schema import (
     DateRange,
     ErrorTrackingIssue as ErrorTrackingIssueSchema,
+    ErrorTrackingOrderBy,
     ErrorTrackingQuery,
     MaxErrorTrackingSearchResponse,
-    OrderBy1,
 )
 
 from products.error_tracking.backend.models import ErrorTrackingIssue, ErrorTrackingIssueFingerprintV2
@@ -135,7 +135,7 @@ class TestSearchErrorTrackingIssuesTool(ClickhouseTestMixin, NonAtomicBaseTest):
         date_to=None,
         status=None,
         search_query=None,
-        order_by=OrderBy1.LAST_SEEN,
+        order_by=ErrorTrackingOrderBy.LAST_SEEN,
         limit=25,
     ) -> ErrorTrackingQuery:
         return ErrorTrackingQuery(

@@ -4,8 +4,10 @@ from posthog.temporal.session_replay.session_summary.activities import (
     cleanup_gemini_file_activity,
     consolidate_video_segments_activity,
     embed_and_store_segments_activity,
+    emit_session_problem_signals_activity,
     prep_session_video_asset_activity,
     store_video_session_summary_activity,
+    tag_and_highlight_session_activity,
     upload_video_to_gemini_activity,
 )
 from posthog.temporal.session_replay.session_summary.activities.patterns import (
@@ -49,7 +51,9 @@ SESSION_SUMMARY_ACTIVITIES = [
     upload_video_to_gemini_activity,
     analyze_video_segment_activity,
     embed_and_store_segments_activity,
+    emit_session_problem_signals_activity,
     store_video_session_summary_activity,
+    tag_and_highlight_session_activity,
     cleanup_gemini_file_activity,
     consolidate_video_segments_activity,
     capture_timing_activity,

@@ -4,16 +4,12 @@ from __future__ import annotations
 
 import tempfile
 from pathlib import Path
+from typing import Any
 
 import pytest
 
-from hogli.devenv.generator import (
-    DevenvConfig,
-    MprocsGenerator,
-    get_effective_docker_profiles,
-    load_devenv_config,
-    should_skip_native_process,
-)
+import yaml
+from hogli.devenv.generator import DevenvConfig, MprocsGenerator, load_devenv_config
 from hogli.devenv.registry import ProcessRegistry, create_mprocs_registry
 from hogli.devenv.resolver import Capability, Intent, IntentMap, IntentResolver, load_intent_map
 from parameterized import parameterized
@@ -25,7 +21,9 @@ class MockRegistry(ProcessRegistry):
     def __init__(self, capability_units: dict[str, list[str]], ask_skip: list[str] | None = None):
         self._capability_units = capability_units
         self._ask_skip = ask_skip or []
-        self._processes = {
+        # dict[str, Any] since proc configs are heterogeneous
+        # (shell: str, capability: str, autostart: bool, ...)
+        self._processes: dict[str, dict[str, Any]] = {
             unit: {"shell": f"./bin/start-{unit}", "capability": cap}
             for cap, units in capability_units.items()
             for unit in units
@@ -355,22 +353,6 @@ class TestDockerProfiles:
         result = resolver.resolve(["feature_flags"])
         assert "etcd" in result.docker_profiles
 
-    def test_codespace_effective_profiles_include_containerized_services(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Codespaces add compose profiles for services replaced by containers."""
-        monkeypatch.setenv("POSTHOG_DEVBOX", "1")
-
-        profiles = get_effective_docker_profiles(["temporal"], {"capture", "capture-ai", "feature-flags"})
-
-        assert profiles == ["capture", "capture_ai", "temporal"]
-
-    def test_non_codespace_effective_profiles_are_unchanged(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Non-codespace environments keep the resolved profile list unchanged."""
-        monkeypatch.delenv("POSTHOG_DEVBOX", raising=False)
-
-        profiles = get_effective_docker_profiles(["temporal"], {"capture", "capture-ai"})
-
-        assert profiles == ["temporal"]
-
 
 class TestIntentMapLoading:
     """Test intent map loading from YAML."""
@@ -581,101 +563,125 @@ class TestInfoProcess:
         assert "hogli dev:explain" in shell
 
 
-class TestCodespaceProcessHandling:
-    """Test codespace-specific process suppression and docker wiring."""
-
-    def test_should_skip_native_process_only_for_containerized_services(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Only services with codespace compose replacements are skipped."""
-        monkeypatch.setenv("POSTHOG_DEVBOX", "1")
-
-        assert should_skip_native_process("capture", {"capture"}) is True
-        assert should_skip_native_process("cymbal", {"cymbal"}) is False
-
-    def test_generator_skips_containerized_processes_but_keeps_native_only_ones(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """Codespaces omit replaced native processes from mprocs without dropping others."""
-        monkeypatch.setenv("POSTHOG_DEVBOX", "1")
-
-        intent_map = create_test_intent_map()
-        registry = create_test_registry()
-        resolver = IntentResolver(intent_map, registry)
-        resolved = resolver.resolve(["error_tracking"])
-
-        config = MprocsGenerator(registry).generate(resolved)
-
-        assert "capture" not in config.procs
-        assert "cymbal" in config.procs
-        assert "docker-compose" in config.procs
-
-        docker_shell = config.procs["docker-compose"]["shell"]
-        assert "docker-compose.codespace.yml" in docker_shell
-        assert "--profile capture" in docker_shell
-
-
 class TestMprocsGeneratorRegression:
     """Regression tests for generator behavior with the real intent map."""
 
-    def _generate_real_config(
-        self, intents: list[str], monkeypatch: pytest.MonkeyPatch, *, codespace: bool
-    ) -> tuple[set[str], dict[str, dict[str, object]]]:
-        if codespace:
-            monkeypatch.setenv("POSTHOG_DEVBOX", "1")
-        else:
-            monkeypatch.delenv("POSTHOG_DEVBOX", raising=False)
-
+    def test_product_analytics_keeps_native_core_services(self) -> None:
         intent_map = load_intent_map()
         registry = create_mprocs_registry()
         resolver = IntentResolver(intent_map, registry)
-        resolved = resolver.resolve(intents)
+        resolved = resolver.resolve(["product_analytics"])
         config = MprocsGenerator(registry).generate(resolved)
-        return resolved.units, config.procs
 
-    def test_non_codespace_product_analytics_keeps_native_core_services(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Default environments keep native core Rust services in mprocs."""
-        resolved_units, procs = self._generate_real_config(["product_analytics"], monkeypatch, codespace=False)
+        assert "capture" in resolved.units
+        assert "capture" in config.procs
+        assert "feature-flags" in config.procs
+        assert "property-defs-rs" in config.procs
+        assert "docker-compose" in config.procs
 
-        assert "capture" in resolved_units
-        assert "capture" in procs
-        assert "feature-flags" in procs
-        assert "property-defs-rs" in procs
-        assert "docker-compose" in procs
 
-        docker_shell = str(procs["docker-compose"]["shell"])
-        assert "docker-compose.codespace.yml" not in docker_shell
-        assert "--profile capture" not in docker_shell
+class TestMprocsGeneratorPreservesCapability:
+    """Generated procs retain `capability:` so phrocs can group by capability.
 
-    def test_codespace_product_analytics_moves_core_services_to_docker(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Codespaces suppress replaced native services and inject their compose wiring."""
-        resolved_units, procs = self._generate_real_config(["product_analytics"], monkeypatch, codespace=True)
+    phrocs copies ProcConfig.Capability into Groups["capability"] at load
+    time; the generator must therefore pass the field through.
+    """
 
-        assert "capture" in resolved_units
-        assert "capture" not in procs
-        assert "feature-flags" not in procs
-        assert "property-defs-rs" not in procs
-        assert "backend" in procs
-        assert "nodejs" in procs
+    def test_capability_preserved_in_generated_procs(self) -> None:
+        intent_map = create_test_intent_map()
+        registry = create_test_registry()
+        resolver = IntentResolver(intent_map, registry)
+        resolved = resolver.resolve(["session_replay"])
+        config = MprocsGenerator(registry).generate(resolved)
 
-        docker_shell = str(procs["docker-compose"]["shell"])
-        assert "docker-compose.codespace.yml" in docker_shell
-        assert "--profile capture" in docker_shell
+        # Spot-check procs from different capabilities
+        assert config.procs["capture"].get("capability") == "event_ingestion"
+        assert config.procs["capture-replay"].get("capability") == "replay_storage"
+        assert config.procs["docker-compose"].get("capability") == "core_infra"
 
-    def test_codespace_error_tracking_keeps_native_only_services(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Codespaces should not suppress services that lack compose replacements."""
-        _, procs = self._generate_real_config(["error_tracking"], monkeypatch, codespace=True)
+    def test_always_required_without_capability_gets_synthetic_bucket(self) -> None:
+        """Procs in always_required that don't declare a capability get "always_required"."""
+        intent_map = create_test_intent_map()  # always_required = [backend, frontend, docker-compose]
+        registry = create_test_registry()
+        # Register backend/frontend without a capability (they're the app itself)
+        registry._processes["backend"] = {"shell": "./bin/start-backend", "capability": ""}
+        registry._processes["frontend"] = {"shell": "./bin/start-frontend", "capability": ""}
+        resolver = IntentResolver(intent_map, registry)
+        resolved = resolver.resolve(["product_analytics"])
+        config = MprocsGenerator(registry).generate(resolved)
 
-        assert "cymbal" in procs
-        assert "embedding-worker" in procs
-        assert "capture" not in procs
+        assert config.procs["backend"].get("capability") == "always_required"
+        assert config.procs["frontend"].get("capability") == "always_required"
+        # docker-compose has a real capability; synthetic bucket must not overwrite it
+        assert config.procs["docker-compose"].get("capability") == "core_infra"
 
-    def test_codespace_session_replay_injects_replay_profile(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Codespaces add replay-capture via docker-compose profile instead of mprocs."""
-        _, procs = self._generate_real_config(["session_replay"], monkeypatch, codespace=True)
+    def test_manual_start_without_capability_gets_tools_bucket(self) -> None:
+        """Procs with autostart: false and no capability get "tools"."""
+        intent_map = create_test_intent_map()
+        registry = create_test_registry()
+        # Manual-start tool: no capability, autostart: false, not in always_required
+        registry._processes["storybook"] = {
+            "shell": "pnpm storybook",
+            "capability": "",
+            "autostart": False,
+        }
+        resolver = IntentResolver(intent_map, registry)
+        resolved = resolver.resolve(["product_analytics"])
+        config = MprocsGenerator(registry).generate(resolved)
 
-        assert "capture-replay" not in procs
-        docker_shell = str(procs["docker-compose"]["shell"])
-        assert "--profile capture_replay" in docker_shell
-        assert "--profile temporal" in docker_shell
+        assert "storybook" in config.procs
+        assert config.procs["storybook"].get("capability") == "tools"
+
+    def test_always_required_wins_over_manual_start(self) -> None:
+        """A proc that is both always_required and autostart: false (e.g. typegen)
+        goes to the "always_required" bucket, not "tools"."""
+        intent_map = create_test_intent_map()
+        intent_map.always_required = [*intent_map.always_required, "typegen"]
+        registry = create_test_registry()
+        registry._processes["typegen"] = {
+            "shell": "pnpm typegen:watch",
+            "capability": "",
+            "autostart": False,
+        }
+        resolver = IntentResolver(intent_map, registry)
+        resolved = resolver.resolve(["product_analytics"])
+        config = MprocsGenerator(registry).generate(resolved)
+
+        assert config.procs["typegen"].get("capability") == "always_required"
+
+    def test_capability_survives_yaml_round_trip(self, tmp_path: Path) -> None:
+        """End-to-end check: generator output -> YAML file -> parse.
+
+        phrocs' Go-side inference (inferGroupFromCapability) relies on the
+        `capability:` field being present on each emitted proc. This test
+        catches regressions where the generator, yaml.dump, or MprocsConfig
+        serialization silently drops the field somewhere in the pipeline.
+        The Go side has its own tests that the field, once present in YAML,
+        is copied into Groups["capability"].
+        """
+        # Use the real intent-map and registry so we exercise the live wiring,
+        # including the synthetic always_required/tools buckets.
+        intent_map = load_intent_map()
+        registry = create_mprocs_registry()
+        resolver = IntentResolver(intent_map, registry)
+        resolved = resolver.resolve(["product_analytics"])
+        config = MprocsGenerator(registry).generate(resolved)
+
+        out = tmp_path / "mprocs.yaml"
+        MprocsGenerator(registry).save(config, out)
+
+        with open(out) as f:
+            data = yaml.safe_load(f)
+
+        # Every proc in the output (except info, which is pinned by YAML) must
+        # carry a non-empty capability so the capability dimension has content.
+        missing = [name for name, cfg in data["procs"].items() if name != "info" and not cfg.get("capability")]
+        assert not missing, f"procs missing capability in serialized YAML: {missing}"
+
+        # Spot-check the three flavors: real, always_required, tools.
+        assert data["procs"]["capture"]["capability"] == "event_ingestion"
+        assert data["procs"]["backend"]["capability"] == "always_required"
+        assert data["procs"]["storybook"]["capability"] == "tools"
 
 
 class TestPersonhogEnvInjection:

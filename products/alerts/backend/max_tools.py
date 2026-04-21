@@ -1,5 +1,5 @@
 from textwrap import dedent
-from typing import Any, Literal, Union
+from typing import Any, Literal, Union, cast
 
 from django.core.exceptions import ValidationError
 from django.db import transaction
@@ -430,7 +430,7 @@ class UpsertAlertTool(MaxTool):
             raise Insight.DoesNotExist(f"Insight or visualization '{effective_id}' not found.")
 
         if isinstance(result, ModelArtifactResult):
-            return result.model, False
+            return cast(Insight, result.model), False
 
         content = result.content
         coerced_query = QuerySchemaRoot.model_validate(content.query.model_dump(mode="json")).root

@@ -149,8 +149,6 @@ export function getExperimentStatusLabel(status: ExperimentStatus, isPaused: boo
         case ExperimentStatus.Stopped:
             return 'Complete'
     }
-
-    return 'Draft'
 }
 
 export function getExperimentStatusColor(status: ExperimentStatus, isPaused: boolean = false): LemonTagType {
@@ -166,8 +164,6 @@ export function getExperimentStatusColor(status: ExperimentStatus, isPaused: boo
         case ExperimentStatus.Stopped:
             return 'completion'
     }
-
-    return 'default'
 }
 
 function normalizeExperimentFilterStatus(status: string | undefined): ExperimentStatus | 'all' {
@@ -328,6 +324,39 @@ export const experimentsLogic = kea<experimentsLogicType>([
                         results: [duplicatedExperiment, ...values.experiments.results],
                         count: values.experiments.count + 1,
                     }
+                },
+                copyExperimentToProject: async (payload: {
+                    id: number
+                    targetProjectId: number
+                    targetTeamId: number
+                    featureFlagKey?: string
+                    name?: string
+                    onSuccess?: () => void
+                }) => {
+                    const data: Record<string, any> = { target_team_id: payload.targetTeamId }
+                    if (payload.featureFlagKey) {
+                        data.feature_flag_key = payload.featureFlagKey
+                    }
+                    if (payload.name) {
+                        data.name = payload.name
+                    }
+                    const newExperiment = await api.create(
+                        `api/projects/${values.currentProjectId}/experiments/${payload.id}/copy_to_project`,
+                        data
+                    )
+                    lemonToast.success('Experiment copied to project', {
+                        button: {
+                            label: 'Go to experiment',
+                            action: () => {
+                                window.location.href = urls.project(
+                                    payload.targetProjectId,
+                                    urls.experiment(newExperiment.id)
+                                )
+                            },
+                        },
+                    })
+                    payload.onSuccess?.()
+                    return values.experiments
                 },
                 addToExperiments: (experiment: Experiment) => {
                     return {

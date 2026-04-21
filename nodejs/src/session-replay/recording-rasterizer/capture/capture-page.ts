@@ -2,7 +2,7 @@ import * as fs from 'fs/promises'
 import { CDPSession, Page } from 'puppeteer'
 
 import { config as defaultConfig } from '../config'
-import { type Logger } from '../logger'
+import { type Logger, createLogger } from '../logger'
 
 export const playerHtmlCache = {
     _html: null as string | null,
@@ -77,13 +77,47 @@ export class CapturePage {
     }
 
     /**
+     * Wrap timer and rAF APIs so that individual callback errors are
+     * caught instead of crashing the entire capture. Must be called
+     * AFTER recorder.start() — puppeteer-capture installs virtual-time
+     * overrides on rAF/setTimeout/setInterval during start(), and this
+     * wraps those overrides with try/catch.
+     */
+    async installCallbackErrorGuards(): Promise<void> {
+        await this.page.evaluate(() => {
+            function wrapTimerApi(name: string): void {
+                const original = (window as any)[name]
+                ;(window as any)[name] = (callback: any, ...rest: any[]) => {
+                    if (typeof callback !== 'function') {
+                        return original(callback, ...rest)
+                    }
+                    return original(
+                        (...args: any[]) => {
+                            try {
+                                return callback(...args)
+                            } catch (e) {
+                                console.error(`[rasterizer] ${name} callback error (swallowed):`, e)
+                            }
+                        },
+                        ...rest
+                    )
+                }
+            }
+            wrapTimerApi('requestAnimationFrame')
+            wrapTimerApi('setTimeout')
+            wrapTimerApi('setInterval')
+        })
+    }
+
+    /**
      * Wrap CDP session to override screenshot format and gate beginFrame
      * on pending stylesheet requests. Must be called before captureVideo().
      */
     installCDPGuards(
         screenshotFormat: 'jpeg' | 'png',
         screenshotQuality: number | undefined,
-        waitForRequestsSettled: () => Promise<void>
+        waitForRequestsSettled: () => Promise<void>,
+        log: Logger = createLogger()
     ): void {
         const page = this.page
         const originalCreateCDPSession = page.createCDPSession.bind(page)
@@ -102,7 +136,30 @@ export class CapturePage {
 
                     await waitForRequestsSettled()
 
-                    return originalSend(method as any, params)
+                    let timedOut = false
+                    let timeoutHandle: ReturnType<typeof setTimeout>
+                    const timeout = new Promise<never>((_, reject) => {
+                        timeoutHandle = setTimeout(() => {
+                            timedOut = true
+                            reject(new Error('beginFrame timeout (15s)'))
+                        }, 15_000)
+                    })
+                    try {
+                        const result = await Promise.race([originalSend(method as any, params), timeout])
+                        clearTimeout(timeoutHandle!)
+                        return result
+                    } catch (err) {
+                        if (timedOut) {
+                            log.error({ params }, 'beginFrame timed out, detaching CDP session')
+                            try {
+                                await session.detach()
+                            } catch {
+                                // session may already be disconnected
+                            }
+                            throw new Error('beginFrame timeout (15s) — compositor deadlock')
+                        }
+                        throw err
+                    }
                 }
                 return originalSend(method as any, ...args)
             }

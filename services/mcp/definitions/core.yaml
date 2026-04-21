@@ -410,72 +410,6 @@ tools:
     insights-sharing-refresh-create:
         operation: insights_sharing_refresh_create
         enabled: false
-    integrations-list-2:
-        operation: integrations_list_2
-        enabled: false
-    integrations-create:
-        operation: integrations_create
-        enabled: false
-    integrations-retrieve-2:
-        operation: integrations_retrieve_2
-        enabled: false
-    integrations-destroy:
-        operation: integrations_destroy
-        enabled: false
-    integrations-channels-retrieve:
-        operation: integrations_channels_retrieve
-        enabled: false
-    integrations-clickup-lists-retrieve:
-        operation: integrations_clickup_lists_retrieve
-        enabled: false
-    integrations-clickup-spaces-retrieve:
-        operation: integrations_clickup_spaces_retrieve
-        enabled: false
-    integrations-clickup-workspaces-retrieve:
-        operation: integrations_clickup_workspaces_retrieve
-        enabled: false
-    integrations-email-partial-update:
-        operation: integrations_email_partial_update
-        enabled: false
-    integrations-email-verify-create:
-        operation: integrations_email_verify_create
-        enabled: false
-    integrations-github-branches-retrieve:
-        operation: integrations_github_branches_retrieve
-        enabled: false
-    integrations-github-repos-retrieve:
-        operation: integrations_github_repos_retrieve
-        enabled: false
-    integrations-google-accessible-accounts-retrieve:
-        operation: integrations_google_accessible_accounts_retrieve
-        enabled: false
-    integrations-google-conversion-actions-retrieve:
-        operation: integrations_google_conversion_actions_retrieve
-        enabled: false
-    integrations-jira-projects-retrieve:
-        operation: integrations_jira_projects_retrieve
-        enabled: false
-    integrations-linear-teams-retrieve:
-        operation: integrations_linear_teams_retrieve
-        enabled: false
-    integrations-linkedin-ads-accounts-retrieve:
-        operation: integrations_linkedin_ads_accounts_retrieve
-        enabled: false
-    integrations-linkedin-ads-conversion-rules-retrieve:
-        operation: integrations_linkedin_ads_conversion_rules_retrieve
-        enabled: false
-    integrations-twilio-phone-numbers-retrieve:
-        operation: integrations_twilio_phone_numbers_retrieve
-        enabled: false
-    integrations-authorize-retrieve:
-        operation: integrations_authorize_retrieve
-        enabled: false
-    integrations-domain-connect-apply-url-create:
-        operation: integrations_domain_connect_apply_url_create
-        enabled: false
-    integrations-domain-connect-check-retrieve:
-        operation: integrations_domain_connect_check_retrieve
-        enabled: false
     property-definitions-list:
         operation: property_definitions_list
         enabled: false
@@ -508,19 +442,82 @@ tools:
         enabled: false
     subscriptions-list:
         operation: subscriptions_list
-        enabled: false
+        enabled: true
+        scopes:
+            - subscription:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: List subscriptions
+        description: >
+            List subscriptions for the project. Returns scheduled email, Slack, or webhook
+            deliveries of insight or dashboard snapshots. Each subscription includes its
+            schedule (frequency, interval, byweekday), next_delivery_date, and a
+            human-readable summary.
     subscriptions-create:
         operation: subscriptions_create
-        enabled: false
+        enabled: true
+        scopes:
+            - subscription:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Create subscription
+        description: >
+            Create a new subscription to receive scheduled deliveries of an insight or dashboard.
+            Requires either an insight ID or dashboard ID. Set target_type to email, slack, or
+            webhook and target_value to the recipient(s). For email: comma-separated addresses.
+            For slack: requires an integration_id for a connected Slack workspace plus a channel
+            name in target_value. For webhook: a URL. Set frequency (daily, weekly, monthly, yearly)
+            and optionally interval, byweekday, start_date, and until_date. Dashboard subscriptions
+            also require dashboard_export_insights (list of insight IDs from that dashboard, max 6).
+        exclude_params:
+            - created_by
+            - next_delivery_date
+            - summary
+            - insight_short_id
+            - resource_name
     subscriptions-retrieve:
         operation: subscriptions_retrieve
-        enabled: false
+        enabled: true
+        scopes:
+            - subscription:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get subscription
+        description: >
+            Get a specific subscription by ID. Returns the full subscription configuration
+            including target type and value, schedule details, next delivery date, and
+            associated insight or dashboard.
     subscriptions-update:
         operation: subscriptions_update
         enabled: false
     subscriptions-partial-update:
         operation: subscriptions_partial_update
-        enabled: false
+        enabled: true
+        scopes:
+            - subscription:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Update subscription
+        description: >
+            Update an existing subscription by ID. Can change target_type, target_value, frequency,
+            interval, byweekday, start_date, until_date, title, or deleted status. Set deleted to
+            true to deactivate a subscription (subscriptions are soft-deleted). Changing target_value
+            triggers notifications to new recipients.
+        exclude_params:
+            - created_by
+            - next_delivery_date
+            - summary
+            - insight_short_id
+            - resource_name
     subscriptions-destroy:
         operation: subscriptions_destroy
         enabled: false
@@ -602,6 +599,83 @@ tools:
     project-secret-api-keys-roll-create:
         operation: project_secret_api_keys_roll_create
         enabled: false
-    dashboards-generate-metadata-create:
-        operation: dashboards_generate_metadata_create
+    dashboards-bulk-update-tags-create:
+        operation: dashboards_bulk_update_tags_create
         enabled: false
+    event-definitions-bulk-update-tags-create:
+        operation: event_definitions_bulk_update_tags_create
+        enabled: false
+    property-definitions-bulk-update-tags-create:
+        operation: property_definitions_bulk_update_tags_create
+        enabled: false
+    subscriptions-test-delivery-create:
+        operation: subscriptions_test_delivery_create
+        enabled: true
+        scopes:
+            - subscription:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: false
+        title: Send test delivery
+        description: >
+            Trigger an immediate test delivery of a subscription to its configured target(s)
+            (email, Slack, or webhook). Runs the same pipeline as a scheduled delivery but
+            with trigger_type=manual, producing a real delivery record you can inspect via
+            subscriptions-deliveries-list / subscriptions-deliveries-retrieve. Returns 202
+            Accepted once the delivery workflow is queued; poll subscriptions-deliveries-list
+            (newest first) or subscriptions-deliveries-retrieve for the outcome. Returns 409
+            if a test delivery for the same subscription is already in flight.
+    users-github-login-retrieve:
+        operation: users_github_login_retrieve
+        enabled: false
+    dashboards-run-insights-retrieve:
+        operation: dashboards_run_insights_retrieve
+        enabled: false
+    subscriptions-deliveries-list:
+        operation: subscriptions_deliveries_list
+        enabled: true
+        scopes:
+            - subscription:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: List subscription deliveries
+        description: >
+            List delivery history for a subscription — one row per send attempt. Each entry
+            includes status (starting, completed, failed, skipped), trigger_type (scheduled,
+            manual, target_change), and timestamps (created_at, finished_at). Filter with
+            status=failed to quickly surface failed deliveries. Results are cursor-paginated
+            newest first. content_snapshot, recipient_results, and error are excluded to
+            match what the web UI exposes and to avoid leaking recipient identifiers or
+            upstream response bodies that may contain tokens / PII.
+        response:
+            exclude:
+                - content_snapshot
+                - recipient_results
+                - error
+    subscriptions-deliveries-retrieve:
+        operation: subscriptions_deliveries_retrieve
+        enabled: true
+        scopes:
+            - subscription:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get subscription delivery
+        description: >
+            Fetch a single subscription delivery attempt by id. Returns status,
+            trigger_type, target_type, target_value, timestamps, workflow/idempotency
+            metadata, and exported_asset_ids. content_snapshot (the frozen dashboard/insight
+            state at send time) is not returned — use the insight/dashboard tools for
+            current state. recipient_results and error are also excluded to match what the
+            web UI exposes and to avoid leaking recipient identifiers or upstream response
+            bodies that may contain tokens / PII.
+        response:
+            exclude:
+                - content_snapshot
+                - recipient_results
+                - error

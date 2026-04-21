@@ -4,7 +4,14 @@ from typing import Optional
 
 from django.utils.timezone import now
 
-from posthog.schema import CachedSessionsQueryResponse, DashboardFilter, SessionsQuery, SessionsQueryResponse
+from posthog.schema import (
+    CachedSessionsQueryResponse,
+    DashboardFilter,
+    EventPropertyFilter,
+    PropertyOperator,
+    SessionsQuery,
+    SessionsQueryResponse,
+)
 
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr, parse_order_expr
@@ -16,6 +23,7 @@ from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.models import Action, Person
 from posthog.models.person.person import get_distinct_ids_for_subquery
 from posthog.models.person.util import get_person_by_pk_or_uuid
+from posthog.models.property import Property
 from posthog.utils import relative_date_parse
 
 COLUMN_COMMENT_SEPARATOR = " -- "
@@ -36,6 +44,26 @@ SUPPORTED_PERSON_PROPERTY_OPERATORS = frozenset(
         "lte",
     }
 )
+
+
+def _extract_session_id_values(prop) -> Optional[list[str]]:
+    # Returns a list of session IDs extracted from a `$session_id` exact-match
+    # EventPropertyFilter, or None if the prop is not such a filter and should
+    # continue to flow through the events subquery. An empty list is returned
+    # verbatim so callers can emit a zero-result constraint — matching the
+    # semantic intent of `$session_id IN ()`.
+    if not isinstance(prop, EventPropertyFilter):
+        return None
+    if prop.key != "$session_id":
+        return None
+    if prop.operator not in (None, PropertyOperator.EXACT):
+        return None
+    if prop.value is None:
+        return None
+    if isinstance(prop.value, list):
+        return [str(v) for v in prop.value]
+    return [str(prop.value)]
+
 
 # Allow-listed fields returned when you select "*" from sessions
 SELECT_STAR_FROM_SESSIONS_FIELDS = [
@@ -122,7 +150,15 @@ class SessionsQueryRunner(AnalyticsQueryRunner[SessionsQueryResponse]):
             for prop in self.query.properties:
                 if hasattr(prop, "type") and prop.type == "person":
                     return True
+        if self.query.filterTestAccounts:
+            for prop in self._get_test_account_filters():
+                prop_type = prop.get("type") if isinstance(prop, dict) else getattr(prop, "type", None)
+                if prop_type == "person":
+                    return True
         return False
+
+    def _get_test_account_filters(self) -> list:
+        return self.team.test_account_filters or []
 
     def _transform_person_property_col(self, col: str) -> str:
         """Transform person.properties.X to use __person_lookup alias."""
@@ -308,77 +344,144 @@ class SessionsQueryRunner(AnalyticsQueryRunner[SessionsQueryResponse]):
                                 op=ast.CompareOperationOp.In,
                             )
                         )
+                # Collect test account filters that need the events subquery
+                test_account_event_filters: list = []
                 if self.query.filterTestAccounts:
                     with self.timings.measure("test_account_filters"):
-                        for prop in self.team.test_account_filters or []:
-                            where_exprs.append(property_to_expr(prop, self.team))
+                        for prop in self._get_test_account_filters():
+                            prop_type = prop.get("type") if isinstance(prop, dict) else getattr(prop, "type", None)
+                            if prop_type == "session":
+                                where_exprs.append(property_to_expr(prop, self.team, scope="session"))
+                            elif prop_type == "person":
+                                try:
+                                    parsed = Property(**prop) if isinstance(prop, dict) else prop
+                                    where_exprs.append(self._person_property_to_expr(parsed))
+                                except (ValueError, TypeError):
+                                    continue
+                            elif prop_type in ("cohort", "static-cohort", "precalculated-cohort"):
+                                # Cohort filters reference person_id which doesn't exist on sessions;
+                                # route through the events subquery instead.
+                                test_account_event_filters.append(prop)
+                            elif prop_type == "event":
+                                # Event property filters reference the events properties column;
+                                # route through the events subquery.
+                                test_account_event_filters.append(prop)
+                            else:
+                                # Unknown types (hogql, etc.) — route through events subquery as a best-effort fallback
+                                test_account_event_filters.append(prop)
 
                 # Filter sessions by events
-                if self.query.event or self.query.actionId:
+                if self.query.event or self.query.actionId or self.query.eventProperties or test_account_event_filters:
                     with self.timings.measure("event_filter"):
-                        # Build the events subquery conditions
-                        event_where_exprs = []
-
-                        if self.query.event:
-                            event_where_exprs.append(
-                                parse_expr(
-                                    "event = {event}",
-                                    {"event": ast.Constant(value=self.query.event)},
-                                    timings=self.timings,
-                                )
-                            )
-                        elif self.query.actionId:
-                            try:
-                                action = Action.objects.get(
-                                    pk=self.query.actionId, team__project_id=self.team.project_id
-                                )
-                            except Action.DoesNotExist:
-                                raise Exception("Action does not exist")
-                            if not action.steps:
-                                raise Exception("Action does not have any match groups")
-                            event_where_exprs.append(action_to_expr(action))
-
-                        # Add event property filters if specified
+                        # Extract $session_id exact-match filters from eventProperties and apply
+                        # them directly on the sessions table, avoiding an unnecessary events
+                        # table round-trip.
+                        remaining_event_properties = []
+                        session_id_values: list[str] = []
+                        extracted_empty_session_id_filter = False
                         if self.query.eventProperties:
-                            event_where_exprs.extend(
-                                property_to_expr(property, self.team) for property in self.query.eventProperties
+                            for prop in self.query.eventProperties:
+                                extracted = _extract_session_id_values(prop)
+                                if extracted is None:
+                                    remaining_event_properties.append(prop)
+                                elif not extracted:
+                                    # `$session_id IN ()` must match zero sessions.
+                                    extracted_empty_session_id_filter = True
+                                else:
+                                    session_id_values.extend(extracted)
+
+                        if extracted_empty_session_id_filter:
+                            where_exprs.append(ast.Constant(value=False))
+                        elif session_id_values:
+                            where_exprs.append(
+                                ast.CompareOperation(
+                                    left=ast.Field(chain=["session_id"]),
+                                    right=ast.Tuple(exprs=[ast.Constant(value=v) for v in session_id_values]),
+                                    op=ast.CompareOperationOp.In,
+                                )
                             )
 
-                        # Add timestamp filter to events subquery based on session date range
-                        if self.query.after and self.query.after != "all":
-                            parsed_after = relative_date_parse(self.query.after, self.team.timezone_info)
+                        # Build the events subquery for remaining filters
+                        needs_events_subquery = bool(
+                            self.query.event
+                            or self.query.actionId
+                            or remaining_event_properties
+                            or test_account_event_filters
+                        )
+                        if needs_events_subquery:
+                            event_where_exprs = []
+
+                            if self.query.event:
+                                event_where_exprs.append(
+                                    parse_expr(
+                                        "event = {event}",
+                                        {"event": ast.Constant(value=self.query.event)},
+                                        timings=self.timings,
+                                    )
+                                )
+                            elif self.query.actionId:
+                                try:
+                                    action = Action.objects.get(
+                                        pk=self.query.actionId, team__project_id=self.team.project_id
+                                    )
+                                except Action.DoesNotExist:
+                                    raise Exception("Action does not exist")
+                                if not action.steps:
+                                    raise Exception("Action does not have any match groups")
+                                event_where_exprs.append(action_to_expr(action))
+
+                            if remaining_event_properties:
+                                event_where_exprs.extend(
+                                    property_to_expr(property, self.team) for property in remaining_event_properties
+                                )
+
+                            if test_account_event_filters:
+                                event_where_exprs.extend(
+                                    property_to_expr(prop, self.team) for prop in test_account_event_filters
+                                )
+
+                            # Add timestamp filter to events subquery based on session date range.
+                            # Use the same effective lower bound as sessions (default -1h when
+                            # neither after nor before is set) to avoid scanning the full events
+                            # history when only filterTestAccounts triggers this subquery.
+                            effective_after = self.query.after
+                            if not effective_after and not self.query.before:
+                                effective_after = "-1h"
+                            effective_after = effective_after or "all"
+                            if effective_after != "all":
+                                parsed_after = relative_date_parse(effective_after, self.team.timezone_info)
+                                event_where_exprs.append(
+                                    parse_expr(
+                                        "timestamp > {timestamp}",
+                                        {"timestamp": ast.Constant(value=parsed_after)},
+                                        timings=self.timings,
+                                    )
+                                )
+                            before = self.query.before or (now() + timedelta(seconds=5)).isoformat()
+                            parsed_before = relative_date_parse(before, self.team.timezone_info)
                             event_where_exprs.append(
                                 parse_expr(
-                                    "timestamp > {timestamp}",
-                                    {"timestamp": ast.Constant(value=parsed_after)},
+                                    "timestamp < {timestamp}",
+                                    {"timestamp": ast.Constant(value=parsed_before)},
                                     timings=self.timings,
                                 )
                             )
-                        before = self.query.before or (now() + timedelta(seconds=5)).isoformat()
-                        parsed_before = relative_date_parse(before, self.team.timezone_info)
-                        event_where_exprs.append(
-                            parse_expr(
-                                "timestamp < {timestamp}",
-                                {"timestamp": ast.Constant(value=parsed_before)},
-                                timings=self.timings,
-                            )
-                        )
 
-                        # Build subquery: session_id IN (SELECT DISTINCT $session_id FROM events WHERE ...)
-                        events_subquery = ast.SelectQuery(
-                            select=[ast.Field(chain=["$session_id"])],
-                            select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
-                            where=ast.And(exprs=event_where_exprs) if len(event_where_exprs) > 0 else None,
-                            distinct=True,
-                        )
-
-                        where_exprs.append(
-                            ast.CompareOperation(
-                                left=ast.Field(chain=["session_id"]),
-                                right=events_subquery,
-                                op=ast.CompareOperationOp.In,
+                            # Build subquery: session_id IN (SELECT DISTINCT $session_id FROM events WHERE ...)
+                            events_subquery = ast.SelectQuery(
+                                select=[ast.Field(chain=["$session_id"])],
+                                select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+                                where=ast.And(exprs=event_where_exprs) if len(event_where_exprs) > 0 else None,
+                                distinct=True,
                             )
-                        )
+
+                            where_exprs.append(
+                                ast.CompareOperation(
+                                    left=ast.Field(chain=["session_id"]),
+                                    right=events_subquery,
+                                    op=ast.CompareOperationOp.In,
+                                )
+                            )
 
             with self.timings.measure("timestamps"):
                 # prevent accidentally future sessions from being visible by default
@@ -392,8 +495,14 @@ class SessionsQueryRunner(AnalyticsQueryRunner[SessionsQueryResponse]):
                     )
                 )
 
-                # limit to the last 24h by default
-                after = self.query.after or "-24h"
+                # Default to 1h when no date bounds are provided — unbounded windows on
+                # raw_sessions can OOM for high-volume teams. Only apply the default
+                # when neither bound is set to avoid creating an empty range when a
+                # caller provides only `before`.
+                after = self.query.after
+                if not after and not self.query.before:
+                    after = "-1h"
+                after = after or "all"
                 if after != "all":
                     parsed_date = relative_date_parse(after, self.team.timezone_info)
                     where_exprs.append(

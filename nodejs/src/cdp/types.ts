@@ -116,7 +116,7 @@ export type HogFunctionInvocationGlobals = {
  * These variables can be used to store loop state or pass data between actions
  *
  * Action's can read and write to these variables. Any value stored in the variables
- * map must be JSON serializable, and limited to 1KB in size.
+ * map must be JSON serializable, and limited to 5KB in size.
  *
  * After execution, every action will have a corresponding entry in the map with
  * the key `$action/{actionId}` containing the result of the action.
@@ -338,6 +338,7 @@ export type HogFunctionInputSchemaType = {
         | 'native_email'
         | 'posthog_assignee'
         | 'posthog_ticket_tags'
+        | 'posthog_business_hours'
         | 'push_subscription'
     key: string
     label?: string

@@ -92,7 +92,7 @@ export interface LemonTableProps<T extends Record<string, any>> {
      * Whether the table content is allowed to scroll inside its container.
      */
     allowContentScroll?: boolean
-    /** Row actions to display in a "More" menu at the end of each row. Return null to hide actions for specific rows. */
+    /** Row actions to display at the end of each row. Return null to hide actions for specific rows. */
     rowActions?: (record: T, recordIndex: number) => React.ReactNode | null
     /** Whether to hide the sorting indicator when no sort is active. Defaults to false. */
     hideSortingIndicatorWhenInactive?: boolean
@@ -272,7 +272,7 @@ export function LemonTable<T extends Record<string, any>>({
                 rowRibbonColor !== undefined && `LemonTable--with-ribbon`,
                 stealth && 'LemonTable--stealth',
                 !uppercaseHeader && 'LemonTable--lowercase-header',
-                allowContentScroll && 'h-full overflow-hidden',
+                allowContentScroll && 'h-full min-h-0 overflow-hidden',
                 className
             )}
             // eslint-disable-next-line react/forbid-dom-props

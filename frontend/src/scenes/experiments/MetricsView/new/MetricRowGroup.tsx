@@ -727,14 +727,19 @@ export function MetricRowGroup({
                 createPortal(
                     <div
                         ref={tooltipRef}
-                        className="fixed bg-bg-light border border-border px-3 py-2 rounded-md text-[13px] shadow-md z-[100] min-w-[280px]"
+                        className={`fixed bg-bg-light border border-border px-3 py-2 rounded-md text-[13px] shadow-md z-[100] min-w-[280px] ${timeseriesEnabled ? 'cursor-pointer hover:border-primary' : ''}`}
                         style={{
                             left: tooltipState.position.x,
                             top: tooltipState.position.y,
                             visibility: tooltipState.isPositioned ? 'visible' : 'hidden',
                         }}
+                        onClick={
+                            timeseriesEnabled && tooltipState.variantResult
+                                ? () => handleTimeseriesClick(tooltipState.variantResult!)
+                                : undefined
+                        }
                     >
-                        {renderTooltipContent(tooltipState.variantResult, metric)}
+                        {renderTooltipContent(tooltipState.variantResult, metric, timeseriesEnabled)}
                     </div>,
                     document.body
                 )}

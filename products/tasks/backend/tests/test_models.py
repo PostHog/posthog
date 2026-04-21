@@ -118,6 +118,40 @@ class TestTask(TestCase):
         mock_execute_workflow.assert_not_called()
 
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_create_and_run_public_repo_without_integration(self, mock_execute_workflow):
+        user = User.objects.create(email="test@test.com")
+
+        task = Task.create_and_run(
+            team=self.team,
+            title="Test Task",
+            description="Test Description",
+            origin_product=Task.OriginProduct.USER_CREATED,
+            user_id=user.id,
+            repository="posthog/hedgebox",
+        )
+
+        self.assertEqual(task.repository, "posthog/hedgebox")
+        self.assertIsNone(task.github_integration)
+        mock_execute_workflow.assert_called_once()
+
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_create_and_run_non_public_repo_without_integration_raises(self, mock_execute_workflow):
+        user = User.objects.create(email="test@test.com")
+
+        with self.assertRaises(ValueError) as cm:
+            Task.create_and_run(
+                team=self.team,
+                title="Test Task",
+                description="Test Description",
+                origin_product=Task.OriginProduct.USER_CREATED,
+                user_id=user.id,
+                repository="posthog/posthog",
+            )
+
+        self.assertIn("does not have a GitHub integration", str(cm.exception))
+        mock_execute_workflow.assert_not_called()
+
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     def test_create_and_run_with_github_integration(self, mock_execute_workflow):
         user = User.objects.create(email="test@test.com")
         integration = Integration.objects.create(team=self.team, kind="github", config={})
@@ -205,6 +239,40 @@ class TestTask(TestCase):
 
         task.refresh_from_db()
         self.assertIsNotNone(task.id)
+
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_create_and_run_internal_defaults_to_false(self, mock_execute_workflow):
+        user = User.objects.create(email="internal_default@test.com")
+        Integration.objects.create(team=self.team, kind="github", config={})
+
+        task = Task.create_and_run(
+            team=self.team,
+            title="Non-internal Task",
+            description="Description",
+            origin_product=Task.OriginProduct.USER_CREATED,
+            user_id=user.id,
+            repository="posthog/posthog",
+        )
+
+        self.assertFalse(task.internal)
+
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_create_and_run_with_internal_true(self, mock_execute_workflow):
+        user = User.objects.create(email="internal_true@test.com")
+        Integration.objects.create(team=self.team, kind="github", config={})
+
+        task = Task.create_and_run(
+            team=self.team,
+            title="Internal Task",
+            description="Description",
+            origin_product=Task.OriginProduct.USER_CREATED,
+            user_id=user.id,
+            repository="posthog/posthog",
+            internal=True,
+        )
+
+        task.refresh_from_db()
+        self.assertTrue(task.internal)
 
 
 class TestTaskSlug(TestCase):
@@ -337,6 +405,17 @@ class TestTaskRun(TestCase):
             status=TaskRun.Status.IN_PROGRESS,
         )
         self.assertEqual(str(run), "Run for Test Task - In Progress")
+
+    @patch("products.tasks.backend.models.publish_task_run_stream_event")
+    def test_create_run_seeds_stream_state_event(self, mock_publish_stream_event):
+        run = self.task.create_run(branch="main")
+
+        mock_publish_stream_event.assert_called_once()
+        call_args = mock_publish_stream_event.call_args
+        self.assertEqual(call_args.args[0], str(run.id))
+        self.assertEqual(call_args.args[1]["type"], "task_run_state")
+        self.assertEqual(call_args.args[1]["status"], TaskRun.Status.QUEUED)
+        self.assertEqual(call_args.args[1]["branch"], "main")
 
     def test_append_log_to_empty(self):
         run = TaskRun.objects.create(
@@ -533,6 +612,20 @@ class TestTaskRun(TestCase):
         self.assertEqual(entry["notification"]["params"]["level"], "info")
         self.assertEqual(entry["notification"]["params"]["message"], "Test message")
 
+    @patch("products.tasks.backend.models.publish_task_run_stream_event")
+    def test_emit_console_event_publishes_to_stream(self, mock_publish_stream_event):
+        run = TaskRun.objects.create(
+            task=self.task,
+            team=self.team,
+        )
+
+        run.emit_console_event("info", "Test message")
+
+        mock_publish_stream_event.assert_called_once()
+        call_args = mock_publish_stream_event.call_args
+        self.assertEqual(call_args.args[0], str(run.id))
+        self.assertEqual(call_args.args[1]["notification"]["method"], "_posthog/console")
+
     @parameterized.expand(
         [
             (0, "stdout output", "stderr output"),
@@ -560,6 +653,20 @@ class TestTaskRun(TestCase):
         self.assertEqual(entry["notification"]["params"]["stdout"], stdout)
         self.assertEqual(entry["notification"]["params"]["stderr"], stderr)
         self.assertEqual(entry["notification"]["params"]["exitCode"], exit_code)
+
+    @patch("products.tasks.backend.models.publish_task_run_stream_event")
+    def test_emit_sandbox_output_publishes_to_stream(self, mock_publish_stream_event):
+        run = TaskRun.objects.create(
+            task=self.task,
+            team=self.team,
+        )
+
+        run.emit_sandbox_output("stdout output", "stderr output", 0)
+
+        mock_publish_stream_event.assert_called_once()
+        call_args = mock_publish_stream_event.call_args
+        self.assertEqual(call_args.args[0], str(run.id))
+        self.assertEqual(call_args.args[1]["notification"]["method"], "_posthog/sandbox_output")
 
     @parameterized.expand(
         [

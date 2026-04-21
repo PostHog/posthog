@@ -5,13 +5,6 @@ from posthog.models.utils import UUIDTModel
 
 from .provider_keys import LLMProvider
 
-# Cost-controlled models for PostHog default keys
-POSTHOG_ALLOWED_MODELS: dict[str, list[str]] = {
-    "openai": ["gpt-5-mini"],
-    "anthropic": ["claude-haiku-4-5"],
-    "gemini": ["gemini-2.0-flash-lite"],
-}
-
 
 class LLMModelConfiguration(UUIDTModel):
     """Configuration for LLM model selection, used by evals and other features."""
@@ -51,13 +44,17 @@ class LLMModelConfiguration(UUIDTModel):
             )
 
     def get_available_models(self) -> list[str]:
-        """Get available models - delegates to API if key present, otherwise returns PostHog allowed list."""
+        """Get available models — delegates to the provider API if a BYOK key is
+        present, otherwise returns the trial model list (PostHog pays)."""
         if self.provider_key:
             from products.llm_analytics.backend.llm.client import Client
 
             api_key = self.provider_key.encrypted_config.get("api_key")
             return Client.list_models(self.provider, api_key)
-        return POSTHOG_ALLOWED_MODELS.get(self.provider, [])
+
+        from products.llm_analytics.backend.llm import TRIAL_MODELS_BY_PROVIDER
+
+        return TRIAL_MODELS_BY_PROVIDER.get(self.provider, [])
 
     def save(self, *args, **kwargs) -> None:
         self.full_clean()

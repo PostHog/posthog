@@ -204,6 +204,14 @@ export const OAuthAuthorize = (): JSX.Element => {
                                 alt={`${oauthApplication.name} logo`}
                                 className="w-full h-full object-contain"
                                 referrerPolicy="no-referrer"
+                                onError={(e) => {
+                                    // Hide the image container if the logo fails to load
+                                    // (e.g. Cross-Origin-Resource-Policy: same-origin)
+                                    const container = (e.target as HTMLImageElement).parentElement
+                                    if (container) {
+                                        container.style.display = 'none'
+                                    }
+                                }}
                             />
                         </div>
                     )}

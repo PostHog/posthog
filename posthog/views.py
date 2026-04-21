@@ -57,6 +57,7 @@ from products.messaging.backend.models.message_preferences import (
     MessageRecipientPreference,
     PreferenceStatus,
 )
+from products.messaging.backend.services.customerio_sync_service import sync_preferences_to_customerio
 
 logger = structlog.get_logger(__name__)
 
@@ -68,7 +69,7 @@ def noop(*args, **kwargs) -> None:
 try:
     from ee.models.license import get_licensed_users_available
 except ImportError:
-    get_licensed_users_available = noop
+    get_licensed_users_available = noop  # ty: ignore[invalid-assignment]
 
 
 def login_required(view):
@@ -509,6 +510,8 @@ def preferences_page(request: HttpRequest, token: str) -> HttpResponse:
         recipient.preferences = preferences_dict
         recipient.save(update_fields=["preferences"])
 
+        sync_preferences_to_customerio(team_id, identifier, preferences_dict)
+
         if request.method == "POST":
             return HttpResponse(status=200)
 
@@ -601,6 +604,8 @@ def update_preferences(request: HttpRequest) -> JsonResponse:
         # Update all preferences with a single DB write
         recipient.preferences = preferences_dict
         recipient.save()
+
+        sync_preferences_to_customerio(team_id, identifier, preferences_dict)
 
         return JsonResponse({"success": True})
 

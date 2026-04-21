@@ -55,7 +55,7 @@
                             WHERE team_id = 99999
                               AND event IN ['paid', 'user signed up', 'user signed up', 'paid']
                               AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
-                              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC') )
+                              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC'))
                        GROUP BY distinct_id
                        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                     WHERE team_id = 99999
@@ -63,8 +63,8 @@
                       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
                       AND (step_0 = 1
-                           OR step_1 = 1) ))
-              WHERE step_0 = 1 ))
+                           OR step_1 = 1)))
+              WHERE step_0 = 1))
         GROUP BY aggregation_target,
                  steps
         HAVING steps = max(max_steps))
@@ -156,7 +156,7 @@
                             WHERE team_id = 99999
                               AND event IN ['paid', 'user signed up']
                               AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
-                              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC') )
+                              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC'))
                        GROUP BY distinct_id
                        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                     WHERE team_id = 99999
@@ -164,8 +164,8 @@
                       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
                       AND (step_0 = 1
-                           OR step_1 = 1) ))
-              WHERE step_0 = 1 ))
+                           OR step_1 = 1)))
+              WHERE step_0 = 1))
         GROUP BY aggregation_target,
                  steps
         HAVING steps = max(max_steps))
@@ -252,7 +252,7 @@
                             WHERE team_id = 99999
                               AND event IN ['paid', 'user signed up']
                               AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
-                              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC') )
+                              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC'))
                        GROUP BY distinct_id
                        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                     INNER JOIN
@@ -263,7 +263,7 @@
                            (SELECT id
                             FROM person
                             WHERE team_id = 99999
-                              AND (has(['Positive'], replaceRegexpAll(JSONExtractRaw(properties, '$browser'), '^"|"$', ''))) )
+                              AND (has(['Positive'], replaceRegexpAll(JSONExtractRaw(properties, '$browser'), '^"|"$', ''))))
                        GROUP BY id
                        HAVING max(is_deleted) = 0
                        AND (has(['Positive'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), '$browser'), '^"|"$', ''))) SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
@@ -272,8 +272,8 @@
                       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
                       AND (step_0 = 1
-                           OR step_1 = 1) ))
-              WHERE step_0 = 1 ))
+                           OR step_1 = 1)))
+              WHERE step_0 = 1))
         GROUP BY aggregation_target,
                  steps
         HAVING steps = max(max_steps))
@@ -344,7 +344,7 @@
                             WHERE team_id = 99999
                               AND event IN ['paid', 'user signed up']
                               AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
-                              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC') )
+                              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC'))
                        GROUP BY distinct_id
                        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                     INNER JOIN
@@ -355,7 +355,7 @@
                            (SELECT id
                             FROM person
                             WHERE team_id = 99999
-                              AND (has(['Positive'], replaceRegexpAll(JSONExtractRaw(properties, '$browser'), '^"|"$', ''))) )
+                              AND (has(['Positive'], replaceRegexpAll(JSONExtractRaw(properties, '$browser'), '^"|"$', ''))))
                        GROUP BY id
                        HAVING max(is_deleted) = 0
                        AND (has(['Positive'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), '$browser'), '^"|"$', ''))) SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
@@ -364,8 +364,8 @@
                       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
                       AND (step_0 = 1
-                           OR step_1 = 1) ))
-              WHERE step_0 = 1 ))
+                           OR step_1 = 1)))
+              WHERE step_0 = 1))
         GROUP BY aggregation_target,
                  steps
         HAVING steps = max(max_steps))
@@ -436,7 +436,7 @@
                             WHERE team_id = 99999
                               AND event IN ['paid', 'user signed up']
                               AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
-                              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC') )
+                              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC'))
                        GROUP BY distinct_id
                        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                     INNER JOIN
@@ -447,7 +447,7 @@
                            (SELECT id
                             FROM person
                             WHERE team_id = 99999
-                              AND (has(['Negative'], replaceRegexpAll(JSONExtractRaw(properties, '$browser'), '^"|"$', ''))) )
+                              AND (has(['Negative'], replaceRegexpAll(JSONExtractRaw(properties, '$browser'), '^"|"$', ''))))
                        GROUP BY id
                        HAVING max(is_deleted) = 0
                        AND (has(['Negative'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), '$browser'), '^"|"$', ''))) SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
@@ -456,8 +456,8 @@
                       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
                       AND (step_0 = 1
-                           OR step_1 = 1) ))
-              WHERE step_0 = 1 ))
+                           OR step_1 = 1)))
+              WHERE step_0 = 1))
         GROUP BY aggregation_target,
                  steps
         HAVING steps = max(max_steps))
@@ -528,7 +528,7 @@
                             WHERE team_id = 99999
                               AND event IN ['paid', 'user signed up']
                               AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
-                              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC') )
+                              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC'))
                        GROUP BY distinct_id
                        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                     INNER JOIN
@@ -539,7 +539,7 @@
                            (SELECT id
                             FROM person
                             WHERE team_id = 99999
-                              AND (has(['Negative'], replaceRegexpAll(JSONExtractRaw(properties, '$browser'), '^"|"$', ''))) )
+                              AND (has(['Negative'], replaceRegexpAll(JSONExtractRaw(properties, '$browser'), '^"|"$', ''))))
                        GROUP BY id
                        HAVING max(is_deleted) = 0
                        AND (has(['Negative'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), '$browser'), '^"|"$', ''))) SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
@@ -548,8 +548,8 @@
                       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
                       AND (step_0 = 1
-                           OR step_1 = 1) ))
-              WHERE step_0 = 1 ))
+                           OR step_1 = 1)))
+              WHERE step_0 = 1))
         GROUP BY aggregation_target,
                  steps
         HAVING steps = max(max_steps))
@@ -620,7 +620,7 @@
                             WHERE team_id = 99999
                               AND event IN ['paid', 'user signed up']
                               AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
-                              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC') )
+                              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC'))
                        GROUP BY distinct_id
                        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                     WHERE team_id = 99999
@@ -628,8 +628,8 @@
                       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
                       AND (step_0 = 1
-                           OR step_1 = 1) ))
-              WHERE step_0 = 1 ))
+                           OR step_1 = 1)))
+              WHERE step_0 = 1))
         GROUP BY aggregation_target,
                  steps
         HAVING steps = max(max_steps))
@@ -716,7 +716,7 @@
                             WHERE team_id = 99999
                               AND event IN ['paid', 'user signed up']
                               AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
-                              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC') )
+                              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC'))
                        GROUP BY distinct_id
                        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                     INNER JOIN
@@ -727,7 +727,7 @@
                            (SELECT id
                             FROM person
                             WHERE team_id = 99999
-                              AND (has(['Positive'], "pmat_$browser")) )
+                              AND (has(['Positive'], "pmat_$browser")))
                        GROUP BY id
                        HAVING max(is_deleted) = 0
                        AND (has(['Positive'], argMax(person."pmat_$browser", version))) SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
@@ -736,8 +736,8 @@
                       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
                       AND (step_0 = 1
-                           OR step_1 = 1) ))
-              WHERE step_0 = 1 ))
+                           OR step_1 = 1)))
+              WHERE step_0 = 1))
         GROUP BY aggregation_target,
                  steps
         HAVING steps = max(max_steps))
@@ -808,7 +808,7 @@
                             WHERE team_id = 99999
                               AND event IN ['paid', 'user signed up']
                               AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
-                              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC') )
+                              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC'))
                        GROUP BY distinct_id
                        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                     INNER JOIN
@@ -819,7 +819,7 @@
                            (SELECT id
                             FROM person
                             WHERE team_id = 99999
-                              AND (has(['Positive'], "pmat_$browser")) )
+                              AND (has(['Positive'], "pmat_$browser")))
                        GROUP BY id
                        HAVING max(is_deleted) = 0
                        AND (has(['Positive'], argMax(person."pmat_$browser", version))) SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
@@ -828,8 +828,8 @@
                       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
                       AND (step_0 = 1
-                           OR step_1 = 1) ))
-              WHERE step_0 = 1 ))
+                           OR step_1 = 1)))
+              WHERE step_0 = 1))
         GROUP BY aggregation_target,
                  steps
         HAVING steps = max(max_steps))
@@ -900,7 +900,7 @@
                             WHERE team_id = 99999
                               AND event IN ['paid', 'user signed up']
                               AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
-                              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC') )
+                              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC'))
                        GROUP BY distinct_id
                        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                     INNER JOIN
@@ -911,7 +911,7 @@
                            (SELECT id
                             FROM person
                             WHERE team_id = 99999
-                              AND (has(['Negative'], "pmat_$browser")) )
+                              AND (has(['Negative'], "pmat_$browser")))
                        GROUP BY id
                        HAVING max(is_deleted) = 0
                        AND (has(['Negative'], argMax(person."pmat_$browser", version))) SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
@@ -920,8 +920,8 @@
                       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
                       AND (step_0 = 1
-                           OR step_1 = 1) ))
-              WHERE step_0 = 1 ))
+                           OR step_1 = 1)))
+              WHERE step_0 = 1))
         GROUP BY aggregation_target,
                  steps
         HAVING steps = max(max_steps))
@@ -992,7 +992,7 @@
                             WHERE team_id = 99999
                               AND event IN ['paid', 'user signed up']
                               AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
-                              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC') )
+                              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC'))
                        GROUP BY distinct_id
                        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                     INNER JOIN
@@ -1003,7 +1003,7 @@
                            (SELECT id
                             FROM person
                             WHERE team_id = 99999
-                              AND (has(['Negative'], "pmat_$browser")) )
+                              AND (has(['Negative'], "pmat_$browser")))
                        GROUP BY id
                        HAVING max(is_deleted) = 0
                        AND (has(['Negative'], argMax(person."pmat_$browser", version))) SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
@@ -1012,8 +1012,8 @@
                       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
                       AND (step_0 = 1
-                           OR step_1 = 1) ))
-              WHERE step_0 = 1 ))
+                           OR step_1 = 1)))
+              WHERE step_0 = 1))
         GROUP BY aggregation_target,
                  steps
         HAVING steps = max(max_steps))
@@ -1077,8 +1077,8 @@
                       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
                       AND (step_0 = 1
-                           OR step_1 = 1) ))
-              WHERE step_0 = 1 ))
+                           OR step_1 = 1)))
+              WHERE step_0 = 1))
         GROUP BY aggregation_target,
                  steps
         HAVING steps = max(max_steps))
@@ -1105,7 +1105,7 @@
        AND toTimeZone(toDateTime(event.timestamp), 'UTC') > actors.first_timestamp
        AND toTimeZone(toDateTime(event.timestamp), 'UTC') < COALESCE(actors.final_timestamp, actors.first_timestamp + INTERVAL 14 DAY, date_to)
        AND event.event NOT IN funnel_step_names
-       AND event.event IN ['positively_related', 'negatively_related'] )
+       AND event.event IN ['positively_related', 'negatively_related'])
   GROUP BY name,
            prop
   HAVING (success_count + failure_count) > 2
@@ -1164,8 +1164,8 @@
                       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
                       AND (step_0 = 1
-                           OR step_1 = 1) ))
-              WHERE step_0 = 1 ))
+                           OR step_1 = 1)))
+              WHERE step_0 = 1))
         GROUP BY aggregation_target,
                  steps
         HAVING steps = max(max_steps))
@@ -1192,7 +1192,7 @@
        AND toTimeZone(toDateTime(event.timestamp), 'UTC') > actors.first_timestamp
        AND toTimeZone(toDateTime(event.timestamp), 'UTC') < COALESCE(actors.final_timestamp, actors.first_timestamp + INTERVAL 14 DAY, date_to)
        AND event.event NOT IN funnel_step_names
-       AND event.event IN ['positively_related', 'negatively_related'] )
+       AND event.event IN ['positively_related', 'negatively_related'])
   GROUP BY name,
            prop
   HAVING (success_count + failure_count) > 2
@@ -1251,8 +1251,8 @@
                       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
                       AND (step_0 = 1
-                           OR step_1 = 1) ))
-              WHERE step_0 = 1 ))
+                           OR step_1 = 1)))
+              WHERE step_0 = 1))
         GROUP BY aggregation_target,
                  steps
         HAVING steps = max(max_steps))
@@ -1330,8 +1330,8 @@
                       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
                       AND (step_0 = 1
-                           OR step_1 = 1) ))
-              WHERE step_0 = 1 ))
+                           OR step_1 = 1)))
+              WHERE step_0 = 1))
         GROUP BY aggregation_target,
                  steps
         HAVING steps = max(max_steps))
@@ -1406,8 +1406,8 @@
                       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
                       AND (step_0 = 1
-                           OR step_1 = 1) ))
-              WHERE step_0 = 1 ))
+                           OR step_1 = 1)))
+              WHERE step_0 = 1))
         GROUP BY aggregation_target,
                  steps
         HAVING steps = max(max_steps))
@@ -1482,8 +1482,8 @@
                       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
                       AND (step_0 = 1
-                           OR step_1 = 1) ))
-              WHERE step_0 = 1 ))
+                           OR step_1 = 1)))
+              WHERE step_0 = 1))
         GROUP BY aggregation_target,
                  steps
         HAVING steps = max(max_steps))
@@ -1558,8 +1558,8 @@
                       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
                       AND (step_0 = 1
-                           OR step_1 = 1) ))
-              WHERE step_0 = 1 ))
+                           OR step_1 = 1)))
+              WHERE step_0 = 1))
         GROUP BY aggregation_target,
                  steps
         HAVING steps = max(max_steps))
@@ -1642,8 +1642,8 @@
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
                       AND (has(['finance'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '')))
                       AND (step_0 = 1
-                           OR step_1 = 1) ))
-              WHERE step_0 = 1 ))
+                           OR step_1 = 1)))
+              WHERE step_0 = 1))
         GROUP BY aggregation_target,
                  steps
         HAVING steps = max(max_steps))
@@ -1729,8 +1729,8 @@
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
                       AND (has(['finance'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '')))
                       AND (step_0 = 1
-                           OR step_1 = 1) ))
-              WHERE step_0 = 1 ))
+                           OR step_1 = 1)))
+              WHERE step_0 = 1))
         GROUP BY aggregation_target,
                  steps
         HAVING steps = max(max_steps))
@@ -1813,8 +1813,8 @@
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
                       AND (has(['finance'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '')))
                       AND (step_0 = 1
-                           OR step_1 = 1) ))
-              WHERE step_0 = 1 ))
+                           OR step_1 = 1)))
+              WHERE step_0 = 1))
         GROUP BY aggregation_target,
                  steps
         HAVING steps = max(max_steps))
@@ -1898,8 +1898,8 @@
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
                       AND notEmpty(e.person_id)
                       AND (step_0 = 1
-                           OR step_1 = 1) ))
-              WHERE step_0 = 1 ))
+                           OR step_1 = 1)))
+              WHERE step_0 = 1))
         GROUP BY aggregation_target,
                  steps
         HAVING steps = max(max_steps))
@@ -1986,8 +1986,8 @@
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
                       AND notEmpty(e.person_id)
                       AND (step_0 = 1
-                           OR step_1 = 1) ))
-              WHERE step_0 = 1 ))
+                           OR step_1 = 1)))
+              WHERE step_0 = 1))
         GROUP BY aggregation_target,
                  steps
         HAVING steps = max(max_steps))
@@ -2071,8 +2071,8 @@
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
                       AND notEmpty(e.person_id)
                       AND (step_0 = 1
-                           OR step_1 = 1) ))
-              WHERE step_0 = 1 ))
+                           OR step_1 = 1)))
+              WHERE step_0 = 1))
         GROUP BY aggregation_target,
                  steps
         HAVING steps = max(max_steps))
@@ -2156,8 +2156,8 @@
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
                       AND notEmpty(e.person_id)
                       AND (step_0 = 1
-                           OR step_1 = 1) ))
-              WHERE step_0 = 1 ))
+                           OR step_1 = 1)))
+              WHERE step_0 = 1))
         GROUP BY aggregation_target,
                  steps
         HAVING steps = max(max_steps))
@@ -2241,8 +2241,8 @@
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
                       AND notEmpty(e.person_id)
                       AND (step_0 = 1
-                           OR step_1 = 1) ))
-              WHERE step_0 = 1 ))
+                           OR step_1 = 1)))
+              WHERE step_0 = 1))
         GROUP BY aggregation_target,
                  steps
         HAVING steps = max(max_steps))
@@ -2334,8 +2334,8 @@
                       AND (has(['finance'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '')))
                       AND notEmpty(e.person_id)
                       AND (step_0 = 1
-                           OR step_1 = 1) ))
-              WHERE step_0 = 1 ))
+                           OR step_1 = 1)))
+              WHERE step_0 = 1))
         GROUP BY aggregation_target,
                  steps
         HAVING steps = max(max_steps))
@@ -2430,8 +2430,8 @@
                       AND (has(['finance'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '')))
                       AND notEmpty(e.person_id)
                       AND (step_0 = 1
-                           OR step_1 = 1) ))
-              WHERE step_0 = 1 ))
+                           OR step_1 = 1)))
+              WHERE step_0 = 1))
         GROUP BY aggregation_target,
                  steps
         HAVING steps = max(max_steps))
@@ -2523,8 +2523,8 @@
                       AND (has(['finance'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '')))
                       AND notEmpty(e.person_id)
                       AND (step_0 = 1
-                           OR step_1 = 1) ))
-              WHERE step_0 = 1 ))
+                           OR step_1 = 1)))
+              WHERE step_0 = 1))
         GROUP BY aggregation_target,
                  steps
         HAVING steps = max(max_steps))
@@ -2599,8 +2599,8 @@
                       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
                       AND (step_0 = 1
-                           OR step_1 = 1) ))
-              WHERE step_0 = 1 ))
+                           OR step_1 = 1)))
+              WHERE step_0 = 1))
         GROUP BY aggregation_target,
                  steps
         HAVING steps = max(max_steps))
@@ -2688,8 +2688,8 @@
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
                       AND (has(['positive'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '')))
                       AND (step_0 = 1
-                           OR step_1 = 1) ))
-              WHERE step_0 = 1 ))
+                           OR step_1 = 1)))
+              WHERE step_0 = 1))
         GROUP BY aggregation_target,
                  steps
         HAVING steps = max(max_steps))
@@ -2761,8 +2761,8 @@
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
                       AND (has(['positive'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '')))
                       AND (step_0 = 1
-                           OR step_1 = 1) ))
-              WHERE step_0 = 1 ))
+                           OR step_1 = 1)))
+              WHERE step_0 = 1))
         GROUP BY aggregation_target,
                  steps
         HAVING steps = max(max_steps))
@@ -2834,8 +2834,8 @@
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
                       AND (has(['negative'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '')))
                       AND (step_0 = 1
-                           OR step_1 = 1) ))
-              WHERE step_0 = 1 ))
+                           OR step_1 = 1)))
+              WHERE step_0 = 1))
         GROUP BY aggregation_target,
                  steps
         HAVING steps = max(max_steps))
@@ -2907,8 +2907,8 @@
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
                       AND (has(['negative'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '')))
                       AND (step_0 = 1
-                           OR step_1 = 1) ))
-              WHERE step_0 = 1 ))
+                           OR step_1 = 1)))
+              WHERE step_0 = 1))
         GROUP BY aggregation_target,
                  steps
         HAVING steps = max(max_steps))
@@ -2972,8 +2972,8 @@
                       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
                       AND (step_0 = 1
-                           OR step_1 = 1) ))
-              WHERE step_0 = 1 ))
+                           OR step_1 = 1)))
+              WHERE step_0 = 1))
         GROUP BY aggregation_target,
                  steps
         HAVING steps = max(max_steps))
@@ -3053,8 +3053,8 @@
                       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
                       AND (step_0 = 1
-                           OR step_1 = 1) ))
-              WHERE step_0 = 1 ))
+                           OR step_1 = 1)))
+              WHERE step_0 = 1))
         GROUP BY aggregation_target,
                  steps
         HAVING steps = max(max_steps))
@@ -3142,8 +3142,8 @@
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
                       AND (has(['positive'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '')))
                       AND (step_0 = 1
-                           OR step_1 = 1) ))
-              WHERE step_0 = 1 ))
+                           OR step_1 = 1)))
+              WHERE step_0 = 1))
         GROUP BY aggregation_target,
                  steps
         HAVING steps = max(max_steps))
@@ -3215,8 +3215,8 @@
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
                       AND (has(['positive'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '')))
                       AND (step_0 = 1
-                           OR step_1 = 1) ))
-              WHERE step_0 = 1 ))
+                           OR step_1 = 1)))
+              WHERE step_0 = 1))
         GROUP BY aggregation_target,
                  steps
         HAVING steps = max(max_steps))
@@ -3288,8 +3288,8 @@
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
                       AND (has(['negative'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '')))
                       AND (step_0 = 1
-                           OR step_1 = 1) ))
-              WHERE step_0 = 1 ))
+                           OR step_1 = 1)))
+              WHERE step_0 = 1))
         GROUP BY aggregation_target,
                  steps
         HAVING steps = max(max_steps))
@@ -3361,8 +3361,8 @@
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
                       AND (has(['negative'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '')))
                       AND (step_0 = 1
-                           OR step_1 = 1) ))
-              WHERE step_0 = 1 ))
+                           OR step_1 = 1)))
+              WHERE step_0 = 1))
         GROUP BY aggregation_target,
                  steps
         HAVING steps = max(max_steps))
@@ -3426,8 +3426,8 @@
                       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
                       AND (step_0 = 1
-                           OR step_1 = 1) ))
-              WHERE step_0 = 1 ))
+                           OR step_1 = 1)))
+              WHERE step_0 = 1))
         GROUP BY aggregation_target,
                  steps
         HAVING steps = max(max_steps))
@@ -3509,8 +3509,8 @@
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
                       AND notEmpty(e.person_id)
                       AND (step_0 = 1
-                           OR step_1 = 1) ))
-              WHERE step_0 = 1 ))
+                           OR step_1 = 1)))
+              WHERE step_0 = 1))
         GROUP BY aggregation_target,
                  steps
         HAVING steps = max(max_steps))
@@ -3600,8 +3600,8 @@
                       AND (has(['positive'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '')))
                       AND notEmpty(e.person_id)
                       AND (step_0 = 1
-                           OR step_1 = 1) ))
-              WHERE step_0 = 1 ))
+                           OR step_1 = 1)))
+              WHERE step_0 = 1))
         GROUP BY aggregation_target,
                  steps
         HAVING steps = max(max_steps))
@@ -3675,8 +3675,8 @@
                       AND (has(['positive'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '')))
                       AND notEmpty(e.person_id)
                       AND (step_0 = 1
-                           OR step_1 = 1) ))
-              WHERE step_0 = 1 ))
+                           OR step_1 = 1)))
+              WHERE step_0 = 1))
         GROUP BY aggregation_target,
                  steps
         HAVING steps = max(max_steps))
@@ -3750,8 +3750,8 @@
                       AND (has(['negative'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '')))
                       AND notEmpty(e.person_id)
                       AND (step_0 = 1
-                           OR step_1 = 1) ))
-              WHERE step_0 = 1 ))
+                           OR step_1 = 1)))
+              WHERE step_0 = 1))
         GROUP BY aggregation_target,
                  steps
         HAVING steps = max(max_steps))
@@ -3825,8 +3825,8 @@
                       AND (has(['negative'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '')))
                       AND notEmpty(e.person_id)
                       AND (step_0 = 1
-                           OR step_1 = 1) ))
-              WHERE step_0 = 1 ))
+                           OR step_1 = 1)))
+              WHERE step_0 = 1))
         GROUP BY aggregation_target,
                  steps
         HAVING steps = max(max_steps))
@@ -3892,8 +3892,8 @@
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
                       AND notEmpty(e.person_id)
                       AND (step_0 = 1
-                           OR step_1 = 1) ))
-              WHERE step_0 = 1 ))
+                           OR step_1 = 1)))
+              WHERE step_0 = 1))
         GROUP BY aggregation_target,
                  steps
         HAVING steps = max(max_steps))
@@ -3975,8 +3975,8 @@
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
                       AND notEmpty(e.person_id)
                       AND (step_0 = 1
-                           OR step_1 = 1) ))
-              WHERE step_0 = 1 ))
+                           OR step_1 = 1)))
+              WHERE step_0 = 1))
         GROUP BY aggregation_target,
                  steps
         HAVING steps = max(max_steps))
@@ -4066,8 +4066,8 @@
                       AND (has(['positive'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '')))
                       AND notEmpty(e.person_id)
                       AND (step_0 = 1
-                           OR step_1 = 1) ))
-              WHERE step_0 = 1 ))
+                           OR step_1 = 1)))
+              WHERE step_0 = 1))
         GROUP BY aggregation_target,
                  steps
         HAVING steps = max(max_steps))
@@ -4141,8 +4141,8 @@
                       AND (has(['positive'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '')))
                       AND notEmpty(e.person_id)
                       AND (step_0 = 1
-                           OR step_1 = 1) ))
-              WHERE step_0 = 1 ))
+                           OR step_1 = 1)))
+              WHERE step_0 = 1))
         GROUP BY aggregation_target,
                  steps
         HAVING steps = max(max_steps))
@@ -4216,8 +4216,8 @@
                       AND (has(['negative'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '')))
                       AND notEmpty(e.person_id)
                       AND (step_0 = 1
-                           OR step_1 = 1) ))
-              WHERE step_0 = 1 ))
+                           OR step_1 = 1)))
+              WHERE step_0 = 1))
         GROUP BY aggregation_target,
                  steps
         HAVING steps = max(max_steps))
@@ -4291,8 +4291,8 @@
                       AND (has(['negative'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '')))
                       AND notEmpty(e.person_id)
                       AND (step_0 = 1
-                           OR step_1 = 1) ))
-              WHERE step_0 = 1 ))
+                           OR step_1 = 1)))
+              WHERE step_0 = 1))
         GROUP BY aggregation_target,
                  steps
         HAVING steps = max(max_steps))
@@ -4358,8 +4358,8 @@
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
                       AND notEmpty(e.person_id)
                       AND (step_0 = 1
-                           OR step_1 = 1) ))
-              WHERE step_0 = 1 ))
+                           OR step_1 = 1)))
+              WHERE step_0 = 1))
         GROUP BY aggregation_target,
                  steps
         HAVING steps = max(max_steps))
@@ -4448,8 +4448,8 @@
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
                       AND notEmpty(e.person_id)
                       AND (step_0 = 1
-                           OR step_1 = 1) ))
-              WHERE step_0 = 1 ))
+                           OR step_1 = 1)))
+              WHERE step_0 = 1))
         GROUP BY aggregation_target,
                  steps
         HAVING steps = max(max_steps))
@@ -4546,8 +4546,8 @@
                       AND (has(['positive'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '')))
                       AND notEmpty(e.person_id)
                       AND (step_0 = 1
-                           OR step_1 = 1) ))
-              WHERE step_0 = 1 ))
+                           OR step_1 = 1)))
+              WHERE step_0 = 1))
         GROUP BY aggregation_target,
                  steps
         HAVING steps = max(max_steps))
@@ -4628,8 +4628,8 @@
                       AND (has(['positive'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '')))
                       AND notEmpty(e.person_id)
                       AND (step_0 = 1
-                           OR step_1 = 1) ))
-              WHERE step_0 = 1 ))
+                           OR step_1 = 1)))
+              WHERE step_0 = 1))
         GROUP BY aggregation_target,
                  steps
         HAVING steps = max(max_steps))
@@ -4710,8 +4710,8 @@
                       AND (has(['negative'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '')))
                       AND notEmpty(e.person_id)
                       AND (step_0 = 1
-                           OR step_1 = 1) ))
-              WHERE step_0 = 1 ))
+                           OR step_1 = 1)))
+              WHERE step_0 = 1))
         GROUP BY aggregation_target,
                  steps
         HAVING steps = max(max_steps))
@@ -4792,8 +4792,8 @@
                       AND (has(['negative'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '')))
                       AND notEmpty(e.person_id)
                       AND (step_0 = 1
-                           OR step_1 = 1) ))
-              WHERE step_0 = 1 ))
+                           OR step_1 = 1)))
+              WHERE step_0 = 1))
         GROUP BY aggregation_target,
                  steps
         HAVING steps = max(max_steps))
@@ -4866,8 +4866,8 @@
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
                       AND notEmpty(e.person_id)
                       AND (step_0 = 1
-                           OR step_1 = 1) ))
-              WHERE step_0 = 1 ))
+                           OR step_1 = 1)))
+              WHERE step_0 = 1))
         GROUP BY aggregation_target,
                  steps
         HAVING steps = max(max_steps))

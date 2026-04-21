@@ -1,5 +1,5 @@
 from datetime import timedelta
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Optional, cast
 
 from django.db import models
 from django.utils import timezone
@@ -125,7 +125,7 @@ class OrganizationInvite(ModelActivityMixin, UUIDTModel):
     def use(self, user: "User", *, prevalidated: bool = False) -> None:
         if not prevalidated:
             self.validate(user=user)
-        user.join(organization=self.organization, level=self.level)
+        user.join(organization=self.organization, level=cast(OrganizationMembership.Level, self.level))
 
         for item in self.private_project_access or []:
             try:
@@ -148,7 +148,7 @@ class OrganizationInvite(ModelActivityMixin, UUIDTModel):
 
         self._sync_user_product_list_for_accessible_teams(user)
 
-        if is_email_available(with_absolute_urls=True) and self.organization.is_member_join_email_enabled:
+        if is_email_available(with_absolute_urls=True):
             from posthog.tasks.email import send_member_join
 
             send_member_join.apply_async(

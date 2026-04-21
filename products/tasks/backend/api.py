@@ -14,6 +14,7 @@ from django.http import HttpResponse, JsonResponse, StreamingHttpResponse
 from django.utils import timezone
 
 import requests as http_requests
+import jsonschema
 import posthoganalytics
 from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import status, viewsets
@@ -30,11 +31,18 @@ from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentic
 from posthog.event_usage import groups
 from posthog.permissions import APIScopePermission
 from posthog.rate_limit import CodeInviteThrottle
+from posthog.renderers import ServerSentEventRenderer
 from posthog.storage import object_storage
 
 from ee.hogai.utils.aio import async_to_sync
 
-from .models import CodeInvite, CodeInviteRedemption, SandboxEnvironment, Task, TaskRun
+from .automation_service import (
+    delete_automation_schedule,
+    run_task_automation,
+    sync_automation_schedule,
+    update_automation_run_result,
+)
+from .models import CodeInvite, CodeInviteRedemption, SandboxEnvironment, Task, TaskAutomation, TaskRun
 from .repository_readiness import compute_repository_readiness
 from .serializers import (
     CodeInviteRedeemRequestSerializer,
@@ -44,6 +52,7 @@ from .serializers import (
     RepositoryReadinessResponseSerializer,
     SandboxEnvironmentListSerializer,
     SandboxEnvironmentSerializer,
+    TaskAutomationSerializer,
     TaskListQuerySerializer,
     TaskRunAppendLogRequestSerializer,
     TaskRunArtifactPresignRequestSerializer,
@@ -52,19 +61,31 @@ from .serializers import (
     TaskRunArtifactsUploadResponseSerializer,
     TaskRunCommandRequestSerializer,
     TaskRunCommandResponseSerializer,
+    TaskRunCreateRequestSchemaSerializer,
     TaskRunCreateRequestSerializer,
     TaskRunDetailSerializer,
     TaskRunRelayMessageRequestSerializer,
     TaskRunRelayMessageResponseSerializer,
     TaskRunSessionLogsQuerySerializer,
+    TaskRunSetOutputRequestSerializer,
     TaskRunUpdateSerializer,
     TaskSerializer,
 )
 from .services.connection_token import create_sandbox_connection_token
 from .stream.redis_stream import TaskRunRedisStream, TaskRunStreamError, get_task_run_stream_key
 from .temporal.client import execute_posthog_code_agent_relay_workflow, execute_task_processing_workflow
+from .temporal.process_task.utils import (
+    PrAuthorshipMode,
+    cache_github_user_token,
+    get_provider_for_runtime_adapter,
+    get_reasoning_effort_error,
+    parse_run_state,
+)
 
 logger = logging.getLogger(__name__)
+TASK_RUN_STREAM_KEEPALIVE_INTERVAL_SECONDS = 20.0
+TASK_RUN_STREAM_KEEPALIVE_EVENT_NAME = "keepalive"
+TASK_RUN_STREAM_KEEPALIVE_PAYLOAD = {"type": "keepalive"}
 
 
 class TasksAccessPermission(BasePermission):
@@ -190,13 +211,13 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             else:
                 qs = qs.filter(internal=False)
 
-        # Prefetch runs to avoid N+1 queries when fetching latest_run
-        qs = qs.prefetch_related("runs")
+        # select_related to avoid N+1 on created_by (UserBasicSerializer) and team (slug property)
+        qs = qs.select_related("created_by", "team").prefetch_related("runs")
 
         return qs
 
     def get_serializer_context(self):
-        return {**super().get_serializer_context(), "team": self.team}
+        return {**super().get_serializer_context(), "team": self.team, "team_id": self.team.id}
 
     def perform_create(self, serializer):
         logger.info(f"Creating task with data: {serializer.validated_data}")
@@ -230,6 +251,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         return Response(TaskSerializer(task).data)
 
+    @extend_schema(request=TaskRunCreateRequestSchemaSerializer)
     @validated_request(
         request_serializer=TaskRunCreateRequestSerializer,
         responses={
@@ -247,8 +269,31 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         resume_from_run_id = request.validated_data.get("resume_from_run_id")
         pending_user_message = request.validated_data.get("pending_user_message")
         sandbox_environment_id = request.validated_data.get("sandbox_environment_id")
+        pr_authorship_mode = request.validated_data.get("pr_authorship_mode")
+        run_source = request.validated_data.get("run_source")
+        signal_report_id = request.validated_data.get("signal_report_id")
+        runtime_adapter = request.validated_data.get("runtime_adapter")
+        model = request.validated_data.get("model")
+        reasoning_effort = request.validated_data.get("reasoning_effort")
+        github_user_token = request.validated_data.get("github_user_token")
+        initial_permission_mode = request.validated_data.get("initial_permission_mode")
+
+        runtime_state_fields = {
+            "pr_authorship_mode": pr_authorship_mode,
+            "run_source": run_source,
+            "signal_report_id": signal_report_id,
+            "runtime_adapter": runtime_adapter,
+            "model": model,
+            "reasoning_effort": reasoning_effort,
+        }
 
         extra_state = None
+        if pending_user_message is not None:
+            extra_state = {"pending_user_message": pending_user_message}
+        if initial_permission_mode is not None:
+            extra_state = extra_state or {}
+            extra_state["initial_permission_mode"] = initial_permission_mode
+
         if resume_from_run_id:
             # prevent cross-task resume
             previous_run = task.runs.filter(id=resume_from_run_id).first()
@@ -256,18 +301,63 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 return Response({"detail": "Invalid resume_from_run_id"}, status=400)
 
             # Derive snapshot_external_id from the validated previous run
-            snapshot_ext_id = (previous_run.state or {}).get("snapshot_external_id")
-            extra_state = {
-                "resume_from_run_id": str(resume_from_run_id),
-            }
-            if pending_user_message is not None:
-                extra_state["pending_user_message"] = pending_user_message
-            if snapshot_ext_id:
-                extra_state["snapshot_external_id"] = snapshot_ext_id
+            prev_state = parse_run_state(previous_run.state)
+            extra_state = extra_state or {}
+            extra_state["resume_from_run_id"] = str(resume_from_run_id)
+            if prev_state.snapshot_external_id:
+                extra_state["snapshot_external_id"] = prev_state.snapshot_external_id
 
-            prev_sandbox_env_id = (previous_run.state or {}).get("sandbox_environment_id")
-            if prev_sandbox_env_id and sandbox_environment_id is None:
-                sandbox_environment_id = prev_sandbox_env_id
+            if prev_state.sandbox_environment_id and sandbox_environment_id is None:
+                sandbox_environment_id = prev_state.sandbox_environment_id
+
+            for field_name in runtime_state_fields:
+                if runtime_state_fields[field_name] is None:
+                    runtime_state_fields[field_name] = getattr(prev_state, field_name)
+
+            pr_authorship_mode = runtime_state_fields["pr_authorship_mode"]
+            run_source = runtime_state_fields["run_source"]
+            signal_report_id = runtime_state_fields["signal_report_id"]
+            runtime_adapter = runtime_state_fields["runtime_adapter"]
+            model = runtime_state_fields["model"]
+            reasoning_effort = runtime_state_fields["reasoning_effort"]
+            if branch is None and prev_state.pr_base_branch is not None:
+                branch = prev_state.pr_base_branch
+
+        provider = get_provider_for_runtime_adapter(runtime_adapter)
+
+        for key, value in {
+            "pr_base_branch": branch,
+            "pr_authorship_mode": pr_authorship_mode,
+            "run_source": run_source,
+            "signal_report_id": signal_report_id,
+            "runtime_adapter": runtime_adapter,
+            "provider": provider,
+            "model": model,
+            "reasoning_effort": reasoning_effort,
+        }.items():
+            if value is not None:
+                extra_state = extra_state or {}
+                extra_state[key] = value.value if hasattr(value, "value") else value
+
+        reasoning_effort_error = get_reasoning_effort_error(
+            runtime_adapter=runtime_adapter,
+            model=model,
+            reasoning_effort=reasoning_effort,
+        )
+        if reasoning_effort_error is not None:
+            return Response(
+                {
+                    "type": "validation_error",
+                    "code": "invalid_input",
+                    "detail": reasoning_effort_error,
+                    "attr": "reasoning_effort",
+                },
+                status=400,
+            )
+
+        # Only require a user token when the task has a repo (no-repo cloud runs skip GitHub operations)
+        if pr_authorship_mode == PrAuthorshipMode.USER and task.repository and not github_user_token:
+            return Response({"detail": "github_user_token is required for user-authored cloud runs"}, status=400)
 
         if sandbox_environment_id is not None:
             sandbox_environment = SandboxEnvironment.objects.filter(id=sandbox_environment_id, team=task.team).first()
@@ -291,6 +381,9 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         task_run = task.create_run(mode=mode, branch=branch, extra_state=extra_state)
 
+        if github_user_token and pr_authorship_mode == PrAuthorshipMode.USER:
+            cache_github_user_token(str(task_run.id), github_user_token)
+
         logger.info(f"Triggering workflow for task {task.id}, run {task_run.id}")
 
         self._trigger_workflow(task, task_run)
@@ -298,6 +391,42 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         task.refresh_from_db()
 
         return Response(TaskSerializer(task, context=self.get_serializer_context()).data)
+
+
+@extend_schema(tags=["task-automations"])
+class TaskAutomationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
+    serializer_class = TaskAutomationSerializer
+    authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
+    permission_classes = [IsAuthenticated, APIScopePermission, TasksAccessPermission]
+    scope_object = "task"
+    queryset = TaskAutomation.objects.all()
+    filter_rewrite_rules = {"team_id": "task__team_id"}
+
+    def safely_get_queryset(self, queryset):
+        return queryset.filter(task__team=self.team).order_by("task__title", "-created_at")
+
+    def get_serializer_context(self):
+        return {**super().get_serializer_context(), "team": self.team, "team_id": self.team.id}
+
+    def perform_create(self, serializer):
+        automation = serializer.save()
+        sync_automation_schedule(automation)
+
+    def perform_update(self, serializer):
+        automation = serializer.save()
+        sync_automation_schedule(automation)
+
+    def perform_destroy(self, instance):
+        automation = cast(TaskAutomation, instance)
+        delete_automation_schedule(automation)
+        automation.delete()
+
+    @action(detail=True, methods=["post"], url_path="run", required_scopes=["task:write"])
+    def run(self, request, pk=None, **kwargs):
+        automation = cast(TaskAutomation, self.get_object())
+        run_task_automation(str(automation.id))
+        automation.refresh_from_db()
+        return Response(TaskAutomationSerializer(automation, context=self.get_serializer_context()).data)
 
 
 @extend_schema(tags=["task-runs"])
@@ -379,34 +508,53 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     )
     def partial_update(self, request, *args, **kwargs):
         task_run = cast(TaskRun, self.get_object())
-        old_status = task_run.status
+        has_output_merge = "output" in request.validated_data and isinstance(request.validated_data["output"], dict)
 
-        # Update fields from validated data
-        for key, value in request.validated_data.items():
-            setattr(task_run, key, value)
+        with transaction.atomic():
+            # Re-fetch with row lock when merging output to prevent concurrent
+            # PATCHes (e.g. branch sync + PR URL) from clobbering each other.
+            if has_output_merge:
+                task_run = TaskRun.objects.select_for_update().get(pk=task_run.pk)
 
-        new_status = request.validated_data.get("status")
-        terminal_statuses = [
-            TaskRun.Status.COMPLETED,
-            TaskRun.Status.FAILED,
-            TaskRun.Status.CANCELLED,
-        ]
+            old_status = task_run.status
+            old_pr_url = (task_run.output or {}).get("pr_url") if isinstance(task_run.output, dict) else None
 
-        # Auto-set completed_at if status is completed or failed
-        if new_status in terminal_statuses:
-            if not task_run.completed_at:
-                task_run.completed_at = timezone.now()
+            # Update fields from validated data
+            for key, value in request.validated_data.items():
+                if key == "output" and isinstance(value, dict):
+                    existing_output = task_run.output if isinstance(task_run.output, dict) else {}
+                    setattr(task_run, key, {**existing_output, **value})
+                    continue
+                setattr(task_run, key, value)
 
-            # Signal Temporal workflow if status changed to terminal state
-            if old_status != new_status:
-                self._signal_workflow_completion(
-                    task_run,
-                    new_status,
-                    request.validated_data.get("error_message"),
-                )
+            new_status = request.validated_data.get("status")
+            terminal_statuses = [
+                TaskRun.Status.COMPLETED,
+                TaskRun.Status.FAILED,
+                TaskRun.Status.CANCELLED,
+            ]
 
-        task_run.save()
-        self._post_slack_update_for_pr(task_run)
+            # Auto-set completed_at if status is completed or failed
+            if new_status in terminal_statuses:
+                if not task_run.completed_at:
+                    task_run.completed_at = timezone.now()
+
+            task_run.save()
+            task_run.publish_stream_state_event()
+
+        update_automation_run_result(task_run)
+
+        # Signal Temporal and post Slack updates after commit to avoid
+        # holding the row lock during external calls.
+        if new_status in terminal_statuses and old_status != new_status:
+            self._signal_workflow_completion(
+                task_run,
+                new_status,
+                request.validated_data.get("error_message"),
+            )
+        new_pr_url = (task_run.output or {}).get("pr_url") if isinstance(task_run.output, dict) else None
+        if new_pr_url and new_pr_url != old_pr_url:
+            self._post_slack_update_for_pr(task_run)
 
         return Response(TaskRunDetailSerializer(task_run, context=self.get_serializer_context()).data)
 
@@ -481,7 +629,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         return queryset.filter(team=self.team, task_id=task_id)
 
     def get_serializer_context(self):
-        return {**super().get_serializer_context(), "team": self.team}
+        return {**super().get_serializer_context(), "team": self.team, "team_id": self.team.id}
 
     def perform_create(self, serializer):
         task_id = self.kwargs.get("parent_lookup_task_id")
@@ -491,7 +639,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         serializer.save(team=self.team, task=task)
 
     @validated_request(
-        request_serializer=None,
+        request_serializer=TaskRunSetOutputRequestSerializer,
         responses={
             200: OpenApiResponse(response=TaskRunDetailSerializer, description="Run with updated output"),
             404: OpenApiResponse(description="Run not found"),
@@ -507,17 +655,23 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     )
     def set_output(self, request, pk=None, **kwargs):
         task_run = cast(TaskRun, self.get_object())
+        task = cast(Task, task_run.task)
+        output_data = request.validated_data["output"]
 
-        output_data = request.data.get("output", {})
-        if not isinstance(output_data, dict):
-            return Response(
-                ErrorResponseSerializer({"error": "output must be a dictionary"}).data,
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        # TODO: Validate output data according to schema for the task type.
+        if task.json_schema:
+            try:
+                jsonschema.validate(instance=output_data, schema=task.json_schema)
+            except jsonschema.ValidationError as e:
+                return Response(
+                    ErrorResponseSerializer({"error": f"Output validation error: {e.message}"}).data,
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
         task_run.output = output_data
         task_run.save(update_fields=["output", "updated_at"])
+        # We only really want to complete the task run if it's a structured output task.
+        if task.json_schema:
+            self._signal_workflow_completion(task_run, TaskRun.Status.COMPLETED, None)
+        task_run.publish_stream_state_event()
         self._post_slack_update_for_pr(task_run)
 
         return Response(TaskRunDetailSerializer(task_run, context=self.get_serializer_context()).data)
@@ -801,7 +955,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         },
         summary="Send command to agent server",
         description="Forward a JSON-RPC command to the agent server running in the sandbox. "
-        "Supports user_message, cancel, and close commands.",
+        "Supports user_message, cancel, close, permission_response, and set_config_option commands.",
         strict_request_validation=True,
     )
     @action(
@@ -812,16 +966,15 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     )
     def command(self, request, pk=None, **kwargs):
         task_run = cast(TaskRun, self.get_object())
-        state = task_run.state or {}
+        run_state = parse_run_state(task_run.state)
 
-        sandbox_url = state.get("sandbox_url")
-        if not sandbox_url:
+        if not run_state.sandbox_url:
             return Response(
                 ErrorResponseSerializer({"error": "No active sandbox for this task run"}).data,
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        if not self._is_valid_sandbox_url(sandbox_url):
+        if not self._is_valid_sandbox_url(run_state.sandbox_url):
             logger.warning(f"Blocked request to disallowed sandbox URL for task run {task_run.id}")
             return Response(
                 ErrorResponseSerializer({"error": "Invalid sandbox URL"}).data,
@@ -834,8 +987,6 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             distinct_id=request.user.distinct_id,
         )
 
-        sandbox_connect_token = state.get("sandbox_connect_token")
-
         command_payload: dict = {
             "jsonrpc": request.validated_data["jsonrpc"],
             "method": request.validated_data["method"],
@@ -847,9 +998,9 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         try:
             agent_response = self._proxy_command_to_agent_server(
-                sandbox_url=sandbox_url,
+                sandbox_url=run_state.sandbox_url,
                 connection_token=connection_token,
-                sandbox_connect_token=sandbox_connect_token,
+                sandbox_connect_token=run_state.sandbox_connect_token,
                 payload=command_payload,
             )
 
@@ -979,6 +1130,8 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             response = JsonResponse([], safe=False)
             response["X-Total-Count"] = "0"
             response["X-Filtered-Count"] = "0"
+            response["X-Matching-Count"] = "0"
+            response["X-Has-More"] = "false"
             response["Cache-Control"] = "no-cache"
             response["Server-Timing"] = timer.to_header_string()
             return response
@@ -1002,6 +1155,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         event_types_str = params.get("event_types")
         exclude_types_str = params.get("exclude_types")
         limit = params.get("limit", 1000)
+        offset = params.get("offset", 0)
 
         event_types = {t.strip() for t in event_types_str.split(",") if t.strip()} if event_types_str else None
         exclude_types = {t.strip() for t in exclude_types_str.split(",") if t.strip()} if exclude_types_str else None
@@ -1031,37 +1185,68 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
                 filtered.append(entry)
 
-                if len(filtered) >= limit:
-                    break
+        matching_count = len(filtered)
+        page = filtered[offset : offset + limit]
+        has_more = offset + len(page) < matching_count
 
-        response = JsonResponse(filtered, safe=False)
+        response = JsonResponse(page, safe=False)
         response["X-Total-Count"] = str(total_count)
-        response["X-Filtered-Count"] = str(len(filtered))
+        response["X-Filtered-Count"] = str(matching_count)
+        response["X-Matching-Count"] = str(matching_count)
+        response["X-Has-More"] = "true" if has_more else "false"
         response["Cache-Control"] = "no-cache"
         response["Server-Timing"] = timer.to_header_string()
         return response
 
-    @action(detail=True, methods=["get"], url_path="stream", required_scopes=["task:read"])
+    @staticmethod
+    def _format_sse_event(data: dict, *, event_id: str | None = None, event_name: str | None = None) -> bytes:
+        parts: list[str] = []
+        if event_name:
+            parts.append(f"event: {event_name}")
+        if event_id:
+            parts.append(f"id: {event_id}")
+        parts.append(f"data: {json.dumps(data)}")
+        return ("\n".join(parts) + "\n\n").encode()
+
+    @action(
+        detail=True,
+        methods=["get"],
+        url_path="stream",
+        required_scopes=["task:read"],
+        renderer_classes=[ServerSentEventRenderer],
+    )
     def stream(self, request, pk=None, **kwargs):
         task_run = cast(TaskRun, self.get_object())
         stream_key = get_task_run_stream_key(str(task_run.id))
+        last_event_id = request.headers.get("Last-Event-ID")
+        start_latest = request.GET.get("start") == "latest"
+        format_sse_event = self._format_sse_event
 
         async def async_stream() -> AsyncGenerator[bytes, None]:
             redis_stream = TaskRunRedisStream(stream_key)
             if not await redis_stream.wait_for_stream():
-                yield b'event: error\ndata: {"error":"Stream not available"}\n\n'
+                yield format_sse_event({"error": "Stream not available"}, event_name="error")
                 return
+
+            start_id = last_event_id or "0"
+            if not last_event_id and start_latest:
+                start_id = await redis_stream.get_latest_stream_id() or "0"
             try:
-                async for event in redis_stream.read_stream():
-                    yield f"data: {json.dumps(event)}\n\n".encode()
+                async for stream_item in redis_stream.read_stream_entries(
+                    start_id=start_id,
+                    keepalive_interval_seconds=TASK_RUN_STREAM_KEEPALIVE_INTERVAL_SECONDS,
+                ):
+                    if stream_item is None:
+                        yield format_sse_event(
+                            TASK_RUN_STREAM_KEEPALIVE_PAYLOAD,
+                            event_name=TASK_RUN_STREAM_KEEPALIVE_EVENT_NAME,
+                        )
+                        continue
+                    event_id, event = stream_item
+                    yield format_sse_event(event, event_id=event_id)
             except TaskRunStreamError as e:
-                logger.error(
-                    "TaskRunRedisStream error for stream %s: %s",
-                    stream_key,
-                    e,
-                    exc_info=True,
-                )
-                yield b'event: error\ndata: {"error": "Stream error"}\n\n'
+                logger.error("TaskRunRedisStream error for stream %s: %s", stream_key, e, exc_info=True)
+                yield format_sse_event({"error": str(e)}, event_name="error")
 
         return StreamingHttpResponse(
             async_stream() if settings.SERVER_GATEWAY_INTERFACE == "ASGI" else async_to_sync(lambda: async_stream()),
@@ -1224,7 +1409,11 @@ class SandboxEnvironmentViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     def safely_get_queryset(self, queryset):
         user = self.request.user
-        return queryset.filter(models.Q(private=False) | models.Q(created_by=user))
+        qs = queryset.filter(models.Q(private=False) | models.Q(created_by=user))
+        # Exclude internal environments from list views by default
+        if self.action == "list":
+            qs = qs.filter(internal=False)
+        return qs
 
     def get_serializer_context(self):
         context = super().get_serializer_context()

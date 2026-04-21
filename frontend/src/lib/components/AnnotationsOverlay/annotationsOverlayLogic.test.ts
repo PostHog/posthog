@@ -484,33 +484,41 @@ describe('annotationsOverlayLogic', () => {
                         deserializeAnnotation(annotation, 'UTC')
                     ),
                 },
+                // week and month charts bucket annotations per day — not per week/month — so that
+                // e.g. an annotation on Dec 1 and an annotation on Dec 15 don't collapse into one badge.
                 week: {
-                    '2022-08-07 00:00:00+0000': [
+                    '2022-08-10 00:00:00+0000': [
                         MOCK_ANNOTATION_ORG_SCOPED,
                         MOCK_ANNOTATION_ORG_SCOPED_FROM_INSIGHT_3,
                         MOCK_ANNOTATION_PROJECT_SCOPED,
                         MOCK_ANNOTATION_INSIGHT_1_SCOPED,
-                        MOCK_ANNOTATION_PROJECT_SCOPED_FROM_INSIGHT_1,
                         MOCK_ANNOTATION_DASHBOARD_SCOPED,
                     ].map((annotation) => deserializeAnnotation(annotation, 'UTC')),
-                    '2022-08-14 00:00:00+0000': [MOCK_ANNOTATION_ORG_SCOPED_FROM_INSIGHT_1].map((annotation) =>
+                    '2022-08-11 00:00:00+0000': [MOCK_ANNOTATION_PROJECT_SCOPED_FROM_INSIGHT_1].map((annotation) =>
                         deserializeAnnotation(annotation, 'UTC')
                     ),
-                    '2022-09-04 00:00:00+0000': [MOCK_ANNOTATION_PROJECT_SCOPED_FROM_INSIGHT_3].map((annotation) =>
+                    '2022-08-17 00:00:00+0000': [MOCK_ANNOTATION_ORG_SCOPED_FROM_INSIGHT_1].map((annotation) =>
+                        deserializeAnnotation(annotation, 'UTC')
+                    ),
+                    '2022-09-10 00:00:00+0000': [MOCK_ANNOTATION_PROJECT_SCOPED_FROM_INSIGHT_3].map((annotation) =>
                         deserializeAnnotation(annotation, 'UTC')
                     ),
                 },
                 month: {
-                    '2022-08-01 00:00:00+0000': [
+                    '2022-08-10 00:00:00+0000': [
                         MOCK_ANNOTATION_ORG_SCOPED,
                         MOCK_ANNOTATION_ORG_SCOPED_FROM_INSIGHT_3,
                         MOCK_ANNOTATION_PROJECT_SCOPED,
                         MOCK_ANNOTATION_INSIGHT_1_SCOPED,
-                        MOCK_ANNOTATION_PROJECT_SCOPED_FROM_INSIGHT_1,
-                        MOCK_ANNOTATION_ORG_SCOPED_FROM_INSIGHT_1,
                         MOCK_ANNOTATION_DASHBOARD_SCOPED,
                     ].map((annotation) => deserializeAnnotation(annotation, 'UTC')),
-                    '2022-09-01 00:00:00+0000': [MOCK_ANNOTATION_PROJECT_SCOPED_FROM_INSIGHT_3].map((annotation) =>
+                    '2022-08-11 00:00:00+0000': [MOCK_ANNOTATION_PROJECT_SCOPED_FROM_INSIGHT_1].map((annotation) =>
+                        deserializeAnnotation(annotation, 'UTC')
+                    ),
+                    '2022-08-17 00:00:00+0000': [MOCK_ANNOTATION_ORG_SCOPED_FROM_INSIGHT_1].map((annotation) =>
+                        deserializeAnnotation(annotation, 'UTC')
+                    ),
+                    '2022-09-10 00:00:00+0000': [MOCK_ANNOTATION_PROJECT_SCOPED_FROM_INSIGHT_3].map((annotation) =>
                         deserializeAnnotation(annotation, 'UTC')
                     ),
                 },
@@ -600,33 +608,40 @@ describe('annotationsOverlayLogic', () => {
                         deserializeAnnotation(annotation, 'America/Phoenix')
                     ),
                 },
+                // week and month charts bucket per day — see UTC block above.
                 week: {
-                    '2022-08-07 00:00:00-0700': [
+                    '2022-08-09 00:00:00-0700': [
                         MOCK_ANNOTATION_ORG_SCOPED,
                         MOCK_ANNOTATION_ORG_SCOPED_FROM_INSIGHT_3,
                         MOCK_ANNOTATION_PROJECT_SCOPED,
                         MOCK_ANNOTATION_INSIGHT_1_SCOPED,
-                        MOCK_ANNOTATION_PROJECT_SCOPED_FROM_INSIGHT_1,
                         MOCK_ANNOTATION_DASHBOARD_SCOPED,
                     ].map((annotation) => deserializeAnnotation(annotation, 'America/Phoenix')),
-                    '2022-08-14 00:00:00-0700': [MOCK_ANNOTATION_ORG_SCOPED_FROM_INSIGHT_1].map((annotation) =>
+                    '2022-08-10 00:00:00-0700': [MOCK_ANNOTATION_PROJECT_SCOPED_FROM_INSIGHT_1].map((annotation) =>
                         deserializeAnnotation(annotation, 'America/Phoenix')
                     ),
-                    '2022-09-04 00:00:00-0700': [MOCK_ANNOTATION_PROJECT_SCOPED_FROM_INSIGHT_3].map((annotation) =>
+                    '2022-08-16 00:00:00-0700': [MOCK_ANNOTATION_ORG_SCOPED_FROM_INSIGHT_1].map((annotation) =>
+                        deserializeAnnotation(annotation, 'America/Phoenix')
+                    ),
+                    '2022-09-09 00:00:00-0700': [MOCK_ANNOTATION_PROJECT_SCOPED_FROM_INSIGHT_3].map((annotation) =>
                         deserializeAnnotation(annotation, 'America/Phoenix')
                     ),
                 },
                 month: {
-                    '2022-08-01 00:00:00-0700': [
+                    '2022-08-09 00:00:00-0700': [
                         MOCK_ANNOTATION_ORG_SCOPED,
                         MOCK_ANNOTATION_ORG_SCOPED_FROM_INSIGHT_3,
                         MOCK_ANNOTATION_PROJECT_SCOPED,
                         MOCK_ANNOTATION_INSIGHT_1_SCOPED,
-                        MOCK_ANNOTATION_PROJECT_SCOPED_FROM_INSIGHT_1,
-                        MOCK_ANNOTATION_ORG_SCOPED_FROM_INSIGHT_1,
                         MOCK_ANNOTATION_DASHBOARD_SCOPED,
                     ].map((annotation) => deserializeAnnotation(annotation, 'America/Phoenix')),
-                    '2022-09-01 00:00:00-0700': [MOCK_ANNOTATION_PROJECT_SCOPED_FROM_INSIGHT_3].map((annotation) =>
+                    '2022-08-10 00:00:00-0700': [MOCK_ANNOTATION_PROJECT_SCOPED_FROM_INSIGHT_1].map((annotation) =>
+                        deserializeAnnotation(annotation, 'America/Phoenix')
+                    ),
+                    '2022-08-16 00:00:00-0700': [MOCK_ANNOTATION_ORG_SCOPED_FROM_INSIGHT_1].map((annotation) =>
+                        deserializeAnnotation(annotation, 'America/Phoenix')
+                    ),
+                    '2022-09-09 00:00:00-0700': [MOCK_ANNOTATION_PROJECT_SCOPED_FROM_INSIGHT_3].map((annotation) =>
                         deserializeAnnotation(annotation, 'America/Phoenix')
                     ),
                 },
@@ -716,33 +731,40 @@ describe('annotationsOverlayLogic', () => {
                         deserializeAnnotation(annotation, 'Europe/Moscow')
                     ),
                 },
+                // week and month charts bucket per day — see UTC block above.
                 week: {
-                    '2022-08-07 00:00:00+0300': [
+                    '2022-08-10 00:00:00+0300': [
                         MOCK_ANNOTATION_ORG_SCOPED,
                         MOCK_ANNOTATION_ORG_SCOPED_FROM_INSIGHT_3,
                         MOCK_ANNOTATION_PROJECT_SCOPED,
                         MOCK_ANNOTATION_INSIGHT_1_SCOPED,
-                        MOCK_ANNOTATION_PROJECT_SCOPED_FROM_INSIGHT_1,
                         MOCK_ANNOTATION_DASHBOARD_SCOPED,
                     ].map((annotation) => deserializeAnnotation(annotation, 'Europe/Moscow')),
-                    '2022-08-14 00:00:00+0300': [MOCK_ANNOTATION_ORG_SCOPED_FROM_INSIGHT_1].map((annotation) =>
+                    '2022-08-11 00:00:00+0300': [MOCK_ANNOTATION_PROJECT_SCOPED_FROM_INSIGHT_1].map((annotation) =>
                         deserializeAnnotation(annotation, 'Europe/Moscow')
                     ),
-                    '2022-09-04 00:00:00+0300': [MOCK_ANNOTATION_PROJECT_SCOPED_FROM_INSIGHT_3].map((annotation) =>
+                    '2022-08-17 00:00:00+0300': [MOCK_ANNOTATION_ORG_SCOPED_FROM_INSIGHT_1].map((annotation) =>
+                        deserializeAnnotation(annotation, 'Europe/Moscow')
+                    ),
+                    '2022-09-10 00:00:00+0300': [MOCK_ANNOTATION_PROJECT_SCOPED_FROM_INSIGHT_3].map((annotation) =>
                         deserializeAnnotation(annotation, 'Europe/Moscow')
                     ),
                 },
                 month: {
-                    '2022-08-01 00:00:00+0300': [
+                    '2022-08-10 00:00:00+0300': [
                         MOCK_ANNOTATION_ORG_SCOPED,
                         MOCK_ANNOTATION_ORG_SCOPED_FROM_INSIGHT_3,
                         MOCK_ANNOTATION_PROJECT_SCOPED,
                         MOCK_ANNOTATION_INSIGHT_1_SCOPED,
-                        MOCK_ANNOTATION_PROJECT_SCOPED_FROM_INSIGHT_1,
-                        MOCK_ANNOTATION_ORG_SCOPED_FROM_INSIGHT_1,
                         MOCK_ANNOTATION_DASHBOARD_SCOPED,
                     ].map((annotation) => deserializeAnnotation(annotation, 'Europe/Moscow')),
-                    '2022-09-01 00:00:00+0300': [MOCK_ANNOTATION_PROJECT_SCOPED_FROM_INSIGHT_3].map((annotation) =>
+                    '2022-08-11 00:00:00+0300': [MOCK_ANNOTATION_PROJECT_SCOPED_FROM_INSIGHT_1].map((annotation) =>
+                        deserializeAnnotation(annotation, 'Europe/Moscow')
+                    ),
+                    '2022-08-17 00:00:00+0300': [MOCK_ANNOTATION_ORG_SCOPED_FROM_INSIGHT_1].map((annotation) =>
+                        deserializeAnnotation(annotation, 'Europe/Moscow')
+                    ),
+                    '2022-09-10 00:00:00+0300': [MOCK_ANNOTATION_PROJECT_SCOPED_FROM_INSIGHT_3].map((annotation) =>
                         deserializeAnnotation(annotation, 'Europe/Moscow')
                     ),
                 },
@@ -777,7 +799,9 @@ describe('annotationsOverlayLogic', () => {
             }
         }
 
-        it(`merges groups when one tick covers more than one date (UTC)`, async () => {
+        it(`does not merge day groups even when Chart.js renders only one tick per N days (UTC)`, async () => {
+            // On a daily chart where Chart.js decides to render sparse ticks (e.g. one tick every 2 days),
+            // annotation grouping should still be per-day — not bucketed by tick spacing.
             useInsightMocks()
 
             logic = annotationsOverlayLogic({
@@ -786,7 +810,7 @@ describe('annotationsOverlayLogic', () => {
                 dates: ['2022-08-10', '2022-08-11', '2022-08-12'],
                 ticks: [
                     { value: 0 },
-                    { value: 2 }, // This indicates that the ratio of ticks to points is 1:2
+                    { value: 2 }, // One tick per 2 days — used to cause annotations to be merged
                 ],
                 dashboardId: MOCK_DASHBOARD_ID,
             })
@@ -802,50 +826,16 @@ describe('annotationsOverlayLogic', () => {
                         MOCK_ANNOTATION_ORG_SCOPED_FROM_INSIGHT_3,
                         MOCK_ANNOTATION_PROJECT_SCOPED,
                         MOCK_ANNOTATION_INSIGHT_1_SCOPED,
-                        // This one would normally go into 2022-08-11
-                        MOCK_ANNOTATION_PROJECT_SCOPED_FROM_INSIGHT_1,
                         MOCK_ANNOTATION_DASHBOARD_SCOPED,
                     ].map((annotation) => deserializeAnnotation(annotation, MOCK_DEFAULT_TEAM.timezone)),
+                    '2022-08-11 00:00:00+0000': [MOCK_ANNOTATION_PROJECT_SCOPED_FROM_INSIGHT_1].map((annotation) =>
+                        deserializeAnnotation(annotation, MOCK_DEFAULT_TEAM.timezone)
+                    ),
                 },
             })
         })
 
-        it(`merges groups when one tick covers more than one date (Asia/Colombo)`, async () => {
-            initKeaTests(true, { ...MOCK_DEFAULT_TEAM, timezone: 'Asia/Colombo' })
-
-            useInsightMocks('day', 'Asia/Colombo')
-
-            logic = annotationsOverlayLogic({
-                dashboardItemId: MOCK_INSIGHT_SHORT_ID,
-                insightNumericId: MOCK_INSIGHT_NUMERIC_ID,
-                dates: ['2022-08-10', '2022-08-11', '2022-08-12'],
-                ticks: [
-                    { value: 0 },
-                    { value: 2 }, // This indicates that the ratio of ticks to points is 1:2
-                ],
-                dashboardId: MOCK_DASHBOARD_ID,
-            })
-            logic.mount()
-            await expectLogic(annotationsModel).toDispatchActions(['loadAnnotationsSuccess'])
-            await expectLogic(
-                insightLogic({ dashboardItemId: MOCK_INSIGHT_SHORT_ID, dashboardId: MOCK_DASHBOARD_ID })
-            ).toDispatchActions(['loadInsightSuccess'])
-            await expectLogic(logic).toMatchValues({
-                groupedAnnotations: {
-                    '2022-08-10 00:00:00+0530': [
-                        MOCK_ANNOTATION_ORG_SCOPED,
-                        MOCK_ANNOTATION_ORG_SCOPED_FROM_INSIGHT_3,
-                        MOCK_ANNOTATION_PROJECT_SCOPED,
-                        MOCK_ANNOTATION_INSIGHT_1_SCOPED,
-                        // This one would normally go into 2022-08-11
-                        MOCK_ANNOTATION_PROJECT_SCOPED_FROM_INSIGHT_1,
-                        MOCK_ANNOTATION_DASHBOARD_SCOPED,
-                    ].map((annotation) => deserializeAnnotation(annotation, 'Asia/Colombo')),
-                },
-            })
-        })
-
-        it(`merges groups when one tick covers more than one hour (UTC)`, async () => {
+        it(`does not merge hour groups even when Chart.js renders only one tick per N hours (UTC)`, async () => {
             useInsightMocks('hour')
 
             logic = annotationsOverlayLogic({
@@ -854,7 +844,7 @@ describe('annotationsOverlayLogic', () => {
                 dates: ['2022-08-10 04:00', '2022-08-10 05:00', '2022-08-10 06:00', '2022-08-10 07:00'],
                 ticks: [
                     { value: 0 },
-                    { value: 2 }, // This indicates that the ratio of ticks to points is 1:2
+                    { value: 2 }, // One tick per 2 hours — used to cause annotations to be merged
                 ],
                 dashboardId: MOCK_DASHBOARD_ID,
             })
@@ -869,27 +859,36 @@ describe('annotationsOverlayLogic', () => {
                         MOCK_ANNOTATION_ORG_SCOPED,
                         MOCK_ANNOTATION_ORG_SCOPED_FROM_INSIGHT_3,
                         MOCK_ANNOTATION_PROJECT_SCOPED,
-                        // This one would normally go into 2022-08-10 05:00
-                        MOCK_ANNOTATION_INSIGHT_1_SCOPED,
                         MOCK_ANNOTATION_DASHBOARD_SCOPED,
                     ].map((annotation) => deserializeAnnotation(annotation, MOCK_DEFAULT_TEAM.timezone)),
+                    '2022-08-10 05:00:00+0000': [MOCK_ANNOTATION_INSIGHT_1_SCOPED].map((annotation) =>
+                        deserializeAnnotation(annotation, MOCK_DEFAULT_TEAM.timezone)
+                    ),
                 },
             })
         })
+    })
 
-        it(`merges groups when one tick covers more than one hour (Asia/Colombo)`, async () => {
-            initKeaTests(true, { ...MOCK_DEFAULT_TEAM, timezone: 'Asia/Colombo' })
-
-            useInsightMocks('hour', 'Asia/Colombo')
-
+    describe('annotationBadgeDataIndices', () => {
+        it.each<{ interval: IntervalType; dates: string[]; expected: Record<string, number> }>([
+            {
+                interval: 'month',
+                dates: ['2022-08-01', '2022-09-01', '2022-10-01'],
+                expected: { '2022-08-10 00:00:00+0000': 9 / 31, '2022-09-10 00:00:00+0000': 1 + 9 / 30 },
+            },
+            {
+                // Regression: dayjs week starts Sunday, would drift Monday-aligned dates back 1 day.
+                interval: 'week',
+                dates: ['2022-08-08', '2022-08-15', '2022-08-22', '2022-08-29', '2022-09-05', '2022-09-12'],
+                expected: { '2022-08-10 00:00:00+0000': 2 / 7, '2022-09-10 00:00:00+0000': 4 + 5 / 7 },
+            },
+        ])('$interval chart → fractional indices', async ({ interval, dates, expected }) => {
+            useInsightMocks(interval)
             logic = annotationsOverlayLogic({
                 dashboardItemId: MOCK_INSIGHT_SHORT_ID,
                 insightNumericId: MOCK_INSIGHT_NUMERIC_ID,
-                dates: ['2022-08-10 09:00', '2022-08-10 10:00', '2022-08-10 11:00', '2022-08-10 12:00'],
-                ticks: [
-                    { value: 0 },
-                    { value: 2 }, // This indicates that the ratio of ticks to points is 1:2
-                ],
+                dates,
+                ticks: dates.map((_, i) => ({ value: i })),
                 dashboardId: MOCK_DASHBOARD_ID,
             })
             logic.mount()
@@ -897,18 +896,12 @@ describe('annotationsOverlayLogic', () => {
             await expectLogic(
                 insightLogic({ dashboardItemId: MOCK_INSIGHT_SHORT_ID, dashboardId: MOCK_DASHBOARD_ID })
             ).toDispatchActions(['loadInsightSuccess'])
-            await expectLogic(logic).toMatchValues({
-                groupedAnnotations: {
-                    '2022-08-10 09:00:00+0530': [
-                        MOCK_ANNOTATION_ORG_SCOPED,
-                        MOCK_ANNOTATION_ORG_SCOPED_FROM_INSIGHT_3,
-                        MOCK_ANNOTATION_PROJECT_SCOPED,
-                        // This one would normally go into 2022-08-10 09:00
-                        MOCK_ANNOTATION_INSIGHT_1_SCOPED,
-                        MOCK_ANNOTATION_DASHBOARD_SCOPED,
-                    ].map((annotation) => deserializeAnnotation(annotation, 'Asia/Colombo')),
-                },
-            })
+
+            for (const b of logic.values.annotationBadgeDataIndices as { dateKey: string; dataIndex: number }[]) {
+                if (expected[b.dateKey] !== undefined) {
+                    expect(b.dataIndex).toBeCloseTo(expected[b.dateKey], 5)
+                }
+            }
         })
     })
 })

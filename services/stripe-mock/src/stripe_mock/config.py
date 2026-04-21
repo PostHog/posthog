@@ -88,6 +88,8 @@ class MockConfig(BaseModel):
     seed: int = 42
 
     customer_metadata: dict[str, str] = {}
+    subscription_metadata: dict[str, str] = {}
+    charge_metadata: dict[str, str] = {}
 
     customer_types: dict[str, int] = {
         "loyalists_monthly": 12,

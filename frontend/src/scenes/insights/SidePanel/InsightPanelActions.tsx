@@ -39,7 +39,7 @@ export function InsightPanelActions({ insightLogicProps }: { insightLogicProps: 
     const { duplicateInsight, setInsightMetadata } = useActions(theInsightLogic)
 
     const theInsightDataLogic = insightDataLogic(insightProps)
-    const { query, hogQL, exportContext, hogQLVariables } = useValues(theInsightDataLogic)
+    const { query, hogQL, exportContext, hogQLVariables, canEditInSqlEditor } = useValues(theInsightDataLogic)
 
     const { createStaticCohort } = useActions(exportsLogic)
     const { featureFlags } = useValues(featureFlagLogic)
@@ -51,8 +51,6 @@ export function InsightPanelActions({ insightLogicProps }: { insightLogicProps: 
 
     const isSavedInsight = hasDashboardItemId && !!insight?.id && !!insight?.short_id
     const canExport = exportContext != null && insight.short_id != null
-    const canEditInSqlEditor =
-        hogQL != null && !isHogQLQuery(query) && !(isDataVisualizationNode(query) && isHogQLQuery(query.source))
     const showCohort =
         hogQL != null &&
         (isDataTableNode(query) || isDataVisualizationNode(query) || isHogQLQuery(query) || isEventsQuery(query))
@@ -179,7 +177,7 @@ export function InsightPanelActions({ insightLogicProps }: { insightLogicProps: 
 
             {canEditInSqlEditor && (
                 <Link
-                    to={urls.sqlEditor({ query: hogQL })}
+                    to={urls.sqlEditor({ query: hogQL ?? undefined })}
                     buttonProps={{
                         'data-attr': `${RESOURCE_TYPE}-edit-sql`,
                         menuItem: true,

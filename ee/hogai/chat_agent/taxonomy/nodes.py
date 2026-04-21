@@ -1,7 +1,7 @@
 from abc import ABC, abstractmethod
 from collections import defaultdict
 from functools import cached_property
-from typing import Generic, TypeVar
+from typing import Generic, TypeVar, cast
 
 from langchain_core.agents import AgentAction
 from langchain_core.messages import (
@@ -269,4 +269,4 @@ class TaxonomyAgentToolsNode(
         ]
         reset_state.output = output
         reset_state.billable = state.billable
-        return reset_state  # type: ignore[return-value]
+        return cast("TaxonomyPartialStateType", reset_state)

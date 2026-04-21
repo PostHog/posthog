@@ -2,6 +2,7 @@ import re
 from typing import NamedTuple
 
 import structlog
+import posthoganalytics
 
 from posthog.schema import (
     ActionsNode,
@@ -23,6 +24,23 @@ from posthog.models import Action, Team
 from posthog.types import AnyPropertyFilter
 
 logger = structlog.get_logger(__name__)
+
+ANONYMOUS_USER_COHORT_FIX_FLAG = "anonymous-user-session-replay-filtering-fix"
+
+
+def is_anonymous_cohort_fix_enabled(team: Team) -> bool:
+    """Gate for the PoE-mode cohort-vs-anonymous-user rewrite.
+
+    When on, cohort filters skip CohortPropertyGroupsSubQuery and are instead handled
+    by ReplayFiltersEventsSubQuery, which routes NOT IN filters through the existing
+    _negative_blocklist_query path so anonymous events (no person mapping) aren't
+    wrongly excluded.
+    """
+    try:
+        return bool(posthoganalytics.feature_enabled(ANONYMOUS_USER_COHORT_FIX_FLAG, str(team.pk)))
+    except Exception:
+        return False
+
 
 NEGATIVE_OPERATORS = [
     PropertyOperator.IS_NOT_SET,

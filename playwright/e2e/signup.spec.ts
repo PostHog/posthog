@@ -80,11 +80,11 @@ test.describe('Signup', () => {
         await expect(page.locator('[data-attr=signup-auth-continue]')).toBeVisible()
         await page.locator('[data-attr=password]').fill('123')
         await page.locator('[data-attr=signup-auth-continue]').click()
-        await expect(page.getByText('Add another word or two')).toBeVisible()
+        await expect(page.getByText('Must be at least 8 characters long')).toBeVisible()
 
         await page.locator('[data-attr=password]').fill('123 abc def')
         await page.locator('[data-attr=signup-auth-continue]').click()
-        await expect(page.getByText('Add another word or two')).not.toBeVisible()
+        await expect(page.getByText('Must be at least 8 characters long')).not.toBeVisible()
     })
 
     test.skip('Can create user account with first name, last name and organization name', async ({ page }) => {

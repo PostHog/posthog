@@ -86,6 +86,18 @@ impl storage::PersonLookup for FailingStorage {
     ) -> storage::StorageResult<Vec<((i64, String), Option<storage::Person>)>> {
         Err(self.error.clone())
     }
+
+    async fn delete_persons(&self, _team_id: i64, _uuids: &[Uuid]) -> storage::StorageResult<i64> {
+        Err(self.error.clone())
+    }
+
+    async fn delete_persons_batch_for_team(
+        &self,
+        _team_id: i64,
+        _batch_size: i64,
+    ) -> storage::StorageResult<i64> {
+        Err(self.error.clone())
+    }
 }
 
 #[async_trait]
@@ -276,6 +288,18 @@ impl storage::PersonLookup for SuccessStorage {
             .iter()
             .map(|(t, d)| ((*t, d.clone()), None))
             .collect())
+    }
+
+    async fn delete_persons(&self, _team_id: i64, _uuids: &[Uuid]) -> storage::StorageResult<i64> {
+        Ok(0)
+    }
+
+    async fn delete_persons_batch_for_team(
+        &self,
+        _team_id: i64,
+        _batch_size: i64,
+    ) -> storage::StorageResult<i64> {
+        Ok(0)
     }
 }
 
@@ -492,6 +516,18 @@ impl storage::PersonLookup for ConsistencyTrackingStorage {
             .iter()
             .map(|(t, d)| ((*t, d.clone()), None))
             .collect())
+    }
+
+    async fn delete_persons(&self, _team_id: i64, _uuids: &[Uuid]) -> storage::StorageResult<i64> {
+        Ok(0)
+    }
+
+    async fn delete_persons_batch_for_team(
+        &self,
+        _team_id: i64,
+        _batch_size: i64,
+    ) -> storage::StorageResult<i64> {
+        Ok(0)
     }
 }
 

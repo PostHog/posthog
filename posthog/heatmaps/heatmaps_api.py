@@ -500,6 +500,12 @@ class HeatmapScreenshotResponseSerializer(serializers.ModelSerializer):
 
 
 class HeatmapScreenshotViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
+    # Screenshot exports render the heatmap in a headless browser, which authenticates
+    # via an EXPORT_RENDERER JWT. Without opting into ExportRendererAuthentication here,
+    # the exporter's `fetch(heatmap_url, Authorization: Bearer ...)` call in
+    # frontend/src/exporter/exporterViewLogic.ts:50-52 gets rejected, the background
+    # image never loads, and the exported PNG renders an `<img alt="Heatmap">` placeholder.
+    authentication_classes = [ExportRendererAuthentication]
     scope_object = "heatmap"
     scope_object_read_actions = ["list", "retrieve", "content"]
     throttle_classes = [ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle]

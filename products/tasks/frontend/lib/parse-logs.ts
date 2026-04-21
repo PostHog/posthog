@@ -110,7 +110,12 @@ function isACPNotification(parsed: unknown): parsed is ACPNotification {
     )
 }
 
-function parseACPNotification(parsed: ACPNotification, id: string, toolMap: Map<string, LogEntry>): LogEntry | null {
+function parseACPNotification(
+    parsed: ACPNotification,
+    id: string,
+    toolMap: Map<string, LogEntry>,
+    onToolEntryUpdated?: (entry: LogEntry) => void
+): LogEntry | null {
     const { notification, timestamp } = parsed
     const method = notification.method
 
@@ -181,6 +186,7 @@ function parseACPNotification(parsed: ACPNotification, id: string, toolMap: Map<
                     } else if (update.rawOutput !== undefined) {
                         existing.toolResult = normalizeRawOutput(update.rawOutput)
                     }
+                    onToolEntryUpdated?.({ ...existing })
                     return null
                 }
                 const entry: LogEntry = {
@@ -210,6 +216,7 @@ function parseACPNotification(parsed: ACPNotification, id: string, toolMap: Map<
                         } else if (update.rawOutput !== undefined) {
                             existing.toolResult = normalizeRawOutput(update.rawOutput)
                         }
+                        onToolEntryUpdated?.({ ...existing })
                         return null
                     }
                 }
@@ -325,13 +332,12 @@ function parseLogLine(line: string, index: number, toolMap: Map<string, LogEntry
  */
 export function parseLogEvent(
     event: Record<string, unknown>,
-    index: number,
-    toolMap: Map<string, LogEntry>
+    id: string,
+    toolMap: Map<string, LogEntry>,
+    onToolEntryUpdated?: (entry: LogEntry) => void
 ): LogEntry | null {
-    const id = `stream-${index}`
-
     if (isACPNotification(event)) {
-        return parseACPNotification(event as ACPNotification, id, toolMap)
+        return parseACPNotification(event as ACPNotification, id, toolMap, onToolEntryUpdated)
     }
 
     return parseLogObject(event, id)

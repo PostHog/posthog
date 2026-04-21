@@ -6,7 +6,8 @@ from django.core.management.base import BaseCommand
 from pydantic import BaseModel
 
 from products.tasks.backend.services.custom_prompt_executor import run_sandbox_agent_get_structured_output
-from products.tasks.backend.services.custom_prompt_runner import resolve_sandbox_context_for_local_dev, run_prompt
+from products.tasks.backend.services.custom_prompt_runner import run_prompt
+from products.tasks.backend.services.dev_sandbox_context import resolve_sandbox_context_for_local_dev
 
 
 class StructuredAnswer(BaseModel):
@@ -35,8 +36,8 @@ class Command(BaseCommand):
         parser.add_argument(
             "--branch",
             type=str,
-            default="master",
-            help="Branch to check out in the sandbox (default: master)",
+            default=None,
+            help="Branch to check out in the sandbox (default: repo's default branch)",
         )
         parser.add_argument(
             "--json",
@@ -57,7 +58,7 @@ class Command(BaseCommand):
         json_mode = options["json_mode"]
         verbose = options["verbose"]
 
-        self.stdout.write(f"Repository: {repository} (branch: {branch})")
+        self.stdout.write(f"Repository: {repository} (branch: {branch or 'repo default'})")
 
         try:
             context = resolve_sandbox_context_for_local_dev(repository)

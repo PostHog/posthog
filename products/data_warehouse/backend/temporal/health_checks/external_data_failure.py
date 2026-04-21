@@ -14,6 +14,8 @@ class ExternalDataFailureCheck(HealthCheck):
     kind = "external_data_failure"
     owner = JobOwners.TEAM_DATA_STACK
     policy = DEFAULT_EXECUTION_POLICY
+    schedule = "15 7 * * *"
+    active_since_days = 30
 
     def detect(self, team_ids: list[int]) -> dict[int, list[HealthCheckResult]]:
         issues: dict[int, list[HealthCheckResult]] = {}

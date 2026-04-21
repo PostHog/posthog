@@ -8,6 +8,7 @@ publish = false
 assignment-coordination = { path = "../common/assignment-coordination" }
 async-trait = { workspace = true }
 etcd-client = "0.18"
+k8s-awareness = { path = "../common/k8s-awareness" }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
@@ -16,6 +17,15 @@ tokio-util = { version = "0.7", features = ["rt"] }
 tracing = { workspace = true }
 
 [dev-dependencies]
+k8s-openapi = { version = "0.24", features = ["latest"] }
+kube = { version = "0.98", features = ["client"] }
+serial_test = "3"
+serde_json = { workspace = true }
+tempfile = "3"
+testcontainers = { workspace = true }
+testcontainers-modules = { version = "0.15", features = ["k3s"] }
+tokio = { workspace = true, features = ["test-util"] }
+tracing-subscriber = { workspace = true }
 uuid = { workspace = true }
 
 [lints]
