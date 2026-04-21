@@ -10,18 +10,21 @@ Handles:
 
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, cast
+from urllib.parse import urlparse
 
 from django.core.cache import cache
 from django.db import transaction
 from django.http import HttpRequest
 
 import jwt
+import redis
 import requests
 import structlog
 
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.instance_setting import get_instance_settings
 from posthog.models.team.extensions import get_or_create_team_extension
+from posthog.redis import get_client
 
 from products.conversations.backend.models import TeamConversationsTeamsConfig
 
@@ -33,6 +36,22 @@ logger = structlog.get_logger(__name__)
 
 BOTFRAMEWORK_OPENID_METADATA_URL = "https://login.botframework.com/v1/.well-known/openidconfiguration"
 BOTFRAMEWORK_MULTITENANT_TOKEN_URL = "https://login.microsoftonline.com/botframework.com/oauth2/v2.0/token"
+
+# Allowlist of host suffixes that Microsoft uses for Bot Framework / Teams
+# service endpoints. The `serviceUrl` inside inbound activities is plain JSON
+# and is not covered by the inbound JWT signature, so we must validate it
+# before sending the bot's bearer token to it.
+#   - smba.trafficmanager.net        -> public Azure (regional subpaths: /teams/, /emea/, /uk/, ...)
+#   - smba.infra.gcs.azure.us        -> Azure US Government
+#   - smba.infra.gcs.azure.cn        -> Azure China (Mooncake)
+#   - botframework.com / api.botframework.com -> Bot Framework direct endpoints
+TRUSTED_TEAMS_SERVICE_URL_HOST_SUFFIXES = (
+    "smba.trafficmanager.net",
+    "smba.infra.gcs.azure.us",
+    "smba.infra.gcs.azure.cn",
+    "botframework.com",
+    "api.botframework.com",
+)
 BOTFRAMEWORK_SINGLETENANT_TOKEN_URL_TEMPLATE = "https://login.microsoftonline.com/{tenant_id}/oauth2/v2.0/token"
 GRAPH_TOKEN_URL = "https://login.microsoftonline.com/common/oauth2/v2.0/token"
 
@@ -40,6 +59,9 @@ JWKS_CACHE_KEY = "supporthog:teams:jwks"
 JWKS_CACHE_TTL_SECONDS = 60 * 60  # 1 hour
 BOT_TOKEN_CACHE_KEY = "supporthog:teams:bot_token"
 BOT_TOKEN_CACHE_TTL_SECONDS = 50 * 60  # 50 min (tokens live ~1h)
+GRAPH_REFRESH_LOCK_KEY_PREFIX = "supporthog:teams:graph_refresh_lock"
+GRAPH_REFRESH_LOCK_TIMEOUT_SECONDS = 30
+GRAPH_REFRESH_LOCK_BLOCKING_TIMEOUT_SECONDS = 10
 
 JWT_CLOCK_TOLERANCE_SECONDS = 5 * 60
 
@@ -74,6 +96,27 @@ def _get_botframework_valid_issuers() -> tuple[str, ...]:
         issuers.append(f"https://sts.windows.net/{channel_tenant_id}/")
         issuers.append(f"https://login.microsoftonline.com/{channel_tenant_id}/v2.0")
     return tuple(issuers)
+
+
+def is_trusted_teams_service_url(service_url: str) -> bool:
+    """
+    Return True iff `service_url` is an HTTPS URL whose host matches one of the
+    Microsoft Bot Framework / Teams service endpoints we trust.
+
+    The `serviceUrl` field inside an inbound Bot Framework activity is JSON and
+    is not covered by the inbound JWT signature. This guard must be called
+    before sending the bot's bearer token to it.
+    """
+    if not service_url:
+        return False
+    try:
+        parsed = urlparse(service_url)
+    except ValueError:
+        return False
+    if parsed.scheme != "https" or not parsed.hostname:
+        return False
+    host = parsed.hostname.lower()
+    return any(host == suffix or host.endswith(f".{suffix}") for suffix in TRUSTED_TEAMS_SERVICE_URL_HOST_SUFFIXES)
 
 
 def _get_bot_token_url() -> str:
@@ -316,18 +359,66 @@ def refresh_graph_token(config: TeamConversationsTeamsConfig) -> str:
     return access_token
 
 
+def _graph_token_still_fresh(config: TeamConversationsTeamsConfig) -> bool:
+    return bool(
+        config.teams_graph_access_token
+        and config.teams_token_expires_at
+        and config.teams_token_expires_at > datetime.now(UTC) + timedelta(minutes=5)
+    )
+
+
 def get_graph_token(team: "Team") -> str:
-    """Get a valid Graph API token for the team, refreshing if expired."""
+    """
+    Get a valid Graph API token for the team, refreshing if expired.
+
+    A per-team Redis lock serializes refreshes to avoid thundering-herd calls
+    against Azure AD: refresh-token rotation means the first successful refresh
+    invalidates the stored refresh token, so concurrent refreshers would race
+    and all but one would fail.
+    """
     config = get_or_create_team_extension(team, TeamConversationsTeamsConfig)
 
     if not config.teams_graph_access_token:
         raise ValueError("No Graph API token configured")
 
-    # Refresh if expired or about to expire (5 min buffer)
-    if config.teams_token_expires_at and config.teams_token_expires_at > datetime.now(UTC) + timedelta(minutes=5):
+    if _graph_token_still_fresh(config):
         return str(config.teams_graph_access_token)
 
-    return refresh_graph_token(config)
+    lock_key = f"{GRAPH_REFRESH_LOCK_KEY_PREFIX}:{team.pk}"
+    redis_client = get_client()
+    lock = redis_client.lock(
+        lock_key,
+        timeout=GRAPH_REFRESH_LOCK_TIMEOUT_SECONDS,
+        blocking_timeout=GRAPH_REFRESH_LOCK_BLOCKING_TIMEOUT_SECONDS,
+    )
+    try:
+        acquired = lock.acquire(blocking=True)
+    except redis.exceptions.LockError:
+        acquired = False
+
+    if not acquired:
+        # Another worker is refreshing; re-read to pick up their result.
+        config.refresh_from_db(
+            fields=["teams_graph_access_token", "teams_graph_refresh_token", "teams_token_expires_at"]
+        )
+        if _graph_token_still_fresh(config):
+            return str(config.teams_graph_access_token)
+        raise ValueError("Graph API token refresh contended and still stale after wait")
+
+    try:
+        # Double-checked locking: the winner of the race already refreshed while
+        # we were blocked on acquire(), so re-read before spending another call.
+        config.refresh_from_db(
+            fields=["teams_graph_access_token", "teams_graph_refresh_token", "teams_token_expires_at"]
+        )
+        if _graph_token_still_fresh(config):
+            return str(config.teams_graph_access_token)
+        return refresh_graph_token(config)
+    finally:
+        try:
+            lock.release()
+        except redis.exceptions.LockError:
+            pass
 
 
 def save_teams_token(

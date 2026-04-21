@@ -26,7 +26,13 @@ from posthog.models.user import User
 from .cache import get_cached_teams_user, set_cached_teams_user
 from .models import Ticket
 from .models.constants import Channel, ChannelDetail, Status
-from .support_teams import get_bot_framework_token, get_bot_from_id, get_graph_token, invalidate_bot_framework_token
+from .support_teams import (
+    get_bot_framework_token,
+    get_bot_from_id,
+    get_graph_token,
+    invalidate_bot_framework_token,
+    is_trusted_teams_service_url,
+)
 from .teams_formatting import teams_html_to_content_and_rich_content
 
 logger = structlog.get_logger(__name__)
@@ -150,6 +156,10 @@ def _send_confirmation_card(
     team: Team,
 ) -> None:
     """Post a ticket confirmation Adaptive Card as a reply in Teams."""
+    if not is_trusted_teams_service_url(service_url):
+        logger.warning("teams_confirmation_untrusted_service_url", ticket_id=str(ticket.id), service_url=service_url)
+        return
+
     team_id = _get_team_id(team)
     ticket_url = f"{settings.SITE_URL}/project/{team_id}/support/tickets/{ticket.id}"
 

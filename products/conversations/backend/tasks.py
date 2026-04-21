@@ -34,6 +34,7 @@ from products.conversations.backend.support_teams import (
     get_bot_framework_token,
     get_bot_from_id,
     invalidate_bot_framework_token,
+    is_trusted_teams_service_url,
 )
 from products.conversations.backend.teams_formatting import rich_content_to_teams_html
 
@@ -552,6 +553,10 @@ def post_reply_to_teams(
     teams_conversation_id: str,
 ) -> None:
     """Post a support agent's reply to the corresponding Teams conversation thread."""
+    if not is_trusted_teams_service_url(teams_service_url):
+        logger.warning("teams_reply_untrusted_service_url", ticket_id=ticket_id, service_url=teams_service_url)
+        return
+
     if not Team.objects.filter(id=team_id).exists():
         logger.warning("teams_reply_team_not_found", team_id=team_id)
         return
