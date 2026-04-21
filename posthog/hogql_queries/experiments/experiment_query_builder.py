@@ -492,7 +492,6 @@ class ExperimentQueryBuilder:
             placeholders["metric_events_date_from"] = self.date_range_query.date_from_as_hogql()
             placeholders["metric_events_date_to"] = self.date_range_query.date_to_as_hogql()
 
-
         query = parse_select(
             f"""
             WITH
