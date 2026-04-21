@@ -305,7 +305,6 @@ export class LogsIngestionConsumer {
                     if (message.message.value === null) {
                         return Promise.resolve()
                     }
-                    // `message.value` is Kafka payload bytes (Avro container); see `decodeLogRecords` in log-record-avro.ts.
                     const processedValue = await processLogMessageBuffer(message.message.value, logsSettings)
 
                     return this.kafkaProducer!.produce({
