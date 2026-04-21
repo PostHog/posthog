@@ -54,6 +54,17 @@ if (not inputs.bypass_signature_check) {
         }
       }
   }
+
+  let currentTime := toInt(toUnixTimestamp(now()))
+  let timestampDelta := currentTime - toInt(timestamp)
+  if (timestampDelta > 300 or timestampDelta < -300) {
+      return {
+        'httpResponse': {
+          'status': 400,
+          'body': 'Timestamp outside tolerance',
+        }
+      }
+  }
 }
 
 let objectType := request.body.object_type

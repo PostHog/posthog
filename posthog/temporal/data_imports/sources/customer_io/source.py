@@ -4,7 +4,6 @@ from typing import TYPE_CHECKING, Any, Optional, cast
 import posthoganalytics
 from asgiref.sync import async_to_sync
 
-from posthog.exceptions_capture import capture_exception
 from posthog.schema import (
     ExternalDataSourceType as SchemaExternalDataSourceType,
     SourceConfig,
@@ -12,6 +11,7 @@ from posthog.schema import (
     SourceFieldInputConfigType,
 )
 
+from posthog.exceptions_capture import capture_exception
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
 from posthog.temporal.data_imports.sources.common.base import (
     ExternalWebhookInfo,
@@ -24,10 +24,7 @@ from posthog.temporal.data_imports.sources.common.base import (
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 from posthog.temporal.data_imports.sources.common.webhook_s3 import WAREHOUSE_WEBHOOK_FLAG, WebhookSourceManager
-from posthog.temporal.data_imports.sources.customer_io.constants import (
-    CIO_ENDPOINTS,
-    RESOURCE_TO_CIO_OBJECT_TYPE,
-)
+from posthog.temporal.data_imports.sources.customer_io.constants import CIO_ENDPOINTS, RESOURCE_TO_CIO_OBJECT_TYPE
 from posthog.temporal.data_imports.sources.generated_configs import CustomerIOSourceConfig
 
 from products.data_warehouse.backend.types import ExternalDataSourceType
@@ -95,7 +92,7 @@ class CustomerIOSource(
             caption=(
                 "Connect your Customer.io account by sending reporting webhooks to PostHog. "
                 f"Create a reporting webhook in [Customer.io]({CIO_DOCS_WEBHOOKS_URL}) and "
-                "paste the signing key below."
+                "complete the signing key step during webhook setup."
             ),
             iconPath="/static/services/customer-io.png",
             label="Customer.io",
@@ -160,9 +157,7 @@ Once created, copy the **Signing key** from the webhook details page and add it 
     def get_webhook_source_manager(self, inputs: SourceInputs) -> WebhookSourceManager:
         return WebhookSourceManager(inputs, inputs.logger)
 
-    def create_webhook(
-        self, config: CustomerIOSourceConfig, webhook_url: str, team_id: int
-    ) -> WebhookCreationResult:
+    def create_webhook(self, config: CustomerIOSourceConfig, webhook_url: str, team_id: int) -> WebhookCreationResult:
         return WebhookCreationResult(
             success=False,
             error="Customer.io webhooks must be created manually in the Customer.io dashboard.",
@@ -173,17 +168,13 @@ Once created, copy the **Signing key** from the webhook details page and add it 
     ) -> ExternalWebhookInfo | None:
         return None
 
-    def delete_webhook(
-        self, config: CustomerIOSourceConfig, webhook_url: str, team_id: int
-    ) -> WebhookDeletionResult:
+    def delete_webhook(self, config: CustomerIOSourceConfig, webhook_url: str, team_id: int) -> WebhookDeletionResult:
         return WebhookDeletionResult(
             success=False,
             error="Customer.io webhooks must be deleted manually in the Customer.io dashboard.",
         )
 
-    def source_for_pipeline(
-        self, config: CustomerIOSourceConfig, inputs: SourceInputs
-    ) -> SourceResponse:
+    def source_for_pipeline(self, config: CustomerIOSourceConfig, inputs: SourceInputs) -> SourceResponse:
         webhook_source_manager = self.get_webhook_source_manager(inputs)
         webhook_enabled = async_to_sync(webhook_source_manager.webhook_enabled)()
 
