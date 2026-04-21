@@ -1,4 +1,7 @@
+import dagster
 import pytest
+
+from django.db import models as django_models
 
 from dagster import build_asset_context
 
@@ -164,6 +167,49 @@ def test_row_batching_when_single_stale_key_has_many_rows():
     assert not FeatureFlagHashKeyOverride.objects.filter(team_id=team.pk).exists()
     assert result.metadata["rows_deleted"].value == 5
     assert result.metadata["stale_keys_found"].value == 1
+
+
+@pytest.mark.django_db(databases=TEST_DATABASES)
+def test_one_team_failure_does_not_block_others(mocker):
+    # Regression guard: the per-team try/except at hash_key_override_cleanup.py:34-67
+    # is the core reliability guarantee. If one team's DELETE raises, the job must:
+    #   - still process remaining teams,
+    #   - surface teams_failed + failed_team_ids in metadata,
+    #   - raise dagster.Failure so the Dagster run itself fails (not silently green).
+    team_a = _make_team("A")
+    team_b = _make_team("B")
+    person_a = Person.objects.create(team=team_a, distinct_ids=["a1"])
+    person_b = Person.objects.create(team=team_b, distinct_ids=["b1"])
+    _make_override(team_a, person_a, "stale_a")
+    _make_override(team_b, person_b, "stale_b")
+
+    team_a_override_ids = set(
+        FeatureFlagHashKeyOverride.objects.filter(team_id=team_a.pk).values_list("id", flat=True)
+    )
+
+    original_delete = django_models.QuerySet.delete
+
+    def selective_delete(self):
+        # Raise if this DELETE would touch any of team_a's override rows.
+        target_ids = set(self.values_list("id", flat=True))
+        if target_ids & team_a_override_ids:
+            raise RuntimeError("simulated DB failure on team A delete")
+        return original_delete(self)
+
+    mocker.patch.object(django_models.QuerySet, "delete", selective_delete)
+
+    with pytest.raises(dagster.Failure) as exc_info:
+        _run_cleanup()
+
+    # Team B's cleanup should have proceeded despite team A failing.
+    assert not FeatureFlagHashKeyOverride.objects.filter(team_id=team_b.pk).exists()
+    # Team A's rows must remain — we blocked its delete.
+    assert FeatureFlagHashKeyOverride.objects.filter(team_id=team_a.pk).exists()
+
+    metadata = exc_info.value.metadata
+    assert metadata["teams_failed"].value == 1
+    assert metadata["teams_processed"].value == 1
+    assert team_a.pk in metadata["failed_team_ids"].value
 
 
 @pytest.mark.django_db(databases=TEST_DATABASES)

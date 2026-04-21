@@ -29,6 +29,7 @@ def hash_key_override_cleanup(
     total_stale_keys = 0
     teams_processed = 0
     teams_failed = 0
+    failed_team_ids: list[int] = []
 
     for team_id in team_ids:
         try:
@@ -64,6 +65,7 @@ def hash_key_override_cleanup(
             teams_processed += 1
         except Exception:
             teams_failed += 1
+            failed_team_ids.append(team_id)
             logger.exception("hash_key_override_cleanup_team_failed", team_id=team_id)
 
     context.log.info(
@@ -77,15 +79,26 @@ def hash_key_override_cleanup(
         },
     )
 
-    return dagster.MaterializeResult(
-        metadata={
-            "teams_processed": dagster.MetadataValue.int(teams_processed),
-            "teams_failed": dagster.MetadataValue.int(teams_failed),
-            "stale_keys_found": dagster.MetadataValue.int(total_stale_keys),
-            "rows_deleted": dagster.MetadataValue.int(total_deleted),
-            "dry_run": dagster.MetadataValue.bool(config.dry_run),
-        }
-    )
+    metadata: dict[str, dagster.MetadataValue] = {
+        "teams_processed": dagster.MetadataValue.int(teams_processed),
+        "teams_failed": dagster.MetadataValue.int(teams_failed),
+        "failed_team_ids": dagster.MetadataValue.json(failed_team_ids),
+        "stale_keys_found": dagster.MetadataValue.int(total_stale_keys),
+        "rows_deleted": dagster.MetadataValue.int(total_deleted),
+        "dry_run": dagster.MetadataValue.bool(config.dry_run),
+    }
+
+    # Surface metadata on the Failure so the Dagster UI (and regression tests) can
+    # inspect teams_failed / failed_team_ids even when the run fails. Success path
+    # still returns MaterializeResult as before. Mirrors the pattern in
+    # products/data_warehouse/dags/managed_viewset_sync.py:80-81.
+    if teams_failed > 0:
+        raise dagster.Failure(
+            description=f"hash_key_override_cleanup failed for {teams_failed}/{len(team_ids)} teams",
+            metadata=metadata,
+        )
+
+    return dagster.MaterializeResult(metadata=metadata)
 
 
 hash_key_override_cleanup_job = dagster.define_asset_job(
