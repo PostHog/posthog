@@ -128,7 +128,7 @@ An Axios-style summary in four brief paragraphs:
 - A one-sentence "why it matters" tl;dr of the report.
 - '**What's happening:** …' - a brief description of the concrete facts. Reference specific signals, error types, metrics, or patterns from your research.
 - '**Root cause:** …' - explain the root cause as if explaining to engineer owning this part of the product (or hypotheses, if not fully confident in the root cause).
-- '**How to resolve:** …' - a plan for the actionable code-level fix. If you can see two or more viable paths, propose up to two as subpoints "Option A" and "Option B".
+- '**How to resolve:** …' - a single, concrete action plan for the code-level fix. Propose one solution, not multiple options. If there are multiple viable approaches and choosing wrong has significant consequences, do not pick one here — instead mark the report as `requires_human_input` during the actionability step.
 
 Principles:
 - Be direct and specific. Every sentence must carry information.
