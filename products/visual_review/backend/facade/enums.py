@@ -69,8 +69,17 @@ class ClassificationReason(StrEnum):
     BELOW_THRESHOLD = "below_threshold"  # Diffed this run, below pixel/SSIM threshold
 
 
+class ActorType(StrEnum):
+    """Who performed an action — human user, AI agent, or automated system."""
+
+    HUMAN = "human"
+    AGENT = "agent"
+    AUTO = "auto"
+
+
 class ToleratedReason(StrEnum):
     """Why a hash was tolerated."""
 
     AUTO_THRESHOLD = "auto_threshold"  # Below pixel/SSIM diff threshold
     HUMAN = "human"  # Manually marked by a reviewer
+    AGENT = "agent"  # Tolerated by an AI agent

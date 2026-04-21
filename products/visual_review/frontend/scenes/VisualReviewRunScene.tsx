@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import React from 'react'
+import React, { useState } from 'react'
 
 import { IconChevronLeft, IconChevronRight } from '@posthog/icons'
 import { LemonButton, LemonSkeleton, Link } from '@posthog/lemon-ui'
@@ -39,6 +39,7 @@ function SnapshotThumbnail({
     const isTheme = theme === 'dark' || theme === 'light'
     const shortName = parts.length > 1 ? parts.slice(1, isTheme ? -1 : undefined).join(' · ') : snapshot.identifier
 
+    const [imageLoaded, setImageLoaded] = useState(false)
     const isReviewed = snapshot.review_state === 'approved' || snapshot.review_state === 'tolerated'
     const showBadge = isReviewed || isQuarantined
     const hasDiff = snapshot.diff_percentage != null && snapshot.diff_percentage > 0
@@ -76,11 +77,16 @@ function SnapshotThumbnail({
             )}
             <div className="w-[104px] h-[72px] rounded-sm overflow-hidden bg-bg-3000 relative">
                 {snapshot.current_artifact?.download_url ? (
-                    <img
-                        src={snapshot.current_artifact.download_url}
-                        alt=""
-                        className={`w-full h-full object-contain ${isQuarantined ? 'grayscale opacity-40' : ''}`}
-                    />
+                    <>
+                        {!imageLoaded && <LemonSkeleton className="absolute inset-0" />}
+                        <img
+                            src={snapshot.current_artifact.download_url}
+                            alt=""
+                            className={`w-full h-full object-contain transition-opacity duration-150 ${isQuarantined ? 'grayscale opacity-40' : imageLoaded ? 'opacity-100' : 'opacity-0'}`}
+                            onLoad={() => setImageLoaded(true)}
+                            onError={() => setImageLoaded(true)}
+                        />
+                    </>
                 ) : (
                     <div className="w-full h-full flex items-center justify-center">
                         <span className="text-[10px] text-muted">No image</span>

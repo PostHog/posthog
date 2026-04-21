@@ -7,6 +7,7 @@ import uuid
 from django.db import models
 
 from .facade.enums import (
+    ActorType,
     ClassificationReason,
     ReviewDecision,
     ReviewState,
@@ -302,10 +303,10 @@ class ToleratedHash(models.Model):
 
     # Which run caused this toleration to be recorded
     source_run = models.ForeignKey(Run, on_delete=models.SET_NULL, null=True, blank=True)
-    # Who marked it (for human reason)
     created_by_id = models.BigIntegerField(null=True, blank=True)
 
     created_at = models.DateTimeField(auto_now_add=True)
+    expires_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         constraints = [
@@ -344,6 +345,11 @@ class QuarantinedIdentifier(models.Model):
     identifier = models.CharField(max_length=512)
     run_type = models.CharField(max_length=20, choices=[(t.value, t.value) for t in RunType])
     reason = models.CharField(max_length=255)
+    source = models.CharField(
+        max_length=10,
+        choices=[(a.value, a.value) for a in ActorType],
+        default=ActorType.HUMAN,
+    )
 
     expires_at = models.DateTimeField(null=True, blank=True)
     created_by_id = models.BigIntegerField(null=True, blank=True)

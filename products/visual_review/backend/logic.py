@@ -591,11 +591,12 @@ def complete_run(run_id: UUID) -> Run:
     baseline_hashes_in_use = set(baseline.values())
     tolerated_lookup: dict[tuple[str, str, str], ToleratedHash] = {}
     if run_identifiers and baseline_hashes_in_use:
+        now = timezone.now()
         for t in ToleratedHash.objects.filter(
             repo=repo,
             identifier__in=run_identifiers,
             baseline_hash__in=baseline_hashes_in_use,
-        ):
+        ).filter(Q(expires_at__isnull=True) | Q(expires_at__gt=now)):
             tolerated_lookup[(t.identifier, t.baseline_hash, t.alternate_hash)] = t
 
     classifier = SnapshotClassifier(run, baseline, tolerated_lookup)

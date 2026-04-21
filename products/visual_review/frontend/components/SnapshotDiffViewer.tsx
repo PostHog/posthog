@@ -17,6 +17,25 @@ import type {
 } from '../generated/api.schemas'
 import { SnapshotStatusIndicator } from './SnapshotStatusIndicator'
 
+function DiffMinimap({ url }: { url: string }): JSX.Element {
+    const [loaded, setLoaded] = useState(false)
+    return (
+        <div>
+            <h4 className="text-xs font-semibold text-muted mb-2">Diff map</h4>
+            <div className="relative rounded border border-border overflow-hidden bg-bg-3000">
+                {!loaded && <LemonSkeleton className="absolute inset-0" />}
+                <img
+                    src={url}
+                    alt="Diff heatmap"
+                    className={`w-full object-contain transition-opacity duration-150 ${loaded ? 'opacity-100' : 'opacity-0'}`}
+                    onLoad={() => setLoaded(true)}
+                    onError={() => setLoaded(true)}
+                />
+            </div>
+        </div>
+    )
+}
+
 function getThemeSibling(identifier: string): string | null {
     const parts = identifier.split('--')
     const themeIndex = [...parts].reverse().findIndex((part) => part === 'dark' || part === 'light')
@@ -292,16 +311,7 @@ export function SnapshotDiffViewer({
                 {/* Right sidebar */}
                 <div className="w-52 shrink-0 border-l pl-4 space-y-4">
                     {/* === Diff minimap === */}
-                    {snapshot.diff_artifact?.download_url && (
-                        <div>
-                            <h4 className="text-xs font-semibold text-muted mb-2">Diff map</h4>
-                            <img
-                                src={snapshot.diff_artifact.download_url}
-                                alt="Diff heatmap"
-                                className="w-full rounded border border-border object-contain bg-bg-3000"
-                            />
-                        </div>
-                    )}
+                    {snapshot.diff_artifact?.download_url && <DiffMinimap url={snapshot.diff_artifact.download_url} />}
 
                     {/* === Run section === */}
                     {(runType || commitSha || prNumber) && (
