@@ -124,7 +124,7 @@ def get_data_warehouse_breakdown_error(
 
 
 class ValidateDataWarehouseBreakdown:
-    """Multi-propert breakdowns and event based breakdown types can't be used together with data warehouse series."""
+    """Multi-property breakdowns and event based breakdown types can't be used together with data warehouse series."""
 
     code = "data_warehouse_series_unsupported_breakdown"
 
