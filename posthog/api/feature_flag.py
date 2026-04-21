@@ -2957,8 +2957,8 @@ class FeatureFlagViewSet(
         query_serializer=LocalEvaluationQuerySerializer,
         responses={
             200: OpenApiResponse(response=LocalEvaluationResponseSerializer()),
-            402: OpenApiResponse(response=serializers.DictField()),
-            500: OpenApiResponse(response=serializers.DictField()),
+            402: OpenApiResponse(description="Payment required"),
+            500: OpenApiResponse(description="Internal server error"),
         },
     )
     @action(

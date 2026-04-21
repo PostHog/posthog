@@ -11,6 +11,7 @@ from rest_framework import mixins, request, response, viewsets
 
 from posthog.schema import ProductKey
 
+from posthog.api.documentation import _FallbackSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.clickhouse.query_tagging import Feature, tag_queries
@@ -134,6 +135,7 @@ class HistoricalExportsAppMetricsViewSet(
     viewsets.ViewSet,
 ):
     scope_object = "plugin"
+    serializer_class = _FallbackSerializer
 
     @extend_schema(operation_id="app_metrics_historical_exports_list")
     def list(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:

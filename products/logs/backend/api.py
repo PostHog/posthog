@@ -25,6 +25,7 @@ from posthog.schema import (
     PropertyGroupFilter,
 )
 
+from posthog.api.documentation import _FallbackSerializer
 from posthog.api.mixins import PydanticModelMixin
 from posthog.api.property_value_metrics import PROPERTY_VALUES_DURATION
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -230,6 +231,7 @@ class _LogsSparklineRequestSerializer(serializers.Serializer):
 @extend_schema(tags=["logs"])
 class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
     scope_object = "logs"
+    serializer_class = _FallbackSerializer
 
     @staticmethod
     def _normalize_filter_group(filter_group: object) -> dict:

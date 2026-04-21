@@ -16,6 +16,7 @@ from drf_spectacular.utils import (
     OpenApiParameter,
     extend_schema,
     extend_schema_field,
+    extend_schema_serializer,
     extend_schema_view,
 )
 from loginas.utils import is_impersonated_session
@@ -261,6 +262,7 @@ class DeletionStatusPagination(LimitOffsetPagination):
     default_limit = 100
 
 
+@extend_schema_serializer(component_name="PersonRecord")
 class PersonSerializer(serializers.HyperlinkedModelSerializer):
     name = serializers.SerializerMethodField(
         help_text="Display name derived from person properties (email, name, or username)."
@@ -309,6 +311,7 @@ class PersonSerializer(serializers.HyperlinkedModelSerializer):
 
 # person distinct ids can grow to be a very large list
 # in the UI we don't need all of them, so we can limit the number of distinct ids we return
+@extend_schema_serializer(component_name="MinimalPerson")
 class MinimalPersonSerializer(PersonSerializer):
     distinct_ids = serializers.SerializerMethodField()
 

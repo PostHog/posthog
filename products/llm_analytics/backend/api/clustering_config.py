@@ -6,6 +6,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from posthog.api.documentation import _FallbackSerializer
 from posthog.api.monitoring import monitor
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.event_usage import report_user_action
@@ -32,6 +33,7 @@ class ClusteringConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     """Team-level clustering configuration (event filters for automated pipelines)."""
 
     scope_object = "llm_analytics"
+    serializer_class = _FallbackSerializer
     permission_classes = [IsAuthenticated]
 
     @extend_schema(responses={200: OpenApiTypes.OBJECT})

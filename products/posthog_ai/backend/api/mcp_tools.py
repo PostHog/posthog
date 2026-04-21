@@ -14,6 +14,7 @@ from rest_framework.response import Response
 from rest_framework.viewsets import GenericViewSet
 from structlog import get_logger
 
+from posthog.api.documentation import _FallbackSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models.user import User
 from posthog.renderers import SafeJSONRenderer
@@ -26,6 +27,7 @@ logger = get_logger(__name__)
 
 class MCPToolsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
     scope_object = "project"
+    serializer_class = _FallbackSerializer
 
     renderer_classes = [SafeJSONRenderer]
 

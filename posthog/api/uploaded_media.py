@@ -14,6 +14,7 @@ from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.response import Response
 from statshog.defaults.django import statsd
 
+from posthog.api.documentation import _FallbackSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models import UploadedMedia
 from posthog.models.uploaded_media import ObjectStorageUnavailable
@@ -84,6 +85,7 @@ def download(request, *args, **kwargs) -> HttpResponse:
 class MediaViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     scope_object = "uploaded_media"
     queryset = UploadedMedia.objects.all()
+    serializer_class = _FallbackSerializer
     parser_classes = (MultiPartParser, FormParser)
 
     @extend_schema(

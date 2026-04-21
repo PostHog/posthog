@@ -10,6 +10,7 @@ from rest_framework.decorators import action
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from posthog.api.documentation import _FallbackSerializer
 from posthog.api.monitoring import monitor
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
@@ -423,6 +424,7 @@ class LLMProviderKeyValidationViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     """Validate LLM provider API keys without persisting them"""
 
     scope_object = "llm_provider_key"
+    serializer_class = _FallbackSerializer
     permission_classes = [TeamMemberStrictManagementPermission]
 
     @extend_schema(responses={200: OpenApiTypes.OBJECT})

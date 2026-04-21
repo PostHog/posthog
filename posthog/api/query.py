@@ -31,7 +31,7 @@ from posthog.hogql.constants import LimitContext
 from posthog.hogql.errors import ExposedHogQLError, ResolutionError
 
 from posthog import settings
-from posthog.api.documentation import extend_schema
+from posthog.api.documentation import _FallbackSerializer, extend_schema
 from posthog.api.mixins import PydanticModelMixin
 from posthog.api.monitoring import Feature, monitor
 from posthog.api.query_coalescer import QueryCoalescingMixin
@@ -121,6 +121,7 @@ def _process_query_request(
 class QueryViewSet(QueryCoalescingMixin, TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
     # NOTE: Do we need to override the scopes for the "create"
     scope_object = "query"
+    serializer_class = _FallbackSerializer
     # Special case for query - these are all essentially read actions
     scope_object_read_actions = ["retrieve", "create", "list", "destroy"]
     scope_object_write_actions: list[str] = []

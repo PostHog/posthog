@@ -27,11 +27,20 @@ from posthog.permissions import APIScopePermission
 # therefore cannot be derived from any model field.  We pre-supply their
 # OpenAPI types so drf-spectacular never falls through to the warning path.
 _KNOWN_PATH_PARAMS: dict[str, dict[str, Any]] = {
+    "id": {"schema": build_basic_type(OpenApiTypes.STR), "description": ""},
     "project_id": {"schema": build_basic_type(OpenApiTypes.STR), "description": ""},
     "environment_id": {"schema": build_basic_type(OpenApiTypes.STR), "description": ""},
     "organization_id": {"schema": build_basic_type(OpenApiTypes.STR), "description": ""},
     "plugin_config_id": {"schema": build_basic_type(OpenApiTypes.INT), "description": ""},
 }
+
+
+class _FallbackSerializer(serializers.Serializer):
+    """Fallback ``serializer_class`` for ViewSets whose methods declare their own
+    ``@extend_schema``.  The component name "Fallback" is valid OpenAPI and will
+    never appear in the final spec because no endpoint references it."""
+
+    pass
 
 
 class PostHogAutoSchema(AutoSchema):
