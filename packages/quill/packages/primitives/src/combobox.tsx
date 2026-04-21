@@ -6,8 +6,9 @@ import { Button } from './button'
 import { Chip, ChipClose } from './chip'
 import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupInput } from './input-group'
 import { cn } from './lib/utils'
-import { MenuLabel } from './menuLabel'
+import { MenuLabel } from './menu-label'
 import { Separator } from './separator'
+import { MenuEmpty } from './menu-empty'
 
 const ComboboxAnchorContext = React.createContext<React.RefObject<HTMLDivElement> | null>(null)
 
@@ -185,15 +186,16 @@ function ComboboxCollection({ ...props }: ComboboxPrimitive.Collection.Props): R
     return <ComboboxPrimitive.Collection data-slot="combobox-collection" {...props} />
 }
 
-function ComboboxEmpty({ className, ...props }: ComboboxPrimitive.Empty.Props): React.ReactElement {
+function ComboboxEmpty({ className, children, ...props }: ComboboxPrimitive.Empty.Props): React.ReactElement {
     return (
         <ComboboxPrimitive.Empty
             data-slot="combobox-empty"
             className={cn(
-                'hidden w-full justify-center py-2 text-center text-xs/relaxed text-muted-foreground group-data-empty/combobox-content:flex',
+                'hidden group-data-empty/combobox-content:flex',
                 className
             )}
             {...props}
+            render={<MenuEmpty>{children}</MenuEmpty>}
         />
     )
 }
@@ -202,7 +204,7 @@ function ComboboxSeparator({ className, ...props }: ComboboxPrimitive.Separator.
     return (
         <ComboboxPrimitive.Separator
             data-slot="combobox-separator"
-            className={cn('-mx-1 my-1 h-px bg-border/50', className)}
+            className={cn('-mx-1 my-1 h-px bg-border/50 last:hidden', className)}
             {...props}
         />
     )
