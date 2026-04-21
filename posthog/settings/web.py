@@ -371,12 +371,13 @@ SPECTACULAR_SETTINGS = {
     "PREPROCESSING_HOOKS": ["posthog.api.documentation.preprocess_exclude_path_format"],
     "POSTPROCESSING_HOOKS": [
         "drf_spectacular.hooks.postprocess_schema_enums",
+        "posthog.api.documentation.clear_enum_discovery_warnings",
         "posthog.api.documentation.custom_postprocessing_hook",
     ],
     "ENUM_NAME_OVERRIDES": {
-        "DashboardRestrictionLevel": "products.dashboards.backend.models.dashboard.Dashboard.RestrictionLevel",
+        "EffectivePrivilegeLevelEnum": "products.dashboards.backend.models.dashboard.Dashboard.RestrictionLevel",
         "PropertyGroupOperator": ["AND", "OR"],
-        "OrganizationMembershipLevel": "posthog.models.organization.OrganizationMembership.Level",
+        "EffectiveMembershipLevelEnum": "posthog.models.organization.OrganizationMembership.Level",
         "SetupTaskId": "posthog.models.team.setup_tasks.SetupTaskId",
         "SurveyType": "products.surveys.backend.models.Survey.SurveyType",
         "ConversationStatus": "ee.models.assistant.Conversation.Status",
@@ -427,7 +428,7 @@ SPECTACULAR_SETTINGS = {
         "IntegrationKindEnum": "posthog.models.integration.Integration.IntegrationKind",
         "LLMProviderEnum": "products.llm_analytics.backend.models.provider_keys.LLMProvider",
         # Same-value collisions: identical choice sets appear on fields with different names.
-        "StringMatchTypeEnum": ["regex", "not_regex", "exact", "is_not", "icontains", "not_icontains"],
+        "HrefMatchingEnum": ["regex", "not_regex", "exact", "is_not", "icontains", "not_icontains"],
         "SourceMatchEnum": ["none", "auto", "mapped"],
     },
 }

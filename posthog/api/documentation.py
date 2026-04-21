@@ -773,6 +773,24 @@ def _fix_pydantic_schema_for_openapi(schema):
     return schema
 
 
+_ENUM_DISCOVERY_NOISE = (
+    "encountered multiple names for the same choice set",
+    "non-optimally resolvable collision",
+)
+
+
+def clear_enum_discovery_warnings(result, generator, **kwargs):
+    """Remove cosmetic enum-naming warnings emitted during the discovery phase
+    of ``postprocess_schema_enums``.  ENUM_NAME_OVERRIDES already resolves the
+    final naming; the discovery-phase warnings are just noise that would cause
+    ``--fail-on-warn`` to fail on valid schemas."""
+    from drf_spectacular.drainage import GENERATOR_STATS
+
+    for msg in [m for m in GENERATOR_STATS._warn_cache if any(p in m for p in _ENUM_DISCOVERY_NOISE)]:
+        del GENERATOR_STATS._warn_cache[msg]
+    return result
+
+
 def custom_postprocessing_hook(result, generator, request, public):
     all_tags = []
     paths: dict[str, dict] = {}
