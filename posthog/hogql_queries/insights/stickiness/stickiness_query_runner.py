@@ -30,7 +30,11 @@ from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.hogql_queries.utils.query_compare_to_date_range import QueryCompareToDateRange
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.hogql_queries.utils.query_previous_period_date_range import QueryPreviousPeriodDateRange
-from posthog.hogql_queries.validation.rules import DisallowUnsupportedDataWarehouseSettings, RequireAtLeastOneSeries
+from posthog.hogql_queries.validation.rules import (
+    DisallowUnsupportedDataWarehouseSettings,
+    RequireAtLeastOneSeries,
+    ValidateDataWarehouseBreakdown,
+)
 from posthog.hogql_queries.validation.validation import QueryValidationRule
 from posthog.models import Team
 from posthog.models.action.action import Action
@@ -77,6 +81,7 @@ class StickinessQueryRunner(AnalyticsQueryRunner[StickinessQueryResponse]):
         return (
             RequireAtLeastOneSeries(),
             DisallowUnsupportedDataWarehouseSettings(),
+            ValidateDataWarehouseBreakdown(),
         )
 
     def update_hogql_modifiers(self) -> None:

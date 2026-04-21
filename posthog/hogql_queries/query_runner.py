@@ -100,6 +100,7 @@ from posthog.hogql_queries.query_cache_base import QueryCacheManagerBase
 from posthog.hogql_queries.query_cache_factory import get_query_cache_manager
 from posthog.hogql_queries.query_metadata import extract_query_metadata
 from posthog.hogql_queries.utils.event_usage import log_event_usage_from_query_metadata
+from posthog.hogql_queries.validation.rules import get_data_warehouse_breakdown_error
 from posthog.hogql_queries.validation.validation import (
     QueryValidationContext,
     QueryValidationRule,
@@ -1877,7 +1878,19 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
 
         if dashboard_filter.breakdown_filter:
             if hasattr(self.query, "breakdownFilter"):
-                self.query.breakdownFilter = dashboard_filter.breakdown_filter
+                should_ignore_dashboard_breakdown = (
+                    hasattr(self.query, "series")
+                    and isinstance(self.query.series, list)
+                    and get_data_warehouse_breakdown_error(
+                        team=self.team,
+                        series=self.query.series,
+                        breakdown_filter=dashboard_filter.breakdown_filter,
+                    )
+                    is not None
+                )
+
+                if not should_ignore_dashboard_breakdown:
+                    self.query.breakdownFilter = dashboard_filter.breakdown_filter
             else:
                 capture_exception(
                     NotImplementedError(

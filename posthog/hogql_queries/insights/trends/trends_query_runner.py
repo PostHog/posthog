@@ -71,7 +71,11 @@ from posthog.hogql_queries.utils.query_compare_to_date_range import QueryCompare
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.hogql_queries.utils.query_previous_period_date_range import QueryPreviousPeriodDateRange
 from posthog.hogql_queries.utils.timestamp_utils import format_label_date, get_earliest_timestamp_from_series
-from posthog.hogql_queries.validation.rules import DisallowUnsupportedDataWarehouseSettings, RequireAtLeastOneSeries
+from posthog.hogql_queries.validation.rules import (
+    DisallowUnsupportedDataWarehouseSettings,
+    RequireAtLeastOneSeries,
+    ValidateDataWarehouseBreakdown,
+)
 from posthog.hogql_queries.validation.validation import QueryValidationRule
 from posthog.models import Team
 from posthog.models.action.action import Action
@@ -129,6 +133,7 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
         return (
             RequireAtLeastOneSeries(),
             DisallowUnsupportedDataWarehouseSettings(),
+            ValidateDataWarehouseBreakdown(),
         )
 
     def _refresh_frequency(self):
