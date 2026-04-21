@@ -17,12 +17,29 @@ def hash_key_override_cleanup(
     context: dagster.AssetExecutionContext,
     config: HashKeyOverrideCleanupConfig,
 ) -> dagster.MaterializeResult:
-    # FeatureFlagHashKeyOverride has no FK to FeatureFlag (stores `feature_flag_key` as a string),
-    # so rows orphan on any deletion path: soft-delete, soft-delete-with-rename, and the flag
-    # create path's hard-delete of soft-deleted rows with reused keys. The two tables also live
-    # in different databases (persons_db vs default), so we iterate per team rather than run
-    # a single cross-database query. Teams are sourced from the overrides table itself so
-    # cleanup covers teams whose flags were all hard-deleted (no surviving FeatureFlag row).
+    """Delete orphaned rows from posthog_featureflaghashkeyoverride.
+
+    The table has no FK to FeatureFlag (feature_flag_key is a CharField), so rows
+    orphan on two paths:
+
+    1. Soft-delete without rename — row stays with deleted=True, original key intact.
+    2. In-place rename — FeatureFlagSerializer.update() (posthog/api/feature_flag.py:1587-1588)
+       updates FeatureFlag.key without cascading to FeatureFlagHashKeyOverride.feature_flag_key.
+       Note: soft-delete + key reuse is ruled out by UniqueConstraint(team, key) on
+       FeatureFlag (posthog/models/feature_flag/feature_flag.py:126).
+
+    Safety note: flag_matching (posthog/models/feature_flag/flag_matching.py:700-701)
+    looks up overrides by the live FeatureFlag.key, so rows whose key has drifted are
+    already unreachable at evaluation time — deleting them is pure storage reclamation,
+    not a behavior change. Experience continuity silently re-writes under the new key
+    on the next eval (flag_matching.py:1151).
+
+    The two tables also live in different databases (persons_db vs default per
+    posthog/person_db_router.py), so we iterate per team rather than run a single
+    cross-database query.
+    """
+    # Source teams from the overrides table so cleanup covers teams whose flags were all
+    # hard-deleted (no surviving FeatureFlag row).
     team_ids = list(FeatureFlagHashKeyOverride.objects.values_list("team_id", flat=True).distinct())
 
     total_deleted = 0
@@ -33,6 +50,11 @@ def hash_key_override_cleanup(
 
     for team_id in team_ids:
         try:
+            # TOCTOU note: between these two selects, an in-place rename + an eval-triggered
+            # override write for the new key can put the fresh key in override_keys but not
+            # live_keys, so the fresh row gets deleted. Weekly cadence + per-team scan keeps
+            # the window small; blast radius is one eval cycle (the override re-writes on
+            # the next evaluation). Documented rather than fixed.
             live_keys = set(FeatureFlag.objects.filter(team_id=team_id, deleted=False).values_list("key", flat=True))
             override_keys = set(
                 FeatureFlagHashKeyOverride.objects.filter(team_id=team_id)
