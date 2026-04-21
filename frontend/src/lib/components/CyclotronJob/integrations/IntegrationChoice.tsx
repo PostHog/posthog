@@ -46,6 +46,13 @@ export function IntegrationChoice({
         }
     }, [integrationsLoading, onChange, integrationsOfKind?.length, value, integrationsOfKind])
 
+    // Clear stale selection when the integration no longer exists (e.g. after disconnect)
+    useEffect(() => {
+        if (!integrationsLoading && value && integrations && !integrationKind) {
+            onChange?.(null)
+        }
+    }, [integrationsLoading, value, integrations, integrationKind, onChange])
+
     if (!kind) {
         return null
     }
