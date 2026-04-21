@@ -20,7 +20,6 @@
 - Lint:
   - Python:
     - `ruff check . --fix` and `ruff format .`
-    - Do not run mypy for type checks. It takes too long.
   - Frontend: `pnpm --filter=@posthog/frontend format`
   - TypeScript check: `pnpm --filter=@posthog/frontend typescript:check`
 - Build:
@@ -105,7 +104,7 @@ See [.agents/security.md](.agents/security.md) for SQL, HogQL, and semgrep secur
 
 ## Code Style
 
-- Python: Use type hints (mypy-strict style)
+- Python: Write as if mypy `--strict` is enabled — annotate all function signatures (arguments + return types), avoid `Any`, use `TYPE_CHECKING` imports for type-only references. Do not run mypy locally (too slow); CI runs it on every PR. The config isn't fully strict yet, but new code should be
 - Frontend: TypeScript required, explicit return types
 - Frontend: If there is a kea logic file, write all business logic there, avoid React hooks at all costs.
 - Imports: Use oxfmt import sorting (automatically runs on format), avoid direct dayjs imports (use lib/dayjs)
