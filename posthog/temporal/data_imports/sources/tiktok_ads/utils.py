@@ -5,14 +5,11 @@ from typing import Any, Optional
 
 import structlog
 from dateutil import parser
-from dlt.common.configuration import configspec
-from dlt.common.typing import TSecretStrValue
-from dlt.sources.helpers.requests import Request, Response
-from dlt.sources.helpers.rest_client.auth import AuthConfigBase
-from dlt.sources.helpers.rest_client.paginators import BasePaginator
-from requests import PreparedRequest
+from requests import PreparedRequest, Request, Response
 from requests.exceptions import HTTPError, RequestException, Timeout
 
+from posthog.temporal.data_imports.sources.common.rest_source.auth import AuthConfigBase
+from posthog.temporal.data_imports.sources.common.rest_source.paginators import BasePaginator
 from posthog.temporal.data_imports.sources.tiktok_ads.settings import (
     MAX_TIKTOK_DAYS_FOR_REPORT_ENDPOINTS,
     MAX_TIKTOK_DAYS_TO_QUERY,
@@ -404,29 +401,19 @@ class TikTokAdsPaginator(BasePaginator):
         request.params["page"] = self.current_page
 
 
-@configspec
 class TikTokAdsAuth(AuthConfigBase):
-    """
-    TikTok Ads API authentication handler for dlt REST client.
+    """TikTok Ads API authentication handler.
 
     TikTok requires a custom 'Access-Token' header instead of the standard
-    'Authorization: Bearer' pattern, so we can't use dlt's built-in BearerTokenAuth.
+    'Authorization: Bearer' pattern.
     """
 
-    access_token: TSecretStrValue | None = None
-
-    def parse_native_representation(self, value: Any) -> None:
-        if isinstance(value, str):
-            self.access_token = value
-        else:
-            raise ValueError(f"TikTok Ads access token must be a string, got {type(value)}")
+    def __init__(self, access_token: Optional[str] = None) -> None:
+        self.access_token = access_token
 
     def __call__(self, request: PreparedRequest) -> PreparedRequest:
-        """Add TikTok Ads authentication headers to the request."""
         if self.access_token is None:
             raise ValueError("TikTok Ads access token is not configured")
-
         request.headers["Access-Token"] = self.access_token
         request.headers["Content-Type"] = "application/json"
-
         return request

@@ -7,7 +7,6 @@
             "type": "boolean"
         },
         "conditions": {
-            "default": [],
             "description": "Optional trigger conditions to filter which events are sampled.",
             "items": {
                 "additionalProperties": {},
@@ -20,13 +19,13 @@
         },
         "sample_count": {
             "default": 5,
-            "description": "Number of recent $ai_generation events to test against (1-10, default 5).",
+            "description": "Number of recent $ai_generation events to test against (1–10, default 5).",
             "maximum": 10,
             "minimum": 1,
-            "type": "integer"
+            "type": "number"
         },
         "source": {
-            "description": "Hog source code to test. Must return a boolean (true = pass, false = fail).",
+            "description": "Hog source code to test. Must return a boolean (true = pass, false = fail) or null for N/A.",
             "minLength": 1,
             "type": "string"
         }

@@ -2,11 +2,34 @@
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
         "enabled": {
-            "description": "Filter by enabled status.",
+            "description": "Filter by enabled status",
             "type": "boolean"
         },
+        "id__in": {
+            "description": "Multiple values may be separated by commas.",
+            "items": {
+                "type": "string"
+            },
+            "type": "array"
+        },
+        "limit": {
+            "description": "Number of results to return per page.",
+            "type": "number"
+        },
+        "offset": {
+            "description": "The initial index from which to return the results.",
+            "type": "number"
+        },
+        "order_by": {
+            "description": "Ordering\n\n* `created_at` - Created At\n* `-created_at` - Created At (descending)\n* `updated_at` - Updated At\n* `-updated_at` - Updated At (descending)\n* `name` - Name\n* `-name` - Name (descending)",
+            "items": {
+                "enum": ["-created_at", "-name", "-updated_at", "created_at", "name", "updated_at"],
+                "type": "string"
+            },
+            "type": "array"
+        },
         "search": {
-            "description": "Search evaluations by name or description.",
+            "description": "Search in name or description",
             "type": "string"
         }
     },

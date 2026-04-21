@@ -5007,6 +5007,38 @@ export namespace Schemas {
       Snoozed: 'Snoozed',
     } as const;
 
+    /**
+     * * `pending` - pending
+    * `running` - running
+    * `done` - done
+    * `failed` - failed
+    * `skipped` - skipped
+     */
+    export type InvestigationStatusEnum = typeof InvestigationStatusEnum[keyof typeof InvestigationStatusEnum];
+
+
+    export const InvestigationStatusEnum = {
+      Pending: 'pending',
+      Running: 'running',
+      Done: 'done',
+      Failed: 'failed',
+      Skipped: 'skipped',
+    } as const;
+
+    /**
+     * * `true_positive` - true_positive
+    * `false_positive` - false_positive
+    * `inconclusive` - inconclusive
+     */
+    export type InvestigationVerdictEnum = typeof InvestigationVerdictEnum[keyof typeof InvestigationVerdictEnum];
+
+
+    export const InvestigationVerdictEnum = {
+      TruePositive: 'true_positive',
+      FalsePositive: 'false_positive',
+      Inconclusive: 'inconclusive',
+    } as const;
+
     export interface AlertCheck {
       readonly id: string;
       readonly created_at: string;
@@ -5020,6 +5052,18 @@ export namespace Schemas {
       /** @nullable */
       readonly interval: string | null;
       readonly triggered_metadata: unknown | null;
+      readonly investigation_status: InvestigationStatusEnum | NullEnum | null;
+      readonly investigation_verdict: InvestigationVerdictEnum | NullEnum | null;
+      /** @nullable */
+      readonly investigation_summary: string | null;
+      /**
+       * Short ID of the Notebook produced by the investigation agent, when the agent ran for this check.
+       * @nullable
+       */
+      readonly investigation_notebook_short_id: string | null;
+      /** @nullable */
+      readonly notification_sent_at: string | null;
+      readonly notification_suppressed_by_agent: boolean;
     }
 
     export type TrendsAlertConfigType = typeof TrendsAlertConfigType[keyof typeof TrendsAlertConfigType];
@@ -5431,6 +5475,18 @@ export namespace Schemas {
       blocked_windows: AlertScheduleRestrictionWindow[];
     }
 
+    /**
+     * * `notify` - Notify
+    * `suppress` - Suppress
+     */
+    export type InvestigationInconclusiveActionEnum = typeof InvestigationInconclusiveActionEnum[keyof typeof InvestigationInconclusiveActionEnum];
+
+
+    export const InvestigationInconclusiveActionEnum = {
+      Notify: 'notify',
+      Suppress: 'suppress',
+    } as const;
+
     export interface Alert {
       readonly id: string;
       readonly created_by: UserBasic;
@@ -5489,6 +5545,15 @@ export namespace Schemas {
        * @nullable
        */
       readonly last_value: number | null;
+      /** When enabled, an investigation agent runs on the state transition to firing and writes findings to a Notebook linked from the alert check. Only effective for detector-based (anomaly) alerts. */
+      investigation_agent_enabled?: boolean;
+      /** When enabled (and investigation_agent_enabled is on), notification dispatch is held until the investigation agent produces a verdict. Notifications are suppressed when the verdict is false_positive (and optionally when inconclusive). A safety-net task force-fires after a few minutes if the investigation stalls. */
+      investigation_gates_notifications?: boolean;
+      /** How to handle an 'inconclusive' verdict when notifications are gated. 'notify' is the safe default — an agent that can't be sure is itself useful signal.
+
+    * `notify` - Notify
+    * `suppress` - Suppress */
+      investigation_inconclusive_action?: InvestigationInconclusiveActionEnum;
     }
 
     export interface AlertSimulate {
@@ -7393,6 +7458,7 @@ export namespace Schemas {
       Auto: 'auto',
       Line: 'line',
       Bar: 'bar',
+      Area: 'area',
     } as const;
 
     export type YAxisPosition = typeof YAxisPosition[keyof typeof YAxisPosition];
@@ -9096,11 +9162,6 @@ export namespace Schemas {
       explicitDate?: boolean | null;
       /** @nullable */
       properties?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
-    }
-
-    export interface DashboardGeneratedMetadata {
-      name: string;
-      description: string;
     }
 
     /**
@@ -14809,6 +14870,17 @@ export namespace Schemas {
       readonly updated_at: string;
     }
 
+    export interface ErrorTrackingSuppressionRuleCreateRequest {
+      /** Optional property-group filters that define which incoming error events should be suppressed. Omit this field or provide an empty `values` array to create a match-all suppression rule. */
+      filters?: PropertyGroupFilterValue;
+      /**
+       * Fraction of matching events to suppress. Use `1.0` to suppress all matching events.
+       * @minimum 0
+       * @maximum 1
+       */
+      sampling_rate?: number;
+    }
+
     /**
      * Release associated with this symbol set
      * @nullable
@@ -14832,6 +14904,31 @@ export namespace Schemas {
        */
       readonly release: ErrorTrackingSymbolSetRelease;
     }
+
+    /**
+     * Configuration dict. For 'llm_judge': {prompt}. For 'hog': {source}.
+     */
+    export type EvaluationEvaluationConfig = {
+      /**
+       * Evaluation criteria for the LLM judge. Describe what makes a good vs bad response.
+       * @minLength 1
+       */
+      prompt: string;
+    } | {
+      /**
+       * Hog source code. Must return true (pass), false (fail), or null for N/A.
+       * @minLength 1
+       */
+      source: string;
+    };
+
+    /**
+     * Output config. For 'boolean' output_type: {allows_na} to permit N/A results.
+     */
+    export type EvaluationOutputConfig = {
+      /** Whether the evaluation can return N/A for non-applicable generations. */
+      allows_na?: boolean;
+    };
 
     /**
      * * `active` - Active
@@ -14916,21 +15013,37 @@ export namespace Schemas {
 
     export interface Evaluation {
       readonly id: string;
-      /** @maxLength 400 */
+      /**
+       * Name of the evaluation.
+       * @maxLength 400
+       */
       name: string;
+      /** Optional description of what this evaluation checks. */
       description?: string;
+      /** Whether the evaluation runs automatically on new $ai_generation events. */
       enabled?: boolean;
       readonly status: EvaluationStatusEnum;
       readonly status_reason: StatusReasonEnum | NullEnum | null;
+      /** 'llm_judge' uses an LLM to score outputs against a prompt; 'hog' runs deterministic Hog code.
+
+    * `llm_judge` - LLM as a judge
+    * `hog` - Hog */
       evaluation_type: EvaluationTypeEnum;
-      evaluation_config?: unknown;
+      /** Configuration dict. For 'llm_judge': {prompt}. For 'hog': {source}. */
+      evaluation_config?: EvaluationEvaluationConfig;
+      /** Output format. Currently only 'boolean' is supported.
+
+    * `boolean` - Boolean (Pass/Fail) */
       output_type: OutputTypeEnum;
-      output_config?: unknown;
+      /** Output config. For 'boolean' output_type: {allows_na} to permit N/A results. */
+      output_config?: EvaluationOutputConfig;
+      /** Optional trigger conditions to filter which events are evaluated. OR between condition sets, AND within each. */
       conditions?: unknown;
       model_configuration?: ModelConfiguration | null;
       readonly created_at: string;
       readonly updated_at: string;
       readonly created_by: UserBasic;
+      /** Set to true to soft-delete the evaluation. */
       deleted?: boolean;
     }
 
@@ -14955,41 +15068,58 @@ export namespace Schemas {
 
     export interface EvaluationReport {
       readonly id: string;
+      /** UUID of the evaluation this report config belongs to. */
       evaluation: string;
+      /** 'every_n' triggers a report after N evaluations run; 'scheduled' uses an rrule schedule.
+
+    * `scheduled` - Scheduled
+    * `every_n` - Every N */
       frequency?: EvaluationReportFrequencyEnum;
+      /** RFC 5545 recurrence rule string. Required when frequency is 'scheduled'. */
       rrule?: string;
-      /** @nullable */
+      /**
+       * Schedule start datetime (ISO 8601). Required when frequency is 'scheduled'.
+       * @nullable
+       */
       starts_at?: string | null;
-      /** @maxLength 64 */
+      /**
+       * IANA timezone name for scheduled delivery (e.g. 'America/New_York').
+       * @maxLength 64
+       */
       timezone_name?: string;
       /** @nullable */
       readonly next_delivery_date: string | null;
+      /** List of delivery targets. Each is {type: 'email', value: '...'} or {type: 'slack', integration_id: N, channel: '...'}. */
       delivery_targets?: unknown;
       /**
+       * Max number of evaluation runs included in each report. Defaults to 100.
        * @minimum -2147483648
        * @maximum 2147483647
        */
       max_sample_size?: number;
+      /** Whether report delivery is active. */
       enabled?: boolean;
+      /** Set to true to soft-delete this report config. */
       deleted?: boolean;
       /** @nullable */
       readonly last_delivered_at: string | null;
+      /** Optional custom instructions injected into the AI report prompt to focus analysis. */
       report_prompt_guidance?: string;
       /**
-       * Number of new eval results that triggers a report
+       * Number of evaluation runs that trigger a report (every_n mode). Min 10, max 1000.
        * @minimum -2147483648
        * @maximum 2147483647
        * @nullable
        */
       trigger_threshold?: number | null;
       /**
-       * Minimum minutes between count-triggered reports
+       * Minimum minutes between reports in every_n mode to prevent spam. Min 60, max 1440 (24 hours).
        * @minimum -2147483648
        * @maximum 2147483647
        */
       cooldown_minutes?: number;
       /**
-       * Maximum count-triggered report runs per calendar day (UTC)
+       * Max reports generated per day. Defaults to 3.
        * @minimum -2147483648
        * @maximum 2147483647
        */
@@ -15000,15 +15130,44 @@ export namespace Schemas {
     }
 
     export interface EvaluationReportRun {
+      /** UUID of this report run. */
       readonly id: string;
+      /** UUID of the report config that generated this run. */
       readonly report: string;
+      /** Generated report content (markdown or structured text). */
       readonly content: unknown;
+      /** Run metadata including model used, token counts, and generation stats. */
       readonly metadata: unknown;
+      /** Start of the evaluation window covered by this report. */
       readonly period_start: string;
+      /** End of the evaluation window covered by this report. */
       readonly period_end: string;
+      /** 'pending', 'delivered', or 'failed'.
+
+    * `pending` - Pending
+    * `delivered` - Delivered
+    * `partial_failure` - Partial Failure
+    * `failed` - Failed */
       readonly delivery_status: DeliveryStatusEnum;
+      /** List of delivery error messages if delivery failed. */
       readonly delivery_errors: unknown;
       readonly created_at: string;
+    }
+
+    export interface EvaluationRunRequest {
+      /** UUID of the evaluation to run. */
+      evaluation_id: string;
+      /** UUID of the $ai_generation event to evaluate. */
+      target_event_id: string;
+      /** ISO 8601 timestamp of the target event (needed for efficient ClickHouse lookup). */
+      timestamp: string;
+      /** Event name. Defaults to '$ai_generation'. */
+      event?: string;
+      /**
+       * Distinct ID of the event (optional, improves lookup performance).
+       * @nullable
+       */
+      distinct_id?: string | null;
     }
 
     /**
@@ -15315,8 +15474,13 @@ export namespace Schemas {
        * @nullable
        */
       name?: string | null;
-      /** Percentage of users assigned to this variant (0–100). All variants must sum to 100. */
-      rollout_percentage: number;
+      /** @nullable */
+      rollout_percentage?: number | null;
+      /**
+       * Percentage of users assigned to this variant (0–100). All variants must sum to 100. One of split_percent (recommended) or rollout_percentage must be provided.
+       * @nullable
+       */
+      split_percent?: number | null;
     }
 
     export interface ExperimentParameters {
@@ -15512,7 +15676,7 @@ export namespace Schemas {
       holdout_id?: number | null;
       /** @nullable */
       readonly exposure_cohort: number | null;
-      /** Variant definitions and statistical configuration. Set feature_flag_variants to customize the split (default: 50/50 control/test). Each variant needs a key and rollout_percentage; percentages must sum to 100. Set minimum_detectable_effect (percentage, suggest 20-30) to control statistical power. */
+      /** Variant definitions and statistical configuration. Set feature_flag_variants to customize the split (default: 50/50 control/test). Each variant needs a key and split_percent (the variant's share of traffic); percentages must sum to 100. Set minimum_detectable_effect (percentage, suggest 20-30) to control statistical power. */
       parameters?: ExperimentParameters | null;
       secondary_metrics?: unknown | null;
       readonly saved_metrics: readonly ExperimentToSavedMetric[];
@@ -16873,6 +17037,15 @@ export namespace Schemas {
       repositories: GitHubRepo[];
       /** Whether more repositories are available beyond this page. */
       has_more: boolean;
+    }
+
+    export interface GitProviderFileLinkResolveResponse {
+      /** Whether a matching file URL was found. */
+      found: boolean;
+      /** Resolved URL for the matching file. */
+      url?: string;
+      /** Error message when input parameters are invalid. */
+      error?: string;
     }
 
     export interface Group {
@@ -19797,6 +19970,22 @@ export namespace Schemas {
       has_more: boolean;
     }
 
+    /**
+     * * `today` - today
+    * `this_week` - this_week
+    * `inactive` - inactive
+    * `never` - never
+     */
+    export type LastActiveEnum = typeof LastActiveEnum[keyof typeof LastActiveEnum];
+
+
+    export const LastActiveEnum = {
+      Today: 'today',
+      ThisWeek: 'this_week',
+      Inactive: 'inactive',
+      Never: 'never',
+    } as const;
+
     export type LimitContext = typeof LimitContext[keyof typeof LimitContext];
 
 
@@ -19867,16 +20056,30 @@ export namespace Schemas {
       Broken: 'broken',
     } as const;
 
+    export interface LogsAlertSparklineBucket {
+      /** Bucket start timestamp (UTC, hourly). */
+      timestamp: string;
+      /** Count of breached checks in this hour. */
+      breached: number;
+      /** Count of errored checks in this hour. */
+      errored: number;
+    }
+
     export interface LogsAlertConfiguration {
+      /** Unique identifier for this alert. */
       readonly id: string;
-      /** @maxLength 255 */
+      /**
+       * Human-readable name for this alert.
+       * @maxLength 255
+       */
       name: string;
+      /** Whether the alert is actively being evaluated. Disabling resets the state to not_firing. */
       enabled?: boolean;
       /** Filter criteria — subset of LogsViewerFilters. Must contain at least one of: severityLevels (list of severity strings), serviceNames (list of service name strings), or filterGroup (property filter group object). */
       filters: unknown;
       /**
+       * Number of matching log entries that constitutes a threshold breach within the evaluation window.
        * @minimum 1
-       * @maximum 2147483647
        */
       threshold_count: number;
       /** Whether the alert fires when the count is above or below the threshold.
@@ -19884,12 +20087,18 @@ export namespace Schemas {
     * `above` - Above
     * `below` - Below */
       threshold_operator?: ThresholdOperatorEnum;
-      /**
-       * @minimum 0
-       * @maximum 2147483647
-       */
+      /** Time window in minutes over which log entries are counted. Allowed values: 5, 10, 15, 30, 60. */
       window_minutes?: number;
+      /** How often the alert is evaluated, in minutes. Server-managed. */
       readonly check_interval_minutes: number;
+      /** Current alert state: not_firing, firing, pending_resolve, errored, or snoozed. Server-managed.
+
+    * `not_firing` - Not firing
+    * `firing` - Firing
+    * `pending_resolve` - Pending resolve
+    * `errored` - Errored
+    * `snoozed` - Snoozed
+    * `broken` - Broken */
       readonly state: LogsAlertConfigurationStateEnum;
       /**
        * Total number of check periods in the sliding evaluation window for firing (M in N-of-M).
@@ -19904,27 +20113,46 @@ export namespace Schemas {
        */
       datapoints_to_alarm?: number;
       /**
+       * Minimum minutes between repeated notifications after the alert fires. 0 means no cooldown.
        * @minimum 0
-       * @maximum 2147483647
        */
       cooldown_minutes?: number;
-      /** @nullable */
+      /**
+       * ISO 8601 timestamp until which the alert is snoozed. Set to null to unsnooze.
+       * @nullable
+       */
       snooze_until?: string | null;
-      /** @nullable */
+      /**
+       * When the next evaluation is scheduled. Server-managed.
+       * @nullable
+       */
       readonly next_check_at: string | null;
-      /** @nullable */
+      /**
+       * When the last notification was sent. Server-managed.
+       * @nullable
+       */
       readonly last_notified_at: string | null;
-      /** @nullable */
+      /**
+       * When the alert was last evaluated. Server-managed.
+       * @nullable
+       */
       readonly last_checked_at: string | null;
+      /** Number of consecutive evaluation failures. Resets on success. Server-managed. */
       readonly consecutive_failures: number;
       /**
        * Error message from the most recent errored check, or null if the alert's most recent check was successful. Sourced from LogsAlertEvent without denormalization so retention-aware cleanup rules stay the only source of truth.
        * @nullable
        */
       readonly last_error_message: string | null;
+      /** 24 hourly buckets of breached + errored check counts for the last 24h, ordered oldest-first. Drives the activity column on the alert list — empty sparkline = healthy alert. Ok checks are not included: retention caps OK rows at MAX_EVALUATION_PERIODS (~50min at 5-min cadence), so only events that survive the prune (breached + errored) are meaningful over a 24h window. */
+      readonly sparkline: readonly LogsAlertSparklineBucket[];
+      /** When the alert was created. */
       readonly created_at: string;
       readonly created_by: UserBasic;
-      /** @nullable */
+      /**
+       * When the alert was last modified.
+       * @nullable
+       */
       readonly updated_at: string | null;
     }
 
@@ -23783,6 +24011,17 @@ export namespace Schemas {
       Hidden: 'hidden',
     } as const;
 
+    /**
+     * Shape of each item in UserSerializer.pending_invites.
+     */
+    export interface PendingInvite {
+      id: string;
+      target_email: string;
+      organization_id: string;
+      organization_name: string;
+      created_at: string;
+    }
+
     export type UserNotificationSettings = {[key: string]: unknown};
 
     export interface User {
@@ -23843,6 +24082,9 @@ export namespace Schemas {
        * @nullable
        */
       passkeys_enabled_for_2fa?: boolean | null;
+      /** @nullable */
+      readonly is_organization_first_user: boolean | null;
+      readonly pending_invites: readonly PendingInvite[];
     }
 
     export interface PaginatedUserList {
@@ -24095,6 +24337,15 @@ export namespace Schemas {
        * @nullable
        */
       readonly last_value?: number | null;
+      /** When enabled, an investigation agent runs on the state transition to firing and writes findings to a Notebook linked from the alert check. Only effective for detector-based (anomaly) alerts. */
+      investigation_agent_enabled?: boolean;
+      /** When enabled (and investigation_agent_enabled is on), notification dispatch is held until the investigation agent produces a verdict. Notifications are suppressed when the verdict is false_positive (and optionally when inconclusive). A safety-net task force-fires after a few minutes if the investigation stalls. */
+      investigation_gates_notifications?: boolean;
+      /** How to handle an 'inconclusive' verdict when notifications are gated. 'notify' is the safe default — an agent that can't be sure is itself useful signal.
+
+    * `notify` - Notify
+    * `suppress` - Suppress */
+      investigation_inconclusive_action?: InvestigationInconclusiveActionEnum;
     }
 
     export interface PatchedAnnotation {
@@ -25152,63 +25403,121 @@ export namespace Schemas {
       readonly release?: PatchedErrorTrackingSymbolSetRelease;
     }
 
+    /**
+     * Configuration dict. For 'llm_judge': {prompt}. For 'hog': {source}.
+     */
+    export type PatchedEvaluationEvaluationConfig = {
+      /**
+       * Evaluation criteria for the LLM judge. Describe what makes a good vs bad response.
+       * @minLength 1
+       */
+      prompt: string;
+    } | {
+      /**
+       * Hog source code. Must return true (pass), false (fail), or null for N/A.
+       * @minLength 1
+       */
+      source: string;
+    };
+
+    /**
+     * Output config. For 'boolean' output_type: {allows_na} to permit N/A results.
+     */
+    export type PatchedEvaluationOutputConfig = {
+      /** Whether the evaluation can return N/A for non-applicable generations. */
+      allows_na?: boolean;
+    };
+
     export interface PatchedEvaluation {
       readonly id?: string;
-      /** @maxLength 400 */
+      /**
+       * Name of the evaluation.
+       * @maxLength 400
+       */
       name?: string;
+      /** Optional description of what this evaluation checks. */
       description?: string;
+      /** Whether the evaluation runs automatically on new $ai_generation events. */
       enabled?: boolean;
       readonly status?: EvaluationStatusEnum;
       readonly status_reason?: StatusReasonEnum | NullEnum | null;
+      /** 'llm_judge' uses an LLM to score outputs against a prompt; 'hog' runs deterministic Hog code.
+
+    * `llm_judge` - LLM as a judge
+    * `hog` - Hog */
       evaluation_type?: EvaluationTypeEnum;
-      evaluation_config?: unknown;
+      /** Configuration dict. For 'llm_judge': {prompt}. For 'hog': {source}. */
+      evaluation_config?: PatchedEvaluationEvaluationConfig;
+      /** Output format. Currently only 'boolean' is supported.
+
+    * `boolean` - Boolean (Pass/Fail) */
       output_type?: OutputTypeEnum;
-      output_config?: unknown;
+      /** Output config. For 'boolean' output_type: {allows_na} to permit N/A results. */
+      output_config?: PatchedEvaluationOutputConfig;
+      /** Optional trigger conditions to filter which events are evaluated. OR between condition sets, AND within each. */
       conditions?: unknown;
       model_configuration?: ModelConfiguration | null;
       readonly created_at?: string;
       readonly updated_at?: string;
       readonly created_by?: UserBasic;
+      /** Set to true to soft-delete the evaluation. */
       deleted?: boolean;
     }
 
     export interface PatchedEvaluationReport {
       readonly id?: string;
+      /** UUID of the evaluation this report config belongs to. */
       evaluation?: string;
+      /** 'every_n' triggers a report after N evaluations run; 'scheduled' uses an rrule schedule.
+
+    * `scheduled` - Scheduled
+    * `every_n` - Every N */
       frequency?: EvaluationReportFrequencyEnum;
+      /** RFC 5545 recurrence rule string. Required when frequency is 'scheduled'. */
       rrule?: string;
-      /** @nullable */
+      /**
+       * Schedule start datetime (ISO 8601). Required when frequency is 'scheduled'.
+       * @nullable
+       */
       starts_at?: string | null;
-      /** @maxLength 64 */
+      /**
+       * IANA timezone name for scheduled delivery (e.g. 'America/New_York').
+       * @maxLength 64
+       */
       timezone_name?: string;
       /** @nullable */
       readonly next_delivery_date?: string | null;
+      /** List of delivery targets. Each is {type: 'email', value: '...'} or {type: 'slack', integration_id: N, channel: '...'}. */
       delivery_targets?: unknown;
       /**
+       * Max number of evaluation runs included in each report. Defaults to 100.
        * @minimum -2147483648
        * @maximum 2147483647
        */
       max_sample_size?: number;
+      /** Whether report delivery is active. */
       enabled?: boolean;
+      /** Set to true to soft-delete this report config. */
       deleted?: boolean;
       /** @nullable */
       readonly last_delivered_at?: string | null;
+      /** Optional custom instructions injected into the AI report prompt to focus analysis. */
       report_prompt_guidance?: string;
       /**
-       * Number of new eval results that triggers a report
+       * Number of evaluation runs that trigger a report (every_n mode). Min 10, max 1000.
        * @minimum -2147483648
        * @maximum 2147483647
        * @nullable
        */
       trigger_threshold?: number | null;
       /**
-       * Minimum minutes between count-triggered reports
+       * Minimum minutes between reports in every_n mode to prevent spam. Min 60, max 1440 (24 hours).
        * @minimum -2147483648
        * @maximum 2147483647
        */
       cooldown_minutes?: number;
       /**
-       * Maximum count-triggered report runs per calendar day (UTC)
+       * Max reports generated per day. Defaults to 3.
        * @minimum -2147483648
        * @maximum 2147483647
        */
@@ -25258,7 +25567,7 @@ export namespace Schemas {
       holdout_id?: number | null;
       /** @nullable */
       readonly exposure_cohort?: number | null;
-      /** Variant definitions and statistical configuration. Set feature_flag_variants to customize the split (default: 50/50 control/test). Each variant needs a key and rollout_percentage; percentages must sum to 100. Set minimum_detectable_effect (percentage, suggest 20-30) to control statistical power. */
+      /** Variant definitions and statistical configuration. Set feature_flag_variants to customize the split (default: 50/50 control/test). Each variant needs a key and split_percent (the variant's share of traffic); percentages must sum to 100. Set minimum_detectable_effect (percentage, suggest 20-30) to control statistical power. */
       parameters?: ExperimentParameters | null;
       secondary_metrics?: unknown | null;
       readonly saved_metrics?: readonly ExperimentToSavedMetric[];
@@ -25948,15 +26257,20 @@ export namespace Schemas {
     }
 
     export interface PatchedLogsAlertConfiguration {
+      /** Unique identifier for this alert. */
       readonly id?: string;
-      /** @maxLength 255 */
+      /**
+       * Human-readable name for this alert.
+       * @maxLength 255
+       */
       name?: string;
+      /** Whether the alert is actively being evaluated. Disabling resets the state to not_firing. */
       enabled?: boolean;
       /** Filter criteria — subset of LogsViewerFilters. Must contain at least one of: severityLevels (list of severity strings), serviceNames (list of service name strings), or filterGroup (property filter group object). */
       filters?: unknown;
       /**
+       * Number of matching log entries that constitutes a threshold breach within the evaluation window.
        * @minimum 1
-       * @maximum 2147483647
        */
       threshold_count?: number;
       /** Whether the alert fires when the count is above or below the threshold.
@@ -25964,12 +26278,18 @@ export namespace Schemas {
     * `above` - Above
     * `below` - Below */
       threshold_operator?: ThresholdOperatorEnum;
-      /**
-       * @minimum 0
-       * @maximum 2147483647
-       */
+      /** Time window in minutes over which log entries are counted. Allowed values: 5, 10, 15, 30, 60. */
       window_minutes?: number;
+      /** How often the alert is evaluated, in minutes. Server-managed. */
       readonly check_interval_minutes?: number;
+      /** Current alert state: not_firing, firing, pending_resolve, errored, or snoozed. Server-managed.
+
+    * `not_firing` - Not firing
+    * `firing` - Firing
+    * `pending_resolve` - Pending resolve
+    * `errored` - Errored
+    * `snoozed` - Snoozed
+    * `broken` - Broken */
       readonly state?: LogsAlertConfigurationStateEnum;
       /**
        * Total number of check periods in the sliding evaluation window for firing (M in N-of-M).
@@ -25984,27 +26304,46 @@ export namespace Schemas {
        */
       datapoints_to_alarm?: number;
       /**
+       * Minimum minutes between repeated notifications after the alert fires. 0 means no cooldown.
        * @minimum 0
-       * @maximum 2147483647
        */
       cooldown_minutes?: number;
-      /** @nullable */
+      /**
+       * ISO 8601 timestamp until which the alert is snoozed. Set to null to unsnooze.
+       * @nullable
+       */
       snooze_until?: string | null;
-      /** @nullable */
+      /**
+       * When the next evaluation is scheduled. Server-managed.
+       * @nullable
+       */
       readonly next_check_at?: string | null;
-      /** @nullable */
+      /**
+       * When the last notification was sent. Server-managed.
+       * @nullable
+       */
       readonly last_notified_at?: string | null;
-      /** @nullable */
+      /**
+       * When the alert was last evaluated. Server-managed.
+       * @nullable
+       */
       readonly last_checked_at?: string | null;
+      /** Number of consecutive evaluation failures. Resets on success. Server-managed. */
       readonly consecutive_failures?: number;
       /**
        * Error message from the most recent errored check, or null if the alert's most recent check was successful. Sourced from LogsAlertEvent without denormalization so retention-aware cleanup rules stay the only source of truth.
        * @nullable
        */
       readonly last_error_message?: string | null;
+      /** 24 hourly buckets of breached + errored check counts for the last 24h, ordered oldest-first. Drives the activity column on the alert list — empty sparkline = healthy alert. Ok checks are not included: retention caps OK rows at MAX_EVALUATION_PERIODS (~50min at 5-min cadence), so only events that survive the prune (breached + errored) are meaningful over a 24h window. */
+      readonly sparkline?: readonly LogsAlertSparklineBucket[];
+      /** When the alert was created. */
       readonly created_at?: string;
       readonly created_by?: UserBasic;
-      /** @nullable */
+      /**
+       * When the alert was last modified.
+       * @nullable
+       */
       readonly updated_at?: string | null;
     }
 
@@ -28171,6 +28510,9 @@ export namespace Schemas {
        * @nullable
        */
       passkeys_enabled_for_2fa?: boolean | null;
+      /** @nullable */
+      readonly is_organization_first_user?: boolean | null;
+      readonly pending_invites?: readonly PendingInvite[];
     }
 
     export interface PatchedUserInterview {
@@ -32791,6 +33133,61 @@ export namespace Schemas {
       readonly available_setup_task_ids: readonly AvailableSetupTaskIdsEnum[];
     }
 
+    export type TestHogRequestConditionsItem = {[key: string]: unknown};
+
+    export interface TestHogRequest {
+      /**
+       * Hog source code to test. Must return a boolean (true = pass, false = fail) or null for N/A.
+       * @minLength 1
+       */
+      source: string;
+      /**
+       * Number of recent $ai_generation events to test against (1–10, default 5).
+       * @minimum 1
+       * @maximum 10
+       */
+      sample_count?: number;
+      /** Whether the evaluation can return N/A for non-applicable generations. */
+      allows_na?: boolean;
+      /** Optional trigger conditions to filter which events are sampled. */
+      conditions?: TestHogRequestConditionsItem[];
+    }
+
+    export interface TestHogResultItem {
+      /** UUID of the $ai_generation event. */
+      event_uuid: string;
+      /**
+       * Trace ID if available.
+       * @nullable
+       */
+      trace_id?: string | null;
+      /** First 200 chars of the generation input. */
+      input_preview: string;
+      /** First 200 chars of the generation output. */
+      output_preview: string;
+      /**
+       * True = pass, False = fail, null = N/A or error.
+       * @nullable
+       */
+      result: boolean | null;
+      /**
+       * Hog evaluation reasoning string, if any.
+       * @nullable
+       */
+      reasoning: string | null;
+      /**
+       * Error message if the Hog code raised an exception.
+       * @nullable
+       */
+      error: string | null;
+    }
+
+    export interface TestHogResponse {
+      results: TestHogResultItem[];
+      /** Optional message, e.g. when no recent events were found. */
+      message?: string;
+    }
+
     export interface TextReprMetadata {
       event_type?: string;
       event_id?: string;
@@ -32967,6 +33364,57 @@ export namespace Schemas {
       ready_at: string | null;
       /** @nullable */
       failed_at: string | null;
+    }
+
+    export interface _WelcomeInviter {
+      name: string;
+      email: string;
+    }
+
+    export interface _WelcomeTeamMember {
+      name: string;
+      email: string;
+      /** @nullable */
+      avatar: string | null;
+      role: string;
+      last_active: LastActiveEnum;
+    }
+
+    export interface _WelcomeRecentActivity {
+      /** Scope.activity pair, e.g. 'Insight.created'. */
+      type: string;
+      actor_name: string;
+      entity_name: string;
+      /** @nullable */
+      entity_url: string | null;
+      timestamp: string;
+    }
+
+    export interface _WelcomePopularDashboard {
+      id: number;
+      name: string;
+      description: string;
+      team_id: number;
+      url: string;
+    }
+
+    export interface _WelcomeSuggestedStep {
+      label: string;
+      href: string;
+      reason: string;
+      docs_href?: string;
+      product_key?: string;
+    }
+
+    export interface WelcomeResponse {
+      organization_name: string;
+      inviter: _WelcomeInviter | null;
+      team_members: _WelcomeTeamMember[];
+      recent_activity: _WelcomeRecentActivity[];
+      popular_dashboards: _WelcomePopularDashboard[];
+      products_in_use: string[];
+      suggested_next_steps: _WelcomeSuggestedStep[];
+      is_organization_first_user: boolean;
     }
 
     export interface _DateRange {
@@ -33172,6 +33620,70 @@ export namespace Schemas {
     ordering?: string;
     };
 
+    export type EnvironmentsBatchExportsRunsLogsRetrieveParams = {
+    /**
+     * Only return entries after this ISO 8601 timestamp.
+     */
+    after?: string;
+    /**
+     * Only return entries before this ISO 8601 timestamp.
+     */
+    before?: string;
+    /**
+     * Filter logs to a specific execution instance.
+     * @minLength 1
+     */
+    instance_id?: string;
+    /**
+     * Comma-separated log levels to include, e.g. 'WARN,ERROR'. Valid levels: DEBUG, LOG, INFO, WARN, ERROR.
+     * @minLength 1
+     */
+    level?: string;
+    /**
+     * Maximum number of log entries to return (1-500, default 50).
+     * @minimum 1
+     * @maximum 500
+     */
+    limit?: number;
+    /**
+     * Case-insensitive substring search across log messages.
+     * @minLength 1
+     */
+    search?: string;
+    };
+
+    export type EnvironmentsBatchExportsLogsRetrieveParams = {
+    /**
+     * Only return entries after this ISO 8601 timestamp.
+     */
+    after?: string;
+    /**
+     * Only return entries before this ISO 8601 timestamp.
+     */
+    before?: string;
+    /**
+     * Filter logs to a specific execution instance.
+     * @minLength 1
+     */
+    instance_id?: string;
+    /**
+     * Comma-separated log levels to include, e.g. 'WARN,ERROR'. Valid levels: DEBUG, LOG, INFO, WARN, ERROR.
+     * @minLength 1
+     */
+    level?: string;
+    /**
+     * Maximum number of log entries to return (1-500, default 50).
+     * @minimum 1
+     * @maximum 500
+     */
+    limit?: number;
+    /**
+     * Case-insensitive substring search across log messages.
+     * @minLength 1
+     */
+    search?: string;
+    };
+
     export type EnvironmentsDashboardsListParams = {
     format?: EnvironmentsDashboardsListFormat;
     /**
@@ -33272,18 +33784,6 @@ export namespace Schemas {
 
 
     export const EnvironmentsDashboardsCopyTileCreateFormat = {
-      Json: 'json',
-      Txt: 'txt',
-    } as const;
-
-    export type EnvironmentsDashboardsGenerateMetadataCreateParams = {
-    format?: EnvironmentsDashboardsGenerateMetadataCreateFormat;
-    };
-
-    export type EnvironmentsDashboardsGenerateMetadataCreateFormat = typeof EnvironmentsDashboardsGenerateMetadataCreateFormat[keyof typeof EnvironmentsDashboardsGenerateMetadataCreateFormat];
-
-
-    export const EnvironmentsDashboardsGenerateMetadataCreateFormat = {
       Json: 'json',
       Txt: 'txt',
     } as const;
@@ -33797,6 +34297,38 @@ export namespace Schemas {
     offset?: number;
     };
 
+    export type EnvironmentsHogFlowTemplatesLogsRetrieveParams = {
+    /**
+     * Only return entries after this ISO 8601 timestamp.
+     */
+    after?: string;
+    /**
+     * Only return entries before this ISO 8601 timestamp.
+     */
+    before?: string;
+    /**
+     * Filter logs to a specific execution instance.
+     * @minLength 1
+     */
+    instance_id?: string;
+    /**
+     * Comma-separated log levels to include, e.g. 'WARN,ERROR'. Valid levels: DEBUG, LOG, INFO, WARN, ERROR.
+     * @minLength 1
+     */
+    level?: string;
+    /**
+     * Maximum number of log entries to return (1-500, default 50).
+     * @minimum 1
+     * @maximum 500
+     */
+    limit?: number;
+    /**
+     * Case-insensitive substring search across log messages.
+     * @minLength 1
+     */
+    search?: string;
+    };
+
     export type EnvironmentsHogFlowsListParams = {
     created_at?: string;
     created_by?: number;
@@ -33811,6 +34343,162 @@ export namespace Schemas {
     offset?: number;
     updated_at?: string;
     };
+
+    export type EnvironmentsHogFlowsLogsRetrieveParams = {
+    /**
+     * Only return entries after this ISO 8601 timestamp.
+     */
+    after?: string;
+    /**
+     * Only return entries before this ISO 8601 timestamp.
+     */
+    before?: string;
+    /**
+     * Filter logs to a specific execution instance.
+     * @minLength 1
+     */
+    instance_id?: string;
+    /**
+     * Comma-separated log levels to include, e.g. 'WARN,ERROR'. Valid levels: DEBUG, LOG, INFO, WARN, ERROR.
+     * @minLength 1
+     */
+    level?: string;
+    /**
+     * Maximum number of log entries to return (1-500, default 50).
+     * @minimum 1
+     * @maximum 500
+     */
+    limit?: number;
+    /**
+     * Case-insensitive substring search across log messages.
+     * @minLength 1
+     */
+    search?: string;
+    };
+
+    export type EnvironmentsHogFlowsMetricsRetrieveParams = {
+    /**
+     * Start of the time range. Accepts relative formats like '-7d', '-24h' or ISO 8601 timestamps. Defaults to '-7d'.
+     * @minLength 1
+     */
+    after?: string;
+    /**
+     * End of the time range. Same format as 'after'. Defaults to now.
+     * @minLength 1
+     */
+    before?: string;
+    /**
+     * Group the series by metric 'name' or 'kind'. Defaults to 'kind'.
+
+    * `name` - name
+    * `kind` - kind
+     * @minLength 1
+     */
+    breakdown_by?: EnvironmentsHogFlowsMetricsRetrieveBreakdownBy;
+    /**
+     * Filter metrics to a specific execution instance.
+     * @minLength 1
+     */
+    instance_id?: string;
+    /**
+     * Time bucket size for the series. One of: hour, day, week. Defaults to 'day'.
+
+    * `hour` - hour
+    * `day` - day
+    * `week` - week
+     * @minLength 1
+     */
+    interval?: EnvironmentsHogFlowsMetricsRetrieveInterval;
+    /**
+     * Comma-separated metric kinds to filter by, e.g. 'success,failure'.
+     * @minLength 1
+     */
+    kind?: string;
+    /**
+     * Comma-separated metric names to filter by.
+     * @minLength 1
+     */
+    name?: string;
+    };
+
+    export type EnvironmentsHogFlowsMetricsRetrieveBreakdownBy = typeof EnvironmentsHogFlowsMetricsRetrieveBreakdownBy[keyof typeof EnvironmentsHogFlowsMetricsRetrieveBreakdownBy];
+
+
+    export const EnvironmentsHogFlowsMetricsRetrieveBreakdownBy = {
+      Name: 'name',
+      Kind: 'kind',
+    } as const;
+
+    export type EnvironmentsHogFlowsMetricsRetrieveInterval = typeof EnvironmentsHogFlowsMetricsRetrieveInterval[keyof typeof EnvironmentsHogFlowsMetricsRetrieveInterval];
+
+
+    export const EnvironmentsHogFlowsMetricsRetrieveInterval = {
+      Hour: 'hour',
+      Day: 'day',
+      Week: 'week',
+    } as const;
+
+    export type EnvironmentsHogFlowsMetricsTotalsRetrieveParams = {
+    /**
+     * Start of the time range. Accepts relative formats like '-7d', '-24h' or ISO 8601 timestamps. Defaults to '-7d'.
+     * @minLength 1
+     */
+    after?: string;
+    /**
+     * End of the time range. Same format as 'after'. Defaults to now.
+     * @minLength 1
+     */
+    before?: string;
+    /**
+     * Group the series by metric 'name' or 'kind'. Defaults to 'kind'.
+
+    * `name` - name
+    * `kind` - kind
+     * @minLength 1
+     */
+    breakdown_by?: EnvironmentsHogFlowsMetricsTotalsRetrieveBreakdownBy;
+    /**
+     * Filter metrics to a specific execution instance.
+     * @minLength 1
+     */
+    instance_id?: string;
+    /**
+     * Time bucket size for the series. One of: hour, day, week. Defaults to 'day'.
+
+    * `hour` - hour
+    * `day` - day
+    * `week` - week
+     * @minLength 1
+     */
+    interval?: EnvironmentsHogFlowsMetricsTotalsRetrieveInterval;
+    /**
+     * Comma-separated metric kinds to filter by, e.g. 'success,failure'.
+     * @minLength 1
+     */
+    kind?: string;
+    /**
+     * Comma-separated metric names to filter by.
+     * @minLength 1
+     */
+    name?: string;
+    };
+
+    export type EnvironmentsHogFlowsMetricsTotalsRetrieveBreakdownBy = typeof EnvironmentsHogFlowsMetricsTotalsRetrieveBreakdownBy[keyof typeof EnvironmentsHogFlowsMetricsTotalsRetrieveBreakdownBy];
+
+
+    export const EnvironmentsHogFlowsMetricsTotalsRetrieveBreakdownBy = {
+      Name: 'name',
+      Kind: 'kind',
+    } as const;
+
+    export type EnvironmentsHogFlowsMetricsTotalsRetrieveInterval = typeof EnvironmentsHogFlowsMetricsTotalsRetrieveInterval[keyof typeof EnvironmentsHogFlowsMetricsTotalsRetrieveInterval];
+
+
+    export const EnvironmentsHogFlowsMetricsTotalsRetrieveInterval = {
+      Hour: 'hour',
+      Day: 'day',
+      Week: 'week',
+    } as const;
 
     export type EnvironmentsHogFlowsSchedulesListParams = {
     created_at?: string;
@@ -33865,6 +34553,162 @@ export namespace Schemas {
     type?: string[];
     updated_at?: string;
     };
+
+    export type EnvironmentsHogFunctionsLogsRetrieveParams = {
+    /**
+     * Only return entries after this ISO 8601 timestamp.
+     */
+    after?: string;
+    /**
+     * Only return entries before this ISO 8601 timestamp.
+     */
+    before?: string;
+    /**
+     * Filter logs to a specific execution instance.
+     * @minLength 1
+     */
+    instance_id?: string;
+    /**
+     * Comma-separated log levels to include, e.g. 'WARN,ERROR'. Valid levels: DEBUG, LOG, INFO, WARN, ERROR.
+     * @minLength 1
+     */
+    level?: string;
+    /**
+     * Maximum number of log entries to return (1-500, default 50).
+     * @minimum 1
+     * @maximum 500
+     */
+    limit?: number;
+    /**
+     * Case-insensitive substring search across log messages.
+     * @minLength 1
+     */
+    search?: string;
+    };
+
+    export type EnvironmentsHogFunctionsMetricsRetrieveParams = {
+    /**
+     * Start of the time range. Accepts relative formats like '-7d', '-24h' or ISO 8601 timestamps. Defaults to '-7d'.
+     * @minLength 1
+     */
+    after?: string;
+    /**
+     * End of the time range. Same format as 'after'. Defaults to now.
+     * @minLength 1
+     */
+    before?: string;
+    /**
+     * Group the series by metric 'name' or 'kind'. Defaults to 'kind'.
+
+    * `name` - name
+    * `kind` - kind
+     * @minLength 1
+     */
+    breakdown_by?: EnvironmentsHogFunctionsMetricsRetrieveBreakdownBy;
+    /**
+     * Filter metrics to a specific execution instance.
+     * @minLength 1
+     */
+    instance_id?: string;
+    /**
+     * Time bucket size for the series. One of: hour, day, week. Defaults to 'day'.
+
+    * `hour` - hour
+    * `day` - day
+    * `week` - week
+     * @minLength 1
+     */
+    interval?: EnvironmentsHogFunctionsMetricsRetrieveInterval;
+    /**
+     * Comma-separated metric kinds to filter by, e.g. 'success,failure'.
+     * @minLength 1
+     */
+    kind?: string;
+    /**
+     * Comma-separated metric names to filter by.
+     * @minLength 1
+     */
+    name?: string;
+    };
+
+    export type EnvironmentsHogFunctionsMetricsRetrieveBreakdownBy = typeof EnvironmentsHogFunctionsMetricsRetrieveBreakdownBy[keyof typeof EnvironmentsHogFunctionsMetricsRetrieveBreakdownBy];
+
+
+    export const EnvironmentsHogFunctionsMetricsRetrieveBreakdownBy = {
+      Name: 'name',
+      Kind: 'kind',
+    } as const;
+
+    export type EnvironmentsHogFunctionsMetricsRetrieveInterval = typeof EnvironmentsHogFunctionsMetricsRetrieveInterval[keyof typeof EnvironmentsHogFunctionsMetricsRetrieveInterval];
+
+
+    export const EnvironmentsHogFunctionsMetricsRetrieveInterval = {
+      Hour: 'hour',
+      Day: 'day',
+      Week: 'week',
+    } as const;
+
+    export type EnvironmentsHogFunctionsMetricsTotalsRetrieveParams = {
+    /**
+     * Start of the time range. Accepts relative formats like '-7d', '-24h' or ISO 8601 timestamps. Defaults to '-7d'.
+     * @minLength 1
+     */
+    after?: string;
+    /**
+     * End of the time range. Same format as 'after'. Defaults to now.
+     * @minLength 1
+     */
+    before?: string;
+    /**
+     * Group the series by metric 'name' or 'kind'. Defaults to 'kind'.
+
+    * `name` - name
+    * `kind` - kind
+     * @minLength 1
+     */
+    breakdown_by?: EnvironmentsHogFunctionsMetricsTotalsRetrieveBreakdownBy;
+    /**
+     * Filter metrics to a specific execution instance.
+     * @minLength 1
+     */
+    instance_id?: string;
+    /**
+     * Time bucket size for the series. One of: hour, day, week. Defaults to 'day'.
+
+    * `hour` - hour
+    * `day` - day
+    * `week` - week
+     * @minLength 1
+     */
+    interval?: EnvironmentsHogFunctionsMetricsTotalsRetrieveInterval;
+    /**
+     * Comma-separated metric kinds to filter by, e.g. 'success,failure'.
+     * @minLength 1
+     */
+    kind?: string;
+    /**
+     * Comma-separated metric names to filter by.
+     * @minLength 1
+     */
+    name?: string;
+    };
+
+    export type EnvironmentsHogFunctionsMetricsTotalsRetrieveBreakdownBy = typeof EnvironmentsHogFunctionsMetricsTotalsRetrieveBreakdownBy[keyof typeof EnvironmentsHogFunctionsMetricsTotalsRetrieveBreakdownBy];
+
+
+    export const EnvironmentsHogFunctionsMetricsTotalsRetrieveBreakdownBy = {
+      Name: 'name',
+      Kind: 'kind',
+    } as const;
+
+    export type EnvironmentsHogFunctionsMetricsTotalsRetrieveInterval = typeof EnvironmentsHogFunctionsMetricsTotalsRetrieveInterval[keyof typeof EnvironmentsHogFunctionsMetricsTotalsRetrieveInterval];
+
+
+    export const EnvironmentsHogFunctionsMetricsTotalsRetrieveInterval = {
+      Hour: 'hour',
+      Day: 'day',
+      Week: 'week',
+    } as const;
 
     export type EnvironmentsInsightVariablesListParams = {
     /**
@@ -35060,6 +35904,52 @@ export namespace Schemas {
     offset?: number;
     };
 
+    export type ErrorTrackingGitProviderFileLinksResolveGithubRetrieveParams = {
+    /**
+     * Code snippet to search for in repository files.
+     * @minLength 1
+     */
+    code_sample: string;
+    /**
+     * File name to match in search results.
+     * @minLength 1
+     */
+    file_name: string;
+    /**
+     * Repository owner or namespace.
+     * @minLength 1
+     */
+    owner: string;
+    /**
+     * Repository name.
+     * @minLength 1
+     */
+    repository: string;
+    };
+
+    export type ErrorTrackingGitProviderFileLinksResolveGitlabRetrieveParams = {
+    /**
+     * Code snippet to search for in repository files.
+     * @minLength 1
+     */
+    code_sample: string;
+    /**
+     * File name to match in search results.
+     * @minLength 1
+     */
+    file_name: string;
+    /**
+     * Repository owner or namespace.
+     * @minLength 1
+     */
+    owner: string;
+    /**
+     * Repository name.
+     * @minLength 1
+     */
+    repository: string;
+    };
+
     export type ErrorTrackingIssuesListParams = {
     /**
      * Number of results to return per page.
@@ -35756,6 +36646,38 @@ export namespace Schemas {
     offset?: number;
     };
 
+    export type BatchExportsLogsRetrieveParams = {
+    /**
+     * Only return entries after this ISO 8601 timestamp.
+     */
+    after?: string;
+    /**
+     * Only return entries before this ISO 8601 timestamp.
+     */
+    before?: string;
+    /**
+     * Filter logs to a specific execution instance.
+     * @minLength 1
+     */
+    instance_id?: string;
+    /**
+     * Comma-separated log levels to include, e.g. 'WARN,ERROR'. Valid levels: DEBUG, LOG, INFO, WARN, ERROR.
+     * @minLength 1
+     */
+    level?: string;
+    /**
+     * Maximum number of log entries to return (1-500, default 50).
+     * @minimum 1
+     * @maximum 500
+     */
+    limit?: number;
+    /**
+     * Case-insensitive substring search across log messages.
+     * @minLength 1
+     */
+    search?: string;
+    };
+
     export type DomainsListParams = {
     /**
      * Number of results to return per page.
@@ -36337,6 +37259,70 @@ export namespace Schemas {
     ordering?: string;
     };
 
+    export type BatchExportsRunsLogsRetrieveParams = {
+    /**
+     * Only return entries after this ISO 8601 timestamp.
+     */
+    after?: string;
+    /**
+     * Only return entries before this ISO 8601 timestamp.
+     */
+    before?: string;
+    /**
+     * Filter logs to a specific execution instance.
+     * @minLength 1
+     */
+    instance_id?: string;
+    /**
+     * Comma-separated log levels to include, e.g. 'WARN,ERROR'. Valid levels: DEBUG, LOG, INFO, WARN, ERROR.
+     * @minLength 1
+     */
+    level?: string;
+    /**
+     * Maximum number of log entries to return (1-500, default 50).
+     * @minimum 1
+     * @maximum 500
+     */
+    limit?: number;
+    /**
+     * Case-insensitive substring search across log messages.
+     * @minLength 1
+     */
+    search?: string;
+    };
+
+    export type BatchExportsLogsRetrieve2Params = {
+    /**
+     * Only return entries after this ISO 8601 timestamp.
+     */
+    after?: string;
+    /**
+     * Only return entries before this ISO 8601 timestamp.
+     */
+    before?: string;
+    /**
+     * Filter logs to a specific execution instance.
+     * @minLength 1
+     */
+    instance_id?: string;
+    /**
+     * Comma-separated log levels to include, e.g. 'WARN,ERROR'. Valid levels: DEBUG, LOG, INFO, WARN, ERROR.
+     * @minLength 1
+     */
+    level?: string;
+    /**
+     * Maximum number of log entries to return (1-500, default 50).
+     * @minimum 1
+     * @maximum 500
+     */
+    limit?: number;
+    /**
+     * Case-insensitive substring search across log messages.
+     * @minLength 1
+     */
+    search?: string;
+    };
+
     export type CohortsListParams = {
     /**
      * Number of results to return per page.
@@ -36607,18 +37593,6 @@ export namespace Schemas {
 
 
     export const DashboardsCopyTileCreateFormat = {
-      Json: 'json',
-      Txt: 'txt',
-    } as const;
-
-    export type DashboardsGenerateMetadataCreateParams = {
-    format?: DashboardsGenerateMetadataCreateFormat;
-    };
-
-    export type DashboardsGenerateMetadataCreateFormat = typeof DashboardsGenerateMetadataCreateFormat[keyof typeof DashboardsGenerateMetadataCreateFormat];
-
-
-    export const DashboardsGenerateMetadataCreateFormat = {
       Json: 'json',
       Txt: 'txt',
     } as const;
@@ -37402,6 +38376,38 @@ export namespace Schemas {
     offset?: number;
     };
 
+    export type HogFlowTemplatesLogsRetrieveParams = {
+    /**
+     * Only return entries after this ISO 8601 timestamp.
+     */
+    after?: string;
+    /**
+     * Only return entries before this ISO 8601 timestamp.
+     */
+    before?: string;
+    /**
+     * Filter logs to a specific execution instance.
+     * @minLength 1
+     */
+    instance_id?: string;
+    /**
+     * Comma-separated log levels to include, e.g. 'WARN,ERROR'. Valid levels: DEBUG, LOG, INFO, WARN, ERROR.
+     * @minLength 1
+     */
+    level?: string;
+    /**
+     * Maximum number of log entries to return (1-500, default 50).
+     * @minimum 1
+     * @maximum 500
+     */
+    limit?: number;
+    /**
+     * Case-insensitive substring search across log messages.
+     * @minLength 1
+     */
+    search?: string;
+    };
+
     export type HogFlowsListParams = {
     created_at?: string;
     created_by?: number;
@@ -37416,6 +38422,162 @@ export namespace Schemas {
     offset?: number;
     updated_at?: string;
     };
+
+    export type HogFlowsLogsRetrieveParams = {
+    /**
+     * Only return entries after this ISO 8601 timestamp.
+     */
+    after?: string;
+    /**
+     * Only return entries before this ISO 8601 timestamp.
+     */
+    before?: string;
+    /**
+     * Filter logs to a specific execution instance.
+     * @minLength 1
+     */
+    instance_id?: string;
+    /**
+     * Comma-separated log levels to include, e.g. 'WARN,ERROR'. Valid levels: DEBUG, LOG, INFO, WARN, ERROR.
+     * @minLength 1
+     */
+    level?: string;
+    /**
+     * Maximum number of log entries to return (1-500, default 50).
+     * @minimum 1
+     * @maximum 500
+     */
+    limit?: number;
+    /**
+     * Case-insensitive substring search across log messages.
+     * @minLength 1
+     */
+    search?: string;
+    };
+
+    export type HogFlowsMetricsRetrieveParams = {
+    /**
+     * Start of the time range. Accepts relative formats like '-7d', '-24h' or ISO 8601 timestamps. Defaults to '-7d'.
+     * @minLength 1
+     */
+    after?: string;
+    /**
+     * End of the time range. Same format as 'after'. Defaults to now.
+     * @minLength 1
+     */
+    before?: string;
+    /**
+     * Group the series by metric 'name' or 'kind'. Defaults to 'kind'.
+
+    * `name` - name
+    * `kind` - kind
+     * @minLength 1
+     */
+    breakdown_by?: HogFlowsMetricsRetrieveBreakdownBy;
+    /**
+     * Filter metrics to a specific execution instance.
+     * @minLength 1
+     */
+    instance_id?: string;
+    /**
+     * Time bucket size for the series. One of: hour, day, week. Defaults to 'day'.
+
+    * `hour` - hour
+    * `day` - day
+    * `week` - week
+     * @minLength 1
+     */
+    interval?: HogFlowsMetricsRetrieveInterval;
+    /**
+     * Comma-separated metric kinds to filter by, e.g. 'success,failure'.
+     * @minLength 1
+     */
+    kind?: string;
+    /**
+     * Comma-separated metric names to filter by.
+     * @minLength 1
+     */
+    name?: string;
+    };
+
+    export type HogFlowsMetricsRetrieveBreakdownBy = typeof HogFlowsMetricsRetrieveBreakdownBy[keyof typeof HogFlowsMetricsRetrieveBreakdownBy];
+
+
+    export const HogFlowsMetricsRetrieveBreakdownBy = {
+      Name: 'name',
+      Kind: 'kind',
+    } as const;
+
+    export type HogFlowsMetricsRetrieveInterval = typeof HogFlowsMetricsRetrieveInterval[keyof typeof HogFlowsMetricsRetrieveInterval];
+
+
+    export const HogFlowsMetricsRetrieveInterval = {
+      Hour: 'hour',
+      Day: 'day',
+      Week: 'week',
+    } as const;
+
+    export type HogFlowsMetricsTotalsRetrieveParams = {
+    /**
+     * Start of the time range. Accepts relative formats like '-7d', '-24h' or ISO 8601 timestamps. Defaults to '-7d'.
+     * @minLength 1
+     */
+    after?: string;
+    /**
+     * End of the time range. Same format as 'after'. Defaults to now.
+     * @minLength 1
+     */
+    before?: string;
+    /**
+     * Group the series by metric 'name' or 'kind'. Defaults to 'kind'.
+
+    * `name` - name
+    * `kind` - kind
+     * @minLength 1
+     */
+    breakdown_by?: HogFlowsMetricsTotalsRetrieveBreakdownBy;
+    /**
+     * Filter metrics to a specific execution instance.
+     * @minLength 1
+     */
+    instance_id?: string;
+    /**
+     * Time bucket size for the series. One of: hour, day, week. Defaults to 'day'.
+
+    * `hour` - hour
+    * `day` - day
+    * `week` - week
+     * @minLength 1
+     */
+    interval?: HogFlowsMetricsTotalsRetrieveInterval;
+    /**
+     * Comma-separated metric kinds to filter by, e.g. 'success,failure'.
+     * @minLength 1
+     */
+    kind?: string;
+    /**
+     * Comma-separated metric names to filter by.
+     * @minLength 1
+     */
+    name?: string;
+    };
+
+    export type HogFlowsMetricsTotalsRetrieveBreakdownBy = typeof HogFlowsMetricsTotalsRetrieveBreakdownBy[keyof typeof HogFlowsMetricsTotalsRetrieveBreakdownBy];
+
+
+    export const HogFlowsMetricsTotalsRetrieveBreakdownBy = {
+      Name: 'name',
+      Kind: 'kind',
+    } as const;
+
+    export type HogFlowsMetricsTotalsRetrieveInterval = typeof HogFlowsMetricsTotalsRetrieveInterval[keyof typeof HogFlowsMetricsTotalsRetrieveInterval];
+
+
+    export const HogFlowsMetricsTotalsRetrieveInterval = {
+      Hour: 'hour',
+      Day: 'day',
+      Week: 'week',
+    } as const;
 
     export type HogFlowsSchedulesListParams = {
     created_at?: string;
@@ -37493,6 +38655,162 @@ export namespace Schemas {
     type?: string[];
     updated_at?: string;
     };
+
+    export type HogFunctionsLogsRetrieveParams = {
+    /**
+     * Only return entries after this ISO 8601 timestamp.
+     */
+    after?: string;
+    /**
+     * Only return entries before this ISO 8601 timestamp.
+     */
+    before?: string;
+    /**
+     * Filter logs to a specific execution instance.
+     * @minLength 1
+     */
+    instance_id?: string;
+    /**
+     * Comma-separated log levels to include, e.g. 'WARN,ERROR'. Valid levels: DEBUG, LOG, INFO, WARN, ERROR.
+     * @minLength 1
+     */
+    level?: string;
+    /**
+     * Maximum number of log entries to return (1-500, default 50).
+     * @minimum 1
+     * @maximum 500
+     */
+    limit?: number;
+    /**
+     * Case-insensitive substring search across log messages.
+     * @minLength 1
+     */
+    search?: string;
+    };
+
+    export type HogFunctionsMetricsRetrieveParams = {
+    /**
+     * Start of the time range. Accepts relative formats like '-7d', '-24h' or ISO 8601 timestamps. Defaults to '-7d'.
+     * @minLength 1
+     */
+    after?: string;
+    /**
+     * End of the time range. Same format as 'after'. Defaults to now.
+     * @minLength 1
+     */
+    before?: string;
+    /**
+     * Group the series by metric 'name' or 'kind'. Defaults to 'kind'.
+
+    * `name` - name
+    * `kind` - kind
+     * @minLength 1
+     */
+    breakdown_by?: HogFunctionsMetricsRetrieveBreakdownBy;
+    /**
+     * Filter metrics to a specific execution instance.
+     * @minLength 1
+     */
+    instance_id?: string;
+    /**
+     * Time bucket size for the series. One of: hour, day, week. Defaults to 'day'.
+
+    * `hour` - hour
+    * `day` - day
+    * `week` - week
+     * @minLength 1
+     */
+    interval?: HogFunctionsMetricsRetrieveInterval;
+    /**
+     * Comma-separated metric kinds to filter by, e.g. 'success,failure'.
+     * @minLength 1
+     */
+    kind?: string;
+    /**
+     * Comma-separated metric names to filter by.
+     * @minLength 1
+     */
+    name?: string;
+    };
+
+    export type HogFunctionsMetricsRetrieveBreakdownBy = typeof HogFunctionsMetricsRetrieveBreakdownBy[keyof typeof HogFunctionsMetricsRetrieveBreakdownBy];
+
+
+    export const HogFunctionsMetricsRetrieveBreakdownBy = {
+      Name: 'name',
+      Kind: 'kind',
+    } as const;
+
+    export type HogFunctionsMetricsRetrieveInterval = typeof HogFunctionsMetricsRetrieveInterval[keyof typeof HogFunctionsMetricsRetrieveInterval];
+
+
+    export const HogFunctionsMetricsRetrieveInterval = {
+      Hour: 'hour',
+      Day: 'day',
+      Week: 'week',
+    } as const;
+
+    export type HogFunctionsMetricsTotalsRetrieveParams = {
+    /**
+     * Start of the time range. Accepts relative formats like '-7d', '-24h' or ISO 8601 timestamps. Defaults to '-7d'.
+     * @minLength 1
+     */
+    after?: string;
+    /**
+     * End of the time range. Same format as 'after'. Defaults to now.
+     * @minLength 1
+     */
+    before?: string;
+    /**
+     * Group the series by metric 'name' or 'kind'. Defaults to 'kind'.
+
+    * `name` - name
+    * `kind` - kind
+     * @minLength 1
+     */
+    breakdown_by?: HogFunctionsMetricsTotalsRetrieveBreakdownBy;
+    /**
+     * Filter metrics to a specific execution instance.
+     * @minLength 1
+     */
+    instance_id?: string;
+    /**
+     * Time bucket size for the series. One of: hour, day, week. Defaults to 'day'.
+
+    * `hour` - hour
+    * `day` - day
+    * `week` - week
+     * @minLength 1
+     */
+    interval?: HogFunctionsMetricsTotalsRetrieveInterval;
+    /**
+     * Comma-separated metric kinds to filter by, e.g. 'success,failure'.
+     * @minLength 1
+     */
+    kind?: string;
+    /**
+     * Comma-separated metric names to filter by.
+     * @minLength 1
+     */
+    name?: string;
+    };
+
+    export type HogFunctionsMetricsTotalsRetrieveBreakdownBy = typeof HogFunctionsMetricsTotalsRetrieveBreakdownBy[keyof typeof HogFunctionsMetricsTotalsRetrieveBreakdownBy];
+
+
+    export const HogFunctionsMetricsTotalsRetrieveBreakdownBy = {
+      Name: 'name',
+      Kind: 'kind',
+    } as const;
+
+    export type HogFunctionsMetricsTotalsRetrieveInterval = typeof HogFunctionsMetricsTotalsRetrieveInterval[keyof typeof HogFunctionsMetricsTotalsRetrieveInterval];
+
+
+    export const HogFunctionsMetricsTotalsRetrieveInterval = {
+      Hour: 'hour',
+      Day: 'day',
+      Week: 'week',
+    } as const;
 
     export type InsightVariablesListParams = {
     /**

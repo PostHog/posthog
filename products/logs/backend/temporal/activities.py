@@ -14,8 +14,11 @@ import temporalio.activity
 from posthog.cdp.internal_events import InternalEventEvent, produce_internal_event
 from posthog.exceptions_capture import capture_exception
 
-from products.logs.backend.alert_check_query import AlertCheckQuery
-from products.logs.backend.alert_error_classifier import classify as classify_alert_error
+from products.logs.backend.alert_check_query import AlertCheckQuery, fetch_live_logs_checkpoint, resolve_alert_date_to
+from products.logs.backend.alert_error_classifier import (
+    AlertErrorCode,
+    classify as classify_alert_error,
+)
 from products.logs.backend.alert_state_machine import (
     AlertCheckOutcome,
     AlertState,
@@ -27,7 +30,16 @@ from products.logs.backend.alert_state_machine import (
 from products.logs.backend.alert_utils import advance_next_check_at
 from products.logs.backend.logs_url_params import build_logs_url_params
 from products.logs.backend.models import MAX_EVALUATION_PERIODS, LogsAlertConfiguration, LogsAlertEvent
-from products.logs.backend.temporal.metrics import increment_checks_total, record_check_duration, record_scheduler_lag
+from products.logs.backend.temporal.metrics import (
+    increment_check_errors,
+    increment_checks_total,
+    increment_notification_failures,
+    increment_state_transition,
+    record_alerts_active,
+    record_check_duration,
+    record_checkpoint_lag,
+    record_scheduler_lag,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -66,13 +78,30 @@ def _check_alerts_sync() -> CheckAlertsOutput:
         .exclude(state=LogsAlertConfiguration.State.BROKEN)
     )
 
+    try:
+        record_alerts_active(len(all_alerts))
+    except Exception:
+        logger.exception("Failed to record alerts_active gauge")
+
+    checkpoint: datetime | None = None
+    if all_alerts:
+        try:
+            checkpoint = fetch_live_logs_checkpoint(all_alerts[0].team)
+        except Exception:
+            logger.exception("Failed to fetch logs ingestion checkpoint; falling back to wall-clock")
+
+    try:
+        record_checkpoint_lag(now, checkpoint)
+    except Exception:
+        logger.exception("Failed to record checkpoint lag gauge")
+
     stats = {"checked": 0, "fired": 0, "resolved": 0, "errored": 0}
 
     # Sequential for now. TODO, stagger
     # or cap concurrency to avoid bursting all ClickHouse queries at :00 each minute.
     for alert in all_alerts:
         try:
-            _evaluate_single_alert(alert, now, stats)
+            _evaluate_single_alert(alert, now, stats, checkpoint=checkpoint)
         except Exception:
             logger.exception(
                 "Unexpected error evaluating alert",
@@ -100,15 +129,18 @@ def _evaluate_single_alert(
     alert: LogsAlertConfiguration,
     now: datetime,
     stats: dict[str, int],
+    *,
+    checkpoint: datetime | None = None,
 ) -> None:
     """Run the ClickHouse query, apply state machine, persist, and emit events for a single alert."""
     start_time = time.perf_counter()
     original_next_check_at = alert.next_check_at
 
-    date_to = now
-    date_from = now - timedelta(minutes=alert.window_minutes)
+    date_to = resolve_alert_date_to(now, checkpoint)
+    date_from = date_to - timedelta(minutes=alert.window_minutes)
 
     check_result: CheckResult
+    error_category: AlertErrorCode | None = None
     try:
         query_result = AlertCheckQuery(
             team=alert.team,
@@ -128,6 +160,7 @@ def _evaluate_single_alert(
         )
     except Exception as e:
         classified = classify_alert_error(e)
+        error_category = classified.code
         capture_exception(e, {"alert_id": str(alert.id), "classification": classified.code})
         logger.warning(
             "Alert check query failed",
@@ -281,6 +314,16 @@ def _evaluate_single_alert(
             increment_checks_total("resolved")
         else:
             increment_checks_total("ok")
+
+        if error_category is not None:
+            increment_check_errors(error_category)
+
+        if notification_failed:
+            increment_notification_failures(outcome.notification)
+
+        state_before_enum = AlertState(state_before)
+        if committed_state != state_before_enum:
+            increment_state_transition(state_before_enum, committed_state)
     except Exception:
         logger.exception("Failed to record alert check metrics", alert_id=str(alert.id))
 
