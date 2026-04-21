@@ -233,6 +233,13 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
                     const ts = currentBucketTs - i * 60
                     const bucket = bucketMap.get(ts)
 
+                    let botEvents = 0
+                    if (bucket?.bots) {
+                        for (const { count } of bucket.bots.values()) {
+                            botEvents += count
+                        }
+                    }
+
                     result.push({
                         minute: dayjs.unix(ts).format('HH:mm'),
                         timestamp: ts * 1000,
@@ -240,6 +247,7 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
                         newUsers: bucket?.newUserCount ?? 0,
                         returningUsers: bucket?.returningUserCount ?? 0,
                         pageviews: bucket?.pageviews ?? 0,
+                        botEvents,
                     })
                 }
 

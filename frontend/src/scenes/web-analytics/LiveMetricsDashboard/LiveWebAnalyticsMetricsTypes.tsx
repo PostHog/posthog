@@ -5,6 +5,7 @@ export interface ChartDataPoint {
     newUsers: number
     returningUsers: number
     pageviews: number
+    botEvents: number
 }
 
 export interface DeviceBreakdownItem {

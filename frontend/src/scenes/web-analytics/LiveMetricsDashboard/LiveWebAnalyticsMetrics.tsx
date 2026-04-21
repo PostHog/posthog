@@ -32,7 +32,7 @@ import { LiveStatCard, LiveStatDivider } from './LiveStatCard'
 import { LiveTopPathsTable } from './LiveTopPathsTable'
 import { LiveTopReferrersTable } from './LiveTopReferrersTable'
 import { liveWebAnalyticsLayoutLogic } from './liveWebAnalyticsLayoutLogic'
-import { UsersPerMinuteChart } from './liveWebAnalyticsMetricsCharts'
+import { BotEventsPerMinuteChart, UsersPerMinuteChart } from './liveWebAnalyticsMetricsCharts'
 import { liveWebAnalyticsMetricsLogic } from './liveWebAnalyticsMetricsLogic'
 import { BrowserBreakdownItem, CountryBreakdownItem, DeviceBreakdownItem } from './LiveWebAnalyticsMetricsTypes'
 import { LiveWorldMap } from './LiveWorldMap'
@@ -242,6 +242,18 @@ export const LiveWebAnalyticsMetrics = (): JSX.Element => {
                         statLabel="unique visitors"
                         isLoading={isLoading}
                     />
+                )
+            case 'bot_events_chart':
+                return (
+                    <LiveChartCard
+                        title="Bot requests per minute"
+                        subtitle={timezone}
+                        subtitleTooltip="Metrics are shown in your local timezone"
+                        isLoading={isLoading}
+                        contentClassName="h-64 md:h-80"
+                    >
+                        <BotEventsPerMinuteChart data={chartData} />
+                    </LiveChartCard>
                 )
             case 'bot_traffic':
                 return (
