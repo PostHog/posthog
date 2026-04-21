@@ -30,7 +30,7 @@ import { billingProductLogic } from './billingProductLogic'
 import { PlanIcon } from './PlanComparison'
 import { UnsubscribeSurveyModal } from './UnsubscribeSurveyModal'
 
-export const COMPARISON_ADDONS: BillingPlan[] = [BillingPlan.Boost, BillingPlan.Scale, BillingPlan.Enterprise]
+const COMPARISON_ADDONS: BillingPlan[] = [BillingPlan.Boost, BillingPlan.Scale, BillingPlan.Enterprise]
 
 const PLAN_DESCRIPTION: Partial<Record<BillingPlan, string>> = {
     [BillingPlan.Boost]: 'Essentials for security and compliance',
@@ -157,13 +157,7 @@ const PlanCard = ({
                 </div>
             )}
             <div className="-mt-2">
-                <BillingProductAddonActions
-                    addon={addon}
-                    buttonSize="small"
-                    align="left"
-                    hideTrialTag
-                    hidePricingNote
-                />
+                <BillingProductAddonActions addon={addon} buttonSize="small" align="left" hidePricingNote />
             </div>
         </div>
     )
