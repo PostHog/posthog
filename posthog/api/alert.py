@@ -584,7 +584,7 @@ class AlertToggleSerializer(serializers.Serializer):
 
 class AlertCheckListResponseSerializer(serializers.Serializer):
     count = serializers.IntegerField(help_text="Total checks matching the filters.")
-    results = AlertCheckSerializer(many=True)  # type: ignore[assignment]
+    results = AlertCheckSerializer(many=True)
 
 
 class AlertSimulateResponseSerializer(serializers.Serializer):
@@ -902,10 +902,9 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         enabled = serializer.validated_data["enabled"]
 
         if instance.enabled != enabled:
-            was_disabled = not instance.enabled
             instance.enabled = enabled
             update_fields = ["enabled"]
-            if enabled and was_disabled:
+            if enabled:
                 update_fields.extend(instance.mark_for_recheck(reset_state=False))
             instance.save(update_fields=update_fields)
 
