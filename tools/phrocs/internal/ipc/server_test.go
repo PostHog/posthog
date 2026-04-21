@@ -104,25 +104,23 @@ func TestRemoveOwnedSocket_guardAgainstReplacedFile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Listen: %v", err)
 	}
-	origInode := SocketInode(path)
-	if origInode == 0 {
+	t.Cleanup(func() { _ = ln.Close() })
+
+	actualInode := SocketInode(path)
+	if actualInode == 0 {
 		t.Fatal("SocketInode returned 0 for bound socket")
 	}
 
-	// Simulate a second phrocs replacing the file at this path — close the
-	// original then bind a fresh listener so the inode changes.
-	_ = ln.Close()
-	_ = os.Remove(path)
-	ln2, err := Listen(path)
-	if err != nil {
-		t.Fatalf("Listen (second): %v", err)
-	}
-	t.Cleanup(func() { _ = ln2.Close() })
-
-	RemoveOwnedSocket(path, origInode)
+	// Simulate a crashed daemon's stale defer calling RemoveOwnedSocket with
+	// an inode that doesn't match the file currently at `path` (a replacement
+	// bound by a later daemon). The guard must refuse to remove the file.
+	// We pass actualInode+1 directly rather than rebind-at-same-path, because
+	// on Linux tmpfs the freed inode often gets reused, which would defeat
+	// the simulation (the "replacement" would have the same inode).
+	RemoveOwnedSocket(path, actualInode+1)
 
 	if _, err := os.Lstat(path); err != nil {
-		t.Fatalf("expected replacement socket to survive RemoveOwnedSocket, got error %v", err)
+		t.Fatalf("expected socket to survive RemoveOwnedSocket with mismatched inode, got error %v", err)
 	}
 }
 
