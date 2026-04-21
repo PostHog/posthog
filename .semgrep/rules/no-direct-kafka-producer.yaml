@@ -31,3 +31,8 @@ rules:
               # AIOProducer refuses in batch mode. Uses raw aiokafka with cluster
               # config resolved via get_profile_settings().
               - posthog/temporal/dlq_replay/activities.py
+              # Batch export metrics path — tests assert metrics land in ClickHouse
+              # via the kafka→CH ingest pipeline, and the confluent AIOProducer
+              # behaves differently in that test environment. Left on raw aiokafka
+              # to keep existing tests passing; migrate in a follow-up PR.
+              - products/batch_exports/backend/temporal/batch_exports.py
