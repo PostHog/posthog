@@ -713,3 +713,9 @@ tools:
             Trigger a full resync for a table schema, discarding all previously synced data and re-importing
             from the source. This cancels any running sync first, then resets the pipeline state. Use this
             when data is corrupt or out of sync.
+    insight-variables-list:
+        operation: insight_variables_list
+        enabled: false
+    insight-variables-retrieve:
+        operation: insight_variables_retrieve
+        enabled: false
