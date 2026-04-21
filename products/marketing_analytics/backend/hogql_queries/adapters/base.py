@@ -417,10 +417,3 @@ class MarketingSourceAdapter(ABC, Generic[ConfigType]):
             self.logger.error("Query generation failed", error=error_msg, exc_info=True)
             self._log_query_generation(False, error_msg)
             return None
-
-    def build_query_string(self) -> Optional[str]:
-        """
-        Build SQL query string (backwards compatibility).
-        """
-        query = self.build_query()
-        return query.to_hogql() if query else None

@@ -492,7 +492,7 @@ def list_recordings_response(
     session_recording_serializer = SessionRecordingSerializer(recordings, context=context, many=True)
     results = session_recording_serializer.data
 
-    response_data = {"results": results, "has_next": more_recordings_available, "version": 4}
+    response_data: dict[str, Any] = {"results": results, "has_next": more_recordings_available, "version": 4}
     if next_cursor is not None:
         response_data["next_cursor"] = next_cursor
 

@@ -40,6 +40,9 @@ jobs:
                         - 'package.json'
                         - '.github/workflows/ci-storybook.yml'
                         - 'playwright.config.ts'
+                        # Generated API types should not trigger Storybook/VR checks on their own
+                        - '!frontend/src/generated/**'
+                        - '!products/**/frontend/generated/**'
 
     build-storybook:
         name: Build Storybook (${{ matrix.runner }})
@@ -453,7 +456,7 @@ jobs:
                     exit 1
                   fi
 
-                  if [[ "${{ needs.vr-complete.result }}" != "success" ]]; then
+                  if [[ "${{ needs.vr-complete.result }}" != "success" && "${{ needs.vr-complete.result }}" != "skipped" ]]; then
                     echo "Visual Review did not complete successfully (result: ${{ needs.vr-complete.result }})."
                     exit 1
                   fi

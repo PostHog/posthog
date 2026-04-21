@@ -285,7 +285,6 @@ class ExperimentQueryRunner(QueryRunner):
                 isinstance(self.metric, ExperimentFunnelMetric)
                 and (self.metric.funnel_order_type or "ordered") == "ordered"
                 and not self._get_breakdowns_for_builder()
-                and self.query.metric_events_precomputation
             ):
                 try:
                     metric_result = self._ensure_metric_events_precomputed(builder)

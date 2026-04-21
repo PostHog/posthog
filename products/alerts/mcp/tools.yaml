@@ -152,3 +152,6 @@ tools:
     logs-alerts-reset-create:
         operation: logs_alerts_reset_create
         enabled: false
+    logs-alerts-events-list:
+        operation: logs_alerts_events_list
+        enabled: false

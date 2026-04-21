@@ -1736,6 +1736,7 @@ dependencies = [
  "lz-str",
  "metrics",
  "metrics-exporter-prometheus",
+ "metrics-util",
  "multer",
  "once_cell",
  "opentelemetry 0.22.0",

@@ -11,9 +11,13 @@ describe('StateManager', () => {
     let cache: MemoryCache<State>
     const mockUser: ApiUser = {
         distinct_id: 'distinct-123',
-        organizations: [{ id: 'org-1' }, { id: 'org-2' }],
-        team: { id: 456, organization: 'org-1' },
-        organization: { id: 'org-1' },
+        email: 'test@example.com',
+        organizations: [
+            { id: 'org-1', name: 'Org 1' },
+            { id: 'org-2', name: 'Org 2' },
+        ],
+        team: { id: 456, name: 'My Project', timezone: 'UTC', organization: 'org-1' },
+        organization: { id: 'org-1', name: 'Org 1' },
     }
 
     const mockApiKey: ApiRedactedPersonalApiKey = {

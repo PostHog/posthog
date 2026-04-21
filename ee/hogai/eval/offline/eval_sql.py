@@ -85,7 +85,7 @@ async def call_graph(entry: DatasetInput, *args):
 @capture_score
 async def sql_semantics_scorer(input: DatasetInput, expected: str, output: EvalOutput, **kwargs) -> Score:
     metric = SQLSemanticsCorrectness(client=get_eval_context().get_openai_client_for_tracing(input.trace_id))
-    return await metric.eval_async(
+    return await metric.eval_async(  # ty: ignore[invalid-return-type]
         output.sql_query,
         expected=expected,
         input=input.input["query"],
@@ -96,7 +96,7 @@ async def sql_semantics_scorer(input: DatasetInput, expected: str, output: EvalO
 @capture_score
 async def sql_syntax_scorer(input: DatasetInput, expected: str, output: EvalOutput, **kwargs) -> Score:
     metric = SQLSyntaxCorrectness()
-    return await metric.eval_async(
+    return await metric.eval_async(  # ty: ignore[invalid-return-type]
         output.sql_query,
         expected=expected,
         input=input.input["query"],
