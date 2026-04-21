@@ -1257,47 +1257,52 @@ class TestClaudeTokenResolution:
 class TestCreateTask:
     """Test the coder task create argv assembly."""
 
-    def test_positional_prompt(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    @pytest.mark.parametrize(
+        "prompt, task_name, quiet, expected_tail",
+        [
+            ("fix CI on PR #1234", None, False, ["fix CI on PR #1234"]),
+            (None, None, False, ["--stdin"]),
+            ("do the thing", "my-task", True, ["--name", "my-task", "--quiet", "do the thing"]),
+        ],
+    )
+    def test_create_task_argv(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        prompt: str | None,
+        task_name: str | None,
+        quiet: bool,
+        expected_tail: list[str],
+    ) -> None:
         captured: list[list[str]] = []
         monkeypatch.setattr(coder, "_run_or_exit", lambda args: captured.append(args))
 
-        coder.create_task("fix CI on PR #1234")
+        coder.create_task(prompt, task_name=task_name, quiet=quiet)
 
-        assert captured == [["coder", "task", "create", "--template", "posthog-linux", "fix CI on PR #1234"]]
-
-    def test_stdin_when_no_prompt(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        captured: list[list[str]] = []
-        monkeypatch.setattr(coder, "_run_or_exit", lambda args: captured.append(args))
-
-        coder.create_task(None)
-
-        assert captured == [["coder", "task", "create", "--template", "posthog-linux", "--stdin"]]
-
-    def test_task_name_and_quiet_flags(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        captured: list[list[str]] = []
-        monkeypatch.setattr(coder, "_run_or_exit", lambda args: captured.append(args))
-
-        coder.create_task("do the thing", task_name="my-task", quiet=True)
-
-        assert captured == [
-            [
-                "coder",
-                "task",
-                "create",
-                "--template",
-                "posthog-linux",
-                "--name",
-                "my-task",
-                "--quiet",
-                "do the thing",
-            ]
-        ]
+        assert captured == [["coder", "task", "create", "--template", "posthog-linux", *expected_tail]]
 
 
 class TestDevboxTaskCommand:
     """Test the devbox:task Click command."""
 
-    def test_positional_prompt_invokes_create_task(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    @pytest.mark.parametrize(
+        "cli_args, expected",
+        [
+            (
+                ["devbox:task", "fix CI on PR #1234"],
+                {"prompt": "fix CI on PR #1234", "task_name": None, "quiet": False},
+            ),
+            (
+                ["devbox:task", "--name", "my-task", "-q", "do it"],
+                {"prompt": "do it", "task_name": "my-task", "quiet": True},
+            ),
+        ],
+    )
+    def test_options_forwarded_to_create_task(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        cli_args: list[str],
+        expected: dict[str, object],
+    ) -> None:
         captured: dict[str, object] = {}
 
         monkeypatch.setattr(devbox_cli, "ensure_runtime_ready", lambda: None)
@@ -1309,27 +1314,10 @@ class TestDevboxTaskCommand:
             ),
         )
 
-        result = runner.invoke(cli, ["devbox:task", "fix CI on PR #1234"])
+        result = runner.invoke(cli, cli_args)
 
         assert result.exit_code == 0
-        assert captured == {"prompt": "fix CI on PR #1234", "task_name": None, "quiet": False}
-
-    def test_name_and_quiet_options_forwarded(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        captured: dict[str, object] = {}
-
-        monkeypatch.setattr(devbox_cli, "ensure_runtime_ready", lambda: None)
-        monkeypatch.setattr(
-            devbox_cli,
-            "create_task",
-            lambda prompt, task_name=None, quiet=False: captured.update(
-                {"prompt": prompt, "task_name": task_name, "quiet": quiet}
-            ),
-        )
-
-        result = runner.invoke(cli, ["devbox:task", "--name", "my-task", "-q", "do it"])
-
-        assert result.exit_code == 0
-        assert captured == {"prompt": "do it", "task_name": "my-task", "quiet": True}
+        assert captured == expected
 
     def test_no_prompt_on_tty_errors(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(devbox_cli, "ensure_runtime_ready", lambda: None)
