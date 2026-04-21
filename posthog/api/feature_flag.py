@@ -664,7 +664,7 @@ class FeatureFlagSerializer(
     experiment_set_metadata = serializers.SerializerMethodField()
     surveys: serializers.SerializerMethodField = serializers.SerializerMethodField()
     features: serializers.SerializerMethodField = serializers.SerializerMethodField()
-    usage_dashboard: serializers.PrimaryKeyRelatedField = serializers.PrimaryKeyRelatedField(read_only=True)
+    usage_dashboard: serializers.PrimaryKeyRelatedField = serializers.PrimaryKeyRelatedField(read_only=True)  # ty: ignore[invalid-assignment]
     analytics_dashboards = TeamScopedPrimaryKeyRelatedField(
         many=True,
         required=False,
@@ -757,7 +757,7 @@ class FeatureFlagSerializer(
         """Check if this feature flag is used in any team's session recording linked flag setting."""
         # Use annotated value if available (set by queryset annotation)
         if hasattr(feature_flag, "is_used_in_replay_settings_annotation"):
-            return feature_flag.is_used_in_replay_settings_annotation
+            return bool(feature_flag.is_used_in_replay_settings_annotation)
         # Return False if team is not available
         if not hasattr(feature_flag, "team") or feature_flag.team is None:
             return False

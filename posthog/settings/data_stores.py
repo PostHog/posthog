@@ -87,7 +87,7 @@ else:
     DATABASE_URL = os.getenv("DATABASE_URL", "")
 
 if DATABASE_URL:
-    DATABASES: dict[str, dict] = {"default": dj_database_url.config(default=DATABASE_URL, conn_max_age=0)}
+    DATABASES: dict[str, dict] = {"default": dict(dj_database_url.config(default=DATABASE_URL, conn_max_age=0))}
 
     if DISABLE_SERVER_SIDE_CURSORS:
         DATABASES["default"]["DISABLE_SERVER_SIDE_CURSORS"] = True
@@ -162,13 +162,13 @@ elif not persons_db_writer_url and TEST:
     persons_db_writer_url = f"postgres://{PG_USER}:{PG_PASSWORD}@{PG_HOST}:{PG_PORT}/{test_persons_db}"
 
 if persons_db_writer_url:
-    DATABASES["persons_db_writer"] = dj_database_url.config(
-        env="PERSONS_DB_WRITER_URL", default=persons_db_writer_url, conn_max_age=0
+    DATABASES["persons_db_writer"] = dict(
+        dj_database_url.config(env="PERSONS_DB_WRITER_URL", default=persons_db_writer_url, conn_max_age=0)
     )
 
     # Fall back to the writer URL if no reader URL is set
-    DATABASES["persons_db_reader"] = dj_database_url.config(
-        env="PERSONS_DB_READER_URL", default=persons_db_writer_url, conn_max_age=0
+    DATABASES["persons_db_reader"] = dict(
+        dj_database_url.config(env="PERSONS_DB_READER_URL", default=persons_db_writer_url, conn_max_age=0)
     )
     if DISABLE_SERVER_SIDE_CURSORS:
         DATABASES["persons_db_writer"]["DISABLE_SERVER_SIDE_CURSORS"] = True
@@ -199,11 +199,11 @@ for route in product_routes:
     if not writer_url:
         continue
 
-    DATABASES[writer_alias] = dj_database_url.parse(writer_url, conn_max_age=0)
+    DATABASES[writer_alias] = dict(dj_database_url.parse(writer_url, conn_max_age=0))
     DATABASES[writer_alias].setdefault("OPTIONS", {})["connect_timeout"] = 3
 
     reader_url = os.getenv(reader_env, writer_url)
-    DATABASES[reader_alias] = dj_database_url.parse(reader_url, conn_max_age=0)
+    DATABASES[reader_alias] = dict(dj_database_url.parse(reader_url, conn_max_age=0))
     DATABASES[reader_alias].setdefault("OPTIONS", {})["connect_timeout"] = 3
 
     if TEST:
@@ -225,7 +225,7 @@ for route in product_routes:
     direct_url = os.getenv(direct_env)
     if direct_url:
         direct_alias = f"{db}_db_direct"
-        DATABASES[direct_alias] = dj_database_url.parse(direct_url, conn_max_age=0)
+        DATABASES[direct_alias] = dict(dj_database_url.parse(direct_url, conn_max_age=0))
         DATABASES[direct_alias].setdefault("OPTIONS", {})["connect_timeout"] = 10
         if DISABLE_SERVER_SIDE_CURSORS:
             DATABASES[direct_alias]["DISABLE_SERVER_SIDE_CURSORS"] = True

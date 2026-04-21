@@ -174,6 +174,38 @@ pub struct ProcessedEvent {
     pub event: CapturedEvent,
 }
 
+/// Reason the pipeline has decided to reroute an event to an overflow topic.
+///
+/// Set by every handler that emits events to the kafka sink, via the shared
+/// `events::overflow_stamping::stamp_overflow_reason` helper for the
+/// in-process `OverflowLimiter` (governor-backed) paths and a separate inline
+/// check for the replay `RedisLimiter` (session-scoped, redis-backed). Call
+/// sites:
+/// * `events::analytics::process_events` — `/e/`, `/batch/`, `/capture`, etc.
+/// * `events::recordings::process_replay_events` — `/s/` (stamps `ReplayLimited`)
+/// * `ai_endpoint::ai_handler` — `/i/v0/ai`
+/// * `otel::otel_handler` — `/i/v0/ai/otel`
+///
+/// Consumed by `sinks::kafka::KafkaSinkBase::prepare_record`, which is pure
+/// mechanism: it reads this reason and maps to the overflow topic and
+/// partition key. The sink does not make routing policy decisions of its own
+/// for overflow beyond this mapping.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum OverflowReason {
+    /// Governor matched a configured `keys_to_reroute` entry for this event's
+    /// key. Events in this state always have `skip_person_processing = true`
+    /// and are routed to the overflow topic with a null partition key.
+    ForceLimited,
+    /// Per-key rate exceeded the configured governor quota. Routed to the
+    /// overflow topic. `preserve_locality` mirrors the
+    /// `overflow_preserve_partition_locality` config and determines whether
+    /// the original partition key is preserved on the overflow topic.
+    RateLimited { preserve_locality: bool },
+    /// Session-level replay overflow signalled by the redis-backed limiter.
+    /// Routed to the replay overflow topic, keyed on session_id.
+    ReplayLimited,
+}
+
 #[derive(Debug, Clone)]
 pub struct ProcessedEventMetadata {
     pub data_type: DataType,
@@ -188,6 +220,11 @@ pub struct ProcessedEventMetadata {
     pub redirect_to_dlq: bool,
     /// Redirect this event to a custom topic (set by event restrictions)
     pub redirect_to_topic: Option<String>,
+    /// Overflow routing decision stamped by the pipeline. `None` means the
+    /// event stays on its default topic for its `data_type`. See
+    /// [`OverflowReason`] for who sets this and what each variant maps to in
+    /// the kafka sink.
+    pub overflow_reason: Option<OverflowReason>,
 }
 
 #[cfg(test)]

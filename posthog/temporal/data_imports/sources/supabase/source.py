@@ -1,6 +1,7 @@
 from posthog.schema import (
     ExternalDataSourceType as SchemaExternalDataSourceType,
     SourceConfig,
+    SourceFieldInputConfig,
 )
 
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
@@ -20,11 +21,19 @@ class SupabaseSource(PostgresSource):
 
     @property
     def get_source_config(self) -> SourceConfig:
+        fields = [
+            field.model_copy(update={"required": True, "label": "Schema", "caption": None})
+            if isinstance(field, SourceFieldInputConfig) and field.name == "schema"
+            else field
+            for field in super().get_source_config.fields
+        ]
+
         return SourceConfig(
             name=SchemaExternalDataSourceType.SUPABASE,
             iconPath="/static/services/supabase.png",
             caption="Enter your Supabase credentials to automatically pull your data into the PostHog Data warehouse",
             docsUrl="https://posthog.com/tutorials/supabase-query",
-            fields=super().get_source_config.fields,
+            fields=fields,
+            betaSource=True,
             featureFlag="supabase-dwh",
         )
