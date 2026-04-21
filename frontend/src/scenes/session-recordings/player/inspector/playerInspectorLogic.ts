@@ -428,6 +428,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
         setLogsHasMore: (hasMore: boolean) => ({ hasMore }),
         setLogsNextCursor: (cursor: string | undefined) => ({ cursor }),
         setLogsLoadError: (error: boolean) => ({ error }),
+        markLogsInitialLoadRequested: true,
     })),
     reducers(() => ({
         expandedItems: [
@@ -464,7 +465,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
         logsInitialLoadRequested: [
             false,
             {
-                loadLogsSuccess: () => true,
+                markLogsInitialLoadRequested: () => true,
             },
         ],
         logsLoadError: [
@@ -1568,7 +1569,13 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 }
             }
 
-            if (!values.logsInitialLoadRequested) {
+            const readyToLoadLogs =
+                values.featureFlags[FEATURE_FLAGS.SESSION_REPLAY_BACKEND_LOGS] &&
+                !!props.sessionRecordingId &&
+                !!values.start &&
+                !!values.end
+            if (!values.logsInitialLoadRequested && readyToLoadLogs) {
+                actions.markLogsInitialLoadRequested()
                 actions.loadLogs()
             }
         },

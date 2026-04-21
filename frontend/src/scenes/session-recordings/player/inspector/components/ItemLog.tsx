@@ -72,7 +72,7 @@ export function ItemLogDetail({ item, groupedItems, sessionId }: ItemLogProps): 
                                   key: 'session_id',
                                   value: sessionId,
                                   operator: 'exact',
-                                  type: 'log_entry',
+                                  type: 'log_attribute',
                               },
                           ],
                       },
