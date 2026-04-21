@@ -82,12 +82,13 @@ Use the [diagnosis logic reference](./references/diagnosis-logic.md) to interpre
 The verdicts in priority order:
 
 1. **Recording exists** (`$has_recording = true`) — recording is captured, issue is elsewhere
-2. **Ad blocked** (`$sdk_debug_recording_script_not_loaded = true`) — browser extension blocking recorder
+2. **Ad blocked (script)** (`$sdk_debug_recording_script_not_loaded = true`) — browser extension blocking the recorder script from loading
 3. **Disabled** (`$recording_status = 'disabled'`) — replay turned off in settings or SDK config
 4. **Trigger pending** (trigger statuses are `trigger_pending`, none matched) — recording gated on trigger that never fired
 5. **Sampled out** (`$session_recording_start_reason = 'sampled_out'`) — excluded by sample rate
 6. **Buffering empty** (`$recording_status = 'buffering'`, buffer length = 0, nothing flushed) — initialized but no snapshots produced
-7. **Unknown** — signals don't match a known pattern
+7. **Flush blocked** (buffer length climbs across events while `flushed_size` stays at 0) — snapshots are produced but the `/s/` ingestion endpoint is blocked by an ad blocker or misconfigured reverse proxy. Detecting this requires querying the trend across the session's events — see [example 3 in examples.md](./references/examples.md)
+8. **Unknown** — signals don't match a known pattern
 
 ### Step 4 — Check project-level settings (if no session ID)
 

@@ -51,3 +51,51 @@ so the buffer was discarded and no recording was stored.
 - Project settings > Session replay > URL triggers — what patterns are configured?
 - Did the user visit any page matching those patterns?
 - Is the URL pattern a regex that might not match the actual URLs?
+
+## Example 3: snapshots produced but never flushed
+
+A session where the SDK is recording and the internal buffer keeps growing,
+but nothing ever gets flushed to PostHog.
+This pattern can't be seen from a single event —
+you need to look at the trend of buffer/flush signals across the session's events.
+
+**Query to detect:**
+
+```sql
+SELECT
+    timestamp,
+    properties.$sdk_debug_replay_internal_buffer_length AS buffer_length,
+    properties.$sdk_debug_replay_flushed_size AS flushed_size
+FROM events
+WHERE $session_id = '<session_id>'
+ORDER BY timestamp ASC
+```
+
+**Pattern to look for:**
+
+| timestamp | buffer_length | flushed_size |
+| --------- | ------------- | ------------ |
+| t0        | 3             | 0            |
+| t1        | 17            | 0            |
+| t2        | 42            | 0            |
+| t3        | 98            | 0            |
+
+**Verdict:** AD_BLOCKED (or misconfigured reverse proxy)
+
+**Explanation:**
+The buffer keeps climbing but `flushed_size` stays at zero.
+That means the SDK is producing snapshots correctly but the `POST /s/` requests
+never complete — so the recording data never reaches PostHog's backend.
+Most commonly this is an ad blocker silently blocking the ingestion endpoint.
+On self-hosted or reverse-proxied setups it can also indicate the proxy
+isn't forwarding `/s/` to the capture service.
+
+**What to check:**
+
+- User's browser: does the Network tab show failed/blocked `POST /s/` requests?
+- Reverse proxy config: is `/s/` routed to PostHog capture?
+- Custom domain: is the recorder script using the same domain as capture?
+
+This is a different signal from `$sdk_debug_recording_script_not_loaded` —
+that one fires when the rrweb script itself is blocked from loading.
+The flushing-never-happens pattern means rrweb loaded fine but the upload is blocked.

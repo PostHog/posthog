@@ -30,6 +30,10 @@ $recording_status == 'sampled' OR ($recording_status == 'active' AND flushed_siz
 $recording_status == 'paused'?
   → PAUSED: recording is temporarily paused for this session
 
+Buffer length climbs across the session's events AND flushed_size stays at 0?
+  → FLUSH_BLOCKED: snapshots produced but ingestion endpoint blocked
+  (requires querying the trend across events, not a single row)
+
 None of the above?
   → UNKNOWN: signals don't match a known pattern
 ```
@@ -92,6 +96,19 @@ This can happen when:
 - The SDK's `pause()` method was called programmatically
 - A consent mechanism paused recording pending user opt-in
 - The session exceeded a configured maximum duration
+
+### FLUSH_BLOCKED
+
+The SDK is producing snapshots but they're not reaching PostHog.
+Distinct from AD_BLOCKED (which is the script itself failing to load) —
+here the script loaded and is working, but the `POST /s/` upload is being blocked.
+Detecting this requires looking at the trend of buffer/flush signals across multiple
+events in the session (see [example 3 in examples.md](./examples.md)).
+Typical causes:
+
+- Ad blocker blocking the ingestion endpoint (different from blocking the script)
+- Reverse proxy not forwarding `/s/` correctly on self-hosted setups
+- Custom domain mismatch between recorder script and capture endpoint
 
 ### UNKNOWN
 
