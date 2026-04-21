@@ -72,7 +72,7 @@ export function LegalDocumentNewScene(): JSX.Element {
         legalDocument,
         legalDocumentHasErrors,
         isLegalDocumentSubmitting,
-        canSubmitBaa,
+        hasQualifyingBaaAddon,
         isDpaModeSubmittable,
         existingDocumentOfCurrentType,
         existingDocumentTypes,
@@ -123,7 +123,7 @@ export function LegalDocumentNewScene(): JSX.Element {
     }
 
     const documentType = legalDocument.document_type
-    const baaBlocked = documentType === 'BAA' && !canSubmitBaa
+    const baaBlocked = documentType === 'BAA' && !hasQualifyingBaaAddon
     const headingLabel = documentType === 'BAA' ? 'New Business Associate Agreement' : 'New Data Processing Agreement'
     const submitDisabledReason = existingDocumentOfCurrentType
         ? `Your organization already has a ${documentType}. Contact support if you need a new one.`

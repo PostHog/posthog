@@ -160,7 +160,6 @@ export const legalDocumentsLogic = kea<legalDocumentsLogicType>([
                 )
             },
         ],
-        canSubmitBaa: [(s) => [s.hasQualifyingBaaAddon], (hasAddon: boolean): boolean => hasAddon],
         isDpaModeSubmittable: [
             (s) => [s.legalDocument],
             (form: LegalDocumentFormValues): boolean => DPA_SUBMITTABLE_MODES.has(form.dpa_mode as DPAMode),

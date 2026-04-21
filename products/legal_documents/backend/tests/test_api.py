@@ -5,6 +5,7 @@ from unittest.mock import patch
 
 from django.db import IntegrityError
 
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models.activity_logging.activity_log import ActivityLog
@@ -50,9 +51,10 @@ class TestLegalDocumentAPI(APIBaseTest):
         self.organization_membership.save()
         self.url = f"/api/organizations/{self.organization.id}/legal_documents/"
 
+    @parameterized.expand([("boost",), ("scale",), ("enterprise",)])
     @patch("products.legal_documents.backend.presentation.serializers.BillingManager")
-    def test_create_baa_with_qualifying_addon_succeeds(self, mock_manager_cls) -> None:
-        mock_manager_cls.return_value.get_billing.return_value = _billing_with_addons({"boost"})
+    def test_create_baa_with_qualifying_addon_succeeds(self, addon_type: str, mock_manager_cls) -> None:
+        mock_manager_cls.return_value.get_billing.return_value = _billing_with_addons({addon_type})
 
         response = self.client.post(self.url, BAA_PAYLOAD, format="json")
 
@@ -63,22 +65,6 @@ class TestLegalDocumentAPI(APIBaseTest):
         self.assertEqual(row.created_by_id, self.user.id)
         self.assertEqual(row.dpa_mode, "")
         self.assertEqual(row.company_address, "")
-
-    @patch("products.legal_documents.backend.presentation.serializers.BillingManager")
-    def test_create_baa_with_scale_addon_succeeds(self, mock_manager_cls) -> None:
-        mock_manager_cls.return_value.get_billing.return_value = _billing_with_addons({"scale"})
-
-        response = self.client.post(self.url, BAA_PAYLOAD, format="json")
-
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-
-    @patch("products.legal_documents.backend.presentation.serializers.BillingManager")
-    def test_create_baa_with_enterprise_addon_succeeds(self, mock_manager_cls) -> None:
-        mock_manager_cls.return_value.get_billing.return_value = _billing_with_addons({"enterprise"})
-
-        response = self.client.post(self.url, BAA_PAYLOAD, format="json")
-
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
     @patch("products.legal_documents.backend.presentation.serializers.BillingManager")
     def test_create_baa_without_qualifying_addon_is_forbidden(self, mock_manager_cls) -> None:
@@ -100,14 +86,11 @@ class TestLegalDocumentAPI(APIBaseTest):
         response = self.client.post(self.url, {**DPA_PAYLOAD, "dpa_mode": "lawyer"}, format="json")
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
-    def test_create_dpa_with_fairytale_mode_is_rejected(self) -> None:
-        response = self.client.post(self.url, {**DPA_PAYLOAD, "dpa_mode": "fairytale"}, format="json")
+    @parameterized.expand([("fairytale",), ("tswift",)])
+    def test_create_dpa_with_preview_only_mode_is_rejected(self, dpa_mode: str) -> None:
+        response = self.client.post(self.url, {**DPA_PAYLOAD, "dpa_mode": dpa_mode}, format="json")
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("preview-only", response.json()["detail"])
-
-    def test_create_dpa_with_tswift_mode_is_rejected(self) -> None:
-        response = self.client.post(self.url, {**DPA_PAYLOAD, "dpa_mode": "tswift"}, format="json")
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
     def test_create_dpa_without_mode_is_rejected(self) -> None:
         payload = {**DPA_PAYLOAD}
