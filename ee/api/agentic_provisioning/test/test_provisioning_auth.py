@@ -13,7 +13,6 @@ from django.conf import settings
 from django.core.cache import cache as real_cache
 from django.test import override_settings
 
-import requests as requests_lib
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 from rest_framework.test import APIClient
@@ -665,10 +664,8 @@ class TestCimdProvisioningAutoRegistration(APIBaseTest):
         OAuthApplication.objects.filter(cimd_metadata_url=CIMD_PROV_URL).delete()
         real_cache.clear()
 
-    @patch("posthog.api.oauth.cimd.requests.get")
-    def test_new_cimd_partner_auto_registers_on_account_request(self, mock_get, _url_mock):
-        mock_get.return_value = _cimd_mock_response(_make_cimd_metadata())
-
+    @patch("ee.api.agentic_provisioning.authentication.register_cimd_provisioning_application_task")
+    def test_new_cimd_partner_returns_202_and_kicks_off_registration(self, mock_task, _url_mock):
         _, challenge = _pkce_pair()
         res = self.client.post(
             "/api/agentic/provisioning/account_requests",
@@ -683,8 +680,18 @@ class TestCimdProvisioningAutoRegistration(APIBaseTest):
             HTTP_API_VERSION="0.1d",
         )
 
-        assert res.status_code == 200, res.json()
-        assert res.json()["type"] == "oauth"
+        assert res.status_code == 202
+        assert res.json()["type"] == "registering"
+        assert res.json()["retry_after"] == 5
+        mock_task.delay.assert_called_once_with(CIMD_PROV_URL)
+
+    @patch("posthog.api.oauth.cimd.requests.get")
+    def test_new_cimd_partner_succeeds_after_background_registration(self, mock_get, _url_mock):
+        mock_get.return_value = _cimd_mock_response(_make_cimd_metadata())
+
+        from posthog.api.oauth.cimd import register_cimd_provisioning_application_task
+
+        register_cimd_provisioning_application_task(CIMD_PROV_URL)
 
         app = OAuthApplication.objects.get(cimd_metadata_url=CIMD_PROV_URL)
         assert app.is_cimd_client
@@ -693,8 +700,24 @@ class TestCimdProvisioningAutoRegistration(APIBaseTest):
         assert app.provisioning_can_create_accounts
         assert app.provisioning_can_provision_resources
 
-    @patch("posthog.api.oauth.cimd.requests.get")
-    def test_existing_cimd_app_gets_provisioning_backfilled(self, mock_get, _url_mock):
+        _, challenge = _pkce_pair()
+        res = self.client.post(
+            "/api/agentic/provisioning/account_requests",
+            data={
+                "id": "req_cimd_auto",
+                "email": "cimd-auto@example.com",
+                "client_id": CIMD_PROV_URL,
+                "code_challenge": challenge,
+                "code_challenge_method": "S256",
+            },
+            content_type="application/json",
+            HTTP_API_VERSION="0.1d",
+        )
+        assert res.status_code == 200
+        assert res.json()["type"] == "oauth"
+
+    @patch("posthog.api.oauth.cimd.refresh_cimd_metadata_task")
+    def test_existing_cimd_app_gets_provisioning_backfilled(self, mock_refresh, _url_mock):
         OAuthApplication.objects.create(
             name="Pre-existing CIMD",
             client_secret="",
@@ -705,7 +728,6 @@ class TestCimdProvisioningAutoRegistration(APIBaseTest):
             is_cimd_client=True,
             cimd_metadata_url=CIMD_PROV_URL,
         )
-        mock_get.return_value = _cimd_mock_response(_make_cimd_metadata())
 
         _, challenge = _pkce_pair()
         res = self.client.post(
@@ -727,9 +749,22 @@ class TestCimdProvisioningAutoRegistration(APIBaseTest):
         assert app.provisioning_active
 
     def test_cimd_backfill_db_error_degrades_to_unauthorized(self, _url_mock):
+        OAuthApplication.objects.create(
+            name="CIMD DB Error App",
+            client_secret="",
+            client_type=OAuthApplication.CLIENT_PUBLIC,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="http://127.0.0.1:3000/callback",
+            algorithm="RS256",
+            is_cimd_client=True,
+            cimd_metadata_url=CIMD_PROV_URL,
+        )
         with patch(
-            "ee.api.agentic_provisioning.authentication.get_or_create_cimd_provisioning_application",
-            side_effect=RuntimeError("simulated DB error"),
+            "ee.api.agentic_provisioning.authentication.CIMD_PROVISIONING_DEFAULTS",
+            new_callable=lambda: MagicMock(
+                items=MagicMock(side_effect=RuntimeError("simulated DB error")),
+                keys=MagicMock(return_value=[]),
+            ),
         ):
             _, challenge = _pkce_pair()
             res = self.client.post(
@@ -746,10 +781,8 @@ class TestCimdProvisioningAutoRegistration(APIBaseTest):
             )
         assert res.status_code == 401
 
-    @patch("posthog.api.oauth.cimd.requests.get")
-    def test_cimd_fetch_failure_returns_unauthorized(self, mock_get, _url_mock):
-        mock_get.side_effect = requests_lib.ConnectionError("DNS resolution failed")
-
+    @patch("ee.api.agentic_provisioning.authentication.register_cimd_provisioning_application_task")
+    def test_new_cimd_url_returns_202_not_401(self, mock_task, _url_mock):
         _, challenge = _pkce_pair()
         res = self.client.post(
             "/api/agentic/provisioning/account_requests",
@@ -763,12 +796,27 @@ class TestCimdProvisioningAutoRegistration(APIBaseTest):
             content_type="application/json",
             HTTP_API_VERSION="0.1d",
         )
-        assert res.status_code == 401
-        assert not OAuthApplication.objects.filter(cimd_metadata_url=CIMD_PROV_URL).exists()
+        assert res.status_code == 202
+        assert res.json()["type"] == "registering"
+        mock_task.delay.assert_called_once()
 
-    @patch("posthog.api.oauth.cimd.requests.get")
-    def test_partner_rate_limit_enforced_after_threshold(self, mock_get, _url_mock):
-        mock_get.return_value = _cimd_mock_response(_make_cimd_metadata())
+    @patch("posthog.api.oauth.cimd.refresh_cimd_metadata_task")
+    def test_partner_rate_limit_enforced_after_threshold(self, mock_refresh, _url_mock):
+        OAuthApplication.objects.create(
+            name="Rate Limit Test CIMD",
+            client_secret="",
+            client_type=OAuthApplication.CLIENT_PUBLIC,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="http://127.0.0.1:3000/callback",
+            algorithm="RS256",
+            is_cimd_client=True,
+            cimd_metadata_url=CIMD_PROV_URL,
+            provisioning_auth_method="pkce",
+            provisioning_active=True,
+            provisioning_can_create_accounts=True,
+            provisioning_can_provision_resources=True,
+            provisioning_rate_limit_account_requests=10,
+        )
 
         _, challenge = _pkce_pair()
 
@@ -786,7 +834,6 @@ class TestCimdProvisioningAutoRegistration(APIBaseTest):
                 HTTP_API_VERSION="0.1d",
             )
 
-        # First request auto-registers the CIMD partner with a low default limit (10/hr).
         assert post_account_request("ratelimit-1@example.com").status_code == 200
 
         partner = OAuthApplication.objects.get(cimd_metadata_url=CIMD_PROV_URL)
@@ -799,8 +846,8 @@ class TestCimdProvisioningAutoRegistration(APIBaseTest):
         assert res.json()["error"]["code"] == "rate_limited"
 
     @patch("posthog.api.oauth.cimd.CIMD_THROTTLE_CLASSES", new=[])
-    @patch("posthog.api.oauth.cimd.requests.get")
-    def test_cimd_domain_rate_limit_blocks_excessive_registrations(self, mock_get, _url_mock):
+    @patch("ee.api.agentic_provisioning.authentication.register_cimd_provisioning_application_task")
+    def test_cimd_domain_rate_limit_blocks_excessive_registrations(self, mock_task, _url_mock):
         from ee.api.agentic_provisioning.views import CIMD_DOMAIN_RATE_LIMIT_MAX
 
         base_domain = "evil.example.com"
@@ -808,7 +855,6 @@ class TestCimdProvisioningAutoRegistration(APIBaseTest):
 
         for i in range(CIMD_DOMAIN_RATE_LIMIT_MAX):
             url = f"https://{base_domain}/path-{i}/metadata.json"
-            mock_get.return_value = _cimd_mock_response(_make_cimd_metadata(url))
             res = self.client.post(
                 "/api/agentic/provisioning/account_requests",
                 data={
@@ -821,11 +867,9 @@ class TestCimdProvisioningAutoRegistration(APIBaseTest):
                 content_type="application/json",
                 HTTP_API_VERSION="0.1d",
             )
-            assert res.status_code == 200, f"Request {i} failed: {res.json()}"
+            assert res.status_code == 202, f"Request {i} failed: {res.json()}"
 
-        # Next registration from the same domain should be blocked
         url = f"https://{base_domain}/path-blocked/metadata.json"
-        mock_get.return_value = _cimd_mock_response(_make_cimd_metadata(url))
         res = self.client.post(
             "/api/agentic/provisioning/account_requests",
             data={
@@ -842,15 +886,14 @@ class TestCimdProvisioningAutoRegistration(APIBaseTest):
         assert res.json()["error"]["code"] == "rate_limited"
 
     @patch("posthog.api.oauth.cimd.CIMD_THROTTLE_CLASSES", new=[])
-    @patch("posthog.api.oauth.cimd.requests.get")
-    def test_cimd_domain_rate_limit_does_not_block_different_domains(self, mock_get, _url_mock):
+    @patch("ee.api.agentic_provisioning.authentication.register_cimd_provisioning_application_task")
+    def test_cimd_domain_rate_limit_does_not_block_different_domains(self, mock_task, _url_mock):
         from ee.api.agentic_provisioning.views import CIMD_DOMAIN_RATE_LIMIT_MAX
 
         _, challenge = _pkce_pair()
 
         for i in range(CIMD_DOMAIN_RATE_LIMIT_MAX + 2):
             url = f"https://domain-{i}.example.com/.well-known/metadata.json"
-            mock_get.return_value = _cimd_mock_response(_make_cimd_metadata(url))
             res = self.client.post(
                 "/api/agentic/provisioning/account_requests",
                 data={
@@ -863,17 +906,16 @@ class TestCimdProvisioningAutoRegistration(APIBaseTest):
                 content_type="application/json",
                 HTTP_API_VERSION="0.1d",
             )
-            assert res.status_code == 200, f"Request {i} for domain-{i} failed: {res.json()}"
+            assert res.status_code == 202, f"Request {i} for domain-{i} failed: {res.json()}"
 
     @patch("posthog.api.oauth.cimd.CIMD_THROTTLE_CLASSES", new=[])
-    @patch("posthog.api.oauth.cimd.requests.get")
-    def test_cimd_domain_rate_limit_skipped_for_existing_apps(self, mock_get, _url_mock):
+    @patch("posthog.api.oauth.cimd.refresh_cimd_metadata_task")
+    def test_cimd_domain_rate_limit_skipped_for_existing_apps(self, mock_refresh, _url_mock):
         from ee.api.agentic_provisioning.views import CIMD_DOMAIN_RATE_LIMIT_MAX
 
         base_domain = "existing.example.com"
         _, challenge = _pkce_pair()
 
-        # Pre-create apps exceeding the domain limit
         for i in range(CIMD_DOMAIN_RATE_LIMIT_MAX + 1):
             url = f"https://{base_domain}/path-{i}/metadata.json"
             OAuthApplication.objects.create(
@@ -891,9 +933,7 @@ class TestCimdProvisioningAutoRegistration(APIBaseTest):
                 provisioning_can_provision_resources=True,
             )
 
-        # Requests for existing apps should bypass the domain rate limit
         url = f"https://{base_domain}/path-0/metadata.json"
-        mock_get.return_value = _cimd_mock_response(_make_cimd_metadata(url))
         res = self.client.post(
             "/api/agentic/provisioning/account_requests",
             data={
@@ -908,11 +948,24 @@ class TestCimdProvisioningAutoRegistration(APIBaseTest):
         )
         assert res.status_code == 200
 
-    @patch("posthog.api.oauth.cimd.requests.get")
-    def test_self_serve_org_named_after_client_name(self, mock_get, _url_mock):
+    @patch("posthog.api.oauth.cimd.refresh_cimd_metadata_task")
+    def test_self_serve_org_named_after_client_name(self, mock_refresh, _url_mock):
         from posthog.models.user import User
 
-        mock_get.return_value = _cimd_mock_response(_make_cimd_metadata(client_name="Partner App"))
+        OAuthApplication.objects.create(
+            name="Partner App",
+            client_secret="",
+            client_type=OAuthApplication.CLIENT_PUBLIC,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="http://127.0.0.1:3000/callback",
+            algorithm="RS256",
+            is_cimd_client=True,
+            cimd_metadata_url=CIMD_PROV_URL,
+            provisioning_auth_method="pkce",
+            provisioning_active=True,
+            provisioning_can_create_accounts=True,
+            provisioning_can_provision_resources=True,
+        )
 
         email = "cimd-org-name@example.com"
         _, challenge = _pkce_pair()
@@ -932,3 +985,58 @@ class TestCimdProvisioningAutoRegistration(APIBaseTest):
         user = User.objects.get(email=email)
         org = user.organization_memberships.first().organization
         assert org.name == f"Partner App ({email})"
+
+    def test_blocked_cimd_url_returns_unauthorized(self, _url_mock):
+        from posthog.api.oauth.cimd import block_cimd_url
+
+        block_cimd_url(CIMD_PROV_URL)
+
+        _, challenge = _pkce_pair()
+        res = self.client.post(
+            "/api/agentic/provisioning/account_requests",
+            data={
+                "id": "req_blocked",
+                "email": "blocked@example.com",
+                "client_id": CIMD_PROV_URL,
+                "code_challenge": challenge,
+                "code_challenge_method": "S256",
+            },
+            content_type="application/json",
+            HTTP_API_VERSION="0.1d",
+        )
+        assert res.status_code == 401
+
+    @patch("posthog.api.oauth.cimd.refresh_cimd_metadata_task")
+    def test_blocked_cimd_url_with_existing_app_returns_unauthorized(self, mock_refresh, _url_mock):
+        from posthog.api.oauth.cimd import block_cimd_url
+
+        OAuthApplication.objects.create(
+            name="Blocked CIMD App",
+            client_secret="",
+            client_type=OAuthApplication.CLIENT_PUBLIC,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="http://127.0.0.1:3000/callback",
+            algorithm="RS256",
+            is_cimd_client=True,
+            cimd_metadata_url=CIMD_PROV_URL,
+            provisioning_auth_method="pkce",
+            provisioning_active=True,
+            provisioning_can_create_accounts=True,
+            provisioning_can_provision_resources=True,
+        )
+        block_cimd_url(CIMD_PROV_URL)
+
+        _, challenge = _pkce_pair()
+        res = self.client.post(
+            "/api/agentic/provisioning/account_requests",
+            data={
+                "id": "req_blocked_existing",
+                "email": "blocked-existing@example.com",
+                "client_id": CIMD_PROV_URL,
+                "code_challenge": challenge,
+                "code_challenge_method": "S256",
+            },
+            content_type="application/json",
+            HTTP_API_VERSION="0.1d",
+        )
+        assert res.status_code == 401

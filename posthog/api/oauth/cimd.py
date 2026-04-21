@@ -416,11 +416,43 @@ def fetch_and_upsert_cimd_application(url: str, capture_ph_event=posthoganalytic
 def refresh_cimd_metadata_task(url: str) -> None:
     """Celery task wrapper: refresh CIMD metadata in the background."""
     try:
-        with ph_scoped_capture() as capture_ph_event:  # This runs inside Celery, needs this to capture event
+        with ph_scoped_capture() as capture_ph_event:
             fetch_and_upsert_cimd_application(url, capture_ph_event=capture_ph_event)
     except (CIMDFetchError, CIMDValidationError) as e:
         logger.warning("cimd_background_refresh_failed", url=url, error=str(e))
         capture_exception(e)
+
+
+@shared_task(ignore_result=True, time_limit=30)
+def register_cimd_provisioning_application_task(url: str) -> None:
+    """Celery task: fetch CIMD metadata, create the app, and backfill provisioning defaults."""
+    try:
+        with ph_scoped_capture() as capture_ph_event:
+            app = fetch_and_upsert_cimd_application(url, capture_ph_event=capture_ph_event)
+            if app is None:
+                return
+            if not app.is_provisioning_partner:
+                for field, value in CIMD_PROVISIONING_DEFAULTS.items():
+                    setattr(app, field, value)
+                app.save(update_fields=list(CIMD_PROVISIONING_DEFAULTS.keys()))
+                capture_ph_event(
+                    distinct_id=url,
+                    event="cimd_provisioning_partner_registered",
+                    properties={
+                        "cimd_url": url,
+                        "client_name": app.name,
+                        "app_id": str(app.pk),
+                        "account_requests_rate_limit": CIMD_PROVISIONING_ACCOUNT_REQUESTS_DEFAULT_RATE_LIMIT,
+                    },
+                )
+    except (CIMDFetchError, CIMDValidationError) as e:
+        logger.warning("cimd_background_registration_failed", url=url, error=str(e))
+        capture_exception(e)
+
+
+def is_cimd_registration_in_progress(url: str) -> bool:
+    """Check if a fetch/registration is currently in progress for this CIMD URL."""
+    return bool(cache.get(_fetch_lock_key(url)))
 
 
 def get_or_create_cimd_application(url: str) -> OAuthApplication:

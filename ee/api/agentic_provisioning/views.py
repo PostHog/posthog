@@ -284,6 +284,12 @@ def account_requests(request: Request) -> Response:
             status=401,
         )
 
+    if partner is None and auth.cimd_registration_pending:
+        return Response(
+            {"type": "registering", "retry_after": 5},
+            status=202,
+        )
+
     if partner and (error := _enforce_partner_account_request_rate_limit(partner)):
         return error
 

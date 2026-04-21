@@ -14,11 +14,12 @@ from rest_framework.exceptions import AuthenticationFailed
 from rest_framework.request import Request
 
 from posthog.api.oauth.cimd import (
-    CIMDFetchError,
-    CIMDValidationError,
+    CIMD_PROVISIONING_DEFAULTS,
     get_application_by_client_id,
-    get_or_create_cimd_provisioning_application,
     is_cimd_client_id,
+    is_cimd_registration_in_progress,
+    is_cimd_url_blocked,
+    register_cimd_provisioning_application_task,
 )
 from posthog.exceptions_capture import capture_exception
 from posthog.models.oauth import OAuthApplication, find_oauth_access_token
@@ -44,6 +45,8 @@ class ProvisioningAuthentication(BaseAuthentication):
     client_id param) and dispatched to the matching auth strategy. Returns None
     if no partner is identified, allowing Stripe Projects HMAC auth to handle the request.
     """
+
+    cimd_registration_pending: bool = False
 
     def authenticate(self, request: Request):
         app = self._identify_partner(request)
@@ -137,29 +140,33 @@ class ProvisioningAuthentication(BaseAuthentication):
         return app if app.provisioning_active else None
 
     def _identify_pkce_partner(self, client_id: str) -> OAuthApplication | None:
-        # CIMD URLs: fetch metadata and auto-register the partner on first use, so
-        # a new partner hosting a valid metadata document can provision without
-        # any manual admin setup.
         if is_cimd_client_id(client_id):
-            try:
-                app = get_or_create_cimd_provisioning_application(client_id)
-            except (CIMDFetchError, CIMDValidationError) as e:
-                logger.warning("provisioning_cimd_resolution_failed", client_id=client_id, error=str(e))
+            if is_cimd_url_blocked(client_id):
                 return None
-            except Exception as e:
-                # Any other failure (transient DB error during backfill, etc.) must
-                # degrade to unauthenticated rather than 500 — this is a public endpoint.
-                logger.warning(
-                    "provisioning_cimd_resolution_unexpected_error",
-                    client_id=client_id,
-                    error=str(e),
-                    error_type=type(e).__name__,
-                )
-                capture_exception(e)
-                return None
-            if app is None:
-                return None
-            return app if app.provisioning_active else None
+
+            app = OAuthApplication.objects.filter(cimd_metadata_url=client_id).first()
+            if app is not None:
+                try:
+                    if not app.is_provisioning_partner:
+                        for field, value in CIMD_PROVISIONING_DEFAULTS.items():
+                            setattr(app, field, value)
+                        app.save(update_fields=list(CIMD_PROVISIONING_DEFAULTS.keys()))
+                except Exception as e:
+                    logger.warning(
+                        "provisioning_cimd_backfill_error",
+                        client_id=client_id,
+                        error=str(e),
+                        error_type=type(e).__name__,
+                    )
+                    capture_exception(e)
+                    app.refresh_from_db()
+                return app if app.provisioning_active else None
+
+            # New CIMD URL: kick off background registration, don't block the worker
+            if not is_cimd_registration_in_progress(client_id):
+                register_cimd_provisioning_application_task.delay(client_id)
+            self.cimd_registration_pending = True
+            return None
 
         try:
             app = get_application_by_client_id(client_id)
