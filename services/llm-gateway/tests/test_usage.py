@@ -74,7 +74,7 @@ class TestUsageEndpoint:
         assert data["sustained"]["used_percent"] == 0
         assert data["is_rate_limited"] is False
 
-    def test_returns_trial_limits_for_free_plan_with_seat(self, authenticated_usage_client: TestClient) -> None:
+    def test_returns_free_limits_for_free_plan_with_seat(self, authenticated_usage_client: TestClient) -> None:
         app = authenticated_usage_client.app
         app.state.plan_resolver.get_plan = AsyncMock(
             return_value=PlanInfo(plan_key=None, seat_created_at="2026-01-01T00:00:00+00:00")
