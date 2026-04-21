@@ -1,13 +1,13 @@
 import { useActions, useAsyncActions, useValues } from 'kea'
 
 import { IconArrowRight, IconLock } from '@posthog/icons'
-import { LemonButton, Popover, PopoverProps, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, Popover, PopoverProps } from '@posthog/lemon-ui'
 
-import { dayjs } from 'lib/dayjs'
 import { Link } from 'lib/lemon-ui/Link'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 
-// Note: Sync the copy below with organization-ai-consent in SettingsMap.tsx
+import { AI_HIPAA_DISCLAIMER, ExternalAIProvidersTooltip } from './aiConsentCopy'
+
 export function AIConsentPopoverContent({
     onApprove,
     onDismiss,
@@ -21,9 +21,9 @@ export function AIConsentPopoverContent({
         <div className="flex flex-col gap-2 m-1.5 max-w-sm">
             <p className="font-medium text-pretty">
                 PostHog AI needs your approval to potentially process identifying user data with{' '}
-                <Tooltip title={`As of ${dayjs().format('MMMM YYYY')}: Anthropic and OpenAI`}>
+                <ExternalAIProvidersTooltip>
                     <dfn>external AI providers</dfn>
-                </Tooltip>
+                </ExternalAIProvidersTooltip>
                 . <i>Your data won't be used for training models.</i>
             </p>
             <p className="text-muted text-xs leading-relaxed">
@@ -34,12 +34,7 @@ export function AIConsentPopoverContent({
                 </Link>
                 .
             </p>
-            <p className="text-muted text-xs leading-relaxed">
-                This feature is not HIPAA-compliant and is not intended for the processing of Protected Health
-                Information ("PHI"). Any Business Associate Agreement ("BAA") you may have entered into with PostHog
-                does not apply to this functionality. You are responsible for ensuring your use complies with applicable
-                laws and regulations.
-            </p>
+            <p className="text-muted text-xs leading-relaxed">{AI_HIPAA_DISCLAIMER}</p>
             <div className="flex gap-1.5 self-end">
                 <LemonButton type="secondary" size="xsmall" onClick={onDismiss}>
                     Cancel
