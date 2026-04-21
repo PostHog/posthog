@@ -52,8 +52,13 @@ BOT_DEFINITIONS: dict[str, BotDefinition] = {
     "Baiduspider": BotDefinition("Baidu", "search_crawler", "Bot", "Baidu"),
     "DuckDuckBot": BotDefinition("DuckDuckGo", "search_crawler", "Bot", "DuckDuckGo"),
     "Slurp": BotDefinition("Yahoo", "search_crawler", "Bot", "Yahoo"),
+    # Search Crawlers (Google variants)
+    "AdsBot-Google": BotDefinition("Google Ads", "search_crawler", "Bot", "Google"),
+    "Google-InspectionTool": BotDefinition("Google Inspection", "search_crawler", "Bot", "Google"),
     # SEO Tools
+    "AhrefsSiteAudit": BotDefinition("Ahrefs Site Audit", "seo_crawler", "Bot", "Ahrefs"),
     "AhrefsBot": BotDefinition("Ahrefs", "seo_crawler", "Bot", "Ahrefs"),
+    "Barkrowler": BotDefinition("Barkrowler", "seo_crawler", "Bot", "Babbar"),
     "SemrushBot": BotDefinition("Semrush", "seo_crawler", "Bot", "Semrush"),
     "MJ12bot": BotDefinition("Majestic", "seo_crawler", "Bot", "Majestic"),
     "DotBot": BotDefinition("Moz", "seo_crawler", "Bot", "Moz"),
@@ -83,7 +88,12 @@ BOT_DEFINITIONS: dict[str, BotDefinition] = {
     "Apache-HttpClient": BotDefinition("Apache HTTP", "http_client", "Automation", "Apache"),
     "libwww-perl": BotDefinition("LWP", "http_client", "Automation", "Perl"),
     "Scrapy": BotDefinition("Scrapy", "http_client", "Automation", "Scrapy"),
+    # Prefetch/Proxy
+    "Chrome Privacy Preserving Prefetch Proxy": BotDefinition(
+        "Chrome Prefetch Proxy", "http_client", "Automation", "Google"
+    ),
     # Headless Browsers
+    "Mozlila/": BotDefinition("Mozlila Typo Bot", "headless_browser", "Automation", "Unknown"),
     "HeadlessChrome": BotDefinition("Headless Chrome", "headless_browser", "Automation", "Google"),
     "PhantomJS": BotDefinition("PhantomJS", "headless_browser", "Automation", "PhantomJS"),
     "Puppeteer": BotDefinition("Puppeteer", "headless_browser", "Automation", "Google"),

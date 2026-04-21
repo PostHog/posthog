@@ -73,11 +73,13 @@ class ActionabilityAssessment(BaseModel):
             "Reference specific code paths and data points from your research."
         ),
     )
-    actionability: ActionabilityChoice = Field(description="Overall actionability assessment")
+    actionability: ActionabilityChoice = Field(
+        description="Overall actionability assessment. Must be one of the allowed enum values — do not invent new ones.",
+    )
     already_addressed: bool = Field(
         description=(
             "Whether the core issue described by this report appears to have been "
-            "already fixed or addressed in recent code changes."
+            "already fixed or addressed in recent code changes. Tracked separately from `actionability`."
         ),
     )
 
@@ -118,15 +120,15 @@ If the report already has a title that is PR-specific and still accurate after y
 - Bad: fix(funnel): various funnel improvements and bug fixes
 - Bad: multiple analytics issues
         """,
-        max_length=96,
+        max_length=96,  # Generous enough for descriptive PR-style titles
     )
     summary: str = Field(
         description="""
 An Axios-style summary in four brief paragraphs:
-- A one-sentence "why it matters" tl;dr of the report.
-- '**What's happening:** …' - a brief description of the concrete facts. Reference specific signals, error types, metrics, or patterns from your research.
-- '**Root cause:** …' - explain the root cause as if explaining to engineer owning this part of the product (or hypotheses, if not fully confident in the root cause).
-- '**How to resolve:** …' - a plan for the actionable code-level fix. If you can see two or more viable paths, propose up to two as subpoints "Option A" and "Option B".
+- A one-sentence "why it matters" tl;dr of the report. Ideally start with "Users …", explaining how users are being impacted, how many, or how important they are. If users aren't impacted, but the team building the product is, describe that. Otherwise, just describe what's going on.
+- '**What's happening:** …' - a brief description of the concrete facts, expanding on the tl;dr sentence. Reference specific signals, errors, metrics, or patterns. Use available tools to do research here like a product manager would.
+- '**Root cause:** …' - dig as deep as you can into the root cause of the issue, and explain it in plain terms. Use concrete references to problematic APIs or UI elements, so that the engineer familiar with the code understands this.
+- '**How to resolve:** …' - a single, concrete action plan for the code-level fix that addresses the root cause directly. Skip if the report is not actionable.
 
 Principles:
 - Be direct and specific. Every sentence must carry information.
@@ -251,16 +253,15 @@ def _render_previous_presentation_context(previous_title: str | None, previous_s
 
 def _render_signal_for_research(signal: SignalData, index: int, total: int) -> str:
     """Render a single signal for the research prompt, with numbering."""
+    from products.signals.backend.temporal.types import _render_extra_to_text
+
     lines = [f"### Signal {index}/{total} (id: `{signal.signal_id}`)"]
     lines.append(f"- **Source:** {signal.source_product} / {signal.source_type}")
     lines.append(f"- **Source ID:** {signal.source_id}")
     lines.append(f"- **Weight:** {signal.weight}")
     lines.append(f"- **Timestamp:** {signal.timestamp}")
     if signal.extra:
-        if "url" in signal.extra:
-            lines.append(f"- **URL:** {signal.extra['url']}")
-        if "labels" in signal.extra:
-            lines.append(f"- **Labels:** {', '.join(signal.extra['labels'])}")
+        lines.extend(_render_extra_to_text(signal.extra))
     lines.append(f"- **Description:** {signal.content}")
     return "\n".join(lines)
 
@@ -488,7 +489,7 @@ async def run_multi_turn_research(
     summary: str | None = None,
     previous_report_id: str | None = None,
     previous_report_research: ReportResearchOutput | None = None,
-    branch: str = "master",
+    branch: str | None = None,
     verbose: bool = False,
     output_fn: OutputFn = None,
     signal_report_id: str | None = None,
@@ -532,6 +533,18 @@ async def run_multi_turn_research(
         origin_product="signal_report",
         signal_report_id=signal_report_id,
     )
+
+    # Record the research task relationship immediately after task creation
+    if signal_report_id:
+        from products.signals.backend.models import SignalReportTask
+
+        await SignalReportTask.objects.acreate(
+            team_id=context.team_id,
+            report_id=signal_report_id,
+            task_id=str(session.task.id),
+            relationship=SignalReportTask.Relationship.RESEARCH,
+        )
+
     first_finding = _enforce_signal_id(first_finding, signals[0].signal_id)
     findings: list[SignalFinding] = [first_finding]
     if output_fn:

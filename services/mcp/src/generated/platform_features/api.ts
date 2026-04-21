@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 15 enabled ops
+ * PostHog API - MCP 17 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -57,6 +57,15 @@ export const ChangeRequestsRetrieveParams = /* @__PURE__ */ zod.object({
         ),
 })
 
+export const ListQueryParams = /* @__PURE__ */ zod.object({
+    limit: zod.number().optional().describe('Number of results to return per page.'),
+    offset: zod.number().optional().describe('The initial index from which to return the results.'),
+})
+
+export const RetrieveParams = /* @__PURE__ */ zod.object({
+    id: zod.string().describe('A UUID string identifying this organization.'),
+})
+
 export const MembersListParams = /* @__PURE__ */ zod.object({
     organization_id: zod.string(),
 })
@@ -64,6 +73,7 @@ export const MembersListParams = /* @__PURE__ */ zod.object({
 export const MembersListQueryParams = /* @__PURE__ */ zod.object({
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
+    order: zod.string().optional().describe('Sort order. Defaults to `-joined_at`.'),
 })
 
 export const RolesListParams = /* @__PURE__ */ zod.object({
@@ -98,8 +108,8 @@ export const ActivityLogListParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const activityLogListQueryPageSizeDefaultOne = 100
-export const activityLogListQueryPageSizeMaxOne = 1000
+export const activityLogListQueryPageSizeDefault = 100
+export const activityLogListQueryPageSizeMax = 1000
 
 export const ActivityLogListQueryParams = /* @__PURE__ */ zod.object({
     item_id: zod.string().min(1).optional().describe('Filter by the ID of the affected resource.'),
@@ -113,8 +123,8 @@ export const ActivityLogListQueryParams = /* @__PURE__ */ zod.object({
     page_size: zod
         .number()
         .min(1)
-        .max(activityLogListQueryPageSizeMaxOne)
-        .default(activityLogListQueryPageSizeDefaultOne)
+        .max(activityLogListQueryPageSizeMax)
+        .default(activityLogListQueryPageSizeDefault)
         .describe('Number of results per page (default: 100, max: 1000). Only used with page-based pagination.'),
     scope: zod
         .enum([
@@ -260,17 +270,35 @@ export const AdvancedActivityLogsListParams = /* @__PURE__ */ zod.object({
 })
 
 export const advancedActivityLogsListQueryActivitiesDefault = []
+export const advancedActivityLogsListQueryClientsDefault = []
 export const advancedActivityLogsListQueryItemIdsDefault = []
+export const advancedActivityLogsListQueryPageSizeDefault = 100
+export const advancedActivityLogsListQueryPageSizeMax = 1000
+
 export const advancedActivityLogsListQueryScopesDefault = []
 export const advancedActivityLogsListQueryUsersDefault = []
 
 export const AdvancedActivityLogsListQueryParams = /* @__PURE__ */ zod.object({
     activities: zod.array(zod.string()).default(advancedActivityLogsListQueryActivitiesDefault),
+    clients: zod.array(zod.string()).default(advancedActivityLogsListQueryClientsDefault),
     detail_filters: zod.string().optional(),
     end_date: zod.iso.datetime({}).optional(),
     hogql_filter: zod.string().optional(),
     is_system: zod.boolean().nullish(),
     item_ids: zod.array(zod.string()).default(advancedActivityLogsListQueryItemIdsDefault),
+    page: zod
+        .number()
+        .min(1)
+        .optional()
+        .describe(
+            'Page number for pagination. When provided, uses page-based pagination ordered by most recent first.'
+        ),
+    page_size: zod
+        .number()
+        .min(1)
+        .max(advancedActivityLogsListQueryPageSizeMax)
+        .default(advancedActivityLogsListQueryPageSizeDefault)
+        .describe('Number of results per page (default: 100, max: 1000). Only used with page-based pagination.'),
     scopes: zod.array(zod.string()).default(advancedActivityLogsListQueryScopesDefault),
     search_text: zod.string().optional(),
     start_date: zod.iso.datetime({}).optional(),

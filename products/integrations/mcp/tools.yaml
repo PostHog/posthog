@@ -111,3 +111,6 @@ tools:
     integrations-environment-mapping-partial-update:
         operation: integrations_environment_mapping_partial_update
         enabled: false
+    organization-integrations-destroy:
+        operation: organization_integrations_destroy
+        enabled: false

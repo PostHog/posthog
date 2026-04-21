@@ -106,6 +106,7 @@ export const appScenes: Record<Scene | string, () => any> = {
     [Scene.SdkDoctor]: () => import('./onboarding/sdks/SdkDoctorScene'),
     [Scene.Exports]: () => import('./exports/ExportsScene'),
     [Scene.Subscriptions]: () => import('./subscriptions/SubscriptionsScene'),
+    [Scene.Subscription]: () => import('./subscriptions/SubscriptionScene'),
     [Scene.SessionAttributionExplorer]: () =>
         import('scenes/web-analytics/SessionAttributionExplorer/SessionAttributionExplorerScene'),
     [Scene.SessionProfile]: () => import('./sessions/SessionProfileScene'),
@@ -126,7 +127,6 @@ export const appScenes: Record<Scene | string, () => any> = {
     [Scene.VercelConnect]: () => import('./authentication/VercelConnect'),
     [Scene.VercelLinkError]: () => import('./authentication/VercelLinkError'),
     [Scene.VerifyEmail]: () => import('./authentication/signup/verify-email/VerifyEmail'),
-    [Scene.WebAnalyticsMarketing]: () => import('./web-analytics/WebAnalyticsScene'),
     [Scene.WebAnalyticsWebVitals]: () => import('./web-analytics/WebAnalyticsScene'),
     [Scene.WebAnalyticsHealth]: () => import('./web-analytics/WebAnalyticsScene'),
     [Scene.WebAnalyticsLive]: () => import('./web-analytics/WebAnalyticsScene'),

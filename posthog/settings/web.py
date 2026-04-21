@@ -67,6 +67,7 @@ PRODUCTS_APPS = [
     "products.messaging.backend.apps.MessagingConfig",
     "products.mcp_analytics.backend.apps.McpAnalyticsConfig",
     "products.platform_features.backend.apps.PlatformFeaturesConfig",
+    "products.streamlit_apps.backend.apps.StreamlitAppsConfig",
 ]
 
 INSTALLED_APPS = [

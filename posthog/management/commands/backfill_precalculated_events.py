@@ -190,6 +190,12 @@ class Command(BaseCommand):
             default=5,
             help="Number of concurrent child workflows to run (default: 5)",
         )
+        parser.add_argument(
+            "--force-reprocess",
+            action="store_true",
+            default=False,
+            help="Skip the already-backfilled check and reprocess all days unconditionally",
+        )
 
     def handle(self, *args, **options):
         team_id = options.get("team_id")
@@ -197,6 +203,7 @@ class Command(BaseCommand):
         cohort_id = options.get("cohort_id")
         days_override = options.get("days")
         concurrent_workflows = options["concurrent_workflows"]
+        force_reprocess = options["force_reprocess"]
 
         if team_id and team_ids_option:
             raise CommandError("Cannot use both --team-id and --team-ids. Please use only one.")
@@ -355,6 +362,7 @@ class Command(BaseCommand):
                     cohort_ids=cohort_ids,
                     effective_days=effective_days,
                     concurrent_workflows=concurrent_workflows,
+                    force_reprocess=force_reprocess,
                 )
             except Exception as e:
                 self.stdout.write(self.style.ERROR(f"Failed to start workflow for team {current_team_id}: {e}"))
@@ -378,6 +386,7 @@ class Command(BaseCommand):
         cohort_ids: list[int],
         effective_days: int,
         concurrent_workflows: int,
+        force_reprocess: bool = False,
     ) -> str:
         """Run the Temporal coordinator workflow for the team."""
         import time

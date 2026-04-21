@@ -1,1 +1,1 @@
-0231_add_ai_columns_to_session_replay_events
+0238_align_ws_events_kafka_mv_with_msk

@@ -27,7 +27,7 @@ const cohortsList = (): ToolBase<typeof CohortsListSchema, WithPostHogUrl<Schema
             const projectId = await context.stateManager.getProjectId()
             const result = await context.api.request<Schemas.PaginatedCohortList>({
                 method: 'GET',
-                path: `/api/projects/${projectId}/cohorts/`,
+                path: `/api/projects/${encodeURIComponent(String(projectId))}/cohorts/`,
                 query: {
                     limit: params.limit,
                     offset: params.offset,
@@ -81,7 +81,7 @@ const cohortsCreate = (): ToolBase<typeof CohortsCreateSchema, WithPostHogUrl<Sc
             }
             const result = await context.api.request<Schemas.Cohort>({
                 method: 'POST',
-                path: `/api/projects/${projectId}/cohorts/`,
+                path: `/api/projects/${encodeURIComponent(String(projectId))}/cohorts/`,
                 body,
             })
             return await withPostHogUrl(context, result, `/cohorts/${result.id}`)
@@ -98,7 +98,7 @@ const cohortsRetrieve = (): ToolBase<typeof CohortsRetrieveSchema, WithPostHogUr
             const projectId = await context.stateManager.getProjectId()
             const result = await context.api.request<Schemas.Cohort>({
                 method: 'GET',
-                path: `/api/projects/${projectId}/cohorts/${params.id}/`,
+                path: `/api/projects/${encodeURIComponent(String(projectId))}/cohorts/${encodeURIComponent(String(params.id))}/`,
             })
             return await withPostHogUrl(context, result, `/cohorts/${result.id}`)
         },
@@ -138,7 +138,7 @@ const cohortsPartialUpdate = (): ToolBase<typeof CohortsPartialUpdateSchema, Wit
             }
             const result = await context.api.request<Schemas.Cohort>({
                 method: 'PATCH',
-                path: `/api/projects/${projectId}/cohorts/${params.id}/`,
+                path: `/api/projects/${encodeURIComponent(String(projectId))}/cohorts/${encodeURIComponent(String(params.id))}/`,
                 body,
             })
             return await withPostHogUrl(context, result, `/cohorts/${result.id}`)
@@ -163,7 +163,7 @@ const cohortsAddPersonsToStaticCohortPartialUpdate = (): ToolBase<
         }
         const result = await context.api.request<unknown>({
             method: 'PATCH',
-            path: `/api/projects/${projectId}/cohorts/${params.id}/add_persons_to_static_cohort/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/cohorts/${encodeURIComponent(String(params.id))}/add_persons_to_static_cohort/`,
             body,
         })
         return result
@@ -188,7 +188,7 @@ const cohortsRmPersonFromStaticCohortPartialUpdate = (): ToolBase<
         }
         const result = await context.api.request<unknown>({
             method: 'PATCH',
-            path: `/api/projects/${projectId}/cohorts/${params.id}/remove_person_from_static_cohort/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/cohorts/${encodeURIComponent(String(params.id))}/remove_person_from_static_cohort/`,
             body,
         })
         return result
