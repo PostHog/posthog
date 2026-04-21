@@ -638,7 +638,7 @@ def clean_up_alert_subscriptions_on_membership_removal(sender, instance: Organiz
 
     deleted_count, _ = AlertSubscription.objects.filter(
         user=instance.user,
-        alert_configuration__team__organization=instance.organization,
+        alert_configuration__team__organization_id=instance.organization_id,
     ).delete()
 
     if deleted_count > 0:
