@@ -6,7 +6,7 @@ class Migration(migrations.Migration):
     atomic = False
 
     dependencies = [
-        ("posthog", "1105_alter_oauthapplication_authorization_grant_type"),
+        ("posthog", "1109_alert_investigation_notification_gating"),
     ]
 
     operations = [

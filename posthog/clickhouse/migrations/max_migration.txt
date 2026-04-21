@@ -1,1 +1,1 @@
-0237_readd_session_id_uuid_minmax_index
+0238_align_ws_events_kafka_mv_with_msk
