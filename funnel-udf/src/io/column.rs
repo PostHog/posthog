@@ -83,7 +83,9 @@ pub fn read_nullable_f64<R: RowBinaryRead + ?Sized>(
         DataTypeNode::Nullable(inner) if matches!(**inner, DataTypeNode::Float64) => {
             match r.read_u8()? {
                 0 => r.read_f64_le(),
-                1 => Err(CodecError::UnexpectedNull),
+                1 => Err(CodecError::TypeMismatch(
+                    "null timestamp — funnel ordering requires a concrete value".into(),
+                )),
                 b => Err(CodecError::InvalidNullMarker(b)),
             }
         }
@@ -113,6 +115,9 @@ pub fn read_string<R: RowBinaryRead + ?Sized>(r: &mut R, t: &DataTypeNode) -> Co
     }
 }
 
+// Null breakdown maps to an empty string. The funnel-trends breakdown returns
+// `""` as a valid bucket when the source expression is NULL (matches upstream
+// ifNull semantics and the existing JSONEachRow behavior).
 pub fn read_nullable_string<R: RowBinaryRead + ?Sized>(
     r: &mut R,
     t: &DataTypeNode,
@@ -121,7 +126,7 @@ pub fn read_nullable_string<R: RowBinaryRead + ?Sized>(
         DataTypeNode::Nullable(inner) if matches!(**inner, DataTypeNode::String) => {
             match r.read_u8()? {
                 0 => r.read_bytes(),
-                1 => Err(CodecError::UnexpectedNull),
+                1 => Ok(Vec::new()),
                 b => Err(CodecError::InvalidNullMarker(b)),
             }
         }

@@ -12,7 +12,6 @@ pub enum CodecError {
     InvalidNullMarker(u8),
     VarintOverflow,
     InvalidUtf8,
-    UnexpectedNull,
     ShapeMismatch,
     InvalidChunkHeader(String),
     UnknownType(String),
@@ -35,12 +34,6 @@ impl std::fmt::Display for CodecError {
             Self::InvalidNullMarker(b) => write!(f, "invalid Nullable marker byte: {b}"),
             Self::VarintOverflow => write!(f, "varint overflow: exceeded 10 bytes"),
             Self::InvalidUtf8 => write!(f, "invalid utf-8 in String value"),
-            Self::UnexpectedNull => {
-                write!(
-                    f,
-                    "unexpected null in Nullable(String) — caller requires non-null"
-                )
-            }
             Self::ShapeMismatch => {
                 write!(f, "PropVal variant does not match declared BreakdownShape")
             }

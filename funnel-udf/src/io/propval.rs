@@ -195,17 +195,19 @@ mod tests {
         assert_eq!(got, PropVal::String(Bytes(bad)));
     }
 
+    // NULL breakdown → empty string bucket (matches JSONEachRow behavior and
+    // what funnel_trends returns as "" breakdown_value).
     #[test]
-    fn unexpected_null_errors() {
+    fn null_breakdown_maps_to_empty_string() {
         let mut buf = Vec::new();
         buf.write_u8(1).unwrap();
         let mut slice = buf.as_slice();
-        let err = read_propval(
+        let got = read_propval(
             &mut slice,
             BreakdownShape::NullableString,
             &nullable_string(),
         )
-        .unwrap_err();
-        assert!(matches!(err, CodecError::UnexpectedNull));
+        .unwrap();
+        assert_eq!(got, PropVal::String(Bytes(Vec::new())));
     }
 }
