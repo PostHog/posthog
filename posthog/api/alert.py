@@ -152,7 +152,11 @@ class AlertSerializer(serializers.ModelSerializer):
     checks = AlertCheckSerializer(
         many=True,
         read_only=True,
-        help_text="Alert check results. By default returns the last 5. Use checks_date_from and checks_date_to (e.g. '-24h', '-7d') to get checks within a time window, and checks_limit to control the maximum returned (default 5, max 500). Only populated on retrieve.",
+        help_text="Alert check results. By default returns the last 5. Use checks_date_from and checks_date_to (e.g. '-24h', '-7d') to get checks within a time window, checks_limit to cap how many are returned (default 5, max 500), and checks_offset to skip the newest N checks for pagination (0-based). Newest checks first. Only populated on retrieve.",
+    )
+    checks_total = serializers.SerializerMethodField(
+        read_only=True,
+        help_text="Total alert checks matching the retrieve filters (date window). Only set on alert retrieve; omitted otherwise.",
     )
     threshold = ThresholdSerializer(
         help_text="Threshold configuration with bounds and type for evaluating the alert.",
@@ -220,6 +224,9 @@ class AlertSerializer(serializers.ModelSerializer):
         help_text="The last calculated value from the most recent alert check.",
     )
 
+    def get_checks_total(self, obj: AlertConfiguration) -> int | None:
+        return getattr(obj, "checks_total", None)
+
     class Meta:
         model = AlertConfiguration
         fields = [
@@ -237,6 +244,7 @@ class AlertSerializer(serializers.ModelSerializer):
             "last_checked_at",
             "next_check_at",
             "checks",
+            "checks_total",
             "config",
             "detector_config",
             "calculation_interval",
@@ -258,6 +266,8 @@ class AlertSerializer(serializers.ModelSerializer):
         data = super().to_representation(instance)
         data["subscribed_users"] = UserBasicSerializer(instance.subscribed_users.all(), many=True, read_only=True).data
         data["insight"] = InsightBasicSerializer(instance.insight).data
+        if data.get("checks_total") is None:
+            data.pop("checks_total", None)
         return data
 
     def add_threshold(self, threshold_data, validated_data):
@@ -621,6 +631,12 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 required=False,
                 description="Maximum number of check results to return (default 5, max 500). Applied after date filtering.",
             ),
+            OpenApiParameter(
+                name="checks_offset",
+                type=int,
+                required=False,
+                description="Number of newest checks to skip (0-based). Use with checks_limit for pagination. Default 0.",
+            ),
         ],
     )
     def retrieve(self, request, *args, **kwargs):
@@ -648,7 +664,19 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         else:
             limit = self.CHECKS_MAX_LIMIT if has_date_filter else self.CHECKS_DEFAULT_LIMIT
 
-        instance.checks = checks_qs[:limit]
+        raw_offset = request.query_params.get("checks_offset")
+        if raw_offset is not None:
+            try:
+                offset = max(0, int(raw_offset))
+            except (ValueError, TypeError):
+                offset = 0
+        else:
+            offset = 0
+
+        checks_total = checks_qs.count()
+        instance.checks_total = checks_total
+        offset = min(offset, checks_total)
+        instance.checks = checks_qs[offset : offset + limit]
         serializer = self.get_serializer(instance)
         return Response(serializer.data)
 
