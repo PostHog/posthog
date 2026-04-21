@@ -9,6 +9,7 @@ from django.db.models.functions import TruncDate, TruncHour
 
 import requests as http_requests
 import structlog
+from posthog.security.outbound_proxy import internal_requests as _internal_requests
 import posthoganalytics
 from dateutil import parser
 from drf_spectacular.utils import extend_schema, inline_serializer
@@ -846,7 +847,7 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             headers["X-Duckgres-Internal-Secret"] = token
 
         try:
-            resp = http_requests.request(method, url, json=json_body, params=params, headers=headers, timeout=timeout)
+            resp = _internal_requests.request(method, url, json=json_body, params=params, headers=headers, timeout=timeout)
         except http_requests.Timeout:
             logger.warning("Provisioning API timeout", method=method, path=path, team_id=team_id)
             return Response({"error": "Provisioning service timed out"}, status=status.HTTP_504_GATEWAY_TIMEOUT)
