@@ -5,9 +5,8 @@ import type { LemonBannerProps } from '@posthog/lemon-ui'
 
 import { healthMenuLogic } from 'lib/components/HealthMenu/healthMenuLogic'
 import type { PostHogStatusBadgeStatus, PostHogStatusType } from 'lib/components/HealthMenu/healthMenuLogic'
+import { INCIDENT_IO_STATUS_PAGE_BASE } from 'lib/components/HealthMenu/incidentStatusLogic'
 import { HeartHog, SleepingHog, WarningHog } from 'lib/components/hedgehogs'
-
-import { INCIDENT_IO_STATUS_PAGE_BASE } from '~/layout/navigation-3000/incident/incidentStatus'
 
 const STATUS_CONFIG: Record<
     PostHogStatusBadgeStatus,
@@ -37,7 +36,6 @@ export const PlatformStatusBanner = (): JSX.Element => {
     return (
         <LemonBanner
             type={bannerType}
-            className="max-w-3xl"
             icon={<Hog className="size-10 shrink-0" />}
             hideIcon={false}
             action={{

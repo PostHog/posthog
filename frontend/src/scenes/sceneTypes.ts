@@ -48,7 +48,6 @@ export enum Scene {
     ErrorNetwork = '4xx',
     ErrorProjectUnavailable = 'ProjectUnavailable',
     ErrorTracking = 'ErrorTracking',
-    ErrorTrackingConfiguration = 'ErrorTrackingConfiguration',
     ErrorTrackingIssue = 'ErrorTrackingIssue',
     ErrorTrackingIssueFingerprints = 'ErrorTrackingIssueFingerprints',
     EventDefinition = 'EventDefinition',
@@ -58,6 +57,7 @@ export enum Scene {
     Experiments = 'Experiments',
     Exports = 'Exports',
     Subscriptions = 'Subscriptions',
+    Subscription = 'Subscription',
     ExperimentsSharedMetric = 'ExperimentsSharedMetric',
     ExperimentsSharedMetrics = 'ExperimentsSharedMetrics',
     ExploreEvents = 'ExploreEvents',
@@ -161,7 +161,6 @@ export enum Scene {
     VercelLinkError = 'VercelLinkError',
     VerifyEmail = 'VerifyEmail',
     WebAnalytics = 'WebAnalytics',
-    WebAnalyticsMarketing = 'WebAnalyticsMarketing',
     WebAnalyticsPageReports = 'WebAnalyticsPageReports',
     WebAnalyticsWebVitals = 'WebAnalyticsWebVitals',
     WebAnalyticsHealth = 'WebAnalyticsHealth',
@@ -187,6 +186,7 @@ export enum Scene {
     ManagedMigration = 'ManagedMigration',
     ManagedMigrationNew = 'ManagedMigrationNew',
     MarketingAnalytics = 'MarketingAnalytics',
+    MarketingAnalyticsSettings = 'MarketingAnalyticsSettings',
     MessagingLibraryTemplate = 'MessagingLibraryTemplate',
     NewAction = 'NewAction',
     TaskDetail = 'TaskDetail',
@@ -279,12 +279,6 @@ export interface SceneConfig {
     projectBased?: boolean
     /** Set the scope of the activity (affects activity and discussion panel) */
     activityScope?: ActivityScope | string
-    /** Default docs path - what the docs side panel will open by default when this scene is active  */
-    defaultDocsPath?: string | (() => string) | (() => Promise<string>)
-    /** Team slug for changelog - appended as ?team= to the changelog URL in the side panel */
-    changelogTeamSlug?: string
-    /** Category for changelog - appended as ?category= to the changelog URL in the side panel */
-    changelogCategory?: string
     /** Component import, used only in manifests */
     import?: () => Promise<any>
     /** Custom icon for the tabs */
@@ -325,7 +319,6 @@ export const sceneToAccessControlResourceType: Partial<Record<Scene, AccessContr
 
     // Web Analytics
     [Scene.WebAnalytics]: AccessControlResourceType.WebAnalytics,
-    [Scene.WebAnalyticsMarketing]: AccessControlResourceType.WebAnalytics,
     [Scene.WebAnalyticsPageReports]: AccessControlResourceType.WebAnalytics,
     [Scene.WebAnalyticsWebVitals]: AccessControlResourceType.WebAnalytics,
     [Scene.WebAnalyticsHealth]: AccessControlResourceType.WebAnalytics,

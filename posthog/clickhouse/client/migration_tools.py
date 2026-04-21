@@ -8,6 +8,7 @@ from posthog import settings
 from posthog.clickhouse.client.connection import NodeRole
 from posthog.clickhouse.cluster import ClickhouseCluster, Query, get_cluster
 from posthog.settings.data_stores import (
+    CLICKHOUSE_CLUSTER,
     CLICKHOUSE_MIGRATIONS_CLUSTER,
     CLICKHOUSE_MIGRATIONS_HOST,
     CLICKHOUSE_SATELLITE_CLUSTERS,
@@ -21,6 +22,7 @@ def get_migrations_cluster() -> ClickhouseCluster:
     return get_cluster(
         host=CLICKHOUSE_MIGRATIONS_HOST,
         cluster=CLICKHOUSE_MIGRATIONS_CLUSTER,
+        data_cluster=CLICKHOUSE_CLUSTER,
         satellite_clusters=CLICKHOUSE_SATELLITE_CLUSTERS or None,
     )
 

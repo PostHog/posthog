@@ -1,11 +1,13 @@
 import json
 from typing import Any
 
+from django.db import transaction
 from django.db.models import Q, QuerySet
 
 import structlog
 import django_filters
 from django_filters.rest_framework import DjangoFilterBackend
+from drf_spectacular.utils import extend_schema
 from rest_framework import serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
@@ -24,6 +26,7 @@ from posthog.temporal.llm_analytics.run_evaluation import extract_event_io, run_
 
 from ..models.evaluation_config import EvaluationConfig
 from ..models.evaluation_configs import validate_evaluation_configs
+from ..models.evaluation_reports import EvaluationReport
 from ..models.evaluations import Evaluation
 from ..models.model_configuration import LLMModelConfiguration
 from ..models.provider_keys import LLMProvider, LLMProviderKey
@@ -65,6 +68,8 @@ class EvaluationSerializer(serializers.ModelSerializer):
             "name",
             "description",
             "enabled",
+            "status",
+            "status_reason",
             "evaluation_type",
             "evaluation_config",
             "output_type",
@@ -76,7 +81,26 @@ class EvaluationSerializer(serializers.ModelSerializer):
             "created_by",
             "deleted",
         ]
-        read_only_fields = ["id", "created_at", "updated_at", "created_by"]
+        # status / status_reason are server-managed (coerced from enabled on user writes, set directly by
+        # system transitions). Clients toggle `enabled`; the model's save() keeps the trio consistent.
+        read_only_fields = ["id", "status", "status_reason", "created_at", "updated_at", "created_by"]
+        extra_kwargs = {
+            "name": {"help_text": "Name of the evaluation."},
+            "description": {"help_text": "Optional description of what this evaluation checks."},
+            "enabled": {"help_text": "Whether the evaluation runs automatically on new $ai_generation events."},
+            "evaluation_type": {
+                "help_text": "'llm_judge' uses an LLM to score outputs against a prompt; 'hog' runs deterministic Hog code."
+            },
+            "evaluation_config": {
+                "help_text": "Configuration dict. For llm_judge: {'prompt': '...'}. For hog: {'source': '...'}."
+            },
+            "output_type": {"help_text": "Output format. Currently only 'boolean' is supported."},
+            "output_config": {"help_text": "Optional output config, e.g. {'allows_na': true} to allow N/A results."},
+            "conditions": {
+                "help_text": "Optional trigger conditions to filter which events are evaluated. OR between condition sets, AND within each."
+            },
+            "deleted": {"help_text": "Set to true to soft-delete the evaluation."},
+        }
 
     def validate(self, data):
         if "evaluation_config" in data and "output_config" in data:
@@ -90,20 +114,57 @@ class EvaluationSerializer(serializers.ModelSerializer):
                 except ValueError as e:
                     raise serializers.ValidationError({"config": str(e)})
 
-        # Prevent re-enabling an evaluation that uses trial credits when quota is exhausted.
+        # Guard re-enable transitions: if the eval is currently disabled and the caller is flipping
+        # `enabled=True`, make sure whatever caused the disabled state has actually been resolved.
+        # Without this check, a caller (UI, API, MCP, agent) can flip enabled=True, see a 200, and
+        # then watch the next Temporal run silently re-disable the eval for the same reason.
         if data.get("enabled") and self.instance and not self.instance.enabled:
-            has_byok = self._has_byok_key(data)
-            if not has_byok:
-                team = self.context["get_team"]()
-                config = EvaluationConfig.objects.filter(team=team).first()
-                if config and config.trial_limit_reached:
-                    raise serializers.ValidationError(
-                        {
-                            "enabled": "Trial evaluation limit reached. Add a provider API key to re-enable this evaluation."
-                        }
-                    )
+            self._validate_re_enable(data)
 
         return data
+
+    def _validate_re_enable(self, data: dict) -> None:
+        has_byok = self._has_byok_key(data)
+        status_reason = getattr(self.instance, "status_reason", None)
+
+        # Trial limit: can only re-enable if they've attached a BYOK key (which bypasses trial quota).
+        if status_reason == "trial_limit_reached" or not status_reason:
+            team = self.context["get_team"]()
+            config = EvaluationConfig.objects.filter(team=team).first()
+            if config and config.trial_limit_reached and not has_byok:
+                raise serializers.ValidationError(
+                    {"enabled": "Trial evaluation limit reached. Add a provider API key to re-enable this evaluation."}
+                )
+
+        # Model-not-allowed: the eval's current model must now be on the trial allowlist, or they
+        # must have attached a BYOK key (BYOK bypasses the allowlist entirely).
+        if status_reason == "model_not_allowed" and not has_byok:
+            from products.llm_analytics.backend.llm import TRIAL_MODEL_IDS
+
+            model_config_data = data.get("model_configuration")
+            if model_config_data is not None:
+                model = model_config_data.get("model")
+            elif self.instance and self.instance.model_configuration:
+                model = self.instance.model_configuration.model
+            else:
+                model = None
+            if model and model not in TRIAL_MODEL_IDS:
+                raise serializers.ValidationError(
+                    {
+                        "enabled": (
+                            f"Model '{model}' is not available on the trial plan. "
+                            "Either choose a supported trial model or add a provider API key."
+                        )
+                    }
+                )
+
+        # Provider key deleted: the eval must now point at a real provider key.
+        if status_reason == "provider_key_deleted" and not has_byok:
+            raise serializers.ValidationError(
+                {
+                    "enabled": "The provider API key for this evaluation was deleted. Attach a provider API key before re-enabling."
+                }
+            )
 
     def _has_byok_key(self, data: dict) -> bool:
         """Check if the evaluation will have a BYOK key after this update."""
@@ -201,6 +262,48 @@ class EvaluationFilter(django_filters.FilterSet):
         return queryset
 
 
+class TestHogRequestSerializer(serializers.Serializer):
+    source = serializers.CharField(
+        required=True,
+        min_length=1,
+        help_text="Hog source code to test. Must return a boolean (true = pass, false = fail) or null for N/A.",
+    )  # type: ignore[assignment]
+    sample_count = serializers.IntegerField(
+        required=False,
+        default=5,
+        min_value=1,
+        max_value=10,
+        help_text="Number of recent $ai_generation events to test against (1–10, default 5).",
+    )
+    allows_na = serializers.BooleanField(
+        required=False, default=False, help_text="Whether the evaluation can return N/A for non-applicable generations."
+    )
+    conditions = serializers.ListField(
+        child=serializers.DictField(),
+        required=False,
+        default=list,
+        help_text="Optional trigger conditions to filter which events are sampled.",
+    )
+
+
+class TestHogResultItemSerializer(serializers.Serializer):
+    event_uuid = serializers.CharField(help_text="UUID of the $ai_generation event.")
+    trace_id = serializers.CharField(allow_null=True, required=False, help_text="Trace ID if available.")
+    input_preview = serializers.CharField(help_text="First 200 chars of the generation input.")
+    output_preview = serializers.CharField(help_text="First 200 chars of the generation output.")
+    result = serializers.BooleanField(allow_null=True, help_text="True = pass, False = fail, null = N/A or error.")
+    reasoning = serializers.CharField(allow_null=True, help_text="Hog evaluation reasoning string, if any.")
+    error = serializers.CharField(allow_null=True, help_text="Error message if the Hog code raised an exception.")
+
+
+class TestHogResponseSerializer(serializers.Serializer):
+    results = TestHogResultItemSerializer(many=True)
+    message = serializers.CharField(
+        required=False, help_text="Optional message, e.g. when no recent events were found."
+    )
+
+
+@extend_schema(tags=["llm_analytics"])
 class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
     scope_object = "evaluation"
     permission_classes = [IsAuthenticated, AccessControlPermission]
@@ -233,7 +336,16 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbi
         return 0
 
     def perform_create(self, serializer):
-        instance = serializer.save()
+        with transaction.atomic():
+            instance = serializer.save()
+
+            # Auto-create a default report config so reports are generated from the start.
+            # Defaults to count-triggered (frequency=every_n), so rrule/starts_at stay empty
+            # and users add email/Slack delivery targets later if they want notifications.
+            EvaluationReport.objects.create(
+                team=self.team,
+                evaluation=instance,
+            )
 
         # Calculate properties for tracking
         conditions = instance.conditions or []
@@ -372,6 +484,7 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbi
     def partial_update(self, request, *args, **kwargs):
         return super().partial_update(request, *args, **kwargs)
 
+    @extend_schema(request=TestHogRequestSerializer, responses=TestHogResponseSerializer)
     @action(detail=False, methods=["post"], url_path="test_hog", required_scopes=["evaluation:read"])
     def test_hog(self, request: Request, **kwargs) -> Response:
         """Test Hog evaluation code against sample events without saving."""
@@ -523,10 +636,3 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbi
         )
 
         return Response({"results": results})
-
-
-class TestHogRequestSerializer(serializers.Serializer):
-    source = serializers.CharField(required=True, min_length=1)  # type: ignore[assignment]
-    sample_count = serializers.IntegerField(required=False, default=5, min_value=1, max_value=10)
-    allows_na = serializers.BooleanField(required=False, default=False)
-    conditions = serializers.ListField(child=serializers.DictField(), required=False, default=list)

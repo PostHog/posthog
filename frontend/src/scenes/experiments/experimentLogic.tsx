@@ -18,10 +18,8 @@ import { runWithLimit } from 'scenes/dashboard/dashboardUtils'
 import {
     hasMultipleVariantsActive,
     hasZeroRollout,
-    indexToVariantKeyFeatureFlagPayloads,
     featureFlagLogic as sceneFeatureFlagLogic,
     validateFeatureFlagKey,
-    variantKeyToIndexFeatureFlagPayloads,
 } from 'scenes/feature-flags/featureFlagLogic'
 import { featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
@@ -616,7 +614,7 @@ export const experimentLogic = kea<experimentLogicType>([
             teamLogic,
             ['addProductIntent'],
             featureFlagsLogic,
-            ['updateFlag'],
+            ['updateFlagFromPartial'],
             modalsLogic,
             [
                 'openPrimaryMetricModal',
@@ -791,7 +789,10 @@ export const experimentLogic = kea<experimentLogicType>([
                 | null
             )[]
         ) => ({ results }),
-        updateDistribution: (featureFlag: FeatureFlagType) => ({ featureFlag }),
+        updateDistribution: (variants: MultivariateFlagVariant[], rolloutPercentage?: number) => ({
+            variants,
+            rolloutPercentage,
+        }),
         setAutoRefresh: (enabled: boolean, interval: number) => ({ enabled, interval }),
         resetAutoRefreshInterval: true,
         stopAutoRefreshInterval: true,
@@ -1381,6 +1382,9 @@ export const experimentLogic = kea<experimentLogicType>([
                                 ...values.experiment.filters,
                                 properties: [],
                             },
+                            // Signal the backend to sync variant split and rollout
+                            // percentage to the linked feature flag.
+                            update_feature_flag_params: true,
                         }
                     )
 
@@ -1490,11 +1494,11 @@ export const experimentLogic = kea<experimentLogicType>([
             }
         },
         changeExperimentStartDate: async ({ startDate }) => {
-            actions.updateExperiment({ start_date: startDate })
+            actions.updateExperiment({ start_date: startDate, update_feature_flag_params: false })
             values.experiment && eventUsageLogic.actions.reportExperimentStartDateChange(values.experiment, startDate)
         },
         changeExperimentEndDate: async ({ endDate }) => {
-            actions.updateExperiment({ end_date: endDate })
+            actions.updateExperiment({ end_date: endDate, update_feature_flag_params: false })
             values.experiment && eventUsageLogic.actions.reportExperimentEndDateChange(values.experiment, endDate)
         },
         endExperiment: async () => {
@@ -1660,6 +1664,7 @@ export const experimentLogic = kea<experimentLogicType>([
             actions.updateExperiment({
                 metrics: values.experiment.metrics,
                 metrics_secondary: values.experiment.metrics_secondary,
+                update_feature_flag_params: false,
             })
         },
         updateExperimentCollectionGoal: async () => {
@@ -1672,6 +1677,7 @@ export const experimentLogic = kea<experimentLogicType>([
                     recommended_sample_size: recommendedSampleSize,
                     minimum_detectable_effect: minimumDetectableEffect || 0,
                 },
+                update_feature_flag_params: false,
             })
         },
         updateExposureCriteria: async () => {
@@ -1679,6 +1685,7 @@ export const experimentLogic = kea<experimentLogicType>([
                 exposure_criteria: {
                     ...values.experiment.exposure_criteria,
                 },
+                update_feature_flag_params: false,
             })
             actions.refreshExperimentResults(true, 'config_change')
         },
@@ -1697,6 +1704,9 @@ export const experimentLogic = kea<experimentLogicType>([
         },
         updateExperimentSuccess: async ({ experiment, payload }) => {
             actions.updateExperiments(experiment)
+            if (payload?.update_feature_flag_params && experiment.feature_flag) {
+                actions.updateFlagFromPartial(experiment.feature_flag)
+            }
             if (isLaunched(experiment)) {
                 // For launched experiments, refresh results if any of these fields are updated
                 const forceRefresh =
@@ -1768,6 +1778,7 @@ export const experimentLogic = kea<experimentLogicType>([
                 }
                 await api.update(`api/projects/${values.currentProjectId}/experiments/${values.experimentId}`, {
                     parameters: updatedParameters,
+                    update_feature_flag_params: false,
                 })
                 actions.setExperiment({
                     parameters: updatedParameters,
@@ -1776,21 +1787,16 @@ export const experimentLogic = kea<experimentLogicType>([
                 lemonToast.error('Failed to update experiment variant images')
             }
         },
-        updateDistribution: async ({ featureFlag }) => {
-            const { created_at, id, ...flag } = featureFlag
-
-            const preparedFlag = indexToVariantKeyFeatureFlagPayloads(flag)
-
-            const savedFlag = await api.update(
-                `api/projects/${values.currentProjectId}/feature_flags/${id}`,
-                preparedFlag
-            )
-
-            const updatedFlag = variantKeyToIndexFeatureFlagPayloads(savedFlag)
-            actions.updateFlag(updatedFlag)
-
+        updateDistribution: async ({ variants, rolloutPercentage }) => {
+            const { rollout_percentage: _, ...otherParams } = values.experiment?.parameters || {}
             actions.updateExperiment({
+                parameters: {
+                    ...otherParams,
+                    feature_flag_variants: variants,
+                    ...(rolloutPercentage !== undefined ? { rollout_percentage: rolloutPercentage } : {}),
+                },
                 holdout_id: values.experiment.holdout_id,
+                update_feature_flag_params: true,
             })
         },
         addSharedMetricsToExperiment: async ({ sharedMetricIds, metadata }) => {
@@ -1810,6 +1816,7 @@ export const experimentLogic = kea<experimentLogicType>([
 
             await api.update(`api/projects/${values.currentProjectId}/experiments/${values.experimentId}`, {
                 saved_metrics_ids: combinedMetricsIds,
+                update_feature_flag_params: false,
             })
 
             actions.loadExperiment({ triggeredBy: 'config_change' })
@@ -1834,6 +1841,7 @@ export const experimentLogic = kea<experimentLogicType>([
                 saved_metrics_ids: sharedMetricsIds,
                 metrics: cleanedMetrics,
                 metrics_secondary: cleanedMetricsSecondary,
+                update_feature_flag_params: false,
             })
 
             actions.loadExperiment({ triggeredBy: 'config_change' })
@@ -1922,6 +1930,7 @@ export const experimentLogic = kea<experimentLogicType>([
                     description:
                         (values.experiment.description ? values.experiment.description + `\n\n` : '') +
                         `Dashboard: [${dashboardUrl}](${dashboardUrl})`,
+                    update_feature_flag_params: false,
                 })
 
                 lemonToast.success('Dashboard created successfully', {
@@ -2178,9 +2187,10 @@ export const experimentLogic = kea<experimentLogicType>([
             // Check if this is a shared metric by looking in saved_metrics
             const isSharedMetric = savedMetrics.some(({ query: { uuid: savedMetricUuid } }) => savedMetricUuid === uuid)
 
-            const updatePayload: Partial<Experiment> = {
+            const updatePayload: Partial<Experiment> & { update_feature_flag_params?: boolean } = {
                 metrics: values.experiment.metrics,
                 metrics_secondary: values.experiment.metrics_secondary,
+                update_feature_flag_params: false,
             }
 
             // Only include saved_metrics_ids if we modified a shared metric
@@ -2208,9 +2218,10 @@ export const experimentLogic = kea<experimentLogicType>([
             // Check if this is a shared metric by looking in saved_metrics
             const isSharedMetric = savedMetrics.some(({ query: { uuid: savedMetricUuid } }) => savedMetricUuid === uuid)
 
-            const updatePayload: Partial<Experiment> = {
+            const updatePayload: Partial<Experiment> & { update_feature_flag_params?: boolean } = {
                 metrics: values.experiment.metrics,
                 metrics_secondary: values.experiment.metrics_secondary,
+                update_feature_flag_params: false,
             }
 
             // Only include saved_metrics_ids if we modified a shared metric
@@ -2266,8 +2277,8 @@ export const experimentLogic = kea<experimentLogicType>([
     })),
     loaders(({ actions, values }) => ({
         experiment: {
-            loadExperiment: async ({ triggeredBy }: { triggeredBy?: ExperimentTriggeredBy } = {}) => {
-                void triggeredBy
+            loadExperiment: async (payload?: { triggeredBy?: ExperimentTriggeredBy }) => {
+                void payload?.triggeredBy
                 if (values.experimentId && values.experimentId !== 'new') {
                     try {
                         let response: Experiment = await api.get(
@@ -2313,7 +2324,7 @@ export const experimentLogic = kea<experimentLogicType>([
                 }
                 return NEW_EXPERIMENT
             },
-            updateExperiment: async (update: Partial<Experiment>) => {
+            updateExperiment: async (update: Partial<Experiment> & { update_feature_flag_params?: boolean }) => {
                 const response: Experiment = await api.update(
                     `api/projects/${values.currentProjectId}/experiments/${values.experimentId}`,
                     update

@@ -18,6 +18,11 @@ from posthog.temporal.common.liveness_tracker import LivenessInterceptor
 from posthog.temporal.common.logger import get_write_only_logger
 from posthog.temporal.common.posthog_client import PostHogClientInterceptor
 from posthog.temporal.common.slo_interceptor import SloInterceptor
+from posthog.temporal.llm_analytics.eval_reports.metrics import (
+    EVAL_REPORTS_LATENCY_HISTOGRAM_BUCKETS,
+    EVAL_REPORTS_LATENCY_HISTOGRAM_METRICS,
+    EvalReportsMetricsInterceptor,
+)
 from posthog.temporal.llm_analytics.metrics import EvalsMetricsInterceptor
 from posthog.temporal.llm_analytics.sentiment.metrics import (
     SENTIMENT_LATENCY_HISTOGRAM_BUCKETS,
@@ -113,6 +118,7 @@ ALL_INTERCEPTOR_CLASSES = [
     SummarizationMetricsInterceptor,
     ClusteringMetricsInterceptor,
     SentimentMetricsInterceptor,
+    EvalReportsMetricsInterceptor,
     LogsAlertingMetricsInterceptor,
 ]
 
@@ -255,6 +261,12 @@ async def create_worker(
                     zip(
                         SENTIMENT_LATENCY_HISTOGRAM_METRICS,
                         itertools.repeat(SENTIMENT_LATENCY_HISTOGRAM_BUCKETS),
+                    )
+                )
+                | dict(
+                    zip(
+                        EVAL_REPORTS_LATENCY_HISTOGRAM_METRICS,
+                        itertools.repeat(EVAL_REPORTS_LATENCY_HISTOGRAM_BUCKETS),
                     )
                 )
                 | dict(
