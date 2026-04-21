@@ -24,6 +24,7 @@ from posthog.errors import CHQueryErrorTooManySimultaneousQueries
 from posthog.models.exported_asset import ExportedAsset
 from posthog.models.filters.filter import Filter
 from posthog.models.insight import Insight
+from posthog.models.organization import Organization
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.settings import (
@@ -635,6 +636,30 @@ class TestExports(APIBaseTest):
         response = self.client.get(f"/api/projects/{self.team.id}/exports/{export.id}")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["id"], export.id)
+
+    @parameterized.expand(
+        [
+            ("retrieve", "/api/projects/{team_id}/exports/{export_id}"),
+            ("content", "/api/projects/{team_id}/exports/{export_id}/content"),
+        ]
+    )
+    def test_cannot_access_export_in_a_team_the_user_does_not_belong_to(self, _name, url_template) -> None:
+        # Proves the team scoping (TeamAndOrgViewSetMixin) rejects cross-team access on its own,
+        # independent of the created_by filter. Even if a future change loosened the created_by
+        # filter, this path must stay locked: the request user is in a different org from the
+        # target team, so they should never reach the queryset.
+        other_org = Organization.objects.create(name="other org")
+        other_team = Team.objects.create(organization=other_org, api_token=self.CONFIG_API_TOKEN + "-other")
+        other_user = User.objects.create_and_join(other_org, "cross-team@posthog.com", "password")
+
+        export = ExportedAsset.objects.create(
+            team=other_team,
+            export_format="image/png",
+            created_by=other_user,
+        )
+
+        response = self.client.get(url_template.format(team_id=other_team.id, export_id=export.id))
+        self.assertIn(response.status_code, (status.HTTP_403_FORBIDDEN, status.HTTP_404_NOT_FOUND))
 
     @parameterized.expand(
         [
