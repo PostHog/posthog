@@ -7,6 +7,7 @@ from unittest import mock
 
 from posthog.temporal.data_imports.sources.generated_configs import LinkedinAdsSourceConfig
 from posthog.temporal.data_imports.sources.linkedin_ads.linkedin_ads import (
+    LinkedInAdsResumeConfig,
     LinkedinAdsSchema,
     _convert_date_object_to_date,
     _convert_timestamp_to_date,
@@ -17,6 +18,13 @@ from posthog.temporal.data_imports.sources.linkedin_ads.linkedin_ads import (
 )
 
 from products.data_warehouse.backend.types import IncrementalFieldType
+
+
+def _make_resume_manager(can_resume: bool = False, loaded_state: object = None) -> mock.MagicMock:
+    manager = mock.MagicMock()
+    manager.can_resume.return_value = can_resume
+    manager.load_state.return_value = loaded_state
+    return manager
 
 
 class TestLinkedinAdsHelperFunctions:
@@ -247,17 +255,21 @@ class TestLinkedinAdsSource:
     def test_linkedin_ads_source_with_incremental(self, mock_client_func):
         """Test linkedin_ads_source with incremental field."""
         mock_client = mock.MagicMock()
+        # Analytics endpoints are single-shot: one page, no next_page_token.
         mock_client.get_data_by_resource.return_value = [
-            [{"impressions": 1000, "dateRange": {"start": {"year": 2024, "month": 1, "day": 1}}}]
+            ([{"impressions": 1000, "dateRange": {"start": {"year": 2024, "month": 1, "day": 1}}}], None)
         ]
         mock_client_func.return_value = mock_client
 
         config = LinkedinAdsSourceConfig(linkedin_ads_integration_id=123, account_id="456")
+        manager = _make_resume_manager()
 
         result = linkedin_ads_source(
             config=config,
             resource_name="campaign_stats",
             team_id=789,
+            resumable_source_manager=manager,
+            logger=mock.MagicMock(),
             should_use_incremental_field=True,
             incremental_field="date_start",
             incremental_field_type=IncrementalFieldType.Date,
@@ -274,3 +286,93 @@ class TestLinkedinAdsSource:
         mock_client.get_data_by_resource.assert_called_once()
         call_args = mock_client.get_data_by_resource.call_args
         assert call_args[1]["date_start"] == "2024-01-01"
+        assert call_args[1]["starting_page_token"] is None
+        # Single-shot endpoints never save state (no next_page_token).
+        manager.save_state.assert_not_called()
+
+    def test_fresh_run_saves_state_after_each_page_with_next_token(self, mock_client_func):
+        """Fresh run: can_resume() False, save_state called with the next pageToken after each yielded page."""
+        mock_client = mock.MagicMock()
+        mock_client.get_data_by_resource.return_value = [
+            ([{"id": "c1"}], "token-2"),
+            ([{"id": "c2"}], "token-3"),
+            ([{"id": "c3"}], None),
+        ]
+        mock_client_func.return_value = mock_client
+
+        config = LinkedinAdsSourceConfig(linkedin_ads_integration_id=123, account_id="456")
+        manager = _make_resume_manager(can_resume=False)
+
+        result = linkedin_ads_source(
+            config=config,
+            resource_name="campaigns",
+            team_id=789,
+            resumable_source_manager=manager,
+            logger=mock.MagicMock(),
+        )
+
+        rows = list(result.items())
+        assert len(rows) == 3
+
+        mock_client.get_data_by_resource.assert_called_once()
+        assert mock_client.get_data_by_resource.call_args[1]["starting_page_token"] is None
+
+        # Final page has no next token → no save for it, only for the first two pages.
+        assert manager.save_state.call_args_list == [
+            mock.call(LinkedInAdsResumeConfig(page_token="token-2")),
+            mock.call(LinkedInAdsResumeConfig(page_token="token-3")),
+        ]
+        # Fresh run never consults load_state.
+        manager.load_state.assert_not_called()
+
+    def test_resume_run_seeds_starting_page_token_and_skips_initial(self, mock_client_func):
+        """Resume run: load_state is called; the saved token is passed as starting_page_token."""
+        mock_client = mock.MagicMock()
+        mock_client.get_data_by_resource.return_value = [
+            ([{"id": "c2"}], None),
+        ]
+        mock_client_func.return_value = mock_client
+
+        config = LinkedinAdsSourceConfig(linkedin_ads_integration_id=123, account_id="456")
+        manager = _make_resume_manager(can_resume=True, loaded_state=LinkedInAdsResumeConfig(page_token="token-2"))
+
+        result = linkedin_ads_source(
+            config=config,
+            resource_name="campaigns",
+            team_id=789,
+            resumable_source_manager=manager,
+            logger=mock.MagicMock(),
+        )
+
+        rows = list(result.items())
+        assert len(rows) == 1
+        assert len(rows[0]) == 1
+        assert rows[0][0]["id"] == "c2"
+
+        manager.can_resume.assert_called_once()
+        manager.load_state.assert_called_once()
+        mock_client.get_data_by_resource.assert_called_once()
+        assert mock_client.get_data_by_resource.call_args[1]["starting_page_token"] == "token-2"
+        # Final page of a resume has no next token → no save.
+        manager.save_state.assert_not_called()
+
+    def test_empty_first_page_does_not_save_state(self, mock_client_func):
+        """Empty first page (no next token): no yields, no save_state."""
+        mock_client = mock.MagicMock()
+        mock_client.get_data_by_resource.return_value = iter([])
+        mock_client_func.return_value = mock_client
+
+        config = LinkedinAdsSourceConfig(linkedin_ads_integration_id=123, account_id="456")
+        manager = _make_resume_manager(can_resume=False)
+
+        result = linkedin_ads_source(
+            config=config,
+            resource_name="campaigns",
+            team_id=789,
+            resumable_source_manager=manager,
+            logger=mock.MagicMock(),
+        )
+
+        rows = list(result.items())
+        assert rows == []
+        manager.save_state.assert_not_called()

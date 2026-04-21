@@ -3,16 +3,31 @@ import datetime as dt
 import collections.abc
 from dataclasses import dataclass
 
+from structlog.types import FilteringBoundLogger
+
 from posthog.models.integration import Integration
 from posthog.temporal.data_imports.naming_convention import NamingConvention
 from posthog.temporal.data_imports.pipelines.helpers import incremental_type_to_initial_value, initial_datetime
 from posthog.temporal.data_imports.pipelines.pipeline.typings import PartitionFormat, PartitionMode, SourceResponse
+from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.sources.generated_configs import LinkedinAdsSourceConfig
 
 from products.data_warehouse.backend.types import IncrementalFieldType
 
 from .client import LinkedinAdsClient, LinkedinAdsResource
 from .schemas import FLOAT_FIELDS, RESOURCE_SCHEMAS, URN_COLUMNS, VIRTUAL_COLUMN_URN_MAPPING
+
+
+@dataclass
+class LinkedInAdsResumeConfig:
+    """Resume state for LinkedIn Ads sync.
+
+    page_token is the LinkedIn Marketing API `nextPageToken` that points to the next
+    page to fetch. Only paginated resources (campaigns, campaign_groups) produce a
+    meaningful token; single-shot resources (accounts, analytics) never save state.
+    """
+
+    page_token: str
 
 
 @dataclass
@@ -95,6 +110,8 @@ def linkedin_ads_source(
     config: LinkedinAdsSourceConfig,
     resource_name: str,
     team_id: int,
+    resumable_source_manager: ResumableSourceManager[LinkedInAdsResumeConfig],
+    logger: FilteringBoundLogger,
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: typing.Any = None,
     incremental_field: str | None = None,
@@ -139,21 +156,27 @@ def linkedin_ads_source(
             start_date = initial_datetime
             date_start = start_date.strftime("%Y-%m-%d")
 
+        resume_config = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+        starting_page_token = resume_config.page_token if resume_config is not None else None
+        if starting_page_token:
+            logger.debug(f"LinkedInAds: resuming {resource_name} from saved pageToken")
+
         data_pages = client.get_data_by_resource(
             resource=resource,
             account_id=config.account_id,
             date_start=date_start,
             date_end=date_end,
+            starting_page_token=starting_page_token,
         )
 
-        # Process each page
-        for page in data_pages:
-            flattened_records = []
-            for record in page:
-                flattened_record = _flatten_linkedin_record(record, schema)
-                flattened_records.append(flattened_record)
-
+        # Save the token pointing to the NEXT page after each yield, so resume skips
+        # already-yielded pages. Final page has no next token → no save, loop ends.
+        for page, next_page_token in data_pages:
+            flattened_records = [_flatten_linkedin_record(record, schema) for record in page]
             yield flattened_records
+
+            if next_page_token:
+                resumable_source_manager.save_state(LinkedInAdsResumeConfig(page_token=next_page_token))
 
     return SourceResponse(
         name=name,
