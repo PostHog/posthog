@@ -4,6 +4,7 @@ import shutil
 import tempfile
 
 from posthog.test.base import APIBaseTest
+from unittest.mock import patch
 
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import override_settings
@@ -124,6 +125,75 @@ class TestMediaAPI(APIBaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
         self.assertEqual(response.json()["detail"], "Uploaded media must be less than 4MB")
+
+    def test_download_sets_nosniff_and_strict_csp(self) -> None:
+        with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_MEDIA_UPLOADS_FOLDER=TEST_BUCKET):
+            with open(get_path_to("a-small-but-valid.gif"), "rb") as image:
+                response = self.client.post(
+                    f"/api/projects/{self.team.id}/uploaded_media",
+                    {"image": image},
+                    format="multipart",
+                )
+                self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
+                media_location = response.json()["image_location"]
+
+            self.client.logout()
+            download_response = self.client.get(media_location)
+
+            assert download_response.status_code == status.HTTP_200_OK
+            assert download_response.headers.get("X-Content-Type-Options") == "nosniff"
+            # CSPMiddleware applies default-src 'none' on non-HTML responses.
+            csp = download_response.headers.get("Content-Security-Policy", "")
+            assert "default-src 'none'" in csp
+
+    def test_download_forces_attachment_for_non_image_content_type(self) -> None:
+        # Simulate a stored row with an attacker-controlled content type (bypassing
+        # any upload-time validation) to verify the download endpoint does not
+        # render the content inline.
+        with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_MEDIA_UPLOADS_FOLDER=TEST_BUCKET):
+            with open(get_path_to("a-small-but-valid.gif"), "rb") as image:
+                response = self.client.post(
+                    f"/api/projects/{self.team.id}/uploaded_media",
+                    {"image": image},
+                    format="multipart",
+                )
+                self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
+                media_id = response.json()["id"]
+
+            media = UploadedMedia.objects.get(id=media_id)
+            media.content_type = "text/html"
+            media.save(update_fields=["content_type"])
+
+            self.client.logout()
+            with patch(
+                "posthog.api.uploaded_media.object_storage.read_bytes",
+                return_value=b"<script>alert(1)</script>",
+            ):
+                download_response = self.client.get(f"/uploaded_media/{media_id}")
+
+            assert download_response.status_code == status.HTTP_200_OK
+            assert download_response.headers.get("Content-Type", "").startswith("application/octet-stream")
+            disposition = download_response.headers.get("Content-Disposition", "")
+            assert disposition.startswith("attachment")
+
+    def test_download_serves_safe_images_inline(self) -> None:
+        with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_MEDIA_UPLOADS_FOLDER=TEST_BUCKET):
+            with open(get_path_to("a-small-but-valid.gif"), "rb") as image:
+                response = self.client.post(
+                    f"/api/projects/{self.team.id}/uploaded_media",
+                    {"image": image},
+                    format="multipart",
+                )
+                self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
+                media_location = response.json()["image_location"]
+
+            self.client.logout()
+            download_response = self.client.get(media_location)
+
+            assert download_response.status_code == status.HTTP_200_OK
+            assert download_response.headers["Content-Type"] == "image/gif"
+            # Safe raster images may render inline (no Content-Disposition: attachment)
+            assert "attachment" not in download_response.headers.get("Content-Disposition", "")
 
     def test_rejects_upload_when_object_storage_is_unavailable(self) -> None:
         with override_settings(OBJECT_STORAGE_ENABLED=False):
