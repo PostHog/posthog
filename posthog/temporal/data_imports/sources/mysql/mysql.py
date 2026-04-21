@@ -831,11 +831,27 @@ def mysql_source(
                         yield table_from_iterator((dict(zip(column_names, row)) for row in rows), arrow_schema)
 
     def get_rows() -> Iterator[Any]:
+        # Track whether any batch reached the pipeline. If one did, the retry
+        # path can't safely restart from the original cursor: the delta merge
+        # only dedupes rows for `incremental` writes into an existing table
+        # (see `delta_table_helper.write_to_deltalake`), so full-refresh and
+        # first-ever-sync scenarios would get silent duplicates on replay.
+        # The observed bad-plan failure fails before any rows stream, so this
+        # guard is defensive — it enforces the invariant the PR assumes.
+        yielded_any = False
         try:
-            yield from _stream_with_optional_force_index(force_index_name=None)
+            for chunk in _stream_with_optional_force_index(force_index_name=None):
+                yielded_any = True
+                yield chunk
             return
         except pymysql.err.OperationalError as e:
             if not _is_bad_plan_timeout(e):
+                raise
+            if yielded_any:
+                logger.warning(
+                    f"Streaming query died with bad-plan timeout (error {e.args[0] if e.args else '?'}) "
+                    f"after already yielding rows — skipping FORCE INDEX fallback to avoid duplicates."
+                )
                 raise
             logger.warning(
                 f"Streaming query died with bad-plan timeout (error {e.args[0] if e.args else '?'}). "
