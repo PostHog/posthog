@@ -63,13 +63,20 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
     def _capture_query_event(self, event: str, start: float, error: Optional[BaseException] = None) -> None:
         try:
             duration_ms = (time.perf_counter() - start) * 1000
+            team_goals = self.team.marketing_analytics_config.conversion_goals or []
+            draft_goal = getattr(self.query, "draftConversionGoal", None)
+            conversion_goals_count = len(team_goals) + (1 if draft_goal else 0)
+
+            compare_filter = getattr(self.query, "compareFilter", None)
+            has_compare = bool(compare_filter and getattr(compare_filter, "compare", False))
+
             props: dict = {
                 "query_kind": getattr(self.query, "kind", None),
                 "duration_ms": round(duration_ms, 2),
                 "drill_down_level": getattr(self.config, "drill_down_level", None),
                 "attribution_mode": getattr(self.query, "attributionMode", None),
-                "conversion_goals_count": len(getattr(self.query, "conversionGoals", None) or []),
-                "has_compare": getattr(self.query, "compareFilter", None) is not None,
+                "conversion_goals_count": conversion_goals_count,
+                "has_compare": has_compare,
                 "team_id": self.team.pk,
             }
             if error is None:
