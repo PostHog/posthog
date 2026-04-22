@@ -25,7 +25,14 @@ from posthog.session_recordings.models.session_recording_playlist import (
     SessionRecordingPlaylistViewed,
 )
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
-from posthog.session_recordings.session_recording_playlist_api import PLAYLIST_COUNT_REDIS_PREFIX
+from posthog.session_recordings.session_recording_playlist_api import (
+    MAX_SAVED_FILTER_SESSION_IDS_PER_PLAYLIST,
+    PLAYLIST_COUNT_REDIS_PREFIX,
+    PLAYLIST_LIST_MAX_LIMIT,
+    _attach_empty_recordings_counts,
+    _empty_saved_filters_counts,
+    precompute_recordings_counts,
+)
 from posthog.settings import (
     OBJECT_STORAGE_ACCESS_KEY_ID,
     OBJECT_STORAGE_BUCKET,
@@ -1167,3 +1174,186 @@ class TestSessionRecordingPlaylistTeamIsolation(APIBaseTest):
         response = self.client.get(f"/api/projects/{other_team.pk}/session_recording_playlists")
 
         assert response.status_code == status.HTTP_403_FORBIDDEN
+
+
+class TestPrecomputeRecordingsCounts(APIBaseTest):
+    def _make_playlist(self, name: str, playlist_type: str = "collection") -> SessionRecordingPlaylist:
+        return SessionRecordingPlaylist.objects.create(
+            team=self.team,
+            name=name,
+            created_by=self.user,
+            type=playlist_type,
+        )
+
+    @parameterized.expand(
+        [
+            ("all_synthetic", "synthetic"),
+            ("empty_list", "empty"),
+        ]
+    )
+    def test_noop_paths_do_not_attach_prefetch_attrs(self, _name: str, scenario: str) -> None:
+        if scenario == "synthetic":
+            playlist = SessionRecordingPlaylist(team=self.team, type="collection")
+            playlist._is_synthetic = True  # type: ignore[attr-defined]
+            playlists: list[SessionRecordingPlaylist] = [playlist]
+        else:
+            playlists = []
+
+        precompute_recordings_counts(playlists, self.user, self.team)
+
+        for playlist in playlists:
+            assert not hasattr(playlist, "_prefetched_collection_count")
+            assert not hasattr(playlist, "_prefetched_saved_filters_count")
+
+    def test_collection_with_items_attaches_count(self) -> None:
+        playlist = self._make_playlist("with items")
+        for session_id in ["s1", "s2", "s3"]:
+            recording = SessionRecording.objects.create(team=self.team, session_id=session_id)
+            SessionRecordingPlaylistItem.objects.create(playlist=playlist, recording=recording)
+        SessionRecordingViewed.objects.create(team=self.team, user=self.user, session_id="s1")
+        SessionRecordingViewed.objects.create(team=self.team, user=self.user, session_id="s2")
+
+        precompute_recordings_counts([playlist], self.user, self.team)
+
+        assert playlist._prefetched_collection_count == {"count": 3, "watched_count": 2}  # type: ignore[attr-defined]
+        assert not hasattr(playlist, "_prefetched_saved_filters_count")
+
+    def test_collection_with_soft_deleted_items_excluded_from_count(self) -> None:
+        playlist = self._make_playlist("all deleted")
+        rec = SessionRecording.objects.create(team=self.team, session_id="deleted-1")
+        SessionRecordingPlaylistItem.objects.create(playlist=playlist, recording=rec, deleted=True)
+        SessionRecordingViewed.objects.create(team=self.team, user=self.user, session_id="deleted-1")
+
+        precompute_recordings_counts([playlist], self.user, self.team)
+
+        # count excludes the soft-deleted item (None), but watched_count includes it
+        # to match the historical behavior of count_collection_recordings.
+        assert playlist._prefetched_collection_count == {"count": None, "watched_count": 1}  # type: ignore[attr-defined]
+
+    def test_empty_collection_loads_saved_filters_from_redis(self) -> None:
+        playlist = self._make_playlist("empty")
+        SessionRecordingViewed.objects.create(team=self.team, user=self.user, session_id="a")
+        redis.get_client().set(
+            f"{PLAYLIST_COUNT_REDIS_PREFIX}{playlist.short_id}",
+            json.dumps({"session_ids": ["a", "b"], "previous_ids": ["b"], "has_more": False}),
+        )
+
+        precompute_recordings_counts([playlist], self.user, self.team)
+
+        assert playlist._prefetched_collection_count == {"count": None, "watched_count": 0}  # type: ignore[attr-defined]
+        assert playlist._prefetched_saved_filters_count == {  # type: ignore[attr-defined]
+            "count": 2,
+            "has_more": False,
+            "watched_count": 1,
+            "increased": True,
+            "last_refreshed_at": None,
+        }
+
+    def test_saved_filter_count_and_watched_stay_consistent_when_capped(self) -> None:
+        # When a Redis payload contains more than MAX_SAVED_FILTER_SESSION_IDS_PER_PLAYLIST
+        # session IDs, both `count` and `watched_count` must be derived from the same
+        # capped list — otherwise watched_count can exceed count or reference IDs that
+        # were never part of the MGET viewed-status lookup.
+        playlist = self._make_playlist("huge saved filter")
+        extra = 5
+        total_ids = MAX_SAVED_FILTER_SESSION_IDS_PER_PLAYLIST + extra
+        session_ids = [f"sid-{i}" for i in range(total_ids)]
+        # Mark two sessions as viewed: one inside the cap and one outside.
+        SessionRecordingViewed.objects.create(team=self.team, user=self.user, session_id="sid-0")
+        SessionRecordingViewed.objects.create(
+            team=self.team,
+            user=self.user,
+            session_id=f"sid-{MAX_SAVED_FILTER_SESSION_IDS_PER_PLAYLIST + 1}",
+        )
+        redis.get_client().set(
+            f"{PLAYLIST_COUNT_REDIS_PREFIX}{playlist.short_id}",
+            json.dumps({"session_ids": session_ids, "previous_ids": [], "has_more": True}),
+        )
+
+        precompute_recordings_counts([playlist], self.user, self.team)
+
+        result = playlist._prefetched_saved_filters_count  # type: ignore[attr-defined]
+        assert result["count"] == MAX_SAVED_FILTER_SESSION_IDS_PER_PLAYLIST
+        # Only the in-cap viewed session is counted.
+        assert result["watched_count"] == 1
+
+    def test_malformed_redis_payload_degrades_to_empty(self) -> None:
+        playlist = self._make_playlist("bad redis")
+        redis.get_client().set(f"{PLAYLIST_COUNT_REDIS_PREFIX}{playlist.short_id}", "not json")
+
+        precompute_recordings_counts([playlist], self.user, self.team)
+
+        assert playlist._prefetched_saved_filters_count == _empty_saved_filters_counts()  # type: ignore[attr-defined]
+
+    def test_redis_mget_failure_degrades_without_raising(self) -> None:
+        playlist = self._make_playlist("redis down")
+
+        with patch("posthog.session_recordings.session_recording_playlist_api.get_client") as mock_get_client:
+            mock_redis = MagicMock()
+            mock_redis.mget.side_effect = RuntimeError("redis unavailable")
+            mock_get_client.return_value = mock_redis
+
+            precompute_recordings_counts([playlist], self.user, self.team)
+
+        assert playlist._prefetched_collection_count == {"count": None, "watched_count": 0}  # type: ignore[attr-defined]
+        assert playlist._prefetched_saved_filters_count == _empty_saved_filters_counts()  # type: ignore[attr-defined]
+
+    def test_does_not_read_items_from_other_team(self) -> None:
+        # Defense-in-depth: even if a caller misuses the helper by passing a
+        # cross-team playlist id, items belonging to another team must not leak in.
+        other_team = Team.objects.create(organization=self.organization, name="other")
+        mine = self._make_playlist("mine")
+        theirs = SessionRecordingPlaylist.objects.create(team=other_team, name="theirs", type="collection")
+        rec = SessionRecording.objects.create(team=other_team, session_id="theirs-1")
+        SessionRecordingPlaylistItem.objects.create(playlist=theirs, recording=rec)
+
+        # Simulate a buggy caller passing both playlists.
+        precompute_recordings_counts([mine, theirs], self.user, self.team)
+
+        assert mine._prefetched_collection_count == {"count": None, "watched_count": 0}  # type: ignore[attr-defined]
+        # The other-team playlist's items are filtered out by playlist__team_id.
+        assert theirs._prefetched_collection_count == {"count": None, "watched_count": 0}  # type: ignore[attr-defined]
+
+    @parameterized.expand(
+        [
+            ("sets_defaults", "default", {"count": None, "watched_count": None}, True),
+            ("skips_synthetic", "synthetic", None, False),
+            ("preserves_existing_attrs", "preexisting", {"count": 5, "watched_count": 1}, False),
+        ]
+    )
+    def test_attach_empty_recordings_counts(
+        self,
+        _name: str,
+        scenario: str,
+        expected_collection_count: dict | None,
+        expect_saved_filters_default: bool,
+    ) -> None:
+        if scenario == "synthetic":
+            playlist = SessionRecordingPlaylist(team=self.team, type="collection")
+            playlist._is_synthetic = True  # type: ignore[attr-defined]
+        else:
+            playlist = self._make_playlist(scenario)
+            if scenario == "preexisting":
+                playlist._prefetched_collection_count = {"count": 5, "watched_count": 1}  # type: ignore[attr-defined]
+
+        _attach_empty_recordings_counts([playlist])
+
+        if expected_collection_count is None:
+            assert not hasattr(playlist, "_prefetched_collection_count")
+        else:
+            assert playlist._prefetched_collection_count == expected_collection_count  # type: ignore[attr-defined]
+
+        if expect_saved_filters_default:
+            assert playlist._prefetched_saved_filters_count == _empty_saved_filters_counts()  # type: ignore[attr-defined]
+
+    def test_list_clamps_limit_query_param_to_max(self) -> None:
+        # Sanity-check the pagination cap — requesting limit=99999 must cap at the configured max.
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/session_recording_playlists?limit={PLAYLIST_LIST_MAX_LIMIT + 100}"
+        )
+        assert response.status_code == status.HTTP_200_OK
+        # Even with no playlists created, the response must be well-formed and bounded.
+        # (Actual item count depends on synthetic playlists; the cap is enforced inside list()
+        # and by the paginator.)
+        results = response.json()["results"]
+        assert len(results) <= PLAYLIST_LIST_MAX_LIMIT

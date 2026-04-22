@@ -38,6 +38,7 @@ Schema reference for PostHog's core system models, organized by domain:
 
 ## HogQL References
 
+- [Person property modes (event-time vs query-time)](./references/person-property-modes.md). Read when working with `person.properties.*` to understand if values are historical or current.
 - [Sparkline, SemVer, Session replays, Actions, Translation, HTML tags and links, Text effects, and more](./references/hogql-extensions.md)
 - [SQL variables](./references/models-variables.md).
 - [Available functions in HogQL](./references/available-functions.md). IMPORTANT: the list is long, so read data using bash commands like grep.

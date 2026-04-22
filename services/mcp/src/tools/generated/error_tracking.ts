@@ -14,6 +14,7 @@ import {
     ErrorTrackingIssuesRetrieveParams,
     ErrorTrackingIssuesSplitCreateBody,
     ErrorTrackingIssuesSplitCreateParams,
+    ErrorTrackingSuppressionRulesCreateBody,
     ErrorTrackingSuppressionRulesListQueryParams,
 } from '@/generated/error_tracking/api'
 import { withUiApp } from '@/resources/ui-apps'
@@ -284,6 +285,32 @@ const errorTrackingSuppressionRulesList = (): ToolBase<
                 limit: params.limit,
                 offset: params.offset,
             },
+        })
+        return result
+    },
+})
+
+const ErrorTrackingSuppressionRulesCreateSchema = ErrorTrackingSuppressionRulesCreateBody
+
+const errorTrackingSuppressionRulesCreate = (): ToolBase<
+    typeof ErrorTrackingSuppressionRulesCreateSchema,
+    Schemas.ErrorTrackingSuppressionRule
+> => ({
+    name: 'error-tracking-suppression-rules-create',
+    schema: ErrorTrackingSuppressionRulesCreateSchema,
+    handler: async (context: Context, params: z.infer<typeof ErrorTrackingSuppressionRulesCreateSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.filters !== undefined) {
+            body['filters'] = params.filters
+        }
+        if (params.sampling_rate !== undefined) {
+            body['sampling_rate'] = params.sampling_rate
+        }
+        const result = await context.api.request<Schemas.ErrorTrackingSuppressionRule>({
+            method: 'POST',
+            path: `/api/environments/${encodeURIComponent(String(projectId))}/error_tracking/suppression_rules/`,
+            body,
         })
         return result
     },
@@ -624,6 +651,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'error-tracking-issues-merge-create': errorTrackingIssuesMergeCreate,
     'error-tracking-issues-split-create': errorTrackingIssuesSplitCreate,
     'error-tracking-suppression-rules-list': errorTrackingSuppressionRulesList,
+    'error-tracking-suppression-rules-create': errorTrackingSuppressionRulesCreate,
     'query-error-tracking-issues': createQueryWrapper({
         name: 'query-error-tracking-issues',
         schema: QueryErrorTrackingIssuesSchema,

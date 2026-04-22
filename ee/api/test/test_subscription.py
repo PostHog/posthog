@@ -4,6 +4,8 @@ from uuid import uuid4
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from django.core.cache import cache
+
 from parameterized import parameterized
 from rest_framework import status
 from temporalio.exceptions import WorkflowAlreadyStartedError
@@ -12,7 +14,9 @@ from posthog.models import Team
 from posthog.models.filters.filter import Filter
 from posthog.models.insight import Insight
 from posthog.models.integration import Integration
+from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.subscription import Subscription, SubscriptionDelivery
+from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.temporal.subscriptions.types import ProcessSubscriptionWorkflowInputs, SubscriptionTriggerType
 
 from products.dashboards.backend.models.dashboard import Dashboard
@@ -540,6 +544,53 @@ class TestSubscriptionTemporal(APILicensedTest):
 
         response = self.client.post(f"/api/projects/{self.team.id}/subscriptions/{sub_id}/test-delivery/")
         assert response.status_code == status.HTTP_409_CONFLICT
+
+    @patch("posthog.rate_limit.SubscriptionTestDeliveryThrottle.rate", new="3/minute")
+    @patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)
+    def test_test_delivery_throttled_per_team_across_subscriptions_and_keys(self, _rate_limit_enabled_mock):
+        mock_client = MagicMock()
+        mock_client.start_workflow = AsyncMock()
+        self.mock_sync.return_value = mock_client
+
+        throttle_key = f"throttle_subscription_test_delivery_team_{self.team.id}"
+        cache.delete(throttle_key)
+        self.addCleanup(cache.delete, throttle_key)
+
+        def fresh_api_key_headers() -> dict[str, str]:
+            raw_key = generate_random_token_personal()
+            PersonalAPIKey.objects.create(
+                label=f"throttle-{uuid4().hex[:8]}",
+                user=self.user,
+                secure_value=hash_key_value(raw_key),
+                scopes=["*"],
+            )
+            return {"authorization": f"Bearer {raw_key}"}
+
+        pat_a = fresh_api_key_headers()
+        pat_b = fresh_api_key_headers()
+
+        sub_a = self._create_subscription(invite_message=None).json()["id"]
+        sub_b = self._create_subscription(invite_message=None).json()["id"]
+        mock_client.start_workflow.reset_mock()
+
+        for sub_id, headers in [(sub_a, pat_a), (sub_b, pat_b), (sub_a, pat_b)]:
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/subscriptions/{sub_id}/test-delivery/",
+                headers=headers,
+            )
+            assert response.status_code == status.HTTP_202_ACCEPTED
+
+        for headers in (pat_a, pat_b):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/subscriptions/{sub_b}/test-delivery/",
+                headers=headers,
+            )
+            assert response.status_code == status.HTTP_429_TOO_MANY_REQUESTS
+
+        session_response = self.client.post(f"/api/projects/{self.team.id}/subscriptions/{sub_a}/test-delivery/")
+        assert session_response.status_code == status.HTTP_429_TOO_MANY_REQUESTS
+
+        assert mock_client.start_workflow.call_count == 3
 
     def test_backfill_picks_same_integration_as_delivery(self):
         """The data migration must assign the lowest-id Slack integration
