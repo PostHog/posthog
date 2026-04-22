@@ -905,12 +905,15 @@ export const batchExportConfigFormLogic = kea<batchExportConfigFormLogicType>([
                 if (service === 'Postgres') {
                     return [
                         ...generalRequiredFields,
-                        // TODO: Replace hardcoded value with FF.
-                        ...(isNew && false ? ['user'] : []),
-                        ...(isNew && false ? ['password'] : []),
-                        ...(false ? ['host'] : []),
-                        ...(false ? ['port'] : []),
-                        ...(isNew && true ? ['integration_id'] : []),
+                        ...(isNew && !featureFlags[FEATURE_FLAGS.BATCH_EXPORTS_POSTGRESQL_INTEGRATION] ? ['user'] : []),
+                        ...(isNew && !featureFlags[FEATURE_FLAGS.BATCH_EXPORTS_POSTGRESQL_INTEGRATION]
+                            ? ['password']
+                            : []),
+                        ...(!featureFlags[FEATURE_FLAGS.BATCH_EXPORTS_POSTGRESQL_INTEGRATION] ? ['host'] : []),
+                        ...(!featureFlags[FEATURE_FLAGS.BATCH_EXPORTS_POSTGRESQL_INTEGRATION] ? ['port'] : []),
+                        ...(isNew && featureFlags[FEATURE_FLAGS.BATCH_EXPORTS_POSTGRESQL_INTEGRATION]
+                            ? ['integration_id']
+                            : []),
                         'database',
                         'schema',
                         'table_name',
