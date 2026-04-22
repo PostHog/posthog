@@ -130,14 +130,6 @@ describe('alertFormLogic', () => {
 
     afterEach(() => {
         jest.restoreAllMocks()
-        listSpy.mockRestore()
-        getSpy.mockRestore()
-        createSpy.mockRestore()
-        updateSpy.mockRestore()
-        integrationsListSpy.mockRestore()
-        errorToastSpy.mockRestore()
-        successToastSpy.mockRestore()
-        captureExceptionSpy.mockRestore()
     })
 
     function mountForm(onEditSuccess: jest.Mock = jest.fn()): ReturnType<typeof alertFormLogic.build> {
@@ -187,12 +179,27 @@ describe('alertFormLogic', () => {
         expect(captureExceptionSpy).toHaveBeenCalledWith(postSaveError)
     })
 
-    it('shows a descriptive error toast when the create API call fails with a DRF ApiError', async () => {
-        const apiError = new ApiError('Bad request', 400, undefined, {
-            attr: 'calculation_interval',
-            detail: 'Must be one of hourly, daily, weekly, monthly',
-        })
-        createSpy.mockRejectedValueOnce(apiError)
+    it.each([
+        {
+            name: 'a descriptive error toast for a DRF ApiError',
+            error: new ApiError('Bad request', 400, undefined, {
+                attr: 'calculation_interval',
+                detail: 'Must be one of hourly, daily, weekly, monthly',
+            }),
+            expectedToast: 'Error saving alert: calculation interval: Must be one of hourly, daily, weekly, monthly',
+        },
+        {
+            name: 'the error message for a non-ApiError',
+            error: new Error('Network request failed'),
+            expectedToast: 'Error saving alert: Network request failed',
+        },
+        {
+            name: 'the ApiError message when attr and detail are missing',
+            error: new ApiError('Bad request', 400),
+            expectedToast: 'Error saving alert: Bad request',
+        },
+    ])('shows %s when the create API call fails', async ({ error, expectedToast }) => {
+        createSpy.mockRejectedValueOnce(error)
 
         const logic = mountForm()
 
@@ -200,38 +207,7 @@ describe('alertFormLogic', () => {
             logic.actions.submitAlertForm()
         }).toFinishAllListeners()
 
-        expect(errorToastSpy).toHaveBeenCalledWith(
-            'Error saving alert: calculation interval: Must be one of hourly, daily, weekly, monthly'
-        )
-        expect(successToastSpy).not.toHaveBeenCalled()
-    })
-
-    // Guard against the original symptom: a non-ApiError thrown from the save path (or a bare Error
-    // with no `attr` / `detail`) must not render as "undefined: undefined". We fall back to `.message`.
-    it('shows the error message when the create API call fails with a non-ApiError', async () => {
-        createSpy.mockRejectedValueOnce(new Error('Network request failed'))
-
-        const logic = mountForm()
-
-        await expectLogic(logic, () => {
-            logic.actions.submitAlertForm()
-        }).toFinishAllListeners()
-
-        expect(errorToastSpy).toHaveBeenCalledWith('Error saving alert: Network request failed')
-        expect(successToastSpy).not.toHaveBeenCalled()
-    })
-
-    it('shows the ApiError message when attr and detail are missing', async () => {
-        const apiError = new ApiError('Bad request', 400)
-        createSpy.mockRejectedValueOnce(apiError)
-
-        const logic = mountForm()
-
-        await expectLogic(logic, () => {
-            logic.actions.submitAlertForm()
-        }).toFinishAllListeners()
-
-        expect(errorToastSpy).toHaveBeenCalledWith('Error saving alert: Bad request')
+        expect(errorToastSpy).toHaveBeenCalledWith(expectedToast)
         expect(successToastSpy).not.toHaveBeenCalled()
     })
 
