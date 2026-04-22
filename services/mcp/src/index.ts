@@ -6,6 +6,7 @@ import {
     formatPermissionErrorMessage,
 } from '@/lib/errors'
 import { RequestLogger, withLogging } from '@/lib/logging'
+import { extractClientInfoFromBody } from '@/lib/mcp-client-info'
 import { buildRedirectUrl, matchAuthServerRedirect } from '@/lib/routing'
 import { hash, sanitizeHeaderValue } from '@/lib/utils'
 import type { CloudRegion } from '@/tools/types'
@@ -240,6 +241,14 @@ const handleRequest = async (
     // distinguish (e.g. both direct and sandboxed Claude Code send `claude-code`).
     const mcpConsumer = sanitizeHeaderValue(request.headers.get('x-posthog-mcp-consumer') || undefined)
 
+    // Extract MCP `clientInfo` eagerly from the JSON-RPC initialize message in the
+    // request body (streamable-http only). The framework's async
+    // `getInitializeRequest()` relies on Durable Object storage which is only
+    // written after `onStart`/`init()` runs, so on the first connect `init()` has
+    // no client info to read. Parsing the body here gives `init()` the values
+    // synchronously via `RequestProperties`.
+    const clientInfo = await extractClientInfoFromBody(request)
+
     Object.assign(ctx.props, {
         apiToken: token,
         userHash: hash(token),
@@ -248,6 +257,9 @@ const handleRequest = async (
         projectId,
         clientUserAgent,
         mcpConsumer,
+        mcpClientName: clientInfo.clientName,
+        mcpClientVersion: clientInfo.clientVersion,
+        mcpProtocolVersion: clientInfo.protocolVersion,
         requestStartTime: Date.now(),
     })
 
@@ -275,6 +287,9 @@ const handleRequest = async (
     log.extend(extraContextProps)
     if (mcpConsumer) {
         log.extend({ mcpConsumer })
+    }
+    if (clientInfo.clientName) {
+        log.extend({ mcpClientName: clientInfo.clientName })
     }
 
     let server: Promise<Response> | null = null

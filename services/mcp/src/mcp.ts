@@ -53,6 +53,9 @@ export type RequestProperties = {
     projectId?: string
     clientUserAgent?: string
     mcpConsumer?: string
+    mcpClientName?: string
+    mcpClientVersion?: string
+    mcpProtocolVersion?: string
     readOnly?: boolean
     transport?: 'streamable-http' | 'sse'
     requestStartTime?: number
@@ -112,7 +115,27 @@ export class MCP extends McpAgent<Env> {
         return this._clientInfoPromise
     }
 
+    private _seedClientInfoFromProps(): boolean {
+        const { mcpClientName, mcpClientVersion, mcpProtocolVersion } = this.requestProperties
+        if (!mcpClientName && !mcpClientVersion) {
+            return false
+        }
+        this._mcpClientName = mcpClientName
+        this._mcpClientVersion = mcpClientVersion
+        this._mcpProtocolVersion = mcpProtocolVersion
+        return true
+    }
+
     private async _doResolveClientInfo(): Promise<void> {
+        // Prefer values parsed from the current request body (see
+        // `extractClientInfoFromBody` in index.ts). This is the only path
+        // that works on first-connect, because the framework's
+        // `getInitializeRequest()` reads from DO storage which is only written
+        // *after* `onStart`/`init()` has already run.
+        if (this._seedClientInfoFromProps()) {
+            return
+        }
+
         try {
             const initRequest = await this.getInitializeRequest()
             if (!initRequest || !('params' in initRequest)) {
@@ -445,6 +468,14 @@ export class MCP extends McpAgent<Env> {
     async init(): Promise<void> {
         const { features, tools, version: clientVersion, organizationId, projectId, readOnly } = this.requestProperties
 
+        // Seed the MCP client-info fields from request properties (parsed from
+        // the JSON-RPC initialize message in the request body at the worker
+        // entry point). This must happen before any code reads
+        // `this._mcpClientName` — most importantly the `useSingleExec`
+        // decision below. Without this, first-connect sessions make tool
+        // registration decisions with an undefined client name.
+        this._seedClientInfoFromProps()
+
         // Start feature flag resolution in parallel with cache seeding
         const flagPromise = this.resolveVersionFlag()
         const toolFlagsPromise = this.resolveToolFeatureFlags(clientVersion)
@@ -472,10 +503,10 @@ export class MCP extends McpAgent<Env> {
         ])
         // Restrict single-exec mode to coding agents only — Cursor and other clients that
         // render `structuredContent` in their UI need the full per-tool roster, not the
-        // wrapped CLI. `resolveClientInfo()` ran inside `getContext()` above, so
-        // `_mcpClientName` is populated here. PostHog's agent wrapper self-identifies via
-        // the `x-posthog-mcp-consumer` header and forces single-exec regardless of the
-        // wrapped client's reported name.
+        // wrapped CLI. `_mcpClientName` is seeded from request properties at the top of
+        // `init()` so this decision sees the real value on first-connect. PostHog's agent
+        // wrapper self-identifies via the `x-posthog-mcp-consumer` header and forces
+        // single-exec regardless of the wrapped client's reported name.
         const useSingleExec =
             singleExecFlagOn &&
             (isCodingAgentClient(this._mcpClientName) || isPostHogCodeConsumer(this.requestProperties.mcpConsumer))
