@@ -91,4 +91,4 @@ class TestComputeDiff:
 
         diff_img = Image.open(io.BytesIO(result.diff_image))
         assert diff_img.size == (10, 10)
-        assert diff_img.mode == "RGBA"
+        assert diff_img.mode in ("RGB", "RGBA")

@@ -53,7 +53,6 @@ from posthog.models.team.team import Team
 from posthog.temporal.common.shutdown import ShutdownMonitor, WorkerShuttingDownError
 from posthog.temporal.data_imports.cdp_producer_job import CDPProducerJobWorkflow
 from posthog.temporal.data_imports.external_data_job import ExternalDataJobWorkflow
-from posthog.temporal.data_imports.pipelines.pipeline.cdp_producer import CDPProducer
 from posthog.temporal.data_imports.pipelines.pipeline.consts import PARTITION_KEY
 from posthog.temporal.data_imports.pipelines.pipeline.delta_table_helper import DeltaTableHelper
 from posthog.temporal.data_imports.pipelines.pipeline.pipeline import PipelineNonDLT
@@ -248,7 +247,7 @@ async def _run(
         mock.patch(
             "posthog.temporal.data_imports.external_data_job.get_data_import_finished_metric"
         ) as mock_get_data_import_finished_metric,
-        mock.patch("posthog.temporal.data_imports.metrics.KafkaProducer") as mock_app_metrics_producer_cls,
+        mock.patch("posthog.temporal.data_imports.metrics.get_producer") as mock_app_metrics_producer_cls,
     ):
         await _execute_run(workflow_id, inputs, mock_data_response)
 
@@ -379,6 +378,8 @@ async def _execute_run(workflow_id: str, inputs: ExternalDataWorkflowInputs, moc
         paginator: Optional[Any] = None,
         data_selector: Optional[Any] = None,
         hooks: Optional[Any] = None,
+        resume_hook: Optional[Any] = None,
+        initial_paginator_state: Optional[dict[str, Any]] = None,
     ):
         return iter(mock_data_response)
 
@@ -392,6 +393,8 @@ async def _execute_run(workflow_id: str, inputs: ExternalDataWorkflowInputs, moc
         paginator: Optional[Any] = None,
         data_selector: Optional[Any] = None,
         hooks: Optional[Any] = None,
+        resume_hook: Optional[Any] = None,
+        initial_paginator_state: Optional[dict[str, Any]] = None,
     ):
         # Yield each record as its own page so tests that probe chunking
         # by record size still see one call per record.
@@ -3473,8 +3476,18 @@ async def test_cdp_producer_push_to_kafka(team, stripe_customer, mock_stripe_cli
     mock_kafka_producer.flush = mock.AsyncMock()
     mock_kafka_producer.close = mock.AsyncMock()
 
+    # CDPProducer now uses `async_producer_scope(profile=CYCLOTRON)` from the routing
+    # module instead of a per-instance `_get_kafka_producer` method; patch the async
+    # context manager at its import site.
+    @contextlib.asynccontextmanager
+    async def _fake_scope(*args, **kwargs):
+        yield mock_kafka_producer
+
     with (
-        mock.patch.object(CDPProducer, "_get_kafka_producer", return_value=mock_kafka_producer),
+        mock.patch(
+            "posthog.temporal.data_imports.pipelines.pipeline.cdp_producer.async_producer_scope",
+            _fake_scope,
+        ),
         mock.patch(
             "posthog.temporal.data_imports.pipelines.pipeline.pipeline.time.time_ns", return_value=1768828644858352000
         ),
@@ -3843,11 +3856,7 @@ async def test_stripe_webhook_consumer_e2e(team, stripe_charge, mock_stripe_clie
         dlq_topic="test-dlq",
     )
 
-    consumer = WebhookS3Sink(
-        config=config,
-        kafka_hosts=["localhost:9092"],
-        kafka_security_protocol="PLAINTEXT",
-    )
+    consumer = WebhookS3Sink(config=config)
     consumer._consumer = mock.MagicMock()
 
     with override_settings(

@@ -24,7 +24,7 @@ import { Link } from 'lib/lemon-ui/Link'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { capitalizeFirstLetter, dateFilterToText } from 'lib/utils'
 import { BreakdownTag } from 'scenes/insights/filters/BreakdownFilter/BreakdownTag'
-import { humanizePathsEventTypes } from 'scenes/insights/utils'
+import { humanizePathsEventTypes, hasUnsupportedBreakdownForDataWarehouseTrends } from 'scenes/insights/utils'
 import { QUERY_TYPES_METADATA } from 'scenes/saved-insights/SavedInsights'
 import { MathCategory, apiValueToMathType, mathsLogic } from 'scenes/trends/mathsLogic'
 import { urls } from 'scenes/urls'
@@ -62,7 +62,7 @@ import {
     isPathsQuery,
     isRetentionQuery,
     isTrendsQuery,
-    isValidBreakdown,
+    hasBreakdownFilter,
 } from '~/queries/utils'
 import { AnyPropertyFilter, BaseMathType, FilterLogicalOperator, PropertyGroupFilter, UserBasicType } from '~/types'
 
@@ -123,7 +123,7 @@ function SeriesDisplay({
     const { mathDefinitions } = useValues(mathsLogic)
     const series = query.series[seriesIndex]
 
-    const hasBreakdown = isInsightQueryWithBreakdown(query) && isValidBreakdown(query.breakdownFilter)
+    const hasBreakdown = isInsightQueryWithBreakdown(query) && hasBreakdownFilter(query.breakdownFilter)
 
     const mathKey = isLifecycleQuery(query)
         ? BaseMathType.UniqueUsers
@@ -361,6 +361,18 @@ export function PropertiesIgnoredWarning(): JSX.Element {
     )
 }
 
+export function BreakdownIgnoredWarning(): JSX.Element {
+    return (
+        <InsightDetailSectionDisplay icon={<IconSort />} label="Breakdown by">
+            <Tooltip title="Breakdown overrides are not applied. Insights with a data warehouse series only support a single data warehouse property breakdown.">
+                <div className="flex items-center gap-1 text-warning italic">
+                    <IconWarning /> Breakdown overrides ignored (data warehouse series).
+                </div>
+            </Tooltip>
+        </InsightDetailSectionDisplay>
+    )
+}
+
 export function VariablesSummary({
     variables,
     variablesOverride,
@@ -396,7 +408,7 @@ export function VariablesSummary({
 }
 
 export function InsightBreakdownSummary({ query }: { query: InsightQueryNode | HogQLQuery }): JSX.Element | null {
-    if (!isInsightQueryWithBreakdown(query) || !isValidBreakdown(query.breakdownFilter)) {
+    if (!isInsightQueryWithBreakdown(query) || !hasBreakdownFilter(query.breakdownFilter)) {
         return null
     }
 
@@ -408,7 +420,7 @@ export function BreakdownSummary({
 }: {
     breakdownFilter: BreakdownFilter | null | undefined
 }): JSX.Element | null {
-    if (!isValidBreakdown(breakdownFilter)) {
+    if (!hasBreakdownFilter(breakdownFilter)) {
         return null
     }
 
@@ -483,6 +495,11 @@ export const InsightDetails = React.memo(
         ref
     ): JSX.Element {
         const hasPropertyOverrides = !!filtersOverride?.properties?.length || !!tileFiltersOverride?.properties?.length
+        const hasIgnoredBreakdownOverrides =
+            isInsightVizNode(query) &&
+            isTrendsQuery(query.source) &&
+            (hasUnsupportedBreakdownForDataWarehouseTrends(filtersOverride) ||
+                hasUnsupportedBreakdownForDataWarehouseTrends(tileFiltersOverride))
 
         return (
             <div className="InsightDetails space-y-2" ref={ref}>
@@ -506,7 +523,11 @@ export const InsightDetails = React.memo(
                                 }
                             />
                         )}
-                        <InsightBreakdownSummary query={query.source} />
+                        {hasDataWarehouseSeries && hasIgnoredBreakdownOverrides ? (
+                            <BreakdownIgnoredWarning />
+                        ) : (
+                            <InsightBreakdownSummary query={query.source} />
+                        )}
                     </>
                 )}
                 {footerInfo && (
