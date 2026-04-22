@@ -1680,7 +1680,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                     analyzed: true,
                     player_metadata: values.sessionPlayerMetaData,
                 })
-            } catch (e: unknown) {
+            } catch (e: any) {
                 // Let kea breakpoint cancellations propagate so later listeners short-circuit.
                 if (isBreakpoint(e)) {
                     throw e
@@ -1689,10 +1689,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 // flags are re-sent on the next view. Network-level errors (tab close, offline,
                 // ad-blocker cancelling the request) surface as TypeError/AbortError and are
                 // benign noise; only report unexpected errors.
-                const isNetworkError =
-                    e instanceof TypeError ||
-                    (e instanceof DOMException && e.name === 'AbortError') ||
-                    (e as { name?: string } | null)?.name === 'AbortError'
+                const isNetworkError = e instanceof TypeError || e?.name === 'AbortError'
                 if (!isNetworkError) {
                     posthog.captureException(e, { feature: 'session-recording-mark-viewed' })
                 }
