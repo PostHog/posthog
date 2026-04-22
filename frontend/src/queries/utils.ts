@@ -867,15 +867,27 @@ export function hogql(strings: TemplateStringsArray, ...values: any[]): HogQLQue
 hogql.identifier = hogQLIdentifier
 hogql.raw = hogQLRaw
 
-export function hasSingleBreakdown(breakdownFilter?: BreakdownFilter | null): boolean {
+type SingleBreakdownFilter = BreakdownFilter & {
+    breakdown: NonNullable<BreakdownFilter['breakdown']>
+}
+
+type MultiBreakdownFilter = BreakdownFilter & {
+    breakdowns: NonNullable<BreakdownFilter['breakdowns']>
+}
+
+type PopulatedBreakdownFilter = SingleBreakdownFilter | MultiBreakdownFilter
+
+export function hasSingleBreakdown(breakdownFilter?: BreakdownFilter | null): breakdownFilter is SingleBreakdownFilter {
     return breakdownFilter?.breakdown != null
 }
 
-export function hasMultiBreakdown(breakdownFilter?: BreakdownFilter | null): boolean {
+export function hasMultiBreakdown(breakdownFilter?: BreakdownFilter | null): breakdownFilter is MultiBreakdownFilter {
     return (breakdownFilter?.breakdowns?.length ?? 0) > 0
 }
 
-export function hasBreakdownFilter(breakdownFilter?: BreakdownFilter | null): boolean {
+export function hasBreakdownFilter(
+    breakdownFilter?: BreakdownFilter | null
+): breakdownFilter is PopulatedBreakdownFilter {
     return hasSingleBreakdown(breakdownFilter) || hasMultiBreakdown(breakdownFilter)
 }
 
