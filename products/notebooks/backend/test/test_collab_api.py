@@ -3,7 +3,7 @@ from unittest.mock import patch
 
 from rest_framework import status
 
-from products.notebooks.backend.collab import SubmitResult, initialize_collab_session
+from products.notebooks.backend.collab import SubmitResult
 from products.notebooks.backend.models import Notebook
 
 SAMPLE_DOC = {"type": "doc", "content": [{"type": "heading", "content": [{"type": "text", "text": "Test"}]}]}
@@ -34,13 +34,9 @@ class TestNotebookCollabSaveAPI(APIBaseTest):
             format="json",
         )
 
-    def _init_collab(self, notebook) -> int:
-        initialize_collab_session(self.team.pk, notebook["short_id"], notebook["version"])
-        return notebook["version"]
-
     def test_collab_save_accepted(self):
         notebook = self._create_notebook(SAMPLE_DOC)
-        version = self._init_collab(notebook)
+        version = notebook["version"]
 
         response = self._collab_save(
             notebook,
@@ -55,7 +51,7 @@ class TestNotebookCollabSaveAPI(APIBaseTest):
 
     def test_collab_save_persists_to_postgres(self):
         notebook = self._create_notebook(SAMPLE_DOC)
-        version = self._init_collab(notebook)
+        version = notebook["version"]
 
         self._collab_save(
             notebook,
@@ -72,7 +68,7 @@ class TestNotebookCollabSaveAPI(APIBaseTest):
 
     def test_collab_save_updates_title(self):
         notebook = self._create_notebook(SAMPLE_DOC)
-        version = self._init_collab(notebook)
+        version = notebook["version"]
 
         self._collab_save(
             notebook,
@@ -98,7 +94,7 @@ class TestNotebookCollabSaveAPI(APIBaseTest):
 
     def test_collab_save_rejected_stale_version(self):
         notebook = self._create_notebook(SAMPLE_DOC)
-        version = self._init_collab(notebook)
+        version = notebook["version"]
 
         # First client advances the version
         self._collab_save(
@@ -109,6 +105,8 @@ class TestNotebookCollabSaveAPI(APIBaseTest):
         )
 
         # Second client submits with stale version - gets 409 with missed steps
+        # plus the new server version. Client dedupes against any SSE-delivered
+        # copies and retries.
         response = self._collab_save(
             notebook,
             version=version,
@@ -120,11 +118,11 @@ class TestNotebookCollabSaveAPI(APIBaseTest):
         assert data["code"] == "conflict"
         assert data["steps"] == [{"stepType": "replace", "from": 0, "to": 0}]
         assert data["client_ids"] == ["client-1"]
-        assert "version" in data
+        assert data["version"] == version + 1
 
     def test_collab_save_returns_full_notebook_on_success(self):
         notebook = self._create_notebook(SAMPLE_DOC)
-        version = self._init_collab(notebook)
+        version = notebook["version"]
 
         response = self._collab_save(
             notebook,
@@ -152,9 +150,8 @@ class TestNotebookCollabSaveAPI(APIBaseTest):
     @patch("products.notebooks.backend.api.notebook.submit_steps")
     def test_collab_save_returns_410_when_steps_expired(self, mock_submit):
         notebook = self._create_notebook(SAMPLE_DOC)
-        self._init_collab(notebook)
 
-        mock_submit.return_value = SubmitResult(accepted=False, version=5, steps_since=None)
+        mock_submit.return_value = SubmitResult(status="stale", version=5, steps_since=None)
 
         response = self._collab_save(
             notebook,
