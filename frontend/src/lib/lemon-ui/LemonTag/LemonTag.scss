@@ -40,12 +40,8 @@
 
     &.LemonTag--warning {
         color: var(--warning);
-        background-color: none;
+        background: none;
         border-color: var(--warning);
-
-        [theme='dark'] & {
-            background-color: var(--color-bg-surface-primary);
-        }
     }
 
     &.LemonTag--danger {
@@ -70,6 +66,16 @@
         color: var(--danger-lighter);
         background: none;
         border-color: var(--danger-lighter);
+    }
+
+    &.LemonTag--warning,
+    &.LemonTag--danger,
+    &.LemonTag--success,
+    &.LemonTag--completion,
+    &.LemonTag--caution {
+        [theme='dark'] & {
+            background-color: var(--color-bg-surface-primary);
+        }
     }
 
     &.LemonTag--muted {
