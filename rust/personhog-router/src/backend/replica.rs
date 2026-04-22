@@ -137,14 +137,14 @@ impl ReplicaBackend {
 /// attribute metrics to the originating client.
 macro_rules! retry_call {
     ($self:expr, $method:ident, $request:expr) => {{
-        let clients = $self.clients.read().await;
-        let client = $self.next_client(&clients);
-        drop(clients);
         with_retry(&$self.retry_config, stringify!($method), || {
-            let mut client = client.clone();
+            let clients = $self.clients.read();
             let req = $request.clone();
             let client_name = current_client_name();
             async move {
+                let guard = clients.await;
+                let mut client = $self.next_client(&guard);
+                drop(guard);
                 let mut request = Request::new(req);
                 if let Ok(val) = client_name.parse() {
                     request.metadata_mut().insert("x-client-name", val);
