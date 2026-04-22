@@ -8,15 +8,11 @@ Uses bulk DB operations to avoid N+1 queries — a master run with 2800
 unchanged snapshots hits ~5 queries instead of ~8400.
 """
 
-from django.conf import settings
 from django.db.models import Case, CharField, F, Value, When
 
+from .db import WRITER_DB
 from .facade.enums import ClassificationReason, ReviewState, SnapshotResult
 from .models import Artifact, Run, RunSnapshot, ToleratedHash
-
-_APP_LABEL = "visual_review"
-_WRITER_ALIAS = f"{_APP_LABEL}_db_writer"
-WRITER_DB = _WRITER_ALIAS if _WRITER_ALIAS in settings.DATABASES else "default"
 
 
 class SnapshotClassifier:
@@ -28,7 +24,7 @@ class SnapshotClassifier:
     ):
         self.run = run
         self.repo_id = run.repo_id
-        self.team_id = run.repo.team_id
+        self.team_id = run.team_id
         self.baseline = baseline
         self.tolerated_lookup = tolerated_lookup
         self.snapshots_qs = run.snapshots.using(WRITER_DB)

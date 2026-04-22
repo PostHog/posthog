@@ -146,7 +146,11 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
                     if (!run) {
                         return []
                     }
-                    const response = await visualReviewReposQuarantineList(String(values.currentProjectId), run.repo_id)
+                    const response = await visualReviewReposQuarantineList(
+                        String(values.currentProjectId),
+                        run.repo_id,
+                        { run_type: run.run_type }
+                    )
                     return response.results
                 },
             },

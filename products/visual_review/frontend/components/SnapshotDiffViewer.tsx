@@ -108,8 +108,9 @@ function QuarantineAction({
             >
                 <div className="space-y-4">
                     <p className="text-sm text-muted">
-                        This will stop blocking PRs immediately — including pending runs on other branches. Snapshots
-                        are still captured and diffed, just not gated on.
+                        Quarantined identifiers appear as quarantined immediately and are excluded from gating when
+                        future runs finalize — including pending runs on other branches. Snapshots are still captured
+                        and diffed, just not gated on.
                     </p>
 
                     <div>

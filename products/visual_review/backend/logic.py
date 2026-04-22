@@ -8,7 +8,6 @@ Called by api/api.py facade. Do not call from outside this module.
 from datetime import datetime
 from uuid import UUID
 
-from django.conf import settings
 from django.db import (
     models as db_models,
     transaction,
@@ -19,18 +18,13 @@ from django.utils import timezone
 import structlog
 
 from .classifier import SnapshotClassifier
+from .db import WRITER_DB
 from .facade.enums import ReviewDecision, ReviewState, RunPurpose, RunStatus, SnapshotResult, ToleratedReason
 from .models import Artifact, QuarantinedIdentifier, Repo, Run, RunSnapshot, ToleratedHash
 from .signing import sign_snapshot_hash, verify_signed_hash
 from .storage import ArtifactStorage
 
 logger = structlog.get_logger(__name__)
-
-# Derive the writer alias from the app label — must match db_routing.yaml.
-# Falls back to "default" when the product database isn't configured.
-_APP_LABEL = "visual_review"
-_WRITER_ALIAS = f"{_APP_LABEL}_db_writer"
-WRITER_DB = _WRITER_ALIAS if _WRITER_ALIAS in settings.DATABASES else "default"
 
 
 class RepoNotFoundError(Exception):
