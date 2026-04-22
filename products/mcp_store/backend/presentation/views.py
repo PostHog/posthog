@@ -1,6 +1,7 @@
 import time
 import hashlib
 import secrets
+from collections.abc import Mapping
 from datetime import timedelta
 from typing import Any, cast
 from urllib.parse import urlencode, urlparse
@@ -59,7 +60,7 @@ class MCPProxyRenderer(renderers.BaseRenderer):
         self,
         data: bytes,
         accepted_media_type: str | None = None,
-        renderer_context: dict | None = None,
+        renderer_context: Mapping[str, Any] | None = None,
     ) -> bytes:
         return data
 

@@ -89,6 +89,7 @@ class CreateHogTransformationFunctionTool(MaxTool):
         for _ in range(3):
             try:
                 result = self._model.invoke(messages)
+                assert isinstance(result.content, str)
                 parsed_result = self._parse_output(result.content)
                 break
             except PydanticOutputParserException as e:
@@ -186,6 +187,7 @@ class CreateHogFunctionFiltersTool(MaxTool):
         for _ in range(3):
             try:
                 result = self._model.invoke(messages)
+                assert isinstance(result.content, str)
                 parsed_result = self._parse_output(result.content)
                 break
             except PydanticOutputParserException as e:
@@ -273,6 +275,7 @@ class CreateHogFunctionInputsTool(MaxTool):
         for _ in range(3):
             try:
                 result = self._model.invoke(messages)
+                assert isinstance(result.content, str)
                 parsed_result = self._parse_output(result.content)
                 break
             except PydanticOutputParserException as e:

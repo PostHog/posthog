@@ -87,7 +87,7 @@ class SlackThreadHandler:
                 ts=self.context.thread_ts,
                 limit=50,
             )
-            messages = response.get("messages", [])
+            messages: list[dict[str, Any]] = response.get("messages", [])
 
             for msg in messages:
                 if msg.get("user") == bot_user_id and PROGRESS_MESSAGE_MARKER in msg.get("text", ""):

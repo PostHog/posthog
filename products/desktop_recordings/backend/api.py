@@ -1,3 +1,5 @@
+from typing import cast
+
 from django.db import transaction
 from django.db.models import QuerySet
 
@@ -11,6 +13,7 @@ from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.auth import PersonalAPIKeyAuthentication
+from posthog.models.user import User
 from posthog.permissions import APIScopePermission
 
 from .models import DesktopRecording
@@ -106,7 +109,7 @@ class DesktopRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         recording = DesktopRecording.objects.create(
             team=self.team,
-            created_by=request.user,
+            created_by=cast(User, request.user),
             sdk_upload_id=upload_response["id"],
             status=DesktopRecording.Status.RECORDING,
             platform=platform,

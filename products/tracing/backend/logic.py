@@ -71,7 +71,7 @@ class TraceSpansQueryRunnerMixin(QueryRunner):
         self.modifiers.convertToProjectTimezone = False
         self.modifiers.propertyGroupsMode = PropertyGroupsMode.OPTIMIZED
 
-        def get_property_type(value: str) -> str:
+        def get_property_type(value: str | float | bool) -> str:
             try:
                 float(value)
                 return "float"
