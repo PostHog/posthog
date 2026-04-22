@@ -140,15 +140,16 @@ def _get_earliest_timestamp_from_node(
     if cached_result is not None:
         return cached_result
 
-    is_data_warehouse_node = (
+    if (
         isinstance(node, DataWarehouseNode)
         or isinstance(node, FunnelsDataWarehouseNode)
         or isinstance(node, LifecycleDataWarehouseNode)
-    )
-    if is_data_warehouse_node:
+    ):
         query = _get_data_warehouse_earliest_timestamp_query(node)
+        is_data_warehouse_node = True
     else:
         query = _get_event_earliest_timestamp_query(team, node)
+        is_data_warehouse_node = False
 
     earliest_timestamp = EARLIEST_EVENT_TIMESTAMP
     try:
