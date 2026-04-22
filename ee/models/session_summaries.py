@@ -11,9 +11,8 @@ from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.models.utils import CreatedMetaFields, UUIDModel
 
-from ee.hogai.session_summaries.session.output_data import SessionSummarySerializer
-
 if TYPE_CHECKING:
+    from ee.hogai.session_summaries.session.output_data import SessionSummarySerializer
     from ee.hogai.videos.session_moments import SessionMomentOutput
 
 
@@ -100,7 +99,7 @@ class SingleSessionSummaryManager(models.Manager["SingleSessionSummary"]):
         self,
         team_id: int,
         session_id: str,
-        summary: SessionSummarySerializer,
+        summary: "SessionSummarySerializer",
         exception_event_ids: list[str],
         *,
         extra_summary_context: ExtraSummaryContext | None = None,
