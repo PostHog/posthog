@@ -546,6 +546,37 @@ describe('log-record-avro', () => {
             })
         })
 
+        it('does not call parseLogBodyForIngestion when only PII scrub is on', async () => {
+            const spy = jest.spyOn(logBodyParse, 'parseLogBodyForIngestion')
+            const records: LogRecord[] = [
+                {
+                    uuid: 'test-uuid',
+                    trace_id: null,
+                    span_id: null,
+                    trace_flags: null,
+                    timestamp: null,
+                    observed_timestamp: null,
+                    body: JSON.stringify({ level: 'info', message: 'only@pii.test' }),
+                    severity_text: null,
+                    severity_number: null,
+                    service_name: null,
+                    resource_attributes: null,
+                    instrumentation_scope: null,
+                    event_name: null,
+                    attributes: null,
+                },
+            ]
+
+            const inputBuffer = await encodeLogRecords(LOG_RECORD_SCHEMA, 'zstandard', records)
+            await processLogMessageBuffer(inputBuffer, {
+                json_parse_logs: false,
+                pii_scrub_logs: true,
+            })
+
+            expect(spy).not.toHaveBeenCalled()
+            spy.mockRestore()
+        })
+
         it('calls parseLogBodyForIngestion once per record when both JSON parse and PII scrub are on', async () => {
             const spy = jest.spyOn(logBodyParse, 'parseLogBodyForIngestion')
             const records: LogRecord[] = [
@@ -620,7 +651,8 @@ describe('log-record-avro', () => {
             })
             const [_, __, decoded] = await decodeLogRecords(outputBuffer)
             const body = parseJSON(decoded[0]?.body || '{}') as { meta: { api_key: string }; ok: string }
-            expect(body.meta.api_key).toBe(PII_REDACTED)
+            // Body is pattern-scrubbed only; nested JSON keys are not redacted by key name.
+            expect(body.meta.api_key).toBe('leak-value')
             expect(body.ok).toBe('keep')
             expect(decoded[0]?.attributes).toEqual({
                 'meta.api_key': encodeAttributeCell(PII_REDACTED),

@@ -191,6 +191,41 @@ def test_execute_event_deletion_deletes_matching_events(cluster: ClickhouseClust
 
 
 @pytest.mark.django_db
+def test_execute_event_deletion_delete_all_events_drops_every_event_for_team(cluster: ClickhouseCluster):
+    now = datetime.now()
+    start_time = now - timedelta(days=7)
+    end_time = now + timedelta(minutes=1)
+
+    team_events = [
+        (TEAM_ID, name, uuid4(), now - timedelta(hours=i))
+        for i in range(10)
+        for name in ("$pageview", "$identify", "$screen")
+    ]
+    other_team_events = [(TEAM_ID + 1, "$pageview", uuid4(), now - timedelta(hours=i)) for i in range(10)]
+    outside_range = [(TEAM_ID, "$pageview", uuid4(), now - timedelta(days=30)) for _ in range(5)]
+
+    cluster.any_host(partial(_insert_events, team_events + other_team_events + outside_range)).result()
+
+    assert cluster.any_host(partial(_count_events, TEAM_ID)).result() == 35
+
+    deletion_ctx = DeletionRequestContext(
+        request_id=str(uuid4()),
+        team_id=TEAM_ID,
+        start_time=start_time,
+        end_time=end_time,
+        events=[],
+        delete_all_events=True,
+    )
+    context = build_op_context()
+    execute_event_deletion(context, cluster, deletion_ctx)
+
+    # Every event for the team within the time range is gone (only outside_range survives).
+    assert cluster.any_host(partial(_count_events, TEAM_ID)).result() == 5
+    # Other team untouched.
+    assert cluster.any_host(partial(_count_events, TEAM_ID + 1)).result() == 10
+
+
+@pytest.mark.django_db
 def test_execute_event_deletion_multiple_event_names(cluster: ClickhouseCluster):
     now = datetime.now()
     start_time = now - timedelta(days=7)

@@ -30,6 +30,11 @@ from two_factor.utils import totp_digits
 from posthog.api.authentication import password_reset_token_generator, post_login, social_login_notification
 from posthog.api.oauth.test_dcr import generate_rsa_key
 from posthog.auth import OAuthAccessTokenAuthentication, ProjectSecretAPIKeyAuthentication, ProjectSecretAPIKeyUser
+from posthog.helpers.user_devices import (
+    KNOWN_DEVICE_COOKIE,
+    build_known_device_cookie_value,
+    has_valid_known_device_cookie,
+)
 from posthog.models import User
 from posthog.models.instance_setting import set_instance_setting
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
@@ -2214,8 +2219,10 @@ class TestOAuthLoginNotification(APIBaseTest):
     CONFIG_AUTO_LOGIN = False
 
     @staticmethod
-    def _build_strategy(rf: RequestFactory, user_agent: str, ip: str):
+    def _build_strategy(rf: RequestFactory, user_agent: str, ip: str, cookies: dict | None = None):
         req = rf.get("/", HTTP_USER_AGENT=user_agent, REMOTE_ADDR=ip)
+        if cookies:
+            req.COOKIES.update(cookies)
 
         class Strategy:
             def __init__(self, r):
@@ -2267,6 +2274,44 @@ class TestOAuthLoginNotification(APIBaseTest):
             social_login_notification(self._build_strategy(rf, ua2, ip2), Backend(), user)
             assert len(mail.outbox) == 2
 
+    def test_notification_skipped_when_known_device_cookie_present(self):
+        user = User.objects.create(email="test@gmail.com", distinct_id=str(uuid.uuid4()))
+        rf = RequestFactory()
+        Backend = type("Backend", (), {"name": "google-oauth2"})
+        ua1, ip1 = "BrowserA/99.0 (X11; Linux x86_64)", "1.1.1.1"
+        ua2, ip2 = "BrowserB/100.0 (Macintosh; Intel Mac OS X)", "2.2.2.2"
+
+        set_instance_setting("EMAIL_HOST", "localhost")
+        with self.settings(CELERY_TASK_ALWAYS_EAGER=True, CUSTOMER_IO_API_KEY=None):
+            # First login from device 1 — notification sent
+            social_login_notification(self._build_strategy(rf, ua1, ip1), Backend(), user)
+            assert len(mail.outbox) == 1
+
+            # Second login with different fingerprint BUT valid signed cookie — notification skipped
+            signed_value = build_known_device_cookie_value(user)
+            social_login_notification(
+                self._build_strategy(rf, ua2, ip2, cookies={KNOWN_DEVICE_COOKIE.format(user_id=user.id): signed_value}),
+                Backend(),
+                user,
+            )
+            assert len(mail.outbox) == 1
+
+    def test_notification_sent_when_cookie_value_is_forged(self):
+        user = User.objects.create(email="test@gmail.com", distinct_id=str(uuid.uuid4()))
+        rf = RequestFactory()
+        Backend = type("Backend", (), {"name": "google-oauth2"})
+        ua1, ip1 = "BrowserA/99.0 (X11; Linux x86_64)", "1.1.1.1"
+
+        set_instance_setting("EMAIL_HOST", "localhost")
+        with self.settings(CELERY_TASK_ALWAYS_EAGER=True, CUSTOMER_IO_API_KEY=None):
+            # Attacker-forged cookie without a valid signature should not suppress the notification
+            social_login_notification(
+                self._build_strategy(rf, ua1, ip1, cookies={KNOWN_DEVICE_COOKIE.format(user_id=user.id): "1"}),
+                Backend(),
+                user,
+            )
+            assert len(mail.outbox) == 1
+
     def test_signup_then_same_device_login_no_notification(self):
         user = User.objects.create(email="test@gmail.com", distinct_id=str(uuid.uuid4()))
         rf = RequestFactory()
@@ -2286,3 +2331,41 @@ class TestOAuthLoginNotification(APIBaseTest):
 
             social_login_notification(self._build_strategy(rf, ua1, ip1), Backend(), user)
             assert len(mail.outbox) == 0
+
+
+class TestKnownLoginDeviceCookieMiddleware(APIBaseTest):
+    CONFIG_AUTO_LOGIN = False
+
+    def test_middleware_sets_signed_cookie_after_login(self):
+        response = self.client.post("/api/login/", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
+        cookie = response.cookies.get(KNOWN_DEVICE_COOKIE.format(user_id=self.user.id))
+        assert cookie is not None
+        assert cookie.value != "1"  # signed, not a plain flag
+        assert cookie["httponly"] is True
+        assert cookie["samesite"] == "Lax"
+
+        # Pass cookie back into a request and confirm the verifier accepts the signature
+        req = RequestFactory().get("/")
+        req.COOKIES[KNOWN_DEVICE_COOKIE.format(user_id=self.user.id)] = cookie.value
+        assert has_valid_known_device_cookie(req, self.user)
+
+    def test_known_cookie_suppresses_notification(self):
+        set_instance_setting("EMAIL_HOST", "localhost")
+        new_device_subject = "A new device logged into your account"
+        with self.settings(CELERY_TASK_ALWAYS_EAGER=True, CUSTOMER_IO_API_KEY=None):
+            # First login - sets cookie and sends new-device notification
+            self.client.post("/api/login/", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
+            initial_count = sum(1 for m in mail.outbox if m.subject == new_device_subject)
+
+            # Second login - signed cookie is present, new-device notification must be skipped
+            self.client.post("/api/login/", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
+            assert sum(1 for m in mail.outbox if m.subject == new_device_subject) == initial_count
+
+    @patch("posthog.middleware.is_impersonated_session", return_value=True)
+    def test_middleware_does_not_set_cookie_during_impersonation(self, _mock_is_impersonated):
+        # Log in first so the client has an authenticated session
+        self.client.post("/api/login/", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
+
+        response = self.client.get("/api/users/@me/")
+        assert response.status_code == 200
+        assert KNOWN_DEVICE_COOKIE.format(user_id=self.user.id) not in response.cookies
