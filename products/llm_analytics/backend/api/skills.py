@@ -29,6 +29,7 @@ from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from ..models.skills import LLMSkill, LLMSkillFile
 from .metrics import llma_track_latency
 from .skill_serializers import (
+    LLMSkillCreateSerializer,
     LLMSkillDuplicateSerializer,
     LLMSkillFetchQuerySerializer,
     LLMSkillFileSerializer,
@@ -42,6 +43,7 @@ from .skill_serializers import (
 )
 from .skill_services import (
     LLMSkillDuplicateNameConflictError,
+    LLMSkillEditError,
     LLMSkillNotFoundError,
     LLMSkillVersionConflictError,
     LLMSkillVersionLimitError,
@@ -144,11 +146,8 @@ class LLMSkillViewSet(
             status=status.HTTP_404_NOT_FOUND,
         )
 
-    def _serialize_skill(self, skill: LLMSkill, include_files: bool = True) -> dict[str, Any]:
-        data = cast(dict[str, Any], self.get_serializer(skill).data)
-        if include_files:
-            data["files"] = list(LLMSkillFile.objects.filter(skill=skill).values("path", "content_type"))
-        return data
+    def _serialize_skill(self, skill: LLMSkill) -> dict[str, Any]:
+        return cast(dict[str, Any], LLMSkillSerializer(skill, context=self.get_serializer_context()).data)
 
     def _serialize_version_summaries(self, skills: list[LLMSkill]) -> list[dict[str, Any]]:
         return cast(list[dict[str, Any]], LLMSkillVersionSummarySerializer(skills, many=True).data)
@@ -182,6 +181,8 @@ class LLMSkillViewSet(
     def get_serializer_class(self):
         if self.action == "list":
             return LLMSkillListSerializer
+        if self.action == "create":
+            return LLMSkillCreateSerializer
         return super().get_serializer_class()
 
     def perform_create(self, serializer: BaseSerializer[Any]) -> None:
@@ -233,6 +234,7 @@ class LLMSkillViewSet(
                 user=cast(User, request.user),
                 skill_name=skill_name,
                 body=payload.validated_data.get("body"),
+                edits=payload.validated_data.get("edits"),
                 description=payload.validated_data.get("description"),
                 license=payload.validated_data.get("license"),
                 compatibility=payload.validated_data.get("compatibility"),
@@ -262,6 +264,14 @@ class LLMSkillViewSet(
                         f"Skill has reached the maximum of {err.max_version} versions. "
                         "Archive and recreate the skill to continue publishing."
                     ),
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        except LLMSkillEditError as err:
+            return Response(
+                {
+                    "detail": err.message,
+                    "edit_index": err.edit_index,
                 },
                 status=status.HTTP_400_BAD_REQUEST,
             )
@@ -324,6 +334,7 @@ class LLMSkillViewSet(
             }
         )
 
+    @extend_schema(request=None, responses={204: None})
     @action(
         methods=["POST"],
         detail=False,

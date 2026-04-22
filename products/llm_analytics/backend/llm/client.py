@@ -94,6 +94,8 @@ class Client:
 
 def _get_provider(name: str) -> "Provider":
     """Get provider by name."""
+    from typing import cast
+
     from products.llm_analytics.backend.llm.providers.anthropic import AnthropicAdapter
     from products.llm_analytics.backend.llm.providers.fireworks import FireworksAdapter
     from products.llm_analytics.backend.llm.providers.gemini import GeminiAdapter
@@ -102,14 +104,14 @@ def _get_provider(name: str) -> "Provider":
 
     match name:
         case "openai":
-            return OpenAIAdapter()
+            return cast("Provider", OpenAIAdapter())
         case "anthropic":
-            return AnthropicAdapter()
+            return cast("Provider", AnthropicAdapter())
         case "gemini":
-            return GeminiAdapter()
+            return cast("Provider", GeminiAdapter())
         case "openrouter":
-            return OpenRouterAdapter()
+            return cast("Provider", OpenRouterAdapter())
         case "fireworks":
-            return FireworksAdapter()
+            return cast("Provider", FireworksAdapter())
         case _:
             raise UnsupportedProviderError(name)

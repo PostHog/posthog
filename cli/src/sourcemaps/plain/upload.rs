@@ -2,7 +2,7 @@ use std::time::Instant;
 
 use anyhow::{Context, Result};
 use serde_json::json;
-use tracing::info;
+use tracing::{info, warn};
 
 use crate::{
     api::symbol_sets::{self, SymbolSetUpload},
@@ -79,7 +79,18 @@ pub fn upload(args: &Args) -> Result<()> {
         }
     }
 
-    let uploads = pairs
+    let (empty_pairs, valid_pairs): (Vec<_>, Vec<_>) = pairs
+        .into_iter()
+        .partition(|pair| pair.sourcemap.is_empty());
+    for pair in &empty_pairs {
+        warn!(
+            "Skipping {}: sourcemap is empty (no mappings/sources/names) — likely a bundler misconfiguration",
+            pair.sourcemap.inner.path.display()
+        );
+    }
+    let empty_skipped = empty_pairs.len();
+
+    let uploads = valid_pairs
         .into_iter()
         .map(TryInto::try_into)
         .collect::<Result<Vec<SymbolSetUpload>>>()
@@ -93,6 +104,7 @@ pub fn upload(args: &Args) -> Result<()> {
             ("type", json!("plain")),
             ("file_count", json!(file_count)),
             ("total_bytes", json!(total_bytes)),
+            ("empty_skipped", json!(empty_skipped)),
         ],
     );
 

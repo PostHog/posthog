@@ -1,5 +1,7 @@
 import os
 import json
+import dataclasses
+from collections.abc import Iterator
 from typing import Any
 
 import requests
@@ -7,6 +9,7 @@ from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
+from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.sources.shopify.constants import ID, resolve_schema_name
 from posthog.temporal.data_imports.sources.shopify.settings import ENDPOINT_CONFIGS
 from posthog.temporal.data_imports.sources.shopify.utils import ShopifyGraphQLObject, safe_unwrap, unwrap
@@ -21,6 +24,18 @@ from .constants import (
     SHOPIFY_GRAPHQL_OBJECTS,
     SHOPIFY_PAGE_SIZE_OVERRIDES,
 )
+
+# Resume phases for the shopify source. "all" is the non-incremental branch;
+# "earliest" and "latest" are the two incremental sweeps in shopify_source.get_rows.
+PHASE_ALL = "all"
+PHASE_EARLIEST = "earliest"
+PHASE_LATEST = "latest"
+
+
+@dataclasses.dataclass
+class ShopifyResumeConfig:
+    phase: str
+    cursor: str
 
 
 class ShopifyPermissionError(Exception):
@@ -64,7 +79,10 @@ def _make_paginated_shopify_request(
     graphql_object: ShopifyGraphQLObject,
     logger: FilteringBoundLogger,
     query: str | None = None,
-):
+    phase: str = PHASE_ALL,
+    initial_cursor: str | None = None,
+    resumable_source_manager: ResumableSourceManager[ShopifyResumeConfig] | None = None,
+) -> Iterator[list[Any]]:
     endpoint_config = ENDPOINT_CONFIGS.get(graphql_object.name)
 
     @retry(
@@ -101,6 +119,8 @@ def _make_paginated_shopify_request(
     logger.debug(f"Using page size {vars['pageSize']} for object {graphql_object.name}")
     if query:
         vars.update({"query": query})
+    if initial_cursor is not None:
+        vars.update({"cursor": initial_cursor})
     has_next_page = True
     while has_next_page:
         logger.debug(f"Querying shopify endpoint {graphql_object.name} with vars: {vars}")
@@ -116,7 +136,14 @@ def _make_paginated_shopify_request(
         has_next_page = page_info.get("hasNextPage", False)
         if has_next_page:
             # this is intentionally an unsafe lookup so errors surface if expectations aren't met
-            vars.update({"cursor": page_info["endCursor"]})
+            next_cursor = page_info["endCursor"]
+            vars.update({"cursor": next_cursor})
+            # Checkpoint points to the NEXT unfetched page. Because this save happens
+            # only after the generator is resumed past `yield data`, a shutdown/crash
+            # after yielding can still cause the last yielded page to be re-fetched on
+            # resume; primary-key merge semantics dedupe if that happens.
+            if resumable_source_manager is not None:
+                resumable_source_manager.save_state(ShopifyResumeConfig(phase=phase, cursor=next_cursor))
 
 
 def _get_shopify_access_token(shopify_store_id: str, shopify_client_id: str, shopify_client_secret: str) -> str:
@@ -140,6 +167,7 @@ def shopify_source(
     db_incremental_field_last_value: Any | None,
     db_incremental_field_earliest_value: Any | None,
     logger: FilteringBoundLogger,
+    resumable_source_manager: ResumableSourceManager[ShopifyResumeConfig],
     should_use_incremental_field: bool = False,
 ):
     api_url = SHOPIFY_API_URL.format(shopify_store_id, SHOPIFY_API_VERSION)
@@ -155,24 +183,52 @@ def shopify_source(
 
         logger.debug(f"Shopify: reading from resource {schema_name}")
 
+        resume_config = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+
         if not should_use_incremental_field or (
             db_incremental_field_last_value is None and db_incremental_field_earliest_value is None
         ):
             logger.debug(f"Shopify: iterating all objects from source for {schema_name}")
-            yield from _make_paginated_shopify_request(api_url, sess, graphql_object, logger)
+            initial_cursor = (
+                resume_config.cursor if resume_config is not None and resume_config.phase == PHASE_ALL else None
+            )
+            yield from _make_paginated_shopify_request(
+                api_url,
+                sess,
+                graphql_object,
+                logger,
+                phase=PHASE_ALL,
+                initial_cursor=initial_cursor,
+                resumable_source_manager=resumable_source_manager,
+            )
             return
 
         endpoint_config = ENDPOINT_CONFIGS.get(schema_name)
         # query_filer is ignored if the key isn't present in the endpoint's available query filters
         query_filter = endpoint_config.query_filter if endpoint_config else "created_at"
 
+        # Skip the earliest sweep entirely if we already resumed into the latest sweep.
+        resuming_latest = resume_config is not None and resume_config.phase == PHASE_LATEST
+
         # check for any objects less than the minimum object we already have
-        if db_incremental_field_earliest_value is not None:
+        if db_incremental_field_earliest_value is not None and not resuming_latest:
             logger.debug(
                 f"Shopify: iterating earliest objects from source: {query_filter} < {db_incremental_field_earliest_value}"
             )
             query = f"{query_filter}:<'{db_incremental_field_earliest_value}'"
-            yield from _make_paginated_shopify_request(api_url, sess, graphql_object, logger, query=query)
+            initial_cursor = (
+                resume_config.cursor if resume_config is not None and resume_config.phase == PHASE_EARLIEST else None
+            )
+            yield from _make_paginated_shopify_request(
+                api_url,
+                sess,
+                graphql_object,
+                logger,
+                query=query,
+                phase=PHASE_EARLIEST,
+                initial_cursor=initial_cursor,
+                resumable_source_manager=resumable_source_manager,
+            )
 
         # check for any objects more than the maximum object we already have
         if db_incremental_field_last_value is not None:
@@ -180,7 +236,19 @@ def shopify_source(
                 f"Shopify: iterating latest objects from source: {query_filter} > {db_incremental_field_last_value}"
             )
             query = f"{query_filter}:>'{db_incremental_field_last_value}'"
-            yield from _make_paginated_shopify_request(api_url, sess, graphql_object, logger, query=query)
+            initial_cursor = (
+                resume_config.cursor if resume_config is not None and resume_config.phase == PHASE_LATEST else None
+            )
+            yield from _make_paginated_shopify_request(
+                api_url,
+                sess,
+                graphql_object,
+                logger,
+                query=query,
+                phase=PHASE_LATEST,
+                initial_cursor=initial_cursor,
+                resumable_source_manager=resumable_source_manager,
+            )
 
     endpoint_config = ENDPOINT_CONFIGS.get(schema_name)
     if not endpoint_config:

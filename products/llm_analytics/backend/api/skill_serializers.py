@@ -3,10 +3,12 @@ from typing import Any
 
 from django.db import transaction
 
+from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
 from posthog.api.shared import UserBasicSerializer
 
+from ..markdown_outline import get_markdown_outline
 from ..models.skills import LLMSkill, LLMSkillFile
 
 RESERVED_SKILL_NAMES = {"new"}
@@ -109,6 +111,11 @@ class LLMSkillResolveQuerySerializer(LLMSkillFetchQuerySerializer):
         return attrs
 
 
+class LLMSkillOutlineEntrySerializer(serializers.Serializer):
+    level = serializers.IntegerField(min_value=1, max_value=6, help_text="Markdown heading level (1-6).")
+    text = serializers.CharField(help_text="Heading text.")
+
+
 class LLMSkillFileSerializer(serializers.ModelSerializer):
     class Meta:
         model = LLMSkillFile
@@ -154,10 +161,29 @@ class LLMSkillFileInputSerializer(serializers.Serializer):
         return value
 
 
+class LLMSkillEditOperationSerializer(serializers.Serializer):
+    old = serializers.CharField(
+        help_text="Text to find in the current skill body. Must match exactly once.",
+    )
+    new = serializers.CharField(
+        allow_blank=True,
+        help_text="Replacement text.",
+    )
+
+
 class LLMSkillPublishSerializer(serializers.Serializer):
     body = serializers.CharField(
         required=False,
-        help_text="Full skill body (SKILL.md instruction content) to publish as a new version.",
+        help_text="Full skill body (SKILL.md instruction content) to publish as a new version. Mutually exclusive with edits.",
+    )
+    edits = LLMSkillEditOperationSerializer(
+        many=True,
+        required=False,
+        help_text=(
+            "List of find/replace operations to apply to the current skill body. "
+            "Each edit's 'old' text must match exactly once. Edits are applied sequentially. "
+            "Mutually exclusive with body."
+        ),
     )
     description = serializers.CharField(
         max_length=4096,
@@ -198,8 +224,18 @@ class LLMSkillPublishSerializer(serializers.Serializer):
     def validate_body(self, value: str) -> str:
         return validate_skill_body_size(value)
 
+    def validate_edits(self, value: list[dict[str, str]]) -> list[dict[str, str]]:
+        if len(value) == 0:
+            raise serializers.ValidationError("At least one edit operation is required.")
+        return value
+
     def validate_files(self, value: list[dict[str, Any]]) -> list[dict[str, Any]]:
         return _validate_files(value)
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        if "body" in attrs and "edits" in attrs:
+            raise serializers.ValidationError("Provide either 'body' or 'edits', not both.")
+        return attrs
 
 
 class LLMSkillSerializer(serializers.ModelSerializer):
@@ -219,11 +255,11 @@ class LLMSkillSerializer(serializers.ModelSerializer):
         default=dict,
         help_text="Arbitrary key-value metadata.",
     )
-    files = LLMSkillFileInputSerializer(
-        many=True,
-        required=False,
-        write_only=True,
-        help_text="Bundled files to include with the initial version (scripts, references, assets).",
+    files = serializers.SerializerMethodField(
+        help_text="Bundled files manifest. Each entry is path + content_type only; fetch content via /llm_skills/name/{name}/files/{path}/.",
+    )
+    outline = serializers.SerializerMethodField(
+        help_text="Flat list of markdown headings parsed from the skill body. Useful as a lightweight table of contents.",
     )
 
     class Meta:
@@ -238,6 +274,7 @@ class LLMSkillSerializer(serializers.ModelSerializer):
             "allowed_tools",
             "metadata",
             "files",
+            "outline",
             "version",
             "created_by",
             "created_at",
@@ -250,6 +287,8 @@ class LLMSkillSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = [
             "id",
+            "files",
+            "outline",
             "version",
             "created_by",
             "created_at",
@@ -290,14 +329,19 @@ class LLMSkillSerializer(serializers.ModelSerializer):
             return value
         return value.isoformat().replace("+00:00", "Z")
 
+    @extend_schema_field(LLMSkillFileManifestSerializer(many=True))
+    def get_files(self, instance: LLMSkill) -> list[dict[str, Any]]:
+        return [dict(row) for row in LLMSkillFile.objects.filter(skill=instance).values("path", "content_type")]
+
+    @extend_schema_field(LLMSkillOutlineEntrySerializer(many=True))
+    def get_outline(self, instance: LLMSkill) -> list[dict[str, Any]]:
+        return get_markdown_outline(instance.body)
+
     def validate_name(self, value: str) -> str:
         return validate_skill_name_value(value)
 
     def validate_body(self, value: str) -> str:
         return validate_skill_body_size(value)
-
-    def validate_files(self, value: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        return _validate_files(value)
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         team = self.context["get_team"]()
@@ -315,6 +359,23 @@ class LLMSkillSerializer(serializers.ModelSerializer):
             )
 
         return attrs
+
+
+class LLMSkillCreateSerializer(LLMSkillSerializer):
+    """Create serializer — accepts bundled files as write-only input on POST."""
+
+    files = LLMSkillFileInputSerializer(  # type: ignore[assignment]
+        many=True,
+        required=False,
+        write_only=True,
+        help_text="Bundled files to include with the initial version (scripts, references, assets).",
+    )
+
+    class Meta(LLMSkillSerializer.Meta):
+        read_only_fields = [f for f in LLMSkillSerializer.Meta.read_only_fields if f != "files"]
+
+    def validate_files(self, value: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        return _validate_files(value)
 
     def create(self, validated_data: dict[str, Any]) -> LLMSkill:
         request = self.context["request"]
@@ -344,11 +405,11 @@ class LLMSkillSerializer(serializers.ModelSerializer):
 
 
 class LLMSkillListSerializer(LLMSkillSerializer):
-    """List serializer that omits the body field for progressive disclosure (Level 1)."""
+    """List serializer that omits body and file manifest — progressive disclosure (Level 1)."""
 
     class Meta(LLMSkillSerializer.Meta):
-        fields = [f for f in LLMSkillSerializer.Meta.fields if f != "body"]
-        read_only_fields = [f for f in LLMSkillSerializer.Meta.read_only_fields if f != "body"]
+        fields = [f for f in LLMSkillSerializer.Meta.fields if f not in ("body", "files")]
+        read_only_fields = [f for f in LLMSkillSerializer.Meta.read_only_fields if f not in ("body", "files")]
 
 
 class LLMSkillVersionSummarySerializer(serializers.ModelSerializer):

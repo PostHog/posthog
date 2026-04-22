@@ -26,7 +26,7 @@ class Command(BaseCommand):
         pprint(report)
 
         if not options["dry_run"]:
-            posthoganalytics.api_key = "sTMFPsFhdP1Ssg"
+            posthoganalytics.api_key = "sTMFPsFhdP1Ssg"  # ty: ignore[invalid-assignment]
             disabled = posthoganalytics.disabled
             posthoganalytics.disabled = False
             posthoganalytics.capture(

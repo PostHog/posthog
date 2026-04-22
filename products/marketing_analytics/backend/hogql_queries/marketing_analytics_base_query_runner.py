@@ -19,7 +19,6 @@ from posthog.schema import (
 from posthog.hogql import ast
 from posthog.hogql.database.schema.channel_type import ChannelTypeExprs, create_channel_type_expr
 from posthog.hogql.modifiers import create_default_modifiers_for_team
-from posthog.hogql.parser import parse_select
 
 from posthog.event_usage import groups
 from posthog.hogql_queries.query_runner import AnalyticsQueryResponseProtocol, AnalyticsQueryRunner
@@ -50,6 +49,7 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
         super().__init__(*args, **kwargs)
         self.config = MarketingAnalyticsConfig()
         self._conversion_goal_warnings: list[str] = []
+        self._valid_conversion_goals_count: Optional[int] = None
 
     def calculate(self) -> ResponseType:
         start = time.perf_counter()
@@ -64,13 +64,31 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
     def _capture_query_event(self, event: str, start: float, error: Optional[BaseException] = None) -> None:
         try:
             duration_ms = (time.perf_counter() - start) * 1000
+            if self._valid_conversion_goals_count is not None:
+                conversion_goals_count = self._valid_conversion_goals_count
+            else:
+                team_goals = self.team.marketing_analytics_config.conversion_goals or []
+                draft_goal = getattr(self.query, "draftConversionGoal", None)
+                conversion_goals_count = len(team_goals) + (1 if draft_goal else 0)
+
+            # Compare mode is entered via either compareFilter.compare (previous period)
+            # or compareFilter.compare_to (specific period) — see query_compare_to_date_range.
+            compare_filter = getattr(self.query, "compareFilter", None)
+            has_compare = bool(
+                compare_filter
+                and (
+                    getattr(compare_filter, "compare", False)
+                    or isinstance(getattr(compare_filter, "compare_to", None), str)
+                )
+            )
+
             props: dict = {
                 "query_kind": getattr(self.query, "kind", None),
                 "duration_ms": round(duration_ms, 2),
                 "drill_down_level": getattr(self.config, "drill_down_level", None),
                 "attribution_mode": getattr(self.query, "attributionMode", None),
-                "conversion_goals_count": len(getattr(self.query, "conversionGoals", None) or []),
-                "has_compare": getattr(self.query, "compareFilter", None) is not None,
+                "conversion_goals_count": conversion_goals_count,
+                "has_compare": has_compare,
                 "team_id": self.team.pk,
             }
             if error is None:
@@ -123,7 +141,7 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
             logger.exception("Error getting marketing source adapters", error=str(e))
             return []
 
-    def _build_campaign_cost_select(self, union_query_string: str) -> ast.SelectQuery:
+    def _build_campaign_cost_select(self, union_subquery: ast.SelectQuery | ast.SelectSetQuery) -> ast.SelectQuery:
         """Build the campaign_costs CTE SELECT query"""
         # Build GROUP BY using configuration - this will be overridden in aggregated queries
         group_by_exprs: list[ast.Expr] = self._get_group_by_expressions()
@@ -282,8 +300,6 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
             ]
         )
 
-        # Parse the union query as a subquery and wrap it in a JoinExpr
-        union_subquery = parse_select(union_query_string)
         union_join_expr = ast.JoinExpr(table=union_subquery)
 
         # Build the CTE SELECT query
@@ -465,7 +481,10 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
         )
 
     def _build_complete_query_ast(
-        self, union_query_string: str, processors: list, date_range: QueryDateRange
+        self,
+        union_subquery: ast.SelectQuery | ast.SelectSetQuery,
+        processors: list,
+        date_range: QueryDateRange,
     ) -> ast.SelectQuery:
         """Build the complete query with CTEs using AST expressions"""
 
@@ -479,7 +498,7 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
         ctes: dict[str, ast.CTE] = {}
 
         # Add campaign_costs CTE
-        campaign_cost_select = self._build_campaign_cost_select(union_query_string)
+        campaign_cost_select = self._build_campaign_cost_select(union_subquery)
         campaign_cost_cte = ast.CTE(
             name=self.config.campaign_costs_cte_name, expr=campaign_cost_select, cte_type="subquery"
         )
@@ -538,14 +557,15 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
             # Get marketing source adapters
             adapters = self._get_marketing_source_adapters(date_range=self.query_date_range)
 
-            # Build the union query using the factory
-            union_query_string = self._factory(date_range=self.query_date_range).build_union_query(adapters)
+            # Build the union query using the factory (AST form to skip parse_select).
+            union_subquery = self._factory(date_range=self.query_date_range).build_union_query_ast(adapters)
 
             # Get conversion goals and filter out invalid ones
             conversion_goals = self._get_team_conversion_goals()
             valid_conversion_goals, self._conversion_goal_warnings = self._filter_invalid_conversion_goals(
                 conversion_goals
             )
+            self._valid_conversion_goals_count = len(valid_conversion_goals)
 
             # Create processors only for valid conversion goals
             processors = (
@@ -553,7 +573,7 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
             )
 
             # Build the complete query with CTEs using AST
-            return self._build_complete_query_ast(union_query_string, processors, self.query_date_range)
+            return self._build_complete_query_ast(union_subquery, processors, self.query_date_range)
 
     def _generate_aggregated_conversion_goals_cte(self, conversion_aggregator, date_range) -> Optional[ast.CTE]:
         """Generate aggregated conversion goals CTE without GROUP BY for aggregated queries"""
