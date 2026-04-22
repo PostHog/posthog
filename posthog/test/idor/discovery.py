@@ -65,13 +65,13 @@ def discover_idor_test_cases() -> list[IDORTestCase]:
             continue
         if cls.__name__ in IDOR_TEST_SKIP_LIST:
             continue
-        # Viewsets that use a non-pk lookup field can't be auto-URL-constructed
-        # because the URL parameter isn't the model's primary key — it's a
-        # custom identifier (e.g., `kind` enum, `short_id`). Skip silently;
-        # these need dedicated hand-written tests.
+        # Viewsets that use a non-pk/id lookup field (e.g. `short_id`, `kind`,
+        # `user__uuid`) can't be auto-URL-constructed because we'd need to know
+        # which instance attribute to read. Skip silently; these must be added
+        # to skip_list if they should be IDOR-audited separately.
         lookup_field = getattr(cls, "lookup_field", "pk")
         lookup_url_kwarg = getattr(cls, "lookup_url_kwarg", None)
-        if lookup_field != "pk" and lookup_url_kwarg != "pk":
+        if lookup_field not in {"pk", "id"} and lookup_url_kwarg not in {"pk", "id"}:
             continue
 
         model_cls = _infer_model(cls)

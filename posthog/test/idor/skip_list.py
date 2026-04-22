@@ -86,4 +86,114 @@ IDOR_TEST_SKIP_LIST: dict[str, tuple[str, str]] = {
         "call. Fix: add `filter_rewrite_rules = {'team_id': 'session_recording__team_id'}` "
         "to the viewset at posthog/session_recordings/session_recording_external_reference_api.py:213.",
     ),
+    # -------------------------------------------------------------------
+    # Legacy flat viewsets registered without a /projects|environments/
+    # prefix. They dispatch through `param_derived_from_user_current_team`
+    # which pins the queryset to request.user.current_team — IDOR testing
+    # via URL substitution isn't applicable. They're all slated for removal.
+    # -------------------------------------------------------------------
+    "LegacyCohortViewSet": ("LEGACY_FLAT_URL", "Unnested /api/cohort/ route; pinned to request.user.current_team."),
+    "LegacyDashboardsViewSet": (
+        "LEGACY_FLAT_URL",
+        "Unnested /api/dashboard/ route (comment: 'Should be completely unused now'); slated for removal.",
+    ),
+    "LegacyElementViewSet": ("LEGACY_FLAT_URL", "Unnested /api/element/ route; pinned to request.user.current_team."),
+    "LegacyEnterprisePersonViewSet": (
+        "LEGACY_FLAT_URL",
+        "Unnested /api/person/ route; pinned to request.user.current_team.",
+    ),
+    "LegacyEventViewSet": ("LEGACY_FLAT_URL", "Unnested /api/event/ route; pinned to request.user.current_team."),
+    "LegacyFeatureFlagViewSet": (
+        "LEGACY_FLAT_URL",
+        "Unnested /api/feature_flag/ (library-side flag evaluation); pinned to request.user.current_team.",
+    ),
+    "LegacyInsightViewSet": ("LEGACY_FLAT_URL", "Unnested /api/dashboard_item/ (renamed insight)."),
+    "LegacyPluginConfigViewSet": ("LEGACY_FLAT_URL", "Unnested /api/plugin_config/."),
+    # -------------------------------------------------------------------
+    # Custom lookup_field — URL value is not the model pk. These need
+    # dedicated hand-written IDOR tests because URL substitution requires
+    # domain knowledge of what the URL parameter means.
+    # -------------------------------------------------------------------
+    "DataWarehouseManagedViewSetViewSet": (
+        "CUSTOM_LOOKUP_FIELD",
+        "lookup_field='kind' — URL param is an enum value, not a pk. Has a "
+        "hand-written test (see products/data_warehouse/backend/api/tests).",
+    ),
+    "EndpointViewSet": (
+        "CUSTOM_LOOKUP_FIELD",
+        "lookup_field='name' — URL param is the endpoint name, not a pk.",
+    ),
+    "GroupsTypesViewSet": (
+        "CUSTOM_LOOKUP_FIELD",
+        "lookup_field='group_type_index' — URL param is an integer 0-4, not a pk.",
+    ),
+    "LinkViewSet": ("CUSTOM_LOOKUP_FIELD", "lookup_field='id' but links use uuid; add a hand-written test."),
+    "LogsAlertViewSet": ("CUSTOM_LOOKUP_FIELD", "lookup_field='id' with custom UUID format."),
+    "LogsViewViewSet": ("CUSTOM_LOOKUP_FIELD", "lookup_field='short_id' — 12-char shortid, not a pk."),
+    "MCPServerInstallationViewSet": ("CUSTOM_LOOKUP_FIELD", "lookup_field='id' with custom format."),
+    "NotebookViewSet": ("CUSTOM_LOOKUP_FIELD", "lookup_field='short_id' — 8-char shortid, not a pk."),
+    "OrganizationFeatureFlagView": (
+        "CUSTOM_LOOKUP_FIELD",
+        "lookup_field='feature_flag_key' — URL is FF key string, not a pk.",
+    ),
+    "OrganizationInviteViewSet": ("CUSTOM_LOOKUP_FIELD", "lookup_field='id' but org-scoped cross-org tests required."),
+    "OrganizationMemberViewSet": (
+        "CUSTOM_LOOKUP_FIELD",
+        "lookup_field='user__uuid' — joined attribute; add a hand-written cross-org test.",
+    ),
+    "ProjectSecretAPIKeyViewSet": (
+        "CUSTOM_LOOKUP_FIELD",
+        "lookup_field='id'; token-related, hand-written test advised.",
+    ),
+    "SavedHeatmapViewSet": ("CUSTOM_LOOKUP_FIELD", "lookup_field='short_id'."),
+    "SessionRecordingPlaylistViewSet": ("CUSTOM_LOOKUP_FIELD", "lookup_field='short_id'."),
+    "TicketViewViewSet": ("CUSTOM_LOOKUP_FIELD", "lookup_field='short_id'."),
+    "WebAnalyticsFilterPresetViewSet": ("CUSTOM_LOOKUP_FIELD", "lookup_field='short_id'."),
+    # -------------------------------------------------------------------
+    # Org/project/team top-level resources. These aren't typical
+    # tenant-scoped viewsets — they ARE the tenant. Access controls are
+    # provided by org/team membership, not queryset scoping in the IDOR
+    # sense. They need dedicated cross-org/cross-project tests rather
+    # than URL-substitution IDOR tests.
+    # -------------------------------------------------------------------
+    "OrganizationViewSet": (
+        "TENANT_ROOT_RESOURCE",
+        "The org itself — attacker cannot GET a victim's org via their own org URL; "
+        "this is enforced by OrganizationMemberPermissions, not by queryset scoping. "
+        "Needs a hand-written cross-org test, not URL substitution.",
+    ),
+    "RootProjectViewSet": ("TENANT_ROOT_RESOURCE", "Project is a tenant root; see OrganizationViewSet comment."),
+    "ProjectViewSet": ("TENANT_ROOT_RESOURCE", "Project is a tenant root; see OrganizationViewSet comment."),
+    "ProjectEnvironmentsViewSet": (
+        "TENANT_ROOT_RESOURCE",
+        "Team (environment) is a tenant root; see OrganizationViewSet comment.",
+    ),
+    "RootTeamViewSet": (
+        "TENANT_ROOT_RESOURCE",
+        "Team (environment) is a tenant root; see OrganizationViewSet comment.",
+    ),
+    # -------------------------------------------------------------------
+    # Viewsets that don't have an inferrable model (queryset=None and no
+    # serializer_class.Meta.model). These are typically query/endpoint
+    # wrappers (HogQL, MCP tools, debugger) that proxy ClickHouse queries
+    # or external services — there's no model to IDOR.
+    # -------------------------------------------------------------------
+    "ErrorTrackingExternalReferenceViewSet": (
+        "NO_MODEL",
+        "No queryset.model; wraps Integration lookups. IDOR tested via Integration viewset.",
+    ),
+    "ErrorTrackingFingerprintViewSet": (
+        "NO_MODEL",
+        "No queryset.model; fingerprint merge action wrapper. Covered by ErrorTrackingIssueViewSet tests.",
+    ),
+    "EventViewSet": ("NO_MODEL", "No model; queries ClickHouse events table. team_id scoping is on the CH query."),
+    "FixHogQLViewSet": ("NO_MODEL", "No model; HogQL query fixer action."),
+    "HistoricalExportsAppMetricsViewSet": ("NO_MODEL", "No model; metrics aggregation endpoint."),
+    "LegalDocumentViewSet": ("NO_MODEL", "No queryset.model; legal documents are org-scoped org-admin only."),
+    "MCPToolsViewSet": ("NO_MODEL", "No model; lists MCP tool definitions."),
+    "QueryViewSet": ("NO_MODEL", "No model; HogQL query execution endpoint (team_id scoping is in the query)."),
+    "RepoViewSet": ("NO_MODEL", "No model; external repo integration."),
+    "RunViewSet": ("NO_MODEL", "No model; temporal run lookup."),
+    "SpansViewSet": ("NO_MODEL", "No model; wraps ClickHouse spans table."),
+    "SessionGroupSummaryViewSet": ("NO_MODEL", "No model; wraps LLM-summarization actions."),
 }

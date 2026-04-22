@@ -70,9 +70,12 @@ class TestAutomatedIDORCoverage(IDORTestMixin, APIBaseTest):
                     f"{case.name}: could not derive intermediate id {field_name!r} from {case.model_cls.__name__} instance"
                 )
 
+        # The URL's final kwarg may be `pk`, `id`, or something custom.
+        # Prefer the named attribute off the instance; fall back to pk.
+        pk_value = getattr(instance, case.url.pk_kwarg, instance.pk)
         url = case.url.build_url(  # type: ignore[attr-defined]
             root_id=root_id,
-            pk=instance.pk,
+            pk=pk_value,
             intermediate_ids=intermediate_ids or None,
         )
         self.assertCrossTeamDenied(url, method="get")

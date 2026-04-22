@@ -141,16 +141,17 @@ def parse_url_pattern(regex_str: str) -> Optional[URLStructure]:
             return None  # Unexpected structure (e.g., an inline named group)
         literal_before = remainder[cursor : match.start()]
         prefix = literal_before.strip("/")
-        if not prefix or "/" in prefix:
-            return None  # Unexpected intermediate structure
+        # Intermediate prefix can be multi-segment (e.g. `llm_analytics/datasets`)
+        if not prefix:
+            return None
         intermediate_parents.append((prefix, kwarg))
         cursor = match.end()
 
     # Resource prefix is the literal text between the last intermediate kwarg
-    # (or the root if there are none) and the final pk.
+    # (or the root if there are none) and the final pk. Can be multi-segment.
     resource_literal = remainder[cursor : final.start()]
     resource_prefix = resource_literal.strip("/")
-    if not resource_prefix or "/" in resource_prefix:
+    if not resource_prefix:
         return None
 
     return URLStructure(

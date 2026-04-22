@@ -111,3 +111,28 @@ semgrep --test .semgrep/rules/
 # Or via Docker
 docker run --rm -v "${PWD}:/src" semgrep/semgrep semgrep --test /src/.semgrep/rules/
 ```
+
+## IDOR Test Coverage
+
+All tenant-scoped DRF viewsets with detail endpoints have automated cross-team IDOR coverage via `posthog/test/test_idor_coverage.py`. The test walks `posthog.api.router.urls` at collection time, generates one test per viewset, and verifies that an attacker (authenticated in team A) hitting the detail URL with a victim's resource id (from team B) receives 403/404/405 — never the victim's data.
+
+**When you add a new tenant-scoped viewset:**
+
+Your PR will fail CI via `.github/scripts/check-idor-test-coverage.py` unless the viewset is one of:
+
+1. **Auto-tested** — the default. The viewset inherits from `TeamAndOrgViewSetMixin`, uses `lookup_field` in `{"pk", "id"}`, and its model can be auto-instantiated via `posthog/test/idor/factory.py::build_minimal_instance`. No code changes needed.
+2. **Covered by a fixture** — if the model has required FKs or custom validation the auto-factory can't satisfy, add a factory to `posthog/test/idor/fixtures.py` keyed by `app_label.ModelName`.
+3. **Explicitly skipped** — if the viewset has a custom `lookup_field`, is a tenant-root resource (Organization/Team/Project itself), has no model, or is a legacy flat-URL viewset, add an entry to `posthog/test/idor/skip_list.py` with a documented category + reason.
+
+**Running locally:**
+
+```bash
+# The full IDOR test suite
+hogli test posthog/test/test_idor_coverage.py
+
+# The coverage check (same script CI runs)
+python .github/scripts/check-idor-test-coverage.py
+
+# URL parser unit tests (pure; no Django boot)
+python -m pytest posthog/test/idor/test_url_structure.py
+```

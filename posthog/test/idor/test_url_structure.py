@@ -81,6 +81,13 @@ class TestParseURLPattern(unittest.TestCase):
         assert s is not None
         assert s.pk_kwarg == "short_id"
 
+    def test_multi_segment_resource_prefix(self) -> None:
+        # Some routes are registered under a subpath like `/llm_analytics/clustering_jobs/`.
+        pattern = r"^environments/(?P<parent_lookup_team_id>[^/.]+)/llm_analytics/clustering_jobs/(?P<pk>[^/.]+)/?$"
+        s = parse_url_pattern(pattern)
+        assert s is not None
+        assert s.resource_prefix == "llm_analytics/clustering_jobs"
+
     def test_unknown_root_returns_none(self) -> None:
         pattern = r"^weird_root/(?P<parent_lookup_foo_id>[^/.]+)/things/(?P<pk>[^/.]+)/?$"
         s = parse_url_pattern(pattern)

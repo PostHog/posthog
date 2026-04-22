@@ -528,6 +528,9 @@ jobs:
             - name: Check IDOR model coverage
               run: python .github/scripts/check-idor-model-coverage.py
 
+            - name: Check IDOR test coverage
+              run: python .github/scripts/check-idor-test-coverage.py
+
             - name: Check operator parity
               run: python .github/scripts/check-operator-parity.py
 

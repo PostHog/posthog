@@ -429,6 +429,52 @@ def _external_data_schema_factory(team: Team) -> models.Model:
 register_label_fixture("data_warehouse.ExternalDataSchema", _external_data_schema_factory)
 
 
+# Evaluation chain ---------------------------------------------------------
+
+
+def _create_evaluation(team: Team):
+    from products.llm_analytics.backend.models.evaluations import Evaluation
+
+    return Evaluation.objects.create(team=team, name="idor-eval", evaluation_type="llm_judge", output_type="numeric")
+
+
+def _evaluation_report_factory(team: Team) -> models.Model:
+    from products.llm_analytics.backend.models.evaluation_reports import EvaluationReport
+
+    return EvaluationReport.objects.create(team=team, evaluation=_create_evaluation(team))
+
+
+register_label_fixture("llm_analytics.EvaluationReport", _evaluation_report_factory)
+
+
+# Review queue chain -------------------------------------------------------
+
+
+def _review_queue_item_factory(team: Team) -> models.Model:
+    from products.llm_analytics.backend.models.review_queues import ReviewQueue, ReviewQueueItem
+
+    queue = ReviewQueue.objects.create(team=team, name=f"idor-queue-{_rand()}")
+    return ReviewQueueItem.objects.create(team=team, queue=queue, trace_id=f"idor-{_rand()}")
+
+
+register_label_fixture("llm_analytics.ReviewQueueItem", _review_queue_item_factory)
+
+
+# Event schema -------------------------------------------------------------
+
+
+def _event_schema_factory(team: Team) -> models.Model:
+    from products.event_definitions.backend.models.event_definition import EventDefinition
+    from products.event_definitions.backend.models.schema import EventSchema, SchemaPropertyGroup
+
+    event_def = EventDefinition.objects.create(team=team, name=f"idor-event-{_rand()}")
+    group = SchemaPropertyGroup.objects.create(team=team, name=f"idor-group-{_rand()}")
+    return EventSchema.objects.create(event_definition=event_def, property_group=group)
+
+
+register_label_fixture("event_definitions.EventSchema", _event_schema_factory)
+
+
 # Session recording external reference ------------------------------------
 
 
