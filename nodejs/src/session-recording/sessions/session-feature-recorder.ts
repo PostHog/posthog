@@ -2,7 +2,6 @@ import crypto from 'crypto'
 import { DateTime } from 'luxon'
 
 import { defaultConfig } from '../../config/config'
-import { logger } from '../../utils/logger'
 import { ParsedMessageData, SnapshotEvent } from '../kafka/types'
 import { RRWebEventSource, RRWebEventType, hrefFrom, isClick, isKeypress, isMouseActivity } from '../rrweb-types'
 
@@ -237,17 +236,6 @@ export class SessionFeatureRecorder {
         public readonly batchId: string
     ) {
         this._run = this.shouldRun(sessionId)
-        if (!this._run) {
-            logger.warn('🧠', 'session_feature_recorder_skipped', {
-                sessionId,
-                rolloutPercentage: defaultConfig.SESSION_RECORDING_FEATURES_ROLLOUT_PERCENTAGE,
-            })
-        } else {
-            logger.warn('🧠', 'session_feature_recorder - recording features', {
-                sessionId,
-                rolloutPercentage: defaultConfig.SESSION_RECORDING_FEATURES_ROLLOUT_PERCENTAGE,
-            })
-        }
     }
 
     public recordMessage(message: ParsedMessageData): void {

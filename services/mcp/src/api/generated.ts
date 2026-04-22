@@ -6509,10 +6509,7 @@ export namespace Schemas {
       type: BatchExportDestinationTypeEnum;
       /** A JSON field to store all configuration parameters required to access a BatchExportDestination. */
       config?: unknown;
-      /**
-       * The integration for this destination.
-       * @nullable
-       */
+      /** @nullable */
       integration?: number | null;
       /** @nullable */
       integration_id?: number | null;
@@ -17163,6 +17160,11 @@ export namespace Schemas {
       full_name: string;
     }
 
+    export interface GitHubReposRefreshResponse {
+      /** The refreshed repository cache. */
+      repositories: GitHubRepo[];
+    }
+
     export interface GitHubReposResponse {
       repositories: GitHubRepo[];
       /** Whether more repositories are available beyond this page. */
@@ -17244,6 +17246,18 @@ export namespace Schemas {
       Sparkline: 'sparkline',
     } as const;
 
+    /**
+     * * `count` - count
+    * `sum` - sum
+     */
+    export type MathEnum = typeof MathEnum[keyof typeof MathEnum];
+
+
+    export const MathEnum = {
+      Count: 'count',
+      Sum: 'sum',
+    } as const;
+
     export interface GroupUsageMetric {
       readonly id: string;
       /** @maxLength 255 */
@@ -17257,6 +17271,12 @@ export namespace Schemas {
       interval?: number;
       display?: GroupUsageMetricDisplayEnum;
       filters: unknown;
+      math?: MathEnum;
+      /**
+       * @maxLength 255
+       * @nullable
+       */
+      math_property?: string | null;
     }
 
     /**
@@ -26087,6 +26107,12 @@ export namespace Schemas {
       interval?: number;
       display?: GroupUsageMetricDisplayEnum;
       filters?: unknown;
+      math?: MathEnum;
+      /**
+       * @maxLength 255
+       * @nullable
+       */
+      math_property?: string | null;
     }
 
     export interface PatchedHealthIssue {
@@ -36918,6 +36944,10 @@ export namespace Schemas {
      * @minLength 1
      */
     repo: string;
+    /**
+     * Optional case-insensitive branch name search query.
+     */
+    search?: string;
     };
 
     export type EnvironmentsIntegrationsGithubReposRetrieveParams = {
@@ -41046,6 +41076,10 @@ export namespace Schemas {
      * @minLength 1
      */
     repo: string;
+    /**
+     * Optional case-insensitive branch name search query.
+     */
+    search?: string;
     };
 
     export type IntegrationsGithubReposRetrieveParams = {
