@@ -4,10 +4,10 @@ import { useState } from 'react'
 import { IconInfo, IconPencil } from '@posthog/icons'
 import { LemonButton, Tooltip } from '@posthog/lemon-ui'
 
-import { ProductContextDrawer } from './ProductContextDrawer'
+import { SessionSummariesConfigDrawer } from './SessionSummariesConfigDrawer'
 import { sessionSummariesConfigLogic } from './sessionSummariesConfigLogic'
 
-export function ProductContextButton(): JSX.Element {
+export function SessionSummariesConfigButton(): JSX.Element {
     const [isDrawerOpen, setIsDrawerOpen] = useState(false)
     const { config, isLoading } = useValues(sessionSummariesConfigLogic)
 
@@ -31,7 +31,7 @@ export function ProductContextButton(): JSX.Element {
                     {label}
                 </LemonButton>
             </Tooltip>
-            <ProductContextDrawer isOpen={isDrawerOpen} onClose={() => setIsDrawerOpen(false)} />
+            <SessionSummariesConfigDrawer isOpen={isDrawerOpen} onClose={() => setIsDrawerOpen(false)} />
         </>
     )
 }

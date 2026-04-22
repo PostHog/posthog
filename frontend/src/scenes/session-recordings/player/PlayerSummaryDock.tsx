@@ -14,8 +14,8 @@ import { sessionRecordingEventUsageLogic } from '../sessionRecordingEventUsageLo
 import { playerMetaLogic } from './player-meta/playerMetaLogic'
 import { sessionSummaryProgressLogic } from './player-meta/sessionSummaryProgressLogic'
 import { LoadingTimer, SessionSummary, SummarizationProgressView } from './PlayerSummaryViews'
-import { ProductContextButton } from './ProductContextButton'
 import { sessionRecordingPlayerLogic } from './sessionRecordingPlayerLogic'
+import { SessionSummariesConfigButton } from './SessionSummariesConfigButton'
 
 const COLLAPSED_HEIGHT = 44
 const DEFAULT_EXPANDED_HEIGHT = 480
@@ -102,7 +102,7 @@ export function PlayerSummaryDock(): JSX.Element | null {
                         >
                             Use AI to summarize this session
                         </LemonButton>
-                        <ProductContextButton />
+                        <SessionSummariesConfigButton />
                     </div>
                 )}
                 {(hasContentToExpand || isOpen) && (

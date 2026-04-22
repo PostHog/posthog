@@ -17,12 +17,12 @@ Free users see an upgrade modal when they try to export — this is intentional,
 
 Users often switch between board view and list view rapidly when comparing tasks — normal behavior, not confusion.`
 
-interface ProductContextDrawerProps {
+interface SessionSummariesConfigDrawerProps {
     isOpen: boolean
     onClose: () => void
 }
 
-export function ProductContextDrawer({ isOpen, onClose }: ProductContextDrawerProps): JSX.Element {
+export function SessionSummariesConfigDrawer({ isOpen, onClose }: SessionSummariesConfigDrawerProps): JSX.Element {
     const { isLoading, isUpdating } = useValues(sessionSummariesConfigLogic)
     const restrictedReason = useRestrictedArea({
         scope: RestrictionScope.Project,
