@@ -18,6 +18,7 @@ class TeamExperimentsConfigInline(admin.StackedInline):
                     "default_experiment_confidence_level",
                     "default_experiment_stats_method",
                     "experiment_precomputation_enabled",
+                    "default_only_count_matured_users",
                 ],
             },
         ),

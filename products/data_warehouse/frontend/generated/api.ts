@@ -37,6 +37,7 @@ import type {
     PatchedDataWarehouseSavedQueryApi,
     PatchedDataWarehouseSavedQueryDraftApi,
     PatchedDataWarehouseSavedQueryFolderApi,
+    PatchedExternalDataSchemaApi,
     PatchedExternalDataSourceBulkUpdateSchemasApi,
     PatchedExternalDataSourceSerializersApi,
     PatchedQueryTabStateApi,
@@ -596,6 +597,159 @@ export const externalDataSchemasCreate = async (
     options?: RequestInit
 ): Promise<ExternalDataSchemaApi> => {
     return apiMutator<ExternalDataSchemaApi>(getExternalDataSchemasCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(externalDataSchemaApi),
+    })
+}
+
+export const getExternalDataSchemasRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/external_data_schemas/${id}/`
+}
+
+export const externalDataSchemasRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<ExternalDataSchemaApi> => {
+    return apiMutator<ExternalDataSchemaApi>(getExternalDataSchemasRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getExternalDataSchemasUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/external_data_schemas/${id}/`
+}
+
+export const externalDataSchemasUpdate = async (
+    projectId: string,
+    id: string,
+    externalDataSchemaApi: NonReadonly<ExternalDataSchemaApi>,
+    options?: RequestInit
+): Promise<ExternalDataSchemaApi> => {
+    return apiMutator<ExternalDataSchemaApi>(getExternalDataSchemasUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(externalDataSchemaApi),
+    })
+}
+
+export const getExternalDataSchemasPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/external_data_schemas/${id}/`
+}
+
+export const externalDataSchemasPartialUpdate = async (
+    projectId: string,
+    id: string,
+    patchedExternalDataSchemaApi: NonReadonly<PatchedExternalDataSchemaApi>,
+    options?: RequestInit
+): Promise<ExternalDataSchemaApi> => {
+    return apiMutator<ExternalDataSchemaApi>(getExternalDataSchemasPartialUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedExternalDataSchemaApi),
+    })
+}
+
+export const getExternalDataSchemasDestroyUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/external_data_schemas/${id}/`
+}
+
+export const externalDataSchemasDestroy = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getExternalDataSchemasDestroyUrl(projectId, id), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
+export const getExternalDataSchemasCancelCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/external_data_schemas/${id}/cancel/`
+}
+
+export const externalDataSchemasCancelCreate = async (
+    projectId: string,
+    id: string,
+    externalDataSchemaApi: NonReadonly<ExternalDataSchemaApi>,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getExternalDataSchemasCancelCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(externalDataSchemaApi),
+    })
+}
+
+export const getExternalDataSchemasDeleteDataDestroyUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/external_data_schemas/${id}/delete_data/`
+}
+
+export const externalDataSchemasDeleteDataDestroy = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getExternalDataSchemasDeleteDataDestroyUrl(projectId, id), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
+export const getExternalDataSchemasIncrementalFieldsCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/external_data_schemas/${id}/incremental_fields/`
+}
+
+export const externalDataSchemasIncrementalFieldsCreate = async (
+    projectId: string,
+    id: string,
+    externalDataSchemaApi: NonReadonly<ExternalDataSchemaApi>,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getExternalDataSchemasIncrementalFieldsCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(externalDataSchemaApi),
+    })
+}
+
+export const getExternalDataSchemasReloadCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/external_data_schemas/${id}/reload/`
+}
+
+export const externalDataSchemasReloadCreate = async (
+    projectId: string,
+    id: string,
+    externalDataSchemaApi: NonReadonly<ExternalDataSchemaApi>,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getExternalDataSchemasReloadCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(externalDataSchemaApi),
+    })
+}
+
+export const getExternalDataSchemasResyncCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/external_data_schemas/${id}/resync/`
+}
+
+export const externalDataSchemasResyncCreate = async (
+    projectId: string,
+    id: string,
+    externalDataSchemaApi: NonReadonly<ExternalDataSchemaApi>,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getExternalDataSchemasResyncCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },

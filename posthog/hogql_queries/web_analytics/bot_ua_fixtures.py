@@ -45,6 +45,8 @@ BOT_USER_AGENTS: dict[str, list[str]] = {
     ],
     "search_crawler": [
         "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)",
+        "Mozilla/5.0 (Linux; Android 6.0.1; Nexus 5X Build/MMB29P) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.7680.177 Mobile Safari/537.36 (compatible; AdsBot-Google-Mobile; +http://www.google.com/mobile/adsbot.html)",
+        "Mozilla/5.0 (Linux; Android 6.0.1; Nexus 5X Build/MMB29P) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.6099.224 Mobile Safari/537.36 (compatible; Google-InspectionTool/1.0)",
         "Mozilla/5.0 (compatible; bingbot/2.0; +http://www.bing.com/bingbot.htm)",
         "Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko; compatible; Bingbot/2.0; +http://www.bing.com/Bingbot.htm) Chrome/116.0.0.0 Safari/537.36",
         "Mozilla/5.0 (compatible; YandexBot/3.0; +http://yandex.com/bots)",
@@ -53,7 +55,9 @@ BOT_USER_AGENTS: dict[str, list[str]] = {
         "Mozilla/5.0 (compatible; Yahoo! Slurp; http://help.yahoo.com/help/us/ysearch/slurp)",
     ],
     "seo_crawler": [
+        "Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/108.0.5359.128 Mobile Safari/537.36 (compatible; AhrefsSiteAudit/6.1; +http://ahrefs.com/robot/site-audit)",
         "Mozilla/5.0 (compatible; AhrefsBot/7.0; +http://ahrefs.com/robot/)",
+        "Mozilla/5.0 (compatible; Barkrowler/0.9; +https://babbar.tech/crawler)",
         "Mozilla/5.0 (compatible; SemrushBot/7~bl; +http://www.semrush.com/bot.html)",
         "Mozilla/5.0 (compatible; MJ12bot/v1.4.8; http://mj12bot.com/)",
         "Mozilla/5.0 (compatible; DotBot/1.2; +https://opensiteexplorer.org/dotbot)",
@@ -76,6 +80,7 @@ BOT_USER_AGENTS: dict[str, list[str]] = {
         "Datadog/Synthetics",
     ],
     "http_client": [
+        "Chrome Privacy Preserving Prefetch Proxy",
         "curl/7.88.1",
         "curl/8.1.2",
         "Wget/1.21.3",
@@ -91,6 +96,7 @@ BOT_USER_AGENTS: dict[str, list[str]] = {
         "Scrapy/2.9.0 (+https://scrapy.org)",
     ],
     "headless_browser": [
+        "Mozlila/5.0 (Linux; Android 7.0; SM-G892A Bulid/NRD90M; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/60.0.3112.107 Moblie Safari/537.36",
         "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/114.0.5735.198 Safari/537.36",
         "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) PhantomJS/2.1.1 Safari/537.36",
         "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36 Puppeteer",

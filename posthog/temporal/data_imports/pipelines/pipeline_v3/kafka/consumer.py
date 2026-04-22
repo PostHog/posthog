@@ -104,6 +104,7 @@ class KafkaConsumerService:
             "auto.offset.reset": "latest",
             "enable.auto.commit": False,
             "partition.assignment.strategy": "cooperative-sticky",
+            "max.poll.interval.ms": self._config.max_poll_interval_ms,
         }
         if profile.security_protocol in (
             _KafkaSecurityProtocol.SASL_PLAINTEXT,
@@ -114,8 +115,6 @@ class KafkaConsumerService:
             config["sasl.password"] = profile.sasl_password
         if self._config.session_timeout_ms is not None:
             config["session.timeout.ms"] = self._config.session_timeout_ms
-        if self._config.max_poll_interval_ms is not None:
-            config["max.poll.interval.ms"] = self._config.max_poll_interval_ms
         if self._config.heartbeat_interval_ms is not None:
             config["heartbeat.interval.ms"] = self._config.heartbeat_interval_ms
         consumer = ConfluentConsumer(config)

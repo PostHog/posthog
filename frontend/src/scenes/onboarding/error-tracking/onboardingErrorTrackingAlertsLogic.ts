@@ -101,7 +101,7 @@ export const onboardingErrorTrackingAlertsLogic = kea<onboardingErrorTrackingAle
             submit: async (formValues) => {
                 const configuration = {
                     ...DEFAULT_HOG_FUNCTION_CONFIGURATION,
-                    template_id: `template-${values.integration}-error-tracking-issue-created`,
+                    template_id: `template-${values.integration}`,
                 }
 
                 if (values.integration === 'microsoft-teams') {
