@@ -46,19 +46,26 @@ DEFAULT_EMBEDDING_VERSION = 1
 DEFAULT_MIN_DISTANCE_THRESHOLD = 0.10
 
 _SINCE_DURATION_PATTERN = re.compile(r"^(\d+)\s*(s|m|h|d)$")
-_SINCE_UNIT_TO_KWARG = {"s": "seconds", "m": "minutes", "h": "hours", "d": "days"}
 _MAX_SINCE = timedelta(days=30)
 
 logger = structlog.get_logger(__name__)
+
+
+def _duration_from_unit(amount: int, unit: str) -> timedelta:
+    if unit == "s":
+        return timedelta(seconds=amount)
+    if unit == "m":
+        return timedelta(minutes=amount)
+    if unit == "h":
+        return timedelta(hours=amount)
+    return timedelta(days=amount)
 
 
 def _parse_since(value: str) -> datetime | None:
     value = value.strip()
     match = _SINCE_DURATION_PATTERN.match(value)
     if match:
-        amount = int(match.group(1))
-        kwarg = _SINCE_UNIT_TO_KWARG[match.group(2)]
-        delta = timedelta(**{kwarg: amount})
+        delta = _duration_from_unit(int(match.group(1)), match.group(2))
         if delta > _MAX_SINCE:
             delta = _MAX_SINCE
         return timezone.now() - delta
