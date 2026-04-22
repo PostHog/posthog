@@ -264,6 +264,18 @@ class TestUtils(BaseTest):
                 True,
             ),
             (
+                "InsightVizNode wrapping FunnelsQuery",
+                {"kind": "InsightVizNode", "source": {"kind": "FunnelsQuery"}},
+                True,
+                True,
+            ),
+            (
+                "InsightVizNode wrapping ExperimentQuery",
+                {"kind": "InsightVizNode", "source": {"kind": "ExperimentQuery"}},
+                False,
+                True,
+            ),
+            (
                 "DataTableNode wrapping TrendsQuery",
                 {"kind": "DataTableNode", "source": {"kind": "TrendsQuery"}},
                 True,
