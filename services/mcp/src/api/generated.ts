@@ -20858,6 +20858,19 @@ export namespace Schemas {
     * `close` - close
     * `permission_response` - permission_response
     * `set_config_option` - set_config_option
+    * `git/changed_files` - git/changed_files
+    * `git/diff_cached` - git/diff_cached
+    * `git/diff_unstaged` - git/diff_unstaged
+    * `git/diff_head` - git/diff_head
+    * `git/diff_stats` - git/diff_stats
+    * `git/current_branch` - git/current_branch
+    * `git/file_at_head` - git/file_at_head
+    * `git/stage_files` - git/stage_files
+    * `git/unstage_files` - git/unstage_files
+    * `git/discard_file` - git/discard_file
+    * `git/sync_status` - git/sync_status
+    * `git/repo_info` - git/repo_info
+    * `fs/read_file` - fs/read_file
      */
     export type MethodEnum = typeof MethodEnum[keyof typeof MethodEnum];
 
@@ -20868,6 +20881,19 @@ export namespace Schemas {
       Close: 'close',
       PermissionResponse: 'permission_response',
       SetConfigOption: 'set_config_option',
+      GitChangedFiles: 'git/changed_files',
+      GitDiffCached: 'git/diff_cached',
+      GitDiffUnstaged: 'git/diff_unstaged',
+      GitDiffHead: 'git/diff_head',
+      GitDiffStats: 'git/diff_stats',
+      GitCurrentBranch: 'git/current_branch',
+      GitFileAtHead: 'git/file_at_head',
+      GitStageFiles: 'git/stage_files',
+      GitUnstageFiles: 'git/unstage_files',
+      GitDiscardFile: 'git/discard_file',
+      GitSyncStatus: 'git/sync_status',
+      GitRepoInfo: 'git/repo_info',
+      FsReadFile: 'fs/read_file',
     } as const;
 
     export interface MinimalPerson {
@@ -34386,7 +34412,20 @@ export namespace Schemas {
     * `cancel` - cancel
     * `close` - close
     * `permission_response` - permission_response
-    * `set_config_option` - set_config_option */
+    * `set_config_option` - set_config_option
+    * `git/changed_files` - git/changed_files
+    * `git/diff_cached` - git/diff_cached
+    * `git/diff_unstaged` - git/diff_unstaged
+    * `git/diff_head` - git/diff_head
+    * `git/diff_stats` - git/diff_stats
+    * `git/current_branch` - git/current_branch
+    * `git/file_at_head` - git/file_at_head
+    * `git/stage_files` - git/stage_files
+    * `git/unstage_files` - git/unstage_files
+    * `git/discard_file` - git/discard_file
+    * `git/sync_status` - git/sync_status
+    * `git/repo_info` - git/repo_info
+    * `fs/read_file` - fs/read_file */
       method: MethodEnum;
       /** Parameters for the command */
       params?: TaskRunCommandRequestParams;
