@@ -592,6 +592,7 @@ class SignalReportViewSet(
         if not report_ids:
             return {}
 
+        # Batch this after pagination so the hot list queryset avoids a per-row correlated TaskRun subquery.
         latest_runs = (
             TaskRun.objects.filter(
                 task__signal_report_tasks__report_id__in=report_ids,
