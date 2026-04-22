@@ -486,12 +486,6 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         name="update survey's sampling feature flag rollout  based on date",
     )
 
-    # check_alerts_task is no longer registered here — alert checks run via the
-    # ScheduleDueAlertChecksWorkflow Temporal schedule (every 2 minutes on
-    # ANALYTICS_PLATFORM_TASK_QUEUE). See posthog/temporal/alerts/schedule.py
-    # and posthog/temporal/schedule.py. The Celery task function itself is
-    # removed in PR4 of the stack.
-
     sender.add_periodic_task(
         crontab(hour="*", minute="*/12"),
         alerts_backlog_task.s(),

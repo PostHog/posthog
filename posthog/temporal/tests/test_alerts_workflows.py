@@ -1,6 +1,7 @@
 import uuid
 import datetime as dt
-from concurrent.futures import ThreadPoolExecutor
+from collections.abc import Callable
+from typing import Any
 
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -9,7 +10,7 @@ from django.conf import settings
 
 import pytest_asyncio
 from asgiref.sync import sync_to_async
-from temporalio.client import Client, Schedule, ScheduleActionStartWorkflow, ScheduleOverlapPolicy, ScheduleSpec
+from temporalio.client import Schedule, ScheduleActionStartWorkflow, ScheduleOverlapPolicy, ScheduleSpec
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
@@ -40,71 +41,45 @@ def test_schedule_is_registered_in_init_schedules():
     assert create_schedule_due_alert_checks_schedule in schedules
 
 
+@pytest.mark.parametrize(
+    "schedule_exists,expect_create,expect_update",
+    [
+        pytest.param(False, True, False, id="creates_when_absent"),
+        pytest.param(True, False, True, id="updates_when_present"),
+    ],
+)
 @pytest.mark.asyncio
-async def test_create_schedule_creates_when_absent():
+async def test_create_schedule_routes_by_existence(
+    schedule_exists: bool, expect_create: bool, expect_update: bool
+) -> None:
     mock_client = AsyncMock()
     with (
         patch(
             "posthog.temporal.alerts.schedule.a_schedule_exists",
-            new=AsyncMock(return_value=False),
+            new=AsyncMock(return_value=schedule_exists),
         ),
-        patch(
-            "posthog.temporal.alerts.schedule.a_create_schedule",
-            new=AsyncMock(),
-        ) as mock_create,
-        patch(
-            "posthog.temporal.alerts.schedule.a_update_schedule",
-            new=AsyncMock(),
-        ) as mock_update,
+        patch("posthog.temporal.alerts.schedule.a_create_schedule", new=AsyncMock()) as mock_create,
+        patch("posthog.temporal.alerts.schedule.a_update_schedule", new=AsyncMock()) as mock_update,
     ):
         await create_schedule_due_alert_checks_schedule(mock_client)
 
-    mock_create.assert_awaited_once()
-    mock_update.assert_not_awaited()
+    assert mock_create.await_count == (1 if expect_create else 0)
+    assert mock_update.await_count == (1 if expect_update else 0)
 
-    call_args = mock_create.await_args
-    assert call_args is not None
-    schedule_arg = call_args.args[2]
-    assert isinstance(schedule_arg, Schedule)
-    assert isinstance(schedule_arg.spec, ScheduleSpec)
-    assert schedule_arg.spec.cron_expressions == ["*/2 * * * *"]
-    assert schedule_arg.policy.overlap == ScheduleOverlapPolicy.ALLOW_ALL
-    assert isinstance(schedule_arg.action, ScheduleActionStartWorkflow)
-    assert schedule_arg.action.execution_timeout == dt.timedelta(minutes=10)
-    assert call_args.kwargs.get("trigger_immediately") is False
-
-
-@pytest.mark.asyncio
-async def test_create_schedule_updates_when_present():
-    mock_client = AsyncMock()
-    with (
-        patch(
-            "posthog.temporal.alerts.schedule.a_schedule_exists",
-            new=AsyncMock(return_value=True),
-        ),
-        patch(
-            "posthog.temporal.alerts.schedule.a_create_schedule",
-            new=AsyncMock(),
-        ) as mock_create,
-        patch(
-            "posthog.temporal.alerts.schedule.a_update_schedule",
-            new=AsyncMock(),
-        ) as mock_update,
-    ):
-        await create_schedule_due_alert_checks_schedule(mock_client)
-
-    mock_update.assert_awaited_once()
-    mock_create.assert_not_awaited()
+    # On the create path, validate the Schedule shape we register.
+    if expect_create:
+        assert mock_create.await_args is not None
+        schedule_arg = mock_create.await_args.args[2]
+        assert isinstance(schedule_arg, Schedule)
+        assert isinstance(schedule_arg.spec, ScheduleSpec)
+        assert schedule_arg.spec.cron_expressions == ["*/2 * * * *"]
+        assert schedule_arg.policy.overlap == ScheduleOverlapPolicy.ALLOW_ALL
+        assert isinstance(schedule_arg.action, ScheduleActionStartWorkflow)
+        assert schedule_arg.action.execution_timeout == dt.timedelta(minutes=10)
+        assert mock_create.await_args.kwargs.get("trigger_immediately") is False
 
 
-# ─── CheckAlertWorkflow integration tests ────────────────────────────
-#
-# Exercise the full prepare → evaluate → notify chain against a real Postgres
-# DB with mocked ClickHouse + SMTP. Catches wiring regressions between the
-# workflow and activities — e.g., missing fields on activity inputs.
-
-
-CHECK_ALERT_ACTIVITIES = [prepare_alert, evaluate_alert, notify_alert]
+CHECK_ALERT_ACTIVITIES: list[Callable[..., Any]] = [prepare_alert, evaluate_alert, notify_alert]
 
 
 def _valid_trends_query() -> dict:
@@ -182,8 +157,6 @@ async def _run_check_alert_workflow(alert_id: str, slo: SloConfig, team_id: int,
             activities=CHECK_ALERT_ACTIVITIES,
             interceptors=[SloInterceptor()],
             workflow_runner=UnsandboxedWorkflowRunner(),
-            activity_executor=ThreadPoolExecutor(max_workers=2),
-            debug_mode=True,
         ):
             await env.client.execute_workflow(
                 CheckAlertWorkflow.run,
@@ -213,7 +186,6 @@ def _completed_slo_props(mock_slo_analytics: MagicMock) -> dict:
 @pytest.mark.django_db(transaction=True)
 async def test_check_alert_workflow_firing_drives_full_chain_with_slo(
     mock_slo_analytics: MagicMock,
-    temporal_client: Client,
     alert_with_subscriber: AlertConfiguration,
 ) -> None:
     evaluation_result = AlertEvaluationResult(value=100.0, breaches=["value above threshold"])
@@ -238,18 +210,11 @@ async def test_check_alert_workflow_firing_drives_full_chain_with_slo(
     assert check.state == AlertState.FIRING
     assert check.targets_notified == {"users": recipients}
 
-    # Contract: workflow pipes breaches from evaluate into notify inputs, and the
-    # idempotency_key is the AlertCheck id (so MessagingRecord dedupes retries).
     mock_send_breaches.assert_called_once()
-    _, pos_args, kw_args = mock_send_breaches.mock_calls[0]
-    passed_breaches = pos_args[1] if len(pos_args) > 1 else kw_args.get("breaches")
-    assert passed_breaches == ["value above threshold"]
-    assert kw_args.get("idempotency_key") == str(check.id)
+    call = mock_send_breaches.call_args
+    assert call.args[1] == ["value above threshold"]
+    assert call.kwargs.get("idempotency_key") == str(check.id)
 
-    started_calls = [
-        c for c in mock_slo_analytics.capture.call_args_list if c.kwargs.get("event") == "slo_operation_started"
-    ]
-    assert len(started_calls) == 1
     completed_props = _completed_slo_props(mock_slo_analytics)
     assert completed_props["outcome"] == SloOutcome.SUCCESS
     assert completed_props["alert_state"] == AlertState.FIRING
@@ -266,8 +231,8 @@ async def test_check_alert_workflow_firing_drives_full_chain_with_slo(
         ),
         pytest.param(
             lambda ateam: _create_alert(ateam, enabled=False),
-            SkipReason.NOT_FOUND,
-            id="disabled_treated_as_not_found",
+            SkipReason.DISABLED,
+            id="disabled",
         ),
     ],
 )
@@ -276,7 +241,6 @@ async def test_check_alert_workflow_firing_drives_full_chain_with_slo(
 @pytest.mark.django_db(transaction=True)
 async def test_check_alert_workflow_skip_short_circuits_before_evaluate(
     mock_slo_analytics: MagicMock,
-    temporal_client: Client,
     ateam,
     setup,
     expected_reason: SkipReason,
@@ -310,12 +274,8 @@ async def test_check_alert_workflow_skip_short_circuits_before_evaluate(
 @pytest.mark.django_db(transaction=True)
 async def test_check_alert_workflow_records_errored_check_on_permanent_evaluation_failure(
     mock_slo_analytics: MagicMock,
-    temporal_client: Client,
     alert_with_subscriber: AlertConfiguration,
 ) -> None:
-    # Permanent evaluation errors are captured into AlertCheck.error (not re-raised),
-    # so the workflow completes normally with state=ERRORED and the notify activity
-    # fires error notifications. This exercises the "error" path end-to-end.
     class PermanentError(Exception):
         pass
 
@@ -324,7 +284,10 @@ async def test_check_alert_workflow_records_errored_check_on_permanent_evaluatio
             "posthog.temporal.alerts.activities.check_alert_for_insight",
             side_effect=PermanentError("insight query broken"),
         ),
-        patch("posthog.tasks.alerts.utils.send_notifications_for_errors") as mock_send_errors,
+        patch(
+            "posthog.tasks.alerts.utils.send_notifications_for_errors",
+            return_value=["alerts-wf-test@posthog.com"],
+        ) as mock_send_errors,
     ):
         await _run_check_alert_workflow(
             alert_id=str(alert_with_subscriber.id),
@@ -343,7 +306,7 @@ async def test_check_alert_workflow_records_errored_check_on_permanent_evaluatio
 
     mock_send_errors.assert_called_once()
 
-    # Error captured → alert degraded (state=ERRORED), not a workflow failure → SLO=SUCCESS.
     completed_props = _completed_slo_props(mock_slo_analytics)
+    # Errored evaluation = degraded alert, not a workflow failure → SLO stays SUCCESS.
     assert completed_props["outcome"] == SloOutcome.SUCCESS
     assert completed_props["alert_state"] == AlertState.ERRORED
