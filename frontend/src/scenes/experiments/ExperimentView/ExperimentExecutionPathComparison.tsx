@@ -1,5 +1,5 @@
 import { useValues } from 'kea'
-import { useCallback, useRef, useState } from 'react'
+import { useCallback, useState } from 'react'
 
 import { LemonButton, LemonTabs } from '@posthog/lemon-ui'
 
@@ -292,7 +292,6 @@ function ExperimentExecutionPathComparison({ experimentId }: { experimentId: num
 
     const [results, setResults] = useState<Record<string, { direct: PathResult; precomputed: PathResult }>>({})
     const [runAllInProgress, setRunAllInProgress] = useState(false)
-    const runAllAbortRef = useRef(false)
 
     const sharedPrimaryMetrics: ExperimentMetric[] =
         (experiment.saved_metrics as ExperimentSavedMetric[] | undefined)
@@ -340,7 +339,6 @@ function ExperimentExecutionPathComparison({ experimentId }: { experimentId: num
     )
 
     const runAll = useCallback(async (): Promise<void> => {
-        runAllAbortRef.current = false
         setRunAllInProgress(true)
 
         // Mark all as loading
@@ -355,9 +353,6 @@ function ExperimentExecutionPathComparison({ experimentId }: { experimentId: num
 
         // Each task runs both paths for one metric
         const tasks = allMetrics.map((entry) => async () => {
-            if (runAllAbortRef.current) {
-                return
-            }
             const [direct, precomputed] = await Promise.all([
                 runPathQuery(entry.metric, experimentId, 'direct', featureFlags),
                 runPathQuery(entry.metric, experimentId, 'precomputed', featureFlags),
