@@ -1,6 +1,6 @@
 metadata:
     devbox:
-        coder_url: https://coder.hedgehog-kitefin.ts.net
+        coder_url: https://coder.dev.posthog.dev
     categories:
         - key: devenv
           title: Intent-based dev environment
@@ -109,7 +109,10 @@ devbox:
     devbox:destroy: null
     devbox:status: null
     devbox:forward: null
+    devbox:users: null
+    devbox:share: null
     devbox:cleanup:disk: null
+    devbox:task: null
 devenv:
     dev:setup: null
     dev:generate: null
@@ -566,6 +569,12 @@ quality:
         cmd: pnpm exec markdownlint-cli2 --config .config/.markdownlint-cli2.jsonc --fix
             "$@" && pnpm exec oxfmt --no-error-on-unmatched-pattern "$@"
         description: Format Markdown files
+    lint:feature-flags:
+        cmd: node bin/lint-feature-flag-sorting.mjs
+        description: Check that FEATURE_FLAGS in constants.tsx are alphabetically sorted
+    lint:feature-flags:fix:
+        cmd: node bin/lint-feature-flag-sorting.mjs --fix
+        description: Auto-sort FEATURE_FLAGS in constants.tsx alphabetically
     format:mcp:
         cmd: pnpm run --filter @posthog/mcp format
         description: Format MCP files
@@ -601,7 +610,7 @@ tools:
         description: Python linter and formatter with virtualenv auto-activation
     tool:ty:
         bin_script: ty.py
-        description: Type checker with mypy-baseline filtering and sync
+        description: Type checker with ty baseline filtering and sync
         hidden: true
     tool:turbo:
         bin_script: turbo
@@ -618,9 +627,6 @@ tools:
         cmd: python manage.py print_hog_stl_table
         description: Print HogSQL standard library definitions for reference
         hidden: true
-    clickhouse:ai:init:
-        bin_script: clickhouse-ai-events-init
-        description: Create ai_events ClickHouse tables for local development
     clickhouse:logs:init:
         bin_script: clickhouse-logs-init
         description: 'TODO: add description for clickhouse-logs-init'
@@ -769,4 +775,12 @@ environment:
     fix:rdkafka:paths:
         bin_script: fix-rdkafka-paths
         description: 'Rewrite node-rdkafka dylib paths to use @loader_path on macOS for worktree portability'
+        hidden: true
+    warm:flags:cache:
+        bin_script: warm-flags-cache
+        description: 'Warm the feature-flags hypercache by batch-building flag caches for every team (Rust port of the Python warmer)'
+        hidden: true
+    warm:flags:cache:local:
+        bin_script: warm-flags-cache-local
+        description: 'Warm the feature-flags hypercache against the local dev environment'
         hidden: true

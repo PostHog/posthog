@@ -24,6 +24,8 @@ const emptySyncConfig: OptOutSyncConfigResponse = {
     csv_import_result: null,
     webhook_enabled: false,
     has_webhook_secret: false,
+    track_enabled: false,
+    has_track_credentials: false,
 }
 
 const step1FailedConfig: OptOutSyncConfigResponse = {
@@ -133,10 +135,6 @@ const webhookDisabledConfig: OptOutSyncConfigResponse = {
     has_webhook_secret: true,
 }
 
-export const AllStepsCompleted: StoryFn<StoryProps> = Template.bind({})
-AllStepsCompleted.args = { syncConfig: allStepsCompletedConfig }
-AllStepsCompleted.parameters = { testOptions: { waitForSelector: '.LemonCollapse' } }
-
 export const Step3WebhookNotConfigured: StoryFn<StoryProps> = Template.bind({})
 Step3WebhookNotConfigured.args = { syncConfig: bothStepsCompletedConfig }
 Step3WebhookNotConfigured.parameters = { testOptions: { waitForSelector: '.LemonCollapse' } }
@@ -148,3 +146,37 @@ Step3WebhookEnabled.parameters = { testOptions: { waitForSelector: '.LemonCollap
 export const Step3WebhookDisabled: StoryFn<StoryProps> = Template.bind({})
 Step3WebhookDisabled.args = { syncConfig: webhookDisabledConfig }
 Step3WebhookDisabled.parameters = { testOptions: { waitForSelector: '.LemonCollapse' } }
+
+const step4NotConfiguredConfig: OptOutSyncConfigResponse = {
+    ...allStepsCompletedConfig,
+    track_enabled: false,
+    has_track_credentials: false,
+}
+
+const step4EnabledConfig: OptOutSyncConfigResponse = {
+    ...allStepsCompletedConfig,
+    track_enabled: true,
+    has_track_credentials: true,
+}
+
+const step4DisabledConfig: OptOutSyncConfigResponse = {
+    ...allStepsCompletedConfig,
+    track_enabled: false,
+    has_track_credentials: true,
+}
+
+export const Step4TrackNotConfigured: StoryFn<StoryProps> = Template.bind({})
+Step4TrackNotConfigured.args = { syncConfig: step4NotConfiguredConfig }
+Step4TrackNotConfigured.parameters = { testOptions: { waitForSelector: '.LemonCollapse' } }
+
+export const Step4TrackEnabled: StoryFn<StoryProps> = Template.bind({})
+Step4TrackEnabled.args = { syncConfig: step4EnabledConfig }
+Step4TrackEnabled.parameters = { testOptions: { waitForSelector: '.LemonCollapse' } }
+
+export const Step4TrackDisabled: StoryFn<StoryProps> = Template.bind({})
+Step4TrackDisabled.args = { syncConfig: step4DisabledConfig }
+Step4TrackDisabled.parameters = { testOptions: { waitForSelector: '.LemonCollapse' } }
+
+export const AllStepsCompleted: StoryFn<StoryProps> = Template.bind({})
+AllStepsCompleted.args = { syncConfig: step4EnabledConfig }
+AllStepsCompleted.parameters = { testOptions: { waitForSelector: '.LemonCollapse' } }

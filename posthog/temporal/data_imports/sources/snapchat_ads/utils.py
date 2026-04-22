@@ -6,10 +6,10 @@ from typing import Any, Optional
 import requests
 import structlog
 from dateutil import parser
-from dlt.sources.helpers.requests import Request, Response
-from dlt.sources.helpers.rest_client.paginators import BasePaginator
+from requests import Request, Response
 from requests.exceptions import HTTPError, RequestException, Timeout
 
+from posthog.temporal.data_imports.sources.common.rest_source.paginators import BasePaginator
 from posthog.temporal.data_imports.sources.snapchat_ads.settings import (
     BASE_URL,
     MAX_SNAPCHAT_DAYS_TO_QUERY,

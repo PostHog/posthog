@@ -16,7 +16,6 @@
             "description": "ID of the color theme used for chart visualizations."
         },
         "delete_insights": {
-            "default": false,
             "description": "When deleting, also delete insights that are only on this dashboard.",
             "type": "boolean"
         },

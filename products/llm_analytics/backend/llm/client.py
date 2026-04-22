@@ -94,6 +94,8 @@ class Client:
 
 def _get_provider(name: str, provider_key: "LLMProviderKey | None" = None) -> "Provider":
     """Get provider by name. For Azure, reads extra config from provider_key."""
+    from typing import cast
+
     from products.llm_analytics.backend.llm.providers.anthropic import AnthropicAdapter
     from products.llm_analytics.backend.llm.providers.azure_openai import DEFAULT_API_VERSION, AzureOpenAIAdapter
     from products.llm_analytics.backend.llm.providers.fireworks import FireworksAdapter
@@ -103,20 +105,23 @@ def _get_provider(name: str, provider_key: "LLMProviderKey | None" = None) -> "P
 
     match name:
         case "openai":
-            return OpenAIAdapter()
+            return cast("Provider", OpenAIAdapter())
         case "anthropic":
-            return AnthropicAdapter()
+            return cast("Provider", AnthropicAdapter())
         case "gemini":
-            return GeminiAdapter()
+            return cast("Provider", GeminiAdapter())
         case "openrouter":
-            return OpenRouterAdapter()
+            return cast("Provider", OpenRouterAdapter())
         case "fireworks":
-            return FireworksAdapter()
+            return cast("Provider", FireworksAdapter())
         case "azure_openai":
             config = provider_key.encrypted_config if provider_key else {}
-            return AzureOpenAIAdapter(
-                azure_endpoint=config.get("azure_endpoint", ""),
-                api_version=config.get("api_version", DEFAULT_API_VERSION),
+            return cast(
+                "Provider",
+                AzureOpenAIAdapter(
+                    azure_endpoint=config.get("azure_endpoint", ""),
+                    api_version=config.get("api_version", DEFAULT_API_VERSION),
+                ),
             )
         case _:
             raise UnsupportedProviderError(name)
