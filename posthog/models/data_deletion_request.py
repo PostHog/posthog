@@ -1,4 +1,5 @@
 from django.contrib.postgres.fields import ArrayField
+from django.core.exceptions import ValidationError
 from django.db import models
 from django.utils import timezone
 
@@ -14,6 +15,30 @@ def jsonhas_expr(prop: str, param_prefix: str) -> str:
     parts = prop.split(".")
     args = ", ".join(f"%({param_prefix}_{i})s" for i in range(len(parts)))
     return f"JSONHas(properties, {args})"
+
+
+def event_match_sql_fragment(obj) -> str:
+    """WHERE fragment that narrows to the matching event names.
+
+    Returns an empty string when ``obj.delete_all_events`` is set, so callers can
+    drop the ``event IN %(events)s`` filter without special-casing. Accepts both
+    the Django model and the Dagster ``DeletionRequestContext`` dataclass.
+    """
+    if getattr(obj, "delete_all_events", False):
+        return ""
+    return "AND event IN %(events)s"
+
+
+def event_match_params(obj) -> dict:
+    """Params for the time-bounded event match (omits ``events`` when deleting all)."""
+    params: dict = {
+        "team_id": obj.team_id,
+        "start_time": obj.start_time,
+        "end_time": obj.end_time,
+    }
+    if not getattr(obj, "delete_all_events", False):
+        params["events"] = obj.events
+    return params
 
 
 class RequestType(models.TextChoices):
@@ -51,7 +76,14 @@ class DataDeletionRequest(UUIDModel):
 
     events = ArrayField(
         models.CharField(max_length=1024),
-        help_text="Event names to match.",
+        blank=True,
+        default=list,
+        help_text="Event names to match. May be empty only when delete_all_events is true.",
+    )
+    delete_all_events = models.BooleanField(
+        default=False,
+        help_text="Opt in to deleting every event for the team in the given time range. "
+        "Only honored for event_removal requests. Requires events to be empty.",
     )
     properties = ArrayField(
         models.CharField(max_length=1024),
@@ -130,3 +162,19 @@ class DataDeletionRequest(UUIDModel):
 
     def __str__(self) -> str:
         return f"DataDeletionRequest({self.request_type}, team={self.team_id}, status={self.status})"
+
+    def clean(self) -> None:
+        super().clean()
+        if self.request_type == RequestType.EVENT_REMOVAL:
+            if self.delete_all_events and self.events:
+                raise ValidationError(
+                    {"events": "Events must be empty when delete_all_events is set."},
+                )
+            if not self.delete_all_events and not self.events:
+                raise ValidationError(
+                    {"events": "Provide at least one event, or set delete_all_events to delete every event."},
+                )
+        elif self.delete_all_events:
+            raise ValidationError(
+                {"delete_all_events": "delete_all_events is only valid for event_removal requests."},
+            )

@@ -70,13 +70,19 @@ tools:
             destructive: false
             idempotent: true
         title: Update skill
-        description: >
+        description: |
             Publish a new version of an existing agent skill by name. Any field not provided
             is carried forward from the current latest version. Requires base_version for
             optimistic concurrency. If files are provided, they replace all files from the
             previous version; if omitted, files are carried forward.
+
+            For the body, you can either provide the full content via 'body', or use 'edits'
+            for incremental find/replace updates. Each edit must have 'old' (text to find,
+            must match exactly once) and 'new' (replacement text). Edits are applied
+            sequentially. Only one of 'body' or 'edits' may be provided.
         include_params:
             - body
+            - edits
             - description
             - license
             - compatibility

@@ -167,7 +167,7 @@ export function createExecTool(
                     }
 
                     const result = await tool.handler(context, input)
-                    const useJson = forceJson || tool._meta?.[POSTHOG_META_KEY]?.responseFormat === 'json'
+                    const useJson = forceJson || tool._meta?.[POSTHOG_META_KEY]?.outputFormat === 'json'
                     return useJson ? JSON.stringify(result) : formatResponse(result)
                 }
 

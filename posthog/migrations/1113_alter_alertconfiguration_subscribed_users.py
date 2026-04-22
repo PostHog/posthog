@@ -5,9 +5,8 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
-        ("posthog", "1111_organizationmembership_invited_by"),
+        ("posthog", "1112_datadeletionrequest_delete_all_events"),
     ]
 
     operations = [

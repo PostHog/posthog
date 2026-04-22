@@ -68,12 +68,16 @@ class LogsAlertSparklineBucketSerializer(serializers.Serializer):
     timestamp = serializers.DateTimeField(help_text="Bucket start timestamp (UTC, hourly).")
     breached = serializers.IntegerField(help_text="Count of breached checks in this hour.")
     errored = serializers.IntegerField(help_text="Count of errored checks in this hour.")
+    resolved = serializers.IntegerField(
+        help_text="Count of checks that transitioned the alert from firing to resolved in this hour."
+    )
 
 
 class SparklineBucket(TypedDict):
     timestamp: datetime
     breached: int
     errored: int
+    resolved: int
 
 
 def _sparkline_window_start() -> datetime:
@@ -206,6 +210,7 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
                 "timestamp": start + dt.timedelta(hours=i),
                 "breached": 0,
                 "errored": 0,
+                "resolved": 0,
             }
             for i in range(SPARKLINE_LOOKBACK_HOURS)
         ]
@@ -225,6 +230,11 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
                     buckets[hour_offset]["errored"] += 1
                 elif event.threshold_breached:
                     buckets[hour_offset]["breached"] += 1
+                elif (
+                    event.state_before in (AlertState.FIRING, AlertState.PENDING_RESOLVE)
+                    and event.state_after == AlertState.NOT_FIRING
+                ):
+                    buckets[hour_offset]["resolved"] += 1
 
         return buckets
 

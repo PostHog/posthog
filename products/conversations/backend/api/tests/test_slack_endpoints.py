@@ -56,7 +56,7 @@ class TestSupportSlackEventsAPI(BaseTest):
             "/api/conversations/v1/slack/events",
             data=json.dumps({"type": "event_callback", "team_id": "T123", "event": {"type": "message"}}),
             content_type="application/json",
-            headers={"x-slack-retry-num": "1"}
+            headers={"x-slack-retry-num": "1"},
         )
 
         assert response.status_code == 200

@@ -9539,7 +9539,9 @@ class AssistantRecordingsQuery(BaseModel):
             " $entry_current_url).\n- `event`: Filter by properties of events in the"
             " session (e.g. $current_url, $browser).\n- `recording`: Filter by"
             " recording metrics (e.g. console_error_count, click_count,"
-            " activity_score)."
+            " activity_score).\n- `cohort`: Filter recordings to persons belonging to a"
+            ' cohort. Example: `{ type: "cohort", key: "id", value: 42, operator:'
+            ' "in" }`.'
         ),
     )
 
@@ -21081,7 +21083,6 @@ class ExperimentQuery(BaseModel):
     experiment_id: int | None = None
     kind: Literal["ExperimentQuery"] = "ExperimentQuery"
     metric: ExperimentMeanMetric | ExperimentFunnelMetric | ExperimentRatioMetric | ExperimentRetentionMetric
-    metric_events_precomputation: bool | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     name: str | None = None
     precomputation_mode: PrecomputationMode | None = None

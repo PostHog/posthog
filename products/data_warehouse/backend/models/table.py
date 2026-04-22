@@ -319,6 +319,14 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             )
 
             return result[0][0]
+        except ClickHouseServerException as err:
+            # CANNOT_EXTRACT_TABLE_STRUCTURE (636) is expected when the provided S3 path
+            # has no non-empty/readable files for the configured format (e.g. before the
+            # first successful sync). The caller handles a None return by resetting and
+            # triggering a refresh.
+            if err.code != 636:
+                capture_exception(err)
+            return None
         except Exception as err:
             capture_exception(err)
             return None

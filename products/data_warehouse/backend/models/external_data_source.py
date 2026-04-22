@@ -46,9 +46,7 @@ class ExternalDataSource(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
 
     # Deprecated, use `ExternalDataSchema.sync_frequency_interval`
-    sync_frequency = models.CharField(
-        max_length=128, choices=SyncFrequency, default=SyncFrequency.DAILY, blank=True
-    )
+    sync_frequency = models.CharField(max_length=128, choices=SyncFrequency, default=SyncFrequency.DAILY, blank=True)
 
     # `status` is deprecated in favour of external_data_schema.status
     status = models.CharField(max_length=400)

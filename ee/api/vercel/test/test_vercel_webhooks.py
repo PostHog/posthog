@@ -33,7 +33,7 @@ class TestVercelWebhooks(VercelTestBase):
                 self.url,
                 data=json.dumps(payload),
                 content_type="application/json",
-                headers={"x-vercel-signature": signature}
+                headers={"x-vercel-signature": signature},
             )
         return self.client.post(
             self.url,

@@ -83,9 +83,7 @@ class SignalTeamConfig(UUIDModel):
         on_delete=models.CASCADE,
         related_name="signal_team_config",
     )
-    default_autostart_priority = models.CharField(
-        max_length=2, choices=AutonomyPriority, default=AutonomyPriority.P0
-    )
+    default_autostart_priority = models.CharField(max_length=2, choices=AutonomyPriority, default=AutonomyPriority.P0)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

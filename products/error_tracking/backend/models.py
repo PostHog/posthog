@@ -357,9 +357,7 @@ class ErrorTrackingAutoCaptureControls(UUIDTModel):
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
     library = models.CharField(max_length=24, choices=Library, null=False, blank=False, default=Library.WEB)
 
-    match_type = models.CharField(
-        max_length=24, choices=MatchType, null=False, blank=False, default=MatchType.ALL
-    )
+    match_type = models.CharField(max_length=24, choices=MatchType, null=False, blank=False, default=MatchType.ALL)
 
     sample_rate = models.DecimalField(
         max_digits=3,
@@ -490,7 +488,6 @@ def override_error_tracking_issue_fingerprint(
     issue_id: UUID,
     version=0,
     is_deleted: bool = False,
-    sync: bool = False,
 ) -> None:
     p = ClickhouseProducer()
     p.produce(
@@ -503,7 +500,6 @@ def override_error_tracking_issue_fingerprint(
             "version": version,
             "is_deleted": int(is_deleted),
         },
-        sync=sync,
     )
 
 

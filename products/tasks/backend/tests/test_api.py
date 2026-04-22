@@ -3034,10 +3034,7 @@ class TestTaskRunStreamAPI(BaseTaskAPITest):
         stream_ids = self._read_stream_ids(run)
         self._mark_stream_complete(run)
 
-        response = self.client.get(
-            self._stream_url(task, run),
-            headers={"last-event-id": stream_ids[1]}
-        )
+        response = self.client.get(self._stream_url(task, run), headers={"last-event-id": stream_ids[1]})
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         events = self._collect_sse_events(response)

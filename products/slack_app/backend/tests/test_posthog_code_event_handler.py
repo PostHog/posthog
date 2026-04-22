@@ -62,7 +62,7 @@ class TestPostHogCodeEventHandler(TestCase):
             "/slack/posthog-code-event-callback/",
             data=body,
             content_type="application/json",
-            headers={"x-slack-signature": signature, "x-slack-request-timestamp": ts, "x-slack-retry-num": "1"}
+            headers={"x-slack-signature": signature, "x-slack-request-timestamp": ts, "x-slack-retry-num": "1"},
         )
         assert response.status_code == 200
 

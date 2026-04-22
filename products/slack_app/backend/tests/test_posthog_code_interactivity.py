@@ -99,7 +99,7 @@ class TestRepoPickerOptions(TestCase):
             "/slack/posthog-code-interactivity-callback/",
             data=body_str,
             content_type="application/x-www-form-urlencoded",
-            headers={"x-slack-signature": signature, "x-slack-request-timestamp": ts}
+            headers={"x-slack-signature": signature, "x-slack-request-timestamp": ts},
         )
 
     @patch("products.slack_app.backend.api._get_full_repo_names")
