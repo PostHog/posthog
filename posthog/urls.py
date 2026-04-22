@@ -33,6 +33,7 @@ from posthog.api import (
     user,
 )
 from posthog.api.oauth.connected_apps import ConnectedAppsViewSet
+from posthog.api.oauth.wizard_metadata import WIZARD_METADATA_PATH, WizardClientMetadataView
 from posthog.api.query import progress
 from posthog.api.sdk_doctor import sdk_doctor
 from posthog.api.slack import slack_interactivity_callback
@@ -49,6 +50,7 @@ from posthog.temporal.codec_server import decode_payloads
 
 from products.data_warehouse.backend.api.public_source_configs import PublicSourceConfigViewSet
 from products.early_access_features.backend.api import early_access_features
+from products.legal_documents.backend.presentation.webhook import legal_document_signed_webhook
 from products.messaging.backend.api.customerio_webhook import CustomerIOWebhookView
 from products.product_tours.backend.api import product_tours
 from products.signals.backend import views as signals_views
@@ -203,6 +205,11 @@ urlpatterns = [
     path("api/unsubscribe", unsubscribe.unsubscribe),
     path("api/alerts/github", github.SecretAlert.as_view()),
     path(
+        "api/legal_documents/signed",
+        csrf_exempt(legal_document_signed_webhook),
+        name="legal_document_signed_webhook",
+    ),
+    path(
         "api/users/<str:user_id>/signal_autonomy/",
         signals_user_autonomy_view.as_view(),
         name="user_signal_autonomy",
@@ -282,6 +289,11 @@ urlpatterns = [
     path(
         "api/oauth/connected-apps/<uuid:pk>/revoke/",
         ConnectedAppsViewSet.as_view({"post": "revoke"}),
+    ),
+    path(
+        WIZARD_METADATA_PATH,
+        WizardClientMetadataView.as_view(),
+        name="wizard-client-metadata",
     ),
     re_path(r"^api.+", api_not_found),
     path("authorize_and_redirect/", login_required(authorize_and_redirect)),

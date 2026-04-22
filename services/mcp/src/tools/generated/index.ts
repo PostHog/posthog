@@ -14,6 +14,8 @@ import { GENERATED_TOOLS as data_warehouse } from './data_warehouse'
 import { GENERATED_TOOLS as early_access_features } from './early_access_features'
 import { GENERATED_TOOLS as endpoints } from './endpoints'
 import { GENERATED_TOOLS as error_tracking } from './error_tracking'
+import { GENERATED_TOOLS as evaluation_reports } from './evaluation_reports'
+import { GENERATED_TOOLS as evaluations } from './evaluations'
 import { GENERATED_TOOLS as experiments } from './experiments'
 import { GENERATED_TOOLS as feature_flags } from './feature_flags'
 import { GENERATED_TOOLS as integrations } from './integrations'
@@ -27,7 +29,9 @@ import { GENERATED_TOOLS as prompts } from './prompts'
 import { GENERATED_TOOLS as proxyRecords } from './proxy-records'
 import { GENERATED_TOOLS as queryWrappers } from './query-wrappers'
 import { GENERATED_TOOLS as replay } from './replay'
+import { GENERATED_TOOLS as skills } from './skills'
 import { GENERATED_TOOLS as surveys } from './surveys'
+import { GENERATED_TOOLS as web_analytics } from './web_analytics'
 import { GENERATED_TOOLS as workflows } from './workflows'
 
 export const GENERATED_TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
@@ -44,6 +48,8 @@ export const GENERATED_TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = 
     ...early_access_features,
     ...endpoints,
     ...error_tracking,
+    ...evaluation_reports,
+    ...evaluations,
     ...experiments,
     ...feature_flags,
     ...integrations,
@@ -57,6 +63,8 @@ export const GENERATED_TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = 
     ...proxyRecords,
     ...queryWrappers,
     ...replay,
+    ...skills,
     ...surveys,
+    ...web_analytics,
     ...workflows,
 }

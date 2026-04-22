@@ -422,11 +422,12 @@ class TableViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         try:
             # Create the table if it doesn't exist, otherwise use existing one
             if table is None:
+                created_by = request.user if isinstance(request.user, User) else None
                 table = DataWarehouseTable.objects.create(
                     team_id=team_id,
                     name=table_name,
                     format=file_format,
-                    created_by=request.user,
+                    created_by=created_by,
                 )
 
             # Generate URL pattern and store file in object storage

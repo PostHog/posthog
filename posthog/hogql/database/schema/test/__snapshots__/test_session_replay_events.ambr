@@ -431,3 +431,69 @@
                      use_hive_partitioning=0
   '''
 # ---
+# name: TestSelectAggregatedArrayColumns.test_select_group_uniq_array_array_column_0_all_urls
+  '''
+  SELECT session_replay_events.all_urls AS all_urls
+  FROM
+    (SELECT groupUniqArrayArray(session_replay_events.all_urls) AS all_urls,
+            session_replay_events.session_id AS session_id
+     FROM session_replay_events
+     WHERE equals(session_replay_events.team_id, 99999)
+     GROUP BY session_replay_events.session_id) AS session_replay_events
+  WHERE ifNull(equals(session_replay_events.session_id, '00000000-0000-0000-0000-000000000000'), 0)
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
+  '''
+# ---
+# name: TestSelectAggregatedArrayColumns.test_select_group_uniq_array_array_column_1_ai_tags_fixed
+  '''
+  SELECT session_replay_events.ai_tags_fixed AS ai_tags_fixed
+  FROM
+    (SELECT groupUniqArrayArray(session_replay_events.ai_tags_fixed) AS ai_tags_fixed,
+            session_replay_events.session_id AS session_id
+     FROM session_replay_events
+     WHERE equals(session_replay_events.team_id, 99999)
+     GROUP BY session_replay_events.session_id) AS session_replay_events
+  WHERE ifNull(equals(session_replay_events.session_id, '00000000-0000-0000-0000-000000000000'), 0)
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
+  '''
+# ---
+# name: TestSelectAggregatedArrayColumns.test_select_group_uniq_array_array_column_2_ai_tags_freeform
+  '''
+  SELECT session_replay_events.ai_tags_freeform AS ai_tags_freeform
+  FROM
+    (SELECT groupUniqArrayArray(session_replay_events.ai_tags_freeform) AS ai_tags_freeform,
+            session_replay_events.session_id AS session_id
+     FROM session_replay_events
+     WHERE equals(session_replay_events.team_id, 99999)
+     GROUP BY session_replay_events.session_id) AS session_replay_events
+  WHERE ifNull(equals(session_replay_events.session_id, '00000000-0000-0000-0000-000000000000'), 0)
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
+  '''
+# ---
