@@ -232,7 +232,7 @@ class TestBingAdsSource:
             self.source.source_for_pipeline(self.valid_config, resumable_manager, inputs)
 
     def test_get_resumable_source_manager(self):
-        """Test that get_resumable_source_manager returns a manager bound to BingAdsResumeConfig."""
+        """Test that get_resumable_source_manager returns a manager that round-trips BingAdsResumeConfig."""
         inputs = mock.MagicMock()
         inputs.team_id = self.team_id
         inputs.job_id = "test-job-id"
@@ -241,4 +241,18 @@ class TestBingAdsSource:
         manager = self.source.get_resumable_source_manager(inputs)
 
         assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is BingAdsResumeConfig
+
+        store: dict[str, bytes] = {}
+        fake_redis = mock.MagicMock()
+        fake_redis.set.side_effect = lambda key, value, ex=None: store.__setitem__(key, value)
+        fake_redis.get.side_effect = lambda key: store.get(key)
+
+        with mock.patch(
+            "posthog.temporal.data_imports.sources.common.resumable.get_client", return_value=fake_redis
+        ):
+            original = BingAdsResumeConfig(next_start_date="2025-02-01", end_date="2025-06-30")
+            manager.save_state(original)
+            loaded = manager.load_state()
+
+        assert isinstance(loaded, BingAdsResumeConfig)
+        assert loaded == original
