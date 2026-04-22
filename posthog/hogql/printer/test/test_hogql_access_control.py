@@ -268,6 +268,7 @@ class TestWarehouseSystemTableAccessControl(BaseTest):
         database = Database.create_for(team=self.team, user=self.user)
 
         system_node = database.tables.children.get("system")
+        assert system_node is not None
         assert "data_modeling_views" not in system_node.children
         assert "data_warehouse_tables" not in system_node.children
         assert "system.data_modeling_views" in database._denied_tables
@@ -284,6 +285,7 @@ class TestWarehouseSystemTableAccessControl(BaseTest):
         database = Database.create_for(team=self.team, user=self.user)
 
         system_node = database.tables.children.get("system")
+        assert system_node is not None
         assert "data_modeling_views" in system_node.children
         assert "data_warehouse_tables" in system_node.children
         assert "system.data_modeling_views" not in database._denied_tables
@@ -318,6 +320,7 @@ class TestWarehouseSystemTableAccessControl(BaseTest):
         database = Database.create_for(team=self.team, user=self.user)
 
         system_node = database.tables.children.get("system")
+        assert system_node is not None
         # Org admin bypasses even when project default is 'none'
         assert "data_modeling_views" in system_node.children
         assert "data_warehouse_tables" in system_node.children
