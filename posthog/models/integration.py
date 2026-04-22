@@ -567,20 +567,28 @@ class OauthIntegration:
     @classmethod
     def redirect_uri(cls, kind: str) -> str:
         # The redirect uri is fixed but should always be https and include the "next" parameter for the frontend to redirect
+        # slack-posthog-code piggybacks on the approved /integrations/slack/callback redirect URI
+        # because the approved production Slack app is still under review for the new path.
+        # The real kind is carried in OAuth state so the callback still creates a slack-posthog-code integration.
+        path_kind = "slack" if kind == "slack-posthog-code" else kind
         if settings.DEBUG and settings.NGROK_URL:
-            return f"{settings.NGROK_URL}/integrations/{kind}/callback"
-        return f"{settings.SITE_URL.replace('http://', 'https://')}/integrations/{kind}/callback"
+            return f"{settings.NGROK_URL}/integrations/{path_kind}/callback"
+        return f"{settings.SITE_URL.replace('http://', 'https://')}/integrations/{path_kind}/callback"
 
     @classmethod
     def authorize_url(cls, kind: str, token: str, next="") -> str:
         oauth_config = cls.oauth_config_for_kind(kind)
+
+        state_payload: dict[str, str] = {"next": next, "token": token}
+        if kind == "slack-posthog-code":
+            state_payload["kind"] = kind
 
         if kind == "tiktok-ads":
             # TikTok uses different parameter names
             query_params = {
                 "app_id": oauth_config.client_id,
                 "redirect_uri": cls.redirect_uri(kind),
-                "state": urlencode({"next": next, "token": token}),
+                "state": urlencode(state_payload),
             }
         else:
             query_params = {
@@ -588,7 +596,7 @@ class OauthIntegration:
                 "scope": oauth_config.scope,
                 "redirect_uri": cls.redirect_uri(kind),
                 "response_type": "code",
-                "state": urlencode({"next": next, "token": token}),
+                "state": urlencode(state_payload),
                 **(oauth_config.additional_authorize_params or {}),
             }
 
