@@ -944,6 +944,51 @@
             "readOnlyHint": true
         }
     },
+    "sql-variables-create": {
+        "description": "Create a reusable SQL variable for HogQL queries. Provide a human-readable name and type. The code_name is generated from the name and is referenced in SQL as {variables.code_name}. For List variables, provide values as the allowed options.",
+        "category": "Data warehouse",
+        "feature": "data_warehouse",
+        "summary": "Create SQL variable",
+        "title": "Create SQL variable",
+        "required_scopes": ["insight_variable:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "sql-variables-update": {
+        "description": "Update an existing SQL variable by ID. You can change the name, type, default_value, or allowed values for List variables. If the name changes, check the response for the current code_name before writing queries that reference it.",
+        "category": "Data warehouse",
+        "feature": "data_warehouse",
+        "summary": "Update SQL variable",
+        "title": "Update SQL variable",
+        "required_scopes": ["insight_variable:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "sql-variables-delete": {
+        "description": "Delete a SQL variable by ID. Queries that reference this variable by code_name may stop working after deletion.",
+        "category": "Data warehouse",
+        "feature": "data_warehouse",
+        "summary": "Delete SQL variable",
+        "title": "Delete SQL variable",
+        "required_scopes": ["insight_variable:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "view-list": {
         "description": "List all data warehouse saved queries (views) in the project. Returns each view's name, materialization status, sync frequency, column schema, latest error, and last run timestamp. Use this to discover available views before querying them in HogQL.",
         "category": "Data warehouse",

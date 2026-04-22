@@ -2004,6 +2004,18 @@ class GitHubCommitAuthor:
 GITHUB_DEFAULT_BRANCH_CACHE_TTL_SECONDS = 60 * 60 * 6
 
 
+@dataclass(frozen=True)
+class GitHubUserAuthorization:
+    """Outcome of a successful GitHub App user authorization code exchange."""
+
+    gh_id: int
+    gh_login: str
+    access_token: str
+    refresh_token: str | None
+    access_token_expires_in: int | None
+    refresh_token_expires_in: int | None
+
+
 class GitHubIntegration:
     integration: Integration
 
@@ -2085,9 +2097,16 @@ class GitHubIntegration:
 
     @classmethod
     def github_login_from_code(cls, code: str) -> str | None:
-        """Exchange an OAuth authorization code from the GitHub App user authorization flow for the user's login.
+        result = cls.github_user_from_code(code)
+        return result.gh_login if result else None
 
-        Returns the GitHub username or None if the exchange fails.
+    @classmethod
+    def github_user_from_code(cls, code: str) -> "GitHubUserAuthorization | None":
+        """Exchange an OAuth code from the GitHub App user authorization flow.
+
+        Returns a :class:`GitHubUserAuthorization` with the user's id/login plus the
+        user-to-server access/refresh tokens and their expirations, or ``None`` if
+        the exchange fails or the response lacks an id/login.
         """
         client_id = settings.GITHUB_APP_CLIENT_ID
         client_secret = settings.GITHUB_APP_CLIENT_SECRET
@@ -2110,7 +2129,11 @@ class GitHubIntegration:
             access_token = token_data.get("access_token")
             if not access_token:
                 logger.warning(
-                    "GitHubIntegration: code exchange returned no access_token", error=token_data.get("error")
+                    "GitHubIntegration: code exchange returned no access_token",
+                    status_code=token_response.status_code,
+                    error=token_data.get("error"),
+                    error_description=token_data.get("error_description"),
+                    error_uri=token_data.get("error_uri"),
                 )
                 return None
 
@@ -2127,9 +2150,23 @@ class GitHubIntegration:
                 logger.warning("GitHubIntegration: /user request failed", status_code=user_response.status_code)
                 return None
 
-            return user_response.json().get("login")
+            payload = user_response.json()
+            gh_id = payload.get("id")
+            gh_login = payload.get("login")
+            if gh_id is None or not gh_login:
+                return None
+            access_expires_in = token_data.get("expires_in")
+            refresh_expires_in = token_data.get("refresh_token_expires_in")
+            return GitHubUserAuthorization(
+                gh_id=int(gh_id),
+                gh_login=str(gh_login),
+                access_token=str(access_token),
+                refresh_token=token_data.get("refresh_token") or None,
+                access_token_expires_in=int(access_expires_in) if access_expires_in is not None else None,
+                refresh_token_expires_in=int(refresh_expires_in) if refresh_expires_in is not None else None,
+            )
         except Exception:
-            logger.warning("GitHubIntegration: failed to exchange code for github login", exc_info=True)
+            logger.warning("GitHubIntegration: failed to exchange code for github user", exc_info=True)
             return None
 
     @classmethod

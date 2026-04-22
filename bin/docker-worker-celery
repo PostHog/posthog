@@ -54,8 +54,16 @@ while test $# -gt 0; do
   esac
 done
 
-# Stop any background jobs on exit
-trap 'kill $(jobs -p)' EXIT
+# Forward SIGTERM to all background jobs and wait for them to finish.
+# Without the explicit wait, bash (PID 1) exits immediately after the
+# trap fires and the kernel tears down the container — killing in-flight
+# Celery tasks before they can drain, even though K8s gives us 1230s of
+# grace time via terminationGracePeriodSeconds.
+cleanup() {
+  kill $(jobs -p) 2>/dev/null
+  wait
+}
+trap cleanup EXIT
 
 if [ "$with_scheduler" == "true" ]; then
   ./bin/docker-worker-beat &
