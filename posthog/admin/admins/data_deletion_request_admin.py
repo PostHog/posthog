@@ -198,6 +198,8 @@ def _build_property_filter(obj) -> tuple[str, dict]:
 
 
 def _event_count_query_template(extra_filter: str) -> str:
+    # Counts run against the distributed ``events`` table so operators get a
+    # cluster-wide number; the actual deletions still target ``sharded_events``.
     # nosemgrep: clickhouse-fstring-param-audit (extra_filter is built from internal helpers, not user input)
     return f"""
             SELECT
@@ -205,7 +207,7 @@ def _event_count_query_template(extra_filter: str) -> str:
                 count(DISTINCT _part) AS parts,
                 min(timestamp) AS min_ts,
                 max(timestamp) AS max_ts
-            FROM sharded_events
+            FROM events
             WHERE team_id = %(team_id)s
               AND timestamp >= %(start_time)s
               AND timestamp < %(end_time)s
