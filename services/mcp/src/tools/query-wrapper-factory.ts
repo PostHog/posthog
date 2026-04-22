@@ -1,6 +1,12 @@
 import { z } from 'zod'
 
-import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
+import {
+    POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY,
+    POSTHOG_META_KEY,
+    type Context,
+    type ToolBase,
+    type ZodObjectAny,
+} from '@/tools/types'
 
 interface QueryWrapperConfig<T extends ZodObjectAny> {
     name: string
@@ -9,7 +15,7 @@ interface QueryWrapperConfig<T extends ZodObjectAny> {
     uiResourceUri?: string
     /** Return JSON instead of TOON-encoded text. */
     responseFormat?: 'json'
-    /** When set, `_posthogUrl` uses `{baseUrl}{urlPrefix}` instead of `/insights/new?q=...`. */
+    /** When set, `_posthogUrl` uses `{baseUrl}{urlPrefix}` instead of `/insights/new#q=...`. */
     urlPrefix?: string
     /** When set, the tool is only available in this MCP version (1 = v1 only, 2 = v2 only). */
     mcpVersion?: number
@@ -44,13 +50,14 @@ export function createQueryWrapper<T extends ZodObjectAny>(config: QueryWrapperC
 
             const data = await context.api.query({ projectId }).runQuery({ query })
             return {
-                results: data.formatted_results ?? data.results,
+                results: data.results,
                 _posthogUrl: buildInsightUrl(baseUrl, config.urlPrefix, query),
+                ...(data.formatted_results ? { [POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]: data.formatted_results } : {}),
             }
         },
         _meta: {
             ...(config.uiResourceUri ? { ui: { resourceUri: config.uiResourceUri } } : {}),
-            ...(config.responseFormat ? { responseFormat: config.responseFormat } : {}),
+            ...(config.responseFormat ? { [POSTHOG_META_KEY]: { responseFormat: config.responseFormat } } : {}),
         },
     })
 }

@@ -1267,7 +1267,7 @@ def test_breakdown_query_expression_materialised(
 ):
     from posthog.models.team import util
 
-    util.can_enable_actor_on_events = True
+    util.can_enable_actor_on_events = True  # ty: ignore[invalid-assignment]
 
     materialize(table, breakdown[0], table_column="properties")
     actual = get_single_or_multi_property_string_expr(
