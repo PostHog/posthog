@@ -609,6 +609,21 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         response = self.client.post(f"/api/environments/{self.team.id}/query/", {"query": query})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
+    @patch("posthog.hogql_queries.query_runner.QueryRunner.run", side_effect=RuntimeError("source query failed"))
+    def test_data_visualization_source_error_is_not_chained_to_wrapper_runner_lookup(self, _mock_run):
+        query = {
+            "kind": "DataVisualizationNode",
+            "source": {
+                "kind": "HogQLQuery",
+                "query": "SELECT 1",
+            },
+        }
+
+        with self.assertRaises(RuntimeError) as raised:
+            process_query_dict(team=self.team, query_json=query)
+
+        self.assertIsNone(raised.exception.__context__)
+
     def test_query_not_supported(self):
         query = {
             "kind": "SavedInsightNode",
