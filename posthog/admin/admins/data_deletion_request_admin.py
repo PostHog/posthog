@@ -197,6 +197,35 @@ def _build_property_filter(obj) -> tuple[str, dict]:
     return _append_hogql_predicate(filter_clause, params, obj)
 
 
+def _event_count_query_template(extra_filter: str) -> str:
+    # nosemgrep: clickhouse-fstring-param-audit (extra_filter is built from internal helpers, not user input)
+    return f"""
+            SELECT
+                count() AS events,
+                count(DISTINCT _part) AS parts,
+                min(timestamp) AS min_ts,
+                max(timestamp) AS max_ts
+            FROM sharded_events
+            WHERE team_id = %(team_id)s
+              AND timestamp >= %(start_time)s
+              AND timestamp < %(end_time)s
+              {extra_filter}
+            """
+
+
+def build_deletion_count_query(obj: DataDeletionRequest) -> tuple[str, dict]:
+    """Return the (SQL template, params) used to count rows matching this request.
+
+    Mirrors ``_fetch_stats`` so admin users can copy the query and run it
+    independently — ``substitute_params_for_display`` is the companion renderer.
+    """
+    if obj.request_type == RequestType.PROPERTY_REMOVAL:
+        extra_filter, params = _build_property_filter(obj)
+    else:
+        extra_filter, params = _build_event_filter(obj)
+    return _event_count_query_template(extra_filter), params
+
+
 def _fetch_stats(team_id: int, extra_filter: str, params: dict) -> dict:
     """Run event count + parts size queries against ClickHouse."""
     from posthog.clickhouse.client import sync_execute
@@ -208,20 +237,8 @@ def _fetch_stats(team_id: int, extra_filter: str, params: dict) -> dict:
         workload=Workload.OFFLINE,
         query_type="delete_event_count",
     ):
-        # nosemgrep: clickhouse-fstring-param-audit (extra_filter is built from internal helpers, not user input)
         event_result = sync_execute(
-            f"""
-            SELECT
-                count() AS events,
-                count(DISTINCT _part) AS parts,
-                min(timestamp) AS min_ts,
-                max(timestamp) AS max_ts
-            FROM sharded_events
-            WHERE team_id = %(team_id)s
-              AND timestamp >= %(start_time)s
-              AND timestamp < %(end_time)s
-              {extra_filter}
-            """,
+            _event_count_query_template(extra_filter),
             params,
             team_id=team_id,
             readonly=True,
@@ -331,6 +348,7 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
         "approved_by",
         "approved_at",
         "execution_mode",
+        "rendered_count_query",
     )
     ordering = ("-created_at",)
     change_form_template = "admin/posthog/datadeletionrequest/change_form.html"
@@ -365,6 +383,7 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
                     "min_timestamp",
                     "max_timestamp",
                     "stats_calculated_at",
+                    "rendered_count_query",
                 ),
                 "description": "Populated by executing a ClickHouse query. Not editable.",
             },
@@ -386,6 +405,23 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
             },
         ),
     )
+
+    @admin.display(description="Count query (ready to paste)")
+    def rendered_count_query(self, obj: DataDeletionRequest) -> str:
+        """Show the fully-substituted ClickHouse COUNT query operators can copy/paste."""
+        from posthog.clickhouse.client.escape import substitute_params_for_display
+
+        if obj.pk is None or not obj.team_id or not obj.start_time or not obj.end_time:
+            return "—"
+        try:
+            template, params = build_deletion_count_query(obj)
+            rendered = substitute_params_for_display(template, params)
+        except Exception as exc:
+            return format_html("<em>Could not render query: {}</em>", str(exc))
+        return format_html(
+            '<pre style="white-space: pre-wrap; background: #f5f5f5; padding: 8px;">{}</pre>',
+            rendered,
+        )
 
     def save_model(self, request, obj, form, change):
         if not change:

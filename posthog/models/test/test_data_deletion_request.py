@@ -141,3 +141,66 @@ def test_compile_hogql_predicate_empty_returns_empty():
 
     request = DataDeletionRequest(**_base_kwargs(hogql_predicate=""))
     assert compile_hogql_predicate(request) == ("", {})
+
+
+def test_rendered_count_query_substitutes_parameters():
+    from posthog.admin.admins.data_deletion_request_admin import build_deletion_count_query
+    from posthog.clickhouse.client.escape import substitute_params_for_display
+
+    request = DataDeletionRequest(
+        **_base_kwargs(
+            events=["$pageview", "$identify"],
+            start_time=datetime(2026, 4, 1),
+            end_time=datetime(2026, 4, 15),
+        )
+    )
+    template, params = build_deletion_count_query(request)
+    rendered = substitute_params_for_display(template, params)
+
+    assert "team_id = 99999" in rendered
+    assert "timestamp >= '2026-04-01 00:00:00'" in rendered
+    assert "timestamp < '2026-04-15 00:00:00'" in rendered
+    assert "'$pageview'" in rendered
+    assert "'$identify'" in rendered
+    # No un-substituted placeholders left.
+    assert "%(" not in rendered
+
+
+def test_rendered_count_query_omits_event_filter_when_delete_all_events(team):
+    from posthog.admin.admins.data_deletion_request_admin import build_deletion_count_query
+    from posthog.clickhouse.client.escape import substitute_params_for_display
+
+    request = DataDeletionRequest(
+        **_base_kwargs(
+            team_id=team.id,
+            events=[],
+            delete_all_events=True,
+            start_time=datetime(2026, 4, 1),
+            end_time=datetime(2026, 4, 15),
+        )
+    )
+    template, params = build_deletion_count_query(request)
+    rendered = substitute_params_for_display(template, params)
+
+    assert "event IN" not in rendered
+    assert "events" not in params
+
+
+def test_rendered_count_query_includes_hogql_predicate(team):
+    from posthog.admin.admins.data_deletion_request_admin import build_deletion_count_query
+    from posthog.clickhouse.client.escape import substitute_params_for_display
+
+    request = DataDeletionRequest(
+        **_base_kwargs(
+            team_id=team.id,
+            events=["$pageview"],
+            hogql_predicate="properties.$browser = 'Chrome'",
+        )
+    )
+    template, params = build_deletion_count_query(request)
+    rendered = substitute_params_for_display(template, params)
+
+    # The compiled HogQL fragment is ANDed on and its literal is substituted.
+    assert "AND (" in rendered
+    assert "'Chrome'" in rendered
+    assert "%(" not in rendered
