@@ -26,7 +26,7 @@ from confluent_kafka import (
     Producer as ConfluentProducer,
 )
 from confluent_kafka.aio import AIOProducer
-from statshog.defaults.django import statsd
+from prometheus_client import Counter
 from structlog import get_logger
 
 from posthog.clickhouse.client import sync_execute
@@ -35,6 +35,12 @@ from posthog.kafka_client import helper
 KAFKA_PRODUCER_RETRIES = 5
 
 logger = get_logger(__name__)
+
+KAFKA_PRODUCER_MESSAGES_COUNTER = Counter(
+    "posthog_kafka_producer_messages_total",
+    "Count of Kafka producer delivery reports, labelled by topic, status, and error name.",
+    labelnames=["topic", "status", "error"],
+)
 
 
 @dataclass
@@ -271,15 +277,10 @@ class _KafkaProducer:
         """Delivery callback for confluent-kafka."""
         result.set_result(err, msg)
         if err is not None:
-            statsd.incr(
-                "posthog_cloud_kafka_send_failure",
-                tags={"topic": topic, "exception": err.name()},
-            )
+            KAFKA_PRODUCER_MESSAGES_COUNTER.labels(topic=topic, status="failure", error=err.name()).inc()
         else:
-            statsd.incr(
-                "posthog_cloud_kafka_send_success",
-                tags={"topic": msg.topic() if msg else None},
-            )
+            delivered_topic = msg.topic() if msg else topic
+            KAFKA_PRODUCER_MESSAGES_COUNTER.labels(topic=delivered_topic, status="success", error="").inc()
 
     def produce(
         self,
