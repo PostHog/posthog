@@ -155,8 +155,8 @@ def _phantom_select(row: dict[str, Any]):
         if assigned_role_id is not None
         else ast.Constant(value=None),
         "first_seen": ast.Call(
-            name="parseDateTime64BestEffort",
-            args=[ast.Constant(value=str(row["first_seen"])), ast.Constant(value=3), ast.Constant(value="UTC")],
+            name="parseDateTimeBestEffort",
+            args=[ast.Constant(value=str(row["first_seen"])), ast.Constant(value="UTC")],
         ),
         "is_deleted": ast.Call(name="_toInt8", args=[ast.Constant(value=int(row.get("is_deleted", 0)))]),
         "version": ast.Call(name="_toInt64", args=[ast.Constant(value=int(row["version"]))]),
