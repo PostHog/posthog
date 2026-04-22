@@ -1,8 +1,8 @@
 import structlog
 from celery import shared_task
 
-from .models import MCPServerInstallation
-from .tools import ToolsFetchError, sync_installation_tools
+from ..models import MCPServerInstallation
+from ..tools import ToolsFetchError, sync_installation_tools
 
 logger = structlog.get_logger(__name__)
 
