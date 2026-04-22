@@ -158,8 +158,8 @@ impl SinkResult for KafkaResult {
         self.error.as_ref().map(|e| e.detail())
     }
 
-    fn elapsed(&self) -> Option<chrono::Duration> {
+    fn elapsed(&self) -> Option<std::time::Duration> {
         self.completed_at
-            .map(|t| t.signed_duration_since(self.enqueued_at))
+            .and_then(|t| t.signed_duration_since(self.enqueued_at).to_std().ok())
     }
 }
