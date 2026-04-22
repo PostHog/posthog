@@ -1,22 +1,12 @@
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
+import type { FlagDefinitionCacheData } from 'posthog-node/experimental'
+import { describe, expect, it, vi } from 'vitest'
 
 import {
-    FLAG_DEFS_KV_KEY,
-    type FlagDefinitionsSnapshot,
-    getFlagDefinitions,
+    CloudflareKVFlagCacheReader,
+    CloudflareKVFlagCacheWriter,
+    isLocalEvalConfigured,
     isLocalEvalEnabled,
-    refreshFlagDefinitions,
 } from '@/lib/flag-cache'
-
-const originalFetch = globalThis.fetch
-const fetchMock = vi.fn()
-
-beforeAll(() => {
-    ;(globalThis as { fetch: typeof fetch }).fetch = fetchMock as unknown as typeof fetch
-})
-afterAll(() => {
-    ;(globalThis as { fetch: typeof fetch }).fetch = originalFetch
-})
 
 interface MockKV {
     store: Map<string, string>
@@ -31,203 +21,108 @@ function makeKV(initial?: Record<string, unknown>): MockKV {
             store.set(k, typeof v === 'string' ? v : JSON.stringify(v))
         }
     }
-    const get = vi.fn(async (key: string, opts?: { type?: string }) => {
-        const raw = store.get(key)
-        if (raw === undefined) {
-            return null
-        }
-        if (opts?.type === 'json') {
-            return JSON.parse(raw)
-        }
-        return raw
-    })
+    const get = vi.fn(async (key: string) => store.get(key) ?? null)
     const put = vi.fn(async (key: string, value: string) => {
         store.set(key, value)
     })
     return { store, get, put }
 }
 
-interface EnvOverrides {
-    FLAG_DEFS_KV?: MockKV
-    MCP_FLAG_LOCAL_EVAL_KEY?: string
-    POSTHOG_ANALYTICS_HOST?: string
-    MCP_LOCAL_EVAL_ENABLED?: string
+function asKVNamespace(kv: MockKV): KVNamespace {
+    return kv as unknown as KVNamespace
 }
 
-function makeEnv(overrides: EnvOverrides = {}): Env {
-    const kv = overrides.FLAG_DEFS_KV ?? makeKV()
-    const env: Record<string, unknown> = {
-        FLAG_DEFS_KV: kv,
-        MCP_FLAG_LOCAL_EVAL_KEY: overrides.MCP_FLAG_LOCAL_EVAL_KEY ?? 'phs_test',
-        POSTHOG_ANALYTICS_HOST: overrides.POSTHOG_ANALYTICS_HOST ?? 'https://us.posthog.com',
-        MCP_LOCAL_EVAL_ENABLED: overrides.MCP_LOCAL_EVAL_ENABLED ?? '1',
-    }
-    return env as unknown as Env
-}
+const TEAM_KEY = 'phc_team123'
+const EXPECTED_KEY = `posthog:flags:${TEAM_KEY}`
 
-function makeSnapshot(overrides: Partial<FlagDefinitionsSnapshot> = {}): FlagDefinitionsSnapshot {
+function sampleData(): FlagDefinitionCacheData {
     return {
-        etag: 'W/"abc"',
-        fetchedAt: Date.now(),
-        flags: [{ key: 'mcp-version-2', active: true, filters: { groups: [{ rollout_percentage: 50 }] } }],
+        flags: [{ id: 1, key: 'mcp-version-2', active: true, filters: { groups: [] } } as never],
         groupTypeMapping: {},
-        ...overrides,
+        cohorts: {},
     }
 }
 
-function getKV(env: Env): MockKV {
-    return env.FLAG_DEFS_KV as unknown as MockKV
-}
+describe('CloudflareKVFlagCacheReader', () => {
+    it('reads and parses cached definitions using the team-scoped key', async () => {
+        const data = sampleData()
+        const kv = makeKV({ [EXPECTED_KEY]: data })
+        const reader = new CloudflareKVFlagCacheReader(asKVNamespace(kv), TEAM_KEY)
 
-describe('isLocalEvalEnabled', () => {
-    it('requires the env flag, KV binding, and secret', () => {
-        expect(isLocalEvalEnabled(makeEnv())).toBe(true)
-        expect(isLocalEvalEnabled(makeEnv({ MCP_LOCAL_EVAL_ENABLED: '' }))).toBe(false)
-        expect(isLocalEvalEnabled(makeEnv({ MCP_FLAG_LOCAL_EVAL_KEY: '' }))).toBe(false)
-    })
-})
-
-describe('getFlagDefinitions', () => {
-    beforeEach(() => {
-        fetchMock.mockReset()
+        const result = await reader.getFlagDefinitions()
+        expect(result).toEqual(data)
+        expect(kv.get).toHaveBeenCalledWith(EXPECTED_KEY, { cacheTtl: 60 })
     })
 
-    afterEach(() => {
-        vi.useRealTimers()
-    })
-
-    it('returns a fresh snapshot without fetching', async () => {
-        const fresh = makeSnapshot({ fetchedAt: Date.now() - 60_000 }) // 1 min old
-        const kv = makeKV({ [FLAG_DEFS_KV_KEY]: fresh })
-        const env = makeEnv({ FLAG_DEFS_KV: kv })
-
-        const snap = await getFlagDefinitions(env)
-        expect(snap).toEqual(fresh)
-        expect(fetchMock).not.toHaveBeenCalled()
-    })
-
-    it('returns stale snapshot and triggers background refresh via ctx.waitUntil', async () => {
-        const stale = makeSnapshot({ fetchedAt: Date.now() - 10 * 60_000 }) // 10 min old
-        const kv = makeKV({ [FLAG_DEFS_KV_KEY]: stale })
-        const env = makeEnv({ FLAG_DEFS_KV: kv })
-
-        fetchMock.mockResolvedValue(
-            new Response(JSON.stringify({ flags: [{ key: 'new-flag', active: true }] }), {
-                status: 200,
-                headers: { etag: 'W/"new"' },
-            })
-        )
-
-        const waitUntil = vi.fn()
-        const snap = await getFlagDefinitions(env, { waitUntil })
-
-        expect(snap).toEqual(stale)
-        expect(waitUntil).toHaveBeenCalledOnce()
-        const bgPromise = waitUntil.mock.calls[0]?.[0] as Promise<unknown>
-        await bgPromise
-        expect(fetchMock).toHaveBeenCalledOnce()
-        const storedRaw = kv.store.get(FLAG_DEFS_KV_KEY)
-        expect(storedRaw).not.toBeUndefined()
-        const stored = JSON.parse(storedRaw as string) as FlagDefinitionsSnapshot
-        expect(stored.flags[0]?.key).toBe('new-flag')
-    })
-
-    it('on KV miss, fetches synchronously and writes through', async () => {
+    it('returns undefined when the cache is empty', async () => {
         const kv = makeKV()
-        const env = makeEnv({ FLAG_DEFS_KV: kv })
-
-        fetchMock.mockResolvedValue(
-            new Response(JSON.stringify({ flags: [{ key: 'mcp-version-2', active: true }] }), {
-                status: 200,
-                headers: { etag: 'W/"x"' },
-            })
-        )
-
-        const snap = await getFlagDefinitions(env)
-        expect(snap?.flags[0]?.key).toBe('mcp-version-2')
-        expect(fetchMock).toHaveBeenCalledOnce()
-        expect(kv.put).toHaveBeenCalledOnce()
+        const reader = new CloudflareKVFlagCacheReader(asKVNamespace(kv), TEAM_KEY)
+        expect(await reader.getFlagDefinitions()).toBeUndefined()
     })
 
-    it('returns null when KV binding is missing', async () => {
-        const env = { MCP_LOCAL_EVAL_ENABLED: '1' } as unknown as Env
-        expect(await getFlagDefinitions(env)).toBeNull()
+    it('returns undefined when the cached blob is malformed JSON', async () => {
+        const kv = makeKV()
+        kv.store.set(EXPECTED_KEY, 'not json {')
+        const reader = new CloudflareKVFlagCacheReader(asKVNamespace(kv), TEAM_KEY)
+        expect(await reader.getFlagDefinitions()).toBeUndefined()
+    })
+
+    it('never signals a fetch', () => {
+        const reader = new CloudflareKVFlagCacheReader(asKVNamespace(makeKV()), TEAM_KEY)
+        expect(reader.shouldFetchFlagDefinitions()).toBe(false)
+    })
+
+    it('throws if the SDK attempts to write', async () => {
+        const reader = new CloudflareKVFlagCacheReader(asKVNamespace(makeKV()), TEAM_KEY)
+        await expect(reader.onFlagDefinitionsReceived()).rejects.toThrow(/read-only/)
     })
 })
 
-describe('refreshFlagDefinitions', () => {
-    beforeEach(() => {
-        fetchMock.mockReset()
+describe('CloudflareKVFlagCacheWriter', () => {
+    it('always reports empty cache to force a fresh fetch', async () => {
+        const kv = makeKV({ [EXPECTED_KEY]: sampleData() })
+        const writer = new CloudflareKVFlagCacheWriter(asKVNamespace(kv), TEAM_KEY)
+        expect(await writer.getFlagDefinitions()).toBeUndefined()
     })
 
-    it('sends Authorization and If-None-Match headers', async () => {
-        const prior = makeSnapshot({ etag: 'W/"prior"' })
-        const kv = makeKV({ [FLAG_DEFS_KV_KEY]: prior })
-        const env = makeEnv({ FLAG_DEFS_KV: kv })
-
-        fetchMock.mockResolvedValue(
-            new Response(JSON.stringify({ flags: [] }), { status: 200, headers: { etag: 'W/"new"' } })
-        )
-
-        await refreshFlagDefinitions(env)
-        expect(fetchMock).toHaveBeenCalledOnce()
-        const call = fetchMock.mock.calls[0]
-        expect(call).not.toBeUndefined()
-        const [url, init] = call as [string, RequestInit]
-        expect(url).toContain('/api/feature_flag/local_evaluation/')
-        const headers = init.headers as Record<string, string>
-        expect(headers.Authorization).toBe('Bearer phs_test')
-        expect(headers['If-None-Match']).toBe('W/"prior"')
+    it('signals the SDK to fetch', () => {
+        const writer = new CloudflareKVFlagCacheWriter(asKVNamespace(makeKV()), TEAM_KEY)
+        expect(writer.shouldFetchFlagDefinitions()).toBe(true)
     })
 
-    it('preserves flags and bumps fetchedAt on 304', async () => {
-        const prior = makeSnapshot({ etag: 'W/"same"', fetchedAt: 0 })
-        const kv = makeKV({ [FLAG_DEFS_KV_KEY]: prior })
-        const env = makeEnv({ FLAG_DEFS_KV: kv })
+    it('persists received definitions under the team-scoped key', async () => {
+        const kv = makeKV()
+        const writer = new CloudflareKVFlagCacheWriter(asKVNamespace(kv), TEAM_KEY)
+        const data = sampleData()
 
-        fetchMock.mockResolvedValue(new Response(null, { status: 304 }))
+        await writer.onFlagDefinitionsReceived(data)
 
-        const snap = await refreshFlagDefinitions(env)
-        expect(snap?.flags).toEqual(prior.flags)
-        expect(snap?.fetchedAt).toBeGreaterThan(prior.fetchedAt)
+        expect(kv.put).toHaveBeenCalledWith(EXPECTED_KEY, JSON.stringify(data))
+        expect(kv.store.get(EXPECTED_KEY)).toBe(JSON.stringify(data))
+    })
+})
+
+describe('env guards', () => {
+    it('isLocalEvalConfigured requires KV, the secret, and the project key', () => {
+        const base = {
+            FLAG_DEFS_KV: asKVNamespace(makeKV()),
+            MCP_FLAG_LOCAL_EVAL_KEY: 'phs_test',
+            POSTHOG_ANALYTICS_API_KEY: 'phc_test',
+        } as unknown as Env
+        expect(isLocalEvalConfigured(base)).toBe(true)
+        expect(isLocalEvalConfigured({ ...base, MCP_FLAG_LOCAL_EVAL_KEY: '' } as Env)).toBe(false)
+        expect(isLocalEvalConfigured({ ...base, POSTHOG_ANALYTICS_API_KEY: '' } as Env)).toBe(false)
+        expect(isLocalEvalConfigured({ ...base, FLAG_DEFS_KV: undefined } as unknown as Env)).toBe(false)
     })
 
-    it('returns prior snapshot on upstream 5xx', async () => {
-        const prior = makeSnapshot({ etag: 'W/"ok"' })
-        const kv = makeKV({ [FLAG_DEFS_KV_KEY]: prior })
-        const env = makeEnv({ FLAG_DEFS_KV: kv })
-
-        fetchMock.mockResolvedValue(new Response('boom', { status: 503 }))
-
-        const snap = await refreshFlagDefinitions(env)
-        expect(snap).toEqual(prior)
-        expect(getKV(env).put).not.toHaveBeenCalled()
-    })
-
-    it('returns prior snapshot on auth error (401)', async () => {
-        const prior = makeSnapshot()
-        const kv = makeKV({ [FLAG_DEFS_KV_KEY]: prior })
-        const env = makeEnv({ FLAG_DEFS_KV: kv })
-
-        fetchMock.mockResolvedValue(new Response('nope', { status: 401 }))
-
-        const snap = await refreshFlagDefinitions(env)
-        expect(snap).toEqual(prior)
-    })
-
-    it('returns prior snapshot when fetch throws', async () => {
-        const prior = makeSnapshot()
-        const kv = makeKV({ [FLAG_DEFS_KV_KEY]: prior })
-        const env = makeEnv({ FLAG_DEFS_KV: kv })
-
-        fetchMock.mockRejectedValue(new Error('network down'))
-
-        const snap = await refreshFlagDefinitions(env)
-        expect(snap).toEqual(prior)
-    })
-
-    it('returns null when no secret or host is configured', async () => {
-        expect(await refreshFlagDefinitions(makeEnv({ MCP_FLAG_LOCAL_EVAL_KEY: '' }))).toBeNull()
-        expect(await refreshFlagDefinitions(makeEnv({ POSTHOG_ANALYTICS_HOST: '' }))).toBeNull()
+    it('isLocalEvalEnabled additionally requires MCP_LOCAL_EVAL_ENABLED=1', () => {
+        const configured = {
+            FLAG_DEFS_KV: asKVNamespace(makeKV()),
+            MCP_FLAG_LOCAL_EVAL_KEY: 'phs_test',
+            POSTHOG_ANALYTICS_API_KEY: 'phc_test',
+        } as unknown as Env
+        expect(isLocalEvalEnabled(configured)).toBe(false)
+        expect(isLocalEvalEnabled({ ...configured, MCP_LOCAL_EVAL_ENABLED: '1' } as Env)).toBe(true)
+        expect(isLocalEvalEnabled({ ...configured, MCP_LOCAL_EVAL_ENABLED: 'true' } as Env)).toBe(false)
     })
 })

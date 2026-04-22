@@ -1,3 +1,5 @@
+import { PostHog } from 'posthog-node'
+
 import { getPostHogClient } from '@/lib/analytics'
 import { MCP_DOCS_URL, OAUTH_SCOPES_SUPPORTED, getAuthorizationServerUrl } from '@/lib/constants'
 import {
@@ -6,7 +8,7 @@ import {
     findPostHogPermissionError,
     formatPermissionErrorMessage,
 } from '@/lib/errors'
-import { refreshFlagDefinitions } from '@/lib/flag-cache'
+import { CloudflareKVFlagCacheWriter, isLocalEvalConfigured } from '@/lib/flag-cache'
 import { RequestLogger, withLogging } from '@/lib/logging'
 import { extractClientInfoFromBody } from '@/lib/mcp-client-info'
 import { buildRedirectUrl, matchAuthServerRedirect } from '@/lib/routing'
@@ -365,6 +367,27 @@ export default {
     fetch: withLogging(handleRequest),
     scheduled: (_event: ScheduledController, env: Env, ctx: ExecutionContext) => {
         // Cron keeps the shared KV flag-defs cache warm (every 5m via wrangler.jsonc).
-        ctx.waitUntil(refreshFlagDefinitions(env))
+        ctx.waitUntil(refreshFlagDefinitionsCache(env))
     },
+}
+
+async function refreshFlagDefinitionsCache(env: Env): Promise<void> {
+    if (!isLocalEvalConfigured(env)) {
+        return
+    }
+    const cache = new CloudflareKVFlagCacheWriter(env.FLAG_DEFS_KV, env.POSTHOG_ANALYTICS_API_KEY)
+    // Polling interval is irrelevant here: we force one fetch via
+    // `shouldFetchFlagDefinitions=true`, then call `shutdown()` before any
+    // timer fires.
+    const client = new PostHog(env.POSTHOG_ANALYTICS_API_KEY, {
+        host: env.POSTHOG_ANALYTICS_HOST,
+        personalApiKey: env.MCP_FLAG_LOCAL_EVAL_KEY,
+        enableLocalEvaluation: true,
+        flagDefinitionCacheProvider: cache,
+    })
+    try {
+        await client.waitForLocalEvaluationReady()
+    } finally {
+        await client.shutdown()
+    }
 }
