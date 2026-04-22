@@ -27,6 +27,7 @@ import type {
     ErrorTrackingIssueMergeResponseApi,
     ErrorTrackingIssueSplitRequestApi,
     ErrorTrackingIssueSplitResponseApi,
+    ErrorTrackingIssuesExistsRetrieveParams,
     ErrorTrackingIssuesListParams,
     ErrorTrackingRecommendationApi,
     ErrorTrackingRecommendationsListParams,
@@ -772,12 +773,31 @@ export const errorTrackingIssuesBulkCreate = async (
     })
 }
 
-export const getErrorTrackingIssuesExistsRetrieveUrl = (projectId: string) => {
-    return `/api/environments/${projectId}/error_tracking/issues/exists/`
+export const getErrorTrackingIssuesExistsRetrieveUrl = (
+    projectId: string,
+    params?: ErrorTrackingIssuesExistsRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/environments/${projectId}/error_tracking/issues/exists/?${stringifiedParams}`
+        : `/api/environments/${projectId}/error_tracking/issues/exists/`
 }
 
-export const errorTrackingIssuesExistsRetrieve = async (projectId: string, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getErrorTrackingIssuesExistsRetrieveUrl(projectId), {
+export const errorTrackingIssuesExistsRetrieve = async (
+    projectId: string,
+    params?: ErrorTrackingIssuesExistsRetrieveParams,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getErrorTrackingIssuesExistsRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
     })

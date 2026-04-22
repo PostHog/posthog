@@ -1096,6 +1096,13 @@ export type ErrorTrackingIssuesListParams = {
     offset?: number
 }
 
+export type ErrorTrackingIssuesExistsRetrieveParams = {
+    /**
+     * Restrict the check to exceptions first seen within the given window. Accepts a short relative duration like '5m', '1h', '30s', '1d' (capped at 30 days) or an ISO 8601 timestamp. When omitted, any historical exception counts.
+     */
+    since?: string
+}
+
 export type ErrorTrackingRecommendationsListParams = {
     /**
      * Number of results to return per page.
