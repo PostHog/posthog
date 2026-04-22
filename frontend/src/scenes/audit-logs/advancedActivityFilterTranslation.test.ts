@@ -95,10 +95,15 @@ describe('advancedActivityFiltersToHogProperties', () => {
         expect(result.droppedFields).toEqual([])
     })
 
-    it('drops users, date ranges, and non-whitelisted detail_filter paths', () => {
+    it('silently ignores the users filter (no entry in droppedFields)', () => {
+        const result = advancedActivityFiltersToHogProperties(baseFilter({ users: ['u1', 'u2'] }))
+        expect(result.properties).toEqual([])
+        expect(result.droppedFields).toEqual([])
+    })
+
+    it('drops date ranges and non-whitelisted detail_filter paths', () => {
         const result = advancedActivityFiltersToHogProperties(
             baseFilter({
-                users: ['u1'],
                 start_date: DEFAULT_START_DATE,
                 end_date: '-1d',
                 detail_filters: {
@@ -115,7 +120,7 @@ describe('advancedActivityFiltersToHogProperties', () => {
                 operator: PropertyOperator.Exact,
             },
         ])
-        expect(result.droppedFields.sort()).toEqual(['date range', 'detail.foo.bar', 'users'].sort())
+        expect(result.droppedFields.sort()).toEqual(['date range', 'detail.foo.bar'].sort())
     })
 
     it('returns an empty property list when no mappable filters are set', () => {
