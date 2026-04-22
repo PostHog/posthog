@@ -39,7 +39,6 @@ export const phantomFingerprintIssueStateLogic = kea<phantomFingerprintIssueStat
                     }
                     const now = Date.now()
                     const next: Record<string, StoredPhantom> = {}
-                    // Drop expired entries while building the new state so the cache can't grow unboundedly.
                     for (const [fp, row] of Object.entries(state)) {
                         if (row.expiresAt > now) {
                             next[fp] = row
@@ -109,7 +108,6 @@ export const phantomFingerprintIssueStateLogic = kea<phantomFingerprintIssueStat
             return null
         }
 
-        // Reuses already-loaded fingerprints from the issue detail scene; falls back to the API.
         async function resolveFingerprintsForIssues(
             issueIds: Array<ErrorTrackingIssue['id']>
         ): Promise<Record<string, string[]>> {
@@ -145,7 +143,6 @@ export const phantomFingerprintIssueStateLogic = kea<phantomFingerprintIssueStat
         }
 
         return {
-            // Fans out delta across each affected issue's fingerprints into the phantom cache (best-effort).
             capturePhantomsForIssues: async ({ issueIds, delta }) => {
                 try {
                     const uniqueIds = Array.from(new Set(issueIds)).filter(Boolean)
@@ -172,11 +169,8 @@ export const phantomFingerprintIssueStateLogic = kea<phantomFingerprintIssueStat
                     if (rows.length > 0) {
                         actions.addPhantoms(rows)
                     }
-                } catch {
-                    // swallow — phantom cache is best-effort
-                }
+                } catch {}
             },
-            // Merge variant: remaps all source fingerprints to the primary issue id + primary's state.
             captureMergePhantoms: async ({ primaryId, sourceIds }) => {
                 try {
                     const allIds = Array.from(new Set([primaryId, ...sourceIds])).filter(Boolean)
@@ -203,9 +197,7 @@ export const phantomFingerprintIssueStateLogic = kea<phantomFingerprintIssueStat
                     if (rows.length > 0) {
                         actions.addPhantoms(rows)
                     }
-                } catch {
-                    // swallow — phantom cache is best-effort
-                }
+                } catch {}
             },
         }
     }),

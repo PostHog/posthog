@@ -88,9 +88,6 @@ export const issueActionsLogic = kea<issueActionsLogicType>([
                 }
             },
             splitIssue: async ({ id, fingerprints }) => {
-                // Splits fan out to newly-created issues whose ids we don't know
-                // up front, so skip the phantom cache here — existing blocking
-                // reload is sufficient.
                 await runMutation('splitIssues', async () => {
                     posthog.capture('error_tracking_issue_split', { issueId: id })
                     const response = await api.errorTracking.split(id, fingerprints)

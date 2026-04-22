@@ -32,9 +32,6 @@ ERROR_TRACKING_FINGERPRINT_ISSUE_STATE_FIELDS: dict[str, FieldOrTable] = {
 
 RAW_TABLE_NAME = "raw_error_tracking_fingerprint_issue_state"
 
-# UNION ALL matches by position, so every branch must select these columns in this order.
-# team_id is intentionally omitted: the raw table scan gets its team_id filter from HogQL's
-# team-id guard, argMax groups by fingerprint, and nothing downstream reads team_id here.
 _PHANTOM_COLUMNS: list[str] = [
     "fingerprint",
     "issue_id",
@@ -135,8 +132,6 @@ def _build_union_with_phantoms(phantoms: list[dict[str, Any]]):
 
 
 def _phantom_select(row: dict[str, Any]):
-    # Casts match the raw table column types; the first UNION ALL branch dictates column types.
-    # Nullable columns accept bare NULL constants, so no toNullable() wrapper is needed.
     from posthog.hogql import ast
 
     assigned_user_id = row.get("assigned_user_id")
