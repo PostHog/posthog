@@ -16,7 +16,7 @@ pipeline, so SSO-enforced users can still map their identity without gaining
 sign-in rights.
 """
 
-from typing import Any, Literal, TypedDict
+from typing import Any, Literal, TypedDict, cast
 from urllib.parse import urlencode
 
 from django.conf import settings
@@ -158,7 +158,7 @@ class LinkedAccountsViewSet(viewsets.ViewSet):
     lookup_value_regex = r"[\w-]+"
 
     def _get_user(self) -> User:
-        return self.request.user  # type: ignore[return-value]
+        return cast(User, self.request.user)
 
     def _serialize_all(self, user: User) -> list[dict[str, Any]]:
         enforcement = sso_enforcement_for(user)
