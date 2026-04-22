@@ -452,6 +452,95 @@ class TestOAuthAPI(APIBaseTest):
         self.assertNotEqual(data["access_token"], access_token)
         self.assertNotEqual(data["refresh_token"], refresh_token)
 
+    def _create_cimd_app_and_grant(
+        self,
+        *,
+        slug: str,
+        cimd_metadata_url: str,
+        name: str,
+    ) -> tuple[OAuthApplication, OAuthGrant]:
+        app = OAuthApplication.objects.create(
+            name=name,
+            client_id=f"cimd-client-id-{slug}",
+            client_secret="",
+            client_type=OAuthApplication.CLIENT_PUBLIC,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="http://localhost:8239/callback",
+            user=self.user,
+            algorithm="RS256",
+            is_cimd_client=True,
+            cimd_metadata_url=cimd_metadata_url,
+        )
+        grant = OAuthGrant.objects.create(
+            application=app,
+            user=self.user,
+            code=f"cimd-code-{slug}",
+            code_challenge=self.code_challenge,
+            code_challenge_method="S256",
+            expires=timezone.now() + timedelta(minutes=1),
+            redirect_uri="http://localhost:8239/callback",
+            scope="openid",
+            scoped_organizations=[str(self.organization.id)],
+            scoped_teams=[],
+        )
+        return app, grant
+
+    def _exchange_code_for_token(self, app: OAuthApplication, grant: OAuthGrant):
+        # Uses the internal UUID client_id rather than cimd_metadata_url so we
+        # exercise the validator-level suppression in _should_skip_refresh_token
+        # without also invoking the CIMD fetch/validate path (which would require
+        # HTTP mocks). Both entry paths converge on the same in-memory client.
+        return self.post(
+            "/oauth/token/",
+            {
+                "grant_type": "authorization_code",
+                "client_id": app.client_id,
+                "redirect_uri": "http://localhost:8239/callback",
+                "code_verifier": self.code_verifier,
+                "code": grant.code,
+            },
+        )
+
+    @parameterized.expand(
+        [
+            ("us", "https://us.posthog.com/api/oauth/wizard/client-metadata"),
+            ("eu", "https://eu.posthog.com/api/oauth/wizard/client-metadata"),
+        ]
+    )
+    def test_wizard_cimd_client_does_not_issue_refresh_token(self, region: str, wizard_cimd_url: str):
+        wizard_app, grant = self._create_cimd_app_and_grant(
+            slug=f"wizard-{region}",
+            cimd_metadata_url=wizard_cimd_url,
+            name="PostHog Wizard",
+        )
+
+        response = self._exchange_code_for_token(wizard_app, grant)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        body = response.json()
+
+        self.assertIn("access_token", body)
+        self.assertNotIn("refresh_token", body)
+        self.assertFalse(OAuthRefreshToken.objects.filter(application=wizard_app).exists())
+
+    def test_non_wizard_cimd_client_still_issues_refresh_token(self):
+        # Ensures the allowlist is targeted: CIMD clients that aren't the wizard
+        # keep the default refresh-token behavior.
+        other_app, grant = self._create_cimd_app_and_grant(
+            slug="other-cimd",
+            cimd_metadata_url="https://example.com/oauth/client-metadata",
+            name="Third-Party CIMD Client",
+        )
+
+        response = self._exchange_code_for_token(other_app, grant)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        body = response.json()
+
+        self.assertIn("access_token", body)
+        self.assertIn("refresh_token", body)
+        self.assertTrue(OAuthRefreshToken.objects.filter(application=other_app).exists())
+
     @freeze_time("2025-01-01 00:00:00")
     def test_token_endpoint_invalid_client_credentials(self):
         grant = OAuthGrant.objects.create(

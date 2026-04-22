@@ -417,6 +417,68 @@ class TestTaskRun(TestCase):
         self.assertEqual(call_args.args[1]["status"], TaskRun.Status.QUEUED)
         self.assertEqual(call_args.args[1]["branch"], "main")
 
+    def test_s3_prefixes_keep_existing_logs_and_artifact_paths(self):
+        run = TaskRun.objects.create(
+            task=self.task,
+            team=self.team,
+        )
+
+        self.assertEqual(
+            run.log_url,
+            f"tasks/logs/team_{self.team.id}/task_{self.task.id}/run_{run.id}.jsonl",
+        )
+        self.assertEqual(
+            run.get_artifact_s3_prefix(),
+            f"tasks/artifacts/team_{self.team.id}/task_{self.task.id}/run_{run.id}",
+        )
+
+    def test_update_state_atomic_merges_against_latest_state(self):
+        run = TaskRun.objects.create(
+            task=self.task,
+            team=self.team,
+            state={
+                "mode": "interactive",
+                "pending_user_message": "read the attachment",
+                "pending_user_artifact_ids": ["artifact-123"],
+            },
+        )
+
+        TaskRun.update_state_atomic(
+            run.id,
+            remove_keys=["pending_user_message", "pending_user_artifact_ids"],
+        )
+        TaskRun.update_state_atomic(
+            run.id,
+            updates={
+                "sandbox_id": "sandbox-123",
+                "sandbox_url": "https://sandbox.example.com",
+            },
+        )
+
+        run.refresh_from_db()
+        self.assertEqual(run.state["mode"], "interactive")
+        self.assertEqual(run.state["sandbox_id"], "sandbox-123")
+        self.assertEqual(run.state["sandbox_url"], "https://sandbox.example.com")
+        self.assertNotIn("pending_user_message", run.state)
+        self.assertNotIn("pending_user_artifact_ids", run.state)
+
+    def test_mutate_state_atomic_can_derive_values_under_lock(self):
+        run = TaskRun.objects.create(
+            task=self.task,
+            team=self.team,
+            state={"slack_sent_relay_ids": ["relay-1"]},
+        )
+
+        def append_relay(state: dict[str, list[str]]) -> None:
+            sent_relay_ids = state.get("slack_sent_relay_ids") or []
+            sent_relay_ids.append("relay-2")
+            state["slack_sent_relay_ids"] = sent_relay_ids
+
+        TaskRun.mutate_state_atomic(run.id, append_relay)
+
+        run.refresh_from_db()
+        self.assertEqual(run.state["slack_sent_relay_ids"], ["relay-1", "relay-2"])
+
     def test_append_log_to_empty(self):
         run = TaskRun.objects.create(
             task=self.task,

@@ -2,6 +2,62 @@ import { z } from 'zod'
 
 import { InsightQuerySchema, PropertyFilter } from './query'
 
+export const ExternalDataSchemaSyncTypeSchema = z
+    .enum(['incremental', 'full_refresh', 'append', 'cdc'])
+    .describe(
+        'Sync strategy: incremental (only new/changed rows), full_refresh (re-import all), append (add-only), or cdc (change data capture).'
+    )
+
+export const ExternalDataSchemaSyncFrequencySchema = z
+    .enum(['30min', '1hour', '6hour', '12hour', '24hour'])
+    .describe('How often to sync this table.')
+
+export const ExternalDataSchemaSyncTimeOfDaySchema = z
+    .string()
+    .nullable()
+    .describe('Time of day to sync in HH:MM:SS format (e.g. "02:00:00"). Set to null to clear.')
+
+export const ExternalDataSchemaIncrementalFieldSchema = z
+    .string()
+    .describe('Column name used to track sync progress for incremental syncs (e.g. "updated_at", "id").')
+
+export const ExternalDataSchemaIncrementalFieldTypeSchema = z
+    .enum(['integer', 'datetime', 'timestamp', 'date'])
+    .describe('Data type of the incremental field.')
+
+export const ExternalDataSchemaPrimaryKeyColumnsSchema = z
+    .array(z.string())
+    .nullable()
+    .describe('Column names that form the primary key for deduplication. Set to null to use auto-detected PKs.')
+
+export const ExternalDataSchemaCdcTableModeSchema = z
+    .enum(['consolidated', 'cdc_only', 'both'])
+    .describe('For CDC syncs: consolidated (merge changes into one table), cdc_only (only change log), or both.')
+
+export const ExternalDataJobsAfterSchema = z
+    .string()
+    .describe('ISO timestamp — only return jobs created after this date (e.g. "2025-01-01T00:00:00Z").')
+
+export const ExternalDataJobsBeforeSchema = z
+    .string()
+    .describe('ISO timestamp — only return jobs created before this date (e.g. "2025-12-31T23:59:59Z").')
+
+export const ExternalDataJobsSchemasSchema = z
+    .array(z.string())
+    .describe('Filter jobs by table schema names (e.g. ["users", "orders"]). Only returns jobs for these tables.')
+
+export const ExternalDataSourcePayloadSchema = z
+    .record(z.string(), z.unknown())
+    .describe(
+        'Connection credentials for the source. Keys depend on source_type. For database sources: host, port, database, user, password, schema. For SaaS sources: api_key or OAuth fields. Use external-data-sources-wizard to see required fields per source type.'
+    )
+
+export const ExternalDataSourceTypeSchema = z
+    .string()
+    .describe(
+        'The source type name (e.g. "Postgres", "MySQL", "Stripe"). Use external-data-sources-wizard to see available types and their required fields.'
+    )
+
 export const PromptListInputSchema = z.object({
     search: z.string().optional().describe('Optional substring filter applied to prompt names and prompt content.'),
     content: z
