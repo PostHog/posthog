@@ -197,7 +197,6 @@ def mock_paddle_client():
         session: Any,
         method: str,
         url: str,
-        logger: Any,
         headers: Optional[dict[str, Any]] = None,
         params: Optional[dict[str, Any]] = None,
         **kwargs,

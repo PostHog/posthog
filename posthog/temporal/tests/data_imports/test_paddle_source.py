@@ -190,7 +190,6 @@ def test_paddle_request_fails_fast(mock_request):
         session,
         "GET",
         "https://api.paddle.com/test",
-        logger=MagicMock(),
         params={"per_page": 200},
     )
 
