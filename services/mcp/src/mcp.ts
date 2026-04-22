@@ -555,14 +555,20 @@ export class MCP extends McpAgent<Env> {
                 this.requestProperties.sessionId
                     ? this.sessionManager.getSessionUuid(this.requestProperties.sessionId)
                     : undefined,
-            getMcpClientName: () => this._mcpClientName,
-            getMcpClientVersion: () => this._mcpClientVersion,
-            getMcpProtocolVersion: () => this._mcpProtocolVersion,
-            getRegion: () => this.requestProperties.region,
-            getOrganizationId: () => this.requestProperties.organizationId,
-            getProjectId: () => this.requestProperties.projectId,
-            getClientUserAgent: () => this.requestProperties.clientUserAgent,
-            getVersion: () => this.requestProperties.version,
+            getMcpClientName: async () => this._mcpClientName,
+            getMcpClientVersion: async () => this._mcpClientVersion,
+            getMcpProtocolVersion: async () => this._mcpProtocolVersion,
+            // Prefer the cached region (set on init after detection) so we don't miss it
+            // when the inbound request didn't include the `region` hint.
+            getRegion: async () => (await this.cache.get('region')) ?? this.requestProperties.region,
+            getAnalyticsContext: async () => this.getAnalyticsContextSafe(await this.getContext()),
+            getClientUserAgent: async () => this.requestProperties.clientUserAgent,
+            // Server-resolved version (may differ from the client-reported one because of
+            // the `mcp-version-2` feature flag), so mcpcat events line up with ours.
+            getVersion: async () => version,
+            getOAuthClientName: async () => (await this.cache.get('clientName')) || undefined,
+            getReadOnly: async () => readOnly,
+            getTransport: async () => this.requestProperties.transport,
         })
 
         const initDurationMs = this.requestProperties.requestStartTime
