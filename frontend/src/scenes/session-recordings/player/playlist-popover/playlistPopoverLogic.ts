@@ -1,6 +1,7 @@
-import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, isBreakpoint, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { lazyLoaders, loaders } from 'kea-loaders'
+import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import { toParams } from 'lib/utils'
@@ -42,11 +43,22 @@ export const playlistPopoverLogic = kea<playlistPopoverLogicType>([
             __default: [] as SessionRecordingPlaylistType[],
             loadPlaylists: async (_, breakpoint) => {
                 await breakpoint(300)
-                const response = await api.recordings.listPlaylists(
-                    toParams({ search: values.searchQuery, type: 'collection' })
-                )
-                breakpoint()
-                return response.results
+                try {
+                    const response = await api.recordings.listPlaylists(
+                        toParams({ search: values.searchQuery, type: 'collection' })
+                    )
+                    breakpoint()
+                    return response.results
+                } catch (e) {
+                    if (isBreakpoint(e)) {
+                        throw e
+                    }
+                    // The popover closing or a dropped connection throws a bare `TypeError: Failed to fetch`
+                    // that would otherwise escape as an unhandled error; swallow here and keep a tagged
+                    // capture so real API failures remain observable.
+                    posthog.captureException(e, { tag: 'playlist_popover_load_playlists_failed' })
+                    return values.playlists
+                }
             },
         },
     })),
@@ -55,11 +67,19 @@ export const playlistPopoverLogic = kea<playlistPopoverLogicType>([
             __default: [] as SessionRecordingPlaylistType[],
             loadPlaylistsForRecording: async (_, breakpoint) => {
                 await breakpoint(300)
-                const response = await api.recordings.listPlaylists(
-                    toParams({ session_recording_id: props.sessionRecordingId, type: 'collection' })
-                )
-                breakpoint()
-                return response.results
+                try {
+                    const response = await api.recordings.listPlaylists(
+                        toParams({ session_recording_id: props.sessionRecordingId, type: 'collection' })
+                    )
+                    breakpoint()
+                    return response.results
+                } catch (e) {
+                    if (isBreakpoint(e)) {
+                        throw e
+                    }
+                    posthog.captureException(e, { tag: 'playlist_popover_load_playlists_for_recording_failed' })
+                    return values.currentPlaylists
+                }
             },
 
             addToPlaylist: async ({ playlist }) => {
