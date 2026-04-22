@@ -3,7 +3,6 @@ from collections.abc import Callable, Iterator
 from typing import Any, Optional
 
 import requests
-import structlog
 from structlog.types import FilteringBoundLogger
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
@@ -30,9 +29,6 @@ from posthog.temporal.data_imports.sources.pinterest_ads.utils import (
     get_date_range,
 )
 
-logger = structlog.get_logger(__name__)
-
-
 ENTITY_RESUME_KIND = "entity"
 ANALYTICS_RESUME_KIND = "analytics"
 
@@ -42,18 +38,14 @@ class PinterestAdsResumeConfig:
     """Resumable state for Pinterest Ads.
 
     Entity endpoints use a bookmark cursor. Analytics endpoints fan out across
-    (id_batch, date_chunk) pairs, so we cache the parent-entity list, date
-    window, and currency once (expensive to recompute) and remember the next
-    pair to fetch. The ``kind`` discriminator lets us ignore state written by
-    an incompatible endpoint type.
+    (id_batch, date_chunk) pairs and save only the cursor, so the payload
+    written to Redis after every chunk stays small; the parent-entity list and
+    date window are re-derived on resume. The ``kind`` discriminator lets us
+    ignore state written by an incompatible endpoint type.
     """
 
     kind: str
     bookmark: str | None = None
-    entity_ids: list[str] | None = None
-    start_date: str | None = None
-    end_date: str | None = None
-    currency: str | None = None
     batch_index: int = 0
     date_chunk_index: int = 0
 
@@ -164,19 +156,22 @@ def _iter_analytics_rows(
     db_incremental_field_last_value: Optional[Any],
 ) -> Iterator[list[dict[str, Any]]]:
     resume_config = _load_resume_config(resumable_source_manager, ANALYTICS_RESUME_KIND)
+    start_batch_idx = resume_config.batch_index if resume_config is not None else 0
+    start_chunk_idx = resume_config.date_chunk_index if resume_config is not None else 0
 
-    if (
-        resume_config is not None
-        and resume_config.entity_ids is not None
-        and resume_config.start_date
-        and resume_config.end_date
-    ):
-        entity_ids = resume_config.entity_ids
-        start_date = resume_config.start_date
-        end_date = resume_config.end_date
-        currency = resume_config.currency
-        start_batch_idx = resume_config.batch_index
-        start_chunk_idx = resume_config.date_chunk_index
+    # Re-derive setup on every run. Persisting the entity list on every cursor
+    # save would balloon the Redis payload for large ad accounts; the cost of
+    # one extra fetch on resume is negligible and primary-key dedupe handles
+    # any minor drift in the entity list between original run and resume.
+    entity_ids = fetch_entity_ids(session, ad_account_id, endpoint)
+    if not entity_ids:
+        source_logger.info("pinterest_ads_no_entities_found", endpoint=endpoint, ad_account_id=ad_account_id)
+        return
+
+    start_date, end_date = get_date_range(should_use_incremental_field, db_incremental_field_last_value)
+    currency = fetch_account_currency(session, ad_account_id)
+
+    if resume_config is not None:
         source_logger.info(
             "pinterest_ads_resuming_analytics",
             endpoint=endpoint,
@@ -184,17 +179,7 @@ def _iter_analytics_rows(
             chunk=start_chunk_idx,
         )
     else:
-        entity_ids = fetch_entity_ids(session, ad_account_id, endpoint)
-        if not entity_ids:
-            logger.info("pinterest_ads_no_entities_found", endpoint=endpoint, ad_account_id=ad_account_id)
-            return
-
-        start_date, end_date = get_date_range(should_use_incremental_field, db_incremental_field_last_value)
-        currency = fetch_account_currency(session, ad_account_id)
-        start_batch_idx = 0
-        start_chunk_idx = 0
-
-        logger.info(
+        source_logger.info(
             "pinterest_ads_fetching_analytics",
             endpoint=endpoint,
             entity_count=len(entity_ids),
@@ -237,7 +222,7 @@ def _iter_analytics_rows(
                 if rows:
                     yield rows
             else:
-                logger.error(
+                source_logger.error(
                     "pinterest_ads_unexpected_analytics_response",
                     endpoint=endpoint,
                     response_type=type(data).__name__,
@@ -254,10 +239,6 @@ def _iter_analytics_rows(
                 resumable_source_manager.save_state(
                     PinterestAdsResumeConfig(
                         kind=ANALYTICS_RESUME_KIND,
-                        entity_ids=entity_ids,
-                        start_date=start_date,
-                        end_date=end_date,
-                        currency=currency,
                         batch_index=next_batch_idx,
                         date_chunk_index=next_chunk_idx,
                     )

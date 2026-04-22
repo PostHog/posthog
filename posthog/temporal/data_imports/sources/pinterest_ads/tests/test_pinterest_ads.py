@@ -471,7 +471,6 @@ class TestIterAnalyticsRowsFresh:
         assert first_saved.kind == ANALYTICS_RESUME_KIND
         assert first_saved.batch_index == 1
         assert first_saved.date_chunk_index == 0
-        assert first_saved.entity_ids == ["1", "2"]
 
     @mock.patch("posthog.temporal.data_imports.sources.pinterest_ads.pinterest_ads.fetch_entity_ids")
     def test_no_entities_short_circuits(self, mock_entity_ids):
@@ -540,24 +539,28 @@ class TestIterAnalyticsRowsResume:
     @mock.patch("posthog.temporal.data_imports.sources.pinterest_ads.pinterest_ads.fetch_account_currency")
     @mock.patch("posthog.temporal.data_imports.sources.pinterest_ads.pinterest_ads.fetch_entity_ids")
     @mock.patch("posthog.temporal.data_imports.sources.pinterest_ads.pinterest_ads._make_request")
-    def test_does_not_refetch_parent_or_currency(self, mock_request, mock_entity_ids, mock_currency):
+    def test_resumes_at_saved_cursor(self, mock_request, mock_entity_ids, mock_currency):
+        mock_entity_ids.return_value = ["1", "2"]
+        mock_currency.return_value = "EUR"
         mock_request.return_value = [{"CAMPAIGN_ID": "2", "DATE": "2024-01-05"}]
         manager = _make_resume_manager(
             can_resume=True,
             state=PinterestAdsResumeConfig(
                 kind=ANALYTICS_RESUME_KIND,
-                entity_ids=["1", "2"],
-                start_date="2024-01-01",
-                end_date="2024-01-05",
-                currency="EUR",
                 batch_index=1,
                 date_chunk_index=0,
             ),
         )
 
-        with mock.patch(
-            "posthog.temporal.data_imports.sources.pinterest_ads.pinterest_ads._chunk_list",
-            return_value=[["1"], ["2"]],
+        with (
+            mock.patch(
+                "posthog.temporal.data_imports.sources.pinterest_ads.pinterest_ads._chunk_date_range",
+                return_value=[("2024-01-01", "2024-01-31")],
+            ),
+            mock.patch(
+                "posthog.temporal.data_imports.sources.pinterest_ads.pinterest_ads._chunk_list",
+                return_value=[["1"], ["2"]],
+            ),
         ):
             yielded = list(
                 _iter_analytics_rows(
@@ -571,9 +574,10 @@ class TestIterAnalyticsRowsResume:
                 )
             )
 
-        assert mock_entity_ids.call_count == 0
-        assert mock_currency.call_count == 0
-        # Resumed at batch 1 → only that batch's request is issued
+        # Setup is re-derived on resume — entity list + currency fetched once.
+        assert mock_entity_ids.call_count == 1
+        assert mock_currency.call_count == 1
+        # Resumed at batch 1 → only that batch's chunk is requested (batch 0 is skipped).
         assert mock_request.call_count == 1
         assert yielded[0][0]["currency"] == "EUR"
 
