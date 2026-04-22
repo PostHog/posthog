@@ -67,8 +67,10 @@ JWT_CLOCK_TOLERANCE_SECONDS = 5 * 60
 
 # Must match products.conversations.backend.api.teams_oauth.TEAMS_OAUTH_SCOPES.
 # Refresh requests should request the same scopes as the original authorization
-# to avoid Azure AD scope-mismatch errors.
-GRAPH_REFRESH_SCOPES = "Team.ReadBasic.All Channel.ReadBasic.All User.Read offline_access openid profile"
+# to avoid Azure AD scope-mismatch errors. TeamsAppInstallation.ReadWriteForTeam
+# is deliberately omitted here — that's requested at authorize time but we don't
+# need it on refresh for Graph user/channel reads.
+GRAPH_REFRESH_SCOPES = "Team.ReadBasic.All Channel.ReadBasic.All User.ReadBasic.All offline_access openid profile"
 
 
 def get_teams_instance_settings() -> dict:

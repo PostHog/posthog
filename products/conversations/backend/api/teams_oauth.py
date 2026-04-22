@@ -33,7 +33,9 @@ STATE_MAX_AGE_SECONDS = 10 * 60
 
 TEAMS_OAUTH_SCOPES = (
     "Team.ReadBasic.All Channel.ReadBasic.All TeamsAppInstallation.ReadWriteForTeam "
-    "User.Read offline_access openid profile"
+    # User.ReadBasic.All is needed to resolve a Teams user's email via
+    # GET /users/{aadObjectId} — User.Read alone only grants /me.
+    "User.ReadBasic.All offline_access openid profile"
 )
 AZURE_AD_AUTHORIZE_URL = "https://login.microsoftonline.com/common/oauth2/v2.0/authorize"
 AZURE_AD_TOKEN_URL = "https://login.microsoftonline.com/common/oauth2/v2.0/token"

@@ -49,16 +49,24 @@ def _get_team_id(team: Team) -> int:
     return team_id
 
 
-def resolve_teams_user(tenant_id: str, teams_user_id: str, team: Team) -> dict:
-    """Resolve a Teams user AAD object ID to name and email via Graph API. Cached in Redis for 5 min."""
+def resolve_teams_user(tenant_id: str, teams_user_id: str, team: Team, fallback_name: str = "") -> dict:
+    """Resolve a Teams user AAD object ID to name and email via Graph API. Cached in Redis for 5 min.
+
+    ``fallback_name`` should be ``activity.from.name`` — Teams always populates
+    that with the user's display name as visible in the channel, so it's a
+    better default than "Unknown" when Graph is unreachable or the tenant's
+    user-read policy blocks /users/{id} lookups with our delegated scopes.
+    """
+    unknown = {"name": fallback_name or _UNKNOWN_USER["name"], "email": None}
+
     if not teams_user_id:
-        return dict(_UNKNOWN_USER)
+        return dict(unknown)
 
     try:
         normalized_user_id = str(uuid.UUID(teams_user_id))
     except (ValueError, TypeError, AttributeError):
         logger.warning("teams_user_resolve_invalid_id", teams_user_id=teams_user_id)
-        return dict(_UNKNOWN_USER)
+        return dict(unknown)
 
     cached = get_cached_teams_user(tenant_id, normalized_user_id)
     if cached is not None:
@@ -73,19 +81,24 @@ def resolve_teams_user(tenant_id: str, teams_user_id: str, team: Team) -> dict:
             timeout=10,
         )
         if resp.status_code != 200:
-            logger.warning("teams_user_resolve_failed", teams_user_id=teams_user_id, status=resp.status_code)
-            return dict(_UNKNOWN_USER)
+            logger.warning(
+                "teams_user_resolve_failed",
+                teams_user_id=normalized_user_id,
+                status=resp.status_code,
+                body=resp.text[:300],
+            )
+            return dict(unknown)
 
         data = resp.json()
         result = {
-            "name": data.get("displayName") or "Unknown",
+            "name": data.get("displayName") or fallback_name or "Unknown",
             "email": data.get("mail") or data.get("userPrincipalName"),
         }
         set_cached_teams_user(tenant_id, normalized_user_id, result)
         return result
     except Exception:
         logger.warning("teams_user_resolve_error", teams_user_id=normalized_user_id)
-        return dict(_UNKNOWN_USER)
+        return dict(unknown)
 
 
 def resolve_posthog_user_for_teams(email: str | None, team: Team) -> User | None:
@@ -108,6 +121,12 @@ def _extract_user_id_from_activity(activity: dict) -> str:
     from_field = activity.get("from") or {}
     aad_id = from_field.get("aadObjectId", "")
     return aad_id
+
+
+def _extract_user_name_from_activity(activity: dict) -> str:
+    """Extract the display name of the message sender from an Activity."""
+    from_field = activity.get("from") or {}
+    return from_field.get("name", "") or ""
 
 
 def _extract_conversation_id(activity: dict) -> str:
@@ -274,6 +293,7 @@ def create_or_update_teams_ticket(
     conversation_id = _extract_conversation_id(activity)
     channel_id = _extract_channel_id(activity)
     teams_user_id = _extract_user_id_from_activity(activity)
+    teams_user_name = _extract_user_name_from_activity(activity)
     text_html = activity.get("text", "")
     activity_id = activity.get("id", "")
 
@@ -285,8 +305,11 @@ def create_or_update_teams_ticket(
         is_thread_reply=is_thread_reply,
     )
 
-    # Resolve Teams user to name + email
-    user_info = resolve_teams_user(tenant_id, teams_user_id, team)
+    # Resolve Teams user to name + email. `teams_user_name` comes from
+    # activity.from.name and is used as a fallback when Graph can't return the
+    # profile (e.g. the tenant restricts /users/{id} reads for our delegated
+    # scopes, or the Graph call fails transiently).
+    user_info = resolve_teams_user(tenant_id, teams_user_id, team, fallback_name=teams_user_name)
     posthog_user = resolve_posthog_user_for_teams(user_info.get("email"), team)
     is_team_member = posthog_user is not None
 
