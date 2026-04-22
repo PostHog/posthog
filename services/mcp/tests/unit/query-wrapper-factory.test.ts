@@ -44,13 +44,17 @@ describe('createQueryWrapper _posthogUrl', () => {
         series: z.array(z.object({ kind: z.string(), event: z.string() })),
     })
 
-    function createMockContext(projectId = '1', baseUrl = 'http://localhost:8010'): Context {
+    function createMockContext(
+        projectId = '1',
+        baseUrl = 'http://localhost:8010',
+        query: Record<string, unknown> = {}
+    ): Context {
         return {
             api: {
                 query: vi.fn().mockReturnValue({
                     runQuery: vi.fn().mockResolvedValue({ results: [] }),
                     trendsActors: vi.fn().mockResolvedValue({
-                        query: {},
+                        query: query,
                         results: { columns: [], results: [] },
                         hasMore: false,
                         offset: 0,
@@ -82,6 +86,24 @@ describe('createQueryWrapper _posthogUrl', () => {
             expect(parsed.source.kind).toBe(kind)
         }
     )
+
+    it('wraps trends-actors in DataTableNode with the ActorsQuery as source', async () => {
+        const context = createMockContext('1', 'http://localhost:8010', {
+            kind: 'ActorsQuery',
+            source: { kind: 'InsightActorsQuery', day: '2024-01-15' },
+        })
+        const factory = createQueryWrapper({ name: 'test', schema, kind: 'InsightActorsQuery' })
+        const tool = factory()
+
+        const result = (await tool.handler(context, {
+            series: [{ kind: 'EventsNode', event: '$pageview' }],
+        })) as any
+
+        const hash = result._posthogUrl.split('#q=')[1]
+        const parsed = JSON.parse(decodeURIComponent(hash))
+        expect(parsed.kind).toBe('DataTableNode')
+        expect(parsed.source.kind).toBe('ActorsQuery')
+    })
 
     it('uses hash param not query param', async () => {
         const context = createMockContext()
