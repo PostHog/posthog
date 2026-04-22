@@ -2653,6 +2653,7 @@ class IntegrationKind(StrEnum):
     CUSTOMERIO_APP = "customerio-app"
     CUSTOMERIO_WEBHOOK = "customerio-webhook"
     CUSTOMERIO_TRACK = "customerio-track"
+    APNS = "apns"
 
 
 class IntervalType(StrEnum):

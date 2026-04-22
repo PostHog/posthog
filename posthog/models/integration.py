@@ -1560,6 +1560,7 @@ class ApplePushIntegration:
       - team_id: Apple Developer Team ID
       - bundle_id: App bundle identifier (e.g. com.example.app)
       - key_id: The Key ID for the .p8 signing key
+      - environment: "production" or "sandbox" (defaults to "production")
 
     sensitive_config stores:
       - signing_key: The .p8 signing key contents
@@ -1581,9 +1582,13 @@ class ApplePushIntegration:
         bundle_id: str,
         team_id: int,
         created_by: User | None = None,
+        environment: str = "production",
     ) -> "Integration":
         if not all([signing_key, key_id, team_id_apple, bundle_id]):
             raise ValidationError("All APNS fields are required: signing_key, key_id, team_id_apple, bundle_id")
+
+        if environment not in ("production", "sandbox"):
+            raise ValidationError("APNS environment must be 'production' or 'sandbox'")
 
         integration, created = Integration.objects.update_or_create(
             team_id=team_id,
@@ -1594,6 +1599,7 @@ class ApplePushIntegration:
                     "team_id": team_id_apple,
                     "bundle_id": bundle_id,
                     "key_id": key_id,
+                    "environment": environment,
                 },
                 "sensitive_config": {
                     "signing_key": signing_key,

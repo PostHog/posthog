@@ -155,10 +155,21 @@ export class HogInputsService {
     ): Promise<Record<string, { value: Record<string, any> | null }>> {
         const inputsToLoad: Record<string, number> = {}
 
-        hogFunction.inputs_schema?.forEach((schema) => {
+        const allSchemas = [
+            ...(hogFunction.inputs_schema ?? []),
+            ...(hogFunction.mappings?.flatMap((m) => m.inputs_schema ?? []) ?? []),
+        ]
+        const allInputs: Record<string, CyclotronInputType | null | undefined> = {
+            ...hogFunction.inputs,
+        }
+        for (const mapping of hogFunction.mappings ?? []) {
+            Object.assign(allInputs, mapping.inputs)
+        }
+
+        allSchemas.forEach((schema) => {
             if (schema.type === 'integration') {
-                const input = hogFunction.inputs?.[schema.key]
-                const value = input?.value?.integrationId ?? input?.value
+                const input = allInputs[schema.key]
+                const value = input?.value
                 if (value && typeof value === 'number') {
                     inputsToLoad[schema.key] = value
                 }

@@ -20,6 +20,7 @@ export interface APNSFormType {
     keyId: string
     teamId: string
     bundleId: string
+    environment: 'production' | 'sandbox'
 }
 
 export const apnsSetupModalLogic = kea<apnsSetupModalLogicType>([
@@ -35,6 +36,7 @@ export const apnsSetupModalLogic = kea<apnsSetupModalLogicType>([
                 keyId: '',
                 teamId: '',
                 bundleId: '',
+                environment: 'production' as const,
             },
             errors: ({ signingKey, keyId, teamId, bundleId }) => ({
                 signingKey: signingKey.trim() ? undefined : 'Signing key is required',
@@ -51,6 +53,7 @@ export const apnsSetupModalLogic = kea<apnsSetupModalLogicType>([
                             key_id: values.apnsIntegration.keyId,
                             team_id_apple: values.apnsIntegration.teamId,
                             bundle_id: values.apnsIntegration.bundleId,
+                            environment: values.apnsIntegration.environment,
                         },
                     })
                     actions.loadIntegrations()

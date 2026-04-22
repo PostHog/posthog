@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 
-import { LemonButton, LemonInput, LemonModal, LemonTextArea, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonModal, LemonSegmentedButton, LemonTextArea, Link } from '@posthog/lemon-ui'
 
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
@@ -43,6 +43,15 @@ export const APNSSetupModal = (props: APNSSetupModalLogicProps): JSX.Element => 
                     </LemonField>
                     <LemonField name="bundleId" label="Bundle ID">
                         <LemonInput type="text" placeholder="com.example.app" />
+                    </LemonField>
+                    <LemonField name="environment" label="Environment">
+                        <LemonSegmentedButton
+                            options={[
+                                { value: 'production', label: 'Production' },
+                                { value: 'sandbox', label: 'Sandbox' },
+                            ]}
+                            fullWidth
+                        />
                     </LemonField>
                     <div className="flex justify-end">
                         <LemonButton
