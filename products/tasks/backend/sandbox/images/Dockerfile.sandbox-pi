@@ -10,17 +10,12 @@ ARG PI_AUTORESEARCH_SHA=56e9f2ec6f0dc6f9997126e4f1d8a4223de2a534
 RUN set -eux; \
     actual="$(git ls-remote https://github.com/davebcn87/pi-autoresearch.git "refs/tags/${PI_AUTORESEARCH_TAG}" | cut -f1)"; \
     [ "$actual" = "$PI_AUTORESEARCH_SHA" ] || { echo "pi-autoresearch tag ${PI_AUTORESEARCH_TAG} moved: expected ${PI_AUTORESEARCH_SHA}, got ${actual}"; exit 1; }; \
-    for i in 1 2 3; do \
-        pi install "git:github.com/davebcn87/pi-autoresearch@${PI_AUTORESEARCH_TAG}" && break || sleep $((i * 5)); \
-    done
+    pi install "git:github.com/davebcn87/pi-autoresearch@${PI_AUTORESEARCH_TAG}"
 
 # CLICKHOUSE_SRC_TAG is asserted against .github/clickhouse-versions.json by the CI job before build.
 ARG CLICKHOUSE_SRC_TAG=v25.12.8.9-stable
-RUN set -eux; \
-    for i in 1 2 3; do \
-        git clone --depth 1 --branch "${CLICKHOUSE_SRC_TAG}" --single-branch \
-            https://github.com/ClickHouse/ClickHouse.git /opt/clickhouse && break || sleep $((i * 5)); \
-    done; \
+RUN git clone --depth 1 --branch "${CLICKHOUSE_SRC_TAG}" --single-branch \
+        https://github.com/ClickHouse/ClickHouse.git /opt/clickhouse && \
     rm -rf /opt/clickhouse/.git
 
 CMD ["/bin/bash"]
