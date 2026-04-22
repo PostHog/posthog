@@ -1534,13 +1534,22 @@ class TestUpsertDashboardTool(BaseTest):
             layout_mode="reflow_all",
         )
         result, _ = await tool._arun_impl(action)
+        self.assertIn(str(dashboard.id), result)
 
-        # Verify output order
-        for i in range(len(new_order) - 1):
-            self.assertLess(
-                result.index(f"Insight_{new_order[i]}"),
-                result.index(f"Insight_{new_order[i + 1]}"),
-            )
+        # Verify layout order matches insight_ids (reflow_all; output string format can change)
+        sorted_tiles = DashboardTile.sort_tiles_by_layout(
+            [
+                t
+                async for t in DashboardTile.objects.filter(dashboard=dashboard)
+                .select_related("insight")
+                .order_by("id")
+            ]
+        )
+        insight_tiles = [t for t in sorted_tiles if t.insight_id is not None]
+        self.assertEqual(
+            [t.insight_id for t in insight_tiles],
+            [insights[key].id for key in new_order],
+        )
 
         # B's tile should be undeleted
         await tile_b.arefresh_from_db()

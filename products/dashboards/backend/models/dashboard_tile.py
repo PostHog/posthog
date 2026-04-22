@@ -235,8 +235,8 @@ class DashboardTile(models.Model):
         return sorted(
             tiles,
             key=lambda tile: (
-                tile.layouts.get(layout_size, {}).get("y", 100),
-                tile.layouts.get(layout_size, {}).get("x", 100),
+                (tile.layouts or {}).get(layout_size, {}).get("y", 100),
+                (tile.layouts or {}).get(layout_size, {}).get("x", 100),
             ),
         )
 
