@@ -30643,7 +30643,9 @@ export namespace Schemas {
     }
 
     export interface QuarantineInput {
+      /** @maxLength 512 */
       identifier: string;
+      /** @maxLength 255 */
       reason: string;
       /** @nullable */
       expires_at?: string | null;
@@ -41828,6 +41830,11 @@ export namespace Schemas {
     };
 
     export type VisualReviewReposQuarantineDestroyParams = {
+    /**
+     * Snapshot identifier to unquarantine
+     * @minLength 1
+     * @maxLength 512
+     */
     identifier: string;
     };
 
