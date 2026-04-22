@@ -1971,7 +1971,7 @@ class FeatureFlagTestEvaluationRequestSerializer(serializers.Serializer):
             raise serializers.ValidationError("Either distinct_id or person_id must be provided")
 
         if distinct_id and person_id:
-            raise serializers.ValidationError("Cannot provide both distinct_id and person_id - choose one")
+            raise serializers.ValidationError("Cannot provide both distinct_id and person_id")
 
         return attrs
 
@@ -3439,10 +3439,7 @@ class FeatureFlagViewSet(
             identifier_type = "distinct_id" if distinct_id else "person_id"
             identifier_value = distinct_id or person_id
             return Response(
-                {
-                    "error": f"Person not found for {identifier_type}: {identifier_value}. "
-                    "Please verify the identifier exists in your PostHog instance."
-                },
+                {"detail": f"Person not found for {identifier_type}: {identifier_value}"},
                 status=status.HTTP_404_NOT_FOUND,
             )
 
@@ -3462,11 +3459,7 @@ class FeatureFlagViewSet(
 
                 if not person_existed:
                     return Response(
-                        {
-                            "error": f"Unable to build person properties at the selected timestamp. "
-                            f"This person may not have had any recorded activity at that time, "
-                            f"or the timestamp may be too far in the past."
-                        },
+                        {"error": "Person did not exist at the specified timestamp"},
                         status=status.HTTP_400_BAD_REQUEST,
                     )
 
@@ -3567,7 +3560,7 @@ class FeatureFlagViewSet(
             internal_token = os.getenv("INTERNAL_REQUEST_TOKEN")
             if not internal_token:
                 return Response(
-                    {"error": "Server misconfiguration: INTERNAL_REQUEST_TOKEN not set"},
+                    {"error": "Internal request token not configured"},
                     status=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 )
 
