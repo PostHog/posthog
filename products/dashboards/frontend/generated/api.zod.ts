@@ -50,6 +50,18 @@ export const DashboardTemplatesCreateBody = /* @__PURE__ */ zod.object({
     is_featured: zod.boolean().optional().describe('Manually curated; used to highlight templates in the UI.'),
 })
 
+/**
+ * Creates a new team-scoped template in the **target** project (URL) from a **team-scoped** source template in the same organization. Global and feature-flag templates return 400. Cross-organization or inaccessible sources return 404. Source and destination projects must differ (400 if equal). Conflicting `template_name` values on the destination are auto-suffixed with `(copy)`, `(copy 2)`, …
+ * @summary Copy a team template to this project
+ */
+export const DashboardTemplatesCopyBetweenProjectsCreateBody = /* @__PURE__ */ zod.object({
+    source_template_id: zod
+        .uuid()
+        .describe(
+            'UUID of a team-scoped template in the same organization. Global and feature-flag templates cannot be copied with this endpoint.'
+        ),
+})
+
 export const dashboardsCreateBodyNameMax = 400
 
 export const dashboardsCreateBodyDeleteInsightsDefault = false

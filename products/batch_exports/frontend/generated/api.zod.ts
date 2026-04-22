@@ -57,7 +57,7 @@ export const BatchExportsCreateBody = /* @__PURE__ */ zod
                     .describe(
                         'A JSON field to store all configuration parameters required to access a BatchExportDestination.'
                     ),
-                integration: zod.number().nullish().describe('The integration for this destination.'),
+                integration: zod.number().nullish(),
                 integration_id: zod.number().nullish(),
             })
             .describe('Serializer for an BatchExportDestination model.'),
@@ -140,7 +140,7 @@ export const BatchExportsUpdateBody = /* @__PURE__ */ zod
                     .describe(
                         'A JSON field to store all configuration parameters required to access a BatchExportDestination.'
                     ),
-                integration: zod.number().nullish().describe('The integration for this destination.'),
+                integration: zod.number().nullish(),
                 integration_id: zod.number().nullish(),
             })
             .describe('Serializer for an BatchExportDestination model.'),
@@ -223,7 +223,7 @@ export const BatchExportsPartialUpdateBody = /* @__PURE__ */ zod
                     .describe(
                         'A JSON field to store all configuration parameters required to access a BatchExportDestination.'
                     ),
-                integration: zod.number().nullish().describe('The integration for this destination.'),
+                integration: zod.number().nullish(),
                 integration_id: zod.number().nullish(),
             })
             .optional()
@@ -311,7 +311,7 @@ export const BatchExportsPauseCreateBody = /* @__PURE__ */ zod
                     .describe(
                         'A JSON field to store all configuration parameters required to access a BatchExportDestination.'
                     ),
-                integration: zod.number().nullish().describe('The integration for this destination.'),
+                integration: zod.number().nullish(),
                 integration_id: zod.number().nullish(),
             })
             .describe('Serializer for an BatchExportDestination model.'),
@@ -394,7 +394,7 @@ export const BatchExportsRunTestStepCreateBody = /* @__PURE__ */ zod
                     .describe(
                         'A JSON field to store all configuration parameters required to access a BatchExportDestination.'
                     ),
-                integration: zod.number().nullish().describe('The integration for this destination.'),
+                integration: zod.number().nullish(),
                 integration_id: zod.number().nullish(),
             })
             .describe('Serializer for an BatchExportDestination model.'),
@@ -480,7 +480,7 @@ export const BatchExportsUnpauseCreateBody = /* @__PURE__ */ zod
                     .describe(
                         'A JSON field to store all configuration parameters required to access a BatchExportDestination.'
                     ),
-                integration: zod.number().nullish().describe('The integration for this destination.'),
+                integration: zod.number().nullish(),
                 integration_id: zod.number().nullish(),
             })
             .describe('Serializer for an BatchExportDestination model.'),
@@ -563,7 +563,7 @@ export const BatchExportsRunTestStepNewCreateBody = /* @__PURE__ */ zod
                     .describe(
                         'A JSON field to store all configuration parameters required to access a BatchExportDestination.'
                     ),
-                integration: zod.number().nullish().describe('The integration for this destination.'),
+                integration: zod.number().nullish(),
                 integration_id: zod.number().nullish(),
             })
             .describe('Serializer for an BatchExportDestination model.'),
@@ -646,7 +646,7 @@ export const BatchExportsCreate2Body = /* @__PURE__ */ zod
                     .describe(
                         'A JSON field to store all configuration parameters required to access a BatchExportDestination.'
                     ),
-                integration: zod.number().nullish().describe('The integration for this destination.'),
+                integration: zod.number().nullish(),
                 integration_id: zod.number().nullish(),
             })
             .describe('Serializer for an BatchExportDestination model.'),
@@ -684,8 +684,8 @@ export const BatchExportsCreate2Body = /* @__PURE__ */ zod
 /**
  * Create a new backfill for a BatchExport.
  */
-export const batchExportsBackfillsCreateBodyTotalRecordsCountMin = -9223372036854776000
-export const batchExportsBackfillsCreateBodyTotalRecordsCountMax = 9223372036854776000
+export const batchExportsBackfillsCreateBodyTotalRecordsCountMin = -2147483648
+export const batchExportsBackfillsCreateBodyTotalRecordsCountMax = 2147483647
 
 export const BatchExportsBackfillsCreateBody = /* @__PURE__ */ zod.object({
     start_at: zod.iso.datetime({}).nullish().describe('The start of the data interval.'),
@@ -733,8 +733,8 @@ export const BatchExportsBackfillsCreateBody = /* @__PURE__ */ zod.object({
 /**
  * Cancel a batch export backfill.
  */
-export const batchExportsBackfillsCancelCreateBodyTotalRecordsCountMin = -9223372036854776000
-export const batchExportsBackfillsCancelCreateBodyTotalRecordsCountMax = 9223372036854776000
+export const batchExportsBackfillsCancelCreateBodyTotalRecordsCountMin = -2147483648
+export const batchExportsBackfillsCancelCreateBodyTotalRecordsCountMax = 2147483647
 
 export const BatchExportsBackfillsCancelCreateBody = /* @__PURE__ */ zod.object({
     start_at: zod.iso.datetime({}).nullish().describe('The start of the data interval.'),
@@ -791,8 +791,8 @@ export const batchExportsRunsCancelCreateBodyRecordsFailedMax = 2147483647
 export const batchExportsRunsCancelCreateBodyRecordsTotalCountMin = -2147483648
 export const batchExportsRunsCancelCreateBodyRecordsTotalCountMax = 2147483647
 
-export const batchExportsRunsCancelCreateBodyBytesExportedMin = -9223372036854776000
-export const batchExportsRunsCancelCreateBodyBytesExportedMax = 9223372036854776000
+export const batchExportsRunsCancelCreateBodyBytesExportedMin = -2147483648
+export const batchExportsRunsCancelCreateBodyBytesExportedMax = 2147483647
 
 export const BatchExportsRunsCancelCreateBody = /* @__PURE__ */ zod
     .object({
@@ -866,8 +866,8 @@ export const batchExportsRunsRetryCreateBodyRecordsFailedMax = 2147483647
 export const batchExportsRunsRetryCreateBodyRecordsTotalCountMin = -2147483648
 export const batchExportsRunsRetryCreateBodyRecordsTotalCountMax = 2147483647
 
-export const batchExportsRunsRetryCreateBodyBytesExportedMin = -9223372036854776000
-export const batchExportsRunsRetryCreateBodyBytesExportedMax = 9223372036854776000
+export const batchExportsRunsRetryCreateBodyBytesExportedMin = -2147483648
+export const batchExportsRunsRetryCreateBodyBytesExportedMax = 2147483647
 
 export const BatchExportsRunsRetryCreateBody = /* @__PURE__ */ zod
     .object({
@@ -974,7 +974,7 @@ export const BatchExportsUpdate2Body = /* @__PURE__ */ zod
                     .describe(
                         'A JSON field to store all configuration parameters required to access a BatchExportDestination.'
                     ),
-                integration: zod.number().nullish().describe('The integration for this destination.'),
+                integration: zod.number().nullish(),
                 integration_id: zod.number().nullish(),
             })
             .describe('Serializer for an BatchExportDestination model.'),
@@ -1057,7 +1057,7 @@ export const BatchExportsPartialUpdate2Body = /* @__PURE__ */ zod
                     .describe(
                         'A JSON field to store all configuration parameters required to access a BatchExportDestination.'
                     ),
-                integration: zod.number().nullish().describe('The integration for this destination.'),
+                integration: zod.number().nullish(),
                 integration_id: zod.number().nullish(),
             })
             .optional()
@@ -1145,7 +1145,7 @@ export const BatchExportsPauseCreate2Body = /* @__PURE__ */ zod
                     .describe(
                         'A JSON field to store all configuration parameters required to access a BatchExportDestination.'
                     ),
-                integration: zod.number().nullish().describe('The integration for this destination.'),
+                integration: zod.number().nullish(),
                 integration_id: zod.number().nullish(),
             })
             .describe('Serializer for an BatchExportDestination model.'),
@@ -1228,7 +1228,7 @@ export const BatchExportsRunTestStepCreate2Body = /* @__PURE__ */ zod
                     .describe(
                         'A JSON field to store all configuration parameters required to access a BatchExportDestination.'
                     ),
-                integration: zod.number().nullish().describe('The integration for this destination.'),
+                integration: zod.number().nullish(),
                 integration_id: zod.number().nullish(),
             })
             .describe('Serializer for an BatchExportDestination model.'),
@@ -1314,7 +1314,7 @@ export const BatchExportsUnpauseCreate2Body = /* @__PURE__ */ zod
                     .describe(
                         'A JSON field to store all configuration parameters required to access a BatchExportDestination.'
                     ),
-                integration: zod.number().nullish().describe('The integration for this destination.'),
+                integration: zod.number().nullish(),
                 integration_id: zod.number().nullish(),
             })
             .describe('Serializer for an BatchExportDestination model.'),
@@ -1397,7 +1397,7 @@ export const BatchExportsRunTestStepNewCreate2Body = /* @__PURE__ */ zod
                     .describe(
                         'A JSON field to store all configuration parameters required to access a BatchExportDestination.'
                     ),
-                integration: zod.number().nullish().describe('The integration for this destination.'),
+                integration: zod.number().nullish(),
                 integration_id: zod.number().nullish(),
             })
             .describe('Serializer for an BatchExportDestination model.'),

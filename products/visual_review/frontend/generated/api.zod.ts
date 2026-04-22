@@ -26,6 +26,19 @@ export const VisualReviewReposPartialUpdateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
+ * Quarantine a snapshot identifier for a specific run type.
+ */
+export const visualReviewReposQuarantineCreateBodyIdentifierMax = 512
+
+export const visualReviewReposQuarantineCreateBodyReasonMax = 255
+
+export const VisualReviewReposQuarantineCreateBody = /* @__PURE__ */ zod.object({
+    identifier: zod.string().max(visualReviewReposQuarantineCreateBodyIdentifierMax),
+    reason: zod.string().max(visualReviewReposQuarantineCreateBodyReasonMax),
+    expires_at: zod.iso.datetime({}).nullish(),
+})
+
+/**
  * Create a new run from a CI manifest.
  */
 export const VisualReviewRunsCreateBody = /* @__PURE__ */ zod.object({

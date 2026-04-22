@@ -150,8 +150,12 @@ export const TasksPartialUpdateBody = /* @__PURE__ */ zod.object({
 export const tasksRunCreateBodyOneModeDefault = `background`
 export const tasksRunCreateBodyOneBranchMax = 255
 
+export const tasksRunCreateBodyOnePendingUserArtifactIdsItemMax = 128
+
 export const tasksRunCreateBodyTwoModeDefault = `background`
 export const tasksRunCreateBodyTwoBranchMax = 255
+
+export const tasksRunCreateBodyTwoPendingUserArtifactIdsItemMax = 128
 
 export const tasksRunCreateBodyThreeModeDefault = `background`
 export const tasksRunCreateBodyThreeBranchMax = 255
@@ -179,6 +183,10 @@ export const TasksRunCreateBody = /* @__PURE__ */ zod.union([
                 .string()
                 .optional()
                 .describe('Initial or follow-up user message to include in the run prompt.'),
+            pending_user_artifact_ids: zod
+                .array(zod.string().max(tasksRunCreateBodyOnePendingUserArtifactIdsItemMax))
+                .optional()
+                .describe('Identifiers for staged task artifacts that should be attached to the initial run prompt.'),
             sandbox_environment_id: zod
                 .uuid()
                 .optional()
@@ -252,6 +260,10 @@ export const TasksRunCreateBody = /* @__PURE__ */ zod.union([
                 .string()
                 .optional()
                 .describe('Initial or follow-up user message to include in the run prompt.'),
+            pending_user_artifact_ids: zod
+                .array(zod.string().max(tasksRunCreateBodyTwoPendingUserArtifactIdsItemMax))
+                .optional()
+                .describe('Identifiers for staged task artifacts that should be attached to the initial run prompt.'),
             sandbox_environment_id: zod
                 .uuid()
                 .optional()
@@ -352,6 +364,104 @@ export const TasksRunCreateBody = /* @__PURE__ */ zod.union([
 ])
 
 /**
+ * Verify staged S3 uploads and cache their metadata so they can be attached to the next run created for this task.
+ * @summary Finalize staged direct uploads for task attachments
+ */
+export const tasksStagedArtifactsFinalizeUploadCreateBodyArtifactsItemNameMax = 255
+
+export const tasksStagedArtifactsFinalizeUploadCreateBodyArtifactsItemSourceDefault = ``
+export const tasksStagedArtifactsFinalizeUploadCreateBodyArtifactsItemSourceMax = 64
+
+export const tasksStagedArtifactsFinalizeUploadCreateBodyArtifactsItemStoragePathMax = 500
+
+export const tasksStagedArtifactsFinalizeUploadCreateBodyArtifactsItemContentTypeMax = 255
+
+export const TasksStagedArtifactsFinalizeUploadCreateBody = /* @__PURE__ */ zod.object({
+    artifacts: zod
+        .array(
+            zod.object({
+                id: zod.string().describe('Stable identifier returned by the staged prepare upload endpoint'),
+                name: zod
+                    .string()
+                    .max(tasksStagedArtifactsFinalizeUploadCreateBodyArtifactsItemNameMax)
+                    .describe('File name associated with the staged artifact'),
+                type: zod
+                    .enum(['plan', 'context', 'reference', 'output', 'artifact', 'tree_snapshot', 'user_attachment'])
+                    .describe(
+                        '* `plan` - plan\n* `context` - context\n* `reference` - reference\n* `output` - output\n* `artifact` - artifact\n* `tree_snapshot` - tree_snapshot\n* `user_attachment` - user_attachment'
+                    )
+                    .describe(
+                        'Classification for the artifact\n\n* `plan` - plan\n* `context` - context\n* `reference` - reference\n* `output` - output\n* `artifact` - artifact\n* `tree_snapshot` - tree_snapshot\n* `user_attachment` - user_attachment'
+                    ),
+                source: zod
+                    .string()
+                    .max(tasksStagedArtifactsFinalizeUploadCreateBodyArtifactsItemSourceMax)
+                    .default(tasksStagedArtifactsFinalizeUploadCreateBodyArtifactsItemSourceDefault)
+                    .describe('Optional source label for the artifact, such as agent_output or user_attachment'),
+                storage_path: zod
+                    .string()
+                    .max(tasksStagedArtifactsFinalizeUploadCreateBodyArtifactsItemStoragePathMax)
+                    .describe('S3 object key returned by the prepare step'),
+                content_type: zod
+                    .string()
+                    .max(tasksStagedArtifactsFinalizeUploadCreateBodyArtifactsItemContentTypeMax)
+                    .optional()
+                    .describe('Optional MIME type recorded for the artifact'),
+            })
+        )
+        .describe('Array of staged artifacts to finalize after upload'),
+})
+
+/**
+ * Reserve S3 object keys for task attachments before creating a new run and return presigned POST forms for direct uploads.
+ * @summary Prepare staged direct uploads for task attachments
+ */
+export const tasksStagedArtifactsPrepareUploadCreateBodyArtifactsItemNameMax = 255
+
+export const tasksStagedArtifactsPrepareUploadCreateBodyArtifactsItemSourceDefault = ``
+export const tasksStagedArtifactsPrepareUploadCreateBodyArtifactsItemSourceMax = 64
+
+export const tasksStagedArtifactsPrepareUploadCreateBodyArtifactsItemSizeMax = 31457280
+
+export const tasksStagedArtifactsPrepareUploadCreateBodyArtifactsItemContentTypeMax = 255
+
+export const TasksStagedArtifactsPrepareUploadCreateBody = /* @__PURE__ */ zod.object({
+    artifacts: zod
+        .array(
+            zod.object({
+                name: zod
+                    .string()
+                    .max(tasksStagedArtifactsPrepareUploadCreateBodyArtifactsItemNameMax)
+                    .describe('File name to associate with the staged artifact'),
+                type: zod
+                    .enum(['plan', 'context', 'reference', 'output', 'artifact', 'tree_snapshot', 'user_attachment'])
+                    .describe(
+                        '* `plan` - plan\n* `context` - context\n* `reference` - reference\n* `output` - output\n* `artifact` - artifact\n* `tree_snapshot` - tree_snapshot\n* `user_attachment` - user_attachment'
+                    )
+                    .describe(
+                        'Classification for the artifact\n\n* `plan` - plan\n* `context` - context\n* `reference` - reference\n* `output` - output\n* `artifact` - artifact\n* `tree_snapshot` - tree_snapshot\n* `user_attachment` - user_attachment'
+                    ),
+                source: zod
+                    .string()
+                    .max(tasksStagedArtifactsPrepareUploadCreateBodyArtifactsItemSourceMax)
+                    .default(tasksStagedArtifactsPrepareUploadCreateBodyArtifactsItemSourceDefault)
+                    .describe('Optional source label for the artifact, such as agent_output or user_attachment'),
+                size: zod
+                    .number()
+                    .min(1)
+                    .max(tasksStagedArtifactsPrepareUploadCreateBodyArtifactsItemSizeMax)
+                    .describe('Expected upload size in bytes (max 31457280 bytes)'),
+                content_type: zod
+                    .string()
+                    .max(tasksStagedArtifactsPrepareUploadCreateBodyArtifactsItemContentTypeMax)
+                    .optional()
+                    .describe('Optional MIME type for the artifact upload'),
+            })
+        )
+        .describe('Array of staged artifacts to prepare before creating a run'),
+})
+
+/**
  * API for managing task runs. Each run represents an execution of a task.
  * @summary Update task run
  */
@@ -369,6 +479,10 @@ export const TasksRunsPartialUpdateBody = /* @__PURE__ */ zod.object({
     stage: zod.string().nullish().describe('Current stage of the run (e.g. research, plan, build)'),
     output: zod.unknown().nullish().describe('Output from the run'),
     state: zod.unknown().optional().describe('State of the run'),
+    state_remove_keys: zod
+        .array(zod.string())
+        .optional()
+        .describe('State keys to remove atomically before applying any state updates.'),
     error_message: zod.string().nullish().describe('Error message if execution failed'),
 })
 
@@ -386,6 +500,10 @@ export const TasksRunsAppendLogCreateBody = /* @__PURE__ */ zod.object({
  */
 export const tasksRunsArtifactsCreateBodyArtifactsItemNameMax = 255
 
+export const tasksRunsArtifactsCreateBodyArtifactsItemSourceDefault = ``
+export const tasksRunsArtifactsCreateBodyArtifactsItemSourceMax = 64
+
+export const tasksRunsArtifactsCreateBodyArtifactsItemContentEncodingDefault = `utf-8`
 export const tasksRunsArtifactsCreateBodyArtifactsItemContentTypeMax = 255
 
 export const TasksRunsArtifactsCreateBody = /* @__PURE__ */ zod.object({
@@ -397,14 +515,26 @@ export const TasksRunsArtifactsCreateBody = /* @__PURE__ */ zod.object({
                     .max(tasksRunsArtifactsCreateBodyArtifactsItemNameMax)
                     .describe('File name to associate with the artifact'),
                 type: zod
-                    .enum(['plan', 'context', 'reference', 'output', 'artifact', 'tree_snapshot'])
+                    .enum(['plan', 'context', 'reference', 'output', 'artifact', 'tree_snapshot', 'user_attachment'])
                     .describe(
-                        '* `plan` - plan\n* `context` - context\n* `reference` - reference\n* `output` - output\n* `artifact` - artifact\n* `tree_snapshot` - tree_snapshot'
+                        '* `plan` - plan\n* `context` - context\n* `reference` - reference\n* `output` - output\n* `artifact` - artifact\n* `tree_snapshot` - tree_snapshot\n* `user_attachment` - user_attachment'
                     )
                     .describe(
-                        'Classification for the artifact\n\n* `plan` - plan\n* `context` - context\n* `reference` - reference\n* `output` - output\n* `artifact` - artifact\n* `tree_snapshot` - tree_snapshot'
+                        'Classification for the artifact\n\n* `plan` - plan\n* `context` - context\n* `reference` - reference\n* `output` - output\n* `artifact` - artifact\n* `tree_snapshot` - tree_snapshot\n* `user_attachment` - user_attachment'
                     ),
-                content: zod.string().describe('Raw file contents (UTF-8 string or base64 data)'),
+                source: zod
+                    .string()
+                    .max(tasksRunsArtifactsCreateBodyArtifactsItemSourceMax)
+                    .default(tasksRunsArtifactsCreateBodyArtifactsItemSourceDefault)
+                    .describe('Optional source label for the artifact, such as agent_output or user_attachment'),
+                content: zod.string().describe('Artifact contents encoded according to content_encoding'),
+                content_encoding: zod
+                    .enum(['utf-8', 'base64'])
+                    .describe('* `utf-8` - utf-8\n* `base64` - base64')
+                    .default(tasksRunsArtifactsCreateBodyArtifactsItemContentEncodingDefault)
+                    .describe(
+                        'Encoding used for content. Use base64 for binary files and utf-8 for text payloads.\n\n* `utf-8` - utf-8\n* `base64` - base64'
+                    ),
                 content_type: zod
                     .string()
                     .max(tasksRunsArtifactsCreateBodyArtifactsItemContentTypeMax)
@@ -413,6 +543,117 @@ export const TasksRunsArtifactsCreateBody = /* @__PURE__ */ zod.object({
             })
         )
         .describe('Array of artifacts to upload'),
+})
+
+/**
+ * Streams artifact content for a task run artifact after validating that it belongs to the run.
+ * @summary Download an artifact through the backend
+ */
+export const tasksRunsArtifactsDownloadCreateBodyStoragePathMax = 500
+
+export const TasksRunsArtifactsDownloadCreateBody = /* @__PURE__ */ zod.object({
+    storage_path: zod
+        .string()
+        .max(tasksRunsArtifactsDownloadCreateBodyStoragePathMax)
+        .describe('S3 storage path returned in the artifact manifest'),
+})
+
+/**
+ * Verify directly uploaded S3 objects and attach them to the run artifact manifest.
+ * @summary Finalize direct uploads for task run artifacts
+ */
+export const tasksRunsArtifactsFinalizeUploadCreateBodyArtifactsItemNameMax = 255
+
+export const tasksRunsArtifactsFinalizeUploadCreateBodyArtifactsItemSourceDefault = ``
+export const tasksRunsArtifactsFinalizeUploadCreateBodyArtifactsItemSourceMax = 64
+
+export const tasksRunsArtifactsFinalizeUploadCreateBodyArtifactsItemStoragePathMax = 500
+
+export const tasksRunsArtifactsFinalizeUploadCreateBodyArtifactsItemContentTypeMax = 255
+
+export const TasksRunsArtifactsFinalizeUploadCreateBody = /* @__PURE__ */ zod.object({
+    artifacts: zod
+        .array(
+            zod.object({
+                id: zod.string().describe('Stable identifier returned by the prepare upload endpoint'),
+                name: zod
+                    .string()
+                    .max(tasksRunsArtifactsFinalizeUploadCreateBodyArtifactsItemNameMax)
+                    .describe('File name associated with the artifact'),
+                type: zod
+                    .enum(['plan', 'context', 'reference', 'output', 'artifact', 'tree_snapshot', 'user_attachment'])
+                    .describe(
+                        '* `plan` - plan\n* `context` - context\n* `reference` - reference\n* `output` - output\n* `artifact` - artifact\n* `tree_snapshot` - tree_snapshot\n* `user_attachment` - user_attachment'
+                    )
+                    .describe(
+                        'Classification for the artifact\n\n* `plan` - plan\n* `context` - context\n* `reference` - reference\n* `output` - output\n* `artifact` - artifact\n* `tree_snapshot` - tree_snapshot\n* `user_attachment` - user_attachment'
+                    ),
+                source: zod
+                    .string()
+                    .max(tasksRunsArtifactsFinalizeUploadCreateBodyArtifactsItemSourceMax)
+                    .default(tasksRunsArtifactsFinalizeUploadCreateBodyArtifactsItemSourceDefault)
+                    .describe('Optional source label for the artifact, such as agent_output or user_attachment'),
+                storage_path: zod
+                    .string()
+                    .max(tasksRunsArtifactsFinalizeUploadCreateBodyArtifactsItemStoragePathMax)
+                    .describe('S3 object key returned by the prepare step'),
+                content_type: zod
+                    .string()
+                    .max(tasksRunsArtifactsFinalizeUploadCreateBodyArtifactsItemContentTypeMax)
+                    .optional()
+                    .describe('Optional MIME type recorded for the artifact'),
+            })
+        )
+        .describe('Array of uploaded artifacts to finalize'),
+})
+
+/**
+ * Reserve S3 object keys for task artifacts and return presigned POST forms for direct uploads.
+ * @summary Prepare direct uploads for task run artifacts
+ */
+export const tasksRunsArtifactsPrepareUploadCreateBodyArtifactsItemNameMax = 255
+
+export const tasksRunsArtifactsPrepareUploadCreateBodyArtifactsItemSourceDefault = ``
+export const tasksRunsArtifactsPrepareUploadCreateBodyArtifactsItemSourceMax = 64
+
+export const tasksRunsArtifactsPrepareUploadCreateBodyArtifactsItemSizeMax = 31457280
+
+export const tasksRunsArtifactsPrepareUploadCreateBodyArtifactsItemContentTypeMax = 255
+
+export const TasksRunsArtifactsPrepareUploadCreateBody = /* @__PURE__ */ zod.object({
+    artifacts: zod
+        .array(
+            zod.object({
+                name: zod
+                    .string()
+                    .max(tasksRunsArtifactsPrepareUploadCreateBodyArtifactsItemNameMax)
+                    .describe('File name to associate with the artifact'),
+                type: zod
+                    .enum(['plan', 'context', 'reference', 'output', 'artifact', 'tree_snapshot', 'user_attachment'])
+                    .describe(
+                        '* `plan` - plan\n* `context` - context\n* `reference` - reference\n* `output` - output\n* `artifact` - artifact\n* `tree_snapshot` - tree_snapshot\n* `user_attachment` - user_attachment'
+                    )
+                    .describe(
+                        'Classification for the artifact\n\n* `plan` - plan\n* `context` - context\n* `reference` - reference\n* `output` - output\n* `artifact` - artifact\n* `tree_snapshot` - tree_snapshot\n* `user_attachment` - user_attachment'
+                    ),
+                source: zod
+                    .string()
+                    .max(tasksRunsArtifactsPrepareUploadCreateBodyArtifactsItemSourceMax)
+                    .default(tasksRunsArtifactsPrepareUploadCreateBodyArtifactsItemSourceDefault)
+                    .describe('Optional source label for the artifact, such as agent_output or user_attachment'),
+                size: zod
+                    .number()
+                    .min(1)
+                    .max(tasksRunsArtifactsPrepareUploadCreateBodyArtifactsItemSizeMax)
+                    .describe('Expected upload size in bytes (max 31457280 bytes)'),
+                content_type: zod
+                    .string()
+                    .max(tasksRunsArtifactsPrepareUploadCreateBodyArtifactsItemContentTypeMax)
+                    .optional()
+                    .describe('Optional MIME type for the artifact upload'),
+            })
+        )
+        .describe('Array of artifacts to prepare'),
 })
 
 /**

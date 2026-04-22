@@ -312,6 +312,53 @@ export const ExternalDataSourcesSourcePrefixCreateBody = /* @__PURE__ */ zod
     })
     .describe('Mixin for serializers to add user access control fields')
 
+export const insightVariablesCreateBodyNameMax = 400
+
+export const InsightVariablesCreateBody = /* @__PURE__ */ zod.object({
+    name: zod.string().max(insightVariablesCreateBodyNameMax).describe('Human-readable name for the SQL variable.'),
+    type: zod
+        .enum(['String', 'Number', 'Boolean', 'List', 'Date'])
+        .describe('* `String` - String\n* `Number` - Number\n* `Boolean` - Boolean\n* `List` - List\n* `Date` - Date')
+        .describe(
+            'Variable type. Controls how the value is rendered and substituted in HogQL.\n\n* `String` - String\n* `Number` - Number\n* `Boolean` - Boolean\n* `List` - List\n* `Date` - Date'
+        ),
+    default_value: zod.unknown().nullish().describe('Default value used when a query references this variable.'),
+    values: zod.unknown().nullish().describe('Allowed values for List variables. Null for other variable types.'),
+})
+
+export const insightVariablesUpdateBodyNameMax = 400
+
+export const InsightVariablesUpdateBody = /* @__PURE__ */ zod.object({
+    name: zod.string().max(insightVariablesUpdateBodyNameMax).describe('Human-readable name for the SQL variable.'),
+    type: zod
+        .enum(['String', 'Number', 'Boolean', 'List', 'Date'])
+        .describe('* `String` - String\n* `Number` - Number\n* `Boolean` - Boolean\n* `List` - List\n* `Date` - Date')
+        .describe(
+            'Variable type. Controls how the value is rendered and substituted in HogQL.\n\n* `String` - String\n* `Number` - Number\n* `Boolean` - Boolean\n* `List` - List\n* `Date` - Date'
+        ),
+    default_value: zod.unknown().nullish().describe('Default value used when a query references this variable.'),
+    values: zod.unknown().nullish().describe('Allowed values for List variables. Null for other variable types.'),
+})
+
+export const insightVariablesPartialUpdateBodyNameMax = 400
+
+export const InsightVariablesPartialUpdateBody = /* @__PURE__ */ zod.object({
+    name: zod
+        .string()
+        .max(insightVariablesPartialUpdateBodyNameMax)
+        .optional()
+        .describe('Human-readable name for the SQL variable.'),
+    type: zod
+        .enum(['String', 'Number', 'Boolean', 'List', 'Date'])
+        .describe('* `String` - String\n* `Number` - Number\n* `Boolean` - Boolean\n* `List` - List\n* `Date` - Date')
+        .optional()
+        .describe(
+            'Variable type. Controls how the value is rendered and substituted in HogQL.\n\n* `String` - String\n* `Number` - Number\n* `Boolean` - Boolean\n* `List` - List\n* `Date` - Date'
+        ),
+    default_value: zod.unknown().nullish().describe('Default value used when a query references this variable.'),
+    values: zod.unknown().nullish().describe('Allowed values for List variables. Null for other variable types.'),
+})
+
 /**
  * Create, Read, Update and Delete Query Tab State.
  */

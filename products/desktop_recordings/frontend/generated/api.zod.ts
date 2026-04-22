@@ -42,8 +42,8 @@ export const desktopRecordingsUpdateBodyDurationSecondsMax = 2147483647
 
 export const desktopRecordingsUpdateBodyVideoUrlMax = 200
 
-export const desktopRecordingsUpdateBodyVideoSizeBytesMin = -9223372036854776000
-export const desktopRecordingsUpdateBodyVideoSizeBytesMax = 9223372036854776000
+export const desktopRecordingsUpdateBodyVideoSizeBytesMin = -2147483648
+export const desktopRecordingsUpdateBodyVideoSizeBytesMax = 2147483647
 
 export const DesktopRecordingsUpdateBody = /* @__PURE__ */ zod.object({
     recall_recording_id: zod.uuid().nullish(),
@@ -121,8 +121,8 @@ export const desktopRecordingsPartialUpdateBodyDurationSecondsMax = 2147483647
 
 export const desktopRecordingsPartialUpdateBodyVideoUrlMax = 200
 
-export const desktopRecordingsPartialUpdateBodyVideoSizeBytesMin = -9223372036854776000
-export const desktopRecordingsPartialUpdateBodyVideoSizeBytesMax = 9223372036854776000
+export const desktopRecordingsPartialUpdateBodyVideoSizeBytesMin = -2147483648
+export const desktopRecordingsPartialUpdateBodyVideoSizeBytesMax = 2147483647
 
 export const DesktopRecordingsPartialUpdateBody = /* @__PURE__ */ zod.object({
     recall_recording_id: zod.uuid().nullish(),
