@@ -12,6 +12,7 @@ import type {
     CodeInviteRedeemRequestApi,
     ConnectionTokenResponseApi,
     PaginatedSandboxEnvironmentListListApi,
+    PaginatedTaskAutomationListApi,
     PaginatedTaskListApi,
     PaginatedTaskRunDetailListApi,
     PatchedTaskApi,
@@ -21,9 +22,15 @@ import type {
     SandboxEnvironmentApi,
     SandboxListParams,
     TaskApi,
+    TaskAutomationApi,
+    TaskAutomationsListParams,
     TaskRunAppendLogRequestApi,
     TaskRunArtifactPresignRequestApi,
     TaskRunArtifactPresignResponseApi,
+    TaskRunArtifactsFinalizeUploadRequestApi,
+    TaskRunArtifactsFinalizeUploadResponseApi,
+    TaskRunArtifactsPrepareUploadRequestApi,
+    TaskRunArtifactsPrepareUploadResponseApi,
     TaskRunArtifactsUploadRequestApi,
     TaskRunArtifactsUploadResponseApi,
     TaskRunCommandRequestApi,
@@ -32,6 +39,10 @@ import type {
     TaskRunDetailApi,
     TaskRunRelayMessageRequestApi,
     TaskRunRelayMessageResponseApi,
+    TaskStagedArtifactsFinalizeUploadRequestApi,
+    TaskStagedArtifactsFinalizeUploadResponseApi,
+    TaskStagedArtifactsPrepareUploadRequestApi,
+    TaskStagedArtifactsPrepareUploadResponseApi,
     TasksListParams,
     TasksRepositoryReadinessRetrieveParams,
     TasksRunsListParams,
@@ -137,6 +148,50 @@ export const sandboxCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(sandboxEnvironmentApi),
+    })
+}
+
+export const getTaskAutomationsListUrl = (projectId: string, params?: TaskAutomationsListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/task_automations/?${stringifiedParams}`
+        : `/api/projects/${projectId}/task_automations/`
+}
+
+export const taskAutomationsList = async (
+    projectId: string,
+    params?: TaskAutomationsListParams,
+    options?: RequestInit
+): Promise<PaginatedTaskAutomationListApi> => {
+    return apiMutator<PaginatedTaskAutomationListApi>(getTaskAutomationsListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getTaskAutomationsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/task_automations/`
+}
+
+export const taskAutomationsCreate = async (
+    projectId: string,
+    taskAutomationApi: NonReadonly<TaskAutomationApi>,
+    options?: RequestInit
+): Promise<TaskAutomationApi> => {
+    return apiMutator<TaskAutomationApi>(getTaskAutomationsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(taskAutomationApi),
     })
 }
 
@@ -280,6 +335,56 @@ export const tasksRunCreate = async (
 }
 
 /**
+ * Verify staged S3 uploads and cache their metadata so they can be attached to the next run created for this task.
+ * @summary Finalize staged direct uploads for task attachments
+ */
+export const getTasksStagedArtifactsFinalizeUploadCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/tasks/${id}/staged_artifacts/finalize_upload/`
+}
+
+export const tasksStagedArtifactsFinalizeUploadCreate = async (
+    projectId: string,
+    id: string,
+    taskStagedArtifactsFinalizeUploadRequestApi: TaskStagedArtifactsFinalizeUploadRequestApi,
+    options?: RequestInit
+): Promise<TaskStagedArtifactsFinalizeUploadResponseApi> => {
+    return apiMutator<TaskStagedArtifactsFinalizeUploadResponseApi>(
+        getTasksStagedArtifactsFinalizeUploadCreateUrl(projectId, id),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(taskStagedArtifactsFinalizeUploadRequestApi),
+        }
+    )
+}
+
+/**
+ * Reserve S3 object keys for task attachments before creating a new run and return presigned POST forms for direct uploads.
+ * @summary Prepare staged direct uploads for task attachments
+ */
+export const getTasksStagedArtifactsPrepareUploadCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/tasks/${id}/staged_artifacts/prepare_upload/`
+}
+
+export const tasksStagedArtifactsPrepareUploadCreate = async (
+    projectId: string,
+    id: string,
+    taskStagedArtifactsPrepareUploadRequestApi: TaskStagedArtifactsPrepareUploadRequestApi,
+    options?: RequestInit
+): Promise<TaskStagedArtifactsPrepareUploadResponseApi> => {
+    return apiMutator<TaskStagedArtifactsPrepareUploadResponseApi>(
+        getTasksStagedArtifactsPrepareUploadCreateUrl(projectId, id),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(taskStagedArtifactsPrepareUploadRequestApi),
+        }
+    )
+}
+
+/**
  * Get a list of runs for a specific task.
  * @summary List task runs
  */
@@ -419,6 +524,81 @@ export const tasksRunsArtifactsCreate = async (
 }
 
 /**
+ * Streams artifact content for a task run artifact after validating that it belongs to the run.
+ * @summary Download an artifact through the backend
+ */
+export const getTasksRunsArtifactsDownloadCreateUrl = (projectId: string, taskId: string, id: string) => {
+    return `/api/projects/${projectId}/tasks/${taskId}/runs/${id}/artifacts/download/`
+}
+
+export const tasksRunsArtifactsDownloadCreate = async (
+    projectId: string,
+    taskId: string,
+    id: string,
+    taskRunArtifactPresignRequestApi: TaskRunArtifactPresignRequestApi,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getTasksRunsArtifactsDownloadCreateUrl(projectId, taskId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(taskRunArtifactPresignRequestApi),
+    })
+}
+
+/**
+ * Verify directly uploaded S3 objects and attach them to the run artifact manifest.
+ * @summary Finalize direct uploads for task run artifacts
+ */
+export const getTasksRunsArtifactsFinalizeUploadCreateUrl = (projectId: string, taskId: string, id: string) => {
+    return `/api/projects/${projectId}/tasks/${taskId}/runs/${id}/artifacts/finalize_upload/`
+}
+
+export const tasksRunsArtifactsFinalizeUploadCreate = async (
+    projectId: string,
+    taskId: string,
+    id: string,
+    taskRunArtifactsFinalizeUploadRequestApi: TaskRunArtifactsFinalizeUploadRequestApi,
+    options?: RequestInit
+): Promise<TaskRunArtifactsFinalizeUploadResponseApi> => {
+    return apiMutator<TaskRunArtifactsFinalizeUploadResponseApi>(
+        getTasksRunsArtifactsFinalizeUploadCreateUrl(projectId, taskId, id),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(taskRunArtifactsFinalizeUploadRequestApi),
+        }
+    )
+}
+
+/**
+ * Reserve S3 object keys for task artifacts and return presigned POST forms for direct uploads.
+ * @summary Prepare direct uploads for task run artifacts
+ */
+export const getTasksRunsArtifactsPrepareUploadCreateUrl = (projectId: string, taskId: string, id: string) => {
+    return `/api/projects/${projectId}/tasks/${taskId}/runs/${id}/artifacts/prepare_upload/`
+}
+
+export const tasksRunsArtifactsPrepareUploadCreate = async (
+    projectId: string,
+    taskId: string,
+    id: string,
+    taskRunArtifactsPrepareUploadRequestApi: TaskRunArtifactsPrepareUploadRequestApi,
+    options?: RequestInit
+): Promise<TaskRunArtifactsPrepareUploadResponseApi> => {
+    return apiMutator<TaskRunArtifactsPrepareUploadResponseApi>(
+        getTasksRunsArtifactsPrepareUploadCreateUrl(projectId, taskId, id),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(taskRunArtifactsPrepareUploadRequestApi),
+        }
+    )
+}
+
+/**
  * Returns a temporary, signed URL that can be used to download a specific artifact.
  * @summary Generate presigned URL for an artifact
  */
@@ -442,7 +622,7 @@ export const tasksRunsArtifactsPresignCreate = async (
 }
 
 /**
- * Forward a JSON-RPC command to the agent server running in the sandbox. Supports user_message, cancel, and close commands.
+ * Forward a JSON-RPC command to the agent server running in the sandbox. Supports user_message, cancel, close, permission_response, and set_config_option commands.
  * @summary Send command to agent server
  */
 export const getTasksRunsCommandCreateUrl = (projectId: string, taskId: string, id: string) => {

@@ -199,6 +199,12 @@
             "default": "FunnelsQuery",
             "type": "string"
         },
+        "output_format": {
+            "default": "optimized",
+            "description": "Output format. \"optimized\" returns a human-readable summary from server-side formatters (recommended for analysis). \"json\" returns the raw query results as JSON.",
+            "enum": ["optimized", "json"],
+            "type": "string"
+        },
         "properties": {
             "default": [],
             "description": "Property filters for all series",
@@ -702,6 +708,11 @@
                                 "description": "Optional math aggregation type for the series. Only specify this math type if the user wants one of these. `first_time_for_user` - counts the number of users who have completed the event for the first time ever. `first_time_for_user_with_filters` - counts the number of users who have completed the event with specified filters for the first time.",
                                 "enum": ["first_time_for_user", "first_time_for_user_with_filters"],
                                 "type": "string"
+                            },
+                            "optionalInFunnel": {
+                                "default": false,
+                                "description": "If true, this step can be skipped without breaking the funnel — conversion between the surrounding required steps still counts even if this step didn't happen. Set this when the user asks for a non-required, skippable, or optional step in the funnel. Do not set it on the first or last step (those must be required).",
+                                "type": "boolean"
                             },
                             "properties": {
                                 "items": {
@@ -1241,6 +1252,11 @@
                             "name": {
                                 "description": "Action name from the plan.",
                                 "type": "string"
+                            },
+                            "optionalInFunnel": {
+                                "default": false,
+                                "description": "If true, this step can be skipped without breaking the funnel — conversion between the surrounding required steps still counts even if this step didn't happen. Set this when the user asks for a non-required, skippable, or optional step in the funnel. Do not set it on the first or last step (those must be required).",
+                                "type": "boolean"
                             },
                             "properties": {
                                 "items": {

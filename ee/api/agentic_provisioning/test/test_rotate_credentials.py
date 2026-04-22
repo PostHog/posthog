@@ -9,7 +9,7 @@ from posthog.models.team.team import Team
 from ee.api.agentic_provisioning.test.base import HMAC_SECRET, StripeProvisioningTestBase
 
 
-@override_settings(STRIPE_APP_SECRET_KEY=HMAC_SECRET)
+@override_settings(STRIPE_SIGNING_SECRET=HMAC_SECRET)
 class TestProvisioningRotateCredentials(StripeProvisioningTestBase):
     def test_rotate_returns_new_access_configuration(self):
         token = self._get_bearer_token()
