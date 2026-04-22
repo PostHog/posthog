@@ -17,10 +17,10 @@ Task mode will inject the token via the sandbox env instead.
 
 from __future__ import annotations
 
-import asyncio
-import subprocess
 import time
+import asyncio
 import traceback
+import subprocess
 
 from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
@@ -36,9 +36,7 @@ from products.tasks.backend.services.custom_prompt_runner import (
     _create_task_and_trigger,
     _poll_for_turn,
 )
-from products.tasks.backend.temporal.process_task.activities.run_autoresearch_campaign import (
-    LLM_GATEWAY_PRODUCT_SLUG,
-)
+from products.tasks.backend.temporal.process_task.activities.run_autoresearch_campaign import LLM_GATEWAY_PRODUCT_SLUG
 
 # How long between "still waiting" ticks when the sandbox has gone quiet.
 # The underlying poller checks S3 every ~10s — shorter than that just echoes
@@ -104,7 +102,7 @@ class Command(BaseCommand):
 
         team, user = _resolve_team_and_user()
         _assert_github_integration(team)
-        _warn_if_branch_not_on_remote(branch, self.stdout.write)
+        _check_branch_on_remote(branch, self.stdout.write)
 
         scope = f"clickhouse_perf:{cluster}_read"
         self.stdout.write(f"Minting OAuth token for user={user.id} team={team.id} scope={scope}")
@@ -134,9 +132,7 @@ class Command(BaseCommand):
         self.stdout.write("")
 
         try:
-            last_message = asyncio.run(
-                self._run_with_progress(prompt, context, branch, verbose)
-            )
+            last_message = asyncio.run(self._run_with_progress(prompt, context, branch, verbose))
         except Exception as e:
             self.stdout.write(self.style.ERROR(f"Sandbox run failed: {e}"))
             self.stdout.write(traceback.format_exc())
@@ -212,9 +208,7 @@ class Command(BaseCommand):
             idle = time.monotonic() - last_activity["at"]
             if idle >= _IDLE_TICK_INTERVAL_S:
                 elapsed = time.monotonic() - start
-                self.stdout.write(
-                    f"[+{elapsed:6.1f}s] ... still waiting ({idle:.0f}s since last line)"
-                )
+                self.stdout.write(f"[+{elapsed:6.1f}s] ... still waiting ({idle:.0f}s since last line)")
                 # Reset so we tick at the same cadence going forward rather than
                 # immediately on the next iteration.
                 last_activity["at"] = time.monotonic()
@@ -237,12 +231,16 @@ def _detect_current_branch() -> str | None:
     return branch or None
 
 
-def _warn_if_branch_not_on_remote(branch: str, log) -> None:
-    """Warn if the branch isn't on origin — the sandbox clones from remote.
+def _check_branch_on_remote(branch: str, log) -> None:
+    """Ensure the branch exists on origin — the sandbox clones from remote.
 
-    If the user iterated locally without pushing, the sandbox will clone an
-    old snapshot of the branch (or 404 fetching it). Flagging this upfront
-    saves a 60-second round trip through Temporal just to find out.
+    A missing branch is a hard error: the sandbox will clone origin and try
+    to check out the branch, fail silently, and the TaskRun terminates with
+    ``status=failed — no agent message``. That's a confusing tail to
+    diagnose. Fail fast with a clear instruction instead.
+
+    A local HEAD that diverges from origin is only a warning — the sandbox
+    will just use origin's snapshot.
     """
     try:
         result = subprocess.run(  # noqa: S603
@@ -255,34 +253,33 @@ def _warn_if_branch_not_on_remote(branch: str, log) -> None:
         )
     except (FileNotFoundError, subprocess.TimeoutExpired):
         return
-    if result.returncode == 0 and result.stdout.strip():
-        # Also check if local HEAD matches the remote — if not, warn that the
-        # sandbox will see stale code.
-        try:
-            local = subprocess.run(  # noqa: S603
-                ["git", "rev-parse", branch],
-                check=False,
-                text=True,
-                capture_output=True,
-                cwd=settings.BASE_DIR,
-                timeout=5,
+    if result.returncode != 0 or not result.stdout.strip():
+        raise CommandError(
+            f"branch '{branch}' does not exist on origin. The sandbox clones from origin, so "
+            f"it cannot check out this branch. Push it first:\n"
+            f"    git push -u origin {branch}\n"
+            f"or rerun with --branch pointing at a branch that already exists on origin."
+        )
+    try:
+        local = subprocess.run(  # noqa: S603
+            ["git", "rev-parse", branch],
+            check=False,
+            text=True,
+            capture_output=True,
+            cwd=settings.BASE_DIR,
+            timeout=5,
+        )
+        remote_sha = result.stdout.split()[0]
+        if local.returncode == 0 and local.stdout.strip() != remote_sha:
+            log(
+                f"warning: local '{branch}' is ahead/behind origin/{branch} — the sandbox "
+                "will clone origin's snapshot. `git push` if you want your latest changes."
             )
-            remote_sha = result.stdout.split()[0]
-            if local.returncode == 0 and local.stdout.strip() != remote_sha:
-                log(
-                    f"warning: local '{branch}' is ahead/behind origin/{branch} — the sandbox "
-                    "will clone origin's snapshot. `git push` if you want your latest changes."
-                )
-        except Exception:
-            pass
-        return
-    log(
-        f"warning: branch '{branch}' does not exist on origin. The sandbox will fail to check "
-        f"it out. Run: git push -u origin {branch}"
-    )
+    except Exception:
+        pass
 
 
-def _resolve_team_and_user() -> tuple[Team, "object"]:
+def _resolve_team_and_user() -> tuple[Team, object]:
     team = Team.objects.select_related("organization").first()
     if not team:
         raise CommandError("No team found in local database")
