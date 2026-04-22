@@ -1,16 +1,22 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
+        "access_method": {
+            "default": "warehouse",
+            "description": "Connection mode: 'warehouse' (import) or 'direct' (live query).\n\n* `warehouse` - warehouse\n* `direct` - direct",
+            "enum": ["warehouse", "direct"],
+            "type": "string"
+        },
         "description": {
             "anyOf": [
                 {
-                    "maxLength": 400,
                     "type": "string"
                 },
                 {
                     "type": "null"
                 }
-            ]
+            ],
+            "description": "Human-readable description."
         },
         "payload": {
             "additionalProperties": {},
@@ -23,13 +29,13 @@
         "prefix": {
             "anyOf": [
                 {
-                    "maxLength": 100,
                     "type": "string"
                 },
                 {
                     "type": "null"
                 }
-            ]
+            ],
+            "description": "Table name prefix in HogQL."
         },
         "source_type": {
             "description": "The source type name (e.g. \"Postgres\", \"MySQL\", \"Stripe\"). Use external-data-sources-wizard to see available types and their required fields.",
