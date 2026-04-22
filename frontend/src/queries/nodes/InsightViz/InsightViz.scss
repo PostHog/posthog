@@ -1,27 +1,3 @@
-// Named container so both InsightsNav and InsightViz descendants can use @container insight-scene queries.
-.Insight {
-    container-type: inline-size;
-    container-name: insight-scene;
-}
-
-// Tabs-row refresh slot: visible side-by-side, hidden when stacked.
-.InsightNav__refresh-slot {
-    @container insight-scene (max-width: 899px) {
-        display: none;
-    }
-}
-
-// Between-editor-and-chart refresh slot: hidden side-by-side, visible when stacked.
-.InsightViz__stacked-refresh {
-    display: none;
-
-    @container insight-scene (max-width: 899px) {
-        display: flex;
-        justify-content: flex-end;
-        width: 100%;
-    }
-}
-
 .InsightViz {
     display: flex;
     flex: 1; // important for when rendered within a flex parent

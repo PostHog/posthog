@@ -145,7 +145,7 @@ export function InsightViz({
                                     embedded={isEmbedded}
                                 />
                                 {editMode && !isEmbedded && (
-                                    <div className="InsightViz__stacked-refresh">
+                                    <div className="flex justify-end w-full @[900px]/insight-scene:hidden">
                                         <ComputationTimeWithRefresh />
                                     </div>
                                 )}

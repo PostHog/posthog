@@ -45,7 +45,7 @@ export function InsightsNav(): JSX.Element {
                     ),
                 }))}
                 rightSlot={
-                    <div className="InsightNav__refresh-slot">
+                    <div className="hidden @[900px]/insight-scene:block">
                         <ComputationTimeWithRefresh />
                     </div>
                 }

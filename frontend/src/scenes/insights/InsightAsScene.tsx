@@ -78,7 +78,7 @@ export function InsightAsScene({ insightId, attachTo, tabId }: InsightAsScenePro
     return (
         <BindLogic logic={insightLogic} props={insightProps}>
             <InsightModals insightLogicProps={insightProps} />
-            <SceneContent className={clsx('Insight', isEditing && '!gap-0')}>
+            <SceneContent className={clsx('Insight @container/insight-scene', isEditing && '!gap-0')}>
                 {isEditing ? (
                     <div className="flex flex-col gap-y-4 shrink-0">
                         <InsightSceneHeader insightLogicProps={insightProps} />
