@@ -294,7 +294,9 @@ export class CdpEventsConsumer<
 
         // Same format as hogflow-executor.service.ts so the Invocations tab renders pills.
         const formatTriggerActor = (item: (typeof possibleInvocations)[number]): string => {
-            const personPart = item.person?.id ? ` for [Person:${item.person.id}|${item.person.name ?? 'unknown'}]` : ''
+            const personPart = item.person?.id
+                ? ` for [Person:${item.person.id}|${item.person.name?.replaceAll('|', '') ?? 'unknown'}]`
+                : ''
             const event = item.state?.event
             const eventPart = event?.uuid
                 ? ` on [Event:${event.uuid}|${event.event?.replaceAll('|', '') ?? 'unknown'}|${event.timestamp}]`
@@ -347,8 +349,10 @@ export class CdpEventsConsumer<
 
                         if (deferResult.accepted) {
                             item.queueScheduledAt = DateTime.fromMillis(deferResult.scheduledAtMs)
-                            // Deferred log/metric emitted below, after the invocation clears
-                            // quota/watcher/masking - otherwise we'd promise execution we then drop.
+                            // The backlog slot is charged here even if the invocation is later dropped
+                            // by quota/watcher/masking. Accepted: a stranded slot clears on its own
+                            // after graceMs, and the alternative (release after each drop check) would
+                            // double-charge when two events for the same flow race.
                         } else {
                             counterRateLimited.labels({ kind: 'hog_flow' }).inc()
                             this.hogFunctionMonitoringService.queueAppMetric(

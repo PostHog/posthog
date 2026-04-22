@@ -20,6 +20,14 @@ end
 -- Grace window absorbs Cyclotron worker lag so the cap still holds when workers are behind.
 redis.call('zremrangebyscore', key, '-inf', nowMs - graceMs)
 
+-- Idempotent under retries (e.g. Kafka redelivery): if the same invocation is already
+-- scheduled, return its existing score instead of bumping it to a later slot.
+local existing = redis.call('zscore', key, member)
+if existing then
+  redis.call('expire', key, ttl)
+  return {1, tonumber(existing)}
+end
+
 local pending = redis.call('zcard', key)
 
 if pending >= maxDeferred then

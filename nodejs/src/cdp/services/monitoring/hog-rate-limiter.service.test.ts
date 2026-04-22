@@ -224,13 +224,14 @@ describe('HogRateLimiter', () => {
                 }
             )
 
-            it('is idempotent for the same invocationId (re-adding updates score instead of growing backlog)', async () => {
+            it('is idempotent for the same invocationId (keeps earliest scheduledAtMs under retries)', async () => {
                 const first = await rateLimiter.tryDefer(flowId, 'inv-same', 2)
                 expect(first.accepted).toBe(true)
 
-                // Same invocationId again should not consume a new slot since it's a sorted set member
+                // Re-submitting the same invocationId should return the original schedule, not bump it later.
                 const second = await rateLimiter.tryDefer(flowId, 'inv-same', 2)
                 expect(second.accepted).toBe(true)
+                expect(second.scheduledAtMs).toBe(first.scheduledAtMs)
 
                 // There should still be room for one more distinct invocation
                 const third = await rateLimiter.tryDefer(flowId, 'inv-other', 2)
