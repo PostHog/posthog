@@ -2612,7 +2612,11 @@ export interface ErrorTrackingQuery extends DataNode<ErrorTrackingQueryResponse>
     useQueryV2?: boolean
     /** Use V3 query path (denormalized ClickHouse table, no Postgres joins) */
     useQueryV3?: boolean
-    /** Phantom rows UNIONed into the fingerprint issue state subquery (V3 only). */
+    /**
+     * Phantom rows UNIONed into the fingerprint issue state subquery (V3 only).
+     * @type array
+     * @maxItems 50
+     */
     phantomFingerprintIssueStates?: ErrorTrackingPhantomFingerprintIssueState[]
 }
 

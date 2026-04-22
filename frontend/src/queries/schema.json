@@ -15254,6 +15254,7 @@
                     "items": {
                         "$ref": "#/definitions/ErrorTrackingPhantomFingerprintIssueState"
                     },
+                    "maxItems": 50,
                     "type": "array"
                 },
                 "response": {

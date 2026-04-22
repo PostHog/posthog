@@ -20019,6 +20019,7 @@ class ErrorTrackingQuery(BaseModel):
     phantomFingerprintIssueStates: list[ErrorTrackingPhantomFingerprintIssueState] | None = Field(
         default=None,
         description=("Phantom rows UNIONed into the fingerprint issue state subquery (V3 only)."),
+        max_length=50,
     )
     response: ErrorTrackingQueryResponse | None = None
     searchQuery: str | None = Field(

@@ -144,60 +144,56 @@ export const phantomFingerprintIssueStateLogic = kea<phantomFingerprintIssueStat
 
         return {
             capturePhantomsForIssues: async ({ issueIds, delta }) => {
-                try {
-                    const uniqueIds = Array.from(new Set(issueIds)).filter(Boolean)
-                    if (uniqueIds.length === 0) {
-                        return
-                    }
+                const uniqueIds = Array.from(new Set(issueIds)).filter(Boolean)
+                if (uniqueIds.length === 0) {
+                    return
+                }
 
-                    const fingerprintMap = await resolveFingerprintsForIssues(uniqueIds)
-                    const version = Date.now()
-                    const rows: ErrorTrackingPhantomFingerprintIssueState[] = []
+                const fingerprintMap = await resolveFingerprintsForIssues(uniqueIds)
+                const version = Date.now()
+                const rows: ErrorTrackingPhantomFingerprintIssueState[] = []
 
-                    for (const id of uniqueIds) {
-                        const current = findCurrentIssueState(id)
-                        if (!current) {
-                            continue
-                        }
-                        const merged = applyDelta(current, delta)
-                        const fingerprints = fingerprintMap[id] ?? []
-                        for (const fp of fingerprints) {
-                            rows.push(buildPhantomRow(fp, id, merged, version))
-                        }
+                for (const id of uniqueIds) {
+                    const current = findCurrentIssueState(id)
+                    if (!current) {
+                        continue
                     }
+                    const merged = applyDelta(current, delta)
+                    const fingerprints = fingerprintMap[id] ?? []
+                    for (const fp of fingerprints) {
+                        rows.push(buildPhantomRow(fp, id, merged, version))
+                    }
+                }
 
-                    if (rows.length > 0) {
-                        actions.addPhantoms(rows)
-                    }
-                } catch {}
+                if (rows.length > 0) {
+                    actions.addPhantoms(rows)
+                }
             },
             captureMergePhantoms: async ({ primaryId, sourceIds }) => {
-                try {
-                    const allIds = Array.from(new Set([primaryId, ...sourceIds])).filter(Boolean)
-                    if (allIds.length === 0) {
-                        return
-                    }
+                const allIds = Array.from(new Set([primaryId, ...sourceIds])).filter(Boolean)
+                if (allIds.length === 0) {
+                    return
+                }
 
-                    const primaryState = findCurrentIssueState(primaryId)
-                    if (!primaryState) {
-                        return
-                    }
+                const primaryState = findCurrentIssueState(primaryId)
+                if (!primaryState) {
+                    return
+                }
 
-                    const fingerprintMap = await resolveFingerprintsForIssues(allIds)
-                    const version = Date.now()
-                    const rows: ErrorTrackingPhantomFingerprintIssueState[] = []
+                const fingerprintMap = await resolveFingerprintsForIssues(allIds)
+                const version = Date.now()
+                const rows: ErrorTrackingPhantomFingerprintIssueState[] = []
 
-                    for (const id of allIds) {
-                        const fingerprints = fingerprintMap[id] ?? []
-                        for (const fp of fingerprints) {
-                            rows.push(buildPhantomRow(fp, primaryId, primaryState, version))
-                        }
+                for (const id of allIds) {
+                    const fingerprints = fingerprintMap[id] ?? []
+                    for (const fp of fingerprints) {
+                        rows.push(buildPhantomRow(fp, primaryId, primaryState, version))
                     }
+                }
 
-                    if (rows.length > 0) {
-                        actions.addPhantoms(rows)
-                    }
-                } catch {}
+                if (rows.length > 0) {
+                    actions.addPhantoms(rows)
+                }
             },
         }
     }),
