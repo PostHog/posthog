@@ -306,9 +306,9 @@ class BatchExport(ModelActivityMixin, UUIDTModel):
         if self.interval == "hour":
             return timedelta(minutes=15)
         elif self.interval == "day":
-            return timedelta(minutes=30)
+            return timedelta(minutes=20)
         elif self.interval == "week":
-            return timedelta(hours=1)
+            return timedelta(minutes=30)
         elif self.interval.startswith("every"):
             # This yields 1 minute for 5 minute batch exports, which is the only
             # "every" interval in use currently.
