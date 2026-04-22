@@ -1,7 +1,13 @@
 import { expectLogic } from 'kea-test-utils'
 
 import { initKeaTests } from '~/test/init'
-import { canonicalizeUiHost, toolbarConfigLogic, toolbarFetch, toolbarUploadMedia } from '~/toolbar/toolbarConfigLogic'
+import {
+    canonicalizeApiHost,
+    canonicalizeUiHost,
+    toolbarConfigLogic,
+    toolbarFetch,
+    toolbarUploadMedia,
+} from '~/toolbar/toolbarConfigLogic'
 import { cleanToolbarAuthHash, OAUTH_LOCALSTORAGE_KEY, PKCE_STORAGE_KEY, readToolbarAuthHash } from '~/toolbar/utils'
 
 global.fetch = jest.fn(() =>
@@ -1244,36 +1250,83 @@ describe('toolbar toolbarConfigLogic', () => {
             expect(logic.values.apiHost).toBe('https://us.i.posthog.com')
         })
 
-        it.each(['javascript:alert(1)//', 'data:text/html,<script>alert(1)</script>', 'vbscript:msgbox'])(
+        it('preserves the URL path for reverse-proxy deployments', () => {
+            // Self-hosted customers routing PostHog through a reverse proxy at a
+            // sub-path like /ingest rely on apiHost keeping that prefix — it gets
+            // concatenated with /static/toolbar.css and /i/v1/logs.
+            const logic = toolbarConfigLogic.build({ apiURL: 'https://proxy.example.com/ingest/' } as any)
+            logic.mount()
+            expect(logic.values.apiHost).toBe('https://proxy.example.com/ingest')
+        })
+
+        it.each([
+            ['apiURL', { apiURL: '' }],
+            ['api_host', { apiURL: '', posthog: { config: { api_host: '' } } as any }],
+        ])('rejects dangerous schemes supplied via %s and falls back', (field, baseProps) => {
+            const malicious = 'javascript:alert(1)//'
+            const logic = toolbarConfigLogic.build({
+                ...(baseProps as any),
+                ...(field === 'apiURL'
+                    ? { apiURL: malicious }
+                    : { posthog: { config: { api_host: malicious } } as any }),
+            })
+            logic.mount()
+            expect(logic.values.apiHost).toBe(window.location.origin)
+            expect(logic.values.apiHostResolution.source).toBe('fallback_rejected')
+        })
+
+        it.each(['data:text/html,<script>alert(1)</script>', 'vbscript:msgbox'])(
             'rejects apiHost with dangerous scheme: %s',
             (maliciousHost) => {
-                // Option A: even though apiHost no longer carries auth tokens after
-                // Option B, validating at the selector stops a dangerous scheme from
-                // ending up as a <link href> on toolbar.css.
                 const logic = toolbarConfigLogic.build({
                     apiURL: maliciousHost,
                     posthog: { config: { api_host: maliciousHost } } as any,
                 } as any)
                 logic.mount()
-                // Should fall through to window.location.origin instead of the malicious value.
                 expect(logic.values.apiHost).toBe(window.location.origin)
             }
         )
 
-        it('rejects apiHost with userinfo (visual spoof protection)', () => {
+        it('rejects apiHost with userinfo on either branch (visual spoof protection)', () => {
             const logic = toolbarConfigLogic.build({
                 apiURL: 'https://us.posthog.com@evil.com',
-                posthog: { config: {} } as any,
+                posthog: { config: { api_host: 'https://app.posthog.com@attacker.com' } } as any,
             } as any)
             logic.mount()
             expect(logic.values.apiHost).toBe(window.location.origin)
+            expect(logic.values.apiHostResolution.source).toBe('fallback_rejected')
+        })
+
+        it('labels the fallback as "absent" when no candidate was supplied', () => {
+            const logic = toolbarConfigLogic.build({} as any)
+            logic.mount()
+            expect(logic.values.apiHostResolution.source).toBe('fallback_absent')
+        })
+    })
+
+    describe('canonicalizeApiHost', () => {
+        it.each([
+            // preserves path
+            ['https://proxy.example.com/ingest', 'https://proxy.example.com/ingest'],
+            ['https://proxy.example.com/ingest/', 'https://proxy.example.com/ingest'],
+            ['https://us.i.posthog.com', 'https://us.i.posthog.com'],
+            ['https://us.i.posthog.com/', 'https://us.i.posthog.com'],
+            // rejected
+            ['javascript:alert(1)', null],
+            ['https://user:pass@host/path', null],
+            ['https://host@evil.com/path', null],
+            ['', null],
+            [undefined, null],
+            ['not a url', null],
+        ])('canonicalizeApiHost(%p) === %p', (input, expected) => {
+            expect(canonicalizeApiHost(input as any)).toBe(expected)
         })
     })
 
     describe('toolbarUploadMedia uses uiHost, not apiHost', () => {
         // Regression: an attacker-crafted link with a legitimate uiHost but an
         // attacker-controlled apiURL must not receive the bearer token.
-        it('POSTs to uiHost even when apiHost points elsewhere', async () => {
+        it('POSTs to uiHost and never sends the bearer to the attacker host', async () => {
             const logic = toolbarConfigLogic.build({
                 uiHost: 'https://us.posthog.com',
                 apiURL: 'https://evil.example.com',
@@ -1283,29 +1336,53 @@ describe('toolbar toolbarConfigLogic', () => {
             } as any)
             logic.mount()
 
-            const uploadResponse = {
-                ok: true,
-                status: 200,
-                json: () => Promise.resolve({ id: 'm1', image_location: 'https://cdn/x.png', name: 'x.png' }),
-            }
             ;(global.fetch as jest.Mock).mockImplementation((url: string) => {
                 if (url.endsWith('/toolbar_oauth/check')) {
                     return Promise.resolve({ ok: true, status: 200 })
                 }
-                return Promise.resolve(uploadResponse as any)
+                return Promise.resolve({
+                    ok: true,
+                    status: 200,
+                    json: () => Promise.resolve({ id: 'm1', image_location: 'https://cdn/x.png', name: 'x.png' }),
+                } as any)
             })
             ;(global.fetch as jest.Mock).mockClear()
 
             const file = new File(['data'], 'x.png', { type: 'image/png' })
             await toolbarUploadMedia(file)
 
-            const uploadCall = (global.fetch as jest.Mock).mock.calls.find(
+            const uploadCalls = (global.fetch as jest.Mock).mock.calls.filter(
                 (c) => typeof c[0] === 'string' && c[0].includes('/uploaded_media/')
             )
-            expect(uploadCall).not.toBeUndefined()
-            expect(uploadCall![0]).toBe('https://us.posthog.com/api/projects/@current/uploaded_media/')
-            expect(uploadCall![0]).not.toContain('evil.example.com')
-            expect(uploadCall![1].headers.Authorization).toBe('Bearer pha_secret')
+            expect(uploadCalls).toHaveLength(1)
+            expect(uploadCalls[0][0]).toBe('https://us.posthog.com/api/projects/@current/uploaded_media/')
+
+            // No fetch anywhere (upload or otherwise) may target the attacker host
+            // carrying an Authorization header.
+            for (const [calledUrl, init] of (global.fetch as jest.Mock).mock.calls) {
+                if (typeof calledUrl !== 'string') {
+                    continue
+                }
+                const auth = (init?.headers as Record<string, string> | undefined)?.Authorization
+                if (calledUrl.includes('evil.example.com')) {
+                    expect(auth).toBeUndefined()
+                }
+            }
+        })
+
+        it('throws "Toolbar not authenticated" when no session exists, without firing tokenExpired', async () => {
+            const logic = toolbarConfigLogic.build({ uiHost: 'https://us.posthog.com' } as any)
+            logic.mount()
+            ;(global.fetch as jest.Mock).mockClear()
+
+            const file = new File(['data'], 'x.png', { type: 'image/png' })
+            await expect(toolbarUploadMedia(file)).rejects.toThrow('Toolbar not authenticated')
+
+            // Should not have attempted any fetch (we bailed before toolbarFetch).
+            const uploadAttempts = (global.fetch as jest.Mock).mock.calls.filter(
+                (c) => typeof c[0] === 'string' && c[0].includes('/uploaded_media/')
+            )
+            expect(uploadAttempts).toHaveLength(0)
         })
     })
 })
