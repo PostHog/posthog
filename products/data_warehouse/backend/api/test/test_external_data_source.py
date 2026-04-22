@@ -1902,6 +1902,74 @@ class TestExternalDataSource(APIBaseTest):
         mock_add_table_to_cdc_publication.assert_called_once()
         assert mock_add_table_to_cdc_publication.call_args.args[1:] == ("test_pub", "analytics", "events")
 
+    @patch("products.data_warehouse.backend.api.external_data_source.SourceRegistry.get_source")
+    def test_create_postgres_incremental_falls_back_to_detected_primary_keys(self, mock_get_source):
+        source_mock = mock_get_source.return_value
+        source_mock.validate_config.return_value = (True, [])
+        parsed_config = Mock()
+        parsed_config.schema = "public"
+        parsed_config.to_dict.return_value = {
+            "host": "localhost",
+            "port": 5432,
+            "database": "app",
+            "user": "user",
+            "password": "pass",
+            "schema": "public",
+        }
+        source_mock.parse_config.return_value = parsed_config
+        source_mock.validate_credentials.return_value = (True, None)
+        source_mock.get_schemas.return_value = [
+            SourceSchema(
+                name="events",
+                supports_incremental=True,
+                supports_append=True,
+                columns=[("id", "integer", False), ("updated_at", "timestamp", False)],
+                foreign_keys=[],
+                incremental_fields=[
+                    {
+                        "label": "updated_at",
+                        "type": "timestamp",
+                        "field": "updated_at",
+                        "field_type": "timestamp",
+                        "nullable": False,
+                    }
+                ],
+                detected_primary_keys=["id"],
+            ),
+        ]
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/",
+            data={
+                "source_type": "Postgres",
+                "payload": {
+                    "host": "localhost",
+                    "port": 5432,
+                    "database": "app",
+                    "user": "user",
+                    "password": "pass",
+                    "schema": "public",
+                    "schemas": [
+                        {
+                            "name": "events",
+                            "should_sync": True,
+                            "sync_type": "incremental",
+                            "incremental_field": "updated_at",
+                            "incremental_field_type": "timestamp",
+                            # Frontend sends `null` when the user leaves the PK selector empty —
+                            # backend should fall back to the source-detected primary key so
+                            # sync-time detection is not the only line of defense.
+                            "primary_key_columns": None,
+                        },
+                    ],
+                },
+            },
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.content
+        schema = ExternalDataSchema.objects.get(team_id=self.team.pk, name="events")
+        assert schema.sync_type_config["primary_key_columns"] == ["id"]
+
     def test_create_direct_non_postgres_is_rejected(self):
         response = self.client.post(
             f"/api/environments/{self.team.pk}/external_data_sources/",
