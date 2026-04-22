@@ -478,6 +478,56 @@ def _is_oom_error(exc: Exception) -> bool:
     return f"error code {ErrorCodes.MEMORY_LIMIT_EXCEEDED}" in error_str or "MEMORY_LIMIT_EXCEEDED" in error_str
 
 
+def _is_too_many_parts_error(exc: Exception) -> bool:
+    """Check if an exception is a ClickHouse TOO_MANY_PARTS error.
+
+    This can happen even after the preflight check passes — a single INSERT SELECT
+    can produce hundreds of parts (one per block), exceeding parts_to_throw_insert
+    before merges catch up.
+    """
+    error_str = str(exc)
+    return f"error code {ErrorCodes.TOO_MANY_PARTS}" in error_str or "TOO_MANY_PARTS" in error_str
+
+
+def _execute_with_too_many_parts_retry(
+    context: AssetExecutionContext,
+    config: ExperimentalSessionsBackfillConfig,
+    client: Client,
+    sql: str,
+    settings_: dict[str, Any],
+    table: str,
+    retry_state: dict[str, int],
+    retry_description: str,
+) -> None:
+    """Execute an INSERT, retrying by re-running the preflight wait on TOO_MANY_PARTS.
+
+    Uses a shared retry budget (retry_state['count'] / retry_state['max']) across
+    the whole backfill run so a single misbehaving partition can't loop forever.
+    Raises the original exception when the budget is exhausted (or on any other error).
+    """
+    while True:
+        try:
+            sync_execute(sql, settings=settings_, sync_client=client)
+            return
+        except Exception as e:
+            if not _is_too_many_parts_error(e):
+                raise
+
+            retry_state["count"] += 1
+            if retry_state["count"] > retry_state["max"]:
+                context.log.exception(
+                    f"TOO_MANY_PARTS retry budget exhausted ({retry_state['max']}) on {retry_description}; giving up"
+                )
+                raise
+
+            context.log.warning(
+                f"TOO_MANY_PARTS on {retry_description} "
+                f"(retry {retry_state['count']}/{retry_state['max']}), "
+                f"returning to preflight check and waiting for parts to merge: {e}"
+            )
+            wait_for_parts_to_merge(context, config, sync_client=client, table=table, use_cluster=False)
+
+
 def _sub_chunk_where(base_where: str, sub_chunk_i: int, total_sub_chunks: int) -> str:
     """Add a cityHash64(distinct_id) range filter for sub-chunk splitting on OOM retry."""
     max_uint64 = 2**64
@@ -603,6 +653,11 @@ def _do_experimental_backfill(
     # and is a standalone node not in the main ClickHouse cluster
     target_table = DISTRIBUTED_RAW_SESSIONS_TABLE_V3()
 
+    # Shared retry budget for TOO_MANY_PARTS across the whole run. Budget = num_chunks
+    # so on average each chunk can trigger one retry; a few bad chunks may burn through
+    # more, but the total is bounded so we fail fast if parts consistently aren't merging.
+    parts_retry_state = {"count": 0, "max": num_chunks}
+
     with get_http_client(**kwargs, **config.client_overrides) as client:
         tags = dagster_tags(context)
         with tags_context(kind="dagster", dagster=tags, product=ProductKey.WEB_ANALYTICS, feature=Feature.BACKFILL):
@@ -627,7 +682,16 @@ def _do_experimental_backfill(
                 context.log.info(backfill_sql)
 
                 try:
-                    sync_execute(backfill_sql, settings=merged_settings, sync_client=client)
+                    _execute_with_too_many_parts_retry(
+                        context,
+                        config,
+                        client,
+                        backfill_sql,
+                        merged_settings,
+                        target_table,
+                        parts_retry_state,
+                        f"chunk {chunk_i + 1}/{num_chunks}",
+                    )
                 except Exception as e:
                     if not _is_oom_error(e):
                         _raise_failure(context, chunk_i, num_chunks, partition_range_str, e)
@@ -664,7 +728,16 @@ def _do_experimental_backfill(
                         )
                         context.log.info(sub_sql)
                         try:
-                            sync_execute(sub_sql, settings=merged_settings, sync_client=client)
+                            _execute_with_too_many_parts_retry(
+                                context,
+                                config,
+                                client,
+                                sub_sql,
+                                merged_settings,
+                                target_table,
+                                parts_retry_state,
+                                f"chunk {chunk_i + 1}/{num_chunks} sub-chunk {sub_i + 1}/{OOM_RETRY_SUB_CHUNKS}",
+                            )
                         except Exception as sub_e:
                             _raise_failure(
                                 context,

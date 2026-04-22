@@ -222,3 +222,63 @@ class TestExperimentalBackfillResume:
         assert failure.metadata["failed_chunk_index"].value == 2
         assert failure.metadata["resume_from_chunk"].value == 2
         assert failure.metadata["total_chunks"].value == 4
+
+
+class TestTooManyPartsRetry:
+    @staticmethod
+    def _too_many_parts_error() -> Exception:
+        # Match the detection string used in _is_too_many_parts_error.
+        return RuntimeError("Code: 252. DB::Exception: error code 252 TOO_MANY_PARTS: Too many parts")
+
+    def test_retries_on_too_many_parts_then_succeeds(self):
+        config = ExperimentalSessionsBackfillConfig(distinct_id_chunks=4, client_overrides={})
+        context = _make_context()
+
+        call_count = 0
+
+        def fail_first_then_succeed(*args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                raise self._too_many_parts_error()
+
+        with (
+            _patch_experimental_backfill_deps() as (mock_sync_execute, _mock_redis),
+            patch("posthog.dags.sessions.wait_for_parts_to_merge") as mock_wait,
+        ):
+            mock_sync_execute.side_effect = fail_first_then_succeed
+            _do_experimental_backfill(
+                sql_template=_sql_template_stub,
+                timestamp_field="timestamp",
+                context=context,
+                config=config,
+            )
+
+        # 4 chunks, first one retried once = 5 executes total
+        assert mock_sync_execute.call_count == 5
+        # 4 preflight waits (one per chunk) + 1 retry wait = 5 waits
+        assert mock_wait.call_count == 5
+
+    def test_retry_budget_equals_num_chunks(self):
+        """When retries exhaust the budget (= num_chunks), the job fails."""
+        num_chunks = 3
+        config = ExperimentalSessionsBackfillConfig(distinct_id_chunks=num_chunks, client_overrides={})
+        context = _make_context()
+
+        # Always fail with TOO_MANY_PARTS so we blow through the retry budget.
+        with (
+            _patch_experimental_backfill_deps() as (mock_sync_execute, _mock_redis),
+            patch("posthog.dags.sessions.wait_for_parts_to_merge"),
+        ):
+            mock_sync_execute.side_effect = self._too_many_parts_error()
+            with pytest.raises(dagster.Failure):
+                _do_experimental_backfill(
+                    sql_template=_sql_template_stub,
+                    timestamp_field="timestamp",
+                    context=context,
+                    config=config,
+                )
+
+        # First chunk: 1 initial call + num_chunks retries = num_chunks + 1 calls,
+        # then the next retry would exceed the budget and re-raises.
+        assert mock_sync_execute.call_count == num_chunks + 1
