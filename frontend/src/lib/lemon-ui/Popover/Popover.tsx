@@ -36,6 +36,6 @@ export interface PopoverProps {
 export const PopoverOverlayContext = React.createContext<[boolean, number]>([true, -1])
 export const PopoverReferenceContext = React.createContext<[boolean, Placement] | null>(null)
 
-export const Popover = function PopoverStub({ children }): JSX.Element {
-    return <>{children}</>
+export const Popover: React.ComponentType<PopoverProps> = function PopoverStub(props: PopoverProps): JSX.Element {
+    return <>{props.children}</>
 }
