@@ -47,6 +47,7 @@ export const API_SCOPES: APIScope[] = [
     { key: 'insight', objectName: 'Insight', objectPlural: 'insights' },
     { key: 'insight_variable', objectName: 'Insight variable', objectPlural: 'insight variables' },
     { key: 'integration', objectName: 'Integration', objectPlural: 'integrations', disabledActions: ['write'] },
+    { key: 'legal_document', objectName: 'Legal document', objectPlural: 'legal documents' },
     { key: 'llm_analytics', objectName: 'LLM analytics', objectPlural: 'LLM analytics' },
     { key: 'llm_gateway', objectName: 'LLM gateway', objectPlural: 'LLM gateway', disabledActions: ['write'] },
     { key: 'llm_prompt', objectName: 'LLM prompt', objectPlural: 'LLM prompts' },
