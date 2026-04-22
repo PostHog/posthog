@@ -730,8 +730,6 @@ def agentic_authorize(request: Any) -> HttpResponseBase:
     return HttpResponseRedirect(f"{base}/agentic/authorize?{params}")
 
 
-@api_view(["POST"])
-@permission_classes([IsAuthenticated])
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
 def agentic_authorize_pending(request: Request) -> Response:
