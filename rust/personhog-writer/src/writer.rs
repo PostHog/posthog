@@ -82,8 +82,10 @@ impl<D: PersonDb + 'static> WriterTask<D> {
         let total_rows = persons.len();
         counter!("personhog_writer_flushes_total").increment(1);
 
+        // Preflight oversized persons out of the batch. Trimmed survivors
+        // rejoin the main path; untrimable ones produce skip warnings.
+        let (persons, mut warnings) = self.store.preflight_trim_batch(persons);
         let mut remaining: Vec<Person> = persons;
-        let mut warnings: Vec<IngestionWarning> = Vec::new();
 
         loop {
             let to_process = std::mem::take(&mut remaining);
@@ -127,6 +129,11 @@ impl<D: PersonDb + 'static> WriterTask<D> {
                     );
 
                     if self.consecutive_failures >= MAX_CONSECUTIVE_FAILURES {
+                        // Emit warnings for data_failed rows that were already
+                        // written in this iteration before we bail. Offsets
+                        // won't commit, so Kafka replay will re-emit them, but
+                        // losing them when we have them is wrong.
+                        self.emit_warnings(&warnings);
                         self.handle.signal_failure(format!(
                             "store flush failed {MAX_CONSECUTIVE_FAILURES} consecutive times"
                         ));
@@ -138,10 +145,19 @@ impl<D: PersonDb + 'static> WriterTask<D> {
                 }
 
                 BatchOutcome::Fatal(fatal) => {
+                    self.emit_warnings(&warnings);
                     self.handle
                         .signal_failure(format!("upsert_batch fatal: {fatal}"));
                     return;
                 }
+            }
+        }
+    }
+
+    fn emit_warnings(&self, warnings: &[IngestionWarning]) {
+        if let Some(producer) = &self.warnings {
+            for w in warnings {
+                producer.emit(w);
             }
         }
     }
@@ -153,12 +169,7 @@ impl<D: PersonDb + 'static> WriterTask<D> {
         oldest_ts_ms: Option<i64>,
         warnings: Vec<IngestionWarning>,
     ) {
-        if let Some(producer) = &self.warnings {
-            for w in &warnings {
-                producer.emit(w);
-            }
-        }
-
+        self.emit_warnings(&warnings);
         self.consecutive_failures = 0;
         self.handle.report_healthy();
         self.commit_and_record(offsets, oldest_ts_ms, rows);

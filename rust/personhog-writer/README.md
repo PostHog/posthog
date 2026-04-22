@@ -95,6 +95,7 @@ When the writer is slow (PG latency, connection pool exhaustion), the bounded ch
 | `personhog_writer_messages_consumed_total` | counter | Messages decoded from Kafka |
 | `personhog_writer_decode_errors_total` | counter | Proto decode failures |
 | `personhog_writer_invalid_uuid_total` | counter | Persons skipped due to invalid UUIDs |
+| `personhog_writer_invalid_team_id_total` | counter | Persons skipped because `team_id` exceeds i32 range |
 | `personhog_writer_invalid_json_total` | counter | Non-UTF8 JSON fields defaulted |
 | `personhog_writer_kafka_errors_total` | counter | Kafka recv errors |
 | `personhog_writer_flushes_total` | counter | Total flush events |

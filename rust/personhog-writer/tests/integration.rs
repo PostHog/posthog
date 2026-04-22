@@ -32,8 +32,10 @@ async fn writer_upserts_person_to_pg() {
     let team_id: i32 = 99_001;
     cleanup_team(&pool, team_id).await;
 
-    let writer =
-        PersonWriteStore::new(PgStore::new(pool.clone(), TARGET_TABLE.to_string()), 500, 8);
+    let writer = PersonWriteStore::new(
+        PgStore::new(pool.clone(), TARGET_TABLE.to_string()),
+        common::test_store_config(),
+    );
     let person = make_person(team_id as i64, 1, 1);
 
     assert!(matches!(
@@ -63,8 +65,10 @@ async fn writer_version_guard_skips_stale_updates() {
     let team_id: i32 = 99_002;
     cleanup_team(&pool, team_id).await;
 
-    let writer =
-        PersonWriteStore::new(PgStore::new(pool.clone(), TARGET_TABLE.to_string()), 500, 8);
+    let writer = PersonWriteStore::new(
+        PgStore::new(pool.clone(), TARGET_TABLE.to_string()),
+        common::test_store_config(),
+    );
 
     // Write version 5
     let person_v5 = make_person(team_id as i64, 1, 5);
@@ -101,8 +105,10 @@ async fn writer_upsert_batch_multiple_persons() {
     let team_id: i32 = 99_003;
     cleanup_team(&pool, team_id).await;
 
-    let writer =
-        PersonWriteStore::new(PgStore::new(pool.clone(), TARGET_TABLE.to_string()), 500, 8);
+    let writer = PersonWriteStore::new(
+        PgStore::new(pool.clone(), TARGET_TABLE.to_string()),
+        common::test_store_config(),
+    );
     let persons: Vec<Person> = (1..=10)
         .map(|i| make_person(team_id as i64, i, 1))
         .collect();
@@ -130,8 +136,10 @@ async fn writer_skips_invalid_uuids_without_failing_batch() {
     let team_id: i32 = 99_004;
     cleanup_team(&pool, team_id).await;
 
-    let writer =
-        PersonWriteStore::new(PgStore::new(pool.clone(), TARGET_TABLE.to_string()), 500, 8);
+    let writer = PersonWriteStore::new(
+        PgStore::new(pool.clone(), TARGET_TABLE.to_string()),
+        common::test_store_config(),
+    );
 
     let valid_person = make_person(team_id as i64, 1, 1);
     let mut bad_person = make_person(team_id as i64, 2, 1);
@@ -195,8 +203,10 @@ async fn consumer_flushes_on_buffer_size_threshold() {
     let _monitor = manager.monitor_background();
 
     // Start writer task
-    let writer =
-        PersonWriteStore::new(PgStore::new(pool.clone(), TARGET_TABLE.to_string()), 500, 8);
+    let writer = PersonWriteStore::new(
+        PgStore::new(pool.clone(), TARGET_TABLE.to_string()),
+        common::test_store_config(),
+    );
     let writer_task = WriterTask::new(
         Arc::clone(&kafka_consumer),
         writer,
@@ -294,8 +304,10 @@ async fn consumer_flushes_on_timer() {
     );
     let _monitor = manager.monitor_background();
 
-    let writer =
-        PersonWriteStore::new(PgStore::new(pool.clone(), TARGET_TABLE.to_string()), 500, 8);
+    let writer = PersonWriteStore::new(
+        PgStore::new(pool.clone(), TARGET_TABLE.to_string()),
+        common::test_store_config(),
+    );
     let writer_task = WriterTask::new(
         Arc::clone(&kafka_consumer),
         writer,
@@ -393,8 +405,10 @@ async fn consumer_deduplicates_multiple_updates_for_same_person() {
     );
     let _monitor = manager.monitor_background();
 
-    let writer =
-        PersonWriteStore::new(PgStore::new(pool.clone(), TARGET_TABLE.to_string()), 500, 8);
+    let writer = PersonWriteStore::new(
+        PgStore::new(pool.clone(), TARGET_TABLE.to_string()),
+        common::test_store_config(),
+    );
     let writer_task = WriterTask::new(
         Arc::clone(&kafka_consumer),
         writer,
@@ -495,8 +509,10 @@ async fn writer_processes_batch_from_channel() {
     let writer_handle = manager.register("writer", lifecycle::ComponentOptions::new());
     let _monitor = manager.monitor_background();
 
-    let writer =
-        PersonWriteStore::new(PgStore::new(pool.clone(), TARGET_TABLE.to_string()), 500, 8);
+    let writer = PersonWriteStore::new(
+        PgStore::new(pool.clone(), TARGET_TABLE.to_string()),
+        common::test_store_config(),
+    );
     let writer_task = WriterTask::new(
         Arc::clone(&kafka_consumer),
         writer,
@@ -603,7 +619,14 @@ async fn writer_crashes_after_exhausting_transient_retries() {
         chunk_remaining_failures: std::sync::atomic::AtomicU32::new(100),
         chunk_error_kind: WriteErrorKind::Transient,
     };
-    let store = PersonWriteStore::new(mock_db, 10, 4);
+    let store = PersonWriteStore::new(
+        mock_db,
+        personhog_writer::store::StoreConfig {
+            chunk_size: 10,
+            row_fallback_concurrency: 4,
+            ..common::test_store_config()
+        },
+    );
 
     let writer_task = WriterTask::new(
         Arc::clone(&kafka_consumer),
@@ -654,7 +677,14 @@ async fn writer_recovers_on_transient_retry() {
         chunk_remaining_failures: std::sync::atomic::AtomicU32::new(1),
         chunk_error_kind: WriteErrorKind::Transient,
     };
-    let store = PersonWriteStore::new(mock_db, 10, 4);
+    let store = PersonWriteStore::new(
+        mock_db,
+        personhog_writer::store::StoreConfig {
+            chunk_size: 10,
+            row_fallback_concurrency: 4,
+            ..common::test_store_config()
+        },
+    );
 
     let writer_task = WriterTask::new(
         Arc::clone(&kafka_consumer),
@@ -709,7 +739,14 @@ async fn writer_falls_back_to_per_row_on_data_error() {
         chunk_remaining_failures: std::sync::atomic::AtomicU32::new(100),
         chunk_error_kind: WriteErrorKind::Data,
     };
-    let store = PersonWriteStore::new(mock_db, 10, 4);
+    let store = PersonWriteStore::new(
+        mock_db,
+        personhog_writer::store::StoreConfig {
+            chunk_size: 10,
+            row_fallback_concurrency: 4,
+            ..common::test_store_config()
+        },
+    );
 
     let writer_task = WriterTask::new(
         Arc::clone(&kafka_consumer),
@@ -750,7 +787,10 @@ async fn properties_size_violation_trim_succeeds() {
     let team_id: i32 = 99_050;
     cleanup_team(&pool, team_id).await;
 
-    let store = PersonWriteStore::new(PgStore::new(pool.clone(), TARGET_TABLE.to_string()), 500, 8);
+    let store = PersonWriteStore::new(
+        PgStore::new(pool.clone(), TARGET_TABLE.to_string()),
+        common::test_store_config(),
+    );
 
     // Build properties that exceed 640KB total but fit once custom keys are
     // trimmed. Protected "email" is small; two large custom properties push
@@ -813,7 +853,10 @@ async fn properties_size_violation_untrimable_skips() {
     let team_id: i32 = 99_051;
     cleanup_team(&pool, team_id).await;
 
-    let store = PersonWriteStore::new(PgStore::new(pool.clone(), TARGET_TABLE.to_string()), 500, 8);
+    let store = PersonWriteStore::new(
+        PgStore::new(pool.clone(), TARGET_TABLE.to_string()),
+        common::test_store_config(),
+    );
 
     // Only protected properties, and they exceed 640KB on their own.
     let mut props = serde_json::Map::new();
@@ -896,8 +939,10 @@ async fn e2e_produce_to_kafka_and_verify_pg_write() {
     );
     let _monitor = manager.monitor_background();
 
-    let writer =
-        PersonWriteStore::new(PgStore::new(pool.clone(), TARGET_TABLE.to_string()), 500, 8);
+    let writer = PersonWriteStore::new(
+        PgStore::new(pool.clone(), TARGET_TABLE.to_string()),
+        common::test_store_config(),
+    );
     let writer_task = WriterTask::new(
         Arc::clone(&kafka_consumer),
         writer,

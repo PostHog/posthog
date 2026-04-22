@@ -2,13 +2,7 @@ use std::collections::HashSet;
 use std::sync::LazyLock;
 
 use metrics::counter;
-use tracing::info;
-
-/// Target size in bytes for trimmed properties (512KB).
-pub const TRIM_TARGET_BYTES: usize = 512 * 1024;
-
-/// DB constraint limit in bytes (640KB).
-pub const DB_PROPERTIES_LIMIT_BYTES: usize = 655_360;
+use tracing::debug;
 
 /// Properties that must never be trimmed, matching the Node.js ingestion
 /// pipeline's `ALL_PROTECTED_PROPERTIES` in `person-property-utils.ts`.
@@ -102,13 +96,14 @@ pub fn trim_properties_to_fit_size(
     properties: &serde_json::Value,
     team_id: i64,
     person_id: i64,
+    target_bytes: usize,
 ) -> Option<serde_json::Value> {
     let map = properties.as_object()?;
 
     let json_str = serde_json::to_string(properties).ok()?;
     let current_size = json_str.len();
 
-    if current_size <= TRIM_TARGET_BYTES {
+    if current_size <= target_bytes {
         return None; // Already fits, no trimming needed
     }
 
@@ -130,7 +125,7 @@ pub fn trim_properties_to_fit_size(
             .map(|s| s.len())
             .unwrap_or(current_size);
 
-        if new_size <= TRIM_TARGET_BYTES {
+        if new_size <= target_bytes {
             break;
         }
     }
@@ -139,12 +134,30 @@ pub fn trim_properties_to_fit_size(
         .map(|s| s.len())
         .unwrap_or(0);
 
-    info!(
+    // If trimmable keys were exhausted and the result still exceeds the
+    // target, the person can't fit — typically means protected properties
+    // alone are oversized. Signal this as `None` so the caller skips without
+    // attempting another doomed PG write.
+    if final_size > target_bytes {
+        debug!(
+            team_id,
+            person_id,
+            original_size = current_size,
+            final_size,
+            target_size = target_bytes,
+            properties_removed = removed_count,
+            final_property_count = trimmed.len(),
+            "person properties still exceed target after trimming all trimmable keys; giving up"
+        );
+        return None;
+    }
+
+    debug!(
         team_id,
         person_id,
         original_size = current_size,
         final_size,
-        target_size = TRIM_TARGET_BYTES,
+        target_size = target_bytes,
         properties_removed = removed_count,
         final_property_count = trimmed.len(),
         "trimmed person properties to fit size"
@@ -179,24 +192,25 @@ mod tests {
     #[test]
     fn trim_returns_none_when_already_fits() {
         let props = json!({"email": "test@example.com", "name": "Test"});
-        assert!(trim_properties_to_fit_size(&props, 1, 1).is_none());
+        assert!(trim_properties_to_fit_size(&props, 1, 1, 1024).is_none());
     }
 
     #[test]
     fn trim_removes_custom_properties_alphabetically() {
-        // Create properties that exceed TRIM_TARGET_BYTES
+        // Small target so the test runs with small data.
+        let target = 1024;
         let mut map = serde_json::Map::new();
         map.insert("email".to_string(), json!("test@example.com")); // protected
         map.insert("$browser".to_string(), json!("Chrome")); // protected
 
-        // Add large custom properties that push us over the limit
-        let big_value = "x".repeat(200_000);
+        // Add large custom properties that push us over the target.
+        let big_value = "x".repeat(500);
         map.insert("aaa_custom".to_string(), json!(big_value.clone()));
         map.insert("bbb_custom".to_string(), json!(big_value.clone()));
         map.insert("ccc_custom".to_string(), json!(big_value));
 
         let props = serde_json::Value::Object(map);
-        let result = trim_properties_to_fit_size(&props, 1, 1);
+        let result = trim_properties_to_fit_size(&props, 1, 1, target);
 
         assert!(result.is_some());
         let trimmed = result.unwrap();
@@ -206,25 +220,22 @@ mod tests {
         assert!(trimmed_map.contains_key("email"));
         assert!(trimmed_map.contains_key("$browser"));
 
-        // Custom properties were removed alphabetically until under target
-        // aaa_custom should be removed first, then bbb_custom if needed
+        // Custom properties are removed alphabetically until under target.
         assert!(!trimmed_map.contains_key("aaa_custom"));
     }
 
     #[test]
-    fn trim_preserves_protected_even_if_over_target() {
-        // If protected properties alone exceed the target, they're still kept
+    fn trim_returns_none_when_only_protected_keys_exceed_target() {
+        // If protected properties alone exceed the target, trim can't fit and
+        // signals failure via `None`. Caller skips straight to skipped.
+        let target = 1024;
         let mut map = serde_json::Map::new();
-        let big_value = "x".repeat(600_000);
-        map.insert("email".to_string(), json!(big_value)); // protected, huge
+        let big_value = "x".repeat(2_000);
+        map.insert("email".to_string(), json!(big_value)); // protected, over target
 
         let props = serde_json::Value::Object(map);
-        let result = trim_properties_to_fit_size(&props, 1, 1);
+        let result = trim_properties_to_fit_size(&props, 1, 1, target);
 
-        // Trimming was attempted but nothing could be removed
-        // (only protected properties remain)
-        assert!(result.is_some());
-        let trimmed = result.unwrap();
-        assert!(trimmed.as_object().unwrap().contains_key("email"));
+        assert!(result.is_none());
     }
 }

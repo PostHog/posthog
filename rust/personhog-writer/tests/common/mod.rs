@@ -3,6 +3,7 @@ use std::time::Duration;
 use common_kafka::kafka_producer::KafkaContext;
 use health::HealthRegistry;
 use personhog_proto::personhog::types::v1::Person;
+use personhog_writer::store::StoreConfig;
 use rdkafka::mocking::MockCluster;
 use rdkafka::producer::{DefaultProducerContext, FutureProducer};
 use sqlx::postgres::PgPool;
@@ -11,6 +12,18 @@ pub const PERSONS_DB_URL: &str = "postgres://posthog:posthog@localhost:5432/post
 pub const KAFKA_BOOTSTRAP: &str = "localhost:9092";
 pub const TOPIC: &str = "personhog_updates";
 pub const TARGET_TABLE: &str = "personhog_person_tmp";
+
+/// StoreConfig with integration-test-sized defaults. Chunk size 500 so
+/// multi-chunk batch behavior is exercisable at realistic but small scale,
+/// property thresholds match the PG constraint.
+pub fn test_store_config() -> StoreConfig {
+    StoreConfig {
+        chunk_size: 500,
+        row_fallback_concurrency: 8,
+        properties_size_threshold: 655_360,
+        properties_trim_target: 524_288,
+    }
+}
 
 /// Create a mock Kafka cluster with the personhog_updates topic.
 pub async fn create_mock_kafka() -> (

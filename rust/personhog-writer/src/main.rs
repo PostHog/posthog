@@ -158,8 +158,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let pg_store = PgStore::new(pool, config.pg_target_table.clone());
     let store = PersonWriteStore::new(
         pg_store,
-        config.upsert_batch_size,
-        config.row_fallback_concurrency,
+        personhog_writer::store::StoreConfig {
+            chunk_size: config.upsert_batch_size,
+            row_fallback_concurrency: config.row_fallback_concurrency,
+            properties_size_threshold: config.properties_size_threshold,
+            properties_trim_target: config.properties_trim_target,
+        },
     );
     let writer_task = WriterTask::new(
         Arc::clone(&kafka_consumer),

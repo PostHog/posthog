@@ -11,13 +11,15 @@
 //! transient retry or per-row fallback. Both share the `WriteErrorKind`
 //! taxonomy from the DB layer.
 
+use std::str::from_utf8;
 use std::sync::Arc;
+use std::time::Instant;
 
 use async_trait::async_trait;
 use futures::stream::{self, StreamExt};
 use metrics::{counter, gauge, histogram};
 use personhog_proto::personhog::types::v1::Person;
-use tokio::task::JoinSet;
+use tokio::task::{JoinError, JoinSet};
 use tracing::{error, warn};
 
 // Re-exported so callers importing from `store::` keep working.
@@ -74,6 +76,21 @@ pub struct IngestionWarning {
     pub message: String,
 }
 
+/// Knobs that shape how the store batches, parallelizes, and trims. Scoped
+/// to just what the store needs so the store doesn't depend on the
+/// service-wide `Config` type.
+///
+/// No `Default` impl: production values live in envconfig (and are mapped
+/// via `Config`), and test values are in test-only helpers. Keeping these
+/// apart prevents accidental reliance on hardcoded defaults in prod code.
+#[derive(Debug, Clone)]
+pub struct StoreConfig {
+    pub chunk_size: usize,
+    pub row_fallback_concurrency: usize,
+    pub properties_size_threshold: usize,
+    pub properties_trim_target: usize,
+}
+
 /// Production person write store. Splits batches into chunks, runs them in
 /// parallel against a `PersonDb`, partitions outcomes by failure class, and
 /// handles per-row fallback with property trimming.
@@ -81,15 +98,98 @@ pub struct PersonWriteStore<D: PersonDb> {
     db: Arc<D>,
     chunk_size: usize,
     row_fallback_concurrency: usize,
+    properties_size_threshold: usize,
+    properties_trim_target: usize,
 }
 
 impl<D: PersonDb + 'static> PersonWriteStore<D> {
-    pub fn new(db: D, chunk_size: usize, row_fallback_concurrency: usize) -> Self {
+    pub fn new(db: D, cfg: StoreConfig) -> Self {
         Self {
             db: Arc::new(db),
-            chunk_size: chunk_size.max(1),
-            row_fallback_concurrency: row_fallback_concurrency.max(1),
+            chunk_size: cfg.chunk_size.max(1),
+            row_fallback_concurrency: cfg.row_fallback_concurrency.max(1),
+            properties_size_threshold: cfg.properties_size_threshold,
+            properties_trim_target: cfg.properties_trim_target,
         }
+    }
+
+    /// Preflight oversized persons out of a batch. For each person whose raw
+    /// properties bytes exceed the configured threshold, attempt to trim via
+    /// `properties::trim_properties_to_fit_size`; if the trim brings it below
+    /// the threshold the person rejoins the batch with its properties replaced,
+    /// otherwise it's skipped with an ingestion warning.
+    ///
+    /// This avoids a single oversized row forcing the whole chunk down the
+    /// per-row fallback path.
+    pub fn preflight_trim_batch(
+        &self,
+        persons: Vec<Person>,
+    ) -> (Vec<Person>, Vec<IngestionWarning>) {
+        let mut kept = Vec::with_capacity(persons.len());
+        let mut warnings = Vec::new();
+
+        for mut person in persons {
+            if person.properties.len() <= self.properties_size_threshold {
+                kept.push(person);
+                continue;
+            }
+
+            counter!("personhog_writer_properties_preempted_total").increment(1);
+
+            match self.try_trim_properties(&person) {
+                TrimOutcome::Trimmed(bytes) => {
+                    counter!("personhog_writer_properties_trimmed_writes_total").increment(1);
+                    person.properties = bytes;
+                    warnings.push(trimmed_warning(&person));
+                    kept.push(person);
+                }
+                TrimOutcome::InvalidJson => {
+                    counter!("personhog_writer_invalid_json_total").increment(1);
+                    counter!("personhog_writer_rows_skipped_total").increment(1);
+                    warn!(
+                        team_id = person.team_id,
+                        person_id = person.id,
+                        "oversized person has invalid JSON properties, skipping"
+                    );
+                    warnings.push(invalid_json_warning(&person));
+                }
+                TrimOutcome::CannotFit => {
+                    counter!("personhog_writer_rows_skipped_total").increment(1);
+                    warnings.push(rejected_warning(&person));
+                }
+            }
+        }
+
+        (kept, warnings)
+    }
+
+    /// Attempt to trim a person's properties to fit under `properties_trim_target`.
+    /// `trim_properties_to_fit_size` returns `None` when it can't reach the
+    /// target (e.g. protected-only keys exceed it), so we don't need a
+    /// second post-trim size check here.
+    ///
+    /// Pure computation (no IO); used by both the preflight batch path and
+    /// the defensive per-row fallback after a PG size-violation error.
+    fn try_trim_properties(&self, person: &Person) -> TrimOutcome {
+        let value: serde_json::Value = match serde_json::from_slice(&person.properties) {
+            Ok(v) => v,
+            Err(_) => return TrimOutcome::InvalidJson,
+        };
+
+        let Some(trimmed) = properties::trim_properties_to_fit_size(
+            &value,
+            person.team_id,
+            person.id,
+            self.properties_trim_target,
+        ) else {
+            return TrimOutcome::CannotFit;
+        };
+
+        let bytes = serde_json::to_vec(&trimmed).unwrap_or_default();
+        if bytes.is_empty() {
+            return TrimOutcome::CannotFit;
+        }
+        TrimOutcome::Trimmed(bytes)
     }
 
     pub async fn upsert_batch(&self, persons: Vec<Person>) -> BatchOutcome {
@@ -97,7 +197,7 @@ impl<D: PersonDb + 'static> PersonWriteStore<D> {
             return BatchOutcome::Success;
         }
 
-        let start = std::time::Instant::now();
+        let start = Instant::now();
         let total = persons.len();
         let chunks = split_into_owned_chunks(persons, self.chunk_size);
 
@@ -140,41 +240,31 @@ impl<D: PersonDb + 'static> PersonWriteStore<D> {
             }
         }
 
-        // Size violation: trim and retry
-        let props: serde_json::Value = if person.properties.is_empty() {
-            serde_json::Value::Object(serde_json::Map::new())
-        } else {
-            serde_json::from_slice(&person.properties)
-                .unwrap_or(serde_json::Value::Object(serde_json::Map::new()))
-        };
-        let Some(trimmed) =
-            properties::trim_properties_to_fit_size(&props, person.team_id, person.id)
-        else {
-            counter!("personhog_writer_rows_skipped_total").increment(1);
-            return RowResult::Skipped(IngestionWarning {
-                team_id: person.team_id,
-                person_id: person.id,
-                message: "Person properties exceeds size limit and was rejected".to_string(),
-            });
-        };
-
-        let trimmed_str = serde_json::to_string(&trimmed).unwrap_or_default();
-        match self.db.execute_row(person, Some(&trimmed_str)).await {
-            Ok(()) => {
-                counter!("personhog_writer_properties_trimmed_writes_total").increment(1);
-                RowResult::Trimmed(IngestionWarning {
-                    team_id: person.team_id,
-                    person_id: person.id,
-                    message: "Person properties exceeded size limit and were trimmed".to_string(),
-                })
+        // Size violation: defensive trim-and-retry. The preflight path usually
+        // catches oversized persons first; this branch fires for the edge case
+        // where raw bytes fit the threshold but JSONB encoding pushes us over.
+        //
+        // `try_trim_properties` may return `CannotFit` for either the "untrimable
+        // (protected keys already oversized)" case or the rare "raw bytes look
+        // fine but JSONB is big" case. Either way skipping is correct: the same
+        // raw bytes already failed at PG, and we have no smaller version to try.
+        match self.try_trim_properties(person) {
+            TrimOutcome::Trimmed(bytes) => {
+                let trimmed_str = from_utf8(&bytes).unwrap_or("{}");
+                match self.db.execute_row(person, Some(trimmed_str)).await {
+                    Ok(()) => {
+                        counter!("personhog_writer_properties_trimmed_writes_total").increment(1);
+                        RowResult::Trimmed(trimmed_warning(person))
+                    }
+                    Err(_) => {
+                        counter!("personhog_writer_rows_skipped_total").increment(1);
+                        RowResult::Skipped(rejected_warning(person))
+                    }
+                }
             }
-            Err(_) => {
+            TrimOutcome::InvalidJson | TrimOutcome::CannotFit => {
                 counter!("personhog_writer_rows_skipped_total").increment(1);
-                RowResult::Skipped(IngestionWarning {
-                    team_id: person.team_id,
-                    person_id: person.id,
-                    message: "Person properties exceeds size limit and was rejected".to_string(),
-                })
+                RowResult::Skipped(rejected_warning(person))
             }
         }
     }
@@ -185,7 +275,7 @@ impl<D: PersonDb + 'static> PersonWriteStore<D> {
     /// our bound is to keep sqlx pool turnover reasonable and cap memory of
     /// in-flight futures.
     pub async fn upsert_rows_parallel(&self, persons: Vec<Person>) -> Vec<RowResult> {
-        let start = std::time::Instant::now();
+        let start = Instant::now();
         let concurrency = self.row_fallback_concurrency;
         let results: Vec<RowResult> = stream::iter(persons)
             .map(|p| async move {
@@ -283,7 +373,45 @@ fn partial_from_failed_chunk(chunk: Vec<Person>, kind: WriteErrorKind) -> BatchO
     }
 }
 
-fn classify_join_error(e: tokio::task::JoinError) -> FatalError {
+/// Result of attempting to trim a person's properties down to a size that
+/// fits the configured threshold. Used by both the preflight batch path
+/// and the defensive per-row fallback.
+enum TrimOutcome {
+    /// Trim succeeded; these bytes are guaranteed to be under the threshold.
+    Trimmed(Vec<u8>),
+    /// The person's properties weren't valid JSON. Skip.
+    InvalidJson,
+    /// Trim ran but the result still exceeds the threshold. Typically means
+    /// protected properties alone are oversized, or the value wasn't a JSON
+    /// object. Skip.
+    CannotFit,
+}
+
+fn trimmed_warning(p: &Person) -> IngestionWarning {
+    IngestionWarning {
+        team_id: p.team_id,
+        person_id: p.id,
+        message: "Person properties exceeded size limit and were trimmed".to_string(),
+    }
+}
+
+fn rejected_warning(p: &Person) -> IngestionWarning {
+    IngestionWarning {
+        team_id: p.team_id,
+        person_id: p.id,
+        message: "Person properties exceeds size limit and was rejected".to_string(),
+    }
+}
+
+fn invalid_json_warning(p: &Person) -> IngestionWarning {
+    IngestionWarning {
+        team_id: p.team_id,
+        person_id: p.id,
+        message: "Person properties are invalid JSON and exceed size limit — rejected".to_string(),
+    }
+}
+
+fn classify_join_error(e: JoinError) -> FatalError {
     let message = match e.try_into_panic() {
         Ok(payload) => {
             let msg = payload
@@ -298,6 +426,25 @@ fn classify_join_error(e: tokio::task::JoinError) -> FatalError {
     counter!("personhog_writer_chunk_fatal_total").increment(1);
     error!(%message, "batch chunk task failed fatally");
     FatalError { message }
+}
+
+// ── Test-only helpers ────────────────────────────────────────────
+//
+// `test_default` provides a `StoreConfig` with values tuned for unit tests
+// (small chunk sizes, small concurrency). It's gated on `#[cfg(test)]` so it
+// can never be reached from production code. Integration tests (separate
+// crate) have their own helper in `tests/common/mod.rs`.
+
+#[cfg(test)]
+impl StoreConfig {
+    pub(crate) fn test_default() -> Self {
+        Self {
+            chunk_size: 100,
+            row_fallback_concurrency: 4,
+            properties_size_threshold: 655_360,
+            properties_trim_target: 524_288,
+        }
+    }
 }
 
 // ── Unit tests ───────────────────────────────────────────────────
@@ -459,7 +606,7 @@ mod tests {
 
     #[tokio::test]
     async fn upsert_batch_empty_returns_success() {
-        let store = PersonWriteStore::new(StubDb::new(), 10, 4);
+        let store = PersonWriteStore::new(StubDb::new(), StoreConfig::test_default());
         assert!(matches!(
             store.upsert_batch(Vec::new()).await,
             BatchOutcome::Success
@@ -468,7 +615,7 @@ mod tests {
 
     #[tokio::test]
     async fn upsert_batch_single_chunk_success() {
-        let store = PersonWriteStore::new(StubDb::new(), 10, 4);
+        let store = PersonWriteStore::new(StubDb::new(), StoreConfig::test_default());
         let persons: Vec<Person> = (0..5).map(p).collect();
         assert!(matches!(
             store.upsert_batch(persons).await,
@@ -479,7 +626,13 @@ mod tests {
     #[tokio::test]
     async fn upsert_batch_parallel_all_succeed() {
         // 6 persons, chunk_size 2 → 3 parallel chunks
-        let store = PersonWriteStore::new(StubDb::new(), 2, 4);
+        let store = PersonWriteStore::new(
+            StubDb::new(),
+            StoreConfig {
+                chunk_size: 2,
+                ..StoreConfig::test_default()
+            },
+        );
         let persons: Vec<Person> = (0..6).map(p).collect();
         assert!(matches!(
             store.upsert_batch(persons).await,
@@ -492,7 +645,7 @@ mod tests {
     #[tokio::test]
     async fn upsert_batch_transient_routes_to_transient_bucket() {
         let db = StubDb::new().with_chunk_default(ChunkResponse::Err(WriteErrorKind::Transient));
-        let store = PersonWriteStore::new(db, 10, 4);
+        let store = PersonWriteStore::new(db, StoreConfig::test_default());
         let persons: Vec<Person> = (0..3).map(p).collect();
         match store.upsert_batch(persons).await {
             BatchOutcome::Partial {
@@ -509,7 +662,7 @@ mod tests {
     #[tokio::test]
     async fn upsert_batch_data_error_routes_to_data_bucket() {
         let db = StubDb::new().with_chunk_default(ChunkResponse::Err(WriteErrorKind::Data));
-        let store = PersonWriteStore::new(db, 10, 4);
+        let store = PersonWriteStore::new(db, StoreConfig::test_default());
         let persons: Vec<Person> = (0..3).map(p).collect();
         match store.upsert_batch(persons).await {
             BatchOutcome::Partial {
@@ -527,7 +680,7 @@ mod tests {
     async fn upsert_batch_size_violation_routes_to_data_bucket() {
         let db = StubDb::new()
             .with_chunk_default(ChunkResponse::Err(WriteErrorKind::PropertiesSizeViolation));
-        let store = PersonWriteStore::new(db, 10, 4);
+        let store = PersonWriteStore::new(db, StoreConfig::test_default());
         let persons: Vec<Person> = (0..3).map(p).collect();
         match store.upsert_batch(persons).await {
             BatchOutcome::Partial {
@@ -551,7 +704,13 @@ mod tests {
             .script_chunk_for_id(0, ChunkResponse::Ok)
             .script_chunk_for_id(2, ChunkResponse::Err(WriteErrorKind::Transient))
             .script_chunk_for_id(4, ChunkResponse::Err(WriteErrorKind::Data));
-        let store = PersonWriteStore::new(db, 2, 4);
+        let store = PersonWriteStore::new(
+            db,
+            StoreConfig {
+                chunk_size: 2,
+                ..StoreConfig::test_default()
+            },
+        );
         let persons: Vec<Person> = (0..6).map(p).collect();
 
         match store.upsert_batch(persons).await {
@@ -573,7 +732,13 @@ mod tests {
     #[tokio::test]
     async fn upsert_batch_parallel_all_transient_returns_all_rows() {
         let db = StubDb::new().with_chunk_default(ChunkResponse::Err(WriteErrorKind::Transient));
-        let store = PersonWriteStore::new(db, 2, 4);
+        let store = PersonWriteStore::new(
+            db,
+            StoreConfig {
+                chunk_size: 2,
+                ..StoreConfig::test_default()
+            },
+        );
         let persons: Vec<Person> = (0..6).map(p).collect();
         match store.upsert_batch(persons).await {
             BatchOutcome::Partial {
@@ -596,7 +761,13 @@ mod tests {
             .script_chunk_for_id(0, ChunkResponse::Ok)
             .script_chunk_for_id(2, ChunkResponse::Panic)
             .script_chunk_for_id(4, ChunkResponse::Ok);
-        let store = PersonWriteStore::new(db, 2, 4);
+        let store = PersonWriteStore::new(
+            db,
+            StoreConfig {
+                chunk_size: 2,
+                ..StoreConfig::test_default()
+            },
+        );
         let persons: Vec<Person> = (0..6).map(p).collect();
         match store.upsert_batch(persons).await {
             BatchOutcome::Fatal(fatal) => {
@@ -614,14 +785,14 @@ mod tests {
 
     #[tokio::test]
     async fn upsert_row_success_returns_written() {
-        let store = PersonWriteStore::new(StubDb::new(), 10, 4);
+        let store = PersonWriteStore::new(StubDb::new(), StoreConfig::test_default());
         assert!(matches!(store.upsert_row(&p(1)).await, RowResult::Written));
     }
 
     #[tokio::test]
     async fn upsert_row_transient_returns_skipped() {
         let db = StubDb::new().with_row_default(ChunkResponse::Err(WriteErrorKind::Transient));
-        let store = PersonWriteStore::new(db, 10, 4);
+        let store = PersonWriteStore::new(db, StoreConfig::test_default());
         match store.upsert_row(&p(1)).await {
             RowResult::Skipped(warning) => {
                 assert_eq!(warning.person_id, 1);
@@ -634,7 +805,7 @@ mod tests {
     #[tokio::test]
     async fn upsert_row_data_error_returns_skipped() {
         let db = StubDb::new().with_row_default(ChunkResponse::Err(WriteErrorKind::Data));
-        let store = PersonWriteStore::new(db, 10, 4);
+        let store = PersonWriteStore::new(db, StoreConfig::test_default());
         assert!(matches!(
             store.upsert_row(&p(1)).await,
             RowResult::Skipped(_)
@@ -645,7 +816,7 @@ mod tests {
 
     #[tokio::test]
     async fn upsert_rows_parallel_returns_a_result_per_person() {
-        let store = PersonWriteStore::new(StubDb::new(), 10, 4);
+        let store = PersonWriteStore::new(StubDb::new(), StoreConfig::test_default());
         let persons: Vec<Person> = (0..10).map(p).collect();
         let results = store.upsert_rows_parallel(persons).await;
         assert_eq!(results.len(), 10);
@@ -655,10 +826,110 @@ mod tests {
     #[tokio::test]
     async fn upsert_rows_parallel_surfaces_errors_as_skipped() {
         let db = StubDb::new().with_row_default(ChunkResponse::Err(WriteErrorKind::Data));
-        let store = PersonWriteStore::new(db, 10, 4);
+        let store = PersonWriteStore::new(db, StoreConfig::test_default());
         let persons: Vec<Person> = (0..5).map(p).collect();
         let results = store.upsert_rows_parallel(persons).await;
         assert_eq!(results.len(), 5);
         assert!(results.iter().all(|r| matches!(r, RowResult::Skipped(_))));
+    }
+
+    // ── preflight_trim_batch ───────────────────────────────────
+
+    #[test]
+    fn preflight_leaves_normal_persons_untouched() {
+        let store = PersonWriteStore::new(StubDb::new(), StoreConfig::test_default());
+        let persons: Vec<Person> = (0..5).map(p).collect();
+        let (kept, warnings) = store.preflight_trim_batch(persons);
+        assert_eq!(kept.len(), 5);
+        assert!(warnings.is_empty());
+    }
+
+    #[test]
+    fn preflight_trims_oversized_and_keeps_them_in_batch() {
+        // Small threshold so we can exercise the path without megabytes of JSON.
+        let store = PersonWriteStore::new(
+            StubDb::new(),
+            StoreConfig {
+                properties_size_threshold: 1024,
+                properties_trim_target: 512,
+                ..StoreConfig::test_default()
+            },
+        );
+        let normal = p(1);
+        // Oversized person: a single trimmable key with lots of content.
+        let mut oversized = p(2);
+        oversized.properties = serde_json::to_vec(&serde_json::json!({
+            "email": "protected@example.com",
+            "bloat": "x".repeat(2_000),
+        }))
+        .unwrap();
+
+        let (kept, warnings) = store.preflight_trim_batch(vec![normal, oversized]);
+
+        assert_eq!(kept.len(), 2, "both persons should remain after trim");
+        // The trimmed person's properties should now be within threshold.
+        let trimmed = kept.iter().find(|p| p.id == 2).unwrap();
+        assert!(trimmed.properties.len() <= 1024);
+        assert_eq!(warnings.len(), 1);
+        assert!(warnings[0].message.contains("trimmed"));
+    }
+
+    #[test]
+    fn preflight_skips_oversized_when_only_protected_keys_exceed() {
+        // 1 KiB threshold; protected `email` alone exceeds it.
+        let store = PersonWriteStore::new(
+            StubDb::new(),
+            StoreConfig {
+                properties_size_threshold: 1024,
+                properties_trim_target: 512,
+                ..StoreConfig::test_default()
+            },
+        );
+        let mut untrimable = p(1);
+        untrimable.properties = serde_json::to_vec(&serde_json::json!({
+            "email": "x".repeat(2_000),
+        }))
+        .unwrap();
+
+        let (kept, warnings) = store.preflight_trim_batch(vec![untrimable]);
+
+        assert!(kept.is_empty());
+        assert_eq!(warnings.len(), 1);
+        assert!(warnings[0].message.contains("rejected"));
+    }
+
+    #[test]
+    fn preflight_skips_invalid_json() {
+        let store = PersonWriteStore::new(
+            StubDb::new(),
+            StoreConfig {
+                properties_size_threshold: 16,
+                properties_trim_target: 8,
+                ..StoreConfig::test_default()
+            },
+        );
+        let mut bad = p(1);
+        bad.properties = vec![b'n'; 32]; // "nnnn..." — not valid JSON and > 16 bytes
+
+        let (kept, warnings) = store.preflight_trim_batch(vec![bad]);
+
+        assert!(kept.is_empty());
+        assert_eq!(warnings.len(), 1);
+        assert!(warnings[0].message.contains("invalid JSON"));
+    }
+
+    #[test]
+    fn preflight_preserves_content_for_untouched_persons() {
+        let store = PersonWriteStore::new(StubDb::new(), StoreConfig::test_default());
+        let original: Vec<Person> = (0..3).map(p).collect();
+
+        let (kept, warnings) = store.preflight_trim_batch(original.clone());
+
+        assert_eq!(kept.len(), 3);
+        assert!(warnings.is_empty());
+        for (a, b) in original.iter().zip(kept.iter()) {
+            assert_eq!(a.id, b.id);
+            assert_eq!(a.properties, b.properties);
+        }
     }
 }

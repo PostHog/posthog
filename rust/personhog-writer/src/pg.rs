@@ -101,9 +101,22 @@ fn prepare_chunk(persons: &[Person]) -> PreparedArrays<'_> {
             }
         };
 
+        let team_id = match i32::try_from(p.team_id) {
+            Ok(t) => t,
+            Err(_) => {
+                counter!("personhog_writer_invalid_team_id_total").increment(1);
+                warn!(
+                    team_id = p.team_id,
+                    person_id = p.id,
+                    "skipping person with out-of-range team_id (exceeds i32)"
+                );
+                continue;
+            }
+        };
+
         arrays.push(
             p.id,
-            p.team_id as i32,
+            team_id,
             uuid,
             bytes_to_json_str(&p.properties, "{}"),
             bytes_to_optional_json_str(&p.properties_last_updated_at),
@@ -139,6 +152,19 @@ fn prepare_single<'a>(
         }
     };
 
+    let team_id = match i32::try_from(person.team_id) {
+        Ok(t) => t,
+        Err(_) => {
+            counter!("personhog_writer_invalid_team_id_total").increment(1);
+            warn!(
+                team_id = person.team_id,
+                person_id = person.id,
+                "skipping person with out-of-range team_id (exceeds i32)"
+            );
+            return None;
+        }
+    };
+
     let properties = match properties_override {
         Some(s) => s,
         None => bytes_to_json_str(&person.properties, "{}"),
@@ -147,7 +173,7 @@ fn prepare_single<'a>(
     let mut arrays = PreparedArrays::with_capacity(1);
     arrays.push(
         person.id,
-        person.team_id as i32,
+        team_id,
         uuid,
         properties,
         bytes_to_optional_json_str(&person.properties_last_updated_at),
@@ -403,5 +429,33 @@ mod tests {
     async fn table_name_allowlist_rejects_invalid() {
         let pool = PgPool::connect_lazy("postgres://localhost/test").unwrap();
         let _store = PgStore::new(pool, "evil_table; DROP TABLE posthog_person".to_string());
+    }
+
+    fn person_with(id: i64, team_id: i64) -> Person {
+        Person {
+            id,
+            team_id,
+            uuid: uuid::Uuid::new_v4().to_string(),
+            version: 1,
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn prepare_chunk_skips_out_of_range_team_id() {
+        let good = person_with(1, 42);
+        let bad = person_with(2, (i32::MAX as i64) + 1);
+
+        let persons = [good, bad];
+        let arrays = prepare_chunk(&persons);
+        // Only the in-range person made it into the bind arrays.
+        assert_eq!(arrays.ids, vec![1]);
+        assert_eq!(arrays.team_ids, vec![42]);
+    }
+
+    #[test]
+    fn prepare_single_rejects_out_of_range_team_id() {
+        let bad = person_with(1, (i32::MAX as i64) + 1);
+        assert!(prepare_single(&bad, None).is_none());
     }
 }

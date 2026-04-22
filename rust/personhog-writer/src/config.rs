@@ -57,6 +57,20 @@ pub struct Config {
     #[envconfig(default = "16")]
     pub row_fallback_concurrency: usize,
 
+    /// Raw-bytes threshold for the properties field above which a person
+    /// is trimmed preflight (before the batch upsert). Matches the PG
+    /// `check_properties_size` constraint; trimmed persons rejoin the
+    /// main batch so a single oversized row can't torpedo the whole write.
+    #[envconfig(default = "655360")]
+    pub properties_size_threshold: usize,
+
+    /// Target raw-bytes size to trim oversized properties down to. Should
+    /// be comfortably below `properties_size_threshold` so the trim result
+    /// definitely fits the PG constraint even if JSONB encoding inflates
+    /// the stored size relative to the raw JSON we trimmed.
+    #[envconfig(default = "524288")]
+    pub properties_trim_target: usize,
+
     /// Channel capacity between consumer and writer tasks.
     /// Higher values allow more buffered batches but use more memory.
     #[envconfig(default = "8")]
