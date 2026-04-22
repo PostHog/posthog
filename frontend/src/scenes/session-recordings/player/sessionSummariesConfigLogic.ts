@@ -1,4 +1,4 @@
-import { afterMount, kea, listeners, path, reducers } from 'kea'
+import { actions, afterMount, kea, listeners, path, reducers } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 
@@ -15,6 +15,10 @@ export type SessionSummariesConfigForm = {
 
 export const sessionSummariesConfigLogic = kea<sessionSummariesConfigLogicType>([
     path(['scenes', 'session-recordings', 'player', 'sessionSummariesConfigLogic']),
+
+    actions({
+        revertConfigForm: true,
+    }),
 
     reducers({
         isLoading: [
@@ -58,11 +62,14 @@ export const sessionSummariesConfigLogic = kea<sessionSummariesConfigLogicType>(
         },
     })),
 
-    listeners(({ actions }) => ({
+    listeners(({ actions, values }) => ({
         loadConfigSuccess: ({ config }) => {
             if (config) {
                 actions.setConfigFormValue('product_context', config.product_context ?? '')
             }
+        },
+        revertConfigForm: () => {
+            actions.setConfigFormValue('product_context', values.config?.product_context ?? '')
         },
     })),
 

@@ -1,4 +1,5 @@
 import os
+import re
 import asyncio
 import dataclasses
 from datetime import datetime
@@ -24,7 +25,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.clickhouse.query_tagging import Product, tag_queries
 from posthog.cloud_utils import is_cloud
-from posthog.models import Team, User
+from posthog.models import OrganizationMembership, Team, User
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.utils import UUID
@@ -62,6 +63,9 @@ class SessionSummariesSerializer(serializers.Serializer):
     )
 
 
+_PRODUCT_CONTEXT_WRAPPER_TAG_RE = re.compile(r"</?\s*product_context\s*/?>", re.IGNORECASE)
+
+
 class SessionSummariesConfigSerializer(serializers.ModelSerializer):
     product_context = serializers.CharField(
         required=False,
@@ -77,6 +81,10 @@ class SessionSummariesConfigSerializer(serializers.ModelSerializer):
     class Meta:
         model = TeamSessionSummariesConfig
         fields = ["product_context"]
+
+    def validate_product_context(self, value: str) -> str:
+        # Prevent prompt injection via the <product_context> wrapper in the summary prompt.
+        return _PRODUCT_CONTEXT_WRAPPER_TAG_RE.sub("", value).strip()
 
 
 class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
@@ -365,10 +373,11 @@ class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
     )
     @action(methods=["GET", "PATCH"], detail=False, serializer_class=SessionSummariesConfigSerializer)
     def config(self, request: Request, **kwargs) -> Response:
-        if not request.user.is_authenticated:
-            raise exceptions.NotAuthenticated()
         team_config = get_or_create_team_extension(self.team, TeamSessionSummariesConfig)
         if request.method == "PATCH":
+            effective_level = self.user_permissions.team(self.team).effective_membership_level
+            if effective_level is None or effective_level < OrganizationMembership.Level.ADMIN:
+                raise exceptions.PermissionDenied("Only project admins can modify the session summaries configuration.")
             serializer = SessionSummariesConfigSerializer(team_config, data=request.data, partial=True)
             serializer.is_valid(raise_exception=True)
             serializer.save()
