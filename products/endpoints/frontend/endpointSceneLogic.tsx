@@ -1,3 +1,4 @@
+import equal from 'fast-deep-equal'
 import { actions, connect, events, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
@@ -14,7 +15,7 @@ import { urls } from 'scenes/urls'
 
 import { DataTableNode, EndpointRunRequest, InsightVizNode, Node, NodeKind } from '~/queries/schema/schema-general'
 import { isHogQLQuery, isInsightQueryNode } from '~/queries/utils'
-import { Breadcrumb, DataModelingSyncInterval, EndpointType, EndpointVersionType } from '~/types'
+import { Breadcrumb, ChartDisplayType, DataModelingSyncInterval, EndpointType, EndpointVersionType } from '~/types'
 
 import { endpointLogic } from './endpointLogic'
 import type { endpointSceneLogicType } from './endpointSceneLogicType'
@@ -339,6 +340,39 @@ export const endpointSceneLogic = kea<endpointSceneLogicType>([
             cache.unmountSqlEditor?.()
             cache.sqlEditorTabId = editorTabId
             cache.unmountSqlEditor = sqlEditorLogic({ tabId: editorTabId, mode: SQLEditorMode.Embedded }).mount()
+        },
+        setLocalQuery: ({ query }) => {
+            // Discarding changes sets localQuery to null. For HogQL endpoints the visible SQL is
+            // driven by sqlEditorLogic's queryInput, which isn't reset automatically — sync it back
+            // to the stored query so "Discard changes" actually reverts the editor.
+            if (query !== null || !cache.sqlEditorTabId) {
+                return
+            }
+            const storedQuery = values.viewingVersion?.query ?? values.endpoint?.query
+            if (!storedQuery || !isHogQLQuery(storedQuery)) {
+                return
+            }
+            const editorLogic = sqlEditorLogic({ tabId: cache.sqlEditorTabId, mode: SQLEditorMode.Embedded })
+            const editorSource = editorLogic.values.sourceQuery?.source
+            const editorVariables = isHogQLQuery(editorSource) ? editorSource.variables : undefined
+            // Guard against re-entrance: once the editor matches the stored query, the sync useEffect
+            // in EndpointQuery will fire setLocalQuery(null) again — bail out if already in sync.
+            if (
+                editorLogic.values.queryInput === storedQuery.query &&
+                equal(editorVariables || {}, storedQuery.variables || {})
+            ) {
+                return
+            }
+            editorLogic.actions.setQueryInput(storedQuery.query)
+            editorLogic.actions.setSourceQuery({
+                kind: NodeKind.DataVisualizationNode,
+                source: {
+                    kind: NodeKind.HogQLQuery,
+                    query: storedQuery.query,
+                    variables: storedQuery.variables,
+                },
+                display: ChartDisplayType.ActionsLineGraph,
+            })
         },
         loadEndpoint: () => {
             cache.unmountSqlEditor?.()
