@@ -110,7 +110,7 @@ class ExecuteSQLTool(HogQLGeneratorMixin, MaxTool):
                     content=result,
                     id=str(uuid4()),
                     tool_call_id=self.tool_call_id,
-                    ui_payload={self.get_name(): parsed_query.query.query},
+                    ui_payload={self.get_name(): parsed_query.query.source.query},
                 ),
             ]
         )

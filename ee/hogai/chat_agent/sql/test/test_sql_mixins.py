@@ -73,9 +73,9 @@ class TestSQLMixins(NonAtomicBaseTest):
         )
 
         self.assertEqual(result.query.display, ChartDisplayType.ACTIONS_LINE_GRAPH)
-        self.assertEqual(result.query.chartSettings.xAxis.column, "day")  # type: ignore[union-attr]
-        self.assertEqual(result.query.chartSettings.yAxis[0].column, "events")  # type: ignore[union-attr]
-        self.assertEqual(result.query.chartSettings.yAxis[0].settings.formatting.style, "short")  # type: ignore[union-attr]
+        self.assertEqual(result.query.chartSettings.xAxis.column, "day")
+        self.assertEqual(result.query.chartSettings.yAxis[0].column, "events")
+        self.assertEqual(result.query.chartSettings.yAxis[0].settings.formatting.style, "short")
 
     def test_parse_output_with_empty_query(self):
         """Test parsing with empty query string."""
