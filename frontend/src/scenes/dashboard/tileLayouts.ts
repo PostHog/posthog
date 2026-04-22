@@ -236,6 +236,15 @@ export const calculateLayouts = (
             }
         }
 
+        // Rebuild the reference order from the FINAL sm positions (after dirty placement)
+        // so that the xs (mobile) order follows the actual desktop reading order, even for
+        // tiles that were auto-placed because they had no stored sm layout.
+        if (breakpoint === 'sm') {
+            referenceOrder = [...cleanLayouts]
+                .sort((a, b) => (a.y === b.y ? a.x - b.x : a.y - b.y))
+                .map((l) => parseInt(l.i))
+        }
+
         allLayouts[breakpoint] = cleanLayouts
     }
 

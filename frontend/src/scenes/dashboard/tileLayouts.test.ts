@@ -85,6 +85,59 @@ describe('calculating tile layouts', () => {
         const result = calculateLayouts(tiles)
         expect(result.xs?.[0]?.h).toBe(expectedXsH)
     })
+
+    it('xs follows final sm row-major order when some tiles have no stored sm layout', () => {
+        // Regression test: tiles without a stored sm layout were auto-placed at the bottom on
+        // desktop but appeared at the top on mobile, producing e.g. "A, E, F, B" instead of
+        // "A, B, C, D, E, F" when E and F were newly added.
+        // Tiles 1–4 form a clean 2x2 grid. Tiles 5 and 6 have no stored sm layout and should
+        // be auto-placed at the end on both sm and xs.
+        const tiles: DashboardTile<QueryBasedInsightModel>[] = [
+            textTileWithLayout(
+                { sm: { i: '1', x: 0, y: 0, w: 6, h: 5 } } as Record<DashboardLayoutSize, TileLayout>,
+                1
+            ),
+            textTileWithLayout(
+                { sm: { i: '2', x: 6, y: 0, w: 6, h: 5 } } as Record<DashboardLayoutSize, TileLayout>,
+                2
+            ),
+            textTileWithLayout(
+                { sm: { i: '3', x: 0, y: 5, w: 6, h: 5 } } as Record<DashboardLayoutSize, TileLayout>,
+                3
+            ),
+            textTileWithLayout(
+                { sm: { i: '4', x: 6, y: 5, w: 6, h: 5 } } as Record<DashboardLayoutSize, TileLayout>,
+                4
+            ),
+            textTileWithLayout({} as Record<DashboardLayoutSize, TileLayout>, 5),
+            textTileWithLayout({} as Record<DashboardLayoutSize, TileLayout>, 6),
+        ]
+
+        const actual = calculateLayouts(tiles)
+
+        // xs (mobile) should follow the final sm reading order: 1, 2, 3, 4, 5, 6.
+        expect(actual.xs?.map((l) => l.i)).toEqual(['1', '2', '3', '4', '5', '6'])
+        // xs y values should be strictly increasing (single-column stack).
+        const ys = actual.xs?.map((l) => l.y) || []
+        expect(ys.every((y, i) => i === 0 || y > ys[i - 1])).toBe(true)
+    })
+
+    it('xs follows sm dirty-placement order when no tiles have stored sm layouts', () => {
+        // When every tile lacks a stored sm layout, sm positions are entirely determined by
+        // the dirty-placement algorithm (left-to-right, top-to-bottom). xs should match that
+        // reading order.
+        const tiles: DashboardTile<QueryBasedInsightModel>[] = [
+            textTileWithLayout({} as Record<DashboardLayoutSize, TileLayout>, 1),
+            textTileWithLayout({} as Record<DashboardLayoutSize, TileLayout>, 2),
+            textTileWithLayout({} as Record<DashboardLayoutSize, TileLayout>, 3),
+            textTileWithLayout({} as Record<DashboardLayoutSize, TileLayout>, 4),
+        ]
+
+        const actual = calculateLayouts(tiles)
+
+        const smOrder = [...(actual.sm || [])].sort((a, b) => (a.y === b.y ? a.x - b.x : a.y - b.y)).map((l) => l.i)
+        expect(actual.xs?.map((l) => l.i)).toEqual(smOrder)
+    })
 })
 
 describe('calculateDuplicateLayout', () => {
