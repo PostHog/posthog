@@ -81,19 +81,11 @@ describe('actionsLogic', () => {
         expect(logic.values.actionsFiltered).toHaveLength(actionsSeed.length)
     })
 
-    it('returns only the matching action when searching for "mcp"', async () => {
-        await expectLogic(logic, () => {
-            logic.actions.setSearchTerm('mcp')
-        }).toMatchValues({
-            actionsFiltered: [expect.objectContaining({ name: 'MCP server' })],
-        })
-    })
-
-    it.each([['mcp '], [' mcp'], [' mcp '], ['mcp\t']])(
-        'treats "%s" the same as "mcp" (whitespace must not expand Fuse\'s edit budget)',
-        async (padded) => {
+    it.each([['mcp'], ['mcp '], [' mcp'], [' mcp '], ['mcp\t']])(
+        'returns only MCP server when searching for "%s"',
+        async (term) => {
             await expectLogic(logic, () => {
-                logic.actions.setSearchTerm(padded)
+                logic.actions.setSearchTerm(term)
             }).toMatchValues({
                 actionsFiltered: [expect.objectContaining({ name: 'MCP server' })],
             })

@@ -16,19 +16,11 @@ describe('createFuseSearch', () => {
 
     const search = createFuseSearch<Item>(['name'])
 
-    it('returns only the exact match for "mcp"', () => {
-        expect(search(items, 'mcp').map((i) => i.name)).toEqual(['MCP server'])
+    it.each([['mcp'], ['mcp '], [' mcp'], [' mcp '], ['mcp\t']])('returns only "MCP server" for query "%s"', (term) => {
+        expect(search(items, term).map((i) => i.name)).toEqual(['MCP server'])
     })
 
-    it.each([['mcp '], [' mcp'], [' mcp '], ['mcp\t']])(
-        'treats "%s" the same as "mcp" (trailing/leading whitespace must not broaden matching)',
-        (padded) => {
-            expect(search(items, padded).map((i) => i.name)).toEqual(['MCP server'])
-        }
-    )
-
-    it('returns all items when term is empty or pure whitespace', () => {
-        expect(search(items, '')).toEqual(items)
-        expect(search(items, '   ')).toEqual(items)
+    it.each([[''], ['   ']])('returns all items for empty or pure-whitespace query "%s"', (term) => {
+        expect(search(items, term)).toEqual(items)
     })
 })
