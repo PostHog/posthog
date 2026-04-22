@@ -20,7 +20,7 @@ jobs:
         #   - https://gh.io/recommended-hardware-resources-for-running-codeql
         #   - https://gh.io/supported-runners-and-hardware-resources
         #   - https://gh.io/using-larger-runners
-        runs-on: ${{ matrix.runner }}
+        runs-on: 'ubuntu-latest'
         timeout-minutes: 30
         permissions:
             # required for all workflows
@@ -40,19 +40,14 @@ jobs:
                 include:
                     - language: actions
                       build-mode: none
-                      runner: ubuntu-latest
                     - language: c-cpp
                       build-mode: none
-                      runner: ubuntu-latest
                     - language: go
                       build-mode: autobuild
-                      runner: ubuntu-latest
                     - language: javascript-typescript
                       build-mode: none
-                      runner: depot-ubuntu-latest-4
                     - language: python
                       build-mode: none
-                      runner: ubuntu-latest
                 # CodeQL supports the following values keywords for 'language': 'actions', 'c-cpp', 'csharp', 'go', 'java-kotlin', 'javascript-typescript', 'python', 'ruby', 'rust', 'swift'
                 # Use `c-cpp` to analyze code written in C, C++ or both
                 # Use 'java-kotlin' to analyze code written in Java, Kotlin or both
