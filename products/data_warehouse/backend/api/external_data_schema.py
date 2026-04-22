@@ -85,6 +85,7 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
             ("12hour", "12hour"),
             ("24hour", "24hour"),
             ("7day", "7day"),
+            ("30day", "30day"),
         ],
         required=False,
         allow_null=True,
