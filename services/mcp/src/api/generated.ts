@@ -8715,6 +8715,58 @@ export namespace Schemas {
     }
 
     /**
+     * * `BAA` - BAA
+    * `DPA` - DPA
+     */
+    export type DocumentTypeEnum = typeof DocumentTypeEnum[keyof typeof DocumentTypeEnum];
+
+
+    export const DocumentTypeEnum = {
+      Baa: 'BAA',
+      Dpa: 'DPA',
+    } as const;
+
+    /**
+     * Input serializer for POST. Mirrors the submittable fields on the model plus
+    cross-field rules (BAA addon, DPA mode, uniqueness). The view supplies the
+    organization and submitting user.
+     */
+    export interface CreateLegalDocument {
+      /** Either 'BAA' or 'DPA'.
+
+    * `BAA` - BAA
+    * `DPA` - DPA */
+      document_type: DocumentTypeEnum;
+      /**
+       * The customer legal entity entering the agreement.
+       * @maxLength 255
+       */
+      company_name: string;
+      /**
+       * Customer address. Required for DPAs; ignored for BAAs.
+       * @maxLength 512
+       */
+      company_address?: string;
+      /**
+       * Name of the signer at the customer.
+       * @maxLength 255
+       */
+      representative_name: string;
+      /**
+       * Title of the signer at the customer.
+       * @maxLength 255
+       */
+      representative_title: string;
+      /** Email the signed PandaDoc envelope is sent to. */
+      representative_email: string;
+      /**
+       * DPA style: 'pretty' or 'lawyer' for submittable versions. 'fairytale' and 'tswift' are preview-only on posthog.com and are not accepted by the API.
+       * @maxLength 16
+       */
+      dpa_mode?: string;
+    }
+
+    /**
      * * `zoom` - zoom
     * `teams` - teams
     * `meet` - meet
@@ -20035,6 +20087,26 @@ export namespace Schemas {
       Never: 'never',
     } as const;
 
+    export interface LegalDocumentCreator {
+      first_name: string;
+      email: string;
+    }
+
+    /**
+     * Output serializer — what the API returns for every row.
+     */
+    export interface LegalDocumentDTO {
+      id: string;
+      document_type: string;
+      company_name: string;
+      representative_name: string;
+      representative_email: string;
+      status: string;
+      signed_document_url: string;
+      created_by: LegalDocumentCreator | null;
+      created_at: string;
+    }
+
     export type LimitContext = typeof LimitContext[keyof typeof LimitContext];
 
 
@@ -22018,6 +22090,15 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: LLMSkillList[];
+    }
+
+    export interface PaginatedLegalDocumentDTOList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: LegalDocumentDTO[];
     }
 
     export interface PaginatedLiveDebuggerBreakpointList {
@@ -38152,6 +38233,17 @@ export namespace Schemas {
     offset?: number;
     };
 
+    export type LegalDocumentsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
     export type MembersListParams = {
     /**
      * Number of results to return per page.
@@ -38367,6 +38459,7 @@ export namespace Schemas {
     * `Project` - Project
     * `ErrorTrackingIssue` - ErrorTrackingIssue
     * `DataWarehouseSavedQuery` - DataWarehouseSavedQuery
+    * `LegalDocument` - LegalDocument
     * `Organization` - Organization
     * `OrganizationDomain` - OrganizationDomain
     * `OrganizationMembership` - OrganizationMembership
@@ -38440,6 +38533,7 @@ export namespace Schemas {
       Project: 'Project',
       ErrorTrackingIssue: 'ErrorTrackingIssue',
       DataWarehouseSavedQuery: 'DataWarehouseSavedQuery',
+      LegalDocument: 'LegalDocument',
       Organization: 'Organization',
       OrganizationDomain: 'OrganizationDomain',
       OrganizationMembership: 'OrganizationMembership',
@@ -38499,6 +38593,7 @@ export namespace Schemas {
     * `Project` - Project
     * `ErrorTrackingIssue` - ErrorTrackingIssue
     * `DataWarehouseSavedQuery` - DataWarehouseSavedQuery
+    * `LegalDocument` - LegalDocument
     * `Organization` - Organization
     * `OrganizationDomain` - OrganizationDomain
     * `OrganizationMembership` - OrganizationMembership
@@ -38560,6 +38655,7 @@ export namespace Schemas {
       Project: 'Project',
       ErrorTrackingIssue: 'ErrorTrackingIssue',
       DataWarehouseSavedQuery: 'DataWarehouseSavedQuery',
+      LegalDocument: 'LegalDocument',
       Organization: 'Organization',
       OrganizationDomain: 'OrganizationDomain',
       OrganizationMembership: 'OrganizationMembership',
