@@ -51,6 +51,7 @@ from posthog.temporal.codec_server import decode_payloads
 from products.data_warehouse.backend.api.public_source_configs import PublicSourceConfigViewSet
 from products.early_access_features.backend.api import early_access_features
 from products.messaging.backend.api.customerio_webhook import CustomerIOWebhookView
+from products.messaging.backend.api.push_subscriptions import push_subscriptions
 from products.product_tours.backend.api import product_tours
 from products.signals.backend import views as signals_views
 from products.signals.backend.views import SignalUserAutonomyConfigView as signals_user_autonomy_view
@@ -231,6 +232,7 @@ urlpatterns = [
     opt_slash_path("api/early_access_features", early_access_features),
     opt_slash_path("api/web_experiments", web_experiments),
     opt_slash_path("api/surveys", surveys),
+    opt_slash_path("api/push_subscriptions", push_subscriptions),
     opt_slash_path("api/product_tours", product_tours),
     re_path(r"^external_surveys/(?P<survey_id>[^/]+)/?$", public_survey_page),
     opt_slash_path("api/signup/precheck", signup.SignupEmailPrecheckViewset.as_view()),
