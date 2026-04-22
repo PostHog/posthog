@@ -14,6 +14,7 @@ from __future__ import annotations
 import hmac
 import hashlib
 from dataclasses import dataclass
+from enum import StrEnum
 from typing import Any
 
 from django.conf import settings
@@ -42,26 +43,20 @@ class PandaDocDocument:
     name: str
 
 
-@dataclass(frozen=True)
-class PandaDocSenderPostHog:
+class PandaDocRole(StrEnum):
     """
-    We wanna make sure we always have someone from our team attached as a CC
-    on the PandaDoc envelopes, so let's assign it here.
+    Roles PandaDoc templates bind recipients to. Must match the role names
+    configured on each template in the PandaDoc dashboard.
     """
 
-    email: str = "sales@posthog.com"
-    role: str = "PostHog"
+    CLIENT = "Client"
+    POSTHOG = "PostHog"
 
 
 @dataclass(frozen=True)
 class PandaDocRecipient:
     email: str
-    # Built-in recipient contact fields. PandaDoc auto-populates `Client.Email`,
-    # `Client.Company`, and `Client.StreetAddress` in the template body from
-    # these values, so no custom tokens are needed.
-    company: str = ""
-    street_address: str = ""
-    role: str = "Client"
+    role: PandaDocRole
 
 
 class PandaDocClient:
@@ -104,18 +99,26 @@ class PandaDocClient:
         *,
         template_id: str,
         name: str,
-        recipients: list[PandaDocRecipient | PandaDocSenderPostHog],
+        recipients: list[PandaDocRecipient],
+        tokens: dict[str, str] | None = None,
         metadata: dict[str, str] | None = None,
     ) -> PandaDocDocument:
         """
         Create a new document from a PandaDoc template. The returned document is in
         `document.uploaded` state — call `send_document` to dispatch the signing email.
+
+        `tokens` is a flat {name: value} map that maps onto the template's token
+        placeholders (`[Client.Company]`, `[Client.StreetAddress]`, etc.). Only
+        `Client.Email` is auto-populated from the recipient — everything else
+        the template references has to be passed explicitly here.
         """
         payload: dict[str, Any] = {
             "name": name,
             "template_uuid": template_id,
             "recipients": [_serialize_recipient(r) for r in recipients],
         }
+        if tokens:
+            payload["tokens"] = [{"name": name, "value": value} for name, value in tokens.items()]
         if metadata:
             payload["metadata"] = metadata
         data = self._post("/public/v1/documents", payload)
@@ -135,21 +138,8 @@ class PandaDocClient:
         )
 
 
-def _serialize_recipient(r: PandaDocRecipient | PandaDocSenderPostHog) -> dict[str, Any]:
-    payload: dict[str, Any] = {"email": r.email, "role": r.role}
-    # PandaDoc expects contact fields under `fields`, keyed by the snake_case
-    # field name (e.g. `Client.Company` → `company`). Only include fields we
-    # actually have a value for so we don't stomp existing template defaults,
-    # and only for recipient types that declare them (the PostHog sender doesn't).
-    fields: dict[str, dict[str, str]] = {}
-    if company := getattr(r, "company", ""):
-        fields["company"] = {"value": company}
-    if street_address := getattr(r, "street_address", ""):
-        fields["street_address"] = {"value": street_address}
-
-    if fields:
-        payload["fields"] = fields
-    return payload
+def _serialize_recipient(r: PandaDocRecipient) -> dict[str, Any]:
+    return {"email": r.email, "role": str(r.role)}
 
 
 def verify_webhook_signature(*, secret: str, body: bytes, signature: str) -> bool:

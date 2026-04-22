@@ -16,7 +16,7 @@ class TestPandaDocClient(TestCase):
             client.create_document_from_template(
                 template_id="tpl",
                 name="doc",
-                recipients=[pandadoc.PandaDocRecipient(email="a@b.c")],
+                recipients=[pandadoc.PandaDocRecipient(email="a@b.c", role=pandadoc.PandaDocRole.CLIENT)],
             )
 
     @override_settings(PANDADOC_API_KEY="key", PANDADOC_API_BASE_URL="https://api.pandadoc.com")
@@ -33,13 +33,8 @@ class TestPandaDocClient(TestCase):
             result = client.create_document_from_template(
                 template_id="tpl",
                 name="PostHog BAA",
-                recipients=[
-                    pandadoc.PandaDocRecipient(
-                        email="ada@acme.example",
-                        company="Acme, Inc.",
-                        street_address="1 Analytics Way",
-                    )
-                ],
+                recipients=[pandadoc.PandaDocRecipient(email="ada@acme.example", role=pandadoc.PandaDocRole.CLIENT)],
+                tokens={"Client.Company": "Acme, Inc.", "Client.StreetAddress": "1 Analytics Way"},
                 metadata={"legal_document_id": "lid-1"},
             )
 
@@ -50,14 +45,14 @@ class TestPandaDocClient(TestCase):
         body = kwargs["json"]
         self.assertEqual(body["template_uuid"], "tpl")
         self.assertEqual(body["name"], "PostHog BAA")
-        recipient = body["recipients"][0]
-        self.assertEqual(recipient["email"], "ada@acme.example")
-        self.assertEqual(recipient["role"], "Client")
+        self.assertEqual(body["recipients"], [{"email": "ada@acme.example", "role": "Client"}])
         self.assertEqual(
-            recipient["fields"],
-            {"company": {"value": "Acme, Inc."}, "street_address": {"value": "1 Analytics Way"}},
+            body["tokens"],
+            [
+                {"name": "Client.Company", "value": "Acme, Inc."},
+                {"name": "Client.StreetAddress", "value": "1 Analytics Way"},
+            ],
         )
-        self.assertNotIn("tokens", body)
         self.assertEqual(body["metadata"], {"legal_document_id": "lid-1"})
         self.assertEqual(result.id, "doc_123")
 
@@ -85,29 +80,10 @@ class TestPandaDocClient(TestCase):
         self.assertFalse(pandadoc.verify_webhook_signature(secret="", body=b"{}", signature="abc"))
         self.assertFalse(pandadoc.verify_webhook_signature(secret="k", body=b"{}", signature=""))
 
-    def test_serialize_recipient_handles_posthog_sender_without_client_fields(self) -> None:
-        # The PostHog sender recipient doesn't carry Client.* fields, so
-        # _serialize_recipient must not blow up when it's passed — otherwise
-        # every real submission 500s (tests don't catch this on their own
-        # because submit_to_pandadoc short-circuits when template IDs are unset).
-        sender = pandadoc.PandaDocSenderPostHog()
-        payload = pandadoc._serialize_recipient(sender)
-        self.assertEqual(payload, {"email": sender.email, "role": "PostHog"})
-        self.assertNotIn("fields", payload)
-
-    def test_serialize_recipient_serializes_client_fields(self) -> None:
-        client = pandadoc.PandaDocRecipient(
-            email="ada@acme.example", company="Acme, Inc.", street_address="1 Analytics Way"
-        )
-        payload = pandadoc._serialize_recipient(client)
-        self.assertEqual(
-            payload,
-            {
-                "email": "ada@acme.example",
-                "role": "Client",
-                "fields": {
-                    "company": {"value": "Acme, Inc."},
-                    "street_address": {"value": "1 Analytics Way"},
-                },
-            },
-        )
+    def test_serialize_recipient_emits_flat_email_and_role_for_each_role(self) -> None:
+        # Both the Client signer and the PostHog CC serialize to the same
+        # minimal shape; tokens carry all template content.
+        client = pandadoc.PandaDocRecipient(email="ada@acme.example", role=pandadoc.PandaDocRole.CLIENT)
+        self.assertEqual(pandadoc._serialize_recipient(client), {"email": "ada@acme.example", "role": "Client"})
+        posthog = pandadoc.PandaDocRecipient(email="sales@posthog.com", role=pandadoc.PandaDocRole.POSTHOG)
+        self.assertEqual(pandadoc._serialize_recipient(posthog), {"email": "sales@posthog.com", "role": "PostHog"})

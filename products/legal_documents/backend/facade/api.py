@@ -66,13 +66,42 @@ def create_document(data: contracts.CreateLegalDocumentInput) -> contracts.Legal
         representative_email=data.representative_email,
     )
 
-    # Fire and forget: PandaDoc + Slack never block the response. If PandaDoc
-    # fails we still 201 — ops gets a Slack ping (best-effort) and the row is
-    # left without a pandadoc_document_id for the admin "resend" action later.
-    logic.submit_to_pandadoc(document)
-    logic.notify_slack_on_submit(document)
+    # Fire and forget: PandaDoc never blocks the response. The envelope lands
+    # in `document.uploaded` state and becomes dispatchable asynchronously —
+    # the `document.draft` webhook triggers the actual send + Slack ping via
+    # `mark_envelope_ready_by_pandadoc_document_id`.
+    logic.create_pandadoc_envelope(document)
     logic.fire_legal_document_submitted_event(document, distinct_id=data.distinct_id)
 
+    return _to_dto(document)
+
+
+def mark_envelope_ready_by_pandadoc_document_id(
+    *,
+    pandadoc_document_id: str,
+    template_id: str,
+) -> contracts.LegalDocumentDTO | None:
+    """
+    Entry point from the PandaDoc `document.draft` webhook — the envelope
+    finished template processing and is ready to send. Dispatch the signing
+    email and fire the Slack "submitted" notification.
+
+    Idempotent: if the envelope has already been dispatched (row is already
+    signed, or the send call fails because PandaDoc has moved past draft)
+    we quietly skip the side effects.
+    """
+    document = logic.get_by_pandadoc_document_id(pandadoc_document_id)
+    if document is None:
+        return None
+    if not logic.template_id_matches_document(document, template_id):
+        return None
+    if document.status == LegalDocumentStatus.SIGNED:
+        # Envelope already completed — the draft event is a late/replayed
+        # delivery; nothing left for us to do.
+        return _to_dto(document)
+    sent = logic.send_pandadoc_envelope(document)
+    if sent:
+        logic.notify_slack_on_submit(document)
     return _to_dto(document)
 
 

@@ -274,6 +274,18 @@ class TestLegalDocumentPandaDocWebhook(APIBaseTest):
             }
         ]
 
+    def _draft_payload(self, pandadoc_document_id: str = "doc_123", template_id: str | None = None) -> list[dict]:
+        return [
+            {
+                "event": "document_state_changed",
+                "data": {
+                    "id": pandadoc_document_id,
+                    "status": "document.draft",
+                    "template": {"id": template_id or self.DPA_TEMPLATE_ID},
+                },
+            }
+        ]
+
     def _post_raw(self, body: bytes, signature: str):
         # DRF's test client types `data` as str even though it accepts bytes at
         # runtime; decode so mypy doesn't complain while the wire payload stays
@@ -321,7 +333,8 @@ class TestLegalDocumentPandaDocWebhook(APIBaseTest):
             response = self._post_raw(body, self._sign(body))
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
 
-    def test_non_completed_event_is_noop(self) -> None:
+    def test_uninteresting_state_event_is_noop(self) -> None:
+        # document.sent / document.viewed / etc. — we only act on draft + completed.
         payload = self._completed_payload()
         payload[0]["data"]["status"] = "document.sent"
         body = json.dumps(payload).encode("utf-8")
@@ -330,6 +343,52 @@ class TestLegalDocumentPandaDocWebhook(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
         self.document.refresh_from_db()
         self.assertEqual(self.document.status, "submitted_for_signature")
+
+    def test_draft_event_dispatches_send_and_fires_slack(self) -> None:
+        body = json.dumps(self._draft_payload()).encode("utf-8")
+        with (
+            self._override(),
+            patch("products.legal_documents.backend.logic.pandadoc_client.PandaDocClient.send_document") as send_mock,
+            patch("products.legal_documents.backend.logic.notify_slack_on_submit") as slack_mock,
+        ):
+            response = self._post_raw(body, self._sign(body))
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        send_mock.assert_called_once()
+        self.assertEqual(send_mock.call_args.kwargs["document_id"], "doc_123")
+        slack_mock.assert_called_once()
+
+    def test_draft_event_skips_slack_if_pandadoc_send_fails(self) -> None:
+        from products.legal_documents.backend.logic import pandadoc as pandadoc_client
+
+        body = json.dumps(self._draft_payload()).encode("utf-8")
+        with (
+            self._override(),
+            patch(
+                "products.legal_documents.backend.logic.pandadoc_client.PandaDocClient.send_document",
+                side_effect=pandadoc_client.PandaDocError("boom"),
+            ),
+            patch("products.legal_documents.backend.logic.notify_slack_on_submit") as slack_mock,
+        ):
+            response = self._post_raw(body, self._sign(body))
+        # Endpoint still 2xx (we don't want PandaDoc to retry) but Slack is skipped.
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        slack_mock.assert_not_called()
+
+    def test_draft_event_for_already_signed_document_is_a_noop(self) -> None:
+        self.document.status = "signed"
+        self.document.signed_document_url = "https://app.pandadoc.com/s/signed.pdf"
+        self.document.save()
+
+        body = json.dumps(self._draft_payload()).encode("utf-8")
+        with (
+            self._override(),
+            patch("products.legal_documents.backend.logic.pandadoc_client.PandaDocClient.send_document") as send_mock,
+            patch("products.legal_documents.backend.logic.notify_slack_on_submit") as slack_mock,
+        ):
+            response = self._post_raw(body, self._sign(body))
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        send_mock.assert_not_called()
+        slack_mock.assert_not_called()
 
     def test_template_mismatch_does_not_flip_row(self) -> None:
         # Completed event with BAA template id for what's actually a DPA row in the DB
