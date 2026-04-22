@@ -550,9 +550,14 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
                 code_challenge=code_challenge,
             )
         except OAuthAuthorizeURLError as exc:
+            logger.warning(
+                "OAuth authorize URL build failed",
+                template_id=str(template.id),
+                error=str(exc),
+            )
             if created:
                 installation.delete()
-            return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({"detail": "Could not build OAuth authorize URL"}, status=status.HTTP_400_BAD_REQUEST)
 
         report_user_action(
             request.user,
@@ -874,7 +879,12 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
                 code_challenge=code_challenge,
             )
         except OAuthAuthorizeURLError as exc:
-            return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+            logger.warning(
+                "OAuth authorize URL build failed",
+                template_id=str(template.id),
+                error=str(exc),
+            )
+            return Response({"detail": "Could not build OAuth authorize URL"}, status=status.HTTP_400_BAD_REQUEST)
 
         report_user_action(
             request.user,
@@ -1018,7 +1028,15 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
         try:
             sync_installation_tools(installation)
         except ToolsFetchError as exc:
-            return Response({"detail": str(exc)}, status=status.HTTP_502_BAD_GATEWAY)
+            logger.warning(
+                "Tools refresh failed",
+                installation_id=str(installation.id),
+                error=str(exc),
+            )
+            return Response(
+                {"detail": "Could not refresh tools from the upstream MCP server"},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
 
         queryset = installation.tools.filter(removed_at__isnull=True).order_by("tool_name")
         serializer = MCPServerInstallationToolSerializer(queryset, many=True)
