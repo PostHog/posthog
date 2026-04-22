@@ -26,6 +26,7 @@ def capture_session_summary_ready(
     team_api_token: str,
 ) -> None:
     summary_context = summary.extra_summary_context
+    summary_content = summary.summary
     run_metadata = summary.run_metadata or {}
     try:
         response = capture_internal(
@@ -40,7 +41,8 @@ def capture_session_summary_ready(
                 "team_id": summary.team_id,
                 "summary_id": str(summary.id),
                 "summary_origin": summary_origin,
-                "session_summary_context": summary_context,
+                "session_summary": summary_content,
+                "extra_summary_context": summary_context,
                 "session_summary_focus_area": summary_context.get("focus_area") if summary_context else None,
                 "replay_url": _build_replay_url(summary),
                 "visual_confirmation": bool(run_metadata.get("visual_confirmation", False)),

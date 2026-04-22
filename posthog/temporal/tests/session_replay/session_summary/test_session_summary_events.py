@@ -58,8 +58,9 @@ def test_capture_session_summary_ready_emits_internal_project_event(
     assert kwargs["properties"]["team_id"] == team.id
     assert kwargs["properties"]["summary_id"] == str(summary.id)
     assert kwargs["properties"]["summary_origin"] == "single"
+    assert kwargs["properties"]["session_summary"] == summary.summary
     assert kwargs["properties"]["replay_url"] == f"http://localhost:8000/project/{team.id}/replay/summary-session-1"
-    assert kwargs["properties"]["session_summary_context"] == {"focus_area": "checkout"}
+    assert kwargs["properties"]["extra_summary_context"] == {"focus_area": "checkout"}
     assert kwargs["properties"]["session_summary_focus_area"] == "checkout"
     assert kwargs["properties"]["visual_confirmation"] is False
     assert kwargs["properties"]["model_used"] == "gpt-test"
