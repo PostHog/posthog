@@ -1,3 +1,5 @@
+import { RESOURCE_URI_META_KEY } from '@modelcontextprotocol/ext-apps/server'
+
 import { isCodingAgentClient } from '@/lib/client-detection'
 import { formatResponse } from '@/lib/response'
 import { POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY, POSTHOG_META_KEY } from '@/tools/types'
@@ -21,11 +23,38 @@ export interface BuildToolResultOptions {
     clientName: string | undefined
     /** PostHog distinctId for analytics metadata (only read when a UI resource is present). */
     distinctId?: string | undefined
+    /**
+     * When set, the inner tool's `_meta.ui.resourceUri` is placed on the response payload
+     * under both the new (`ui.resourceUri`) and legacy (`ui/resourceUri`) keys. Used by the
+     * single-exec wrapper to surface UI apps through the generic `exec` tool — clients only
+     * see `exec` registered, so the UI metadata has to ride on the per-call response.
+     */
+    includeUiResponseMeta?: boolean
 }
 
 export interface ToolResultPayload {
     content: Array<{ type: 'text'; text: string }>
     structuredContent?: Record<string, unknown>
+    _meta?: Record<string, unknown>
+}
+
+/**
+ * Detects a value that is already a `CallToolResult`-shaped payload so callers
+ * can short-circuit additional wrapping. Used by the per-tool registration path
+ * in `MCP.registerTool` to pass through payloads that the exec wrapper has
+ * already assembled (exec already runs `buildToolResultPayload` for its inner
+ * tool — re-running it here would object-rest-destructure the text content).
+ */
+export function isToolCallPayload(value: unknown): value is ToolResultPayload {
+    if (typeof value !== 'object' || value === null) {
+        return false
+    }
+    const content = (value as { content?: unknown }).content
+    if (!Array.isArray(content) || content.length === 0) {
+        return false
+    }
+    const first = content[0] as { type?: unknown } | null | undefined
+    return typeof first === 'object' && first !== null && first.type === 'text'
 }
 
 /**
@@ -42,7 +71,7 @@ export interface ToolResultPayload {
  *    behind raw JSON.
  */
 export function buildToolResultPayload(opts: BuildToolResultOptions): ToolResultPayload {
-    const { handlerResult, toolMeta, toolName, params, clientName, distinctId } = opts
+    const { handlerResult, toolMeta, toolName, params, clientName, distinctId, includeUiResponseMeta } = opts
 
     const isStringResult = typeof handlerResult === 'string'
     const formattedResults: string | undefined = isStringResult
@@ -62,7 +91,8 @@ export function buildToolResultPayload(opts: BuildToolResultOptions): ToolResult
         rawResult = rest
     }
 
-    const hasUiResource = !!toolMeta?.ui?.resourceUri
+    const resourceUri = toolMeta?.ui?.resourceUri
+    const hasUiResource = !!resourceUri
     // Caller's per-call `output_format` wins over the tool's YAML default in `_meta`.
     const callerOutputFormat = (params as { output_format?: 'optimized' | 'json' } | undefined)?.output_format
     const effectiveOutputFormat = callerOutputFormat ?? toolMeta?.[POSTHOG_META_KEY]?.outputFormat
@@ -86,10 +116,17 @@ export function buildToolResultPayload(opts: BuildToolResultOptions): ToolResult
     const suppressStructuredContent =
         formattedResults !== undefined && !callerWantsJson && isCodingAgentClient(clientName)
 
-    return {
+    const payload: ToolResultPayload = {
         content: [{ type: 'text', text }],
-        ...(hasUiResource && !suppressStructuredContent
-            ? { structuredContent: structuredContent as Record<string, unknown> }
-            : {}),
     }
+    if (hasUiResource && !suppressStructuredContent) {
+        payload.structuredContent = structuredContent as Record<string, unknown>
+    }
+    if (includeUiResponseMeta && resourceUri) {
+        payload._meta = {
+            ui: { resourceUri },
+            [RESOURCE_URI_META_KEY]: resourceUri,
+        }
+    }
+    return payload
 }

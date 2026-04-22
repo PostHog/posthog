@@ -1,6 +1,7 @@
 import guidelines from '@shared/guidelines.md'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { format } from 'oxfmt'
 import { describe, expect, it } from 'vitest'
 import { z } from 'zod'
 
@@ -31,7 +32,9 @@ function makeMockTool(overrides: Partial<Tool<ZodObjectAny>> = {}): Tool<ZodObje
     }
 }
 
-const mockContext = {} as Context
+const mockContext = {
+    getDistinctId: async () => 'test-distinct-id',
+} as unknown as Context
 
 function createExec(tools: Tool<ZodObjectAny>[] = [makeMockTool()]): Tool<any> {
     return createExecTool(tools, mockContext, 'test description', 'test command reference')
@@ -97,6 +100,40 @@ describe('exec tool', () => {
             // Without the flag, output is TOON-formatted
             expect(result).toContain('tag:')
         })
+
+        it('propagates _meta.ui.resourceUri and structuredContent when the inner tool has a UI app', async () => {
+            const tool = makeMockTool({
+                _meta: { ui: { resourceUri: 'ui://posthog/mock-app.html' } },
+            })
+            const exec = createExec([tool])
+            const result = (await exec.handler(mockContext, { command: 'call mock-tool {}' })) as {
+                content: { type: string; text: string }[]
+                structuredContent: { id: number; name: string; _analytics: { distinctId: string; toolName: string } }
+                _meta: { ui: { resourceUri: string }; [key: string]: unknown }
+            }
+
+            // Text content still includes the TOON-formatted result for model context
+            expect(result.content[0]!.text).toContain('id: 1')
+            // structuredContent carries the raw object plus analytics for the UI app
+            expect(result.structuredContent.id).toBe(1)
+            expect(result.structuredContent._analytics).toEqual({
+                distinctId: 'test-distinct-id',
+                toolName: 'mock-tool',
+            })
+            // _meta on the response exposes the UI resource URI to clients that
+            // only see the `exec` tool registered (single-exec mode). Both the
+            // new nested key and the legacy flat key are emitted for
+            // compatibility with older MCP clients.
+            expect(result._meta.ui.resourceUri).toBe('ui://posthog/mock-app.html')
+            expect(result._meta['ui/resourceUri']).toBe('ui://posthog/mock-app.html')
+        })
+
+        it('does not attach UI meta or structuredContent for tools without a UI app', async () => {
+            const exec = createExec()
+            const result = await exec.handler(mockContext, { command: 'call mock-tool {}' })
+            // Plain text fallback — no CallToolResult shape leaks out
+            expect(typeof result).toBe('string')
+        })
     })
 
     describe('schema snapshot', () => {
@@ -118,6 +155,7 @@ describe('exec tool', () => {
                     getAiConsentGiven: async () => true,
                 } as any,
                 sessionManager: new SessionManager({} as any),
+                getDistinctId: async () => 'test-distinct-id',
             }
         }
 
@@ -166,7 +204,16 @@ describe('exec tool', () => {
 
             const __dirname = path.dirname(fileURLToPath(import.meta.url))
             const snapshotPath = path.resolve(__dirname, '__snapshots__', 'exec-tool.json')
-            await expect(`${JSON.stringify(snapshot, null, 4)}\n`).toMatchFileSnapshot(snapshotPath)
+            // Format via oxfmt so the snapshot matches repo-wide formatting rules
+            // (lint-staged reformats *.json and would otherwise flip this file on save).
+            const content = `${JSON.stringify(snapshot, null, 4)}\n`
+            const result = await format(snapshotPath, content, { tabWidth: 4, printWidth: 120 })
+            if (result.errors.length > 0) {
+                throw new Error(
+                    `Failed formatting snapshot: ${result.errors.map((e) => e.message ?? 'unknown').join('; ')}`
+                )
+            }
+            await expect(result.code).toMatchFileSnapshot(snapshotPath)
         })
     })
 })

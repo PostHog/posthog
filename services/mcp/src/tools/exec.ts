@@ -1,5 +1,6 @@
 import { z } from 'zod'
 
+import { buildToolResultPayload } from '@/lib/build-tool-result'
 import { formatResponse } from '@/lib/response'
 
 import { TOKEN_CHAR_LIMIT, listAvailablePaths, resolveSchemaPath, summarizeSchema } from './schema-utils'
@@ -167,6 +168,25 @@ export function createExecTool(
                     }
 
                     const result = await tool.handler(context, input)
+
+                    // If the inner tool has a UI app attached, emit a full `CallToolResult`
+                    // payload so the response carries `structuredContent` + `_meta.ui.resourceUri`.
+                    // Clients only see the `exec` tool registered (single-exec mode), so the UI
+                    // metadata has to ride on the per-call response for them to detect + render.
+                    if (tool._meta?.ui?.resourceUri) {
+                        const isStringResult = typeof result === 'string'
+                        const distinctId = isStringResult ? undefined : await context.getDistinctId()
+                        return buildToolResultPayload({
+                            handlerResult: result,
+                            toolMeta: tool._meta,
+                            toolName: tool.name,
+                            params: forceJson ? { ...input, output_format: 'json' } : input,
+                            clientName: undefined,
+                            distinctId,
+                            includeUiResponseMeta: true,
+                        })
+                    }
+
                     const useJson = forceJson || tool._meta?.[POSTHOG_META_KEY]?.outputFormat === 'json'
                     return useJson ? JSON.stringify(result) : formatResponse(result)
                 }

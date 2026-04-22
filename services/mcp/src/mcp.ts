@@ -14,7 +14,7 @@ import {
     isFeatureFlagEnabled,
     type MCPAnalyticsContext,
 } from '@/lib/analytics'
-import { buildToolResultPayload } from '@/lib/build-tool-result'
+import { buildToolResultPayload, isToolCallPayload } from '@/lib/build-tool-result'
 import { DurableObjectCache } from '@/lib/cache/DurableObjectCache'
 import {
     CUSTOM_API_BASE_URL,
@@ -369,6 +369,13 @@ export class MCP extends McpAgent<Env> {
                         this.trackContextSwitchEvent(tool.name, await this.getContext(), previousContext)
                     )
                 }
+                // The exec wrapper (single-exec mode) assembles the per-call payload itself —
+                // propagating the inner tool's UI resourceUri onto the response — so pass it
+                // through unchanged. Re-running `buildToolResultPayload` on the payload would
+                // object-rest-destructure its content/structuredContent fields.
+                if (isToolCallPayload(handlerResult)) {
+                    return handlerResult
+                }
                 // Fetch distinctId only when a UI-resource tool with a non-string result might
                 // actually use it in structuredContent; avoids an extra round-trip otherwise.
                 const hasUiResource = !!tool._meta?.ui?.resourceUri
@@ -427,6 +434,7 @@ export class MCP extends McpAgent<Env> {
             env: this.env,
             stateManager: new StateManager(this.cache, api),
             sessionManager: this.sessionManager,
+            getDistinctId: () => this.getDistinctId(),
         }
     }
 
