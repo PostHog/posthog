@@ -5,7 +5,10 @@ ORM queries, validation, calculations, business rules.
 Called by api/api.py facade. Do not call from outside this module.
 """
 
+from __future__ import annotations
+
 from datetime import datetime
+from typing import TYPE_CHECKING
 from uuid import UUID
 
 from django.db import (
@@ -16,6 +19,9 @@ from django.db.models import Count, F, Q
 from django.utils import timezone
 
 import structlog
+
+if TYPE_CHECKING:
+    from posthog.models.integration import GitHubIntegration
 
 from .classifier import SnapshotClassifier
 from .db import WRITER_DB
@@ -311,7 +317,7 @@ def _verify_baseline_hashes(repo: Repo, raw_hashes: dict[str, str]) -> dict[str,
     return verified
 
 
-def _resolve_baselines_at_ref(repo, github, run_type: str, ref: str) -> dict[str, str]:
+def _resolve_baselines_at_ref(repo: Repo, github: GitHubIntegration, run_type: str, ref: str) -> dict[str, str]:
     """Fetch baseline content hashes from GitHub at a specific ref (branch name or SHA).
 
     Returns a dict of identifier → content_hash (plain, not signed).
@@ -332,7 +338,7 @@ def _resolve_baselines_at_ref(repo, github, run_type: str, ref: str) -> dict[str
     )
 
 
-def _get_merge_base_sha(github, repo_full_name: str, base: str, head: str) -> str | None:
+def _get_merge_base_sha(github: GitHubIntegration, repo_full_name: str, base: str, head: str) -> str | None:
     """Get the merge-base SHA between two refs via the GitHub Compare API."""
     import requests
 
@@ -367,7 +373,7 @@ def _get_merge_base_sha(github, repo_full_name: str, base: str, head: str) -> st
     return sha
 
 
-def _get_default_branch(github, repo_full_name: str) -> str:
+def _get_default_branch(github: GitHubIntegration, repo_full_name: str) -> str:
     """Get the repo's default branch name via the GitHub API."""
     import requests
 
@@ -406,7 +412,7 @@ def _resolve_baselines(repo, run_type: str, branch: str) -> dict[str, str]:
     return _resolve_baselines_at_ref(repo, github, run_type, branch)
 
 
-def _resolve_baselines_with_merge_base(repo, run_type: str, branch: str) -> tuple[dict[str, str], int]:
+def _resolve_baselines_with_merge_base(repo: Repo, run_type: str, branch: str) -> tuple[dict[str, str], int]:
     """Fetch branch baseline merged with merge-base baseline.
 
     The branch baseline tracks approvals. The merge-base baseline
