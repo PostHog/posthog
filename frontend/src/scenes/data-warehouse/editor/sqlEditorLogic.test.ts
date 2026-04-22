@@ -1005,4 +1005,63 @@ describe('sqlEditorLogic', () => {
             performQuerySpy.mockRestore()
         })
     })
+
+    describe('editor teardown safety', () => {
+        it('short-circuits createTab when cache.isUnmounted is set (regression for disposed InstantiationService)', async () => {
+            const monacoMock = createMockMonaco()
+            const editorMock = createMockEditor()
+            logic = sqlEditorLogic({
+                tabId: TAB_ID,
+                monaco: monacoMock,
+                editor: editorMock,
+            })
+            logic.mount()
+
+            // Simulate the race where beforeUnmount has already flipped the flag but a
+            // previously-dispatched createTab is still in flight. Any Monaco call would
+            // now hit a disposed CodeEditorWidget and throw.
+            logic.cache.isUnmounted = true
+            const disposedError = new Error('InstantiationService has been disposed')
+            ;(editorMock.setModel as jest.Mock).mockImplementation(() => {
+                throw disposedError
+            })
+            ;(editorMock.focus as jest.Mock).mockImplementation(() => {
+                throw disposedError
+            })
+            ;(editorMock.setModel as jest.Mock).mockClear()
+            ;(editorMock.focus as jest.Mock).mockClear()
+
+            logic.actions.createTab('SELECT 1')
+            await expectLogic(logic).toDispatchActions(['createTab'])
+
+            expect(editorMock.setModel).not.toHaveBeenCalled()
+            expect(editorMock.focus).not.toHaveBeenCalled()
+
+            // Reset so afterEach's unmount() can run cleanly
+            logic.cache.isUnmounted = false
+        })
+
+        it('swallows disposal errors thrown by Monaco during createTab', async () => {
+            const monacoMock = createMockMonaco()
+            const editorMock = createMockEditor()
+            logic = sqlEditorLogic({
+                tabId: TAB_ID,
+                monaco: monacoMock,
+                editor: editorMock,
+            })
+            logic.mount()
+
+            // The guard flag is still false; this models the narrower race where disposal
+            // happens between the guard check and the setModel call itself.
+            const disposedError = new Error('InstantiationService has been disposed')
+            ;(editorMock.setModel as jest.Mock).mockImplementation(() => {
+                throw disposedError
+            })
+
+            logic.actions.createTab('SELECT 1')
+            await expectLogic(logic).toDispatchActions(['createTab'])
+
+            expect(editorMock.setModel).toHaveBeenCalledTimes(1)
+        })
+    })
 })

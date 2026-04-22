@@ -678,6 +678,23 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
         ],
     })),
     listeners(({ values, props, actions, asyncActions, cache }) => {
+        // Shared guard for any operation that touches Monaco after the scene has started
+        // tearing down. `cache.isUnmounted` is flipped at the top of `beforeUnmount`, and
+        // the try/catch is a belt-and-suspenders for races where disposal happens between
+        // this check and the call — Monaco throws "InstantiationService has been disposed"
+        // on setModel/deltaDecorations/focus against a disposed CodeEditorWidget.
+        const safeEditorCall = <T,>(label: string, fn: () => T): T | undefined => {
+            if (cache.isUnmounted || !props.editor) {
+                return undefined
+            }
+            try {
+                return fn()
+            } catch (error) {
+                posthog.captureException(error, { feature: 'sql-editor', op: label })
+                return undefined
+            }
+        }
+
         // Extract cursor offset and selection text from monaco and defer to the pure helper.
         const resolveSaveCandidates = (): ReturnType<typeof resolveSaveCandidatesPure> => {
             const fullText = values.queryInput ?? ''
@@ -712,35 +729,40 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 posthog.capture('ai-error-fixer-failure')
             },
             insertTextAtCursor: ({ text }) => {
+                if (cache.isUnmounted) {
+                    return
+                }
                 const editor = props.editor
                 if (!editor) {
                     return
                 }
 
-                const position = editor.getPosition()
-                if (!position) {
-                    return
-                }
+                safeEditorCall('insertTextAtCursor', () => {
+                    const position = editor.getPosition()
+                    if (!position) {
+                        return
+                    }
 
-                editor.executeEdits('insert-variable', [
-                    {
-                        range: {
-                            startLineNumber: position.lineNumber,
-                            startColumn: position.column,
-                            endLineNumber: position.lineNumber,
-                            endColumn: position.column,
+                    editor.executeEdits('insert-variable', [
+                        {
+                            range: {
+                                startLineNumber: position.lineNumber,
+                                startColumn: position.column,
+                                endLineNumber: position.lineNumber,
+                                endColumn: position.column,
+                            },
+                            text,
                         },
-                        text,
-                    },
-                ])
+                    ])
 
-                // Move cursor to end of inserted text
-                editor.setPosition({
-                    lineNumber: position.lineNumber,
-                    column: position.column + text.length,
+                    // Move cursor to end of inserted text
+                    editor.setPosition({
+                        lineNumber: position.lineNumber,
+                        column: position.column + text.length,
+                    })
+
+                    editor.focus()
                 })
-
-                editor.focus()
             },
             shareTab: () => {
                 const currentTab = values.activeTab
@@ -804,6 +826,9 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 }
             },
             onAcceptSuggestedQueryInput: ({ shouldRunQuery }) => {
+                if (cache.isUnmounted) {
+                    return
+                }
                 values.suggestionPayload?.onAccept(!!shouldRunQuery, actions, values, props)
 
                 // Re-create the model to prevent it from being purged
@@ -827,25 +852,25 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                             })
                         )
 
-                        // Handle both diff editor and regular editor
-                        if (props.editor && 'getModifiedEditor' in props.editor) {
-                            // It's a diff editor, set model on the modified editor
-                            const modifiedEditor = (props.editor as any).getModifiedEditor()
-                            modifiedEditor.setModel(newModel)
-                        } else {
-                            // Regular editor
-                            props.editor?.setModel(newModel)
-                        }
+                        safeEditorCall('onAcceptSuggestedQueryInput:setModel(new)', () => {
+                            // Handle both diff editor and regular editor
+                            if (props.editor && 'getModifiedEditor' in props.editor) {
+                                const modifiedEditor = (props.editor as any).getModifiedEditor()
+                                modifiedEditor.setModel(newModel)
+                            } else {
+                                props.editor?.setModel(newModel)
+                            }
+                        })
                     } else {
-                        // Handle both diff editor and regular editor
-                        if (props.editor && 'getModifiedEditor' in props.editor) {
-                            // It's a diff editor, set model on the modified editor
-                            const modifiedEditor = (props.editor as any).getModifiedEditor()
-                            modifiedEditor.setModel(existingModel)
-                        } else {
-                            // Regular editor
-                            props.editor?.setModel(existingModel)
-                        }
+                        safeEditorCall('onAcceptSuggestedQueryInput:setModel(existing)', () => {
+                            // Handle both diff editor and regular editor
+                            if (props.editor && 'getModifiedEditor' in props.editor) {
+                                const modifiedEditor = (props.editor as any).getModifiedEditor()
+                                modifiedEditor.setModel(existingModel)
+                            } else {
+                                props.editor?.setModel(existingModel)
+                            }
+                        })
                     }
                 }
                 posthog.capture('sql-editor-accepted-suggestion', {
@@ -854,6 +879,9 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 actions._setSuggestionPayload(null)
             },
             onRejectSuggestedQueryInput: () => {
+                if (cache.isUnmounted) {
+                    return
+                }
                 values.suggestionPayload?.onReject(actions, values, props)
 
                 // Re-create the model to prevent it from being purged
@@ -876,25 +904,25 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                             })
                         )
 
-                        // Handle both diff editor and regular editor
-                        if (props.editor && 'getModifiedEditor' in props.editor) {
-                            // It's a diff editor, set model on the modified editor
-                            const modifiedEditor = (props.editor as any).getModifiedEditor()
-                            modifiedEditor.setModel(newModel)
-                        } else {
-                            // Regular editor
-                            props.editor?.setModel(newModel)
-                        }
+                        safeEditorCall('onRejectSuggestedQueryInput:setModel(new)', () => {
+                            // Handle both diff editor and regular editor
+                            if (props.editor && 'getModifiedEditor' in props.editor) {
+                                const modifiedEditor = (props.editor as any).getModifiedEditor()
+                                modifiedEditor.setModel(newModel)
+                            } else {
+                                props.editor?.setModel(newModel)
+                            }
+                        })
                     } else {
-                        // Handle both diff editor and regular editor
-                        if (props.editor && 'getModifiedEditor' in props.editor) {
-                            // It's a diff editor, set model on the modified editor
-                            const modifiedEditor = (props.editor as any).getModifiedEditor()
-                            modifiedEditor.setModel(existingModel)
-                        } else {
-                            // Regular editor
-                            props.editor?.setModel(existingModel)
-                        }
+                        safeEditorCall('onRejectSuggestedQueryInput:setModel(existing)', () => {
+                            // Handle both diff editor and regular editor
+                            if (props.editor && 'getModifiedEditor' in props.editor) {
+                                const modifiedEditor = (props.editor as any).getModifiedEditor()
+                                modifiedEditor.setModel(existingModel)
+                            } else {
+                                props.editor?.setModel(existingModel)
+                            }
+                        })
                     }
                 }
                 posthog.capture('sql-editor-rejected-suggestion', {
@@ -909,6 +937,11 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 actions.createTab(query, undefined, insight)
             },
             createTab: async ({ query = '', view, insight, draft }) => {
+                // Late-dispatched createTab after unmount would call setModel on a disposed
+                // CodeEditorWidget and crash the scene — bail out once teardown has begun.
+                if (cache.isUnmounted) {
+                    return
+                }
                 // Use tabId to ensure each browser tab has its own unique Monaco model
                 const tabName = draft?.name || view?.name || insight?.name || NEW_QUERY
                 const rawInsightVisualizationQuery = toDataVisualizationNode(insight?.query)
@@ -923,7 +956,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                         model = props.monaco.editor.createModel(query, 'hogQL', uri)
                         cache.createdModels = cache.createdModels || []
                         cache.createdModels.push(model)
-                        props.editor?.setModel(model)
+                        safeEditorCall('createTab:setModel', () => props.editor?.setModel(model))
                         initModel(
                             model,
                             codeEditorLogic({
@@ -957,7 +990,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 }
 
                 // Focus the editor after creating a new tab
-                props.editor?.focus()
+                safeEditorCall('createTab:focus', () => props.editor?.focus())
             },
             setSourceQuery: ({ sourceQuery }) => {
                 if (!values.activeTab) {
@@ -986,7 +1019,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 actions.syncUrlWithQuery()
             },
             runSubquery: async () => {
-                if (!props.editor) {
+                if (cache.isUnmounted || !props.editor) {
                     actions.runQuery()
                     return
                 }
@@ -1009,24 +1042,34 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
 
                 const subquery = await findInnermostSelectAtOffset(activeQuery.query, cursorOffset, activeQuery.start)
 
+                // Scene may have unmounted during the await above — bail before touching Monaco.
+                if (cache.isUnmounted || !props.editor) {
+                    return
+                }
+
                 const rangeToRun = subquery ?? activeQuery
 
                 // Flash highlight on the subquery/query about to run
                 const startPos = model.getPositionAt(rangeToRun.start)
                 const endPos = model.getPositionAt(rangeToRun.end)
-                cache.activeQueryDecorationIds = props.editor.deltaDecorations(cache.activeQueryDecorationIds ?? [], [
-                    {
-                        range: {
-                            startLineNumber: startPos.lineNumber,
-                            startColumn: startPos.column,
-                            endLineNumber: endPos.lineNumber,
-                            endColumn: endPos.column,
+                const nextIds = safeEditorCall('runSubquery:deltaDecorations', () =>
+                    props.editor?.deltaDecorations(cache.activeQueryDecorationIds ?? [], [
+                        {
+                            range: {
+                                startLineNumber: startPos.lineNumber,
+                                startColumn: startPos.column,
+                                endLineNumber: endPos.lineNumber,
+                                endColumn: endPos.column,
+                            },
+                            options: {
+                                className: 'active-query-highlight-flash',
+                            },
                         },
-                        options: {
-                            className: 'active-query-highlight-flash',
-                        },
-                    },
-                ])
+                    ])
+                )
+                if (nextIds) {
+                    cache.activeQueryDecorationIds = nextIds
+                }
 
                 // Remove flash after a short delay and restore normal decoration.
                 // Track the timeout so we can clear it on unmount (avoids touching a disposed editor).
@@ -2525,12 +2568,17 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
         cache.lastSelectedConnectionId = values.selectedConnectionId
         cache.activeQueryDecorationIds = [] as string[]
         cache.decorationGeneration = 0
+        cache.isUnmounted = false
 
         cache.updateActiveQueryDecoration = async (): Promise<void> => {
             // Bump the generation counter so any still-running invocation bails out before
             // applying stale decorations. Each run owns its own `generation` token.
             const generation = ++cache.decorationGeneration
-            const isStale = (): boolean => generation !== cache.decorationGeneration
+            const isStale = (): boolean => generation !== cache.decorationGeneration || cache.isUnmounted === true
+
+            if (cache.isUnmounted) {
+                return
+            }
 
             const editorInstance = props.editor
             if (!editorInstance?.getPosition || !editorInstance?.getModel) {
@@ -2708,6 +2756,12 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
         }
     }),
     beforeUnmount(({ cache }) => {
+        // Set the unmounted flag first so that any late-arriving dispatched listeners
+        // (createTab, suggestion accept/reject, decoration updates) bail out before they
+        // touch a disposed Monaco editor. Without this guard, dispatched actions can call
+        // setModel on a CodeEditorWidget whose InstantiationService has been disposed,
+        // which throws "InstantiationService has been disposed" and breaks the scene.
+        cache.isUnmounted = true
         cache.cursorDisposable?.dispose()
         cache.cursorDisposable = null
         cache.umountDataNode?.()
