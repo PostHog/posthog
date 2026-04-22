@@ -144,7 +144,7 @@ export class PushNotificationService {
             if (typeof body === 'string') {
                 try {
                     body = parseJSON(body)
-                } catch (_e) {
+                } catch {
                     // Pass through
                 }
             }
@@ -246,7 +246,7 @@ export class PushNotificationService {
             if (typeof body === 'string' && body.length > 0) {
                 try {
                     body = parseJSON(body)
-                } catch (_e) {
+                } catch {
                     // Pass through
                 }
             }

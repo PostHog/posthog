@@ -1,4 +1,3 @@
-import json
 from datetime import UTC, datetime
 
 from django.http import HttpResponse, JsonResponse
@@ -9,10 +8,15 @@ from rest_framework.request import Request
 
 from posthog.api.capture import capture_internal
 from posthog.api.utils import get_token
-from posthog.exceptions import generate_exception_response
+from posthog.exceptions import (
+    RequestParsingError,
+    UnspecifiedCompressionFallbackParsingError,
+    generate_exception_response,
+)
 from posthog.helpers.encrypted_fields import EncryptedFieldMixin
 from posthog.models.integration import Integration
 from posthog.models.team.team import Team
+from posthog.utils import load_data_from_request
 from posthog.utils_cors import cors_response
 
 VALID_PLATFORMS = ("android", "ios")
@@ -68,8 +72,20 @@ def push_subscriptions(request: Request):
         )
 
     try:
-        data = json.loads(request.body)
-    except (json.JSONDecodeError, ValueError):
+        data = load_data_from_request(request)
+    except (RequestParsingError, UnspecifiedCompressionFallbackParsingError):
+        return cors_response(
+            request,
+            generate_exception_response(
+                "push_subscriptions",
+                "Invalid JSON body.",
+                type="validation_error",
+                code="invalid_json",
+                status_code=status.HTTP_400_BAD_REQUEST,
+            ),
+        )
+
+    if not isinstance(data, dict):
         return cors_response(
             request,
             generate_exception_response(

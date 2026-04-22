@@ -219,7 +219,7 @@ describe('PushNotificationService', () => {
         const apnsIntegration = {
             id: 2,
             team_id: 1,
-            kind: 'apple-push' as const,
+            kind: 'apns' as const,
             config: { key_id: 'KEY123', team_id: 'TEAM456', bundle_id: 'com.example.app' },
             sensitive_config: { signing_key: testEcKey },
         }

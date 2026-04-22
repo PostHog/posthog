@@ -1,3 +1,4 @@
+import gzip
 import json
 
 from posthog.test.base import BaseTest
@@ -194,3 +195,27 @@ class TestPushSubscriptionsAPI(BaseTest):
         response = self.client.options("/api/push_subscriptions/")
 
         assert response.status_code == status.HTTP_200_OK
+
+    @patch("products.messaging.backend.api.push_subscriptions.capture_internal")
+    def test_gzip_compressed_body(self, mock_capture: MagicMock):
+        mock_capture.return_value = MagicMock(status_code=200)
+
+        payload = {
+            "api_key": self.team.api_token,
+            "distinct_id": "user-1",
+            "device_token": "fcm-device-token-abc",
+            "platform": "android",
+            "app_id": "my-firebase-project",
+        }
+        compressed = gzip.compress(json.dumps(payload).encode())
+
+        response = self.client.post(
+            "/api/push_subscriptions/",
+            data=compressed,
+            content_type="application/json",
+            HTTP_CONTENT_ENCODING="gzip",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["distinct_id"] == "user-1"
+        mock_capture.assert_called_once()
