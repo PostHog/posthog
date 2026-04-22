@@ -15,6 +15,7 @@ Column | Type | Nullable | Description
 `status` | varchar(400) | NOT NULL | Current sync status
 `prefix` | varchar(100) | NULL | Prefix applied to synced table names
 `description` | varchar(400) | NULL | User-defined description
+`access_method` | varchar(32) | NOT NULL | `warehouse` for synced sources or `direct` for direct query connections
 `are_tables_created` | boolean | NOT NULL | Whether tables have been created
 `created_at` | timestamp with tz | NOT NULL | Creation timestamp
 `updated_at` | timestamp with tz | NOT NULL | Last update timestamp
@@ -224,6 +225,17 @@ WHERE NOT s.deleted
 GROUP BY s.source_type, s.prefix
 ORDER BY table_count DESC
 ```
+
+**List direct query connections for `connectionId`:**
+
+```sql
+SELECT id, source_type, prefix, description, connection_id, status
+FROM system.data_warehouse_sources
+WHERE NOT deleted AND access_method = 'direct'
+ORDER BY source_type, prefix
+```
+
+Use the `id` value as the `connectionId` parameter when executing a HogQL query against that direct connection.
 
 **View recent sync jobs with their source type:**
 

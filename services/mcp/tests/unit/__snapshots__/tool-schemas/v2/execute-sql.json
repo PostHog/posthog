@@ -1,6 +1,10 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
+        "connectionId": {
+            "description": "Optional direct data warehouse source id. Omit unless the user explicitly asks to query a specific warehouse or connection discovered from read-data-warehouse-schema.",
+            "type": "string"
+        },
         "query": {
             "description": "The final SQL query to be executed.",
             "minLength": 1,

@@ -88,6 +88,10 @@ Data warehouse tables | Connected external data sources and custom views
 
 Use `posthog:read-data-warehouse-schema` to retrieve the full schema of the tables above.
 
+For direct query data warehouse connections, `read-data-warehouse-schema` lists available connections and their IDs.
+If the user asks to query a named warehouse or connection, match that name to a listed connection and pass its `id` as `connectionId` to `posthog:execute-sql`.
+Omit `connectionId` for normal PostHog, synced warehouse, and system table queries.
+
 **Key concepts:**
 
 - **Events**: Standardized events/properties start with `$` (e.g., `$pageview`). Custom ones start with any other character.

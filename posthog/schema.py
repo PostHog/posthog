@@ -403,6 +403,10 @@ class AssistantHogQLQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    connectionId: str | None = Field(
+        default=None,
+        description=("Optional direct external data source id for running against a specific source"),
+    )
     kind: Literal["HogQLQuery"] = "HogQLQuery"
     query: str = Field(
         ...,

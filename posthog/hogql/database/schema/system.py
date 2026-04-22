@@ -203,10 +203,20 @@ data_warehouse_sources: PostgresTable = PostgresTable(
     postgres_table_name="posthog_externaldatasource",
     access_scope="external_data_source",
     fields={
-        "id": IntegerDatabaseField(name="id"),
+        "id": StringDatabaseField(name="id"),
         "team_id": IntegerDatabaseField(name="team_id"),
+        "source_id": StringDatabaseField(name="source_id"),
+        "connection_id": StringDatabaseField(name="connection_id"),
+        "destination_id": StringDatabaseField(name="destination_id"),
         "source_type": StringDatabaseField(name="source_type"),
+        "status": StringDatabaseField(name="status"),
         "prefix": StringDatabaseField(name="prefix"),
+        "description": StringDatabaseField(name="description"),
+        "access_method": StringDatabaseField(name="access_method"),
+        "_are_tables_created": BooleanDatabaseField(name="are_tables_created", hidden=True),
+        "are_tables_created": ExpressionField(
+            name="are_tables_created", expr=ast.Call(name="toInt", args=[ast.Field(chain=["_are_tables_created"])])
+        ),
         "created_at": DateTimeDatabaseField(name="created_at"),
         "updated_at": DateTimeDatabaseField(name="updated_at"),
         "_deleted": BooleanDatabaseField(name="deleted", hidden=True),

@@ -9,6 +9,13 @@ from ee.hogai.tool_errors import MaxToolRetryableError
 
 class ExecuteSQLMCPToolArgs(BaseModel):
     query: str = Field(description="The final SQL query to be executed.")
+    connectionId: str | None = Field(
+        default=None,
+        description=(
+            "Optional direct data warehouse source id. Omit unless the user explicitly asks to query a specific "
+            "warehouse or connection discovered from read_data_warehouse_schema."
+        ),
+    )
     truncate: bool = Field(
         default=True,
         description="Whether to truncate large blob/JSON values in results. Set to false for full untruncated results.",
@@ -28,7 +35,7 @@ class ExecuteSQLMCPTool(HogQLOutputParserMixin, MCPTool[ExecuteSQLMCPToolArgs]):
 
     async def execute(self, args: ExecuteSQLMCPToolArgs) -> str:
         try:
-            validated_query = await self._validate_hogql_query(args.query)
+            validated_query = await self._validate_hogql_query(args.query, args.connectionId)
         except PydanticOutputParserException as e:
             raise MaxToolRetryableError(f"Query validation failed: {e.validation_message}")
 

@@ -15,6 +15,7 @@ export const executeSqlHandler: ToolBase<typeof schema, string>['handler'] = asy
 ) => {
     const result = await invokeMcpTool(context, 'execute_sql', {
         query: params.query,
+        connectionId: params.connectionId,
         truncate: params.truncate ?? true,
     })
 

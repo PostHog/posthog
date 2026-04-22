@@ -72,6 +72,8 @@ PostHog provides two ways to query data:
 
 Prefer query wrappers when the user's question maps to a supported insight type.
 
+When the user asks to query a named warehouse or connection, such as "in ducklake", first call `read-data-warehouse-schema` to discover direct query connections. Match the requested name against the returned connection metadata, then pass that connection's `id` as `connectionId` to `execute-sql`. Omit `connectionId` for normal PostHog, synced warehouse, and system table queries.
+
 #### Available insight query tools
 
 `query-trends` | Time series, aggregations, formulas, comparisons | Default: last 30d, supports multiple series

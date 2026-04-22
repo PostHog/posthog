@@ -413,6 +413,12 @@ export const DebugMcpUiAppsSchema = z.object({
 // PostHog AI tools
 export const ExecuteSQLSchema = z.object({
     query: z.string().min(1).describe('The final SQL query to be executed.'),
+    connectionId: z
+        .string()
+        .optional()
+        .describe(
+            'Optional direct data warehouse source id. Omit unless the user explicitly asks to query a specific warehouse or connection discovered from read-data-warehouse-schema.'
+        ),
     truncate: z
         .boolean()
         .optional()
@@ -423,8 +429,13 @@ export const ExecuteSQLSchema = z.object({
 })
 
 export const ReadDataWarehouseSchemaSchema = z
-    .object({})
-    .describe('No input required. Returns core data warehouse schemas.')
+    .object({
+        connectionId: z
+            .string()
+            .optional()
+            .describe('Optional direct data warehouse source id. When set, returns schema for that connection.'),
+    })
+    .describe('Returns core data warehouse schemas and direct query connections.')
 
 const ReadEventsQuerySchema = z.object({
     kind: z.literal('events'),

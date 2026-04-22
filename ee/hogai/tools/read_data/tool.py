@@ -68,6 +68,10 @@ class ReadDataWarehouseSchema(BaseModel):
     """Returns core PostHog tables (events, groups, persons, sessions) with their full schemas, plus a list of available data warehouse tables and views (names only)."""
 
     kind: Literal["data_warehouse_schema"] = "data_warehouse_schema"
+    connectionId: str | None = Field(
+        default=None,
+        description="Optional direct data warehouse source id. Use this only after discovering a direct query connection.",
+    )
 
 
 class ReadDataWarehouseTableSchema(BaseModel):
@@ -75,6 +79,10 @@ class ReadDataWarehouseTableSchema(BaseModel):
 
     kind: Literal["data_warehouse_table"] = "data_warehouse_table"
     table_name: str = Field(description="The name of the table to read the schema for.")
+    connectionId: str | None = Field(
+        default=None,
+        description="Optional direct data warehouse source id. Use this only after discovering a direct query connection.",
+    )
 
 
 class ReadInsight(BaseModel):
@@ -305,10 +313,12 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
                 )
                 result = await billing_tool.execute()
                 return result, None
-            case ReadDataWarehouseSchema():
-                return await self._read_data_warehouse_schema(), None
+            case ReadDataWarehouseSchema() as data_warehouse_schema:
+                return await self._read_data_warehouse_schema(data_warehouse_schema), None
             case ReadDataWarehouseTableSchema() as data_warehouse_table:
-                return await self._read_data_warehouse_table_schema(data_warehouse_table.table_name), None
+                return await self._read_data_warehouse_table_schema(
+                    data_warehouse_table.table_name, data_warehouse_table.connectionId
+                ), None
             case ReadArtifact() as schema:
                 return await self._read_artifact(schema.artifact_id), None
             case ReadNotebook() as schema:
@@ -390,20 +400,26 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
 
         return "", ToolMessagesArtifact(messages=[artifact_message, tool_call_message])
 
-    async def _read_data_warehouse_schema(self) -> str:
-        database = await self._aget_database()
+    async def _read_data_warehouse_schema(self, query: ReadDataWarehouseSchema) -> str:
+        database = await self._aget_database(query.connectionId)
         hogql_context = self._get_default_hogql_context(database)
-        return await self._build_tables_list(database, hogql_context)
+        return await self._build_tables_list(database, hogql_context, query.connectionId)
 
-    async def _read_data_warehouse_table_schema(self, table_name: str) -> str:
-        database = await self._aget_database()
+    async def _read_data_warehouse_table_schema(self, table_name: str, connection_id: str | None = None) -> str:
+        database = await self._aget_database(connection_id)
         hogql_context = self._get_default_hogql_context(database)
         return await self._build_table_schema(database, hogql_context, table_name)
 
     @database_sync_to_async
-    def _build_tables_list(self, database: Database, hogql_context: HogQLContext) -> str:
-        core_tables = {"events", "groups", "persons", "sessions"}
-        serialized = database.serialize(hogql_context, include_only=core_tables)
+    def _build_tables_list(
+        self, database: Database, hogql_context: HogQLContext, connection_id: str | None = None
+    ) -> str:
+        if connection_id:
+            include_only = set(database.get_warehouse_table_names())
+        else:
+            include_only = {"events", "groups", "persons", "sessions"}
+
+        serialized = database.serialize(hogql_context, include_only=include_only)
 
         system_table_lines: list[str] = []
         for table_name, table in serialized.items():
@@ -421,6 +437,8 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
         return format_prompt_string(
             READ_DATA_WAREHOUSE_SCHEMA_PROMPT,
             template_format="mustache",
+            direct_query_connections=self._get_direct_query_connections_list(),
+            connection_id=connection_id,
             posthog_tables="\n".join(system_table_lines),
             data_warehouse_tables=listify(warehouse_tables),
             system_tables=listify(system_tables),

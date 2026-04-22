@@ -34,6 +34,7 @@ Important HogQL differences versus other SQL dialects:
 - A WHERE clause must be after all the JOIN clauses.
 - For performance, every SELECT from the `events` table must have a `WHERE` clause narrowing down the timestamp to the relevant period.
 - HogQL queries shouldn't end in semicolons.
+- If the user explicitly asks to query a named warehouse or connection, match the name against the direct query connections listed in the schema and set `connectionId` to that connection's `id`. Omit `connectionId` for normal PostHog, synced warehouse, and system table queries.
 
 
 <persons>

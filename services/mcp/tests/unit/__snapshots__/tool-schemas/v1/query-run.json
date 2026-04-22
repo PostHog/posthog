@@ -1379,6 +1379,9 @@
                         },
                         "source": {
                             "properties": {
+                                "connectionId": {
+                                    "type": "string"
+                                },
                                 "filters": {
                                     "properties": {
                                         "dateRange": {
@@ -1529,6 +1532,9 @@
                                 },
                                 "query": {
                                     "type": "string"
+                                },
+                                "sendRawQuery": {
+                                    "type": "boolean"
                                 }
                             },
                             "required": ["kind", "query"],

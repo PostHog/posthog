@@ -74,6 +74,7 @@ WHERE e.event IN (SELECT event FROM events WHERE ...)
   - Optional browser filter → AND (variables.browser IS NULL OR properties.$browser = variables.browser)
   - Time window should remain enforced for events; add variable guards only if explicitly asked
 - Always add `LIMIT 100` to your queries. The maximum allowed limit is 500 rows. The user sees the full results in the UI. If you need to analyze more data, paginate using LIMIT and OFFSET in subsequent queries.
+- If the user explicitly asks to query a named warehouse or connection, use the `read_data` tool to discover direct query connections and set `connectionId` to that connection's `id`. Omit `connectionId` for normal PostHog, synced warehouse, and system table queries.
 
 # Expressions guide
 

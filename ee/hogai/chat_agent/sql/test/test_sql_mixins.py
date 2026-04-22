@@ -2,6 +2,8 @@ from posthog.test.base import NonAtomicBaseTest
 
 from posthog.schema import AssistantHogQLQuery
 
+from products.data_warehouse.backend.models.external_data_source import ExternalDataSource
+
 from ee.hogai.chat_agent.schema_generator.parsers import PydanticOutputParserException
 from ee.hogai.chat_agent.sql.mixins import HogQLGeneratorMixin, SQLSchemaGeneratorOutput
 
@@ -71,6 +73,25 @@ class TestSQLMixins(NonAtomicBaseTest):
         self.assertIsInstance(result, SQLSchemaGeneratorOutput)
         self.assertEqual(result.query.query, "SELECT count() FROM events")
 
+    def test_parse_output_preserves_connection_id(self):
+        mixin = self._node
+
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="source",
+            connection_id="conn",
+            status="Running",
+            source_type="Postgres",
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+        )
+
+        result = mixin._parse_output(
+            {"query": "SELECT count() FROM users;", "name": "", "description": "", "connectionId": str(source.id)}
+        )
+
+        self.assertEqual(result.query.query, "SELECT count() FROM users")
+        self.assertEqual(result.query.connectionId, str(source.id))
+
     def test_parse_output_removes_multiple_semicolons(self):
         """Test that multiple semicolons are removed from the end of queries."""
         mixin = self._node
@@ -101,6 +122,19 @@ class TestSQLMixins(NonAtomicBaseTest):
 
         # Should not raise any exception for valid SQL
         await mixin._quality_check_output(valid_output)
+
+    async def test_quality_check_output_with_invalid_connection_id_raises_exception(self):
+        mixin = self._node
+
+        invalid_output = SQLSchemaGeneratorOutput(
+            query=AssistantHogQLQuery(query="SELECT 1", connectionId="not-a-uuid"), name="", description=""
+        )
+
+        with self.assertRaises(PydanticOutputParserException) as context:
+            await mixin._quality_check_output(invalid_output)
+
+        self.assertEqual(context.exception.llm_output, "SELECT 1")
+        self.assertEqual(context.exception.validation_message, "Invalid connectionId for this team")
 
     async def test_quality_check_output_success_with_placeholders(self):
         """Test successful quality check with placeholders."""

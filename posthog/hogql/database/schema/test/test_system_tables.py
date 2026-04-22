@@ -409,3 +409,45 @@ class TestSystemTablesTeamIsolation(NonAtomicBaseTest):
 
         assert str(obj_team1.pk) in ids
         assert str(obj_team2.pk) not in ids
+
+    def test_data_warehouse_sources_exposes_connection_metadata(self):
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="source_ducklake",
+            connection_id="conn_ducklake",
+            destination_id="dest_ducklake",
+            status="Running",
+            source_type="Postgres",
+            prefix="ducklake",
+            description="Ducklake warehouse",
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+        )
+
+        response = execute_hogql_query(
+            """
+            SELECT id, source_id, connection_id, destination_id, source_type, status, prefix, description, access_method
+            FROM system.data_warehouse_sources
+            WHERE id = {source_id}
+            """,
+            team=self.team,
+            placeholders={"source_id": str(source.id)},
+        )
+
+        rows = [[str(row[0]), *row[1:]] for row in response.results]
+
+        self.assertEqual(
+            rows,
+            [
+                [
+                    str(source.id),
+                    "source_ducklake",
+                    "conn_ducklake",
+                    "dest_ducklake",
+                    "Postgres",
+                    "Running",
+                    "ducklake",
+                    "Ducklake warehouse",
+                    "direct",
+                ]
+            ],
+        )

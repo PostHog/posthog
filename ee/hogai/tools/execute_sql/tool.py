@@ -33,6 +33,13 @@ from .prompts import (
 
 class ExecuteSQLToolArgs(BaseModel):
     query: str = Field(description="The final SQL query to be executed.")
+    connectionId: str | None = Field(
+        default=None,
+        description=(
+            "Optional direct data warehouse source id. Omit unless the user explicitly asks to query a specific "
+            "warehouse or connection discovered from read_data."
+        ),
+    )
     viz_title: str = Field(
         description="Short, concise name of the SQL query (2-5 words) that will be displayed as a header in the visualization."
     )
@@ -66,9 +73,9 @@ class ExecuteSQLTool(HogQLGeneratorMixin, MaxTool):
         return cls(team=team, user=user, state=state, node_path=node_path, config=config, description=prompt)
 
     async def _arun_impl(
-        self, query: str, viz_title: str, viz_description: str
+        self, query: str, viz_title: str, viz_description: str, connectionId: str | None = None
     ) -> tuple[str, ToolMessagesArtifact | None]:
-        parsed_query = self._parse_output({"query": query})
+        parsed_query = self._parse_output({"query": query, "connectionId": connectionId})
         try:
             await self._quality_check_output(
                 output=parsed_query,

@@ -1,6 +1,11 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
-    "description": "No input required. Returns core data warehouse schemas.",
-    "properties": {},
+    "description": "Returns core data warehouse schemas and direct query connections.",
+    "properties": {
+        "connectionId": {
+            "description": "Optional direct data warehouse source id. When set, returns schema for that connection.",
+            "type": "string"
+        }
+    },
     "type": "object"
 }

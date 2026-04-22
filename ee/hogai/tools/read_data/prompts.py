@@ -39,8 +39,8 @@ This tool should be used for direct retrieval (by ID, name, etc.). Use the searc
 Read the SQL ClickHouse schema (tables, views, and columns) for the user's data.
 
 ## Available operations:
-- `data_warehouse_schema`: Returns core PostHog tables (events, groups, persons, sessions) with their full schemas, plus a list of available data warehouse tables and views (names only). Use this first to see what data is available.
-- `data_warehouse_table`: Returns the full schema for a specific data warehouse table or view. Use this after `data_warehouse_schema` to get details on specific tables you need.
+- `data_warehouse_schema`: Returns core PostHog tables (events, groups, persons, sessions) with their full schemas, plus a list of available data warehouse tables, views, and direct query connections. If `connectionId` is set, returns schemas for the selected direct query connection. Use this first to see what data is available.
+- `data_warehouse_table`: Returns the full schema for a specific data warehouse table or view. Use this after `data_warehouse_schema` to get details on specific tables you need. Pass `connectionId` when reading a table from a direct query connection.
 
 You MUST use this tool when:
 - Working with SQL.
@@ -124,7 +124,17 @@ The dashboard with the ID "{dashboard_id}" was not found. Please verify the dash
 """.strip()
 
 READ_DATA_WAREHOUSE_SCHEMA_PROMPT = """
+{{#direct_query_connections}}
+# Direct query connections
+{{{direct_query_connections}}}
+
+{{/direct_query_connections}}
+{{#connection_id}}
+# Schema for direct query connection `{{connection_id}}`
+{{/connection_id}}
+{{^connection_id}}
 # Core PostHog tables
+{{/connection_id}}
 {{{posthog_tables}}}
 {{#data_warehouse_tables}}
 
@@ -144,5 +154,6 @@ READ_DATA_WAREHOUSE_SCHEMA_PROMPT = """
 
 <system_reminder>
 Use the `read_data` tool with the `data_warehouse_table` kind to get column and relationship details for a specific table.
+If the user names a warehouse or connection, match it against the direct query connections above and pass its `id` as `connectionId` to `execute_sql`.
 </system_reminder>
 """.strip()

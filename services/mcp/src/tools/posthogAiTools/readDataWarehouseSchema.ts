@@ -1,3 +1,5 @@
+import type { z } from 'zod'
+
 import { ReadDataWarehouseSchemaSchema } from '@/schema/tool-inputs'
 import type { Context, ToolBase } from '@/tools/types'
 
@@ -5,9 +7,14 @@ import { invokeMcpTool } from './invokeTool'
 
 const schema = ReadDataWarehouseSchemaSchema
 
-export const readDataWarehouseSchemaHandler: ToolBase<typeof schema, string>['handler'] = async (context: Context) => {
+type Params = z.infer<typeof schema>
+
+export const readDataWarehouseSchemaHandler: ToolBase<typeof schema, string>['handler'] = async (
+    context: Context,
+    params: Params
+) => {
     const result = await invokeMcpTool(context, 'read_data_warehouse_schema', {
-        query: { kind: 'data_warehouse_schema' },
+        query: { kind: 'data_warehouse_schema', connectionId: params.connectionId },
     })
 
     if (!result.success) {

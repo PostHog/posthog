@@ -1,7 +1,9 @@
 from posthog.test.base import ClickhouseTestMixin, NonAtomicBaseTest, _create_event
-from unittest.mock import Mock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 from asgiref.sync import sync_to_async
+
+from posthog.schema import AssistantHogQLQuery
 
 from posthog.models import Insight
 
@@ -46,6 +48,22 @@ class TestExecuteSQLMCPTool(ClickhouseTestMixin, NonAtomicBaseTest):
 
         validated = self.tool.args_schema.model_validate({"query": "SELECT 1"})
         self.assertEqual(validated.query, "SELECT 1")
+
+    async def test_passes_connection_id_to_validation(self):
+        with (
+            patch.object(
+                self.tool,
+                "_validate_hogql_query",
+                AsyncMock(return_value=AssistantHogQLQuery(query="SELECT 1", connectionId="source-id")),
+            ) as validate_mock,
+            patch("ee.hogai.tools.execute_sql.mcp_tool.InsightContext") as insight_context_mock,
+        ):
+            insight_context_mock.return_value.execute_and_format = AsyncMock(return_value="ok")
+
+            content = await self.tool.execute(ExecuteSQLMCPToolArgs(query="SELECT 1", connectionId="source-id"))
+
+        self.assertEqual(content, "ok")
+        validate_mock.assert_awaited_once_with("SELECT 1", "source-id")
 
     @patch("posthoganalytics.feature_enabled", new=Mock(return_value=True))
     async def test_select_from_system_insights(self):

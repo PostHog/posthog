@@ -159,8 +159,10 @@ const TrendsQuerySchema = InsightsQueryBase.extend({
 // HogQL query
 const HogQLQuerySchema = z.object({
     kind: z.literal('HogQLQuery'),
+    connectionId: z.string().optional(),
     query: z.string(),
     filters: HogQLFilters.optional(),
+    sendRawQuery: z.boolean().optional(),
 })
 
 // Funnels filter
