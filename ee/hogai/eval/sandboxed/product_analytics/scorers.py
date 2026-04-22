@@ -36,6 +36,8 @@ INSIGHT_WRITE_TOOLS = frozenset(
 )
 
 QUERY_RETENTION_TOOL_NAME = "query-retention"
+QUERY_TRENDS_TOOL_NAME = "query-trends"
+QUERY_FUNNEL_TOOL_NAME = "query-funnel"
 READ_DATA_SCHEMA_TOOL_NAME = "read-data-schema"
 TOOL_SEARCH_TOOL_NAME = "ToolSearch"
 EXEC_TOOL_NAME = "exec"
@@ -519,3 +521,341 @@ class SchemaDiscoveryOrder(Scorer):
             if name == query_tool:
                 return pos
         return None
+
+
+def extract_last_query_trends_input(output: dict[str, Any] | None) -> dict[str, Any] | None:
+    """Return the input dict of the most recent successful ``query-trends`` call."""
+    if not output:
+        return None
+    messages = output.get("messages")
+    if not messages:
+        return None
+
+    last_input: dict[str, Any] | None = None
+    for tool_use, _ in iter_successful_tool_calls(messages):
+        if normalize_tool_name(tool_use.get("name")) != QUERY_TRENDS_TOOL_NAME:
+            continue
+        tool_input = tool_use.get("input")
+        if isinstance(tool_input, dict):
+            last_input = tool_input
+    return last_input
+
+
+def extract_last_query_funnel_input(output: dict[str, Any] | None) -> dict[str, Any] | None:
+    """Return the input dict of the most recent successful ``query-funnel`` call."""
+    if not output:
+        return None
+    messages = output.get("messages")
+    if not messages:
+        return None
+
+    last_input: dict[str, Any] | None = None
+    for tool_use, _ in iter_successful_tool_calls(messages):
+        if normalize_tool_name(tool_use.get("name")) != QUERY_FUNNEL_TOOL_NAME:
+            continue
+        tool_input = tool_use.get("input")
+        if isinstance(tool_input, dict):
+            last_input = tool_input
+    return last_input
+
+
+class TrendsSchemaAlignment(LLMClassifier):
+    """Binary yes/no: does the trends query the agent ran match the expected one?"""
+
+    async def _run_eval_async(self, output, expected=None, **kwargs):
+        return await self._judge_async(output, expected, **kwargs)
+
+    def _run_eval_sync(self, output, expected=None, **kwargs):
+        return self._judge_sync(output, expected, **kwargs)
+
+    async def _judge_async(self, output, expected, **kwargs):
+        prepared = self._prepare(output, expected)
+        if isinstance(prepared, Score):
+            return prepared
+        return await super()._run_eval_async(prepared["output"], prepared["expected"], **kwargs)
+
+    def _judge_sync(self, output, expected, **kwargs):
+        prepared = self._prepare(output, expected)
+        if isinstance(prepared, Score):
+            return prepared
+        return super()._run_eval_sync(prepared["output"], prepared["expected"], **kwargs)
+
+    def _prepare(self, output, expected) -> dict[str, Any] | Score:
+        actual = extract_last_query_trends_input(output)
+        if actual is None:
+            return Score(
+                name=self._name(),
+                score=None,
+                metadata={"reason": "Agent never ran query-trends successfully"},
+            )
+        expected_query = (expected or {}).get("trends_query") if isinstance(expected, dict) else None
+        if not isinstance(expected_query, dict):
+            return Score(
+                name=self._name(),
+                score=None,
+                metadata={"reason": "No expected.trends_query provided"},
+            )
+        return {
+            "output": {"trends_query": actual},
+            "expected": {"trends_query": expected_query},
+        }
+
+    def __init__(self, **kwargs):
+        super().__init__(
+            name="trends_schema_alignment",
+            prompt_template="""
+You are comparing two trends query specs. The ACTUAL spec was produced by an agent via PostHog's `query-trends` MCP tool. The EXPECTED spec is the correct answer we want.
+
+Treat these fields as material:
+- `kind` (must be `TrendsQuery`).
+- `series[]` — each series must match on:
+    - `kind` (e.g. `EventsNode`, `ActionsNode`).
+    - `event` — event names are case-sensitive and must match exactly. `null` is the "All events" sentinel.
+    - `math` — e.g. `total`, `dau` (unique users, legacy name), `unique_session`, `avg`, `median`, `p95`, `sum`, etc.
+    - `math_property` — required when the math operation needs one (e.g. `avg` of `$session_duration`).
+    - `properties` — entity-level property filters; `key`, `operator`, `value`, and `type` must match. Multiple selected values may appear as arrays.
+- `dateRange.date_from` / `dateRange.date_to` — relative windows like `-14d`, `-3m`, `-1y` are acceptable when equivalent to the expected window. Absolute dates must match.
+- `interval` — `hour` / `day` / `week` / `month`.
+- `breakdownFilter.breakdowns[]` — each breakdown's `property` and `type` must match. If expected has no breakdown, actual shouldn't introduce one.
+- `trendsFilter.display` — only when it is non-default in the expected spec (e.g. `BoldNumber`, `ActionsBar`).
+- `trendsFilter.formulaNodes[]` — formulas must match semantically (e.g. `A/B` vs `B/A * 100`).
+
+Ignore `filterTestAccounts`, `samplingFactor`, `showLegend`, `showValuesOnSeries`, `smoothingIntervals`, `compareFilter`, and other cosmetic fields unless they were set explicitly in the expected spec.
+
+<expected_query>
+{{expected.trends_query}}
+</expected_query>
+
+<actual_query>
+{{output.trends_query}}
+</actual_query>
+
+Does the actual trends query match the expected trends query on the material fields above? Answer `yes` or `no`.
+""".strip(),
+            choice_scores=BINARY_CHOICE_SCORES,
+            model=_JUDGE_MODEL,
+            max_tokens=512,
+            **kwargs,
+        )
+
+
+class TrendsTimeRangeRelevancy(LLMClassifier):
+    """Binary yes/no: is the trends query's time range / interval consistent with the user prompt?"""
+
+    async def _run_eval_async(self, output, expected=None, **kwargs):
+        return await self._judge_async(output, expected, **kwargs)
+
+    def _run_eval_sync(self, output, expected=None, **kwargs):
+        return self._judge_sync(output, expected, **kwargs)
+
+    async def _judge_async(self, output, expected, **kwargs):
+        prepared = self._prepare(output, expected)
+        if isinstance(prepared, Score):
+            return prepared
+        return await super()._run_eval_async(prepared["output"], prepared["expected"], **kwargs)
+
+    def _judge_sync(self, output, expected, **kwargs):
+        prepared = self._prepare(output, expected)
+        if isinstance(prepared, Score):
+            return prepared
+        return super()._run_eval_sync(prepared["output"], prepared["expected"], **kwargs)
+
+    def _prepare(self, output, expected) -> dict[str, Any] | Score:
+        actual = extract_last_query_trends_input(output)
+        if actual is None:
+            return Score(
+                name=self._name(),
+                score=None,
+                metadata={"reason": "Agent never ran query-trends successfully"},
+            )
+        prompt = _extract_user_prompt(output)
+        return {
+            "output": {
+                "trends_query": actual,
+                "prompt": prompt,
+            },
+            "expected": expected or {},
+        }
+
+    def __init__(self, **kwargs):
+        super().__init__(
+            name="trends_time_range_relevancy",
+            prompt_template="""
+Check the time range and interval granularity of a trends query against the user's prompt.
+
+Evaluation rules:
+1. Explicit time mentions (e.g. "last 14 days", "last 3 months", "this year", "January 2025") — `dateRange.date_from` must be consistent (`-14d`, `-3m`, an absolute `YYYY-MM-DD`, etc.). Absolute ranges must match month/year.
+2. Implicit granularity mentions — "daily" → `interval: "day"`, "weekly" → `week`, "monthly" → `month`, "hourly" → `hour`.
+3. If the prompt has no time component at all, a sensible default (last 30 days with `interval: "day"`) is acceptable.
+4. Ignore `filterTestAccounts`, display type, breakdowns, series math, and unrelated fields — they are not about time.
+
+<user_prompt>
+{{output.prompt}}
+</user_prompt>
+
+<actual_query>
+{{output.trends_query}}
+</actual_query>
+
+Is the time range / interval in the actual query consistent with the user's prompt? Answer `yes` or `no`.
+""".strip(),
+            choice_scores=BINARY_CHOICE_SCORES,
+            model=_JUDGE_MODEL,
+            max_tokens=512,
+            **kwargs,
+        )
+
+
+class FunnelSchemaAlignment(LLMClassifier):
+    """Binary yes/no: does the funnel query the agent ran match the expected one?"""
+
+    async def _run_eval_async(self, output, expected=None, **kwargs):
+        return await self._judge_async(output, expected, **kwargs)
+
+    def _run_eval_sync(self, output, expected=None, **kwargs):
+        return self._judge_sync(output, expected, **kwargs)
+
+    async def _judge_async(self, output, expected, **kwargs):
+        prepared = self._prepare(output, expected)
+        if isinstance(prepared, Score):
+            return prepared
+        return await super()._run_eval_async(prepared["output"], prepared["expected"], **kwargs)
+
+    def _judge_sync(self, output, expected, **kwargs):
+        prepared = self._prepare(output, expected)
+        if isinstance(prepared, Score):
+            return prepared
+        return super()._run_eval_sync(prepared["output"], prepared["expected"], **kwargs)
+
+    def _prepare(self, output, expected) -> dict[str, Any] | Score:
+        actual = extract_last_query_funnel_input(output)
+        if actual is None:
+            return Score(
+                name=self._name(),
+                score=None,
+                metadata={"reason": "Agent never ran query-funnel successfully"},
+            )
+        expected_query = (expected or {}).get("funnel_query") if isinstance(expected, dict) else None
+        if not isinstance(expected_query, dict):
+            return Score(
+                name=self._name(),
+                score=None,
+                metadata={"reason": "No expected.funnel_query provided"},
+            )
+        return {
+            "output": {"funnel_query": actual},
+            "expected": {"funnel_query": expected_query},
+        }
+
+    def __init__(self, **kwargs):
+        super().__init__(
+            name="funnel_schema_alignment",
+            prompt_template="""
+You are comparing two funnel query specs. The ACTUAL spec was produced by an agent via PostHog's `query-funnel` MCP tool. The EXPECTED spec is the correct answer we want.
+
+Treat these fields as material:
+- `kind` (must be `FunnelsQuery`).
+- `series` — an ORDERED array of steps. Step order is load-bearing:
+    - The number of steps in `series` must match the expected count.
+    - For every index `i`, the actual `series[i]` must align with the expected `series[i]` — NOT set-equality. "Both funnels contain step X" is not enough; step X must be at the same position.
+    - Each step's `kind` must match (`EventsNode` vs `ActionsNode`).
+    - For `EventsNode`, `event` names must match exactly (event names are case-sensitive). For `ActionsNode`, `id` (numeric) must match exactly.
+    - `properties` on each step — key, operator, value, and type must match. Multi-value filters should line up regardless of list ordering.
+- `series[].optionalInFunnel` — when set to `true`, marks a skippable middle step. Must match the expected shape exactly. Should never be set on the first or last step.
+- `funnelsFilter.funnelOrderType` — `"ordered"` / `"unordered"` / `"strict"`. If unset in the actual, assume `"ordered"` (the schema default) and treat that as matching if expected is also unset or `"ordered"`.
+- `funnelsFilter.funnelVizType` — `"steps"` / `"time_to_convert"` / `"trends"`.
+- `funnelsFilter.funnelWindowInterval` + `funnelsFilter.funnelWindowIntervalUnit` — the conversion-window size (e.g. `14` + `"day"`). Must match when set in the expected spec.
+- `funnelsFilter.breakdownAttributionType` / `funnelsFilter.breakdownAttributionValue` — only grade when the expected sets one.
+- `funnelsFilter.exclusions` — each exclusion's `event`, `funnelFromStep`, and `funnelToStep` must match.
+- `dateRange.date_from` / `dateRange.date_to` — relative windows like `-14d` or `-3m` are acceptable when equivalent to the expected window.
+- `breakdownFilter.breakdown` / `breakdownFilter.breakdown_type` — only grade when the expected sets one.
+- `aggregation_group_type_index` — must match when expected sets a non-null value.
+
+Ignore `filterTestAccounts`, `samplingFactor`, `showLegend`, `binCount`, `funnelStepReference`, `funnelAggregateByHogQL`, UI-only fields, and anything else not listed above unless the EXPECTED spec sets it explicitly.
+
+<expected_query>
+{{expected.funnel_query}}
+</expected_query>
+
+<actual_query>
+{{output.funnel_query}}
+</actual_query>
+
+Does the actual funnel query match the expected funnel query on the material fields above? Answer `yes` or `no`.
+""".strip(),
+            choice_scores=BINARY_CHOICE_SCORES,
+            model=_JUDGE_MODEL,
+            max_tokens=512,
+            **kwargs,
+        )
+
+
+class FunnelTimeRangeRelevancy(LLMClassifier):
+    """Binary yes/no: is the funnel query's time range + conversion window consistent with the user prompt?"""
+
+    async def _run_eval_async(self, output, expected=None, **kwargs):
+        return await self._judge_async(output, expected, **kwargs)
+
+    def _run_eval_sync(self, output, expected=None, **kwargs):
+        return self._judge_sync(output, expected, **kwargs)
+
+    async def _judge_async(self, output, expected, **kwargs):
+        prepared = self._prepare(output, expected)
+        if isinstance(prepared, Score):
+            return prepared
+        return await super()._run_eval_async(prepared["output"], prepared["expected"], **kwargs)
+
+    def _judge_sync(self, output, expected, **kwargs):
+        prepared = self._prepare(output, expected)
+        if isinstance(prepared, Score):
+            return prepared
+        return super()._run_eval_sync(prepared["output"], prepared["expected"], **kwargs)
+
+    def _prepare(self, output, expected) -> dict[str, Any] | Score:
+        actual = extract_last_query_funnel_input(output)
+        if actual is None:
+            return Score(
+                name=self._name(),
+                score=None,
+                metadata={"reason": "Agent never ran query-funnel successfully"},
+            )
+        prompt = _extract_user_prompt(output)
+        return {
+            "output": {
+                "funnel_query": actual,
+                "prompt": prompt,
+            },
+            "expected": expected or {},
+        }
+
+    def __init__(self, **kwargs):
+        super().__init__(
+            name="funnel_time_range_relevancy",
+            prompt_template="""
+Check the time range and conversion window of a funnel query against the user's prompt.
+
+Funnels have two separate time concepts — evaluate them independently:
+1. `dateRange.date_from` / `dateRange.date_to` — the overall window the funnel looks at. Explicit time mentions in the prompt ("in the last 30 days", "this January", "for yesterday", "from 2020 to 2025", "before 2024-01-01") must map here. Relative windows (`-14d`, `-3m`, `-1y`) are acceptable when equivalent.
+2. `funnelsFilter.funnelWindowInterval` + `funnelsFilter.funnelWindowIntervalUnit` — the per-user conversion window (how long after the first step the later steps still count). This is FUNNEL-SPECIFIC. Phrases like "within 24 hours", "over a 7-day window", "convert within 2 weeks" map HERE, not to `dateRange`. Default of `14` + `"day"` is acceptable when the prompt doesn't mention a conversion window.
+
+Other rules:
+- Funnels don't have an `interval` field (that's a trends concept). Don't grade on it.
+- If the prompt has no explicit overall time component at all, `-14d`/`-30d` defaults are fine.
+- If the prompt has no explicit conversion-window mention, default `funnelWindowInterval=14` + `funnelWindowIntervalUnit="day"` is fine.
+- Ignore `filterTestAccounts`, `funnelVizType`, `funnelOrderType`, and unrelated fields — they are not about time.
+
+<user_prompt>
+{{output.prompt}}
+</user_prompt>
+
+<actual_query>
+{{output.funnel_query}}
+</actual_query>
+
+Are the time range AND the conversion window in the actual query consistent with the user's prompt? Answer `yes` or `no`.
+""".strip(),
+            choice_scores=BINARY_CHOICE_SCORES,
+            model=_JUDGE_MODEL,
+            max_tokens=512,
+            **kwargs,
+        )

@@ -81,6 +81,59 @@ class NoToolCall(Scorer):
         return Score(name=self._name(), score=1.0, metadata={})
 
 
+class RequiredToolCall(Scorer):
+    """Binary scorer: did the agent successfully invoke at least one required tool?
+
+    Constructed with a set of tool names — at least one of them must appear
+    as a successful `tool_use`/`tool_result` pair in `output["messages"]`.
+    Failed calls (`is_error: true`) don't count; the model must have
+    actually received a non-error result.
+
+    Typical use: agent hygiene — require ``read-data-schema`` so the agent
+    verifies an event/property exists in the team before running a query.
+    """
+
+    required: frozenset[str]
+    _label: str
+
+    def __init__(self, required: Iterable[str], *, name: str = "required_tool_call"):
+        self.required = frozenset(required)
+        self._label = name
+
+    def _name(self) -> str:
+        return self._label
+
+    async def _run_eval_async(self, output, expected=None, **kwargs):
+        return self._evaluate(output)
+
+    def _run_eval_sync(self, output, expected=None, **kwargs):
+        return self._evaluate(output)
+
+    def _evaluate(self, output: dict | None) -> Score:
+        if not output:
+            return Score(name=self._name(), score=None, metadata={"reason": "No output"})
+        messages = output.get("messages")
+        if not messages:
+            return Score(name=self._name(), score=None, metadata={"reason": "No parsed messages"})
+
+        seen: list[str] = [
+            tool_use["name"]
+            for tool_use, _ in iter_successful_tool_calls(messages)
+            if normalize_tool_name(tool_use.get("name")) in self.required
+        ]
+        if seen:
+            return Score(
+                name=self._name(),
+                score=1.0,
+                metadata={"required_tools_called": sorted(set(seen))},
+            )
+        return Score(
+            name=self._name(),
+            score=0.0,
+            metadata={"reason": "No required tool call found", "required": sorted(self.required)},
+        )
+
+
 def normalize_tool_name(name: str | None) -> str:
     """Strip the Claude-Code MCP namespace prefix from a tool name.
 
