@@ -6,6 +6,7 @@ from posthog.schema import CachedErrorTrackingQueryResponse, ErrorTrackingQuery,
 from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
 from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.database import Database
 
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
@@ -79,7 +80,14 @@ class ErrorTrackingQueryRunner(AnalyticsQueryRunner[ErrorTrackingQueryResponse])
         ctx = HogQLContext(team_id=self.team.pk, team=self.team, user=self.user, enable_select_queries=True)
         raw = self.query.phantomFingerprintIssueStates or []
         if raw:
-            ctx.error_tracking_fingerprint_phantoms = [row.model_dump(mode="json") for row in raw]
+            # Build a per-request database and attach phantoms to the fingerprint_issue_state join_table.
+            database = Database.create_for(
+                team=self.team, user=self.user, modifiers=self.modifiers, timings=self.timings
+            )
+            database.get_table("events").fields["fingerprint_issue_state"].join_table.phantoms = [
+                row.model_dump(mode="json") for row in raw
+            ]
+            ctx.database = database
         return ctx
 
     def _calculate(self):

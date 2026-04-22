@@ -17,7 +17,7 @@ import { applyDelta, buildPhantomRow, CurrentIssueState, IssueStateDelta } from 
 // CH sync typically lands in seconds; 60s is generous.
 export const PHANTOM_TTL_MS = 60_000
 
-type StoredPhantom = ErrorTrackingPhantomFingerprintIssueState & { expiresAt: number }
+export type StoredPhantom = ErrorTrackingPhantomFingerprintIssueState & { expiresAt: number }
 
 export const phantomFingerprintIssueStateLogic = kea<phantomFingerprintIssueStateLogicType>([
     path(['products', 'error_tracking', 'logics', 'phantomFingerprintIssueStateLogic']),

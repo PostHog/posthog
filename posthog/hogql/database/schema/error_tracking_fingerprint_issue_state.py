@@ -1,5 +1,7 @@
 from typing import Any, Optional
 
+from pydantic import Field
+
 from posthog.hogql.ast import SelectQuery
 from posthog.hogql.constants import HogQLQuerySettings
 from posthog.hogql.context import HogQLContext
@@ -55,8 +57,10 @@ def join_with_error_tracking_fingerprint_issue_state_table(
 
     if not join_to_add.fields_accessed:
         raise ResolutionError("No fields requested from error_tracking_fingerprint_issue_state")
+    join_table = join_to_add.lazy_join.join_table
+    phantoms = getattr(join_table, "phantoms", None) or []
     join_expr = ast.JoinExpr(
-        table=select_from_error_tracking_fingerprint_issue_state_table(join_to_add.fields_accessed, context)
+        table=select_from_error_tracking_fingerprint_issue_state_table(join_to_add.fields_accessed, phantoms=phantoms)
     )
     join_expr.join_type = "LEFT OUTER JOIN"
     join_expr.alias = join_to_add.to_table
@@ -73,7 +77,7 @@ def join_with_error_tracking_fingerprint_issue_state_table(
 
 def select_from_error_tracking_fingerprint_issue_state_table(
     requested_fields: dict[str, list[str | int]],
-    context: Optional[HogQLContext] = None,
+    phantoms: Optional[list[dict[str, Any]]] = None,
 ):
     from posthog.hogql import ast
 
@@ -99,7 +103,6 @@ def select_from_error_tracking_fingerprint_issue_state_table(
             )
     select.settings = HogQLQuerySettings(optimize_aggregation_in_order=True)
 
-    phantoms = _phantoms_from_context(context)
     if phantoms:
         # Wrap the raw-table scan so argMax sees phantom rows with higher versions and picks them.
         select.select_from = ast.JoinExpr(
@@ -108,12 +111,6 @@ def select_from_error_tracking_fingerprint_issue_state_table(
         )
 
     return select
-
-
-def _phantoms_from_context(context: Optional[HogQLContext]) -> list[dict[str, Any]]:
-    if context is None:
-        return []
-    return context.error_tracking_fingerprint_phantoms or []
 
 
 def _build_union_with_phantoms(phantoms: list[dict[str, Any]]):
@@ -178,6 +175,7 @@ class RawErrorTrackingFingerprintIssueStateTable(Table):
 
 class ErrorTrackingFingerprintIssueStateTable(LazyTable):
     fields: dict[str, FieldOrTable] = ERROR_TRACKING_FINGERPRINT_ISSUE_STATE_FIELDS
+    phantoms: list[dict[str, Any]] = Field(default_factory=list)
 
     def lazy_select(
         self,
@@ -185,7 +183,9 @@ class ErrorTrackingFingerprintIssueStateTable(LazyTable):
         context: HogQLContext,
         node: SelectQuery,
     ):
-        return select_from_error_tracking_fingerprint_issue_state_table(table_to_add.fields_accessed, context)
+        return select_from_error_tracking_fingerprint_issue_state_table(
+            table_to_add.fields_accessed, phantoms=self.phantoms
+        )
 
     def to_printed_clickhouse(self, context):
         return "error_tracking_fingerprint_issue_state"

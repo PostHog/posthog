@@ -5,13 +5,13 @@ from typing import Any
 from posthog.test.base import BaseTest
 
 from posthog.hogql import ast
-from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.schema.error_tracking_fingerprint_issue_state import (
     _PHANTOM_COLUMNS,
     RAW_TABLE_NAME,
+    ErrorTrackingFingerprintIssueStateTable,
     _build_union_with_phantoms,
     _phantom_select,
-    _phantoms_from_context,
+    select_from_error_tracking_fingerprint_issue_state_table,
 )
 
 VALID_ISSUE_ID = "01936e7f-d7ff-7314-b2d4-7627981e34f0"
@@ -61,12 +61,30 @@ class TestPhantomUnionBuilder(BaseTest):
         assert isinstance(base.select_from.table, ast.Field)
         self.assertEqual(base.select_from.table.chain, [RAW_TABLE_NAME])
 
-    def test_phantoms_from_context_missing_or_empty(self) -> None:
-        self.assertEqual(_phantoms_from_context(None), [])
-        self.assertEqual(_phantoms_from_context(HogQLContext(team_id=self.team.id)), [])
+    def test_select_without_phantoms_scans_raw_table_directly(self) -> None:
+        select = select_from_error_tracking_fingerprint_issue_state_table(
+            requested_fields={"issue_id": ["issue_id"]},
+        )
+        assert isinstance(select.select_from, ast.JoinExpr)
+        # No phantoms → the wrapper UNION isn't built; scan the raw table directly.
+        assert isinstance(select.select_from.table, ast.Field)
+        self.assertEqual(select.select_from.table.chain, [RAW_TABLE_NAME])
 
-    def test_phantoms_from_context_returns_rows(self) -> None:
-        ctx = HogQLContext(team_id=self.team.id)
+    def test_select_with_phantoms_wraps_raw_table_with_union(self) -> None:
+        select = select_from_error_tracking_fingerprint_issue_state_table(
+            requested_fields={"issue_id": ["issue_id"]},
+            phantoms=[self._sanitized_row()],
+        )
+        assert isinstance(select.select_from, ast.JoinExpr)
+        # With phantoms → the scan targets the UNION ALL wrapper aliased as the raw table.
+        assert isinstance(select.select_from.table, ast.SelectSetQuery)
+        self.assertEqual(select.select_from.alias, RAW_TABLE_NAME)
+
+    def test_table_phantoms_default_empty(self) -> None:
+        table = ErrorTrackingFingerprintIssueStateTable()
+        self.assertEqual(table.phantoms, [])
+
+    def test_table_carries_phantoms(self) -> None:
         rows = [self._sanitized_row()]
-        ctx.error_tracking_fingerprint_phantoms = rows
-        self.assertEqual(_phantoms_from_context(ctx), rows)
+        table = ErrorTrackingFingerprintIssueStateTable(phantoms=rows)
+        self.assertEqual(table.phantoms, rows)

@@ -73,12 +73,6 @@ class HogQLContext:
     # Workload detected during AST resolution (set by prepare_ast_for_printing)
     workload: Optional[Workload] = None
 
-    # Error tracking: client-supplied phantom rows to UNION into the denormalized
-    # fingerprint_issue_state subquery. Each dict matches the raw table row shape
-    # minus team_id (team-scoping is enforced by HogQL's team-id guard on the raw
-    # table scan inside the same UNION). See products/error_tracking.
-    error_tracking_fingerprint_phantoms: Optional[list[dict[str, Any]]] = None
-
     def __post_init__(self):
         if self.team:
             self.team_id = self.team.id
