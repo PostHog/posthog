@@ -311,31 +311,16 @@ def _verify_baseline_hashes(repo: Repo, raw_hashes: dict[str, str]) -> dict[str,
     return verified
 
 
-def _resolve_baselines(repo, run_type: str, branch: str) -> dict[str, str]:
-    """Fetch baseline content hashes from GitHub for snapshot comparison.
+def _resolve_baselines_at_ref(repo, github, run_type: str, ref: str) -> dict[str, str]:
+    """Fetch baseline content hashes from GitHub at a specific ref (branch name or SHA).
 
     Returns a dict of identifier → content_hash (plain, not signed).
-    The baseline YAML in the repo is the source of truth.
-    Returns empty dict when baseline file doesn't exist (first run).
-    Raises on network/auth errors — silent failure would misclassify all
-    snapshots as NEW and risk baseline data loss on auto-approve.
-
-
+    Returns empty dict when baseline file doesn't exist.
     """
-    try:
-        github = get_github_integration_for_repo(repo)
-        if github.access_token_expired():
-            github.refresh_access_token()
-    except Exception:
-        # No GitHub integration configured — treat as no baseline (first run / local dev)
-        logger.info("visual_review.no_github_integration", repo_id=str(repo.id))
-        return {}
-
     baseline_paths = repo.baseline_file_paths or {}
     baseline_path = baseline_paths.get(run_type) or baseline_paths.get("default", ".snapshots.yml")
 
-    # _fetch_baseline_file returns ({}, None) on 404 — no exception for missing files
-    baselines_signed, _sha = _fetch_baseline_file(github, repo.repo_full_name, baseline_path, branch)
+    baselines_signed, _sha = _fetch_baseline_file(github, repo.repo_full_name, baseline_path, ref)
 
     return _verify_baseline_hashes(
         repo,
@@ -345,6 +330,119 @@ def _resolve_baselines(repo, run_type: str, branch: str) -> dict[str, str]:
             if isinstance(entry, dict) and "hash" in entry
         },
     )
+
+
+def _get_merge_base_sha(github, repo_full_name: str, base: str, head: str) -> str | None:
+    """Get the merge-base SHA between two refs via the GitHub Compare API."""
+    import requests
+
+    access_token = github.integration.sensitive_config["access_token"]
+    response = requests.get(
+        f"https://api.github.com/repos/{repo_full_name}/compare/{base}...{head}",
+        headers={
+            "Accept": "application/vnd.github+json",
+            "Authorization": f"Bearer {access_token}",
+            "X-GitHub-Api-Version": "2022-11-28",
+        },
+    )
+    if response.status_code != 200:
+        logger.warning(
+            "visual_review.merge_base_fetch_failed",
+            repo=repo_full_name,
+            base=base,
+            head=head,
+            status=response.status_code,
+        )
+        return None
+
+    return response.json().get("merge_base_commit", {}).get("sha")
+
+
+def _get_default_branch(github, repo_full_name: str) -> str:
+    """Get the repo's default branch name via the GitHub API."""
+    import requests
+
+    access_token = github.integration.sensitive_config["access_token"]
+    response = requests.get(
+        f"https://api.github.com/repos/{repo_full_name}",
+        headers={
+            "Accept": "application/vnd.github+json",
+            "Authorization": f"Bearer {access_token}",
+            "X-GitHub-Api-Version": "2022-11-28",
+        },
+    )
+    if response.status_code == 200:
+        return response.json().get("default_branch", "master")
+    return "master"
+
+
+def _resolve_baselines(repo, run_type: str, branch: str) -> dict[str, str]:
+    """Fetch baseline content hashes from GitHub for snapshot comparison.
+
+    Returns a dict of identifier → content_hash (plain, not signed).
+    The baseline YAML in the repo is the source of truth.
+    Returns empty dict when baseline file doesn't exist (first run).
+    Raises on network/auth errors — silent failure would misclassify all
+    snapshots as NEW and risk baseline data loss on auto-approve.
+    """
+    try:
+        github = get_github_integration_for_repo(repo)
+        if github.access_token_expired():
+            github.refresh_access_token()
+    except Exception:
+        logger.info("visual_review.no_github_integration", repo_id=str(repo.id))
+        return {}
+
+    return _resolve_baselines_at_ref(repo, github, run_type, branch)
+
+
+def _resolve_baselines_with_merge_base(repo, run_type: str, branch: str) -> tuple[dict[str, str], int]:
+    """Fetch branch baseline merged with merge-base baseline.
+
+    The branch baseline tracks approvals. The merge-base baseline
+    fills in entries that were lost during a rebase (the bot commit
+    rewrites the full file, and git rebase replays it destructively).
+
+    Branch entries win on conflict so approvals are preserved.
+    Returns (merged_baseline, healed_count).
+    """
+    try:
+        github = get_github_integration_for_repo(repo)
+        if github.access_token_expired():
+            github.refresh_access_token()
+    except Exception:
+        logger.info("visual_review.no_github_integration", repo_id=str(repo.id))
+        return {}, 0
+
+    branch_baseline = _resolve_baselines_at_ref(repo, github, run_type, branch)
+
+    default_branch = _get_default_branch(github, repo.repo_full_name)
+    if branch == default_branch:
+        return branch_baseline, 0
+
+    merge_base_sha = _get_merge_base_sha(github, repo.repo_full_name, default_branch, branch)
+    if not merge_base_sha:
+        return branch_baseline, 0
+
+    merge_base_baseline = _resolve_baselines_at_ref(repo, github, run_type, merge_base_sha)
+    if not merge_base_baseline:
+        return branch_baseline, 0
+
+    healed = set(merge_base_baseline) - set(branch_baseline)
+    merged = {**merge_base_baseline, **branch_baseline}
+
+    if healed:
+        logger.info(
+            "visual_review.baseline_healed",
+            repo_id=str(repo.id),
+            branch=branch,
+            healed_count=len(healed),
+            branch_count=len(branch_baseline),
+            merge_base_count=len(merge_base_baseline),
+            merged_count=len(merged),
+        )
+
+    return merged, len(healed)
 
 
 def create_run(
@@ -577,8 +675,13 @@ def complete_run(run_id: UUID) -> Run:
 
     repo = run.repo
 
-    # Fetch baseline once — used for classification and removal detection
-    baseline = _resolve_baselines(repo, run.run_type, run.branch)
+    # Fetch baseline merged with merge-base to heal rebase-induced drift.
+    # Branch baseline tracks approvals; merge-base fills entries lost when
+    # git rebase replays a full-file bot commit destructively.
+    baseline, healed_count = _resolve_baselines_with_merge_base(repo, run.run_type, run.branch)
+    if healed_count:
+        run.metadata["baseline_healed_from_merge_base"] = healed_count
+        run.save(using=WRITER_DB, update_fields=["metadata"])
 
     # Pre-load tolerated hashes scoped to this run's identifiers and baseline hashes
     run_identifiers = set(run.snapshots.using(WRITER_DB).values_list("identifier", flat=True))
