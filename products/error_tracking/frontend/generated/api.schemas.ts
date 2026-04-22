@@ -827,20 +827,38 @@ export interface PaginatedErrorTrackingRecommendationListApi {
 }
 
 export interface ErrorTrackingSpikeDetectionConfigApi {
-    /** @minimum 1 */
+    /**
+     * Time to wait before alerting again for the same issue after a spike is detected.
+     * @minimum 1
+     */
     snooze_duration_minutes: number
-    /** @minimum 1 */
+    /**
+     * The factor by which the current exception count must exceed the baseline to be considered a spike.
+     * @minimum 1
+     */
     multiplier: number
-    /** @minimum 1 */
+    /**
+     * The minimum number of exceptions required in a 5-minute window before a spike can be detected.
+     * @minimum 1
+     */
     threshold: number
 }
 
 export interface PatchedErrorTrackingSpikeDetectionConfigApi {
-    /** @minimum 1 */
+    /**
+     * Time to wait before alerting again for the same issue after a spike is detected.
+     * @minimum 1
+     */
     snooze_duration_minutes?: number
-    /** @minimum 1 */
+    /**
+     * The factor by which the current exception count must exceed the baseline to be considered a spike.
+     * @minimum 1
+     */
     multiplier?: number
-    /** @minimum 1 */
+    /**
+     * The minimum number of exceptions required in a 5-minute window before a spike can be detected.
+     * @minimum 1
+     */
     threshold?: number
 }
 
