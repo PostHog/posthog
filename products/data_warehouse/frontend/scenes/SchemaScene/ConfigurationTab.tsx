@@ -113,8 +113,15 @@ function DetailsSection({
                 description="Enable or disable syncing for this schema, see its current state, and trigger a sync on demand."
             />
             <div className="border rounded p-4 bg-surface-primary flex flex-col gap-3">
-                <div className="flex items-center justify-between">
-                    <span className="text-muted">Enabled</span>
+                <div className="flex items-start justify-between gap-4">
+                    <div className="flex flex-col">
+                        <span>Enabled</span>
+                        <span className="text-xs text-muted max-w-md">
+                            When enabled, this schema runs on the configured schedule and data is imported into PostHog.
+                            Disabling pauses all syncs — existing data stays in place but is not updated until you
+                            re-enable.
+                        </span>
+                    </div>
                     <SourceEditorAction source={source}>
                         <LemonSwitch
                             disabledReason={
@@ -430,7 +437,12 @@ function ScheduleSection({
             />
             <div className="border rounded p-4 bg-surface-primary flex flex-col gap-4">
                 <div className="flex flex-col gap-1">
-                    <span className="text-xs text-muted">Sync frequency</span>
+                    <span>Sync frequency</span>
+                    <span className="text-xs text-muted max-w-md">
+                        How often PostHog pulls new data from the source. Shorter intervals mean fresher data but more
+                        load on the source database
+                        {isCdc ? ' — CDC supports sub-minute replication for near-real-time syncs.' : '.'}
+                    </span>
                     <SourceEditorAction source={source}>
                         {({ disabledReason: accessDisabledReason }) => (
                             <LemonSelect
@@ -530,10 +542,16 @@ function AnchorTimeField({
 
     return (
         <div className="flex flex-col gap-1">
-            <div className="flex items-center justify-between">
-                <span className="text-xs text-muted">Anchor time</span>
+            <div className="flex items-start justify-between gap-4">
+                <div className="flex flex-col">
+                    <span>Anchor time</span>
+                    <span className="text-xs text-muted max-w-md">
+                        Pin the sync schedule so runs start at a predictable time each day (useful for coordinating with
+                        downstream jobs). Only applies to intervals longer than one hour.
+                    </span>
+                </div>
                 {currentTeam?.timezone !== 'UTC' && currentTeam?.timezone !== 'GMT' && (
-                    <div className="flex items-center gap-1 text-xs">
+                    <div className="flex items-center gap-1 text-xs shrink-0">
                         <span>UTC</span>
                         <LemonSwitch size="xsmall" checked={isProjectTime} onChange={setIsProjectTime} />
                         <span>{currentTeam?.timezone || 'UTC'}</span>
