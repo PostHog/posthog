@@ -8,6 +8,7 @@ Handles two triggers that create or update tickets from Teams:
 Both converge to create_or_update_teams_ticket().
 """
 
+import uuid
 from types import MappingProxyType
 from typing import Any
 from urllib.parse import quote
@@ -53,14 +54,20 @@ def resolve_teams_user(tenant_id: str, teams_user_id: str, team: Team) -> dict:
     if not teams_user_id:
         return dict(_UNKNOWN_USER)
 
-    cached = get_cached_teams_user(tenant_id, teams_user_id)
+    try:
+        normalized_user_id = str(uuid.UUID(teams_user_id))
+    except (ValueError, TypeError, AttributeError):
+        logger.warning("teams_user_resolve_invalid_id", teams_user_id=teams_user_id)
+        return dict(_UNKNOWN_USER)
+
+    cached = get_cached_teams_user(tenant_id, normalized_user_id)
     if cached is not None:
         return cached
 
     try:
         token = get_graph_token(team)
         resp = requests.get(
-            f"{GRAPH_API_BASE}/users/{teams_user_id}",
+            f"{GRAPH_API_BASE}/users/{quote(normalized_user_id, safe='')}",
             headers={"Authorization": f"Bearer {token}"},
             params={"$select": "displayName,mail,userPrincipalName"},
             timeout=10,
@@ -74,10 +81,10 @@ def resolve_teams_user(tenant_id: str, teams_user_id: str, team: Team) -> dict:
             "name": data.get("displayName") or "Unknown",
             "email": data.get("mail") or data.get("userPrincipalName"),
         }
-        set_cached_teams_user(tenant_id, teams_user_id, result)
+        set_cached_teams_user(tenant_id, normalized_user_id, result)
         return result
     except Exception:
-        logger.warning("teams_user_resolve_error", teams_user_id=teams_user_id)
+        logger.warning("teams_user_resolve_error", teams_user_id=normalized_user_id)
         return dict(_UNKNOWN_USER)
 
 
@@ -138,12 +145,16 @@ def _is_reply(activity: dict) -> bool:
 
 def _is_bot_mention(activity: dict) -> bool:
     """Check if the bot was @mentioned in this activity."""
+    try:
+        bot_from_id = get_bot_from_id()
+    except ValueError:
+        return False
+
     entities = activity.get("entities") or []
     for entity in entities:
         if entity.get("type") == "mention":
             mentioned = entity.get("mentioned") or {}
-            # Bot mention: role is "bot"
-            if mentioned.get("role") == "bot":
+            if mentioned.get("id") == bot_from_id:
                 return True
     return False
 
@@ -410,9 +421,13 @@ def handle_teams_message(activity: dict, team: Team, tenant_id: str) -> None:
     if not channel_id:
         return
 
-    # Skip bot messages
+    # Skip messages the bot sent itself.
     from_field = activity.get("from") or {}
-    if from_field.get("role") == "bot":
+    try:
+        bot_from_id = get_bot_from_id()
+    except ValueError:
+        bot_from_id = ""
+    if bot_from_id and from_field.get("id") == bot_from_id:
         return
 
     settings_dict = team.conversations_settings or {}

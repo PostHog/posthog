@@ -8,6 +8,8 @@ from uuid import UUID
 
 from django.core import mail
 from django.core.cache import cache
+from django.db import transaction
+from django.utils import timezone
 
 import requests
 import structlog
@@ -19,6 +21,7 @@ from posthog.models.team import Team
 from posthog.models.uploaded_media import UploadedMedia
 from posthog.storage import object_storage
 
+from products.conversations.backend.events import capture_ticket_status_changed
 from products.conversations.backend.formatting import (
     extract_images_from_rich_content,
     rich_content_to_html,
@@ -26,16 +29,27 @@ from products.conversations.backend.formatting import (
     rich_content_to_slack_payload,
 )
 from products.conversations.backend.mailgun import get_smtp_connection
-from products.conversations.backend.models import EmailMessageMapping
+from products.conversations.backend.models import (
+    EmailMessageMapping,
+    TeamConversationsSlackConfig,
+    TeamConversationsTeamsConfig,
+)
 from products.conversations.backend.models.constants import Status
 from products.conversations.backend.models.ticket import Ticket
-from products.conversations.backend.slack import get_slack_client, resolve_slack_avatar_by_email
+from products.conversations.backend.slack import (
+    get_slack_client,
+    handle_support_mention,
+    handle_support_message,
+    handle_support_reaction,
+    resolve_slack_avatar_by_email,
+)
 from products.conversations.backend.support_teams import (
     get_bot_framework_token,
     get_bot_from_id,
     invalidate_bot_framework_token,
     is_trusted_teams_service_url,
 )
+from products.conversations.backend.teams import _is_bot_mention, handle_teams_mention, handle_teams_message
 from products.conversations.backend.teams_formatting import rich_content_to_teams_html
 
 from .support_slack import SUPPORT_SLACK_ALLOWED_HOST_SUFFIXES, SUPPORT_SLACK_MAX_IMAGE_BYTES
@@ -58,17 +72,9 @@ def _is_duplicate_teams_event(activity_id: str) -> bool:
 
 @shared_task(ignore_result=True, max_retries=3, default_retry_delay=5)
 def process_supporthog_event(event: dict[str, Any], slack_team_id: str, event_id: str | None = None) -> None:
-    from products.conversations.backend.slack import (
-        handle_support_mention,
-        handle_support_message,
-        handle_support_reaction,
-    )
-
     if event_id and _is_duplicate_supporthog_event(event_id):
         logger.info("supporthog_event_duplicate_skipped", event_id=event_id)
         return
-
-    from products.conversations.backend.models import TeamConversationsSlackConfig
 
     config = (
         TeamConversationsSlackConfig.objects.filter(slack_team_id=slack_team_id, slack_bot_token__isnull=False)
@@ -509,13 +515,10 @@ def send_email_reply(
 @shared_task(ignore_result=True, max_retries=3, default_retry_delay=5)
 def process_teams_event(activity: dict[str, Any], tenant_id: str, activity_id: str = "") -> None:
     """Process an inbound Teams Bot Framework activity."""
-    from products.conversations.backend.teams import _is_bot_mention, handle_teams_mention, handle_teams_message
 
     if activity_id and _is_duplicate_teams_event(activity_id):
         logger.info("supporthog_teams_event_duplicate_skipped", activity_id=activity_id)
         return
-
-    from products.conversations.backend.models import TeamConversationsTeamsConfig
 
     config = (
         TeamConversationsTeamsConfig.objects.filter(teams_tenant_id=tenant_id, teams_graph_access_token__isnull=False)
@@ -621,10 +624,6 @@ WAKE_SNOOZE_BATCH_SIZE = 100
 @shared_task(ignore_result=True)
 def wake_snoozed_tickets() -> None:
     """Reopen tickets whose snooze period has expired, in batches."""
-    from django.db import transaction
-    from django.utils import timezone
-
-    from products.conversations.backend.events import capture_ticket_status_changed
 
     now = timezone.now()
     total = 0

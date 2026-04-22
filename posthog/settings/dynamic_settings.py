@@ -179,15 +179,6 @@ CONSTANCE_CONFIG = {
         ),
         str,
     ),
-    "SUPPORT_TEAMS_CHANNEL_TENANT_ID": (
-        get_from_env("SUPPORT_TEAMS_CHANNEL_TENANT_ID", default=""),
-        (
-            "Microsoft Teams channel tenant used as a valid JWT issuer for inbound Bot Framework "
-            "activities. This is a Microsoft-owned well-known GUID and should not normally be changed; "
-            "override only for Azure Government or other sovereign cloud deployments."
-        ),
-        str,
-    ),
     "SUPPORT_TEAMS_CATALOG_APP_ID": (
         get_from_env("SUPPORT_TEAMS_CATALOG_APP_ID", default=""),
         (
@@ -317,7 +308,6 @@ SETTINGS_ALLOWING_API_OVERRIDE = (
     "SUPPORT_TEAMS_APP_ID",
     "SUPPORT_TEAMS_APP_SECRET",
     "SUPPORT_TEAMS_APP_TENANT_ID",
-    "SUPPORT_TEAMS_CHANNEL_TENANT_ID",
     "SUPPORT_TEAMS_CATALOG_APP_ID",
     "CONVERSATIONS_HMAC_SIGNING_SECRET",
     "CONVERSATIONS_EMAIL_INBOUND_DOMAIN",

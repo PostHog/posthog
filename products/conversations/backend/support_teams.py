@@ -24,12 +24,12 @@ import structlog
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.instance_setting import get_instance_settings
 from posthog.models.team.extensions import get_or_create_team_extension
+from posthog.models.team.team import Team
 from posthog.redis import get_client
 
 from products.conversations.backend.models import TeamConversationsTeamsConfig
 
 if TYPE_CHECKING:
-    from posthog.models.team.team import Team
     from posthog.models.user import User
 
 logger = structlog.get_logger(__name__)
@@ -77,25 +77,27 @@ def get_teams_instance_settings() -> dict:
             "SUPPORT_TEAMS_APP_ID",
             "SUPPORT_TEAMS_APP_SECRET",
             "SUPPORT_TEAMS_APP_TENANT_ID",
-            "SUPPORT_TEAMS_CHANNEL_TENANT_ID",
         ]
     )
 
 
 def _get_botframework_valid_issuers() -> tuple[str, ...]:
     """
-    Microsoft Teams / Bot Framework signs inbound activities with one of several
-    issuer values depending on the activity type and source (service token vs
-    emulator vs Teams channel token). We accept all of them.
+    Microsoft Teams / Bot Framework signs inbound activities with a service
+    token issued by Bot Framework. We validate that issuer only.
+
+    We deliberately do NOT accept the Azure-AD-issued variants
+    (``https://sts.windows.net/<channel_tenant>/`` and
+    ``https://login.microsoftonline.com/<channel_tenant>/v2.0``): their signing
+    keys live in a different JWKS than the one we query
+    (``login.botframework.com``), so any token carrying those issuers would
+    fail signature verification anyway. Keeping them in the allowlist would be
+    dead code at best and a foot-gun for any future change that trusts
+    issuers from unverified claims.
 
     See: https://learn.microsoft.com/en-us/azure/bot-service/rest-api/bot-framework-rest-connector-authentication
     """
-    channel_tenant_id = str(get_teams_instance_settings().get("SUPPORT_TEAMS_CHANNEL_TENANT_ID") or "").strip()
-    issuers = ["https://api.botframework.com"]
-    if channel_tenant_id:
-        issuers.append(f"https://sts.windows.net/{channel_tenant_id}/")
-        issuers.append(f"https://login.microsoftonline.com/{channel_tenant_id}/v2.0")
-    return tuple(issuers)
+    return ("https://api.botframework.com",)
 
 
 def is_trusted_teams_service_url(service_url: str) -> bool:
@@ -205,8 +207,9 @@ def validate_teams_request(request: HttpRequest) -> dict:
         jwks_client = _get_jwks_client()
         signing_key = jwks_client.get_signing_key_from_jwt(token)
 
-        # Manually verify the issuer against our allowlist — PyJWT's `issuer=...`
-        # only supports a single value, but Bot Framework legitimately uses several.
+        # The allowlist is currently a singleton (`api.botframework.com`), but
+        # we keep the manual check so adding a second issuer later doesn't silently
+        # fall into the `verify_iss=False` branch.
         claims = jwt.decode(
             token,
             signing_key.key,
@@ -370,7 +373,7 @@ def _graph_token_still_fresh(config: TeamConversationsTeamsConfig) -> bool:
     )
 
 
-def get_graph_token(team: "Team") -> str:
+def get_graph_token(team: Team) -> str:
     """
     Get a valid Graph API token for the team, refreshing if expired.
 
@@ -426,7 +429,7 @@ def get_graph_token(team: "Team") -> str:
 
 def save_teams_token(
     *,
-    team: "Team",
+    team: Team,
     user: "User",
     is_impersonated_session: bool,
     access_token: str,
@@ -437,11 +440,17 @@ def save_teams_token(
     config = get_or_create_team_extension(team, TeamConversationsTeamsConfig)
     old_tenant_id = config.teams_tenant_id
 
-    settings = team.conversations_settings or {}
-    settings["teams_enabled"] = True
-    team.conversations_settings = settings
-
     with transaction.atomic():
+        # Re-read the team row under FOR UPDATE so that a concurrent write to
+        # conversations_settings (e.g. a Slack OAuth callback landing at the
+        # same time) serializes behind us and can't clobber our merge. The
+        # whole-blob read/modify/write pattern would otherwise silently drop
+        # any field the other writer added while we held the pre-read copy.
+        locked_team = Team.objects.select_for_update().only("conversations_settings").get(pk=team.pk)
+        settings_blob = dict(locked_team.conversations_settings or {})
+        settings_blob["teams_enabled"] = True
+        locked_team.conversations_settings = settings_blob
+
         config.teams_tenant_id = tenant_id
         config.teams_graph_access_token = access_token
         config.teams_graph_refresh_token = refresh_token
@@ -454,7 +463,8 @@ def save_teams_token(
                 "teams_token_expires_at",
             ]
         )
-        team.save(update_fields=["conversations_settings"])
+        locked_team.save(update_fields=["conversations_settings"])
+        team.conversations_settings = settings_blob
 
     log_activity(
         organization_id=team.organization_id,
@@ -481,7 +491,7 @@ def save_teams_token(
 
 def clear_teams_token(
     *,
-    team: "Team",
+    team: Team,
     user: "User",
     is_impersonated_session: bool,
 ) -> None:
@@ -490,15 +500,17 @@ def clear_teams_token(
     if old_tenant_id is None:
         return
 
-    settings = team.conversations_settings or {}
-    settings["teams_enabled"] = False
-    settings.pop("teams_team_id", None)
-    settings.pop("teams_team_name", None)
-    settings.pop("teams_channel_id", None)
-    settings.pop("teams_channel_name", None)
-    team.conversations_settings = settings
-
     with transaction.atomic():
+        # See save_teams_token for the select_for_update rationale.
+        locked_team = Team.objects.select_for_update().only("conversations_settings").get(pk=team.pk)
+        settings_blob = dict(locked_team.conversations_settings or {})
+        settings_blob["teams_enabled"] = False
+        settings_blob.pop("teams_team_id", None)
+        settings_blob.pop("teams_team_name", None)
+        settings_blob.pop("teams_channel_id", None)
+        settings_blob.pop("teams_channel_name", None)
+        locked_team.conversations_settings = settings_blob
+
         config.teams_tenant_id = None
         config.teams_graph_access_token = None
         config.teams_graph_refresh_token = None
@@ -511,7 +523,8 @@ def clear_teams_token(
                 "teams_token_expires_at",
             ]
         )
-        team.save(update_fields=["conversations_settings"])
+        locked_team.save(update_fields=["conversations_settings"])
+        team.conversations_settings = settings_blob
 
     log_activity(
         organization_id=team.organization_id,

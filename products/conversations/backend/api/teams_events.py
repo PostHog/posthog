@@ -8,12 +8,14 @@ from django.http import HttpRequest, HttpResponse
 from django.views.decorators.csrf import csrf_exempt
 
 import structlog
+from rest_framework.request import Request as DRFRequest
 
 from posthog.models.team import Team
+from posthog.rate_limit import TeamsEventWebhookThrottle
 
 from products.conversations.backend.models import TeamConversationsTeamsConfig
 from products.conversations.backend.services.region_routing import is_primary_region, proxy_to_secondary_region
-from products.conversations.backend.support_teams import validate_teams_request
+from products.conversations.backend.support_teams import is_trusted_teams_service_url, validate_teams_request
 from products.conversations.backend.tasks import process_teams_event
 
 logger = structlog.get_logger(__name__)
@@ -30,7 +32,50 @@ def _team_for_teams_tenant(tenant_id: str) -> Team | None:
     return config.team if config else None
 
 
-def _route_activity_to_relevant_region(request: HttpRequest, activity: dict) -> None:
+def _claims_match_activity(claims: dict, activity: dict) -> bool:
+    """
+    Cross-check verified JWT claims against the plaintext activity body.
+
+    The Bot Framework JWT authenticates the caller, but tenant attribution and
+    the outbound bot-token target URL both come from JSON fields in the
+    activity body (``channelData.tenant.id`` and ``serviceUrl``). Without
+    tying them back to signature-verified claims, anyone in possession of a
+    legitimate Bot Framework token (e.g. replay) could craft an activity that
+    attributes messages to a different PostHog-connected tenant, or steer the
+    bot's bearer token to a non-Microsoft URL.
+
+    Per Microsoft's Bot Framework authentication spec, whenever a claim is
+    present it MUST equal the activity field. Missing claims are tolerated
+    (the allowlist check on ``serviceUrl`` still applies).
+    """
+    body_tenant_id = ((activity.get("channelData") or {}).get("tenant") or {}).get("id", "")
+    claim_tenant_id = claims.get("tid") or ""
+    if claim_tenant_id and body_tenant_id and claim_tenant_id != body_tenant_id:
+        logger.warning(
+            "supporthog_teams_tid_mismatch",
+            body_tenant_id=body_tenant_id,
+            claim_tenant_id=claim_tenant_id,
+        )
+        return False
+
+    body_service_url = (activity.get("serviceUrl") or "").rstrip("/")
+    if body_service_url and not is_trusted_teams_service_url(body_service_url):
+        logger.warning("supporthog_teams_untrusted_service_url", service_url=body_service_url)
+        return False
+
+    claim_service_url = (claims.get("serviceurl") or "").rstrip("/")
+    if claim_service_url and body_service_url and claim_service_url != body_service_url:
+        logger.warning(
+            "supporthog_teams_serviceurl_mismatch",
+            body_service_url=body_service_url,
+            claim_service_url=claim_service_url,
+        )
+        return False
+
+    return True
+
+
+def _route_activity_to_relevant_region(request: HttpRequest, activity: dict, claims: dict) -> None:
     activity_type = activity.get("type", "")
     channel_data = activity.get("channelData") or {}
     tenant_id = (channel_data.get("tenant") or {}).get("id", "")
@@ -44,6 +89,9 @@ def _route_activity_to_relevant_region(request: HttpRequest, activity: dict) -> 
     )
 
     if activity_type not in TEAMS_MESSAGE_TYPES:
+        return
+
+    if not _claims_match_activity(claims, activity):
         return
 
     team = _team_for_teams_tenant(tenant_id) if tenant_id else None
@@ -71,8 +119,15 @@ def teams_event_handler(request: HttpRequest) -> HttpResponse:
     if request.method != "POST":
         return HttpResponse(status=405)
 
+    # IP-based throttle in front of the JWT/JWKS path — the first thing we'd do
+    # on a request with a bogus token is an expensive signing-key lookup, so we
+    # cap total request volume before it reaches that code.
+    throttle = TeamsEventWebhookThrottle()
+    if not throttle.allow_request(DRFRequest(request), view=None):
+        return HttpResponse(status=429)
+
     try:
-        validate_teams_request(request)
+        claims = validate_teams_request(request)
     except ValueError as e:
         logger.warning("supporthog_teams_invalid_request", error=str(e))
         return HttpResponse("Invalid request", status=403)
@@ -86,7 +141,7 @@ def teams_event_handler(request: HttpRequest) -> HttpResponse:
     logger.info("supporthog_teams_event_received", activity_type=activity_type)
 
     if activity_type == "message":
-        _route_activity_to_relevant_region(request, activity)
+        _route_activity_to_relevant_region(request, activity, claims)
         return HttpResponse(status=202)
 
     # Acknowledge other activity types (installationUpdate, conversationUpdate, etc.)

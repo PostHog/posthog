@@ -23,7 +23,7 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
     path(['products', 'conversations', 'frontend', 'scenes', 'settings', 'supportSettingsLogic']),
     connect(() => ({
         values: [teamLogic, ['currentTeam']],
-        actions: [teamLogic, ['updateCurrentTeam', 'updateCurrentTeamSuccess']],
+        actions: [teamLogic, ['updateCurrentTeam', 'updateCurrentTeamSuccess', 'loadCurrentTeam']],
     })),
     actions({
         generateNewToken: true,
@@ -626,29 +626,19 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
                 return
             }
 
-            actions.updateCurrentTeam({
-                conversations_settings: {
-                    ...values.currentTeam?.conversations_settings,
-                    teams_enabled: false,
-                    teams_team_id: null,
-                    teams_team_name: null,
-                    teams_channel_id: null,
-                    teams_channel_name: null,
-                },
-            })
+            actions.loadCurrentTeam()
             lemonToast.success('Microsoft Teams disconnected')
         },
-        setTeamsTeam: ({ teamId, teamName }) => {
-            actions.updateCurrentTeam({
-                conversations_settings: {
-                    ...values.currentTeam?.conversations_settings,
-                    teams_enabled: true,
+        setTeamsTeam: async ({ teamId }) => {
+            try {
+                await api.create('api/conversations/v1/teams/select-channel', {
                     teams_team_id: teamId,
-                    teams_team_name: teamName,
-                    teams_channel_id: null,
-                    teams_channel_name: null,
-                },
-            })
+                })
+            } catch {
+                lemonToast.error('Failed to save the selected Teams group')
+                return
+            }
+            actions.loadCurrentTeam()
             if (teamId) {
                 actions.installTeamsApp(teamId)
             } else {
@@ -684,15 +674,22 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
                 lemonToast.error('Failed to install SupportHog in the selected Teams group')
             }
         },
-        setTeamsChannel: ({ channelId, channelName }) => {
-            actions.updateCurrentTeam({
-                conversations_settings: {
-                    ...values.currentTeam?.conversations_settings,
-                    teams_enabled: true,
+        setTeamsChannel: async ({ channelId }) => {
+            const teamsTeamId = values.currentTeam?.conversations_settings?.teams_team_id
+            if (!teamsTeamId) {
+                lemonToast.error('Select a Microsoft Teams group before choosing a channel')
+                return
+            }
+            try {
+                await api.create('api/conversations/v1/teams/select-channel', {
+                    teams_team_id: teamsTeamId,
                     teams_channel_id: channelId,
-                    teams_channel_name: channelName,
-                },
-            })
+                })
+            } catch {
+                lemonToast.error('Failed to save the selected Teams channel')
+                return
+            }
+            actions.loadCurrentTeam()
         },
         updateCurrentTeamSuccess: () => {
             actions.setGreetingInputValue(null)

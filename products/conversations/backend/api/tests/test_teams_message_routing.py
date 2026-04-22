@@ -107,15 +107,30 @@ class TestTeamsMessageRouting(BaseTest):
 
         mock_create.assert_not_called()
 
+    @patch("products.conversations.backend.teams.get_bot_from_id", return_value="28:bot-app-id")
     @patch("products.conversations.backend.teams.create_or_update_teams_ticket")
-    def test_bot_message_skipped(self, mock_create):
-        handle_teams_message(
-            _make_activity(channel_id="19:configured@thread.tacv2", from_role="bot"),
-            self.team,
-            "tenant-abc",
-        )
+    def test_bot_message_skipped(self, mock_create, _mock_bot_id):
+        # Echo-suppression keys off the bot's own from.id (28:<SUPPORT_TEAMS_APP_ID>)
+        # — from.role is user-controllable and must not be trusted.
+        activity = _make_activity(channel_id="19:configured@thread.tacv2")
+        activity["from"] = {"id": "28:bot-app-id", "aadObjectId": "aad-bot", "role": "bot"}
+
+        handle_teams_message(activity, self.team, "tenant-abc")
 
         mock_create.assert_not_called()
+
+    @patch("products.conversations.backend.teams.get_bot_from_id", return_value="28:bot-app-id")
+    @patch("products.conversations.backend.teams.resolve_teams_user", return_value={"name": "U", "email": None})
+    @patch("products.conversations.backend.teams.create_or_update_teams_ticket")
+    def test_user_with_spoofed_bot_role_not_skipped(self, mock_create, _mock_user, _mock_bot_id):
+        # A Teams user can set from.role="bot" on a crafted activity; we must
+        # not treat that as our own echo and silently drop it.
+        activity = _make_activity(channel_id="19:configured@thread.tacv2")
+        activity["from"] = {"id": "29:attacker", "aadObjectId": "aad-attacker", "role": "bot"}
+
+        handle_teams_message(activity, self.team, "tenant-abc")
+
+        mock_create.assert_called_once()
 
     @patch("products.conversations.backend.teams.create_or_update_teams_ticket")
     def test_empty_channel_id_skipped(self, mock_create):

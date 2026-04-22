@@ -1,14 +1,15 @@
-import json
-import base64
 from urllib.parse import parse_qsl, urlencode, urljoin, urlparse, urlunparse
 
 from django.conf import settings
 from django.core import signing
+from django.core.cache import cache
 from django.db import IntegrityError, transaction
 from django.http import HttpRequest, HttpResponse, HttpResponseRedirect, JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 
+import jwt
 import requests
+import structlog
 from loginas.utils import is_impersonated_session
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
@@ -19,10 +20,13 @@ from posthog.models.instance_setting import get_instance_settings
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
+from posthog.rate_limit import TeamsOAuthCallbackThrottle
 
 from products.conversations.backend.models import TeamConversationsTeamsConfig
 from products.conversations.backend.permissions import IsConversationsAdmin
 from products.conversations.backend.support_teams import clear_teams_token, save_teams_token
+
+logger = structlog.get_logger(__name__)
 
 STATE_SALT = "conversations.supporthog.teams.oauth"
 STATE_MAX_AGE_SECONDS = 10 * 60
@@ -33,6 +37,56 @@ TEAMS_OAUTH_SCOPES = (
 )
 AZURE_AD_AUTHORIZE_URL = "https://login.microsoftonline.com/common/oauth2/v2.0/authorize"
 AZURE_AD_TOKEN_URL = "https://login.microsoftonline.com/common/oauth2/v2.0/token"
+AZURE_AD_OPENID_METADATA_URL = "https://login.microsoftonline.com/common/v2.0/.well-known/openid-configuration"
+
+AZURE_AD_JWKS_URI_CACHE_KEY = "conversations:teams:azure_ad_jwks_uri"
+AZURE_AD_JWKS_URI_CACHE_TTL_SECONDS = 60 * 60  # 1 hour
+AZURE_AD_JWT_CLOCK_TOLERANCE_SECONDS = 5 * 60
+
+
+def _get_azure_ad_jwks_client() -> jwt.PyJWKClient:
+    """Fetch Azure AD's JWKS URI from OpenID metadata, cached for 1 hour."""
+    cached_uri = cache.get(AZURE_AD_JWKS_URI_CACHE_KEY)
+    if cached_uri:
+        return jwt.PyJWKClient(cached_uri)
+
+    resp = requests.get(AZURE_AD_OPENID_METADATA_URL, timeout=10)
+    resp.raise_for_status()
+    jwks_uri = resp.json().get("jwks_uri")
+    if not jwks_uri:
+        raise ValueError("Azure AD OpenID metadata missing jwks_uri")
+    cache.set(AZURE_AD_JWKS_URI_CACHE_KEY, jwks_uri, AZURE_AD_JWKS_URI_CACHE_TTL_SECONDS)
+    return jwt.PyJWKClient(jwks_uri)
+
+
+def _verify_id_token(id_token: str, client_id: str) -> dict:
+    """
+    Verify the id_token returned by Azure AD's authorization-code exchange and
+    return its claims. The `tid` claim is load-bearing — it routes every later
+    inbound Bot Framework activity to the right PostHog team — so trusting an
+    unverified payload here would be an attribution bypass if the id_token ever
+    reached this code path from a less trustworthy source.
+
+    We verify signature + audience + expiry. Issuer validation is skipped because
+    Azure AD issues id_tokens with a tenant-specific issuer
+    (``https://login.microsoftonline.com/<tid>/v2.0``) whose tenant we don't
+    know up-front; signature + audience together are sufficient to prove the
+    token was minted by Azure AD for this app.
+    """
+    jwks_client = _get_azure_ad_jwks_client()
+    signing_key = jwks_client.get_signing_key_from_jwt(id_token)
+    return jwt.decode(
+        id_token,
+        signing_key.key,
+        algorithms=["RS256", "RS384", "RS512"],
+        audience=client_id,
+        options={
+            "verify_exp": True,
+            "verify_aud": True,
+            "verify_iss": False,
+        },
+        leeway=AZURE_AD_JWT_CLOCK_TOLERANCE_SECONDS,
+    )
 
 
 def _append_query(url: str, params: dict[str, str]) -> str:
@@ -122,6 +176,12 @@ class TeamsDisconnectView(APIView):
 
 @csrf_exempt
 def teams_oauth_callback(request: HttpRequest) -> HttpResponse:
+    # IP throttle in front of any Azure AD token exchange — otherwise a stranger
+    # can loop a valid `state` param and force us to make outbound POSTs.
+    throttle = TeamsOAuthCallbackThrottle()
+    if not throttle.allow_request(Request(request), view=None):
+        return JsonResponse({"error": "Too Many Requests"}, status=429)
+
     request_user = getattr(request, "user", None)
     request_user_id = getattr(request_user, "id", None)
     if not isinstance(request_user, User) or not isinstance(request_user_id, int):
@@ -184,21 +244,21 @@ def teams_oauth_callback(request: HttpRequest) -> HttpResponse:
     if not refresh_token:
         return _error_response(next_path, "missing_refresh_token", 400)
 
-    # Extract tenant_id from id_token payload (no signature verification
-    # needed — the token was just returned by Azure AD over a TLS-authenticated
-    # code exchange so its payload is trustworthy).
     id_token = payload.get("id_token", "")
-    tenant_id: str | None = None
-    if id_token:
-        try:
-            payload_segment = id_token.split(".")[1]
-            padded = payload_segment + "=" * (-len(payload_segment) % 4)
-            claims = json.loads(base64.urlsafe_b64decode(padded))
-            tenant_id = claims.get("tid")
-        except Exception:
-            pass
+    if not id_token:
+        return _error_response(next_path, "missing_id_token", 400)
 
-    if not tenant_id:
+    try:
+        id_claims = _verify_id_token(id_token, client_id)
+    except jwt.InvalidTokenError as e:
+        logger.warning("teams_id_token_invalid", error=str(e))
+        return _error_response(next_path, "invalid_id_token", 400)
+    except Exception:
+        logger.exception("teams_id_token_verification_failed")
+        return _error_response(next_path, "id_token_verification_failed", 502)
+
+    tenant_id = id_claims.get("tid")
+    if not isinstance(tenant_id, str) or not tenant_id:
         return _error_response(next_path, "missing_tenant_id", 400)
 
     user_id = state_data.get("user_id")

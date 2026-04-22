@@ -35,7 +35,7 @@ def _make_activity(
     if reply_to_id:
         activity["replyToId"] = reply_to_id
     if bot_mention:
-        activity["entities"] = [{"type": "mention", "mentioned": {"id": "28:bot", "name": "Bot", "role": "bot"}}]
+        activity["entities"] = [{"type": "mention", "mentioned": {"id": "28:bot-app-id", "name": "Bot", "role": "bot"}}]
     return activity
 
 
@@ -74,6 +74,7 @@ class TestProcessTeamsEvent(BaseTest):
             ),
         ]
     )
+    @patch("products.conversations.backend.teams.get_bot_from_id", return_value="28:bot-app-id")
     @patch("products.conversations.backend.teams.resolve_teams_user", return_value={"name": "U", "email": None})
     @patch("products.conversations.backend.teams._send_confirmation_card")
     def test_process_event(
@@ -86,6 +87,7 @@ class TestProcessTeamsEvent(BaseTest):
         expected_channel_detail: str | None,
         _mock_card: MagicMock,
         _mock_user: MagicMock,
+        _mock_bot_id: MagicMock,
     ):
         if disable_teams:
             self.team.conversations_settings = {"teams_enabled": False}
