@@ -92,19 +92,71 @@ pub struct ReleaseArgs {
     // deprecated alias for backwards compatibility
     pub version: Option<String>,
 
+    /// The build number (e.g., 42, CFBundleVersion on iOS, versionCode on Android).
+    /// Stored as release metadata. Optional — when omitted, no build info is recorded.
+    #[arg(long)]
+    pub build: Option<String>,
+
     /// If the server returns a release_id_mismatch error (symbol set already exists with a different release),
     /// retry the upload without associating a release instead of failing.
     #[arg(long, default_value = "true")]
     pub skip_release_on_fail: bool,
 }
 
+/// Pack version and build into a single string for release uniqueness.
+/// Releases are keyed on (name, version), so "1.0+42" and "1.0+43" are
+/// distinct releases. The UI splits on "+" to display them separately.
+pub fn pack_version(version: &Option<String>, build: &Option<String>) -> Option<String> {
+    match (version, build) {
+        (Some(v), Some(b)) => Some(format!("{v}+{b}")),
+        (Some(v), None) => Some(v.clone()),
+        (None, Some(b)) => Some(b.clone()),
+        (None, None) => None,
+    }
+}
+
 impl From<ReleaseArgs> for ReleaseBuilder {
     fn from(args: ReleaseArgs) -> Self {
         let mut builder = ReleaseBuilder::default();
         args.name.as_ref().map(|project| builder.with_name(project));
-        args.version
+        pack_version(&args.version, &args.build)
             .as_ref()
             .map(|version| builder.with_version(version));
         builder
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn make_args(name: Option<&str>, version: Option<&str>, build: Option<&str>) -> ReleaseArgs {
+        ReleaseArgs {
+            name: name.map(String::from),
+            version: version.map(String::from),
+            build: build.map(String::from),
+            skip_release_on_fail: true,
+        }
+    }
+
+    #[test]
+    fn release_args_to_builder() {
+        let cases: Vec<(Option<&str>, Option<&str>, bool)> = vec![
+            // (version,    build,      has_version)
+            (Some("1.0"), None, true),       // version only
+            (Some("1.0"), Some("42"), true), // version+build packed into "1.0+42"
+            (None, Some("42"), true),        // build-only → version="42"
+            (None, None, false),             // neither
+        ];
+
+        for (version, build, expect_version) in cases {
+            let builder: ReleaseBuilder = make_args(Some("com.app"), version, build).into();
+            assert!(builder.has_name(), "name should always be set");
+            assert_eq!(
+                builder.has_version(),
+                expect_version,
+                "version={version:?} build={build:?}"
+            );
+        }
     }
 }

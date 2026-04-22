@@ -2,7 +2,15 @@ import { useActions, useValues } from 'kea'
 import { useEffect, useState } from 'react'
 
 import { IconFlag } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonDialog, LemonModal, LemonTable, LemonTableColumns } from '@posthog/lemon-ui'
+import {
+    LemonBanner,
+    LemonButton,
+    LemonDialog,
+    LemonModal,
+    LemonTable,
+    LemonTableColumns,
+    Link,
+} from '@posthog/lemon-ui'
 
 import { AuthorizedUrlList } from 'lib/components/AuthorizedUrlList/AuthorizedUrlList'
 import { AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
@@ -27,6 +35,7 @@ export function DistributionModal(): JSX.Element {
     const { isDistributionModalOpen } = useValues(modalsLogic)
 
     const [variants, setVariants] = useState<MultivariateFlagVariant[]>([])
+    const [rolloutPercentage, setRolloutPercentage] = useState(100)
     const { areVariantRolloutsValid } = useVariantDistributionValidation(variants)
 
     // Initialize local state only when the modal transitions from closed to open.
@@ -34,6 +43,7 @@ export function DistributionModal(): JSX.Element {
     useEffect(() => {
         if (isDistributionModalOpen) {
             setVariants(experiment.feature_flag?.filters?.multivariate?.variants || [])
+            setRolloutPercentage(experiment.feature_flag?.filters?.groups?.[0]?.rollout_percentage ?? 100)
         }
     }, [isDistributionModalOpen, experiment.feature_flag?.filters?.multivariate?.variants])
 
@@ -42,7 +52,7 @@ export function DistributionModal(): JSX.Element {
     }
 
     const handleSave = (): void => {
-        updateDistribution(variants)
+        updateDistribution(variants, rolloutPercentage)
         closeDistributionModal()
     }
 
@@ -71,13 +81,17 @@ export function DistributionModal(): JSX.Element {
             <div className="flex flex-col gap-4">
                 <LemonBanner type="info">
                     Adjusting variant distribution may impact the validity of your results. Adjust only if you're aware
-                    of how changes will affect your experiment.
+                    of how changes will affect your experiment.{' '}
+                    <Link to="https://posthog.com/docs/experiments/changing-distribution-after-rollout" target="_blank">
+                        Read more
+                    </Link>
                 </LemonBanner>
 
                 <VariantDistributionEditor
                     variants={variants}
                     onVariantsChange={setVariants}
-                    rolloutPercentage={experiment.feature_flag?.filters?.groups?.[0]?.rollout_percentage ?? 100}
+                    rolloutPercentage={rolloutPercentage}
+                    onRolloutPercentageChange={setRolloutPercentage}
                 />
 
                 <HoldoutSelector />

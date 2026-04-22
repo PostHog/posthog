@@ -21,7 +21,7 @@ import { updatedAtColumn } from '~/lib/lemon-ui/LemonTable/columnUtils'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import type {
-    Kind01eEnumApi as ScoreDefinitionKind,
+    KindD08EnumApi as ScoreDefinitionKind,
     ScoreDefinitionApi as ScoreDefinition,
 } from '../generated/api.schemas'
 import { llmAnalyticsScoreDefinitionsLogic, SCORE_DEFINITIONS_PER_PAGE } from './llmAnalyticsScoreDefinitionsLogic'

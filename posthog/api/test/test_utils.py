@@ -13,6 +13,8 @@ from posthog.api.utils import (
     format_paginated_url,
     get_data,
     get_target_entity,
+    is_async_query,
+    is_insight_query,
     raise_if_user_provided_url_unsafe,
     safe_clickhouse_string,
     PublicIPOnlyHttpAdapter,
@@ -235,6 +237,44 @@ class TestUtils(BaseTest):
             "Internal IP",
             lambda: session.get(address),
         )
+
+    @parameterized.expand(
+        [
+            ("TrendsQuery is insight", {"kind": "TrendsQuery"}, True, True),
+            ("FunnelsQuery is insight", {"kind": "FunnelsQuery"}, True, True),
+            ("HogQLQuery is insight", {"kind": "HogQLQuery"}, True, True),
+            ("TracesQuery is async only", {"kind": "TracesQuery"}, False, True),
+            (
+                "DataTableNode wrapping TrendsQuery",
+                {"kind": "DataTableNode", "source": {"kind": "TrendsQuery"}},
+                True,
+                True,
+            ),
+            (
+                "DataTableNode wrapping TracesQuery",
+                {"kind": "DataTableNode", "source": {"kind": "TracesQuery"}},
+                False,
+                True,
+            ),
+            (
+                "DataVisualizationNode wrapping TracesQuery",
+                {"kind": "DataVisualizationNode", "source": {"kind": "TracesQuery"}},
+                False,
+                True,
+            ),
+            ("EventsQuery is neither", {"kind": "EventsQuery"}, False, False),
+            ("SessionsQuery is neither", {"kind": "SessionsQuery"}, False, False),
+            (
+                "DataTableNode wrapping EventsQuery",
+                {"kind": "DataTableNode", "source": {"kind": "EventsQuery"}},
+                False,
+                False,
+            ),
+        ]
+    )
+    def test_is_async_query(self, _name: str, query: dict, expected_insight: bool, expected_async: bool) -> None:
+        assert is_insight_query(query) == expected_insight
+        assert is_async_query(query) == expected_async
 
     @parameterized.expand(
         [

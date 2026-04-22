@@ -1,0 +1,75 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "allowed_tools": {
+            "description": "List of pre-approved tools the skill may use.",
+            "items": {
+                "type": "string"
+            },
+            "type": "array"
+        },
+        "base_version": {
+            "description": "Latest version you are editing from. Used for optimistic concurrency checks.",
+            "minimum": 1,
+            "type": "number"
+        },
+        "body": {
+            "description": "Full skill body (SKILL.md instruction content) to publish as a new version.",
+            "type": "string"
+        },
+        "compatibility": {
+            "description": "Environment requirements.",
+            "maxLength": 500,
+            "type": "string"
+        },
+        "description": {
+            "description": "Updated description for the new version.",
+            "maxLength": 4096,
+            "type": "string"
+        },
+        "files": {
+            "description": "Bundled files to include with this version. Replaces all files from the previous version.",
+            "items": {
+                "properties": {
+                    "content": {
+                        "description": "Text content of the file.",
+                        "type": "string"
+                    },
+                    "content_type": {
+                        "default": "text/plain",
+                        "description": "MIME type of the file content.",
+                        "maxLength": 100,
+                        "type": "string"
+                    },
+                    "path": {
+                        "description": "File path relative to skill root, e.g. 'scripts/setup.sh' or 'references/guide.md'.",
+                        "maxLength": 500,
+                        "type": "string"
+                    }
+                },
+                "required": ["path", "content"],
+                "type": "object"
+            },
+            "type": "array"
+        },
+        "license": {
+            "description": "License name or reference.",
+            "maxLength": 255,
+            "type": "string"
+        },
+        "metadata": {
+            "additionalProperties": {},
+            "description": "Arbitrary key-value metadata.",
+            "propertyNames": {
+                "type": "string"
+            },
+            "type": "object"
+        },
+        "skill_name": {
+            "pattern": "^[^/]+$",
+            "type": "string"
+        }
+    },
+    "required": ["skill_name"],
+    "type": "object"
+}

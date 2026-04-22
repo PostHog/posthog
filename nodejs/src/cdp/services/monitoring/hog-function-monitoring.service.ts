@@ -113,7 +113,7 @@ export class HogFunctionMonitoringService {
                         captureException(error)
                     })
             }),
-            eventsToCapture.map((event) =>
+            ...eventsToCapture.map((event) =>
                 this.internalCaptureService.capture(event).catch((error) => {
                     logger.error('Error capturing internal event', { error })
                     captureException(error)

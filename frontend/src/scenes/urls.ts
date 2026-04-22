@@ -51,7 +51,6 @@ export const urls = {
     ingestionWarnings: (): string => '/data-management/ingestion-warnings',
     revenueSettings: (): string => '/data-management/revenue',
     coreEvents: (): string => '/data-management/core-events',
-    marketingAnalytics: (): string => '/data-management/marketing-analytics',
     marketingAnalyticsApp: (): string => '/marketing',
     customCss: (): string => '/themes/custom-css',
     sqlEditor: ({
@@ -258,6 +257,7 @@ export const urls = {
     health: (): string => '/health',
     healthCategory: (category: string): string => `/health/${category}`,
     inbox: (reportId?: string): string => `/inbox${reportId ? `/${reportId}` : ''}`,
+    webAnalyticsBotAnalytics: (): string => '/web/bot-analytics',
     webAnalyticsHealth: (): string => '/web/health',
     pipelineStatus: (): string => '/health/pipeline-status',
     sdkDoctor: (): string => '/health/sdk-doctor',

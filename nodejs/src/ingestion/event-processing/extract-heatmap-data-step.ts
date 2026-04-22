@@ -58,7 +58,7 @@ export function createExtractHeatmapDataStep<TInput extends ExtractHeatmapDataSt
                     )
                 )
             }
-        } catch (e) {
+        } catch {
             warnings.push({
                 type: 'invalid_heatmap_data',
                 details: {

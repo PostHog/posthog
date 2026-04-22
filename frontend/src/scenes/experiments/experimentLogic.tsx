@@ -5,7 +5,6 @@ import { router } from 'kea-router'
 
 import api from 'lib/api'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -195,7 +194,6 @@ interface MetricLoadingConfig {
     isRetry: boolean
     metricIndexOffset: number
     orderedUuids?: string[] | null
-    metricEventsPrecomputation?: boolean
     onSetLegacyResults: (
         results: (
             | CachedLegacyExperimentQueryResponse
@@ -325,7 +323,6 @@ const loadMetrics = async ({
     isRetry,
     metricIndexOffset,
     orderedUuids,
-    metricEventsPrecomputation,
     onSetLegacyResults,
     onSetResults,
     onSetErrors,
@@ -363,7 +360,6 @@ const loadMetrics = async ({
                         kind: NodeKind.ExperimentQuery,
                         metric: metric,
                         experiment_id: experimentId,
-                        ...(metricEventsPrecomputation ? { metric_events_precomputation: true } : {}),
                     }
                 } else {
                     queryWithExperimentId = {
@@ -793,7 +789,10 @@ export const experimentLogic = kea<experimentLogicType>([
                 | null
             )[]
         ) => ({ results }),
-        updateDistribution: (variants: MultivariateFlagVariant[]) => ({ variants }),
+        updateDistribution: (variants: MultivariateFlagVariant[], rolloutPercentage?: number) => ({
+            variants,
+            rolloutPercentage,
+        }),
         setAutoRefresh: (enabled: boolean, interval: number) => ({ enabled, interval }),
         resetAutoRefreshInterval: true,
         stopAutoRefreshInterval: true,
@@ -1788,13 +1787,13 @@ export const experimentLogic = kea<experimentLogicType>([
                 lemonToast.error('Failed to update experiment variant images')
             }
         },
-        updateDistribution: async ({ variants }) => {
-            // Not sending rollout_percentage as it's non-editable in the modal
+        updateDistribution: async ({ variants, rolloutPercentage }) => {
             const { rollout_percentage: _, ...otherParams } = values.experiment?.parameters || {}
             actions.updateExperiment({
                 parameters: {
                     ...otherParams,
                     feature_flag_variants: variants,
+                    ...(rolloutPercentage !== undefined ? { rollout_percentage: rolloutPercentage } : {}),
                 },
                 holdout_id: values.experiment.holdout_id,
                 update_feature_flag_params: true,
@@ -2022,8 +2021,6 @@ export const experimentLogic = kea<experimentLogicType>([
                 isRetry: false,
                 metricIndexOffset: 0,
                 orderedUuids: values.experiment?.primary_metrics_ordered_uuids,
-                metricEventsPrecomputation:
-                    !!values.featureFlags[FEATURE_FLAGS.EXPERIMENTS_METRIC_EVENTS_PRECOMPUTATION],
                 onSetLegacyResults: actions.setLegacyPrimaryMetricsResults,
                 onSetResults: actions.setPrimaryMetricsResults,
                 onSetErrors: actions.setPrimaryMetricsResultsErrors,
@@ -2063,8 +2060,6 @@ export const experimentLogic = kea<experimentLogicType>([
                 isRetry: false,
                 metricIndexOffset: 0,
                 orderedUuids: values.experiment?.secondary_metrics_ordered_uuids,
-                metricEventsPrecomputation:
-                    !!values.featureFlags[FEATURE_FLAGS.EXPERIMENTS_METRIC_EVENTS_PRECOMPUTATION],
                 onSetLegacyResults: actions.setLegacySecondaryMetricsResults,
                 onSetResults: actions.setSecondaryMetricsResults,
                 onSetErrors: actions.setSecondaryMetricsResultsErrors,
@@ -2112,8 +2107,6 @@ export const experimentLogic = kea<experimentLogicType>([
                 isPrimary: true,
                 isRetry: true,
                 metricIndexOffset: index,
-                metricEventsPrecomputation:
-                    !!values.featureFlags[FEATURE_FLAGS.EXPERIMENTS_METRIC_EVENTS_PRECOMPUTATION],
                 onSetLegacyResults: (results) => {
                     currentLegacyResults[index] = results[0]
                     actions.setLegacyPrimaryMetricsResults(currentLegacyResults)
@@ -2162,8 +2155,6 @@ export const experimentLogic = kea<experimentLogicType>([
                 isPrimary: false,
                 isRetry: true,
                 metricIndexOffset: index,
-                metricEventsPrecomputation:
-                    !!values.featureFlags[FEATURE_FLAGS.EXPERIMENTS_METRIC_EVENTS_PRECOMPUTATION],
                 onSetLegacyResults: (results) => {
                     currentLegacyResults[index] = results[0]
                     actions.setLegacySecondaryMetricsResults(currentLegacyResults)
@@ -2286,8 +2277,8 @@ export const experimentLogic = kea<experimentLogicType>([
     })),
     loaders(({ actions, values }) => ({
         experiment: {
-            loadExperiment: async ({ triggeredBy }: { triggeredBy?: ExperimentTriggeredBy } = {}) => {
-                void triggeredBy
+            loadExperiment: async (payload?: { triggeredBy?: ExperimentTriggeredBy }) => {
+                void payload?.triggeredBy
                 if (values.experimentId && values.experimentId !== 'new') {
                     try {
                         let response: Experiment = await api.get(

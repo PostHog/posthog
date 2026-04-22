@@ -61,7 +61,6 @@ jobs:
             migrations: ${{ steps.filter.outputs.migrations || 'true' }}
             migrations_files: ${{ steps.filter.outputs.migrations_files }}
             tasks_temporal: ${{ steps.filter.outputs.tasks_temporal || 'true' }}
-            llm_gateway: ${{ steps.filter.outputs.llm_gateway || 'true' }}
             openapi_types: ${{ steps.filter.outputs.openapi_types || 'true' }}
             legacy: ${{ steps.filter.outputs.legacy || 'true' }}
         steps:
@@ -106,7 +105,6 @@ jobs:
                         - bin/check_uv_python_compatibility.py
                         - bin/find_python_dependencies.py
                         - bin/granian_metrics.py
-                        - bin/ty.py
                         - bin/unit_metrics.py
                         - pyproject.toml
                         - uv.lock
@@ -153,7 +151,6 @@ jobs:
                         - bin/check_uv_python_compatibility.py
                         - bin/find_python_dependencies.py
                         - bin/granian_metrics.py
-                        - bin/ty.py
                         - bin/unit_metrics.py
                         - pyproject.toml
                         - uv.lock
@@ -184,8 +181,6 @@ jobs:
                         - 'rust/bin/migrate-persons'
                       tasks_temporal:
                         - 'products/tasks/backend/temporal/**/*'
-                      llm_gateway:
-                        - 'services/llm-gateway/**/*'
                       openapi_types:
                         # Generated OpenAPI types - validate they match schema
                         - 'frontend/src/generated/**/*'
@@ -461,8 +456,13 @@ jobs:
         needs: [changes]
         if: needs.changes.outputs.backend == 'true'
         timeout-minutes: 10
-        name: Repo checks
-        runs-on: depot-ubuntu-latest
+        name: Repo checks (${{ matrix.runner }})
+        strategy:
+            fail-fast: false
+            matrix:
+                include: ${{ vars.BLACKSMITH_SHADOW_ENABLED == 'true' && fromJson('[{"runner":"depot-ubuntu-latest","is_shadow":false},{"runner":"blacksmith-2vcpu-ubuntu-2404","is_shadow":true}]') || fromJson('[{"runner":"depot-ubuntu-latest","is_shadow":false}]') }}
+        runs-on: ${{ matrix.runner }}
+        continue-on-error: ${{ matrix.is_shadow }}
         steps:
             - uses: actions/checkout@v6
 
@@ -609,10 +609,10 @@ jobs:
             - name: Get app token for OpenAPI type commits
               if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog'
               id: openapi-app-token
-              uses: getsentry/action-github-app-token@d4b5da6c5e37703f8c3b3e43abb5705b46e159cc # v3.0.0
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
               with:
-                  app_id: ${{ secrets.GH_APP_POSTHOG_TESTS_APP_ID }}
-                  private_key: ${{ secrets.GH_APP_POSTHOG_TESTS_PRIVATE_KEY }}
+                  client-id: ${{ secrets.GH_APP_POSTHOG_TESTS_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_TESTS_PRIVATE_KEY }}
 
             # Now we can consider this PR's migrations
             - name: Checkout this PR
@@ -1498,10 +1498,10 @@ jobs:
             # Use GitHub app token so Actions run after commiting updated snapshots
             - name: Get app token
               id: app-token
-              uses: getsentry/action-github-app-token@d4b5da6c5e37703f8c3b3e43abb5705b46e159cc # v3.0.0
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
               with:
-                  app_id: ${{ secrets.GH_APP_POSTHOG_TESTS_APP_ID }}
-                  private_key: ${{ secrets.GH_APP_POSTHOG_TESTS_PRIVATE_KEY }}
+                  client-id: ${{ secrets.GH_APP_POSTHOG_TESTS_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_TESTS_PRIVATE_KEY }}
 
             - name: Checkout
               uses: actions/checkout@v6
@@ -1609,12 +1609,13 @@ jobs:
                   echo "All checks passed."
 
     async-migrations:
-        name: Async migrations tests -  ${{ matrix.clickhouse-server-image }}
+        name: Async migrations tests -  ${{ matrix.clickhouse-server-image }} (${{ matrix.runner }})
         needs: [changes, turbo-discover, get_clickhouse_versions]
         strategy:
             fail-fast: false
             matrix:
                 clickhouse-server-image: ${{ fromJson(needs.get_clickhouse_versions.outputs.oldest_supported) }}
+                runner: ${{ vars.BLACKSMITH_SHADOW_ENABLED == 'true' && fromJson('["depot-ubuntu-latest","blacksmith-2vcpu-ubuntu-2404"]') || fromJson('["depot-ubuntu-latest"]') }}
         # Run if legacy code changed, product changes affect legacy, or turbo-discover failed
         if: |
             always() &&
@@ -1622,7 +1623,8 @@ jobs:
             (needs.changes.outputs.legacy == 'true' ||
              needs.turbo-discover.outputs.run_legacy == 'true' ||
              (needs.turbo-discover.result != 'success' && needs.turbo-discover.result != 'skipped'))
-        runs-on: depot-ubuntu-latest
+        runs-on: ${{ matrix.runner }}
+        continue-on-error: ${{ startsWith(matrix.runner, 'blacksmith') }}
         timeout-minutes: 30
         steps:
             - name: 'Checkout repo'
@@ -1709,7 +1711,7 @@ jobs:
 
             - name: Upload test results
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
-              if: always()
+              if: always() && !startsWith(matrix.runner, 'blacksmith')
               with:
                   name: junit-results-async-migrations
                   path: junit.xml
@@ -1745,44 +1747,3 @@ jobs:
                   github-token: ${{ secrets.GITHUB_TOKEN }}
                   status-job: 'Django Tests Pass'
                   runner: 'depot'
-
-    llm-gateway:
-        name: LLM Gateway Tests
-        needs: changes
-        if: needs.changes.outputs.llm_gateway == 'true'
-        runs-on: ubuntu-latest
-        timeout-minutes: 10
-        defaults:
-            run:
-                working-directory: services/llm-gateway
-
-        steps:
-            - uses: actions/checkout@v6
-
-            - name: Set up Python
-              uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
-              with:
-                  python-version: '3.12'
-
-            - name: Install uv
-              uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b # v7.3.0
-              with:
-                  version: '0.10.2' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
-
-            - name: Install dependencies
-              run: uv sync --frozen --dev
-
-            - name: Run tests
-              env:
-                  OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-                  ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-                  OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
-                  FIREWORKS_API_KEY: ${{ secrets.FIREWORKS_API_KEY }}
-              run: uv run pytest tests/ -v --tb=short --junitxml=junit.xml
-
-            - name: Upload test results
-              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
-              if: always()
-              with:
-                  name: junit-results-llm-gateway
-                  path: junit.xml
