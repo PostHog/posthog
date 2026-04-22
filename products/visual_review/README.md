@@ -27,6 +27,8 @@ No sync problems, no "baseline service went down", no mystery diffs from someone
 
 **Supersession** — when a new run is created for the same (repo, branch, run_type), older runs get a `superseded_by` pointer. This prevents approving stale runs without GitHub API polling — the DB knows what's current.
 
+**Quarantine** — a repo-level policy that marks specific snapshot identifiers as known-flaky. Quarantined snapshots are still captured, classified, and diffed (for metrics), but excluded from gating so they don't block PRs. Each quarantine entry includes a reason, optional expiry date, and is scoped to a run type. Multiple quarantine/unquarantine events for the same identifier create an audit trail — the active quarantine is the latest unexpired row. Quarantine state is evaluated at `finalize_run()` (clean runs) and `approve_run()` (reviewed runs), then frozen on `RunSnapshot.is_quarantined`.
+
 ## The flow
 
 ### Single-command flow (`vr submit`)
@@ -123,6 +125,8 @@ Working end to end: CI upload → async diff → GitHub Check → web review →
 - Frontend error toast swallows structured error codes (`sha_mismatch`, `stale_run`) instead of showing tailored messages
 
 These are correctness gaps, not architecture problems. The core model is sound.
+
+The quarantine feature lets developers mark flaky identifiers as known issues. Quarantined snapshots don't block PRs but are still captured for metrics — useful for animations, timestamps, or font hinting variance that produce non-deterministic pixels across CI runs.
 
 **Not yet built:**
 
