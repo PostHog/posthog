@@ -870,11 +870,12 @@ class FeatureFlagSerializer(
             assert isinstance(self.instance, FeatureFlag)
             return self.instance.filters
 
+        filters.setdefault("groups", [])
+
         # Only validate empty groups for new flag creation (POST), not updates (PUT/PATCH)
         # Existing flags may legitimately have empty groups temporarily during scheduled changes
         if self.context["request"].method == "POST":
-            groups = filters.get("groups", [])
-            if not groups:
+            if not filters["groups"]:
                 raise serializers.ValidationError("Feature flags must have at least one condition set (group).")
 
         flag_level_aggregation = filters.get("aggregation_group_type_index", None)

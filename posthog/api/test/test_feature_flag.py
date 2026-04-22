@@ -1421,9 +1421,9 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                             },
                             {
                                 "type": "FeatureFlag",
-                                "action": "created",
+                                "action": "changed",
                                 "field": "filters",
-                                "before": None,
+                                "before": {"groups": []},
                                 "after": {
                                     "groups": [
                                         {
@@ -2169,9 +2169,9 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                             },
                             {
                                 "type": "FeatureFlag",
-                                "action": "created",
+                                "action": "changed",
                                 "field": "filters",
-                                "before": None,
+                                "before": {"groups": []},
                                 "after": {
                                     "groups": [
                                         {
@@ -2572,9 +2572,9 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                         "changes": [
                             {
                                 "type": "FeatureFlag",
-                                "action": "created",
+                                "action": "changed",
                                 "field": "filters",
-                                "before": None,
+                                "before": {"groups": []},
                                 "after": {
                                     "groups": [
                                         {
@@ -2693,9 +2693,9 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                         "changes": [
                             {
                                 "type": "FeatureFlag",
-                                "action": "created",
+                                "action": "changed",
                                 "field": "filters",
-                                "before": None,
+                                "before": {"groups": []},
                                 "after": {
                                     "groups": [
                                         {
@@ -5555,6 +5555,16 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 "attr": "filters",
             },
         )
+
+    def test_create_without_filters_persists_groups_invariant(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            {"name": "No filters flag", "key": "no-filters-flag"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        instance = FeatureFlag.objects.get(id=response.json()["id"])
+        self.assertEqual(instance.filters, {"groups": []})
 
     def test_validation_groups_with_empty_properties_allowed(self):
         """Test that creating a flag with groups having empty properties but valid rollout is allowed"""
