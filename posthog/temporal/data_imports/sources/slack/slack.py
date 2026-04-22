@@ -4,13 +4,13 @@ from typing import Any, Optional
 
 import requests
 import structlog
-from dlt.sources.helpers.requests import Request, Response
-from dlt.sources.helpers.rest_client.auth import BearerTokenAuth
-from dlt.sources.helpers.rest_client.paginators import BasePaginator
+from requests import Request, Response
 from tenacity import RetryCallState, retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SortMode, SourceResponse
-from posthog.temporal.data_imports.sources.common.rest_source import RESTAPIConfig, rest_api_resources
+from posthog.temporal.data_imports.sources.common.rest_source import RESTAPIConfig, rest_api_resource
+from posthog.temporal.data_imports.sources.common.rest_source.auth import BearerTokenAuth
+from posthog.temporal.data_imports.sources.common.rest_source.paginators import BasePaginator
 from posthog.temporal.data_imports.sources.common.rest_source.typing import EndpointResource
 from posthog.temporal.data_imports.sources.slack.settings import ENDPOINTS, messages_endpoint_config
 
@@ -77,7 +77,6 @@ def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResou
         return {
             "name": "$channels",
             "table_name": "$channels",
-            "primary_key": "id",
             "write_disposition": "replace",
             "endpoint": {
                 "data_selector": "channels",
@@ -95,7 +94,6 @@ def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResou
         return {
             "name": "$users",
             "table_name": "$users",
-            "primary_key": "id",
             "write_disposition": "replace",
             "endpoint": {
                 "data_selector": "members",
@@ -268,15 +266,12 @@ def slack_source(
                 "paginator": SlackCursorPaginator(),
             },
             "resource_defaults": {
-                "primary_key": "id",
                 "write_disposition": "replace",
             },
             "resources": [get_resource(endpoint, should_use_incremental_field)],
         }
 
-        resources = rest_api_resources(config, team_id, job_id, None)
-        assert len(resources) == 1
-        resource = resources[0]
+        resource = rest_api_resource(config, team_id, job_id, None)
         items = lambda: resource
     else:
         # Per-channel message endpoint

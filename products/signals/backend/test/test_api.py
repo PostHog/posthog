@@ -20,23 +20,20 @@ def team_stub() -> MagicMock:
     return team
 
 
-SESSION_SEGMENT_CLUSTER_EXTRA = {
-    "label_title": "Frustrated users on checkout",
-    "actionable": True,
-    "segments": [
-        {
-            "session_id": "abc-123",
-            "start_time": "2025-01-01T00:00:00Z",
-            "end_time": "2025-01-01T00:05:00Z",
-            "distinct_id": "user-1",
-            "content": "User clicked around and rage-clicked the submit button",
-        }
+SESSION_PROBLEM_EXTRA = {
+    "session_id": "abc-123",
+    "segment_title": "Checkout flow failure",
+    "start_time": "00:30",
+    "end_time": "02:15",
+    "problem_type": "confusion",
+    "distinct_id": "user-1",
+    "session_start_time": "2025-01-01T00:00:00Z",
+    "session_end_time": "2025-01-01T00:05:00Z",
+    "event_history": [
+        {"event": "$pageview", "timestamp": "00:30", "current_url": "https://app.example.com/checkout"},
+        {"event": "$autocapture", "timestamp": "00:45", "event_type": "click", "interaction_text": "Submit order"},
+        {"event": "$exception", "timestamp": "01:02"},
     ],
-    "metrics": {
-        "relevant_user_count": 42,
-        "active_users_in_period": 1000,
-        "occurrence_count": 7,
-    },
 }
 
 EVALUATION_EXTRA = {
@@ -69,12 +66,12 @@ class TestEmitSignalValidation:
     @pytest.mark.parametrize(
         "source_product, source_type, extra",
         [
-            ("session_replay", "session_segment_cluster", SESSION_SEGMENT_CLUSTER_EXTRA),
+            ("session_replay", "session_problem", SESSION_PROBLEM_EXTRA),
             ("llm_analytics", "evaluation", EVALUATION_EXTRA),
             ("zendesk", "ticket", ZENDESK_TICKET_EXTRA),
             ("github", "issue", GITHUB_ISSUE_EXTRA),
         ],
-        ids=["session_segment_cluster", "evaluation", "ticket", "issue"],
+        ids=["session_problem", "evaluation", "ticket", "issue"],
     )
     async def test_emit_signal_accepts_valid_input(self, source_product, source_type, extra, team_stub):
         client = AsyncMock()

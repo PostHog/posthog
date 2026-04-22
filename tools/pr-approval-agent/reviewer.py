@@ -21,8 +21,8 @@ try:
 
     import posthoganalytics
 
-    posthoganalytics.api_key = os.environ.get("POSTHOG_API_KEY", "")
-    posthoganalytics.host = os.environ.get("POSTHOG_HOST", "https://us.i.posthog.com")
+    posthoganalytics.api_key = os.environ.get("POSTHOG_API_KEY", "")  # ty: ignore[invalid-assignment]
+    posthoganalytics.host = os.environ.get("POSTHOG_HOST", "https://us.i.posthog.com")  # ty: ignore[invalid-assignment]
 
     if posthoganalytics.api_key:
         from posthoganalytics.ai.claude_agent_sdk import query  # type: ignore[no-redef]  # noqa: F811
