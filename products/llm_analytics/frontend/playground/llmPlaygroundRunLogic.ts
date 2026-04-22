@@ -71,6 +71,19 @@ export function appendToolCallChunk(state: AggregatedToolCall[], toolCall: ToolC
     return updated
 }
 
+export function describeError(err: unknown, fallbackMessage: string): { message: string; status?: number } {
+    if (err instanceof ApiError) {
+        const dataError = typeof err.data?.error === 'string' ? err.data.error : null
+        return {
+            message: dataError || err.detail || err.message || fallbackMessage,
+            status: err.status,
+        }
+    }
+    return {
+        message: (err instanceof Error && err.message) || fallbackMessage,
+    }
+}
+
 function formatToolCalls(toolCalls: AggregatedToolCall[]): string {
     if (toolCalls.length === 0) {
         return ''
@@ -405,18 +418,16 @@ export const llmPlaygroundRunLogic = kea<llmPlaygroundRunLogicType>([
                                     upsertLiveItem()
                                     return
                                 }
-                                const isApiError = err instanceof ApiError
-                                const errorLabel = isApiError ? 'Error' : 'Stream Connection Error'
-                                const errorMessage =
-                                    (isApiError && (err.data?.error || err.detail)) || err.message || 'Unknown error'
-                                responseText += `\n\n**${errorLabel}:** ${errorMessage}`
+                                const { message, status } = describeError(err, 'Unknown error')
+                                const errorLabel = err instanceof ApiError ? 'Error' : 'Stream Connection Error'
+                                responseText += `\n\n**${errorLabel}:** ${message}`
                                 responseHasError = true
                                 upsertLiveItem()
                                 posthog.captureException(err, {
                                     tag: 'llma-playground-prompt-run',
                                     model: prompt.model,
                                     provider: selectedModelProvider,
-                                    status: isApiError ? err.status : undefined,
+                                    status,
                                 })
                             },
                         })
@@ -432,19 +443,15 @@ export const llmPlaygroundRunLogic = kea<llmPlaygroundRunLogicType>([
                             actions.setSubscriptionRequired(true)
                             responseHasError = true
                         } else {
-                            const isApiError = error instanceof ApiError
-                            const errorMessage =
-                                (isApiError && (error.data?.error || error.detail)) ||
-                                (error instanceof Error && error.message) ||
-                                'Failed to initiate prompt submission.'
-                            responseText += `\n\n**Error:** ${errorMessage}`
+                            const { message, status } = describeError(error, 'Failed to initiate prompt submission.')
+                            responseText += `\n\n**Error:** ${message}`
                             responseHasError = true
-                            lemonToast.error(errorMessage)
+                            lemonToast.error(message)
                             posthog.captureException(error, {
                                 tag: 'llma-playground-prompt-submit',
                                 model: prompt.model,
                                 provider: selectedModelProvider,
-                                status: isApiError ? error.status : undefined,
+                                status,
                             })
                         }
                         upsertLiveItem()
