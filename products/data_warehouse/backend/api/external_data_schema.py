@@ -251,7 +251,7 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
                     )
 
             if "incremental_field" in data:
-                payload["incremental_field"] = data.get("incremental_field")
+                payload["incremental_field"] = incremental_field
             if "incremental_field_type" in data:
                 payload["incremental_field_type"] = data.get("incremental_field_type")
 
