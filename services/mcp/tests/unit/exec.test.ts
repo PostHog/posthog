@@ -110,6 +110,7 @@ describe('exec tool', () => {
                 content: { type: string; text: string }[]
                 structuredContent: { id: number; name: string; _analytics: { distinctId: string; toolName: string } }
                 _meta: { ui: { resourceUri: string }; [key: string]: unknown }
+                __execBuiltPayload?: true
             }
 
             // Text content still includes the TOON-formatted result for model context
@@ -126,6 +127,10 @@ describe('exec tool', () => {
             // compatibility with older MCP clients.
             expect(result._meta.ui.resourceUri).toBe('ui://posthog/mock-app.html')
             expect(result._meta['ui/resourceUri']).toBe('ui://posthog/mock-app.html')
+            // The nominal brand is what `MCP.registerTool` uses to pass the payload
+            // through unchanged; without it the outer wrapper would re-run
+            // buildToolResultPayload and object-rest-destructure the content.
+            expect(result.__execBuiltPayload).toBe(true)
         })
 
         it.each([[undefined], ['cline'], ['claude-code'], ['slack'], ['posthog_code']])(

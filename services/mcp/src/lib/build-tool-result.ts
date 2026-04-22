@@ -32,39 +32,39 @@ export interface BuildToolResultOptions {
     includeUiResponseMeta?: boolean
 }
 
+/**
+ * Nominal brand stamped on payloads assembled by the exec wrapper. Detection
+ * is a field check rather than structural matching so regular tool handlers
+ * that happen to return a `{content:[{type:'text',…}]}` shape can never
+ * accidentally short-circuit the `buildToolResultPayload` pipeline.
+ */
+export const EXEC_BUILT_PAYLOAD = '__execBuiltPayload' as const
+
 export interface ToolResultPayload {
     content: Array<{ type: 'text'; text: string }>
     structuredContent?: Record<string, unknown>
     _meta?: Record<string, unknown>
+    [EXEC_BUILT_PAYLOAD]?: true
 }
 
 /**
- * Detects a value that is already a `CallToolResult`-shaped payload so callers
- * can short-circuit additional wrapping. Used by the per-tool registration path
- * in `MCP.registerTool` to pass through payloads that the exec wrapper has
- * already assembled (exec already runs `buildToolResultPayload` for its inner
- * tool — re-running it here would object-rest-destructure the text content).
+ * Detects a payload already assembled by the exec wrapper so `MCP.registerTool`
+ * can pass it through unchanged — re-running `buildToolResultPayload` would
+ * object-rest-destructure its `content` / `structuredContent` fields.
  *
- * We deliberately require `_meta` or `structuredContent` to be present: the
- * bare `{content:[{type:'text',…}]}` shape is also returned by plain handlers
- * (e.g. `setActive` in projects/organizations, `searchDocs`), and those still
- * need to flow through `buildToolResultPayload` so UI/coding-agent suppression
- * runs. Only exec-built payloads carry `_meta` / `structuredContent`.
+ * We require the exec brand (rather than detecting by shape) so future tool
+ * handlers can't accidentally match and skip the pipeline (coding-agent
+ * suppression, analytics injection, UI-resourceUri normalization, etc.).
  */
 export function isToolCallPayload(value: unknown): value is ToolResultPayload {
-    if (typeof value !== 'object' || value === null) {
-        return false
-    }
-    const content = (value as { content?: unknown }).content
-    if (!Array.isArray(content) || content.length === 0) {
-        return false
-    }
-    const first = content[0] as { type?: unknown } | null | undefined
-    if (typeof first !== 'object' || first === null || first.type !== 'text') {
-        return false
-    }
-    const record = value as Record<string, unknown>
-    return '_meta' in record || 'structuredContent' in record
+    return (
+        typeof value === 'object' && value !== null && (value as Record<string, unknown>)[EXEC_BUILT_PAYLOAD] === true
+    )
+}
+
+/** Stamp a payload as exec-built so `isToolCallPayload` recognizes it. */
+export function markExecPayload(payload: ToolResultPayload): ToolResultPayload {
+    return { ...payload, [EXEC_BUILT_PAYLOAD]: true }
 }
 
 /**

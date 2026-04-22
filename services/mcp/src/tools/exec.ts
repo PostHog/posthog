@@ -1,6 +1,6 @@
 import { z } from 'zod'
 
-import { buildToolResultPayload } from '@/lib/build-tool-result'
+import { markExecPayload, buildToolResultPayload } from '@/lib/build-tool-result'
 import { isPostHogCodeConsumer } from '@/lib/client-detection'
 import { formatResponse } from '@/lib/response'
 
@@ -181,18 +181,20 @@ export function createExecTool(
                     if (tool._meta?.ui?.resourceUri && isPostHogCodeConsumer(mcpConsumer)) {
                         const isStringResult = typeof result === 'string'
                         const distinctId = isStringResult ? undefined : await context.getDistinctId()
-                        return buildToolResultPayload({
-                            handlerResult: result,
-                            toolMeta: tool._meta,
-                            toolName: tool.name,
-                            params: forceJson ? { ...input, output_format: 'json' } : input,
-                            // Consumer is the UI-apps host; keep `structuredContent` for the UI.
-                            // Passing `undefined` bypasses the coding-agent suppression in
-                            // `buildToolResultPayload` because this path explicitly wants it.
-                            clientName: undefined,
-                            distinctId,
-                            includeUiResponseMeta: true,
-                        })
+                        return markExecPayload(
+                            buildToolResultPayload({
+                                handlerResult: result,
+                                toolMeta: tool._meta,
+                                toolName: tool.name,
+                                params: forceJson ? { ...input, output_format: 'json' } : input,
+                                // Consumer is the UI-apps host; keep `structuredContent` for the UI.
+                                // Passing `undefined` bypasses the coding-agent suppression in
+                                // `buildToolResultPayload` because this path explicitly wants it.
+                                clientName: undefined,
+                                distinctId,
+                                includeUiResponseMeta: true,
+                            })
+                        )
                     }
 
                     const useJson = forceJson || tool._meta?.[POSTHOG_META_KEY]?.outputFormat === 'json'
