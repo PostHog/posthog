@@ -4,11 +4,15 @@ import { PersonRepository } from '../../worker/ingestion/persons/repositories/pe
 import { PersonHogConfig } from '../config'
 import { PersonHogClient, parseRolloutTeamIds } from './client'
 import { PersonHogGroupRepository } from './personhog-group-repository'
+import { PersonHogOnlyGroupRepository } from './personhog-only-group-repository'
+import { PersonHogOnlyPersonRepository } from './personhog-only-person-repository'
 import { PersonHogPersonRepository } from './personhog-person-repository'
 
 export { PersonHogClient } from './client'
 export type { PersonHogClientConfig } from './client'
 export { PersonHogGroupRepository } from './personhog-group-repository'
+export { PersonHogOnlyGroupRepository } from './personhog-only-group-repository'
+export { PersonHogOnlyPersonRepository } from './personhog-only-person-repository'
 export { PersonHogPersonRepository } from './personhog-person-repository'
 
 export function createPersonHogClient(config: PersonHogConfig): PersonHogClient | null {
@@ -81,4 +85,14 @@ export function buildPersonRepository(
         )
     }
     return postgresPersonRepository
+}
+
+export function buildPersonHogOnlyPersonRepository(grpcClient: PersonHogClient, clientLabel: string): PersonRepository {
+    logger.info('🔌', `PersonHog gRPC-only (persons) — no Postgres fallback`)
+    return new PersonHogOnlyPersonRepository(grpcClient, clientLabel)
+}
+
+export function buildPersonHogOnlyGroupRepository(grpcClient: PersonHogClient, clientLabel: string): GroupRepository {
+    logger.info('🔌', `PersonHog gRPC-only (groups) — no Postgres fallback`)
+    return new PersonHogOnlyGroupRepository(grpcClient, clientLabel)
 }
