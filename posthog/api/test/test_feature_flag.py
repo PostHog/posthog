@@ -8236,7 +8236,17 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                     "variant": None,
                     "reason": {"code": "condition_match", "condition_index": 0},
                     "metadata": {"payload": None},
-                    "conditions": [{"key": "email", "operator": "exact", "value": ["test@example.com"]}],
+                    "conditions": [
+                        {
+                            "index": 0,
+                            "matched": True,
+                            "explanation": "Condition matched",
+                            "rollout_percentage": 100.0,
+                            "rollout_excluded": False,
+                            "variant": None,
+                            "properties": [],
+                        }
+                    ],
                 }
             }
         }
@@ -8393,7 +8403,17 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                     "variant": None,
                     "reason": {"code": "condition_match"},
                     "metadata": {},
-                    "conditions": [],
+                    "conditions": [
+                        {
+                            "index": 0,
+                            "matched": True,
+                            "explanation": "Condition matched",
+                            "rollout_percentage": 100.0,
+                            "rollout_excluded": False,
+                            "variant": None,
+                            "properties": [],
+                        }
+                    ],
                 }
             }
         }
