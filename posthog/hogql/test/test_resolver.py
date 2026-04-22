@@ -1877,3 +1877,8 @@ class TestResolver(BaseTest):
         expr = self._select(query)
         with self.assertRaisesRegex(QueryError, "Cannot access property.*renaming the alias"):
             resolve_types(expr, self.context, dialect="clickhouse")
+
+    def test_missing_field_on_aliased_subquery_raises_query_error(self):
+        expr = self._select("WITH v AS (SELECT 1 AS a) SELECT v.seedbox_package FROM v")
+        with self.assertRaisesRegex(QueryError, "Field 'seedbox_package' not found on 'v'"):
+            resolve_types(expr, self.context, dialect="clickhouse")

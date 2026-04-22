@@ -1717,6 +1717,8 @@ class Resolver(CloningVisitor):
                     f"Cannot access property '{next_chain}' on '{'.'.join(resolved_chain)}'. "
                     f"This can happen when a column alias shadows a table field. Try renaming the alias."
                 )
+            except ResolutionError:
+                raise QueryError(f"Field '{next_chain}' not found on '{'.'.join(resolved_chain)}'")
             resolved_chain.append(str(next_chain))
             # Note: get_child currently always raises rather than returning None,
             # but this guard is kept for safety in case that contract changes.
