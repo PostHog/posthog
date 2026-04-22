@@ -161,7 +161,7 @@ export const SyncMethodForm = ({
         )
         setIncrementalFieldValue(schema.incremental_field ?? null)
         setAppendFieldValue(schema.incremental_field ?? null)
-        setPrimaryKeyColumns(schema.primary_key_columns ?? schema.detected_primary_keys ?? [])
+        setPrimaryKeyColumns(schema.primary_key_columns ?? resolvedDetectedPks ?? [])
     }, [schema.table]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     const radioOptions: {
