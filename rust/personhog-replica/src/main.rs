@@ -158,8 +158,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // (TCP on 50051) can't pass until after this completes.
     if config.min_pg_connections > 0 {
         let warmup_count = config.min_pg_connections as usize;
-        let server_warmup_count =
-            (config.warmup_server_connections as usize).min(warmup_count);
+        let server_warmup_count = (config.warmup_server_connections as usize).min(warmup_count);
         tracing::info!(
             count = warmup_count,
             server_warmup = server_warmup_count,
