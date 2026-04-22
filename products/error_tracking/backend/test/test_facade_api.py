@@ -3,6 +3,7 @@ from datetime import timedelta
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
+from django.test import override_settings
 from django.utils.timezone import now
 
 from parameterized import parameterized
@@ -137,6 +138,12 @@ class TestErrorTrackingFacadeAPI(BaseTest):
             ("jira", {"key": "ET-9"}, "https://posthog.atlassian.net/browse/ET-9"),
         ]
     )
+    @override_settings(
+        LINEAR_APP_CLIENT_ID="test-linear-id",
+        LINEAR_APP_CLIENT_SECRET="test-linear-secret",
+        ATLASSIAN_APP_CLIENT_ID="test-atlassian-id",
+        ATLASSIAN_APP_CLIENT_SECRET="test-atlassian-secret",
+    )
     def test_create_external_reference_persists_when_integration_returns_required_keys(
         self, kind: str, external_context: dict, expected_url: str
     ):
@@ -144,12 +151,14 @@ class TestErrorTrackingFacadeAPI(BaseTest):
         integration = Integration.objects.create(
             team=self.team,
             kind=kind,
+            integration_id="display-name",
             config={
-                "data": {"viewer": {"organization": {"urlKey": "ph"}}},  # linear
+                "data": {"viewer": {"organization": {"urlKey": "ph", "name": "PostHog"}}},  # linear
                 "path_with_namespace": "posthog/posthog",  # gitlab
                 "hostname": "https://gitlab.com",  # gitlab
                 "site_url": "https://posthog.atlassian.net",  # jira
-                "account": {"name": "posthog-org"},  # github org fallback
+                "site_name": "PostHog",  # jira display_name
+                "account": {"name": "posthog-org"},  # github org + display_name
             },
         )
 
@@ -213,7 +222,13 @@ class TestErrorTrackingFacadeAPI(BaseTest):
         # Simulates a pre-existing orphaned row from before validation was added —
         # the row must still serialize so the UI can list it without raising a 400.
         issue = self._create_issue(team=self.team, name="Orphaned reference")
-        integration = Integration.objects.create(team=self.team, kind="linear", config={})
+        # github works here without oauth-config env vars being set, so we avoid needing
+        # `@override_settings` for the display_name property path.
+        integration = Integration.objects.create(
+            team=self.team,
+            kind="github",
+            config={"account": {"name": "posthog-org"}},
+        )
         ErrorTrackingExternalReference.objects.create(
             issue=issue,
             integration=integration,
