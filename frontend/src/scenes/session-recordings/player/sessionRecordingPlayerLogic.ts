@@ -4,6 +4,7 @@ import {
     afterMount,
     beforeUnmount,
     connect,
+    isBreakpoint,
     kea,
     key,
     listeners,
@@ -1668,16 +1669,34 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
 
             actions.setWasMarkedViewed(true) // this prevents us from calling the function multiple times
 
-            await breakpoint(IS_TEST_MODE ? 1 : (delay ?? 3000))
-            await api.recordings.update(props.sessionRecordingId, {
-                viewed: true,
-                player_metadata: values.sessionPlayerMetaData,
-            })
-            await breakpoint(IS_TEST_MODE ? 1 : 10000)
-            await api.recordings.update(props.sessionRecordingId, {
-                analyzed: true,
-                player_metadata: values.sessionPlayerMetaData,
-            })
+            try {
+                await breakpoint(IS_TEST_MODE ? 1 : (delay ?? 3000))
+                await api.recordings.update(props.sessionRecordingId, {
+                    viewed: true,
+                    player_metadata: values.sessionPlayerMetaData,
+                })
+                await breakpoint(IS_TEST_MODE ? 1 : 10000)
+                await api.recordings.update(props.sessionRecordingId, {
+                    analyzed: true,
+                    player_metadata: values.sessionPlayerMetaData,
+                })
+            } catch (e: unknown) {
+                // Let kea breakpoint cancellations propagate so later listeners short-circuit.
+                if (isBreakpoint(e)) {
+                    throw e
+                }
+                // `markViewed` is a best-effort side effect — the recording still plays and the
+                // flags are re-sent on the next view. Network-level errors (tab close, offline,
+                // ad-blocker cancelling the request) surface as TypeError/AbortError and are
+                // benign noise; only report unexpected errors.
+                const isNetworkError =
+                    e instanceof TypeError ||
+                    (e instanceof DOMException && e.name === 'AbortError') ||
+                    (e as { name?: string } | null)?.name === 'AbortError'
+                if (!isNetworkError) {
+                    posthog.captureException(e, { feature: 'session-recording-mark-viewed' })
+                }
+            }
         },
         setPause: () => {
             actions.stopAnimation()
