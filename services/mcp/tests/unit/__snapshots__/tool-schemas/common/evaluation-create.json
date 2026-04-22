@@ -58,8 +58,8 @@
                             "type": "string"
                         },
                         "provider": {
-                            "description": "* `openai` - Openai\n* `anthropic` - Anthropic\n* `gemini` - Gemini\n* `openrouter` - Openrouter\n* `fireworks` - Fireworks",
-                            "enum": ["openai", "anthropic", "gemini", "openrouter", "fireworks"],
+                            "description": "* `openai` - Openai\n* `anthropic` - Anthropic\n* `gemini` - Gemini\n* `openrouter` - Openrouter\n* `fireworks` - Fireworks\n* `azure_openai` - Azure OpenAI",
+                            "enum": ["openai", "anthropic", "gemini", "openrouter", "fireworks", "azure_openai"],
                             "type": "string"
                         },
                         "provider_key_id": {
