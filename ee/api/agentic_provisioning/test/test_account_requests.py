@@ -174,7 +174,7 @@ class TestAccountRequests(StripeProvisioningTestBase):
             "/api/agentic/provisioning/account_requests",
             data=payload,
             content_type="application/json",
-            headers={"api-version": "0.1d"}
+            headers={"api-version": "0.1d"},
         )
         assert res.status_code == 401
 

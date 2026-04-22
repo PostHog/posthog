@@ -24,7 +24,7 @@ class TestProvisioningHealth(StripeProvisioningTestBase):
     def test_invalid_signature_returns_401(self):
         res = self.client.get(
             "/api/agentic/provisioning/health",
-            headers={"stripe-signature": f"t={int(time.time())},v1={'00' * 32}", "api-version": "0.1d"}
+            headers={"stripe-signature": f"t={int(time.time())},v1={'00' * 32}", "api-version": "0.1d"},
         )
         assert res.status_code == 401
 
@@ -36,8 +36,7 @@ class TestProvisioningHealth(StripeProvisioningTestBase):
     def test_wrong_api_version_returns_400(self):
         sig = self._sign_body(b"")
         res = self.client.get(
-            "/api/agentic/provisioning/health",
-            headers={"stripe-signature": sig, "api-version": "1.0"}
+            "/api/agentic/provisioning/health", headers={"stripe-signature": sig, "api-version": "1.0"}
         )
         assert res.status_code == 400
 
@@ -46,7 +45,7 @@ class TestProvisioningHealth(StripeProvisioningTestBase):
         sig = compute_signature(HMAC_SECRET, old_ts, b"")
         res = self.client.get(
             "/api/agentic/provisioning/health",
-            headers={"stripe-signature": f"t={old_ts},v1={sig}", "api-version": "0.1d"}
+            headers={"stripe-signature": f"t={old_ts},v1={sig}", "api-version": "0.1d"},
         )
         assert res.status_code == 401
 

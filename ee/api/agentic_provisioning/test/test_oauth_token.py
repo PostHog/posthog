@@ -36,7 +36,7 @@ class TestOAuthTokenExchange(StripeProvisioningTestBase):
             "/api/agentic/oauth/token",
             data=body,
             content_type="application/x-www-form-urlencoded",
-            headers={"stripe-signature": f"t={ts},v1={sig}", "api-version": "0.1d"}
+            headers={"stripe-signature": f"t={ts},v1={sig}", "api-version": "0.1d"},
         )
 
     def test_valid_code_exchange_returns_tokens(self):
@@ -123,6 +123,6 @@ class TestOAuthTokenExchange(StripeProvisioningTestBase):
             "/api/agentic/oauth/token",
             data=body,
             content_type="application/x-www-form-urlencoded",
-            headers={"api-version": "0.1d"}
+            headers={"api-version": "0.1d"},
         )
         assert res.status_code == 401

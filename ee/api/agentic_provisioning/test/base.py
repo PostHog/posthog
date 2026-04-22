@@ -137,6 +137,6 @@ class StripeProvisioningTestBase(APIBaseTest):
             "/api/agentic/oauth/token",
             data=body,
             content_type="application/x-www-form-urlencoded",
-            headers={"stripe-signature": f"t={ts},v1={sig}", "api-version": "0.1d"}
+            headers={"stripe-signature": f"t={ts},v1={sig}", "api-version": "0.1d"},
         )
         return res.json()["access_token"]
