@@ -34,6 +34,8 @@ from posthog.models.subscription import Subscription, SubscriptionDelivery, unsu
 from posthog.permissions import PremiumFeaturePermission
 from posthog.rate_limit import SubscriptionTestDeliveryThrottle
 from posthog.security.url_validation import is_url_allowed
+from posthog.slo.context import SloSpec, slo_operation
+from posthog.slo.types import SloArea, SloOperation
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.subscriptions.types import ProcessSubscriptionWorkflowInputs, SubscriptionTriggerType
 from posthog.utils import str_to_bool
@@ -265,30 +267,16 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         if dashboard_export_insight_ids:
             instance.dashboard_export_insights.set(dashboard_export_insight_ids)
 
-        temporal = sync_connect()
-        workflow_id = f"handle-subscription-value-change-{instance.id}-{uuid.uuid4()}"
-        asyncio.run(
-            temporal.start_workflow(
-                "handle-subscription-value-change",
-                ProcessSubscriptionWorkflowInputs(
-                    subscription_id=instance.id,
-                    team_id=instance.team_id,
-                    distinct_id=str(instance.created_by.distinct_id) if instance.created_by else str(instance.team_id),
-                    previous_value="",
-                    invite_message=invite_message,
-                    trigger_type=SubscriptionTriggerType.TARGET_CHANGE,
-                ),
-                id=workflow_id,
-                task_queue=settings.ANALYTICS_PLATFORM_TASK_QUEUE,
-            )
-        )
-
-        posthoganalytics.capture(
-            distinct_id=str(request.user.distinct_id),
-            event="subscription_created",
+        with slo_operation(
+            spec=SloSpec(
+                distinct_id=str(request.user.distinct_id),
+                area=SloArea.ANALYTIC_PLATFORM,
+                operation=SloOperation.SUBSCRIPTION_CREATE,
+                team_id=instance.team_id,
+                resource_id=str(instance.id),
+            ),
             properties={
                 "subscription_id": instance.id,
-                "team_id": instance.team_id,
                 "target_type": instance.target_type,
                 "frequency": instance.frequency,
                 "interval": instance.interval,
@@ -302,8 +290,26 @@ class SubscriptionSerializer(serializers.ModelSerializer):
                 "has_until_date": instance.until_date is not None,
                 "has_invite_message": bool(invite_message),
             },
-            groups=groups(None, instance.team),
-        )
+        ):
+            temporal = sync_connect()
+            workflow_id = f"handle-subscription-value-change-{instance.id}-{uuid.uuid4()}"
+            asyncio.run(
+                temporal.start_workflow(
+                    "handle-subscription-value-change",
+                    ProcessSubscriptionWorkflowInputs(
+                        subscription_id=instance.id,
+                        team_id=instance.team_id,
+                        distinct_id=str(instance.created_by.distinct_id)
+                        if instance.created_by
+                        else str(instance.team_id),
+                        previous_value="",
+                        invite_message=invite_message,
+                        trigger_type=SubscriptionTriggerType.TARGET_CHANGE,
+                    ),
+                    id=workflow_id,
+                    task_queue=settings.ANALYTICS_PLATFORM_TASK_QUEUE,
+                )
+            )
 
         return instance
 
