@@ -13,6 +13,12 @@ import { BehavioralEventType, CohortType, FilterLogicalOperator, PropertyFilterT
 import { phantomFingerprintIssueStateLogic } from '../../logics/phantomFingerprintIssueStateLogic'
 import type { issueActionsLogicType } from './issueActionsLogicType'
 
+// Phantom state only exists when the issues list or issue detail is mounted.
+// No-ops elsewhere so we don't force-mount it from every issue action.
+const phantomActions = ():
+    | NonNullable<ReturnType<typeof phantomFingerprintIssueStateLogic.findMounted>>['asyncActions']
+    | undefined => phantomFingerprintIssueStateLogic.findMounted()?.asyncActions
+
 export const issueActionsLogic = kea<issueActionsLogicType>([
     path(['products', 'error_tracking', 'components', 'IssueActions', 'issueActionsLogic']),
 
@@ -61,8 +67,6 @@ export const issueActionsLogic = kea<issueActionsLogicType>([
             try {
                 await cb()
                 if (onSuccess) {
-                    // Populate the phantom fingerprint state cache BEFORE mutationSuccess
-                    // so the blocking reload it triggers already carries phantoms.
                     await onSuccess()
                 }
                 actions.mutationSuccess(mutationName)
@@ -80,10 +84,7 @@ export const issueActionsLogic = kea<issueActionsLogicType>([
                             posthog.capture('error_tracking_issue_merged', { primary: firstId })
                             await api.errorTracking.mergeInto(firstId, otherIds)
                         },
-                        async () =>
-                            phantomFingerprintIssueStateLogic
-                                .findMounted()
-                                ?.asyncActions.captureMergePhantoms(firstId, otherIds)
+                        async () => phantomActions()?.captureMergePhantoms(firstId, otherIds)
                     )
                 }
             },
@@ -101,10 +102,7 @@ export const issueActionsLogic = kea<issueActionsLogicType>([
                         posthog.capture('error_tracking_issue_bulk_resolve')
                         await api.errorTracking.bulkMarkStatus(ids, 'resolved')
                     },
-                    async () =>
-                        phantomFingerprintIssueStateLogic
-                            .findMounted()
-                            ?.asyncActions.capturePhantomsForIssues(ids, { status: 'resolved' })
+                    async () => phantomActions()?.capturePhantomsForIssues(ids, { status: 'resolved' })
                 )
 
                 globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.ResolveFirstError)
@@ -116,10 +114,7 @@ export const issueActionsLogic = kea<issueActionsLogicType>([
                         posthog.capture('error_tracking_issue_bulk_suppress')
                         await api.errorTracking.bulkMarkStatus(ids, 'suppressed')
                     },
-                    async () =>
-                        phantomFingerprintIssueStateLogic
-                            .findMounted()
-                            ?.asyncActions.capturePhantomsForIssues(ids, { status: 'suppressed' })
+                    async () => phantomActions()?.capturePhantomsForIssues(ids, { status: 'suppressed' })
                 )
             },
             activateIssues: async ({ ids }) => {
@@ -129,10 +124,7 @@ export const issueActionsLogic = kea<issueActionsLogicType>([
                         posthog.capture('error_tracking_issue_bulk_activate')
                         await api.errorTracking.bulkMarkStatus(ids, 'active')
                     },
-                    async () =>
-                        phantomFingerprintIssueStateLogic
-                            .findMounted()
-                            ?.asyncActions.capturePhantomsForIssues(ids, { status: 'active' })
+                    async () => phantomActions()?.capturePhantomsForIssues(ids, { status: 'active' })
                 )
             },
             assignIssues: async ({ ids, assignee }) => {
@@ -142,10 +134,7 @@ export const issueActionsLogic = kea<issueActionsLogicType>([
                         posthog.capture('error_tracking_issue_bulk_assign')
                         await api.errorTracking.bulkAssign(ids, assignee)
                     },
-                    async () =>
-                        phantomFingerprintIssueStateLogic
-                            .findMounted()
-                            ?.asyncActions.capturePhantomsForIssues(ids, { assignee })
+                    async () => phantomActions()?.capturePhantomsForIssues(ids, { assignee })
                 )
             },
             updateIssueAssignee: async ({ id, assignee }) => {
@@ -155,10 +144,7 @@ export const issueActionsLogic = kea<issueActionsLogicType>([
                         posthog.capture('error_tracking_issue_update_assignee')
                         await api.errorTracking.assignIssue(id, assignee)
                     },
-                    async () =>
-                        phantomFingerprintIssueStateLogic
-                            .findMounted()
-                            ?.asyncActions.capturePhantomsForIssues([id], { assignee })
+                    async () => phantomActions()?.capturePhantomsForIssues([id], { assignee })
                 )
             },
             updateIssueStatus: async ({ id, status }) => {
@@ -168,10 +154,7 @@ export const issueActionsLogic = kea<issueActionsLogicType>([
                         posthog.capture('error_tracking_issue_update_status')
                         await api.errorTracking.updateIssue(id, { status })
                     },
-                    async () =>
-                        phantomFingerprintIssueStateLogic
-                            .findMounted()
-                            ?.asyncActions.capturePhantomsForIssues([id], { status })
+                    async () => phantomActions()?.capturePhantomsForIssues([id], { status })
                 )
             },
             updateIssueName: async ({ id, name }) => {
@@ -181,10 +164,7 @@ export const issueActionsLogic = kea<issueActionsLogicType>([
                         posthog.capture('error_tracking_issue_update_name')
                         await api.errorTracking.updateIssue(id, { name })
                     },
-                    async () =>
-                        phantomFingerprintIssueStateLogic
-                            .findMounted()
-                            ?.asyncActions.capturePhantomsForIssues([id], { name })
+                    async () => phantomActions()?.capturePhantomsForIssues([id], { name })
                 )
             },
             updateIssueDescription: async ({ id, description }) => {
@@ -194,10 +174,7 @@ export const issueActionsLogic = kea<issueActionsLogicType>([
                         posthog.capture('error_tracking_issue_update_description')
                         await api.errorTracking.updateIssue(id, { description })
                     },
-                    async () =>
-                        phantomFingerprintIssueStateLogic
-                            .findMounted()
-                            ?.asyncActions.capturePhantomsForIssues([id], { description })
+                    async () => phantomActions()?.capturePhantomsForIssues([id], { description })
                 )
             },
             createIssueCohort: async ({ id, name, description }) => {

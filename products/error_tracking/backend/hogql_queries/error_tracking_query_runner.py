@@ -80,7 +80,6 @@ class ErrorTrackingQueryRunner(AnalyticsQueryRunner[ErrorTrackingQueryResponse])
         ctx = HogQLContext(team_id=self.team.pk, team=self.team, user=self.user, enable_select_queries=True)
         raw = self.query.phantomFingerprintIssueStates or []
         if raw:
-            # Build a per-request database and attach phantoms to the fingerprint_issue_state join_table.
             database = Database.create_for(
                 team=self.team, user=self.user, modifiers=self.modifiers, timings=self.timings
             )

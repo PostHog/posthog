@@ -66,7 +66,7 @@ class TestPhantomUnionBuilder(BaseTest):
             requested_fields={"issue_id": ["issue_id"]},
         )
         assert isinstance(select.select_from, ast.JoinExpr)
-        # No phantoms → the wrapper UNION isn't built; scan the raw table directly.
+        # No phantoms - the wrapper UNION isn't built; scan the raw table directly.
         assert isinstance(select.select_from.table, ast.Field)
         self.assertEqual(select.select_from.table.chain, [RAW_TABLE_NAME])
 
@@ -76,7 +76,7 @@ class TestPhantomUnionBuilder(BaseTest):
             phantoms=[self._sanitized_row()],
         )
         assert isinstance(select.select_from, ast.JoinExpr)
-        # With phantoms → the scan targets the UNION ALL wrapper aliased as the raw table.
+        # With phantoms - the scan targets the UNION ALL wrapper aliased as the raw table.
         assert isinstance(select.select_from.table, ast.SelectSetQuery)
         self.assertEqual(select.select_from.alias, RAW_TABLE_NAME)
 
