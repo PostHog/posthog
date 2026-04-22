@@ -798,6 +798,19 @@ class MCPOAuthRedirectViewSet(viewsets.ViewSet):
                 posthog_code_callback_url=posthog_code_callback_url,
             )
 
+        if server is None:
+            logger.warning(
+                "OAuth redirect: oauth state missing server reference",
+                server_url=installation.url,
+                install_source=install_source,
+            )
+            return self._build_oauth_redirect(
+                install_source,
+                installation,
+                error="invalid_state",
+                posthog_code_callback_url=posthog_code_callback_url,
+            )
+
         try:
             self._exchange_and_store_tokens(installation, server, code, oauth_state.pkce_verifier)
         except OAuthTokenExchangeError:
@@ -858,8 +871,9 @@ class MCPOAuthRedirectViewSet(viewsets.ViewSet):
         token_hash = _hash_oauth_state_token(state_token)
         now = timezone.now()
         with transaction.atomic():
+            # Lock only the oauth_state row to avoid issues with nullable joins in select_related.
             oauth_state = (
-                MCPOAuthState.objects.select_for_update()
+                MCPOAuthState.objects.select_for_update(of=("self",))
                 .select_related("installation", "server")
                 .filter(token_hash=token_hash, consumed_at__isnull=True, created_by=request.user)
                 .first()
