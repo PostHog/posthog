@@ -36,8 +36,8 @@ const mockContext = {
     getDistinctId: async () => 'test-distinct-id',
 } as unknown as Context
 
-function createExec(tools: Tool<ZodObjectAny>[] = [makeMockTool()]): Tool<any> {
-    return createExecTool(tools, mockContext, 'test description', 'test command reference')
+function createExec(tools: Tool<ZodObjectAny>[] = [makeMockTool()], mcpConsumer?: string): Tool<any> {
+    return createExecTool(tools, mockContext, 'test description', 'test command reference', mcpConsumer)
 }
 
 describe('exec tool', () => {
@@ -101,11 +101,11 @@ describe('exec tool', () => {
             expect(result).toContain('tag:')
         })
 
-        it('propagates _meta.ui.resourceUri and structuredContent when the inner tool has a UI app', async () => {
+        it('propagates _meta.ui.resourceUri and structuredContent when the inner tool has a UI app and consumer is posthog_agent', async () => {
             const tool = makeMockTool({
                 _meta: { ui: { resourceUri: 'ui://posthog/mock-app.html' } },
             })
-            const exec = createExec([tool])
+            const exec = createExec([tool], 'posthog_agent')
             const result = (await exec.handler(mockContext, { command: 'call mock-tool {}' })) as {
                 content: { type: string; text: string }[]
                 structuredContent: { id: number; name: string; _analytics: { distinctId: string; toolName: string } }
@@ -127,6 +127,18 @@ describe('exec tool', () => {
             expect(result._meta.ui.resourceUri).toBe('ui://posthog/mock-app.html')
             expect(result._meta['ui/resourceUri']).toBe('ui://posthog/mock-app.html')
         })
+
+        it.each([[undefined], ['cline'], ['claude-code'], ['posthog-agent']])(
+            'returns plain text (no UI payload) when consumer is %s even if the inner tool has a UI app',
+            async (consumer) => {
+                const tool = makeMockTool({
+                    _meta: { ui: { resourceUri: 'ui://posthog/mock-app.html' } },
+                })
+                const exec = createExec([tool], consumer)
+                const result = await exec.handler(mockContext, { command: 'call mock-tool {}' })
+                expect(typeof result).toBe('string')
+            }
+        )
 
         it('does not attach UI meta or structuredContent for tools without a UI app', async () => {
             const exec = createExec()
@@ -170,7 +182,7 @@ describe('exec tool', () => {
                 category: getToolDefinition(t.name, 2).category,
             }))
             const commandReference = buildInstructionsV2(CLI_PROXY_COMMAND, guidelines, undefined, undefined, toolInfos)
-            const execTool = createExecTool(v2Tools, context, CLI_PROXY_TOOL, commandReference)
+            const execTool = createExecTool(v2Tools, context, CLI_PROXY_TOOL, commandReference, undefined)
 
             expect(execTool.description.length).toBeLessThanOrEqual(2048)
         })
@@ -191,7 +203,7 @@ describe('exec tool', () => {
                 category: getToolDefinition(t.name, 2).category,
             }))
             const commandReference = buildInstructionsV2(CLI_PROXY_COMMAND, guidelines, undefined, undefined, toolInfos)
-            const execTool = createExecTool(v2Tools, context, CLI_PROXY_TOOL, commandReference)
+            const execTool = createExecTool(v2Tools, context, CLI_PROXY_TOOL, commandReference, undefined)
 
             const snapshot = {
                 name: execTool.name,

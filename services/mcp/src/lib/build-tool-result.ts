@@ -44,6 +44,12 @@ export interface ToolResultPayload {
  * in `MCP.registerTool` to pass through payloads that the exec wrapper has
  * already assembled (exec already runs `buildToolResultPayload` for its inner
  * tool — re-running it here would object-rest-destructure the text content).
+ *
+ * We deliberately require `_meta` or `structuredContent` to be present: the
+ * bare `{content:[{type:'text',…}]}` shape is also returned by plain handlers
+ * (e.g. `setActive` in projects/organizations, `searchDocs`), and those still
+ * need to flow through `buildToolResultPayload` so UI/coding-agent suppression
+ * runs. Only exec-built payloads carry `_meta` / `structuredContent`.
  */
 export function isToolCallPayload(value: unknown): value is ToolResultPayload {
     if (typeof value !== 'object' || value === null) {
@@ -54,7 +60,11 @@ export function isToolCallPayload(value: unknown): value is ToolResultPayload {
         return false
     }
     const first = content[0] as { type?: unknown } | null | undefined
-    return typeof first === 'object' && first !== null && first.type === 'text'
+    if (typeof first !== 'object' || first === null || first.type !== 'text') {
+        return false
+    }
+    const record = value as Record<string, unknown>
+    return '_meta' in record || 'structuredContent' in record
 }
 
 /**

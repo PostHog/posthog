@@ -540,7 +540,13 @@ export class MCP extends McpAgent<Env> {
             }))
             const commandReference = buildInstructionsV2(CLI_PROXY_COMMAND, guidelines, groupTypes, metadata, toolInfos)
 
-            const execTool = createExecTool(allTools, context, CLI_PROXY_TOOL, commandReference)
+            const execTool = createExecTool(
+                allTools,
+                context,
+                CLI_PROXY_TOOL,
+                commandReference,
+                this.requestProperties.mcpConsumer
+            )
             const typedExecTool = execTool as Tool<z.ZodObject>
             this.registerTool(typedExecTool, async (params) => typedExecTool.handler(context, params))
         } else {
