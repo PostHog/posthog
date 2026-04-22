@@ -181,7 +181,7 @@ def teams_oauth_callback(request: HttpRequest) -> HttpResponse:
     # IP throttle in front of any Azure AD token exchange — otherwise a stranger
     # can loop a valid `state` param and force us to make outbound POSTs.
     throttle = TeamsOAuthCallbackThrottle()
-    if not throttle.allow_request(Request(request), view=None):
+    if not throttle.allow_request(Request(request), view=None):  # type: ignore[arg-type]
         return JsonResponse({"error": "Too Many Requests"}, status=429)
 
     request_user = getattr(request, "user", None)

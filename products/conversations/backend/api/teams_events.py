@@ -123,7 +123,7 @@ def teams_event_handler(request: HttpRequest) -> HttpResponse:
     # on a request with a bogus token is an expensive signing-key lookup, so we
     # cap total request volume before it reaches that code.
     throttle = TeamsEventWebhookThrottle()
-    if not throttle.allow_request(DRFRequest(request), view=None):
+    if not throttle.allow_request(DRFRequest(request), view=None):  # type: ignore[arg-type]
         return HttpResponse(status=429)
 
     try:
