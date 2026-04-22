@@ -135,16 +135,24 @@ jobs:
               run: pnpm exec oxlint --quiet
 
             - name: Lint changed files with strict Oxlint rules
+              # Scoped to frontend/ and products/ because those are the areas that use
+              # kea for state management. Stories and MCP apps are excluded — they run
+              # standalone and legitimately need useState.
               if: github.event_name == 'pull_request'
               env:
                   BASE_SHA: ${{ github.event.pull_request.base.sha }}
                   HEAD_SHA: ${{ github.event.pull_request.head.sha }}
               run: |
-                  mapfile -t CHANGED < <(git diff --name-only --diff-filter=ACMRT "$BASE_SHA...$HEAD_SHA" -- '*.ts' '*.tsx' '*.js' '*.jsx' '*.mjs')
+                  mapfile -t CHANGED < <(
+                      git diff --name-only --diff-filter=ACMRT "$BASE_SHA...$HEAD_SHA" -- 'frontend/' 'products/' \
+                      | grep -E '\.(ts|tsx|js|jsx|mjs)$' \
+                      | grep -vE '\.stories\.tsx$|^products/[^/]+/mcp/apps/' \
+                      || true
+                  )
                   if [ ${#CHANGED[@]} -gt 0 ]; then
                       pnpm exec oxlint --quiet --config .oxlintrc.strict.json "${CHANGED[@]}"
                   else
-                      echo "No changed JS/TS files to lint with strict rules."
+                      echo "No changed frontend/products files to lint with strict rules."
                   fi
 
             - name: Check markdown formatting with oxfmt
