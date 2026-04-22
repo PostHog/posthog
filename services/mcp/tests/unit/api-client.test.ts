@@ -86,7 +86,7 @@ describe('ApiClient', () => {
         const client = new ApiClient({
             apiToken: 'test-token-123',
             baseUrl: 'https://example.com',
-            mcpConsumer: 'posthog_code',
+            mcpConsumer: 'posthog-code',
             mcpClientName: 'claude-code',
         })
 
@@ -101,7 +101,7 @@ describe('ApiClient', () => {
         expect(options.headers).toEqual({
             Authorization: 'Bearer test-token-123',
             'Content-Type': 'application/json',
-            'User-Agent': `posthog_code/claude-code ${USER_AGENT}`,
+            'User-Agent': `posthog-code/claude-code ${USER_AGENT}`,
             'X-PostHog-Client': 'mcp',
             'x-posthog-mcp-client-name': 'claude-code',
         })

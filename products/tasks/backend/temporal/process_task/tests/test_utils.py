@@ -19,7 +19,7 @@ class TestGetSandboxMcpConfigs(TestCase):
     TOKEN = "phx_test_token"
     PROJECT_ID = 42
 
-    def _expected_headers(self, *, read_only: bool = True, consumer: str = "posthog_code") -> list[dict[str, str]]:
+    def _expected_headers(self, *, read_only: bool = True, consumer: str = "posthog-code") -> list[dict[str, str]]:
         return [
             {"name": "Authorization", "value": f"Bearer {self.TOKEN}"},
             {"name": "x-posthog-project-id", "value": str(self.PROJECT_ID)},
@@ -129,10 +129,10 @@ class TestGetSandboxMcpConfigs(TestCase):
 
     @parameterized.expand(
         [
-            (None, "posthog_code"),
-            ("", "posthog_code"),
-            ("posthog_code", "posthog_code"),
-            ("some-other-origin", "posthog_code"),
+            (None, "posthog-code"),
+            ("", "posthog-code"),
+            ("posthog-code", "posthog-code"),
+            ("some-other-origin", "posthog-code"),
             ("slack", "slack"),
         ]
     )

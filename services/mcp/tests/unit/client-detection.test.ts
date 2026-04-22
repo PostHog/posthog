@@ -93,10 +93,10 @@ describe('isCodingAgentClient', () => {
 describe('isPostHogCodeConsumer', () => {
     it('matches the exact PostHog Code consumer value', () => {
         expect(isPostHogCodeConsumer(POSTHOG_CODE_CONSUMER)).toBe(true)
-        expect(isPostHogCodeConsumer('posthog_code')).toBe(true)
+        expect(isPostHogCodeConsumer('posthog-code')).toBe(true)
     })
 
-    it.each([['posthog-code'], ['PostHog_Code'], ['posthog_code_v2'], ['posthog'], ['slack'], ['']])(
+    it.each([['posthog_code'], ['PostHog-Code'], ['posthog-code-v2'], ['posthog'], ['slack'], ['']])(
         'returns false for %s (must be exact match)',
         (consumer) => {
             expect(isPostHogCodeConsumer(consumer)).toBe(false)

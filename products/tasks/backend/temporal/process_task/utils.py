@@ -261,12 +261,12 @@ def _resolve_mcp_consumer(interaction_origin: str | None) -> str:
 
     Slack-launched runs send `"slack"`; everything else (the PostHog Code UI,
     API callers, missing origin) is treated as PostHog Code. The MCP server
-    gates UI-apps payloads on the literal `"posthog_code"` — keep in sync with
+    gates UI-apps payloads on the literal `"posthog-code"` — keep in sync with
     `POSTHOG_CODE_CONSUMER` in `services/mcp/src/lib/client-detection.ts`.
     """
     if interaction_origin == "slack":
         return "slack"
-    return "posthog_code"
+    return "posthog-code"
 
 
 def get_sandbox_ph_mcp_configs(
