@@ -43,10 +43,6 @@ export interface InsightMenuOptions {
     dataActiveCount: number
 }
 
-function ifShow<T>(condition: boolean | undefined, ...items: T[]): T[] {
-    return condition ? items : []
-}
-
 /**
  * Builds Display and Data menu items for the trends/stickiness/lifecycle/trendsFunnel
  * insight family. Returns empty arrays for all other insight types.
@@ -112,7 +108,7 @@ export function useTrendsOptions(): InsightMenuOptions {
 
     // --- Display items ---
     const boxPlotDisplayItems: LemonMenuItems = [
-        ...ifShow(hasLegend, { label: () => <ShowLegendFilter /> }),
+        ...(hasLegend ? [{ label: () => <ShowLegendFilter /> }] : []),
         {
             label: () => (
                 <LemonCheckbox
@@ -141,16 +137,18 @@ export function useTrendsOptions(): InsightMenuOptions {
     ]
 
     const regularDisplayItems: LemonMenuItems = [
-        ...ifShow(isLifecycle, { label: () => <LifecycleStackingFilter /> }),
-        ...ifShow(supportsValueOnSeries, { label: () => <ValueOnSeriesFilter /> }),
-        ...ifShow(supportsPercentStackView, { label: () => <PercentStackViewFilter /> }),
-        ...ifShow(hasLegend, { label: () => <ShowLegendFilter /> }),
-        ...ifShow(display === ChartDisplayType.ActionsPie, { label: () => <ShowPieTotalFilter /> }),
-        ...ifShow(showAlertThresholdLinesConfig, { label: () => <ShowAlertThresholdLinesFilter /> }),
-        ...ifShow(showAlertThresholdLinesConfig, { label: () => <ShowAlertAnomalyPointsFilter /> }),
-        ...ifShow(showMultipleYAxesConfig, { label: () => <ShowMultipleYAxesFilter /> }),
-        ...ifShow((isTrends || isTrendsFunnel) && !isNonTimeSeriesDisplay, { label: () => <ShowTrendLinesFilter /> }),
-        ...ifShow(isTrends && !isNonTimeSeriesDisplay && hideWeekendsEnabled, { label: () => <HideWeekendsFilter /> }),
+        ...(isLifecycle ? [{ label: () => <LifecycleStackingFilter /> }] : []),
+        ...(supportsValueOnSeries ? [{ label: () => <ValueOnSeriesFilter /> }] : []),
+        ...(supportsPercentStackView ? [{ label: () => <PercentStackViewFilter /> }] : []),
+        ...(hasLegend ? [{ label: () => <ShowLegendFilter /> }] : []),
+        ...(display === ChartDisplayType.ActionsPie ? [{ label: () => <ShowPieTotalFilter /> }] : []),
+        ...(showAlertThresholdLinesConfig ? [{ label: () => <ShowAlertThresholdLinesFilter /> }] : []),
+        ...(showAlertThresholdLinesConfig ? [{ label: () => <ShowAlertAnomalyPointsFilter /> }] : []),
+        ...(showMultipleYAxesConfig ? [{ label: () => <ShowMultipleYAxesFilter /> }] : []),
+        ...((isTrends || isTrendsFunnel) && !isNonTimeSeriesDisplay ? [{ label: () => <ShowTrendLinesFilter /> }] : []),
+        ...(isTrends && !isNonTimeSeriesDisplay && hideWeekendsEnabled
+            ? [{ label: () => <HideWeekendsFilter /> }]
+            : []),
     ]
 
     const displayItems: LemonMenuItems = [
@@ -191,7 +189,7 @@ export function useTrendsOptions(): InsightMenuOptions {
                 />
             ),
         },
-        ...ifShow(showConfidenceIntervals, { label: () => <ConfidenceLevelInput /> }),
+        ...(showConfidenceIntervals ? [{ label: () => <ConfidenceLevelInput /> }] : []),
         {
             label: () => (
                 <LemonSwitch
@@ -217,57 +215,64 @@ export function useTrendsOptions(): InsightMenuOptions {
                 />
             ),
         },
-        ...ifShow(showMovingAverage, { label: () => <MovingAverageIntervalsInput /> }),
+        ...(showMovingAverage ? [{ label: () => <MovingAverageIntervalsInput /> }] : []),
     ]
 
     // --- Data items ---
     const dataItems: LemonMenuItems = [
-        ...ifShow(showCompare, {
-            title: 'Compare',
-            items: [
-                {
-                    label: () => (
-                        <div className="mx-2 mb-2.5">
-                            <CompareFilter
-                                compareFilter={compareFilter}
-                                updateCompareFilter={updateCompareFilter}
-                                disabled={!canEditInsight || !supportsCompare}
-                                disableReason={editingDisabledReason}
-                                fullWidth
-                            />
-                        </div>
-                    ),
-                },
-            ],
-        }),
-        ...ifShow(showSmoothing, {
-            title: 'Smoothing',
-            items: [
-                {
-                    label: () => (
-                        <div className="mx-2 mb-2.5">
-                            <SmoothingFilter fullWidth />
-                        </div>
-                    ),
-                },
-            ],
-        }),
-        ...ifShow(!showPercentStackView && isTrends && display !== ChartDisplayType.CalendarHeatmap, {
-            title: axisLabel(display || ChartDisplayType.ActionsLineGraph),
-            items: [{ label: () => <UnitPicker /> }],
-        }),
-        ...ifShow(showTimeSeriesDataOptions, {
-            title: 'Y-axis scale',
-            items: [{ label: () => <ScalePicker /> }],
-        }),
-        ...ifShow(showTimeSeriesDataOptions && !isBoxPlot, {
-            title: 'Statistical analysis',
-            items: statisticalAnalysisItems,
-        }),
-        ...ifShow(mightContainFractionalNumbers && isTrends && display !== ChartDisplayType.CalendarHeatmap, {
-            title: 'Decimal places',
-            items: [{ label: () => <DecimalPrecisionInput /> }],
-        }),
+        ...(showCompare
+            ? [
+                  {
+                      title: 'Compare',
+                      items: [
+                          {
+                              label: () => (
+                                  <div className="mx-2 mb-2.5">
+                                      <CompareFilter
+                                          compareFilter={compareFilter}
+                                          updateCompareFilter={updateCompareFilter}
+                                          disabled={!canEditInsight || !supportsCompare}
+                                          disableReason={editingDisabledReason}
+                                          fullWidth
+                                      />
+                                  </div>
+                              ),
+                          },
+                      ],
+                  },
+              ]
+            : []),
+        ...(showSmoothing
+            ? [
+                  {
+                      title: 'Smoothing',
+                      items: [
+                          {
+                              label: () => (
+                                  <div className="mx-2 mb-2.5">
+                                      <SmoothingFilter fullWidth />
+                                  </div>
+                              ),
+                          },
+                      ],
+                  },
+              ]
+            : []),
+        ...(!showPercentStackView && isTrends && display !== ChartDisplayType.CalendarHeatmap
+            ? [
+                  {
+                      title: axisLabel(display || ChartDisplayType.ActionsLineGraph),
+                      items: [{ label: () => <UnitPicker /> }],
+                  },
+              ]
+            : []),
+        ...(showTimeSeriesDataOptions ? [{ title: 'Y-axis scale', items: [{ label: () => <ScalePicker /> }] }] : []),
+        ...(showTimeSeriesDataOptions && !isBoxPlot
+            ? [{ title: 'Statistical analysis', items: statisticalAnalysisItems }]
+            : []),
+        ...(mightContainFractionalNumbers && isTrends && display !== ChartDisplayType.CalendarHeatmap
+            ? [{ title: 'Decimal places', items: [{ label: () => <DecimalPrecisionInput /> }] }]
+            : []),
     ]
 
     // --- Active-option badge counts ---

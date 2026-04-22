@@ -25,10 +25,6 @@ import { useTrendsOptions } from 'scenes/trends/useTrendsOptions'
 
 import { hasBreakdownFilter } from '~/queries/utils'
 
-function ifShow<T>(condition: boolean | undefined, ...items: T[]): T[] {
-    return condition ? items : []
-}
-
 export function InsightDisplayConfig(): JSX.Element {
     const { insightProps, editingDisabledReason } = useValues(insightLogic)
     const {
@@ -62,37 +58,41 @@ export function InsightDisplayConfig(): JSX.Element {
 
     // Retention has a small Display section (trend lines only) and one Data section.
     // TODO: extract to useRetentionOptions once other insight types are also extracted.
-    const retentionDisplayItems: LemonMenuItems = [
-        ...ifShow(isRetention && !isNonTimeSeriesDisplay, { label: () => <ShowTrendLinesFilter /> }),
-    ]
-    const retentionDataItems: LemonMenuItems = [
-        ...ifShow(isRetention, {
-            title: 'On dashboards',
-            items: [{ label: () => <RetentionDashboardDisplayPicker /> }],
-        }),
-    ]
+    const retentionDisplayItems: LemonMenuItems =
+        isRetention && !isNonTimeSeriesDisplay ? [{ label: () => <ShowTrendLinesFilter /> }] : []
+    const retentionDataItems: LemonMenuItems = isRetention
+        ? [{ title: 'On dashboards', items: [{ label: () => <RetentionDashboardDisplayPicker /> }] }]
+        : []
 
     const displayOptions: LemonMenuItems = [
         ...trendsDisplayItems,
-        ...ifShow(retentionDisplayItems.length > 0, {
-            title: (
-                <h5 className="mx-2 my-1" data-attr="options-display-section">
-                    Display
-                </h5>
-            ),
-            items: retentionDisplayItems,
-        }),
-        ...ifShow(supportsResultCustomizationBy, {
-            title: (
-                <h5 className="mx-2 my-1">
-                    Color customization by{' '}
-                    <Tooltip title="You can customize the appearance of individual results in your insights. This can be done based on the result's name (e.g., customize the breakdown value 'pizza' for the first series) or based on the result's rank (e.g., customize the first dataset in the results).">
-                        <IconInfo className="relative top-0.5 text-lg text-secondary" />
-                    </Tooltip>
-                </h5>
-            ),
-            items: [{ label: () => <ResultCustomizationByPicker /> }],
-        }),
+        ...(retentionDisplayItems.length > 0
+            ? [
+                  {
+                      title: (
+                          <h5 className="mx-2 my-1" data-attr="options-display-section">
+                              Display
+                          </h5>
+                      ),
+                      items: retentionDisplayItems,
+                  },
+              ]
+            : []),
+        ...(supportsResultCustomizationBy
+            ? [
+                  {
+                      title: (
+                          <h5 className="mx-2 my-1">
+                              Color customization by{' '}
+                              <Tooltip title="You can customize the appearance of individual results in your insights. This can be done based on the result's name (e.g., customize the breakdown value 'pizza' for the first series) or based on the result's rank (e.g., customize the first dataset in the results).">
+                                  <IconInfo className="relative top-0.5 text-lg text-secondary" />
+                              </Tooltip>
+                          </h5>
+                      ),
+                      items: [{ label: () => <ResultCustomizationByPicker /> }],
+                  },
+              ]
+            : []),
     ]
 
     const dataOptions: LemonMenuItems = [...trendsDataItems, ...retentionDataItems]
