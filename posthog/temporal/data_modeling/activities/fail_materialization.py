@@ -48,7 +48,8 @@ def should_pause_schedule_for_timeout(saved_query_id: UUID, current_job_id: UUID
     for job in previous_jobs:
         if job.status != DataModelingJobStatus.FAILED:
             return False
-        if not job.error or "Timeout exceeded" not in job.error:
+        if not job.error or ("Timeout exceeded" not in job.error and "exceeded timeout" not in job.error.lower()):
+            return False
             return False
 
     return True
