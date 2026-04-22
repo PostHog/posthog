@@ -3,8 +3,10 @@ from unittest.mock import patch
 
 from parameterized import parameterized
 from rest_framework import status
+from rest_framework.test import APIRequestFactory
 
 from ...models.skills import LLMSkill, LLMSkillFile
+from ..skills import LLMSkillViewSet
 
 
 @patch("products.llm_analytics.backend.api.skills.posthoganalytics.feature_enabled", return_value=True)
@@ -661,6 +663,25 @@ class TestLLMSkillAPI(APIBaseTest):
 
         # The URL resolver won't match ".." after normalization — either 400 or 404 is acceptable.
         assert response.status_code in {status.HTTP_400_BAD_REQUEST, status.HTTP_404_NOT_FOUND}
+
+    def test_delete_file_requires_write_scope(self, mock_feature_enabled):
+        # delete_file is registered via @get_file.mapping.delete, which would otherwise
+        # inherit get_file's llm_skill:read scope. Verify DELETE requires llm_skill:write.
+        request = APIRequestFactory().delete("/api/environments/1/llm_skills/name/x/files/a.md")
+        view = LLMSkillViewSet()
+        view.action = "delete_file"
+        assert view.dangerously_get_required_scopes(request, view) == ["llm_skill:write"]
+
+        view.action = "get_file"
+        assert view.dangerously_get_required_scopes(request, view) == ["llm_skill:write"]
+
+    def test_get_file_uses_read_scope(self, mock_feature_enabled):
+        request = APIRequestFactory().get("/api/environments/1/llm_skills/name/x/files/a.md")
+        view = LLMSkillViewSet()
+        view.action = "get_file"
+        # GET on get_file should fall through to the action's own required_scopes=['llm_skill:read']
+        # (dangerously_get_required_scopes returns None so the action decorator's scope wins).
+        assert view.dangerously_get_required_scopes(request, view) is None
 
     def test_rename_file_moves_file_and_bumps_version(self, mock_feature_enabled):
         skill = self.create_skill(name="crud-rename")

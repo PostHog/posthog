@@ -136,6 +136,10 @@ class LLMSkillViewSet(
 
         if view.action in ["get_by_name", "update_by_name"]:
             return ["llm_skill:write"] if request.method == "PATCH" else ["llm_skill:read"]
+        # delete_file shares get_file's URL via @get_file.mapping.delete and would otherwise
+        # inherit llm_skill:read. DELETE must require write scope.
+        if view.action in ["get_file", "delete_file"] and request.method == "DELETE":
+            return ["llm_skill:write"]
         return None
 
     def _ensure_web_authenticated(self, request: Request) -> Response | None:
