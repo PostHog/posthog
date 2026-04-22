@@ -243,6 +243,11 @@ export interface GitHubReposResponseApi {
     has_more: boolean
 }
 
+export interface GitHubReposRefreshResponseApi {
+    /** The refreshed repository cache. */
+    repositories: GitHubRepoApi[]
+}
+
 export type IntegrationsListParams = {
     /**
      * Number of results to return per page.
@@ -282,6 +287,10 @@ export type IntegrationsGithubBranchesRetrieveParams = {
      * @minLength 1
      */
     repo: string
+    /**
+     * Optional case-insensitive branch name search query.
+     */
+    search?: string
 }
 
 export type IntegrationsGithubReposRetrieveParams = {

@@ -125,6 +125,53 @@ def _check_alerts_sync() -> CheckAlertsOutput:
     )
 
 
+def _dispatch_notification(
+    outcome: AlertCheckOutcome,
+    alert: LogsAlertConfiguration,
+    check_result: CheckResult,
+    now: datetime,
+    stats: dict[str, int],
+    *,
+    date_from: datetime,
+    date_to: datetime,
+) -> bool:
+    """Emit the notification for this outcome. Returns True if delivery failed."""
+    action = outcome.notification
+    if action == NotificationAction.NONE:
+        return False
+
+    log = logger.bind(alert_id=str(alert.id), alert_name=alert.name, team_id=alert.team_id)
+
+    if action == NotificationAction.FIRE:
+        notified = _emit_alert_event(
+            alert, "$logs_alert_firing", check_result, now, date_from=date_from, date_to=date_to
+        )
+        if notified:
+            stats["fired"] += 1
+        log.info("Alert fired", result_count=check_result.result_count, notified=notified)
+    elif action == NotificationAction.RESOLVE:
+        notified = _emit_alert_event(
+            alert, "$logs_alert_resolved", check_result, now, date_from=date_from, date_to=date_to
+        )
+        if notified:
+            stats["resolved"] += 1
+        log.info("Alert resolved", notified=notified)
+    elif action == NotificationAction.ERROR:
+        notified = _emit_alert_errored_event(alert, outcome, now)
+        log.info("Alert entered errored state", consecutive_failures=outcome.consecutive_failures, notified=notified)
+    elif action == NotificationAction.BROKEN:
+        notified = _emit_auto_disabled_event(alert, outcome, now)
+        log.warning(
+            "Alert broken after consecutive failures",
+            consecutive_failures=outcome.consecutive_failures,
+            notified=notified,
+        )
+    else:
+        raise ValueError(f"Unhandled NotificationAction: {action!r}")
+
+    return not notified
+
+
 def _evaluate_single_alert(
     alert: LogsAlertConfiguration,
     now: datetime,
@@ -181,69 +228,9 @@ def _evaluate_single_alert(
     # Attempt Kafka delivery BEFORE committing state transition.
     # If delivery fails and we needed to notify, keep old state so the
     # next tick retries the full transition (NOT_FIRING → FIRING again).
-    notified = False
-    notification_failed = False
-    if outcome.notification == NotificationAction.FIRE:
-        notified = _emit_alert_event(
-            alert,
-            "$logs_alert_firing",
-            check_result,
-            now,
-            date_from=date_from,
-            date_to=date_to,
-        )
-        notification_failed = not notified
-        if notified:
-            stats["fired"] += 1
-        logger.info(
-            "Alert fired",
-            alert_id=str(alert.id),
-            alert_name=alert.name,
-            team_id=alert.team_id,
-            result_count=check_result.result_count,
-            notified=notified,
-        )
-    elif outcome.notification == NotificationAction.RESOLVE:
-        notified = _emit_alert_event(
-            alert,
-            "$logs_alert_resolved",
-            check_result,
-            now,
-            date_from=date_from,
-            date_to=date_to,
-        )
-        notification_failed = not notified
-        if notified:
-            stats["resolved"] += 1
-        logger.info(
-            "Alert resolved",
-            alert_id=str(alert.id),
-            alert_name=alert.name,
-            team_id=alert.team_id,
-            notified=notified,
-        )
-    elif outcome.notification == NotificationAction.ERROR:
-        notified = _emit_alert_errored_event(alert, outcome, now)
-        notification_failed = not notified
-        logger.info(
-            "Alert entered errored state",
-            alert_id=str(alert.id),
-            alert_name=alert.name,
-            team_id=alert.team_id,
-            consecutive_failures=outcome.consecutive_failures,
-            notified=notified,
-        )
-    elif outcome.notification == NotificationAction.BROKEN:
-        notified = _emit_auto_disabled_event(alert, outcome, now)
-        notification_failed = not notified
-        logger.warning(
-            "Alert broken after consecutive failures",
-            alert_id=str(alert.id),
-            alert_name=alert.name,
-            team_id=alert.team_id,
-            consecutive_failures=outcome.consecutive_failures,
-            notified=notified,
-        )
+    notification_failed = _dispatch_notification(
+        outcome, alert, check_result, now, stats, date_from=date_from, date_to=date_to
+    )
     # If the notification delivery failed, don't commit the state transition
     # so the next tick will re-evaluate and retry the notification.
     if notification_failed:
@@ -271,7 +258,11 @@ def _evaluate_single_alert(
         alert.next_check_at = advance_next_check_at(alert.next_check_at, alert.check_interval_minutes, now)
         update_fields.extend(["last_checked_at", "next_check_at", "updated_at"])
 
-        if notified and outcome.update_last_notified_at:
+        if (
+            not notification_failed
+            and outcome.notification != NotificationAction.NONE
+            and outcome.update_last_notified_at
+        ):
             alert.last_notified_at = now
             update_fields.append("last_notified_at")
 
