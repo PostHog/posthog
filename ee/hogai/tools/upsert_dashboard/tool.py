@@ -172,7 +172,8 @@ class UpsertDashboardTool(MaxTool):
         dashboard = await self._create_dashboard_with_tiles(action.name, action.description, insights)
         await self._report_dashboard_action(dashboard, "dashboard created")
         await self._report_new_insights(validated_artifacts, insights)
-        output = await self._format_dashboard_output(dashboard, insights)
+        sorted_tiles = await self._get_dashboard_sorted_tiles(dashboard)
+        output = await self._format_dashboard_output(dashboard, sorted_tiles)
 
         return output, {"dashboard_id": dashboard.id}
 
@@ -201,9 +202,8 @@ class UpsertDashboardTool(MaxTool):
 
         # Re-fetch sorted tiles to get the latest state
         sorted_tiles = await self._get_dashboard_sorted_tiles(dashboard)
-        insights = [tile.insight for tile in sorted_tiles if tile.insight is not None]
 
-        output = await self._format_dashboard_output(dashboard, insights)
+        output = await self._format_dashboard_output(dashboard, sorted_tiles)
 
         return output, {"dashboard_id": dashboard.id}
 
@@ -525,11 +525,14 @@ class UpsertDashboardTool(MaxTool):
     async def _format_dashboard_output(
         self,
         dashboard: Dashboard,
-        insights: list[Insight],
+        sorted_tiles: list[DashboardTile],
     ) -> str:
         """Format dashboard output using DashboardContext for consistency."""
         insights_data: list[DashboardInsightContext] = []
-        for insight in insights:
+        for tile in sorted_tiles:
+            insight = tile.insight
+            if insight is None:
+                continue
             query_obj = InsightContext.extract_query(insight)
             if query_obj is None:
                 continue
@@ -540,6 +543,7 @@ class UpsertDashboardTool(MaxTool):
                     description=insight.description,
                     short_id=insight.short_id,
                     db_id=insight.id,
+                    layout=tile.layouts,
                 )
             )
 
@@ -574,7 +578,12 @@ class UpsertDashboardTool(MaxTool):
         Get the sorted tiles for the given dashboard.
         """
         sorted_tiles = DashboardTile.sort_tiles_by_layout(
-            [tile async for tile in DashboardTile.objects.filter(dashboard=dashboard).select_related("insight")]
+            [
+                tile
+                async for tile in DashboardTile.objects.filter(dashboard=dashboard)
+                .select_related("insight")
+                .order_by("id")
+            ]
         )
         return sorted_tiles
 
