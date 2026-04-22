@@ -8,6 +8,11 @@ on:
     schedule:
         - cron: '38 19 * * 1'
 
+# Cancel superseded PR runs; queue master/schedule so every commit gets scanned.
+concurrency:
+    group: ${{ github.workflow }}-${{ github.ref }}
+    cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
     analyze:
         name: Analyze (${{ matrix.language }})
@@ -15,8 +20,8 @@ jobs:
         #   - https://gh.io/recommended-hardware-resources-for-running-codeql
         #   - https://gh.io/supported-runners-and-hardware-resources
         #   - https://gh.io/using-larger-runners
-        runs-on: 'ubuntu-latest'
-        timeout-minutes: 15
+        runs-on: ${{ matrix.runner }}
+        timeout-minutes: 30
         permissions:
             # required for all workflows
             security-events: write
@@ -35,14 +40,19 @@ jobs:
                 include:
                     - language: actions
                       build-mode: none
+                      runner: ubuntu-latest
                     - language: c-cpp
                       build-mode: none
+                      runner: ubuntu-latest
                     - language: go
                       build-mode: autobuild
+                      runner: ubuntu-latest
                     - language: javascript-typescript
                       build-mode: none
+                      runner: depot-ubuntu-latest-4
                     - language: python
                       build-mode: none
+                      runner: ubuntu-latest
                 # CodeQL supports the following values keywords for 'language': 'actions', 'c-cpp', 'csharp', 'go', 'java-kotlin', 'javascript-typescript', 'python', 'ruby', 'rust', 'swift'
                 # Use `c-cpp` to analyze code written in C, C++ or both
                 # Use 'java-kotlin' to analyze code written in Java, Kotlin or both
@@ -102,3 +112,5 @@ jobs:
               uses: github/codeql-action/analyze@5d4e8d1aca955e8d8589aabd499c5cae939e33c7 # v4.31.9
               with:
                   category: '/language:${{matrix.language}}'
+                  # Database bundle+upload adds ~1min; only do it weekly.
+                  upload-database: ${{ github.event_name == 'schedule' }}
