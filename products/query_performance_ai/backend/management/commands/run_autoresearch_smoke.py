@@ -28,7 +28,7 @@ from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.temporal.oauth import create_oauth_access_token_for_user
 
-from products.tasks.backend.services.sandbox import Sandbox, SandboxConfig, SandboxTemplate
+from products.tasks.backend.services.sandbox import SandboxConfig, SandboxTemplate, get_sandbox_class_for_backend
 from products.tasks.backend.temporal.process_task.activities.run_autoresearch_campaign import (
     LLM_GATEWAY_PRODUCT_SLUG,
     _harvest_artifacts,
@@ -148,8 +148,15 @@ class Command(BaseCommand):
         def write(msg: str) -> None:
             self.stdout.write(f"[+{time.monotonic() - start:6.1f}s] {msg}")
 
+        # The smoke always uses the local Docker backend — it's a dev tool,
+        # and routing through Modal would require Modal auth + push a real
+        # image. If you have a reason to override, set SANDBOX_PROVIDER=docker
+        # in your .env and the default resolver would pick it up, but this
+        # explicit call means the smoke works regardless of env.
+        sandbox_cls = get_sandbox_class_for_backend("docker")
+
         write("Provisioning sandbox…")
-        sandbox = Sandbox.create(config)
+        sandbox = sandbox_cls.create(config)
 
         try:
             write(f"Sandbox {sandbox.id} up. Cloning {repository}@{branch}…")
