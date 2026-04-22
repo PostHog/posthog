@@ -12,7 +12,7 @@ from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 TEST_HOST = "clickhouse-test.internal"
 
 
-@override_settings(CLICKHOUSE_PERF_TEST_HOST=TEST_HOST)
+@override_settings(CLICKHOUSE_TEST_CLUSTER_HOST=TEST_HOST)
 class TestQueryPerformanceProxyViewSet(APIBaseTest):
     def setUp(self):
         super().setUp()
@@ -71,7 +71,7 @@ class TestQueryPerformanceProxyViewSet(APIBaseTest):
     def test_returns_503_when_host_unset(self):
         token = self._make_token(["clickhouse_perf:test_read"])
         with (
-            override_settings(CLICKHOUSE_PERF_TEST_HOST=""),
+            override_settings(CLICKHOUSE_TEST_CLUSTER_HOST=""),
             patch("posthog.api.query_performance_proxy.sync_execute") as mocked,
         ):
             resp = self._post(

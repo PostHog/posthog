@@ -1,7 +1,7 @@
 """OAuth-gated ClickHouse proxy for query-performance autoresearch.
 
 One endpoint: ``POST /api/query_performance_proxy/execute-test/``. The cluster
-behind ``CLICKHOUSE_PERF_TEST_HOST`` must be team-scoped at the ClickHouse
+behind ``CLICKHOUSE_TEST_CLUSTER_HOST`` must be team-scoped at the ClickHouse
 level — this proxy does no team filtering of its own. Deploy it against a test
 cluster that contains only data the caller is authorized to see (today: team 2,
 "PostHog, the company"), or against a ClickHouse user whose row policies
@@ -87,9 +87,9 @@ class QueryPerformanceProxyViewSet(viewsets.ViewSet):
 
     @action(detail=False, methods=["POST"], url_path="execute-test")
     def execute_test(self, request: Request) -> Response:
-        if not settings.CLICKHOUSE_PERF_TEST_HOST:
+        if not settings.CLICKHOUSE_TEST_CLUSTER_HOST:
             return Response(
-                {"error": "CLICKHOUSE_PERF_TEST_HOST is not configured; test endpoint disabled"},
+                {"error": "CLICKHOUSE_TEST_CLUSTER_HOST is not configured; test endpoint disabled"},
                 status=status.HTTP_503_SERVICE_UNAVAILABLE,
             )
         serializer = ExecuteRequestSerializer(data=request.data)
@@ -103,7 +103,7 @@ class QueryPerformanceProxyViewSet(viewsets.ViewSet):
 def _run_autoresearch_query(sql: str) -> Response:
     """Execute the caller's SQL against the autoresearch cluster.
 
-    Builds a SyncClient pointed at ``CLICKHOUSE_PERF_TEST_HOST`` and hands
+    Builds a SyncClient pointed at ``CLICKHOUSE_TEST_CLUSTER_HOST`` and hands
     it to ``sync_execute`` so PostHog's standard query-tagging, metrics, and
     error-wrapping still apply. Credentials and TLS config come from the
     usual ``CLICKHOUSE_*`` settings for now; a follow-up will split out a
@@ -111,7 +111,7 @@ def _run_autoresearch_query(sql: str) -> Response:
     existing ``init_clickhouse_users`` mechanism.
     """
     client = SyncClient(
-        host=settings.CLICKHOUSE_PERF_TEST_HOST,
+        host=settings.CLICKHOUSE_TEST_CLUSTER_HOST,
         database=settings.CLICKHOUSE_DATABASE,
         user=settings.CLICKHOUSE_USER,
         password=settings.CLICKHOUSE_PASSWORD,
