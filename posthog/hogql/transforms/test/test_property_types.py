@@ -249,6 +249,22 @@ class TestJSONExtractToMaterializedColumn(ClickhouseTestMixin, BaseTest):
             assert "mat_$browser" in printed, f"Expected mat_$browser in output, got: {printed}"
             assert "JSONExtractString" not in printed, f"Expected no JSONExtractString, got: {printed}"
 
+    def test_jsonextractstring_rewritten_for_person_table_properties(self):
+        with materialized("person", "$email"):
+            printed = self._print_select("select JSONExtractString(properties, '$email') from raw_persons")
+            assert "mat_$email" in printed, f"Expected mat_$email in output, got: {printed}"
+            assert "JSONExtractString(person.properties" not in printed, printed
+            assert "JSONExtractString(raw_persons.properties" not in printed, printed
+
+    def test_jsonextractstring_rewrites_all_calls_in_same_query(self):
+        with materialized("events", "$browser"), materialized("events", "$os"):
+            printed = self._print_select(
+                "select JSONExtractString(properties, '$browser'), JSONExtractString(properties, '$os') from events"
+            )
+            assert "mat_$browser" in printed, printed
+            assert "mat_$os" in printed, printed
+            assert "JSONExtractString(events.properties" not in printed, printed
+
     @parameterized.expand(
         [
             ("no_mat_column", "select JSONExtractString(properties, 'some_random_prop_xyz') from events"),
