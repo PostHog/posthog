@@ -9,6 +9,7 @@
         "tailwindcss": "4.0.12"
     },
     "devDependencies": {
+        "@posthog/quill": "workspace:*",
         "@tailwindcss/cli": "4.0.12"
     }
 }
