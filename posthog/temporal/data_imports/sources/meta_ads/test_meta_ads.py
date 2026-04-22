@@ -1,5 +1,7 @@
+import json
 from typing import Any
 
+import pytest
 from unittest import mock
 
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
@@ -7,6 +9,7 @@ from posthog.temporal.data_imports.sources.meta_ads.meta_ads import (
     MetaAdsResumeConfig,
     _iter_simple_pagination,
     _iter_time_range_pagination,
+    _strip_access_token,
 )
 
 
@@ -25,7 +28,45 @@ def _build_manager(*, can_resume: bool = False, state: MetaAdsResumeConfig | Non
     return manager
 
 
+class TestStripAccessToken:
+    @pytest.mark.parametrize(
+        "url,expected",
+        [
+            (
+                "https://graph.facebook.com/v20/next?access_token=secret&cursor=abc",
+                "https://graph.facebook.com/v20/next?cursor=abc",
+            ),
+            (
+                "https://graph.facebook.com/v20/next?cursor=abc&access_token=secret",
+                "https://graph.facebook.com/v20/next?cursor=abc",
+            ),
+            (
+                "https://graph.facebook.com/v20/next?access_token=secret",
+                "https://graph.facebook.com/v20/next",
+            ),
+            (
+                "https://graph.facebook.com/v20/next?cursor=abc",
+                "https://graph.facebook.com/v20/next?cursor=abc",
+            ),
+            (
+                "https://graph.facebook.com/v20/next",
+                "https://graph.facebook.com/v20/next",
+            ),
+            (
+                # Multiple access_token params (pathological) — all removed.
+                "https://example/path?access_token=a&foo=1&access_token=b",
+                "https://example/path?foo=1",
+            ),
+        ],
+    )
+    def test_strips(self, url: str, expected: str) -> None:
+        assert _strip_access_token(url) == expected
+
+
 class TestSimplePagination:
+    INITIAL_URL = "https://graph.facebook.com/v20/act_123/campaigns"
+    INITIAL_PARAMS: dict[str, Any] = {"fields": "id,name", "access_token": "tok"}
+
     def test_fresh_run_fetches_initial_and_saves_next_url(self) -> None:
         manager = _build_manager()
 
@@ -34,7 +75,7 @@ class TestSimplePagination:
                 200,
                 {
                     "data": [{"id": "1"}, {"id": "2"}],
-                    "paging": {"next": "https://graph.facebook.com/v20/next?cursor=abc"},
+                    "paging": {"next": "https://graph.facebook.com/v20/next?access_token=tok&cursor=abc"},
                 },
             ),
             _mock_response(200, {"data": [{"id": "3"}], "paging": {}}),
@@ -43,25 +84,28 @@ class TestSimplePagination:
         with mock.patch("requests.get", side_effect=responses) as mock_get:
             batches = list(
                 _iter_simple_pagination(
-                    "https://graph.facebook.com/v20/act_123/campaigns",
-                    {"fields": "id,name", "access_token": "tok"},
+                    self.INITIAL_URL,
+                    self.INITIAL_PARAMS,
                     None,
                     manager,
                 )
             )
 
         assert batches == [[{"id": "1"}, {"id": "2"}], [{"id": "3"}]]
-        # First call: initial URL + params. Second call: paging.next URL only.
-        assert mock_get.call_args_list[0].args[0] == "https://graph.facebook.com/v20/act_123/campaigns"
-        assert mock_get.call_args_list[0].kwargs["params"] == {"fields": "id,name", "access_token": "tok"}
-        assert mock_get.call_args_list[1].args[0] == "https://graph.facebook.com/v20/next?cursor=abc"
-        assert "params" not in mock_get.call_args_list[1].kwargs
+        # First call: initial URL + params.
+        assert mock_get.call_args_list[0].args[0] == self.INITIAL_URL
+        assert mock_get.call_args_list[0].kwargs["params"] == self.INITIAL_PARAMS
+        # Second call: paging.next URL, with access_token injected via params (not baked into URL).
+        assert mock_get.call_args_list[1].args[0] == "https://graph.facebook.com/v20/next?access_token=tok&cursor=abc"
+        assert mock_get.call_args_list[1].kwargs["params"] == {"access_token": "tok"}
 
+        # Saved state: access_token stripped from the saved URL.
         manager.save_state.assert_called_once_with(
             MetaAdsResumeConfig(next_url="https://graph.facebook.com/v20/next?cursor=abc")
         )
 
     def test_resume_skips_initial_request(self) -> None:
+        # Saved URL has access_token stripped; we re-inject a fresh one at request time.
         saved_url = "https://graph.facebook.com/v20/next?cursor=xyz"
         manager = _build_manager(can_resume=True, state=MetaAdsResumeConfig(next_url=saved_url))
 
@@ -72,8 +116,8 @@ class TestSimplePagination:
         with mock.patch("requests.get", side_effect=responses) as mock_get:
             batches = list(
                 _iter_simple_pagination(
-                    "https://graph.facebook.com/v20/act_123/campaigns",
-                    {"fields": "id,name", "access_token": "tok"},
+                    self.INITIAL_URL,
+                    self.INITIAL_PARAMS,
                     MetaAdsResumeConfig(next_url=saved_url),
                     manager,
                 )
@@ -82,7 +126,8 @@ class TestSimplePagination:
         assert batches == [[{"id": "5"}]]
         assert mock_get.call_count == 1
         assert mock_get.call_args_list[0].args[0] == saved_url
-        assert "params" not in mock_get.call_args_list[0].kwargs
+        # access_token is supplied via params (from config), NOT embedded in the saved URL.
+        assert mock_get.call_args_list[0].kwargs["params"] == {"access_token": "tok"}
         # No more pages, no save call needed.
         manager.save_state.assert_not_called()
 
@@ -96,7 +141,7 @@ class TestSimplePagination:
         with mock.patch("requests.get", side_effect=responses):
             batches = list(
                 _iter_simple_pagination(
-                    "https://graph.facebook.com/v20/act_123/campaigns",
+                    self.INITIAL_URL,
                     {"access_token": "tok"},
                     None,
                     manager,
@@ -121,7 +166,7 @@ class TestSimplePagination:
         with mock.patch("requests.get", side_effect=responses) as mock_get:
             list(
                 _iter_simple_pagination(
-                    "https://graph.facebook.com/v20/act_123/campaigns",
+                    self.INITIAL_URL,
                     {"access_token": "tok"},
                     stale_state,
                     manager,
@@ -129,7 +174,7 @@ class TestSimplePagination:
             )
 
         # Initial request should be the original URL with params, not the stale next_url.
-        assert mock_get.call_args_list[0].args[0] == "https://graph.facebook.com/v20/act_123/campaigns"
+        assert mock_get.call_args_list[0].args[0] == self.INITIAL_URL
         assert mock_get.call_args_list[0].kwargs["params"] == {"access_token": "tok"}
 
 
@@ -145,7 +190,7 @@ class TestTimeRangePagination:
                 200,
                 {
                     "data": [{"ad_id": "a"}],
-                    "paging": {"next": "https://graph.facebook.com/v20/act_1/insights?after=abc"},
+                    "paging": {"next": "https://graph.facebook.com/v20/act_1/insights?access_token=tok&after=abc"},
                 },
             ),
             _mock_response(200, {"data": [{"ad_id": "b"}], "paging": {}}),
@@ -163,17 +208,24 @@ class TestTimeRangePagination:
             )
 
         assert batches == [[{"ad_id": "a"}], [{"ad_id": "b"}]]
-        # Two pages in one chunk => one save pointing at the mid-chunk next_url.
-        assert manager.save_state.call_count == 1
-        saved: MetaAdsResumeConfig = manager.save_state.call_args_list[0].args[0]
-        assert saved.end_date == "2026-04-21"
-        assert saved.chunk_since == "2026-04-21"
-        assert saved.chunk_size_days == 30
-        assert saved.chunk_next_url == "https://graph.facebook.com/v20/act_1/insights?after=abc"
+        # Two saves: mid-chunk next_url, then the chunk-boundary (past end_date) save.
+        assert manager.save_state.call_count == 2
+        mid_chunk: MetaAdsResumeConfig = manager.save_state.call_args_list[0].args[0]
+        assert mid_chunk.end_date == "2026-04-21"
+        assert mid_chunk.chunk_since == "2026-04-21"
+        assert mid_chunk.chunk_size_days == 30
+        # Saved URL has access_token stripped.
+        assert mid_chunk.chunk_next_url == "https://graph.facebook.com/v20/act_1/insights?after=abc"
 
-        # Second request used the saved next_url with no params.
-        assert mock_get.call_args_list[1].args[0] == "https://graph.facebook.com/v20/act_1/insights?after=abc"
-        assert "params" not in mock_get.call_args_list[1].kwargs
+        final: MetaAdsResumeConfig = manager.save_state.call_args_list[1].args[0]
+        assert final.chunk_since == "2026-04-22"
+        assert final.chunk_next_url is None
+
+        # Second request used the saved next_url with access_token injected via params.
+        assert mock_get.call_args_list[1].args[0] == (
+            "https://graph.facebook.com/v20/act_1/insights?access_token=tok&after=abc"
+        )
+        assert mock_get.call_args_list[1].kwargs["params"] == {"access_token": "tok"}
 
     def test_fresh_run_saves_chunk_boundary_between_chunks(self) -> None:
         manager = _build_manager()
@@ -195,13 +247,59 @@ class TestTimeRangePagination:
             )
 
         assert batches == [[{"ad_id": "a"}], [{"ad_id": "b"}]]
-        # After chunk 1 finishes we save a chunk-boundary state pointing at chunk 2.
+        # After chunk 1 we save pointing at chunk 2; after chunk 2 we save the past-end cursor.
+        assert manager.save_state.call_count == 2
+        first: MetaAdsResumeConfig = manager.save_state.call_args_list[0].args[0]
+        assert first.end_date == "2026-04-29"
+        assert first.chunk_since == "2026-03-31"  # chunk 1 covered 2026-03-01..2026-03-30 (30 days)
+        assert first.chunk_size_days == 30
+        assert first.chunk_next_url is None
+
+        final: MetaAdsResumeConfig = manager.save_state.call_args_list[1].args[0]
+        assert final.chunk_since == "2026-04-30"  # one past end_date
+        assert final.chunk_next_url is None
+
+    def test_past_end_date_chunk_saved_after_final_chunk(self) -> None:
+        """After the final chunk completes, we must save a chunk-boundary cursor
+        with ``chunk_since > end_date`` — otherwise a stale mid-chunk next_url
+        from an earlier iteration (or no state at all) could cause a resume to
+        re-process pages that were already yielded."""
+        manager = _build_manager()
+        responses = [_mock_response(200, {"data": [{"ad_id": "only"}], "paging": {}})]
+
+        with mock.patch("requests.get", side_effect=responses):
+            list(
+                _iter_time_range_pagination(
+                    self.URL, self.PARAMS, {"since": "2026-04-21", "until": "2026-04-21"}, None, manager
+                )
+            )
+
         assert manager.save_state.call_count == 1
         saved: MetaAdsResumeConfig = manager.save_state.call_args_list[0].args[0]
-        assert saved.end_date == "2026-04-29"
-        assert saved.chunk_since == "2026-03-31"  # chunk 1 covered 2026-03-01..2026-03-30 (30 days)
-        assert saved.chunk_size_days == 30
+        assert saved.chunk_since == "2026-04-22"
         assert saved.chunk_next_url is None
+
+    def test_resume_past_end_date_cursor_is_noop(self) -> None:
+        """If resume state already says ``chunk_since > end_date``, the generator
+        must finish without issuing any HTTP request (the sync already ran to
+        completion before the crash)."""
+        state = MetaAdsResumeConfig(
+            end_date="2026-04-21",
+            chunk_since="2026-04-22",
+            chunk_size_days=30,
+            chunk_next_url=None,
+        )
+        manager = _build_manager(can_resume=True, state=state)
+
+        with mock.patch("requests.get") as mock_get:
+            batches = list(
+                _iter_time_range_pagination(
+                    self.URL, self.PARAMS, {"since": "2026-04-10", "until": "2026-04-21"}, state, manager
+                )
+            )
+
+        assert batches == []
+        mock_get.assert_not_called()
 
     def test_resume_mid_chunk_skips_initial_request(self) -> None:
         saved_next = "https://graph.facebook.com/v20/act_1/insights?after=xyz"
@@ -224,10 +322,12 @@ class TestTimeRangePagination:
             )
 
         assert batches == [[{"ad_id": "c"}]]
-        # The single request goes straight to the saved next_url.
+        # Two requests: the resumed mid-chunk URL, then nothing more to fetch within this chunk.
+        # (There is a final "past end_date" save_state, but no additional HTTP call is made.)
         assert mock_get.call_count == 1
         assert mock_get.call_args_list[0].args[0] == saved_next
-        assert "params" not in mock_get.call_args_list[0].kwargs
+        # access_token is injected fresh — never served from the saved URL.
+        assert mock_get.call_args_list[0].kwargs["params"] == {"access_token": "tok"}
 
     def test_resume_at_chunk_boundary_issues_fresh_initial_request(self) -> None:
         state = MetaAdsResumeConfig(
@@ -256,9 +356,7 @@ class TestTimeRangePagination:
         sent_params = first_call.kwargs["params"]
         assert sent_params["access_token"] == "tok"
         # time_range should be JSON-encoded and cover 2026-04-10..2026-04-16 (7 days).
-        import json as _json
-
-        tr = _json.loads(sent_params["time_range"])
+        tr = json.loads(sent_params["time_range"])
         assert tr == {"since": "2026-04-10", "until": "2026-04-16"}
 
     def test_empty_chunk_still_iterates_to_next(self) -> None:
@@ -309,7 +407,5 @@ class TestTimeRangePagination:
             saved: MetaAdsResumeConfig = call.args[0]
             assert saved.chunk_size_days == 7
         # The first successful request was for a 7-day chunk.
-        import json as _json
-
-        tr = _json.loads(mock_get.call_args_list[1].kwargs["params"]["time_range"])
+        tr = json.loads(mock_get.call_args_list[1].kwargs["params"]["time_range"])
         assert tr == {"since": "2026-03-01", "until": "2026-03-07"}

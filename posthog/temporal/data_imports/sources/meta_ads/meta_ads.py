@@ -3,6 +3,7 @@ import typing
 import datetime as dt
 import collections.abc
 from dataclasses import dataclass
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 import requests
 
@@ -27,16 +28,17 @@ class MetaAdsResumeConfig:
     Two shapes are encoded here:
 
     - Simple pagination (non-stats endpoints, no time range): only ``next_url``
-      is set. It is a ``paging.next`` URL returned by the Graph API and already
-      has query params (including the access token) embedded, so it is fetched
-      as-is on resume.
+      is set. It is a ``paging.next`` URL returned by the Graph API with its
+      ``access_token`` query param stripped (see ``_strip_access_token``); the
+      token is re-attached from the integration config at request time on
+      resume.
     - Time-range pagination (stats endpoints): ``end_date`` acts as the
       discriminator. ``chunk_since`` and ``chunk_size_days`` describe where to
       restart the outer chunk loop. ``chunk_next_url`` is set when the crash
       happened mid-chunk — on resume we fetch that URL directly, skipping the
       initial chunk request. When the chunk was complete at save time,
       ``chunk_next_url`` is None and we issue a fresh initial request for
-      ``chunk_since``.
+      ``chunk_since``. Saved URLs have ``access_token`` stripped.
     """
 
     next_url: str | None = None
@@ -44,6 +46,29 @@ class MetaAdsResumeConfig:
     chunk_since: str | None = None
     chunk_size_days: int | None = None
     chunk_next_url: str | None = None
+
+
+def _strip_access_token(url: str) -> str:
+    """Remove the ``access_token`` query parameter from a URL.
+
+    Meta's ``paging.next`` URLs embed the caller's access token as a query
+    param. We never want that token at rest in Redis or in logs — we re-attach
+    a fresh one from the integration config at request time.
+    """
+    parts = urlsplit(url)
+    if not parts.query:
+        return url
+    filtered = [(k, v) for k, v in parse_qsl(parts.query, keep_blank_values=True) if k != "access_token"]
+    return urlunsplit((parts.scheme, parts.netloc, parts.path, urlencode(filtered), parts.fragment))
+
+
+def _fetch_paging_url(url: str, access_token: str) -> requests.Response:
+    """Fetch a Meta ``paging.next``-style URL with a freshly injected access token.
+
+    Saved URLs have ``access_token`` stripped; we pass it via ``params`` at
+    request time so the token never persists in Redis or debug logs.
+    """
+    return requests.get(url, params={"access_token": access_token})
 
 
 def _clean_account_id(s: str | None) -> str | None:
@@ -149,11 +174,12 @@ def _iter_simple_pagination(
 ) -> collections.abc.Generator[list[dict], None, None]:
     """Iterate a non-time-range Graph API request via ``paging.next`` URLs.
 
-    On resume, the saved ``next_url`` is re-issued as-is (params and token are
-    already embedded by Meta), so the initial request is skipped.
+    On resume, the saved ``next_url`` is re-issued with a fresh ``access_token``
+    injected at request time, so the initial request is skipped.
     """
+    access_token = params["access_token"]
     if resume_config is not None and resume_config.next_url and resume_config.end_date is None:
-        response = requests.get(resume_config.next_url)
+        response = _fetch_paging_url(resume_config.next_url, access_token)
     else:
         response = requests.get(initial_url, params=params)
 
@@ -170,8 +196,9 @@ def _iter_simple_pagination(
 
         # Saved state points at the NEXT page. On resume we re-fetch from there;
         # the already-yielded page is not re-emitted (primary keys would dedupe it anyway).
-        resumable_source_manager.save_state(MetaAdsResumeConfig(next_url=next_url))
-        response = requests.get(next_url)
+        # We strip the access_token before saving so it never sits at rest in Redis or in logs.
+        resumable_source_manager.save_state(MetaAdsResumeConfig(next_url=_strip_access_token(next_url)))
+        response = _fetch_paging_url(next_url, access_token)
 
 
 def _iter_time_range_pagination(
@@ -188,6 +215,7 @@ def _iter_time_range_pagination(
     levels: ``chunk_since`` + ``chunk_size_days`` for the outer loop, and
     ``chunk_next_url`` when the crash happened mid-chunk.
     """
+    access_token = params["access_token"]
     start_date = dt.datetime.strptime(time_range["since"], "%Y-%m-%d")
     end_date = dt.datetime.strptime(time_range["until"], "%Y-%m-%d")
 
@@ -203,12 +231,15 @@ def _iter_time_range_pagination(
     end_date_iso = end_date.strftime("%Y-%m-%d")
 
     def _save(since: dt.datetime, size_days: int, next_url_in_chunk: str | None) -> None:
+        # Saved URLs have the access_token stripped so the token never sits
+        # at rest in Redis or appears in debug logs.
+        sanitised = _strip_access_token(next_url_in_chunk) if next_url_in_chunk else None
         resumable_source_manager.save_state(
             MetaAdsResumeConfig(
                 end_date=end_date_iso,
                 chunk_since=since.strftime("%Y-%m-%d"),
                 chunk_size_days=size_days,
-                chunk_next_url=next_url_in_chunk,
+                chunk_next_url=sanitised,
             )
         )
 
@@ -216,8 +247,8 @@ def _iter_time_range_pagination(
         current_end = min(current_start + dt.timedelta(days=chunk_size_days - 1), end_date)
 
         if pending_next_url:
-            # Mid-chunk resume: the saved next_url already has params embedded.
-            response = requests.get(pending_next_url)
+            # Mid-chunk resume: re-attach a fresh access_token at request time.
+            response = _fetch_paging_url(pending_next_url, access_token)
             pending_next_url = None
         else:
             chunk_time_range = {
@@ -248,12 +279,15 @@ def _iter_time_range_pagination(
                 break
 
             _save(current_start, chunk_size_days, next_url)
-            response = requests.get(next_url)
+            response = _fetch_paging_url(next_url, access_token)
 
         current_start = current_end + dt.timedelta(days=1)
-        # Mark the chunk as complete so a resume starts fresh at the next chunk.
-        if current_start <= end_date:
-            _save(current_start, chunk_size_days, None)
+        # Always save the chunk-boundary state, even when we've advanced past
+        # end_date. This clears any stale mid-chunk next_url from the previous
+        # iteration (so a resume doesn't redo already-completed pagination)
+        # and guarantees a crash right after the final chunk finds the loop
+        # already satisfied on restart.
+        _save(current_start, chunk_size_days, None)
 
 
 def _make_paginated_api_request(
