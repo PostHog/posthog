@@ -139,9 +139,7 @@ export class LiveMetricsSlidingWindow {
 
         if (data.bots) {
             for (const [botName, entry] of data.bots) {
-                for (let i = 0; i < entry.count; i++) {
-                    this.addBotToBucket(bucket, botName, entry.category)
-                }
+                this.addBotToBucketBulk(bucket, botName, entry.category, entry.count)
             }
         }
     }
@@ -189,14 +187,18 @@ export class LiveMetricsSlidingWindow {
     }
 
     private addBotToBucket(bucket: SlidingWindowBucket, botName: string, category: string): void {
+        this.addBotToBucketBulk(bucket, botName, category, 1)
+    }
+
+    private addBotToBucketBulk(bucket: SlidingWindowBucket, botName: string, category: string, count: number): void {
         if (!bucket.bots) {
             bucket.bots = new Map<string, { count: number; category: string }>()
         }
         const existing = bucket.bots.get(botName)
-        bucket.bots.set(botName, { count: (existing?.count ?? 0) + 1, category })
+        bucket.bots.set(botName, { count: (existing?.count ?? 0) + count, category })
 
-        this._globalBotCounts.set(botName, (this._globalBotCounts.get(botName) || 0) + 1)
-        this._globalBotCategoryCounts.set(category, (this._globalBotCategoryCounts.get(category) || 0) + 1)
+        this._globalBotCounts.set(botName, (this._globalBotCounts.get(botName) || 0) + count)
+        this._globalBotCategoryCounts.set(category, (this._globalBotCategoryCounts.get(category) || 0) + count)
         this._botNameToCategory.set(botName, category)
     }
 

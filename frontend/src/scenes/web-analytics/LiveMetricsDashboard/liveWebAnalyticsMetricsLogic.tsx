@@ -757,6 +757,7 @@ const loadQueryData = async (
                     AND timestamp <= toDateTime({dateTo})
                     AND \`$virt_is_bot\` = true
                     AND \`$virt_bot_name\` != ''
+                    AND event IN ('$pageview', '$pageleave', '$screen', '$http_log', '$autocapture')
                     ${hostFilterClause}
                 GROUP BY minute_bucket, bot_name, bot_category
                 ORDER BY minute_bucket ASC`,
