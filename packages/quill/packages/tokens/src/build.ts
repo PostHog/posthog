@@ -34,7 +34,7 @@ writeFileSync(resolve(distDir, 'tailwind-lib.css'), generateStylesCSS({ includeB
 // 4. Scoped variants for consumers with existing design systems.
 //    Vars are gated behind [data-quill] so they don't clash with
 //    the consumer's CSS custom properties (e.g. --border, --accent).
-const scopedOpts = { scope: '[data-quill]', darkSelector: '[theme="dark"]' }
+const scopedOpts = { scope: '[data-quill]' }
 
 writeFileSync(resolve(distDir, 'color-system.scoped.css'), generateColorSystemCSS(undefined, scopedOpts))
 

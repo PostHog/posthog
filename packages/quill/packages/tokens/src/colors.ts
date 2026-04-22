@@ -176,10 +176,14 @@ export interface StylesConfig {
      */
     scope?: string
     /**
-     * CSS selector for dark mode. Default: `'.dark'`.
-     * PostHog uses `'[theme="dark"]'`.
+     * CSS selector(s) for dark mode. Accepts a single selector or an
+     * array — when multiple are given they are combined with `:is()`
+     * so any of them activates dark mode.
+     *
+     * Default: `['.dark', '[theme="dark"]']` (both `.dark` class and
+     * `theme="dark"` attribute work out of the box).
      */
-    darkSelector?: string
+    darkSelector?: string | string[]
 }
 
 // ── Helpers ───────────────────────────────────────────
@@ -248,12 +252,20 @@ function assertThemeDerivedSyncedWithColors(colors: Record<string, ColorTuple>):
 
 assertThemeDerivedSyncedWithColors(semanticColors)
 
+/** Normalize darkSelector option into a single CSS selector string. */
+function resolveDarkSelector(raw?: string | string[]): string {
+    const defaults = ['.dark', '[theme="dark"]']
+    const selectors = raw === undefined ? defaults : typeof raw === 'string' ? [raw] : raw
+    return selectors.length === 1 ? selectors[0] : `:is(${selectors.join(', ')})`
+}
+
 /** Generate color-system.css (:root light + .dark overrides) */
 export function generateColorSystemCSS(
     theme: ThemeConfig = DEFAULT_THEME,
     opts: Pick<StylesConfig, 'scope' | 'darkSelector'> = {}
 ): string {
-    const { scope, darkSelector = '.dark' } = opts
+    const { scope } = opts
+    const darkSelector = resolveDarkSelector(opts.darkSelector)
 
     const themeKnobs = (indent = '  '): string =>
         [
@@ -385,7 +397,8 @@ function generateColorMappingsCSS(): string {
  *    Used by apps/web, apps/storybook.
  */
 export function generateStylesCSS(config: StylesConfig = {}): string {
-    const { includeBaseLayer = false, scope, darkSelector = '.dark' } = config
+    const { includeBaseLayer = false, scope } = config
+    const darkSelector = resolveDarkSelector(config.darkSelector)
 
     const darkVariantBody = `&:is(${darkSelector}, ${darkSelector} *)`
     const lines: string[] = [
