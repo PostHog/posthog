@@ -373,7 +373,7 @@ def check_alert_and_notify_atomically(alert: AlertConfiguration) -> None:
     triggered_metadata = (
         getattr(alert_evaluation_result, "triggered_metadata", None) if alert_evaluation_result else None
     )
-    alert_check, notify = add_alert_check(
+    alert_check, should_notify = add_alert_check(
         alert,
         value,
         breaches,
@@ -386,7 +386,7 @@ def check_alert_and_notify_atomically(alert: AlertConfiguration) -> None:
     )
 
     # 3. Notify users if needed
-    if not notify:
+    if not should_notify:
         return
 
     try:
@@ -449,14 +449,14 @@ def add_alert_check(
     successful delivery and treats a non-empty value as the idempotency sentinel on retry.
     `last_notified_at` is likewise set by the notify activity on success, not here.
     """
-    notify = False
+    should_notify = False
 
     if error:
         alert.state = AlertState.ERRORED
-        notify = True
+        should_notify = True
     elif breaches:
         alert.state = AlertState.FIRING
-        notify = True
+        should_notify = True
     else:
         alert.state = AlertState.NOT_FIRING  # Set the Alert to not firing if the threshold is no longer met
         # TODO: Optionally send a resolved notification when alert goes from firing to not_firing?
@@ -483,4 +483,4 @@ def add_alert_check(
 
     alert.save(update_fields=["state", "last_checked_at", "next_check_at"])
 
-    return alert_check, notify
+    return alert_check, should_notify

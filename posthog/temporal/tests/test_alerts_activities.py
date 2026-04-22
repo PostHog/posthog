@@ -21,7 +21,7 @@ from posthog.schema import (
 )
 
 from posthog.errors import CHQueryErrorTooManySimultaneousQueries
-from posthog.models import AlertConfiguration, Insight
+from posthog.models import AlertConfiguration, Insight, User
 from posthog.models.alert import AlertCheck
 from posthog.tasks.alerts.utils import AlertEvaluationResult
 from posthog.temporal.alerts.activities import evaluate_alert, notify_alert, prepare_alert
@@ -30,6 +30,7 @@ from posthog.temporal.alerts.types import (
     NotifyAlertActivityInputs,
     PrepareAction,
     PrepareAlertActivityInputs,
+    SkipReason,
 )
 
 
@@ -88,6 +89,50 @@ async def alert(ateam):
     return await _create_alert(ateam)
 
 
+@pytest_asyncio.fixture
+async def alert_with_user(ateam, aorganization):
+    @sync_to_async
+    def _create() -> AlertConfiguration:
+        user = User.objects.create_and_join(
+            organization=aorganization, email=f"alerts-{uuid.uuid4().hex[:6]}@posthog.com", password=None
+        )
+        insight = Insight.objects.create(team=ateam, name="insight", query=_valid_trends_query())
+        a = AlertConfiguration.objects.create(
+            team=ateam,
+            insight=insight,
+            name="alert",
+            enabled=True,
+            calculation_interval=AlertCalculationInterval.DAILY.value,
+            config={"type": "TrendsAlertConfig", "series_index": 0},
+            condition={"type": "absolute_value"},
+        )
+        a.subscribed_users.add(user)
+        return a
+
+    return await _create()
+
+
+async def _create_alert_check(
+    alert: AlertConfiguration,
+    *,
+    state: str,
+    targets_notified: dict | None = None,
+    error: dict | None = None,
+) -> AlertCheck:
+    @sync_to_async
+    def _create() -> AlertCheck:
+        return AlertCheck.objects.create(
+            alert_configuration=alert,
+            calculated_value=1.0,
+            condition=alert.condition,
+            state=state,
+            error=error,
+            targets_notified=targets_notified if targets_notified is not None else {},
+        )
+
+    return await _create()
+
+
 @pytest.mark.asyncio
 @pytest.mark.django_db(transaction=True)
 class TestPrepareAlert:
@@ -98,31 +143,31 @@ class TestPrepareAlert:
             PrepareAlertActivityInputs(alert_id=str(uuid.uuid4())),
         )
         assert result.action == PrepareAction.SKIP
-        assert result.reason == "not_found"
+        assert result.reason == SkipReason.NOT_FOUND
 
     @pytest.mark.parametrize(
         "frozen_time,setup_kwargs,expected_reason,advances_next_check_at",
         [
-            pytest.param(None, {"enabled": False}, "not_found", False, id="disabled"),
-            pytest.param(None, {"insight_deleted": True}, "insight_deleted", False, id="insight_deleted"),
+            pytest.param(None, {"enabled": False}, SkipReason.NOT_FOUND, False, id="disabled"),
+            pytest.param(None, {"insight_deleted": True}, SkipReason.INSIGHT_DELETED, False, id="insight_deleted"),
             pytest.param(
                 "2024-06-03T10:00:00Z",
                 {"next_check_at": datetime(2024, 6, 3, 11, 0, tzinfo=UTC)},
-                "not_due",
+                SkipReason.NOT_DUE,
                 False,
                 id="not_due",
             ),
             pytest.param(
                 "2024-12-21T08:00:00Z",  # Saturday
                 {"skip_weekend": True},
-                "weekend",
+                SkipReason.WEEKEND,
                 True,
                 id="weekend",
             ),
             pytest.param(
                 "2024-06-03T22:30:00Z",  # inside 22:00-07:00 quiet window
                 {"schedule_restriction": {"blocked_windows": [{"start": "22:00", "end": "07:00"}]}},
-                "quiet_hours",
+                SkipReason.QUIET_HOURS,
                 True,
                 id="quiet_hours",
             ),
@@ -132,7 +177,7 @@ class TestPrepareAlert:
                     "snoozed_until": datetime(2024, 6, 3, 12, 0, tzinfo=UTC),
                     "state": AlertState.SNOOZED,
                 },
-                "snoozed",
+                SkipReason.SNOOZED,
                 False,
                 id="snoozed_future",
             ),
@@ -143,7 +188,7 @@ class TestPrepareAlert:
         ateam,
         frozen_time: str | None,
         setup_kwargs: dict,
-        expected_reason: str,
+        expected_reason: SkipReason,
         advances_next_check_at: bool,
     ) -> None:
         ctx = freeze_time(frozen_time) if frozen_time else contextlib.nullcontext()
@@ -202,9 +247,12 @@ class TestPrepareAlert:
         assert refreshed.enabled is False
         assert refreshed.state == AlertState.ERRORED
 
-        # disable_invalid_alert creates an AlertCheck row recording the disabling
-        check_exists = await sync_to_async(lambda: AlertCheck.objects.filter(alert_configuration=refreshed).exists())()
-        assert check_exists
+        # disable_invalid_alert creates an AlertCheck row recording the disabling.
+        check = await sync_to_async(AlertCheck.objects.get)(alert_configuration=refreshed)
+        assert check.state == AlertState.ERRORED
+        assert check.calculated_value is None
+        assert check.error is not None
+        assert result.reason in check.error["message"]
 
     async def test_evaluate_for_valid_alert(self, alert) -> None:
         env = ActivityEnvironment()
@@ -265,6 +313,11 @@ class TestEvaluateAlert:
         assert check.error is not None
         assert "misconfigured" in check.error["message"]
 
+        # Evaluate-time errors are transient — alert stays enabled so next run retries.
+        # Only prepare-time validate_alert_config failures call disable_invalid_alert.
+        refreshed = await sync_to_async(AlertConfiguration.objects.get)(pk=alert.pk)
+        assert refreshed.enabled is True
+
     async def test_evaluate_reraises_ch_transient_error(self, alert) -> None:
         # Transient CH errors bubble up so Temporal's retry policy handles them.
         with patch(
@@ -278,52 +331,6 @@ class TestEvaluateAlert:
         # No AlertCheck should have been written
         count = await sync_to_async(AlertCheck.objects.filter(alert_configuration=alert).count)()
         assert count == 0
-
-
-@pytest_asyncio.fixture
-async def alert_with_user(ateam, aorganization):
-    from posthog.models import User
-
-    @sync_to_async
-    def _create() -> AlertConfiguration:
-        user = User.objects.create_and_join(
-            organization=aorganization, email=f"alerts-{uuid.uuid4().hex[:6]}@posthog.com", password=None
-        )
-        insight = Insight.objects.create(team=ateam, name="insight", query=_valid_trends_query())
-        a = AlertConfiguration.objects.create(
-            team=ateam,
-            insight=insight,
-            name="alert",
-            enabled=True,
-            calculation_interval=AlertCalculationInterval.DAILY.value,
-            config={"type": "TrendsAlertConfig", "series_index": 0},
-            condition={"type": "absolute_value"},
-        )
-        a.subscribed_users.add(user)
-        return a
-
-    return await _create()
-
-
-async def _create_alert_check(
-    alert: AlertConfiguration,
-    *,
-    state: str,
-    targets_notified: dict | None = None,
-    error: dict | None = None,
-) -> AlertCheck:
-    @sync_to_async
-    def _create() -> AlertCheck:
-        return AlertCheck.objects.create(
-            alert_configuration=alert,
-            calculated_value=1.0,
-            condition=alert.condition,
-            state=state,
-            error=error,
-            targets_notified=targets_notified if targets_notified is not None else {},
-        )
-
-    return await _create()
 
 
 @pytest.mark.asyncio

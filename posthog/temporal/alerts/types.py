@@ -13,8 +13,6 @@ class PrepareAction(StrEnum):
 
 
 class SkipReason(StrEnum):
-    """Reason for PrepareAction.SKIP. Workflows / metrics key off these values."""
-
     NOT_FOUND = "not_found"
     INSIGHT_DELETED = "insight_deleted"
     NOT_DUE = "not_due"

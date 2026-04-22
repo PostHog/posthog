@@ -281,9 +281,7 @@ def trigger_alert_hog_functions(alert: AlertConfiguration, properties: dict) -> 
 def send_notifications_for_breaches(
     alert: AlertConfiguration, breaches: list[str], idempotency_key: str | None = None
 ) -> list[str]:
-    """Send firing-alert emails. Returns the list of recipients the send targeted.
-
-    A stable idempotency_key (typically alert_check.id) lets MessagingRecord enforce
+    """A stable idempotency_key (typically alert_check.id) lets MessagingRecord enforce
     per-recipient at-most-once delivery on retries. Without one, each call gets a
     timestamp-based key, disabling retry dedup.
     """

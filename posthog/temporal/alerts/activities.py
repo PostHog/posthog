@@ -206,7 +206,7 @@ async def evaluate_alert(inputs: EvaluateAlertActivityInputs) -> EvaluateAlertRe
         triggered_metadata = alert_evaluation_result.triggered_metadata if alert_evaluation_result else None
 
         with transaction.atomic():
-            alert_check, notify = add_alert_check(
+            alert_check, should_notify = add_alert_check(
                 alert,
                 value,
                 breaches,
@@ -220,7 +220,7 @@ async def evaluate_alert(inputs: EvaluateAlertActivityInputs) -> EvaluateAlertRe
 
         return EvaluateAlertResult(
             alert_check_id=str(alert_check.id),
-            should_notify=notify,
+            should_notify=should_notify,
             new_state=AlertState(alert_check.state),
             breaches=breaches,
         )
