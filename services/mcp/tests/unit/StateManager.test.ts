@@ -262,4 +262,60 @@ describe('StateManager', () => {
             expect(spy).toHaveBeenCalledOnce()
         })
     })
+
+    describe('getAnalyticsContext', () => {
+        it('returns organization, project, UUID, and name from the cached project', async () => {
+            await cache.set('orgId', 'org-1')
+            vi.spyOn(stateManager, 'getCachedOrFetchProject').mockResolvedValue({
+                id: 456,
+                uuid: 'project-uuid-456',
+                name: 'My Project',
+                organization: 'org-1',
+            } as any)
+
+            const result = await stateManager.getAnalyticsContext()
+
+            expect(result).toEqual({
+                organizationId: 'org-1',
+                projectId: '456',
+                projectUuid: 'project-uuid-456',
+                projectName: 'My Project',
+            })
+        })
+
+        it('falls back to project.organization when orgId is not yet cached', async () => {
+            vi.spyOn(stateManager, 'getCachedOrFetchProject').mockResolvedValue({
+                id: 456,
+                uuid: 'project-uuid-456',
+                name: 'My Project',
+                organization: 'org-2',
+            } as any)
+
+            const result = await stateManager.getAnalyticsContext()
+
+            expect(result).toEqual({
+                organizationId: 'org-2',
+                projectId: '456',
+                projectUuid: 'project-uuid-456',
+                projectName: 'My Project',
+            })
+        })
+
+        it('omits project fields when no project is cached or fetchable', async () => {
+            await cache.set('orgId', 'org-1')
+            vi.spyOn(stateManager, 'getCachedOrFetchProject').mockResolvedValue(undefined)
+
+            const result = await stateManager.getAnalyticsContext()
+
+            expect(result).toEqual({ organizationId: 'org-1' })
+        })
+
+        it('returns empty object when neither org nor project is available', async () => {
+            vi.spyOn(stateManager, 'getCachedOrFetchProject').mockResolvedValue(undefined)
+
+            const result = await stateManager.getAnalyticsContext()
+
+            expect(result).toEqual({})
+        })
+    })
 })

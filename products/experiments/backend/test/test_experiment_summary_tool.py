@@ -17,6 +17,9 @@ from posthog.schema import (
     MaxExperimentVariantResultFrequentist,
 )
 
+from posthog.hogql.constants import LimitContext
+
+from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models.feature_flag.feature_flag import FeatureFlag
 
 from products.experiments.backend.experiment_summary_data_service import (
@@ -335,6 +338,10 @@ class TestExperimentSummaryDataService(ClickhouseTestMixin, APIBaseTest):
 
         with (
             patch(
+                "products.experiments.backend.experiment_summary_data_service.posthoganalytics.feature_enabled",
+                return_value=False,
+            ),
+            patch(
                 "products.experiments.backend.experiment_summary_data_service.ExperimentQueryRunner"
             ) as mock_query_runner_class,
             patch(
@@ -353,6 +360,55 @@ class TestExperimentSummaryDataService(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(context.exposures, {"control": 500.0, "test": 500.0})
         self.assertIsNotNone(last_refresh)
         self.assertFalse(pending_calculation)
+        self.assertEqual(mock_query_runner_class.call_args.kwargs["limit_context"], LimitContext.QUERY_ASYNC)
+        self.assertEqual(mock_exposure_runner_class.call_args.kwargs["limit_context"], LimitContext.QUERY_ASYNC)
+        self.assertEqual(
+            mock_query_runner_class.return_value.run.call_args.kwargs["execution_mode"],
+            ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS,
+        )
+        self.assertEqual(
+            mock_exposure_runner_class.return_value.run.call_args.kwargs["execution_mode"],
+            ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS,
+        )
+
+    @freeze_time("2020-01-10T12:00:00Z")
+    async def test_fetch_experiment_data_uses_sync_execution_when_rollout_flag_enabled(self):
+        experiment = await self.acreate_experiment(name="query-runner-sync-test", with_metrics=True)
+
+        mock_query_result = MagicMock()
+        mock_query_result.variant_results = []
+        mock_query_result.last_refresh = datetime(2020, 1, 10, 11, 0, tzinfo=ZoneInfo("UTC"))
+
+        mock_exposure_result = MagicMock()
+        mock_exposure_result.total_exposures = {"control": 500, "test": 500}
+        mock_exposure_result.last_refresh = datetime(2020, 1, 10, 11, 0, tzinfo=ZoneInfo("UTC"))
+
+        with (
+            patch(
+                "products.experiments.backend.experiment_summary_data_service.posthoganalytics.feature_enabled",
+                return_value=True,
+            ),
+            patch(
+                "products.experiments.backend.experiment_summary_data_service.ExperimentQueryRunner"
+            ) as mock_query_runner_class,
+            patch(
+                "products.experiments.backend.experiment_summary_data_service.ExperimentExposuresQueryRunner"
+            ) as mock_exposure_runner_class,
+        ):
+            mock_query_runner_class.return_value.run.return_value = mock_query_result
+            mock_exposure_runner_class.return_value.run.return_value = mock_exposure_result
+
+            data_service = ExperimentSummaryDataService(self.team)
+            await data_service.fetch_experiment_data(experiment.id)
+
+        self.assertEqual(
+            mock_query_runner_class.return_value.run.call_args.kwargs["execution_mode"],
+            ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
+        )
+        self.assertEqual(
+            mock_exposure_runner_class.return_value.run.call_args.kwargs["execution_mode"],
+            ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
+        )
 
     @freeze_time("2020-01-10T12:00:00Z")
     async def test_fetch_experiment_data_executes_queries_on_cold_cache(self):

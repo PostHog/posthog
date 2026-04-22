@@ -1,17 +1,19 @@
 import { randomString } from '../../utils'
+import { mockFeatureFlags } from '../../utils/mockApi'
 import { expect, test } from '../../utils/playwright-test-base'
 
-test.describe('Logs Alerts CRUD', () => {
+test.describe('Logs Alerts', () => {
     const ALERTS_API = '**/api/projects/*/logs/alerts/'
     const ALERTS_API_DETAIL = '**/api/projects/*/logs/alerts/*/'
+    const SPARKLINE_API = '**/api/environments/*/logs/sparkline/'
 
     const makeAlert = (overrides: Record<string, unknown> = {}): Record<string, unknown> => ({
         id: '019d-test-alert-id',
         name: 'Test Alert',
-        enabled: true,
+        enabled: false,
         state: 'not_firing',
-        filters: { severityLevels: ['error'], serviceNames: ['api-gateway'] },
-        threshold_count: 50,
+        filters: { severityLevels: ['error'], serviceNames: [] },
+        threshold_count: 100,
         threshold_operator: 'above',
         window_minutes: 10,
         evaluation_periods: 1,
@@ -20,15 +22,11 @@ test.describe('Logs Alerts CRUD', () => {
         ...overrides,
     })
 
-    // The kea-forms <Form> renders as <form class="LemonModal__layout">
-    const formModal = 'form.LemonModal__layout'
-
-    test('creates an alert, verifies edit populates persisted values, edits, and deletes', async ({ page }) => {
+    test('creates, edits, and deletes an alert via the page-based flow', async ({ page }) => {
         const alertName = randomString('alert')
         let createdAlert: Record<string, unknown> | null = null
 
-        await test.step('mock APIs and navigate to alerts', async () => {
-            // Mock the alerts list and create endpoints
+        await test.step('mock APIs and navigate to alerts tab', async () => {
             await page.route(ALERTS_API, async (route) => {
                 const method = route.request().method()
                 if (method === 'GET') {
@@ -39,11 +37,7 @@ test.describe('Logs Alerts CRUD', () => {
                     })
                 } else if (method === 'POST') {
                     const body = route.request().postDataJSON()
-                    createdAlert = makeAlert({
-                        ...body,
-                        id: '019d-created-alert-id',
-                        name: body.name,
-                    })
+                    createdAlert = makeAlert({ ...body, id: '019d-created-alert-id', name: body.name })
                     await route.fulfill({
                         status: 201,
                         contentType: 'application/json',
@@ -56,7 +50,13 @@ test.describe('Logs Alerts CRUD', () => {
 
             await page.route(ALERTS_API_DETAIL, async (route) => {
                 const method = route.request().method()
-                if (method === 'PATCH') {
+                if (method === 'GET') {
+                    await route.fulfill({
+                        status: 200,
+                        contentType: 'application/json',
+                        body: JSON.stringify(createdAlert ?? {}),
+                    })
+                } else if (method === 'PATCH') {
                     const body = route.request().postDataJSON()
                     createdAlert = { ...createdAlert, ...body }
                     await route.fulfill({
@@ -67,118 +67,105 @@ test.describe('Logs Alerts CRUD', () => {
                 } else if (method === 'DELETE') {
                     createdAlert = null
                     await route.fulfill({ status: 204 })
-                } else if (method === 'GET') {
-                    if (!createdAlert) {
-                        await route.fulfill({ status: 404 })
-                        return
-                    }
-                    await route.fulfill({
-                        status: 200,
-                        contentType: 'application/json',
-                        body: JSON.stringify(createdAlert),
-                    })
                 } else {
                     await route.continue()
                 }
             })
 
-            // Inject the logs-alerting feature flag before the app hydrates.
-            // The settings map gates the Alerting section behind this flag.
-            await page.addInitScript(() => {
-                let _context: any
-                Object.defineProperty(window, 'POSTHOG_APP_CONTEXT', {
-                    get() {
-                        return _context
-                    },
-                    set(value: any) {
-                        if (value) {
-                            value.persisted_feature_flags = [
-                                ...(value.persisted_feature_flags || []),
-                                'logs-settings',
-                                'logs-alerting',
-                            ]
-                        }
-                        _context = value
-                    },
-                    configurable: true,
+            await page.route(SPARKLINE_API, async (route) => {
+                await route.fulfill({
+                    status: 200,
+                    contentType: 'application/json',
+                    body: JSON.stringify([]),
                 })
             })
 
-            await page.goto('/project/1/settings/environment-logs')
-            await expect(page.getByRole('heading', { name: 'Alerting' })).toBeVisible({ timeout: 15000 })
-            // Wait for the mocked empty alerts list to render
-            await expect(page.getByText('No alerts configured yet.')).toBeVisible()
+            // logsAlertNotificationLogic fetches hog functions on mount; mocking it prevents
+            // the loadExistingHogFunctionsSuccess → loadAlert → resetAlertForm race that
+            // would wipe form changes made during the test.
+            await page.route(
+                (url) => url.pathname.includes('/hog_functions'),
+                async (route) => {
+                    await route.fulfill({
+                        status: 200,
+                        contentType: 'application/json',
+                        body: JSON.stringify({ results: [], count: 0 }),
+                    })
+                }
+            )
+
+            await mockFeatureFlags(page, { 'logs-tabbed-view': true, 'logs-alerting': true })
+
+            await page.goto('/project/1/logs?activeTab=alerts')
+            // loginBeforeTests navigates to the project root before our mocks are registered,
+            // so posthog-js may have already cached flags. Force a reload to pick up our mock.
+            await page.evaluate(() => void (window as any).posthog?.reloadFeatureFlags?.())
+            await expect(page.getByText('No alerts configured yet.')).toBeVisible({ timeout: 15000 })
         })
 
-        await test.step('create an alert with severity filter', async () => {
-            await page.getByRole('button', { name: 'New alert' }).click()
-            await expect(page.locator(formModal)).toBeVisible()
+        await test.step('navigate to the new alert page', async () => {
+            await page.getByRole('link', { name: 'New alert' }).click()
+            await page.waitForURL('**/logs/alerts/new')
+        })
 
-            // Fill in name
-            await page.locator(formModal).getByPlaceholder('e.g. API 5xx errors').fill(alertName)
+        await test.step('set name — Create draft stays disabled until a filter is added', async () => {
+            await page.getByTestId('scene-name').locator('button').first().click()
+            await expect(page.getByTestId('scene-title-textarea')).toBeVisible()
+            await page.getByTestId('scene-title-textarea').fill(alertName)
+            await page.keyboard.press('Tab')
 
-            // Select severity — panels are already expanded via defaultActiveKeys
-            await page.locator(formModal).getByTestId('logs-severity-filter').click()
+            await expect(page.getByRole('button', { name: 'Create draft' })).toBeDisabled()
+        })
+
+        await test.step('add severity filter and create the draft', async () => {
+            await page.getByTestId('logs-severity-filter').click()
             await page.locator('[data-attr="logs-severity-option-error"]').click()
-            // Close dropdown by clicking elsewhere in the modal, not Escape (which closes the modal)
-            await page.locator(formModal).getByPlaceholder('e.g. API 5xx errors').click()
+            // Close the dropdown by clicking the Filters heading
+            await page.getByRole('heading', { name: 'Filters' }).click()
 
-            // Submit the form
-            await page.locator(formModal).getByRole('button', { name: 'Create alert' }).click()
+            await expect(page.getByRole('button', { name: 'Create draft' })).toBeEnabled()
+            await page.getByRole('button', { name: 'Create draft' }).click()
 
-            // Assert modal closes and success toast
-            await expect(page.locator(formModal)).not.toBeVisible()
-            await expect(page.getByText('Alert created')).toBeVisible()
+            await page.waitForURL('**/logs/alerts/019d-created-alert-id')
+            await expect(page.getByText('Draft alert created')).toBeVisible()
         })
 
-        await test.step('verify alert appears in list', async () => {
-            await expect(page.getByRole('button', { name: alertName })).toBeVisible()
+        await test.step('detail page shows persisted name and settings', async () => {
+            await expect(page.getByTestId('scene-name')).toContainText(alertName)
+            // exact: true avoids matching the "This alert is disabled — no checks are running." banner
+            await expect(page.getByText('Disabled', { exact: true })).toBeVisible()
+            // Wait for the form to load, then check severity persisted from creation
+            await expect(page.getByTestId('logs-severity-filter')).toContainText('Error', { ignoreCase: true })
+            // Threshold count persists from the creation payload (default: 100)
+            await expect(page.locator('input[type="number"]').first()).toHaveValue('100')
+            // Save is disabled — no changes have been made since load
+            await expect(page.getByRole('button', { name: 'Save' })).toBeDisabled()
         })
 
-        await test.step('edit modal populates persisted values', async () => {
-            await page.getByRole('button', { name: alertName }).click()
-            await expect(page.locator(formModal)).toBeVisible()
-            await expect(page.getByRole('heading', { name: 'Edit alert' })).toBeVisible()
+        await test.step('edit threshold and save', async () => {
+            // The threshold input is the first number spinbutton in the form (Rules section)
+            const thresholdInput = page.locator('input[type="number"]').first()
+            await thresholdInput.fill('50')
+            await page.keyboard.press('Tab')
 
-            // Verify name is populated
-            await expect(page.locator(formModal).getByPlaceholder('e.g. API 5xx errors')).toHaveValue(alertName)
-
-            // Verify severity filter shows "Error" (not "All levels")
-            await expect(page.locator(formModal).getByTestId('logs-severity-filter')).toContainText('error', {
-                ignoreCase: true,
-            })
-
-            // Verify save button is disabled (no changes)
-            await expect(page.locator(formModal).getByRole('button', { name: 'Save' })).toBeDisabled()
-        })
-
-        await test.step('edit the alert name and save', async () => {
-            const updatedName = alertName + '-updated'
-            await page.locator(formModal).getByPlaceholder('e.g. API 5xx errors').fill(updatedName)
-
-            // Save button should now be enabled
-            const saveButton = page.locator(formModal).getByRole('button', { name: 'Save' })
+            const saveButton = page.getByRole('button', { name: 'Save' })
             await expect(saveButton).toBeEnabled()
             await saveButton.click()
 
-            // Assert modal closes and success toast
-            await expect(page.locator(formModal)).not.toBeVisible()
             await expect(page.getByText('Alert updated')).toBeVisible()
-
-            // Verify updated name in list
-            await expect(page.getByRole('button', { name: updatedName })).toBeVisible()
+            // Wait for the form to reload before proceeding to delete
+            await expect(saveButton).toBeDisabled()
         })
 
         await test.step('delete the alert', async () => {
             await page.locator('[aria-label="more"]').click()
             await page.getByRole('menuitem', { name: 'Delete' }).click()
 
-            // Confirm in the deletion dialog
             await page.getByRole('dialog').getByRole('button', { name: 'Delete' }).click()
 
-            // Assert success
             await expect(page.getByText('Alert deleted')).toBeVisible()
-            await expect(page.getByText('No alerts configured yet.')).toBeVisible()
+            // Verify navigation back to the alerts list
+            await page.waitForURL(/logs.*activeTab=alerts/)
         })
     })
 })

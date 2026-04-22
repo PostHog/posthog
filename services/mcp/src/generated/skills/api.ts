@@ -133,7 +133,20 @@ export const LlmSkillsNamePartialUpdateBody = /* @__PURE__ */ zod.object({
     body: zod
         .string()
         .optional()
-        .describe('Full skill body (SKILL.md instruction content) to publish as a new version.'),
+        .describe(
+            'Full skill body (SKILL.md instruction content) to publish as a new version. Mutually exclusive with edits.'
+        ),
+    edits: zod
+        .array(
+            zod.object({
+                old: zod.string().describe('Text to find in the current skill body. Must match exactly once.'),
+                new: zod.string().describe('Replacement text.'),
+            })
+        )
+        .optional()
+        .describe(
+            "List of find/replace operations to apply to the current skill body. Each edit's 'old' text must match exactly once. Edits are applied sequentially. Mutually exclusive with body."
+        ),
     description: zod
         .string()
         .max(llmSkillsNamePartialUpdateBodyDescriptionMax)

@@ -29,6 +29,7 @@ from ..facade.contracts import (
     ApproveRunRequestInput,
     CreateRepoInput,
     CreateRunInput,
+    QuarantineInput,
     UpdateRepoInput,
     UpdateRepoRequestInput,
 )
@@ -42,12 +43,15 @@ from .serializers import (
     CreateRunInputSerializer,
     CreateRunResultSerializer,
     MarkToleratedInputSerializer,
+    QuarantinedIdentifierEntrySerializer,
+    QuarantineInputSerializer,
     RepoSerializer,
     ReviewStateCountsSerializer,
     RunSerializer,
     SnapshotHistoryEntrySerializer,
     SnapshotSerializer,
     ToleratedHashEntrySerializer,
+    UnquarantineQuerySerializer,
     UpdateRepoInputSerializer,
 )
 
@@ -63,8 +67,8 @@ class RepoViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     """
 
     scope_object = "visual_review"
-    scope_object_write_actions = ["create", "partial_update"]
-    scope_object_read_actions = ["list", "retrieve"]
+    scope_object_write_actions = ["create", "partial_update", "quarantine", "unquarantine"]
+    scope_object_read_actions = ["list", "retrieve", "list_quarantined"]
 
     @extend_schema(responses={200: RepoSerializer(many=True)})
     def list(self, request: Request, **kwargs) -> Response:
@@ -119,6 +123,62 @@ class RepoViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         except api.RepoNotFoundError:
             return Response({"detail": "Repo not found"}, status=status.HTTP_404_NOT_FOUND)
         return Response(RepoSerializer(instance=repo).data)
+
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                name="identifier", type=str, required=False, description="Filter by identifier (returns full history)"
+            ),
+            OpenApiParameter(name="run_type", type=str, required=False, description="Filter by run type"),
+        ],
+        responses={200: QuarantinedIdentifierEntrySerializer(many=True)},
+    )
+    @action(detail=True, methods=["get"], url_path="quarantine")
+    def list_quarantined(self, request: Request, pk: str, **kwargs) -> Response:
+        """List quarantined identifiers. Without filter: active only. With identifier: full history."""
+        identifier = request.query_params.get("identifier")
+        run_type = request.query_params.get("run_type")
+        entries = api.list_quarantined(UUID(pk), team_id=self.team_id, identifier=identifier, run_type=run_type)
+        page = self.paginate_queryset(entries)
+        if page is not None:
+            serializer = QuarantinedIdentifierEntrySerializer(instance=page, many=True)
+            return self.get_paginated_response(serializer.data)
+        return Response(QuarantinedIdentifierEntrySerializer(instance=entries, many=True).data)
+
+    @validated_request(
+        request_serializer=QuarantineInputSerializer,
+        responses={201: OpenApiResponse(response=QuarantinedIdentifierEntrySerializer)},
+    )
+    @action(detail=True, methods=["post"], url_path=r"quarantine/(?P<run_type>[^/]+)")
+    def quarantine(self, request: TypedRequest[QuarantineInput], pk: str, run_type: str, **kwargs) -> Response:
+        """Quarantine a snapshot identifier for a specific run type."""
+        try:
+            entry = api.quarantine_identifier(
+                repo_id=UUID(pk),
+                run_type=run_type,
+                input=request.validated_data,
+                user_id=cast(int, request.user.id),
+                team_id=self.team_id,
+            )
+        except api.RepoNotFoundError:
+            return Response({"detail": "Repo not found"}, status=status.HTTP_404_NOT_FOUND)
+        return Response(QuarantinedIdentifierEntrySerializer(instance=entry).data, status=status.HTTP_201_CREATED)
+
+    @validated_request(
+        query_serializer=UnquarantineQuerySerializer,
+        responses={204: None},
+    )
+    @action(detail=True, methods=["delete"], url_path=r"quarantine/(?P<run_type>[^/]+)")
+    def unquarantine(self, request: Request, pk: str, run_type: str, **kwargs) -> Response:
+        """Remove an identifier from quarantine."""
+        identifier = request.validated_query_data["identifier"]
+        try:
+            api.unquarantine_identifier(
+                repo_id=UUID(pk), identifier=identifier, run_type=run_type, team_id=self.team_id
+            )
+        except api.RepoNotFoundError:
+            return Response({"detail": "Repo not found"}, status=status.HTTP_404_NOT_FOUND)
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 @extend_schema(tags=[VISUAL_REVIEW_TAG])

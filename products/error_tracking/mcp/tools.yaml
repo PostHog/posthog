@@ -256,7 +256,17 @@ tools:
             filters, sampling rate, and disabled state. Supports pagination with `limit` and `offset`.
     error-tracking-suppression-rules-create:
         operation: error_tracking_suppression_rules_create
-        enabled: false
+        enabled: true
+        scopes:
+            - error_tracking:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Create error tracking suppression rule
+        description: >
+            Create an error tracking suppression rule for the current project. Provide optional `filters` and
+            optional `sampling_rate`; omit `filters` to create a match-all suppression rule.
     error-tracking-suppression-rules-reorder-partial-update:
         operation: error_tracking_suppression_rules_reorder_partial_update
         enabled: false

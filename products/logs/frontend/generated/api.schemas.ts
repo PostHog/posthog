@@ -153,6 +153,28 @@ export const LogsAlertConfigurationStateEnumApi = {
     Broken: 'broken',
 } as const
 
+export interface LogsAlertSparklineBucketApi {
+    /** Bucket start timestamp (UTC, hourly). */
+    timestamp: string
+    /** Count of breached checks in this hour. */
+    breached: number
+    /** Count of errored checks in this hour. */
+    errored: number
+    /** Count of checks that transitioned the alert from firing to resolved in this hour. */
+    resolved: number
+}
+
+/**
+ * * `slack` - slack
+ * `webhook` - webhook
+ */
+export type DestinationTypesEnumApi = (typeof DestinationTypesEnumApi)[keyof typeof DestinationTypesEnumApi]
+
+export const DestinationTypesEnumApi = {
+    Slack: 'slack',
+    Webhook: 'webhook',
+} as const
+
 export interface LogsAlertConfigurationApi {
     /** Unique identifier for this alert. */
     readonly id: string
@@ -232,6 +254,10 @@ export interface LogsAlertConfigurationApi {
      * @nullable
      */
     readonly last_error_message: string | null
+    /** 24 hourly buckets of breached + errored check counts for the last 24h, ordered oldest-first. Drives the activity column on the alert list — empty sparkline = healthy alert. Ok checks are not included: retention caps OK rows at MAX_EVALUATION_PERIODS (~50min at 5-min cadence), so only events that survive the prune (breached + errored) are meaningful over a 24h window. */
+    readonly sparkline: readonly LogsAlertSparklineBucketApi[]
+    /** Notification destination types configured for this alert — e.g. 'slack', 'webhook'. Empty list means no notifications will fire. One or more destinations should be added after creating an alert. */
+    readonly destination_types: readonly DestinationTypesEnumApi[]
     /** When the alert was created. */
     readonly created_at: string
     readonly created_by: UserBasicApi
@@ -330,6 +356,10 @@ export interface PatchedLogsAlertConfigurationApi {
      * @nullable
      */
     readonly last_error_message?: string | null
+    /** 24 hourly buckets of breached + errored check counts for the last 24h, ordered oldest-first. Drives the activity column on the alert list — empty sparkline = healthy alert. Ok checks are not included: retention caps OK rows at MAX_EVALUATION_PERIODS (~50min at 5-min cadence), so only events that survive the prune (breached + errored) are meaningful over a 24h window. */
+    readonly sparkline?: readonly LogsAlertSparklineBucketApi[]
+    /** Notification destination types configured for this alert — e.g. 'slack', 'webhook'. Empty list means no notifications will fire. One or more destinations should be added after creating an alert. */
+    readonly destination_types?: readonly DestinationTypesEnumApi[]
     /** When the alert was created. */
     readonly created_at?: string
     readonly created_by?: UserBasicApi
@@ -344,10 +374,9 @@ export interface PatchedLogsAlertConfigurationApi {
  * * `slack` - slack
  * `webhook` - webhook
  */
-export type LogsAlertCreateDestinationTypeEnumApi =
-    (typeof LogsAlertCreateDestinationTypeEnumApi)[keyof typeof LogsAlertCreateDestinationTypeEnumApi]
+export type TypeC34EnumApi = (typeof TypeC34EnumApi)[keyof typeof TypeC34EnumApi]
 
-export const LogsAlertCreateDestinationTypeEnumApi = {
+export const TypeC34EnumApi = {
     Slack: 'slack',
     Webhook: 'webhook',
 } as const
@@ -357,7 +386,7 @@ export interface LogsAlertCreateDestinationApi {
 
 * `slack` - slack
 * `webhook` - webhook */
-    type: LogsAlertCreateDestinationTypeEnumApi
+    type: TypeC34EnumApi
     /** Integration ID for the Slack workspace. Required when type=slack. */
     slack_workspace_id?: number
     /** Slack channel ID. Required when type=slack. */
