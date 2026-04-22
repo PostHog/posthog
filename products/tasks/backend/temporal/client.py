@@ -256,58 +256,6 @@ def resume_task_in_cloud_workflow(run_id: str, workflow_id: str) -> None:
     )
 
 
-def execute_video_segment_clustering_workflow(team_id: int, skip_priming: bool = False) -> dict[str, Any]:
-    """
-    Execute the video segment clustering workflow for a single team synchronously.
-    Waits for the workflow to complete and returns the result.
-
-    Args:
-        team_id: Team ID to run clustering for
-        lookback_hours: How far back to look for segments. If None, uses default from constants.
-        skip_priming: If True, skip the session summarization priming step.
-    """
-    from datetime import datetime
-
-    from posthog.temporal.ai.video_segment_clustering.models import ClusteringWorkflowInputs
-
-    try:
-        workflow_id = f"video-segment-clustering-team-{team_id}-manual-{datetime.now().isoformat()}"
-
-        workflow_input = ClusteringWorkflowInputs(
-            team_id=team_id,
-            skip_priming=skip_priming,
-        )
-
-        logger.info("video_clustering_starting_workflow", extra={"workflow_id": workflow_id, "team_id": team_id})
-
-        client = sync_connect()
-        handle = asyncio.run(
-            client.start_workflow(
-                "video-segment-clustering",
-                workflow_input,
-                id=workflow_id,
-                id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
-                task_queue=settings.GENERAL_PURPOSE_TASK_QUEUE,
-                retry_policy=RetryPolicy(maximum_attempts=1),
-            )
-        )
-
-        logger.info(
-            "video_clustering_workflow_started_waiting",
-            extra={"workflow_id": workflow_id, "team_id": team_id},
-        )
-
-        # Wait for workflow completion and get result
-        result = asyncio.run(handle.result())
-
-        logger.info("video_clustering_workflow_completed", extra={"workflow_id": workflow_id, "team_id": team_id})
-        return {"workflow_id": workflow_id, "run_id": handle.result_run_id, **result}
-
-    except Exception as e:
-        logger.exception("video_clustering_workflow_failed", extra={"team_id": team_id, "error": str(e)})
-        raise
-
-
 def execute_posthog_code_agent_relay_workflow(
     run_id: str,
     text: str,

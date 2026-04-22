@@ -1,9 +1,9 @@
 from posthog.temporal import ai
-from posthog.temporal.ai.video_segment_clustering import (
-    VIDEO_SEGMENT_CLUSTERING_ACTIVITIES,
-    VIDEO_SEGMENT_CLUSTERING_WORKFLOWS,
-)
 from posthog.temporal.session_replay import session_summary
+from posthog.temporal.session_replay.summarization_sweep import (
+    SUMMARIZATION_SWEEP_ACTIVITIES,
+    SUMMARIZATION_SWEEP_WORKFLOWS,
+)
 
 from products.signals.backend.temporal import (
     ACTIVITIES as SIGNALS_PRODUCT_ACTIVITIES,
@@ -148,37 +148,40 @@ class TestSessionSummaryTemporalModuleIntegrity:
             )
 
 
-class TestVideoSegmentClusteringModuleIntegrity:
+class TestSummarizationSweepModuleIntegrity:
     def test_workflows_remain_unchanged(self):
-        """Ensure all expected video segment clustering workflows are present."""
+        """Ensure all expected summarization sweep workflows are present."""
         expected_workflows = [
-            "VideoSegmentClusteringWorkflow",
-            "VideoSegmentClusteringCoordinatorWorkflow",
+            "SummarizeTeamSessionsWorkflow",
+            "ReconcileSummarizationSchedulesWorkflow",
         ]
-        actual_workflow_names = [w.__name__ for w in VIDEO_SEGMENT_CLUSTERING_WORKFLOWS]
+        actual_workflow_names = [w.__name__ for w in SUMMARIZATION_SWEEP_WORKFLOWS]
         assert len(actual_workflow_names) == len(expected_workflows), (
             f"Workflow count mismatch. Expected {len(expected_workflows)}, got {len(actual_workflow_names)}. "
             "If you're adding/removing workflows, update this test accordingly."
         )
         for expected in expected_workflows:
             assert expected in actual_workflow_names, (
-                f"Workflow '{expected}' is missing from VIDEO_SEGMENT_CLUSTERING_WORKFLOWS."
+                f"Workflow '{expected}' is missing from SUMMARIZATION_SWEEP_WORKFLOWS."
             )
 
     def test_activities_remain_unchanged(self):
-        """Ensure all expected video segment clustering activities are present."""
+        """Ensure all expected summarization sweep activities are present."""
         expected_activities = [
-            "get_sessions_to_prime_activity",
-            "list_teams_with_session_analysis_signals_activity",
+            "find_sessions_for_team_activity",
+            "delete_team_schedule_activity",
+            "list_enabled_teams_activity",
+            "list_summarization_schedule_team_ids_activity",
+            "upsert_team_schedule_activity",
         ]
-        actual_activity_names = [a.__name__ for a in VIDEO_SEGMENT_CLUSTERING_ACTIVITIES]
+        actual_activity_names = [a.__name__ for a in SUMMARIZATION_SWEEP_ACTIVITIES]
         assert len(actual_activity_names) == len(expected_activities), (
             f"Activity count mismatch. Expected {len(expected_activities)}, got {len(actual_activity_names)}. "
             "If you're adding/removing activities, update this test accordingly."
         )
         for expected in expected_activities:
             assert expected in actual_activity_names, (
-                f"Activity '{expected}' is missing from VIDEO_SEGMENT_CLUSTERING_ACTIVITIES."
+                f"Activity '{expected}' is missing from SUMMARIZATION_SWEEP_ACTIVITIES."
             )
 
 
