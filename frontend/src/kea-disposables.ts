@@ -13,17 +13,18 @@ type DisposableEntry = {
     options: DisposableOptions
 }
 
+// Type for logic with disposables added
+type LogicWithCache = BuiltLogic & {
+    cache: { disposables?: DisposablesManager | null; [key: string]: any }
+}
+
 type DisposablesManager = {
     add: (setup: SetupFunction, key?: string, options?: DisposableOptions) => void
     dispose: (key: string) => boolean
     registry: Map<string, DisposableEntry>
     keyCounter: number
     logicPath: string
-}
-
-// Type for logic with disposables added
-type LogicWithCache = BuiltLogic & {
-    cache: { disposables?: DisposablesManager | null; [key: string]: any }
+    logic: LogicWithCache
 }
 
 // Global state for visibility tracking
@@ -62,6 +63,13 @@ const pauseAllDisposables = (): void => {
 
 const resumeAllDisposables = (): void => {
     globalVisibilityState.allManagers.forEach((manager) => {
+        // Skip managers whose owning logic is no longer mounted. Re-running setup would
+        // rebind timers/listeners to dispatch actions on a path that is no longer in the
+        // Redux store, producing `[KEA] Can not find path ...` errors. beforeUnmount will
+        // remove the manager from allManagers shortly; this guard covers the interim window.
+        if (!manager.logic.isMounted()) {
+            return
+        }
         manager.registry.forEach((entry) => {
             if (entry.options.pauseOnPageHidden !== false) {
                 const cleanup = safeSetup(entry.setup, manager.logicPath)
@@ -116,6 +124,7 @@ const initializeDisposablesManager = (logic: LogicWithCache): void => {
         registry: new Map(),
         keyCounter: 0,
         logicPath: logic.pathString,
+        logic,
         add: (setup: SetupFunction, key?: string, options?: DisposableOptions) => {
             const manager = getManager()
             const disposableKey = key ?? `__auto_${manager.keyCounter++}`

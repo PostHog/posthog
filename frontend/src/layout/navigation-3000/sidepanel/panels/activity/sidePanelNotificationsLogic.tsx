@@ -163,7 +163,13 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
                             : LEGACY_POLL_TIMEOUT
 
                         cache.disposables.add(() => {
-                            const timerId = window.setTimeout(actions.loadImportantChanges, pollTimeoutMilliseconds)
+                            const timerId = window.setTimeout(() => {
+                                // Guard against firing into an unmounted logic (e.g. cross-tab
+                                // visibility race re-scheduled the poll after unmount).
+                                if (sidePanelNotificationsLogic.isMounted()) {
+                                    actions.loadImportantChanges()
+                                }
+                            }, pollTimeoutMilliseconds)
                             return () => clearTimeout(timerId)
                         }, 'pollTimeout')
                     }
