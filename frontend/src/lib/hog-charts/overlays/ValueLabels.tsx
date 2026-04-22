@@ -28,6 +28,7 @@ function getMeasureCtx(): CanvasRenderingContext2D | null {
 
 interface Candidate {
     key: string
+    seriesIndex: number
     text: string
     x: number
     y: number
@@ -82,6 +83,7 @@ function buildCandidates(
             const width = ctx ? ctx.measureText(text).width : text.length * 6
             candidates.push({
                 key: `${s.key}-${dIdx}`,
+                seriesIndex: sIdx,
                 text,
                 x,
                 y,
@@ -99,15 +101,29 @@ function applyCollisionAvoidance(candidates: Candidate[], minGap: number): Candi
     if (candidates.length === 0) {
         return candidates
     }
-    const sorted = [...candidates].sort((a, b) => a.x - b.x)
+    // Collision is tracked per-series so labels from different series at the same x
+    // can both appear — mirrors the legacy chartjs-plugin-datalabels per-dataset behavior.
+    const bySeries: Map<number, Candidate[]> = new Map()
+    for (const c of candidates) {
+        const bucket = bySeries.get(c.seriesIndex)
+        if (bucket) {
+            bucket.push(c)
+        } else {
+            bySeries.set(c.seriesIndex, [c])
+        }
+    }
+
     const visible: Candidate[] = []
-    let lastRightEdge = -Infinity
-    for (const c of sorted) {
-        const halfWidth = c.width / 2
-        const leftEdge = c.x - halfWidth
-        if (leftEdge >= lastRightEdge + minGap) {
-            visible.push(c)
-            lastRightEdge = c.x + halfWidth
+    for (const group of bySeries.values()) {
+        group.sort((a, b) => a.x - b.x)
+        let lastRightEdge = -Infinity
+        for (const c of group) {
+            const halfWidth = c.width / 2
+            const leftEdge = c.x - halfWidth
+            if (leftEdge >= lastRightEdge + minGap) {
+                visible.push(c)
+                lastRightEdge = c.x + halfWidth
+            }
         }
     }
     return visible

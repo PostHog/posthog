@@ -56,20 +56,15 @@ describe('ValueLabels', () => {
         expect(divs.map((d) => d.textContent)).toEqual(['10', '20', '30', '40', '50'])
     })
 
-    it('formats with valueFormatter when provided', () => {
-        const series: Series[] = [{ key: 's', label: 'S', color: '#f00', data: [1000, 2000] }]
+    it.each<[string, ((value: number) => string) | undefined, number[], string[]]>([
+        ['no formatter → toLocaleString', undefined, [1234, 5678], [(1234).toLocaleString(), (5678).toLocaleString()]],
+        ['custom formatter', (v) => `$${(v / 1000).toFixed(1)}k`, [1000, 2000], ['$1.0k', '$2.0k']],
+    ])('formats labels: %s', (_name, formatter, data, expected) => {
+        const series: Series[] = [{ key: 's', label: 'S', color: '#f00', data }]
         const ctx = makeContext(series, { labels: ['Mon', 'Tue'] })
-        const { container } = renderInChart(ctx, <ValueLabels valueFormatter={(v) => `$${(v / 1000).toFixed(1)}k`} />)
+        const { container } = renderInChart(ctx, <ValueLabels valueFormatter={formatter} />)
         const divs = labelDivs(container)
-        expect(divs.map((d) => d.textContent)).toEqual(['$1.0k', '$2.0k'])
-    })
-
-    it('defaults to toLocaleString() when no formatter is provided', () => {
-        const series: Series[] = [{ key: 's', label: 'S', color: '#f00', data: [1234, 5678] }]
-        const ctx = makeContext(series, { labels: ['Mon', 'Tue'] })
-        const { container } = renderInChart(ctx, <ValueLabels />)
-        const divs = labelDivs(container)
-        expect(divs.map((d) => d.textContent)).toEqual([(1234).toLocaleString(), (5678).toLocaleString()])
+        expect(divs.map((d) => d.textContent)).toEqual(expected)
     })
 
     it('skips data points equal to zero', () => {
@@ -185,18 +180,18 @@ describe('ValueLabels', () => {
         expect(divs[0].style.top).toBe('192px')
     })
 
-    it('applies the series color as the label background', () => {
+    it('renders one label per series at the same x, each with its own color', () => {
         const series: Series[] = [
             { key: 'a', label: 'A', color: '#112233', data: [10] },
             { key: 'b', label: 'B', color: '#445566', data: [20] },
         ]
         const ctx = makeContext(series, { labels: ['Mon'] })
-        // Both series share x=60; only one label survives collision, but we
-        // can still assert it used one of the series colors.
+        // Collision avoidance is per-series so both labels should render.
         const { container } = renderInChart(ctx, <ValueLabels />)
         const divs = labelDivs(container)
-        expect(divs).toHaveLength(1)
-        expect(['rgb(17, 34, 51)', 'rgb(68, 85, 102)']).toContain(divs[0].style.backgroundColor)
+        expect(divs).toHaveLength(2)
+        const bgColors = divs.map((d) => d.style.backgroundColor).sort()
+        expect(bgColors).toEqual(['rgb(17, 34, 51)', 'rgb(68, 85, 102)'])
     })
 
     it('renders null when nothing survives filtering', () => {
