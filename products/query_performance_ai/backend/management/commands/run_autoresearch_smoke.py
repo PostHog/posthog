@@ -46,9 +46,12 @@ from products.tasks.backend.temporal.process_task.activities.run_autoresearch_ca
 _IDLE_TICK_INTERVAL_S = 20.0
 
 
-_DEFAULT_POSTHOG_URL = "http://host.docker.internal:8010"
-# 8010 is the bin/start default for dev. Override with --posthog-url if your
-# local app binds elsewhere.
+_DEFAULT_POSTHOG_URL = "http://host.docker.internal:8000"
+# Docker sandboxes reach the host via host.docker.internal. Port 8000 is the
+# direct Django dev server — NOT 8010, which is Caddy. Caddy returns empty
+# bodies for from-sandbox requests (see products/tasks/backend/services/docker_sandbox.py:
+# _transform_url_for_docker, which applies the same rewrite for POSTHOG_API_URL).
+# Override with --posthog-url if your local app binds elsewhere.
 
 
 class Command(BaseCommand):

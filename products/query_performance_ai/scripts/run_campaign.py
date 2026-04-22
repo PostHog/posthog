@@ -87,12 +87,32 @@ def check_proxy_reachable(posthog_url: str, token: str, cluster: str) -> None:
     )
     try:
         with urllib.request.urlopen(req, timeout=15) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
+            status = resp.status
+            raw = resp.read().decode("utf-8")
     except urllib.error.HTTPError as e:
         detail = e.read().decode("utf-8", "replace")[:500]
         raise CampaignError(f"proxy preflight {e.code} at {endpoint}: {detail}") from e
     except urllib.error.URLError as e:
         raise CampaignError(f"proxy unreachable at {endpoint}: {e}") from e
+
+    if not raw.strip():
+        # A 2xx with no body almost always means the request went to a reverse
+        # proxy that ate it — e.g. the PostHog dev Caddy on port 8010 is known
+        # to return empty bodies for Docker-originated requests. Flag it loudly
+        # rather than choking on json.loads a line later.
+        raise CampaignError(
+            f"proxy preflight got status={status} with an empty body from {endpoint}. "
+            "If --posthog-url points at Caddy (:8010), switch to the Django dev server "
+            "(:8000) — from the sandbox that's http://host.docker.internal:8000."
+        )
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError as e:
+        raise CampaignError(
+            f"proxy preflight returned non-JSON response (status={status}) at {endpoint}: "
+            f"{raw[:300]!r}"
+        ) from e
+
     log(f"proxy preflight OK ({data.get('elapsed_ms')}ms, query_id={data.get('query_id')})")
 
 
@@ -193,13 +213,68 @@ def run_pi_campaign(workspace: Path) -> None:
     ``pi`` picks up ``autoresearch.config.json`` from ``cwd``. We run it from
     the directory above the workspace because that's where campaign init
     dropped the config (matching pi-autoresearch's reference layout).
+
+    Before invoking pi, we print the Anthropic env vars pi will inherit —
+    the whole chain (gateway routing, token auth) depends on pi's Anthropic
+    SDK picking up ``ANTHROPIC_BASE_URL``. If a 401 from Anthropic lands
+    before these lines print, you know env inheritance broke. If the env
+    vars print correctly but pi still ends up hitting ``api.anthropic.com``,
+    pi is overriding the baseURL in its own SDK client construction.
     """
     cwd = workspace.parent
     config_path = cwd / "autoresearch.config.json"
     if not config_path.is_file():
         raise CampaignError(f"missing {config_path}; campaign init must run first")
+
+    anthropic_base = os.environ.get("ANTHROPIC_BASE_URL", "<unset>")
+    anthropic_key = os.environ.get("ANTHROPIC_API_KEY") or ""
+    anthropic_key_prefix = anthropic_key[:10] or "<unset>"
+    log(f"pi env: ANTHROPIC_BASE_URL={anthropic_base}")
+    log(f"pi env: ANTHROPIC_API_KEY={anthropic_key_prefix}...")
+
+    # Preflight the gateway's Anthropic-compat endpoint with the exact same
+    # headers pi's Anthropic SDK will use. Three-way diagnostic:
+    #   success → pi's auth path works; if pi still fails, pi is overriding
+    #             the baseURL or passing different headers.
+    #   401/403 → gateway is reachable but rejecting our OAuth token; check
+    #             scopes (need llm_gateway:read) or gateway's auth config.
+    #   connection refused / timeout → gateway isn't reachable at that URL.
+    if anthropic_base != "<unset>" and anthropic_key:
+        _preflight_anthropic_gateway(anthropic_base, anthropic_key)
+
     log(f"invoking pi campaign (cwd={cwd})")
     run(["pi", "/skill::clickhouse-autoresearch-campaign"], cwd=cwd)
+
+
+def _preflight_anthropic_gateway(base_url: str, api_key: str) -> None:
+    """POST a 1-token /v1/messages to base_url with x-api-key=api_key."""
+    endpoint = base_url.rstrip("/") + "/v1/messages"
+    body = json.dumps(
+        {
+            "model": "claude-sonnet-4-5-20250929",
+            "max_tokens": 1,
+            "messages": [{"role": "user", "content": "ok"}],
+        }
+    ).encode("utf-8")
+    req = urllib.request.Request(
+        endpoint,
+        data=body,
+        method="POST",
+        headers={
+            "x-api-key": api_key,
+            "anthropic-version": "2023-06-01",
+            "Content-Type": "application/json",
+        },
+    )
+    log(f"preflighting Anthropic-compat endpoint: {endpoint}")
+    try:
+        with urllib.request.urlopen(req, timeout=20) as resp:
+            log(f"gateway preflight OK (status={resp.status})")
+    except urllib.error.HTTPError as e:
+        detail = e.read().decode("utf-8", "replace")[:500]
+        log(f"gateway preflight {e.code}: {detail}")
+    except urllib.error.URLError as e:
+        log(f"gateway unreachable at {endpoint}: {e}")
 
 
 def print_summary(workspace: Path) -> None:
