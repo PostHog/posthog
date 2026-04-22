@@ -140,19 +140,54 @@ class TestQueryPerformanceProxyViewSet(APIBaseTest):
             assert "readonly" in payload["detail"]
             assert payload["code"] == 164
 
-    def test_clickhouse_connection_failure_becomes_502(self):
+    def test_clickhouse_error_detail_strips_stack_trace(self):
+        # ClickHouse exception messages embed a C++ stack trace after a
+        # marker. That's log-worthy server-side but a data-exfil risk if we
+        # echo it to the caller — CodeQL flagged this. The sanitizer keeps
+        # the first line (so agents can debug syntax errors) and drops the
+        # rest.
+        token = self._make_token(["clickhouse_perf:test_read"])
+        msg = (
+            "Code: 62. DB::Exception: Syntax error near 'FROOM'.\n"
+            "Stack trace (when copying this message, always include the lines below):\n"
+            "0. DB::Exception::Exception() @ 0xdeadbeef in /usr/bin/clickhouse\n"
+            "1. DB::parseQuery() @ 0xcafef00d in /usr/bin/clickhouse\n"
+        )
+        with patch(
+            "posthog.api.query_performance_proxy.sync_execute",
+            side_effect=InternalCHQueryError(msg, code=62),
+        ):
+            resp = self._post(
+                "/api/query_performance_proxy/execute-test/",
+                token=token,
+                body={"sql": "SELECT * FROOM events"},
+            )
+
+        payload = resp.json()
+        assert resp.status_code == 502
+        assert "Syntax error near 'FROOM'" in payload["detail"]
+        assert "Stack trace" not in payload["detail"]
+        assert "0xdeadbeef" not in payload["detail"]
+
+    def test_clickhouse_connection_failure_does_not_leak_exception_detail(self):
+        # A raw ConnectionRefusedError (or DNS / TLS failure) can embed
+        # host / port / cert internals. We log the full exception server
+        # side and return only a generic "unreachable" message.
         token = self._make_token(["clickhouse_perf:test_read"])
         with patch(
             "posthog.api.query_performance_proxy.sync_execute",
-            side_effect=ConnectionRefusedError("refused"),
+            side_effect=ConnectionRefusedError("refused: 10.0.0.42:9000 (internal-secret-host)"),
         ):
             resp = self._post(
                 "/api/query_performance_proxy/execute-test/",
                 token=token,
                 body={"sql": "SELECT 1"},
             )
+        payload = resp.json()
         assert resp.status_code == 502
-        assert "unreachable" in resp.json()["error"]
+        assert payload == {"error": "clickhouse unreachable"}
+        assert "10.0.0.42" not in str(payload)
+        assert "internal-secret-host" not in str(payload)
 
     # --- happy path --------------------------------------------------------
 

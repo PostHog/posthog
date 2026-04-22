@@ -33,6 +33,7 @@ from __future__ import annotations
 
 import json
 import time
+import logging
 
 from django.conf import settings
 
@@ -47,6 +48,8 @@ from posthog.auth import OAuthAccessTokenAuthentication
 from posthog.clickhouse.client import sync_execute
 from posthog.errors import InternalCHQueryError
 from posthog.permissions import APIScopePermission
+
+logger = logging.getLogger(__name__)
 
 
 class ExecuteRequestSerializer(serializers.Serializer):
@@ -123,13 +126,26 @@ def _run_autoresearch_query(sql: str) -> Response:
     try:
         rows = sync_execute(sql, settings=_QUERY_SETTINGS, sync_client=client, readonly=True, flush=False)
     except InternalCHQueryError as e:
+        # ClickHouse error messages often embed a C++ stack trace after a
+        # "Stack trace (when copying this message, always include the lines
+        # below):" marker. That's useful server-side but not something we
+        # want to hand back to the caller — the first line (the exception
+        # type + message) is enough for the agent to debug a bad query.
         return Response(
-            {"error": "clickhouse query failed", "detail": str(e)[:2000], "code": getattr(e, "code", None)},
+            {
+                "error": "clickhouse query failed",
+                "detail": _sanitize_ch_error_message(str(e)),
+                "code": getattr(e, "code", None),
+            },
             status=status.HTTP_502_BAD_GATEWAY,
         )
-    except Exception as e:
+    except Exception:
+        # Don't echo the exception — it can leak host/port/TLS internals
+        # (ConnectionRefusedError, SSL errors, DNS failures). Log it
+        # server-side so operators can still diagnose.
+        logger.exception("query_performance_proxy: failed to reach ClickHouse")
         return Response(
-            {"error": "clickhouse unreachable", "detail": str(e)[:2000]},
+            {"error": "clickhouse unreachable"},
             status=status.HTTP_502_BAD_GATEWAY,
         )
     elapsed_ms = (time.monotonic() - start) * 1000.0
@@ -160,3 +176,18 @@ def _cell(value: object) -> str:
     if value is None:
         return "\\N"
     return str(value)
+
+
+_STACK_TRACE_MARKER = "Stack trace"
+_MAX_ERROR_DETAIL = 500
+
+
+def _sanitize_ch_error_message(message: str) -> str:
+    """Strip the C++ stack trace ClickHouse appends to exception messages.
+
+    Server-side we keep the full thing via ``logger.exception``; callers get
+    just the first line(s) up to the stack-trace marker, bounded to avoid
+    returning arbitrary-length payloads.
+    """
+    truncated = message.split(_STACK_TRACE_MARKER, 1)[0].rstrip()
+    return truncated[:_MAX_ERROR_DETAIL]
