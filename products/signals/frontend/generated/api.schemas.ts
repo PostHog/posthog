@@ -112,6 +112,49 @@ export interface PatchedSignalSourceConfigApi {
     readonly status?: string | null
 }
 
+export interface _UserApi {
+    readonly id: number
+    readonly uuid: string
+    readonly first_name: string
+    readonly last_name: string
+    readonly email: string
+}
+
+/**
+ * * `P0` - P0
+ * `P1` - P1
+ * `P2` - P2
+ * `P3` - P3
+ * `P4` - P4
+ */
+export type AutostartPriorityEnumApi = (typeof AutostartPriorityEnumApi)[keyof typeof AutostartPriorityEnumApi]
+
+export const AutostartPriorityEnumApi = {
+    P0: 'P0',
+    P1: 'P1',
+    P2: 'P2',
+    P3: 'P3',
+    P4: 'P4',
+} as const
+
+export type BlankEnumApi = (typeof BlankEnumApi)[keyof typeof BlankEnumApi]
+
+export const BlankEnumApi = {
+    '': '',
+} as const
+
+export type NullEnumApi = (typeof NullEnumApi)[keyof typeof NullEnumApi]
+
+export const NullEnumApi = {} as const
+
+export interface SignalUserAutonomyConfigApi {
+    readonly id: string
+    readonly user: _UserApi
+    autostart_priority?: AutostartPriorityEnumApi | BlankEnumApi | NullEnumApi | null
+    readonly created_at: string
+    readonly updated_at: string
+}
+
 export type SignalsProcessingListParams = {
     /**
      * Number of results to return per page.

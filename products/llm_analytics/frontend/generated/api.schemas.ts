@@ -916,9 +916,9 @@ export const SummarizeTypeEnumApi = {
  * * `minimal` - minimal
  * `detailed` - detailed
  */
-export type ModeE35EnumApi = (typeof ModeE35EnumApi)[keyof typeof ModeE35EnumApi]
+export type DetailModeValueEnumApi = (typeof DetailModeValueEnumApi)[keyof typeof DetailModeValueEnumApi]
 
-export const ModeE35EnumApi = {
+export const DetailModeValueEnumApi = {
     Minimal: 'minimal',
     Detailed: 'detailed',
 } as const
@@ -933,7 +933,7 @@ export interface SummarizeRequestApi {
 
 * `minimal` - minimal
 * `detailed` - detailed */
-    mode?: ModeE35EnumApi
+    mode?: DetailModeValueEnumApi
     /** Data to summarize. For traces: {trace, hierarchy}. For events: {event}. Not required when using trace_id or generation_id. */
     data?: unknown
     /** Force regenerate summary, bypassing cache */
@@ -999,7 +999,7 @@ export interface BatchCheckRequestApi {
 
 * `minimal` - minimal
 * `detailed` - detailed */
-    mode?: ModeE35EnumApi
+    mode?: DetailModeValueEnumApi
     /**
      * LLM model used for cached summaries
      * @nullable

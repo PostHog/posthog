@@ -216,9 +216,9 @@ export interface PatchedHogFlowTemplateApi {
  * `active` - Active
  * `archived` - Archived
  */
-export type Status118EnumApi = (typeof Status118EnumApi)[keyof typeof Status118EnumApi]
+export type HogFlowStatusEnumApi = (typeof HogFlowStatusEnumApi)[keyof typeof HogFlowStatusEnumApi]
 
-export const Status118EnumApi = {
+export const HogFlowStatusEnumApi = {
     Draft: 'draft',
     Active: 'active',
     Archived: 'archived',
@@ -285,7 +285,7 @@ export interface HogFlowMinimalApi {
     readonly name: string | null
     readonly description: string
     readonly version: number
-    readonly status: Status118EnumApi
+    readonly status: HogFlowStatusEnumApi
     readonly created_at: string
     readonly created_by: UserBasicApi
     readonly updated_at: string
@@ -336,7 +336,7 @@ export interface HogFlowApi {
     name?: string | null
     description?: string
     readonly version: number
-    status?: Status118EnumApi
+    status?: HogFlowStatusEnumApi
     readonly created_at: string
     readonly created_by: UserBasicApi
     readonly updated_at: string
@@ -363,7 +363,7 @@ export interface PatchedHogFlowApi {
     name?: string | null
     description?: string
     readonly version?: number
-    status?: Status118EnumApi
+    status?: HogFlowStatusEnumApi
     readonly created_at?: string
     readonly created_by?: UserBasicApi
     readonly updated_at?: string

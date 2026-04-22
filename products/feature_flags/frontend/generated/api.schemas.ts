@@ -364,9 +364,9 @@ export interface FeatureFlagFilterPropertyExistsSchemaApi {
  * `is_date_before` - is_date_before
  * `is_date_after` - is_date_after
  */
-export type Operator382EnumApi = (typeof Operator382EnumApi)[keyof typeof Operator382EnumApi]
+export type DateOperatorEnumApi = (typeof DateOperatorEnumApi)[keyof typeof DateOperatorEnumApi]
 
-export const Operator382EnumApi = {
+export const DateOperatorEnumApi = {
     IsDateExact: 'is_date_exact',
     IsDateBefore: 'is_date_before',
     IsDateAfter: 'is_date_after',
@@ -396,7 +396,7 @@ export interface FeatureFlagFilterPropertyDateSchemaApi {
 * `is_date_exact` - is_date_exact
 * `is_date_after` - is_date_after
 * `is_date_before` - is_date_before */
-    operator: Operator382EnumApi
+    operator: DateOperatorEnumApi
     /** Date value in ISO format or relative date expression. */
     value: string
 }

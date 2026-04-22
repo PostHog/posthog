@@ -144,18 +144,17 @@ export const CreationModeEnumApi = {
  * * `21` - Everyone in the project can edit
  * `37` - Only those invited to this dashboard can edit
  */
-export type EffectivePrivilegeLevelEnumApi =
-    (typeof EffectivePrivilegeLevelEnumApi)[keyof typeof EffectivePrivilegeLevelEnumApi]
+export type RestrictionLevelEnumApi = (typeof RestrictionLevelEnumApi)[keyof typeof RestrictionLevelEnumApi]
 
-export const EffectivePrivilegeLevelEnumApi = {
+export const RestrictionLevelEnumApi = {
     Number21: 21,
     Number37: 37,
 } as const
 
-export type EffectiveRestrictionLevelEnumApi =
-    (typeof EffectiveRestrictionLevelEnumApi)[keyof typeof EffectiveRestrictionLevelEnumApi]
+export type EffectivePrivilegeLevelEnumApi =
+    (typeof EffectivePrivilegeLevelEnumApi)[keyof typeof EffectivePrivilegeLevelEnumApi]
 
-export const EffectiveRestrictionLevelEnumApi = {
+export const EffectivePrivilegeLevelEnumApi = {
     Number21: 21,
     Number37: 37,
 } as const
@@ -188,8 +187,8 @@ export interface DashboardBasicApi {
 
 * `21` - Everyone in the project can edit
 * `37` - Only those invited to this dashboard can edit */
-    readonly restriction_level: EffectivePrivilegeLevelEnumApi
-    readonly effective_restriction_level: EffectiveRestrictionLevelEnumApi
+    readonly restriction_level: RestrictionLevelEnumApi
+    readonly effective_restriction_level: EffectivePrivilegeLevelEnumApi
     readonly effective_privilege_level: EffectivePrivilegeLevelEnumApi
     /**
      * The effective access level the user has for this object
@@ -266,8 +265,8 @@ export interface DashboardApi {
      * @minimum 0
      * @maximum 32767
      */
-    restriction_level?: EffectivePrivilegeLevelEnumApi
-    readonly effective_restriction_level: EffectiveRestrictionLevelEnumApi
+    restriction_level?: RestrictionLevelEnumApi
+    readonly effective_restriction_level: EffectivePrivilegeLevelEnumApi
     readonly effective_privilege_level: EffectivePrivilegeLevelEnumApi
     /**
      * The effective access level the user has for this object
@@ -309,7 +308,7 @@ export interface DashboardCollaboratorApi {
      * @minimum 0
      * @maximum 32767
      */
-    level: EffectivePrivilegeLevelEnumApi
+    level: RestrictionLevelEnumApi
     readonly added_at: string
     readonly updated_at: string
     user_uuid: string
@@ -392,8 +391,8 @@ export interface PatchedDashboardApi {
      * @minimum 0
      * @maximum 32767
      */
-    restriction_level?: EffectivePrivilegeLevelEnumApi
-    readonly effective_restriction_level?: EffectiveRestrictionLevelEnumApi
+    restriction_level?: RestrictionLevelEnumApi
+    readonly effective_restriction_level?: EffectivePrivilegeLevelEnumApi
     readonly effective_privilege_level?: EffectivePrivilegeLevelEnumApi
     /**
      * The effective access level the user has for this object

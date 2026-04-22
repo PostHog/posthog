@@ -503,9 +503,9 @@ export interface FeatureFlagFilterPropertyExistsSchemaApi {
  * `is_date_before` - is_date_before
  * `is_date_after` - is_date_after
  */
-export type Operator382EnumApi = (typeof Operator382EnumApi)[keyof typeof Operator382EnumApi]
+export type DateOperatorEnumApi = (typeof DateOperatorEnumApi)[keyof typeof DateOperatorEnumApi]
 
-export const Operator382EnumApi = {
+export const DateOperatorEnumApi = {
     IsDateExact: 'is_date_exact',
     IsDateBefore: 'is_date_before',
     IsDateAfter: 'is_date_after',
@@ -535,7 +535,7 @@ export interface FeatureFlagFilterPropertyDateSchemaApi {
 * `is_date_exact` - is_date_exact
 * `is_date_after` - is_date_after
 * `is_date_before` - is_date_before */
-    operator: Operator382EnumApi
+    operator: DateOperatorEnumApi
     /** Date value in ISO format or relative date expression. */
     value: string
 }
@@ -813,15 +813,15 @@ export const SurveyOpenQuestionSchemaTypeEnumApi = {
 } as const
 
 /**
- * * `text` - text
- * `html` - html
+ * * `html` - html
+ * `text` - text
  */
 export type DescriptionContentTypeEnumApi =
     (typeof DescriptionContentTypeEnumApi)[keyof typeof DescriptionContentTypeEnumApi]
 
 export const DescriptionContentTypeEnumApi = {
-    Text: 'text',
     Html: 'html',
+    Text: 'text',
 } as const
 
 export interface SurveyOpenQuestionSchemaApi {
@@ -1100,9 +1100,9 @@ export type SurveyQuestionInputSchemaApi =
  * `regex` - regex
  * `not_regex` - not_regex
  */
-export type HrefMatchingEnumApi = (typeof HrefMatchingEnumApi)[keyof typeof HrefMatchingEnumApi]
+export type StringMatchOperatorEnumApi = (typeof StringMatchOperatorEnumApi)[keyof typeof StringMatchOperatorEnumApi]
 
-export const HrefMatchingEnumApi = {
+export const StringMatchOperatorEnumApi = {
     Exact: 'exact',
     IsNot: 'is_not',
     Icontains: 'icontains',
@@ -1152,7 +1152,7 @@ export interface SurveyConditionsSchemaApi {
 * `is_not` - is_not
 * `icontains` - icontains
 * `not_icontains` - not_icontains */
-    urlMatchType?: HrefMatchingEnumApi
+    urlMatchType?: StringMatchOperatorEnumApi
     events?: SurveyEventsConditionSchemaApi
     /** Device types that should match for this survey to be shown. */
     deviceTypes?: DeviceTypesEnumApi[]
@@ -1164,22 +1164,10 @@ export interface SurveyConditionsSchemaApi {
 * `is_not` - is_not
 * `icontains` - icontains
 * `not_icontains` - not_icontains */
-    deviceTypesMatchType?: HrefMatchingEnumApi
+    deviceTypesMatchType?: StringMatchOperatorEnumApi
     /** The variant of the feature flag linked to this survey. */
     linkedFlagVariant?: string
 }
-
-/**
- * * `html` - html
- * `text` - text
- */
-export type ThankYouMessageDescriptionContentTypeEnumApi =
-    (typeof ThankYouMessageDescriptionContentTypeEnumApi)[keyof typeof ThankYouMessageDescriptionContentTypeEnumApi]
-
-export const ThankYouMessageDescriptionContentTypeEnumApi = {
-    Html: 'html',
-    Text: 'text',
-} as const
 
 /**
  * * `button` - button
@@ -1209,7 +1197,7 @@ export interface SurveyAppearanceSchemaApi {
     displayThankYouMessage?: boolean
     thankYouMessageHeader?: string
     thankYouMessageDescription?: string
-    thankYouMessageDescriptionContentType?: ThankYouMessageDescriptionContentTypeEnumApi
+    thankYouMessageDescriptionContentType?: DescriptionContentTypeEnumApi
     thankYouMessageCloseButtonText?: string
     borderColor?: string
     placeholder?: string

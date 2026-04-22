@@ -15,6 +15,7 @@ import type {
     PauseResponseApi,
     PauseUntilRequestApi,
     SignalSourceConfigApi,
+    SignalUserAutonomyConfigApi,
     SignalsProcessingListParams,
     SignalsSourceConfigsListParams,
 } from './api.schemas'
@@ -224,8 +225,11 @@ export const getUsersSignalAutonomyRetrieveUrl = (userId: string) => {
     return `/api/users/${userId}/signal_autonomy/`
 }
 
-export const usersSignalAutonomyRetrieve = async (userId: string, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getUsersSignalAutonomyRetrieveUrl(userId), {
+export const usersSignalAutonomyRetrieve = async (
+    userId: string,
+    options?: RequestInit
+): Promise<SignalUserAutonomyConfigApi> => {
+    return apiMutator<SignalUserAutonomyConfigApi>(getUsersSignalAutonomyRetrieveUrl(userId), {
         ...options,
         method: 'GET',
     })
@@ -242,10 +246,16 @@ export const getUsersSignalAutonomyCreateUrl = (userId: string) => {
     return `/api/users/${userId}/signal_autonomy/`
 }
 
-export const usersSignalAutonomyCreate = async (userId: string, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getUsersSignalAutonomyCreateUrl(userId), {
+export const usersSignalAutonomyCreate = async (
+    userId: string,
+    signalUserAutonomyConfigApi: NonReadonly<SignalUserAutonomyConfigApi>,
+    options?: RequestInit
+): Promise<SignalUserAutonomyConfigApi> => {
+    return apiMutator<SignalUserAutonomyConfigApi>(getUsersSignalAutonomyCreateUrl(userId), {
         ...options,
         method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(signalUserAutonomyConfigApi),
     })
 }
 

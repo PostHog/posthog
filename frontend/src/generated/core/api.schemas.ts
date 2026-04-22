@@ -161,10 +161,10 @@ export interface PatchedOrganizationDomainApi {
  * `8` - administrator
  * `15` - owner
  */
-export type EffectiveMembershipLevelEnumApi =
-    (typeof EffectiveMembershipLevelEnumApi)[keyof typeof EffectiveMembershipLevelEnumApi]
+export type OrganizationMembershipLevelEnumApi =
+    (typeof OrganizationMembershipLevelEnumApi)[keyof typeof OrganizationMembershipLevelEnumApi]
 
-export const EffectiveMembershipLevelEnumApi = {
+export const OrganizationMembershipLevelEnumApi = {
     Number1: 1,
     Number8: 8,
     Number15: 15,
@@ -240,7 +240,7 @@ export interface OrganizationInviteApi {
      * @minimum 0
      * @maximum 32767
      */
-    level?: EffectiveMembershipLevelEnumApi
+    level?: OrganizationMembershipLevelEnumApi
     /** Check if invite is older than INVITE_DAYS_VALIDITY days. */
     readonly is_expired: boolean
     readonly created_by: UserBasicApi
@@ -328,6 +328,15 @@ export type ProjectBackwardCompatApiProductIntentsItem = {
     onboarding_completed_at?: string | null
     updated_at?: string
 }
+
+export type EffectiveMembershipLevelEnumApi =
+    (typeof EffectiveMembershipLevelEnumApi)[keyof typeof EffectiveMembershipLevelEnumApi]
+
+export const EffectiveMembershipLevelEnumApi = {
+    Number1: 1,
+    Number8: 8,
+    Number15: 15,
+} as const
 
 /**
  * * `30d` - 30 Days
@@ -1453,14 +1462,6 @@ export interface TeamBasicApi {
     readonly access_control: boolean
 }
 
-export type MembershipLevelEnumApi = (typeof MembershipLevelEnumApi)[keyof typeof MembershipLevelEnumApi]
-
-export const MembershipLevelEnumApi = {
-    Number1: 1,
-    Number8: 8,
-    Number15: 15,
-} as const
-
 /**
  * * `0` - none
  * `3` - config
@@ -1504,7 +1505,7 @@ export interface OrganizationApi {
     logo_media_id?: string | null
     readonly created_at: string
     readonly updated_at: string
-    readonly membership_level: MembershipLevelEnumApi | null
+    readonly membership_level: EffectiveMembershipLevelEnumApi | null
     readonly plugins_access_level: PluginsAccessLevelEnumApi
     readonly teams: readonly OrganizationApiTeamsItem[]
     readonly projects: readonly OrganizationApiProjectsItem[]
@@ -1568,7 +1569,7 @@ export interface OrganizationBasicApi {
     slug: string
     /** @nullable */
     readonly logo_media_id: string | null
-    readonly membership_level: MembershipLevelEnumApi | null
+    readonly membership_level: EffectiveMembershipLevelEnumApi | null
     members_can_use_personal_api_keys?: boolean
     /**
      * Set this to 'No' to temporarily disable an organization.

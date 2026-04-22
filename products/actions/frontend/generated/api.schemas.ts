@@ -76,9 +76,9 @@ export const PropertyFilterTypeEnumApi = {
  * `regex` - regex
  * `not_regex` - not_regex
  */
-export type HrefMatchingEnumApi = (typeof HrefMatchingEnumApi)[keyof typeof HrefMatchingEnumApi]
+export type StringMatchOperatorEnumApi = (typeof StringMatchOperatorEnumApi)[keyof typeof StringMatchOperatorEnumApi]
 
-export const HrefMatchingEnumApi = {
+export const StringMatchOperatorEnumApi = {
     Exact: 'exact',
     IsNot: 'is_not',
     Icontains: 'icontains',
@@ -133,7 +133,7 @@ export interface StringPropertyFilterApi {
 * `not_icontains` - not_icontains
 * `regex` - regex
 * `not_regex` - not_regex */
-    operator?: HrefMatchingEnumApi
+    operator?: StringMatchOperatorEnumApi
 }
 
 /**
@@ -273,9 +273,9 @@ export interface ArrayPropertyFilterApi {
  * `is_date_before` - is_date_before
  * `is_date_after` - is_date_after
  */
-export type Operator382EnumApi = (typeof Operator382EnumApi)[keyof typeof Operator382EnumApi]
+export type DateOperatorEnumApi = (typeof DateOperatorEnumApi)[keyof typeof DateOperatorEnumApi]
 
-export const Operator382EnumApi = {
+export const DateOperatorEnumApi = {
     IsDateExact: 'is_date_exact',
     IsDateBefore: 'is_date_before',
     IsDateAfter: 'is_date_after',
@@ -324,7 +324,7 @@ export interface DatePropertyFilterApi {
 * `is_date_exact` - is_date_exact
 * `is_date_before` - is_date_before
 * `is_date_after` - is_date_after */
-    operator?: Operator382EnumApi
+    operator?: DateOperatorEnumApi
 }
 
 /**
@@ -393,9 +393,9 @@ export type ActionStepPropertyFilterApi =
  * `regex` - regex
  * `exact` - exact
  */
-export type UrlMatchingEnumApi = (typeof UrlMatchingEnumApi)[keyof typeof UrlMatchingEnumApi]
+export type ActionStepMatchingEnumApi = (typeof ActionStepMatchingEnumApi)[keyof typeof ActionStepMatchingEnumApi]
 
-export const UrlMatchingEnumApi = {
+export const ActionStepMatchingEnumApi = {
     Contains: 'contains',
     Regex: 'regex',
     Exact: 'exact',
@@ -438,7 +438,7 @@ export interface ActionStepJSONApi {
 * `contains` - contains
 * `regex` - regex
 * `exact` - exact */
-    text_matching?: UrlMatchingEnumApi | NullEnumApi | null
+    text_matching?: ActionStepMatchingEnumApi | NullEnumApi | null
     /**
      * Link href attribute to match.
      * @nullable
@@ -449,7 +449,7 @@ export interface ActionStepJSONApi {
 * `contains` - contains
 * `regex` - regex
 * `exact` - exact */
-    href_matching?: UrlMatchingEnumApi | NullEnumApi | null
+    href_matching?: ActionStepMatchingEnumApi | NullEnumApi | null
     /**
      * Page URL to match.
      * @nullable
@@ -460,7 +460,7 @@ export interface ActionStepJSONApi {
 * `contains` - contains
 * `regex` - regex
 * `exact` - exact */
-    url_matching?: UrlMatchingEnumApi | NullEnumApi | null
+    url_matching?: ActionStepMatchingEnumApi | NullEnumApi | null
 }
 
 /**
