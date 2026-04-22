@@ -24,8 +24,6 @@ pub enum Destination {
 /// What happened when a publish attempt resolved.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Outcome {
-    /// Pre-resolution default for metrics emitted before outcome is known.
-    InFlight,
     Success,
     Timeout,
     RetriableError,
@@ -35,7 +33,6 @@ pub enum Outcome {
 impl Outcome {
     pub fn as_tag(&self) -> &'static str {
         match self {
-            Self::InFlight => "in_flight",
             Self::Success => "success",
             Self::Timeout => "timeout",
             Self::RetriableError => "retriable_error",
@@ -63,7 +60,7 @@ pub trait SinkResult: Send + Sync {
 
     /// Time between batch enqueue and this event's ack completion.
     /// None if the event never entered the ack path (immediate error).
-    fn elapsed(&self) -> Option<chrono::Duration>;
+    fn elapsed(&self) -> Option<std::time::Duration>;
 }
 
 // ---------------------------------------------------------------------------
@@ -110,7 +107,6 @@ impl BatchSummary {
                         *errors.entry(tag.to_string()).or_default() += 1;
                     }
                 }
-                Outcome::InFlight => {}
             }
         }
 
