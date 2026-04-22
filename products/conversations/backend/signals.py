@@ -15,11 +15,21 @@ from posthog.models.comment import Comment
 
 from .cache import invalidate_messages_cache, invalidate_tickets_cache
 from .events import capture_message_received, capture_message_sent
-from .models import Ticket
+from .models import EmailChannel, Ticket
 from .models.constants import Channel
 from .tasks import post_reply_to_slack, send_email_reply
 
 logger = structlog.get_logger(__name__)
+
+
+def _get_ticket_customer_email(ticket: Ticket) -> str:
+    if ticket.email_from:
+        return ticket.email_from
+    if isinstance(ticket.anonymous_traits, dict):
+        email = ticket.anonymous_traits.get("email")
+        if isinstance(email, str):
+            return email.strip()
+    return ""
 
 
 def _is_private_message(item_context: dict | None) -> bool:
@@ -281,14 +291,16 @@ def post_slack_reply_on_team_message(sender, instance: Comment, created: bool, *
 @receiver(post_save, sender=Comment)
 def send_email_reply_on_team_message(sender, instance: Comment, created: bool, **kwargs):
     """
-    When a team member replies to an email-sourced ticket, send the reply
-    back to the customer via email through a Celery task.
+    When a team member replies to an email-sourced ticket, or to a widget ticket
+    with a known customer email, send the reply back to the customer via email
+    through a Celery task.
 
     Only triggers for:
     - Newly created comments (not edits)
     - Non-private messages
     - Messages with a created_by (team member, not customer)
     - Tickets with channel_source="email"
+    - Tickets with channel_source="widget" and anonymous_traits.email present
     """
     if instance.scope != "conversations_ticket":
         return
@@ -317,19 +329,39 @@ def send_email_reply_on_team_message(sender, instance: Comment, created: bool, *
 
     def do_send_email():
         try:
-            ticket = Ticket.objects.filter(
-                id=item_id,
-                team_id=team_id,
-                channel_source=Channel.EMAIL,
-            ).first()
-
-            if not ticket or not ticket.email_from:
+            ticket = Ticket.objects.select_related("team", "email_config").filter(id=item_id, team_id=team_id).first()
+            if not ticket or ticket.channel_source not in (Channel.EMAIL, Channel.WIDGET):
                 return
 
-            team = ticket.team
-            settings_dict = team.conversations_settings or {}
+            customer_email = _get_ticket_customer_email(ticket)
+            if not customer_email:
+                return
+
+            settings_dict = ticket.team.conversations_settings or {}
             if not settings_dict.get("email_enabled"):
                 return
+
+            if ticket.channel_source == Channel.WIDGET and ticket.email_config_id is None:
+                email_config = (
+                    EmailChannel.objects.filter(team_id=team_id, domain_verified=True).order_by("created_at").first()
+                )
+                if not email_config:
+                    return
+
+                update_fields: list[str] = []
+                ticket.email_config = email_config
+                update_fields.append("email_config")
+                if ticket.email_from != customer_email:
+                    ticket.email_from = customer_email
+                    update_fields.append("email_from")
+                if not ticket.email_subject:
+                    ticket.email_subject = "Your support request"
+                    update_fields.append("email_subject")
+                if update_fields:
+                    ticket.save(update_fields=[*update_fields, "updated_at"])
+            elif ticket.email_from != customer_email:
+                ticket.email_from = customer_email
+                ticket.save(update_fields=["email_from", "updated_at"])
 
             author_name = ""
             if created_by:
