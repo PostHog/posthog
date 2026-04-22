@@ -5,7 +5,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "1105_alter_oauthapplication_authorization_grant_type"),
+        ("posthog", "1114_integration_repository_cache_and_more"),
     ]
 
     operations = [
