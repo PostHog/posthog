@@ -2043,6 +2043,12 @@ class LocalEvaluationResponseSerializer(serializers.Serializer):
     )
 
 
+# ClickHouse cost attribution: this viewset currently has no direct ClickHouse calls —
+# all ClickHouse work is delegated to helpers (user_blast_radius.py, flag_analytics.py)
+# that already tag their queries. If you add a new ClickHouse query reachable from an
+# action on this viewset, wrap it with tag_queries(product=Product.FEATURE_FLAGS,
+# feature=Feature.QUERY, team_id=self.team_id) so query_log attribution stays correct.
+# See posthog/models/feature_flag/user_blast_radius.py for the pattern.
 @extend_schema(tags=[ProductKey.FEATURE_FLAGS])
 class FeatureFlagViewSet(
     ApprovalHandlingMixin,

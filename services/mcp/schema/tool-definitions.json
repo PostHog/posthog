@@ -430,5 +430,33 @@
             "openWorldHint": false,
             "readOnlyHint": true
         }
+    },
+    "external-data-sources-db-schema": {
+        "description": "Validate source credentials and return the available tables from the remote database. Use this before creating a source to verify connectivity and discover tables. Pass source_type and credential fields in the payload object. The response includes per-table: available sync methods (incremental, full_refresh, append, cdc), available incremental fields with types, detected primary keys, available columns with types and nullability, and row counts. Present all of this to the user so they can configure each table before creation: which tables to sync, sync method, incremental field (and type), and primary key overrides.",
+        "category": "Data warehouse",
+        "feature": "data_warehouse",
+        "summary": "Preview remote database schema before creating a source.",
+        "title": "Preview remote database schema",
+        "required_scopes": ["external_data_source:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "external-data-sources-jobs": {
+        "description": "List sync job history for a data warehouse source. Returns jobs sorted by most recent first, with status, duration, rows synced, and errors. Supports optional filtering by date range (after/before as ISO timestamps) and by schema name.",
+        "category": "Data warehouse",
+        "feature": "data_warehouse",
+        "summary": "List sync job history for a source with optional date and schema filters.",
+        "title": "List sync jobs for a source",
+        "required_scopes": ["external_data_source:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": false,
+            "readOnlyHint": true
+        }
     }
 }
