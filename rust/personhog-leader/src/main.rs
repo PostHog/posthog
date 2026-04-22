@@ -125,6 +125,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         tracing::info!("PG fallback enabled");
         let pool_config = common_database::PoolConfig {
             max_connections: config.fallback_pg_max_connections,
+            min_connections: config.fallback_pg_min_connections,
             pool_name: Some("personhog-leader-fallback".to_string()),
             statement_timeout_ms: Some(5_000),
             ..Default::default()

@@ -32,6 +32,11 @@ pub struct Config {
     #[envconfig(default = "5")]
     pub fallback_pg_max_connections: u32,
 
+    /// Keep at least this many connections warm so the first cache-miss
+    /// after a quiet period doesn't pay the TCP+auth handshake tax.
+    #[envconfig(default = "1")]
+    pub fallback_pg_min_connections: u32,
+
     // ── etcd coordination ────────────────────────────────────────
     #[envconfig(default = "http://localhost:2379")]
     pub etcd_endpoints: String,
