@@ -13,8 +13,6 @@ import { BehavioralEventType, CohortType, FilterLogicalOperator, PropertyFilterT
 import { phantomFingerprintIssueStateLogic } from '../../logics/phantomFingerprintIssueStateLogic'
 import type { issueActionsLogicType } from './issueActionsLogicType'
 
-// Phantom state only exists when the issues list or issue detail is mounted.
-// No-ops elsewhere so we don't force-mount it from every issue action.
 const phantomActions = ():
     | NonNullable<ReturnType<typeof phantomFingerprintIssueStateLogic.findMounted>>['asyncActions']
     | undefined => phantomFingerprintIssueStateLogic.findMounted()?.asyncActions
