@@ -160,6 +160,7 @@ async def test_ensure_ssl_root_cert_file(postgres_config, setup_postgres_test_db
         assert check_file_deleted.exists() is False
 
 
+@pytest.mark.parametrize("integration", [True], indirect=True)
 async def test_client_from_integration(postgres_config, setup_postgres_test_db, integration):
     """Assert client can be initialized from integration."""
     pq_integration = PostgreSQLIntegration(integration)

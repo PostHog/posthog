@@ -7,6 +7,8 @@ import pytest_asyncio
 
 from posthog.models import Integration
 
+from products.batch_exports.backend.tests.temporal.destinations.postgres.utils import make_integration
+
 
 @pytest.fixture
 def postgres_config():
@@ -86,23 +88,14 @@ async def postgres_batch_export(ateam, table_name, postgres_config, interval, ex
 
 
 @pytest_asyncio.fixture
-async def integration(ateam, postgres_config) -> Integration:
-    host = postgres_config["host"]
-    port = postgres_config["port"]
-    user = postgres_config["user"]
+async def integration(request, ateam, postgres_config) -> Integration | None:
+    try:
+        use_integration = request.param
+    except Exception:
+        return None
 
-    integration = await Integration.objects.acreate(
-        team_id=ateam.pk,
-        kind=Integration.IntegrationKind.POSTGRESQL,
-        integration_id=f"{ateam.id}-{host}-{port}-{user}",
-        config={
-            "host": host,
-            "port": port,
-            "user": user,
-            "ssl_mode": "prefer",
-        },
-        sensitive_config={
-            "password": postgres_config["password"],
-        },
-    )
+    if not use_integration:
+        return None
+
+    integration = await make_integration(ateam.pk, postgres_config)
     return integration
