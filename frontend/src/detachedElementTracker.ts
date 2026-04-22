@@ -20,6 +20,20 @@ interface MemLensScanner {
     start: () => void
     stop: () => void
     dispose: () => void
+    scan: () => MemLensScanResult
+}
+
+export interface MemLensScanSummary {
+    totalElements: number
+    totalDetachedElements: number
+    detachedComponents: Record<string, number>
+    allComponents: Record<string, number>
+}
+
+declare global {
+    interface Window {
+        __memlensScan?: () => MemLensScanSummary
+    }
 }
 
 export function shouldCaptureDetachedElements(currentCount: number, previousCount: number | null): boolean {
@@ -74,6 +88,18 @@ export function startDetachedElementTracking(posthog: Capturable): void {
                 scanIntervalMs: SCAN_INTERVAL_MS,
                 trackEventListenerLeaks: false,
             })
+
+            if (window.POSTHOG_APP_CONTEXT?.preflight?.is_debug) {
+                window.__memlensScan = () => {
+                    const result = scan.scan()
+                    return {
+                        totalElements: result.totalElements,
+                        totalDetachedElements: result.totalDetachedElements,
+                        detachedComponents: Object.fromEntries(result.detachedComponentToFiberNodeCount),
+                        allComponents: Object.fromEntries(result.componentToFiberNodeCount),
+                    }
+                }
+            }
 
             let previousDetachedCount: number | null = null
 

@@ -13,6 +13,7 @@ declare module '@memlab/lens/dist/memlens.lib.bundle.js' {
         start: () => void
         stop: () => void
         dispose: () => void
+        scan: () => MemLensScanResult
     }
 
     interface MemLensScanOptions {
