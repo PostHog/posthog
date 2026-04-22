@@ -96,8 +96,12 @@ export function InsightViz({
     const disableHeader = embedded || !(query.showHeader ?? showIfFull)
     const disableTable = embedded || !(query.showTable ?? showIfFull)
     const disableCorrelationTable = embedded || !(query.showCorrelationTable ?? showIfFull)
-    const disableLastComputation = true // shown in the tabs row (InsightsNav)
-    const disableLastComputationRefresh = true
+    // In edit mode on the insight scene the tabs row renders ComputationTimeWithRefresh,
+    // so suppress the inline copy there to avoid duplication.
+    const shownInTabsRow = editMode && !embedded && !(query.embedded ?? false)
+    const disableLastComputation = shownInTabsRow || embedded || !(query.showLastComputation ?? showIfFull)
+    const disableLastComputationRefresh =
+        shownInTabsRow || embedded || !(query.showLastComputationRefresh ?? showIfFull)
     const showingFilters = query.showFilters ?? editMode ?? false
     const showingResults = query.showResults ?? true
     const isEmbedded = embedded || (query.embedded ?? false)

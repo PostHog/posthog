@@ -254,7 +254,7 @@ test.describe('Trends insights', () => {
         await test.step('switch to line chart and set axis format to Percentage to verify % in details', async () => {
             await insight.trends.selectChartType(/^Line chart(?! \()/)
             await insight.trends.waitForDetailsTable()
-            await insight.trends.openOptionsPanel()
+            await insight.trends.openOptionsMenu()
             const formatPicker = page.getByTestId('chart-aggregation-axis-format')
             await formatPicker.waitFor({ state: 'visible' })
             await formatPicker.click()
@@ -266,7 +266,7 @@ test.describe('Trends insights', () => {
         })
 
         await test.step('set axis format back to None and verify formatting is removed', async () => {
-            await insight.trends.openOptionsPanel()
+            await insight.trends.openOptionsMenu()
             const formatPicker = page.getByTestId('chart-aggregation-axis-format')
             await formatPicker.waitFor({ state: 'visible' })
             await formatPicker.click()
