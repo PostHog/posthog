@@ -103,7 +103,7 @@ export const agenticAuthorizeLogic = kea<agenticAuthorizeLogicType>([
                 if (!selectedOrgId) {
                     return []
                 }
-                return allTeams.filter((team) => String(team.organization) === String(selectedOrgId))
+                return allTeams.filter((team) => String(team.organization) === String(selectedOrgId) && !team.is_demo)
             },
         ],
         partnerName: [
