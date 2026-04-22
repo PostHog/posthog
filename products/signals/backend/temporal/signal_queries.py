@@ -39,6 +39,7 @@ def _ensure_tz_aware(value: Union[datetime, str]) -> datetime:
 # Shared query builders
 # ---------------------------------------------------------------------------
 
+
 def _deduped_signals_subquery(*, include_embedding: bool = False, extra_where: str | None = None) -> str:
     """Build the shared signal dedup subquery with an optional extra document_embeddings filter."""
     selected_columns = [
@@ -62,6 +63,11 @@ def _deduped_signals_subquery(*, include_embedding: bool = False, extra_where: s
           AND document_type = 'signal'{extra_where_clause}
         GROUP BY document_id
     """
+
+
+# Backwards-compatible aliases for callers that import the shared query constants directly.
+_DEDUPED_SIGNALS_SUBQUERY = _deduped_signals_subquery()
+_DEDUPED_SIGNALS_WITH_EMBEDDING_SUBQUERY = _deduped_signals_subquery(include_embedding=True)
 
 
 def _signals_for_report_query(*, include_deleted: bool = False, limit: int | None = None) -> str:
