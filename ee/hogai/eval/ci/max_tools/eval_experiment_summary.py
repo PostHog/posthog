@@ -35,6 +35,8 @@ from ee.hogai.eval.base import MaxPublicEval
 from ee.hogai.utils.types import AssistantNodeName, AssistantState
 from ee.models.assistant import Conversation
 
+_SUMMARY_PROMPT = "Summarize experiment {experiment_id}. What do the results show?"
+
 
 class EvalInput(TypedDict):
     input: str
@@ -495,42 +497,42 @@ async def eval_experiment_summary(call_agent_for_summary, pytestconfig):
         data=[
             EvalCase(
                 input=EvalInput(
-                    input="Summarize experiment {experiment_id}. What do the results show?",
+                    input=_SUMMARY_PROMPT,
                     mock_key="bayesian_significant",
                 ),
                 metadata={"test_type": "bayesian_significant"},
             ),
             EvalCase(
                 input=EvalInput(
-                    input="Summarize experiment {experiment_id}. What do the results show?",
+                    input=_SUMMARY_PROMPT,
                     mock_key="bayesian_non_significant",
                 ),
                 metadata={"test_type": "bayesian_non_significant"},
             ),
             EvalCase(
                 input=EvalInput(
-                    input="Summarize experiment {experiment_id}. What do the results show?",
+                    input=_SUMMARY_PROMPT,
                     mock_key="bayesian_goal_decrease",
                 ),
                 metadata={"test_type": "bayesian_goal_decrease"},
             ),
             EvalCase(
                 input=EvalInput(
-                    input="Summarize experiment {experiment_id}. What do the results show?",
+                    input=_SUMMARY_PROMPT,
                     mock_key="bayesian_mixed_metrics",
                 ),
                 metadata={"test_type": "bayesian_mixed_metrics"},
             ),
             EvalCase(
                 input=EvalInput(
-                    input="Summarize experiment {experiment_id}. What do the results show?",
+                    input=_SUMMARY_PROMPT,
                     mock_key="frequentist_significant",
                 ),
                 metadata={"test_type": "frequentist_significant"},
             ),
             EvalCase(
                 input=EvalInput(
-                    input="Summarize experiment {experiment_id}. What do the results show?",
+                    input=_SUMMARY_PROMPT,
                     mock_key="frequentist_non_significant",
                 ),
                 metadata={"test_type": "frequentist_non_significant"},
