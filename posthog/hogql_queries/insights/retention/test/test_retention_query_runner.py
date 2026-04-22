@@ -35,6 +35,7 @@ from posthog.constants import (
 )
 from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
 from posthog.hogql_queries.insights.retention.retention_query_runner import RetentionQueryRunner
+from posthog.hogql_queries.insights.retention.test.utils import pad, pluck
 from posthog.hogql_queries.insights.trends.breakdown import BREAKDOWN_OTHER_STRING_LABEL
 from posthog.models import Action, Cohort
 from posthog.models.group.util import create_group
@@ -58,27 +59,6 @@ def _create_signup_actions(team, user_and_timestamps):
 
 def _date(day, hour=5, month=0, minute=0):
     return datetime(2020, 6 + month, 10 + day, hour, minute).isoformat()
-
-
-def pluck(list_of_dicts, key, child_key=None):
-    return [pluck(d[key], child_key) if child_key else d[key] for d in list_of_dicts]
-
-
-def pad(retention_result: list[list[int]]) -> list[list[int]]:
-    """
-    changes the old 'triangle' format to the new 'matrix' format
-    after retention updates
-    """
-    result = []
-    max_length = max(len(row) for row in retention_result)
-
-    for row in retention_result:
-        if len(row) < max_length:
-            row.extend([0] * (max_length - len(row)))
-
-        result.append(row)
-
-    return result
 
 
 def _create_events(team, user_and_timestamps, event="$pageview"):
