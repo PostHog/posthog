@@ -223,12 +223,29 @@ class PosthogProxyTransport(Transport):
             elapsed_ms = round_trip_ms
 
         return TransportResult(
-            result_bytes=(data.get("result") or "").encode("utf-8"),
+            # Proxy returns rows as a native JSON list; serialize each row as
+            # a JSON line for on-disk diffing. The compare-results script
+            # sorts lines before comparison, so line order off the wire
+            # doesn't matter. JSON is round-trip safe for nulls / tabs /
+            # newlines embedded in values — TSV would need escaping.
+            result_bytes=_rows_to_jsonl_bytes(data.get("result")),
             elapsed_ms=float(elapsed_ms),
             rows_read=data.get("rows_read") if isinstance(data.get("rows_read"), int) else None,
             bytes_read=data.get("bytes_read") if isinstance(data.get("bytes_read"), int) else None,
             stdout=f"query_id={data.get('query_id')}",
         )
+
+
+def _rows_to_jsonl_bytes(rows: Any) -> bytes:
+    """Serialize a list of rows as newline-delimited JSON, bytes-encoded.
+
+    Each row becomes one JSON-encoded line. Empty result → empty bytes.
+    Non-list input (defensive — the proxy shouldn't send this) → empty.
+    """
+    if not isinstance(rows, list) or not rows:
+        return b""
+    lines = [json.dumps(row, separators=(",", ":"), sort_keys=True) for row in rows]
+    return ("\n".join(lines) + "\n").encode("utf-8")
 
 
 def _posthog_proxy_factory(config: dict[str, Any]) -> Transport:

@@ -152,11 +152,10 @@ def _run_autoresearch_query(sql: str) -> Response:
 
     return Response(
         {
-            # Autoresearch's baseline capture + per-run comparison rely on a
-            # stable text blob to diff across iterations. Tab-separated rows
-            # (newline-terminated) matches what the old ClickHouse HTTP
-            # interface returned so the comparator doesn't need to change.
-            "result": _rows_to_tsv(rows),
+            # Rows go out as native JSON — each row is a list of scalar
+            # values (None for NULL). The caller decides how to persist
+            # them for downstream diffing.
+            "result": rows if isinstance(rows, list) else [],
             "elapsed_ms": round(elapsed_ms, 3),
             "rows_read": len(rows) if isinstance(rows, list) else None,
             "bytes_read": None,
@@ -164,18 +163,6 @@ def _run_autoresearch_query(sql: str) -> Response:
         },
         status=status.HTTP_200_OK,
     )
-
-
-def _rows_to_tsv(rows: object) -> str:
-    if not isinstance(rows, list):
-        return ""
-    return "\n".join("\t".join(_cell(v) for v in row) for row in rows) + ("\n" if rows else "")
-
-
-def _cell(value: object) -> str:
-    if value is None:
-        return "\\N"
-    return str(value)
 
 
 _STACK_TRACE_MARKER = "Stack trace"

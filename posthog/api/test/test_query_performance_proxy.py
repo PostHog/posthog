@@ -191,7 +191,7 @@ class TestQueryPerformanceProxyViewSet(APIBaseTest):
 
     # --- happy path --------------------------------------------------------
 
-    def test_test_endpoint_proxies_select_and_serializes_rows(self):
+    def test_test_endpoint_returns_rows_as_native_json(self):
         token = self._make_token(["clickhouse_perf:test_read"])
 
         with patch("posthog.api.query_performance_proxy.sync_execute") as mocked:
@@ -204,9 +204,10 @@ class TestQueryPerformanceProxyViewSet(APIBaseTest):
 
         assert resp.status_code == 200, resp.content
         payload = resp.json()
-        # Rows are TSV-encoded to match the old HTTP interface; None → \N so
-        # autoresearch's result diffing stays stable.
-        assert payload["result"] == "1\ta\n2\t\\N\n"
+        # Rows come back as native JSON — no TSV escaping, nulls stay as null.
+        # Tuples from clickhouse-driver serialize as lists through DRF's JSON
+        # renderer.
+        assert payload["result"] == [[1, "a"], [2, None]]
         assert payload["rows_read"] == 2
         assert payload["bytes_read"] is None
         assert isinstance(payload["elapsed_ms"], int | float)
