@@ -7,6 +7,8 @@ on:
     pull_request:
     workflow_dispatch:
 
+permissions: {}
+
 jobs:
     changes:
         runs-on: ubuntu-24.04
@@ -211,3 +213,75 @@ jobs:
                   tags: ${{ github.ref == 'refs/heads/master' && format('ghcr.io/posthog/posthog-sandbox-notebook:master,ghcr.io/posthog/posthog-sandbox-notebook:{0}', github.sha) || format('ghcr.io/posthog/posthog-sandbox-notebook:{0}', github.sha) }}
                   platforms: linux/arm64,linux/amd64
                   build-args: COMMIT_HASH=${{ github.sha }}
+
+    notify_failure:
+        name: Notify Slack on master failure
+        needs: [changes, build_skills, sandbox_base_build]
+        if: |
+            always() &&
+            github.repository == 'PostHog/posthog' &&
+            github.event_name == 'push' &&
+            github.ref == 'refs/heads/master' &&
+            (
+                needs.changes.result == 'failure' ||
+                needs.build_skills.result == 'failure' ||
+                needs.sandbox_base_build.result == 'failure'
+            )
+        runs-on: ubuntu-latest
+        timeout-minutes: 5
+        permissions: {}
+
+        steps:
+            - name: Build failure summary
+              id: summary
+              env:
+                  CHANGES_RESULT: ${{ needs.changes.result }}
+                  BUILD_SKILLS_RESULT: ${{ needs.build_skills.result }}
+                  SANDBOX_BASE_BUILD_RESULT: ${{ needs.sandbox_base_build.result }}
+              run: |
+                  failed_jobs=()
+
+                  if [ "$CHANGES_RESULT" = "failure" ]; then
+                      failed_jobs+=("changes")
+                  fi
+
+                  if [ "$BUILD_SKILLS_RESULT" = "failure" ]; then
+                      failed_jobs+=("build_skills")
+                  fi
+
+                  if [ "$SANDBOX_BASE_BUILD_RESULT" = "failure" ]; then
+                      failed_jobs+=("sandbox_base_build")
+                  fi
+
+                  {
+                      echo "failed_jobs<<EOF"
+                      printf '%s, ' "${failed_jobs[@]}" | sed 's/, $//'
+                      echo "EOF"
+                  } >> "$GITHUB_OUTPUT"
+
+            - name: Notify Slack
+              uses: slackapi/slack-github-action@91efab103c0de0a537f72a35f6b8cda0ee76bf0a # v2.1.1
+              with:
+                  method: chat.postMessage
+                  token: ${{ secrets.SLACK_BOT_TOKEN }}
+                  payload: |
+                      channel: "C0ASEL8GJQM"
+                      text: ":warning: Tasks Sandbox Container Image CD failed on master"
+                      blocks:
+                        - type: "section"
+                          text:
+                            type: "mrkdwn"
+                            text: ":warning: *Tasks Sandbox Container Image CD failed on master*"
+                        - type: "section"
+                          fields:
+                            - type: "mrkdwn"
+                              text: "*Failed jobs*\n${{ steps.summary.outputs.failed_jobs }}"
+                            - type: "mrkdwn"
+                              text: "*Commit*\n`${{ github.sha }}`"
+                        - type: "actions"
+                          elements:
+                            - type: "button"
+                              text:
+                                type: "plain_text"
+                                text: "View run"
+                              url: "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
