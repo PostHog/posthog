@@ -100,6 +100,10 @@ export const productScenes: Record<string, () => Promise<any>> = {
     LLMAnalyticsClusters: () => import('../../products/llm_analytics/frontend/clusters/LLMAnalyticsClustersScene'),
     LLMAnalyticsCluster: () => import('../../products/llm_analytics/frontend/clusters/LLMAnalyticsClusterScene'),
     Logs: () => import('../../products/logs/frontend/LogsScene'),
+    LogsAlertNew: () =>
+        import('../../products/logs/frontend/scenes/LogsAlertNewScene/LogsAlertNewScene'),
+    LogsAlertDetail: () =>
+        import('../../products/logs/frontend/scenes/LogsAlertDetailScene/LogsAlertDetailScene'),
     ManagedMigration: () => import('../../products/managed_migrations/frontend/ManagedMigration'),
     ManagedMigrationNew: () => import('../../products/managed_migrations/frontend/ManagedMigration'),
     Metrics: () => import('../../products/metrics/frontend/MetricsScene'),
@@ -188,6 +192,8 @@ export const productRoutes: Record<string, [string, string]> = {
     '/llm-analytics/clusters/:runId': ['LLMAnalyticsClusters', 'llmAnalyticsClusters'],
     '/llm-analytics/clusters/:runId/:clusterId': ['LLMAnalyticsCluster', 'llmAnalyticsCluster'],
     '/logs': ['Logs', 'logs'],
+    '/logs/alerts/new': ['LogsAlertNew', 'logsAlertNew'],
+    '/logs/alerts/:id': ['LogsAlertDetail', 'logsAlertDetail'],
     '/managed_migrations': ['ManagedMigration', 'managedMigration'],
     '/managed_migrations/new': ['ManagedMigration', 'managedMigration'],
     '/metrics': ['Metrics', 'metrics'],
@@ -460,6 +466,20 @@ export const productConfiguration: Record<string, any> = {
         layout: 'app-container',
         iconType: 'logs',
         description: 'Monitor and analyze your logs to understand and fix issues.',
+    },
+    LogsAlertNew: {
+        projectBased: true,
+        name: 'New log alert',
+        activityScope: ActivityScope.LOG,
+        layout: 'app-container',
+        iconType: 'logs',
+    },
+    LogsAlertDetail: {
+        projectBased: true,
+        name: 'Manage log alert',
+        activityScope: ActivityScope.LOG,
+        layout: 'app-container',
+        iconType: 'logs',
     },
     ManagedMigration: { name: 'Managed migrations', projectBased: true },
     ManagedMigrationNew: { name: 'Managed migrations', projectBased: true },
@@ -767,6 +787,9 @@ export const productUrls = {
     llmAnalyticsCluster: (runId: string, clusterId: number): string =>
         `/llm-analytics/clusters/${encodeURIComponent(runId)}/${clusterId}`,
     logs: (): string => '/logs',
+    logsAlertNew: (): string => '/logs/alerts/new',
+    logsAlertDetail: (id: string, tab?: string): string =>
+        tab ? `/logs/alerts/${id}?tab=${tab}` : `/logs/alerts/${id}`,
     managedMigration: (): string => '/managed_migrations',
     managedMigrationNew: (): string => '/managed_migrations/new',
     marketingAnalyticsApp: (): string => '/marketing',
