@@ -16,12 +16,21 @@ from posthog.models.data_deletion_request import (
     ExecutionMode,
     RequestStatus,
     RequestType,
+    compile_hogql_predicate,
     event_match_params,
     event_match_sql_fragment,
     jsonhas_expr,
 )
 
-CRITERIA_FIELDS = {"request_type", "events", "delete_all_events", "properties", "start_time", "end_time"}
+CRITERIA_FIELDS = {
+    "request_type",
+    "events",
+    "delete_all_events",
+    "properties",
+    "start_time",
+    "end_time",
+    "hogql_predicate",
+}
 CLICKHOUSE_TEAM_GROUP = "ClickHouse Team"
 
 
@@ -142,15 +151,31 @@ class DataDeletionRequestForm(forms.ModelForm):
         required=False,
         help_text="One property name per line. You can also paste a JSON array. Required for property removal requests.",
     )
+    hogql_predicate = forms.CharField(
+        required=False,
+        widget=forms.Textarea(attrs={"rows": 4, "style": "font-family: monospace; width: 100%;"}),
+        help_text="Optional HogQL boolean expression (validated against the events table). "
+        "Combined with the other filters via AND. Example: properties.$browser = 'Chrome'.",
+    )
 
     class Meta:
         model = DataDeletionRequest
         fields = "__all__"
 
 
+def _append_hogql_predicate(fragment: str, params: dict, obj) -> tuple[str, dict]:
+    """Append the compiled HogQL predicate (if any) to ``fragment`` and merge params."""
+    hogql_sql, hogql_values = compile_hogql_predicate(obj)
+    if not hogql_sql:
+        return fragment, params
+    combined = f"{fragment} AND ({hogql_sql})".strip() if fragment else f"AND ({hogql_sql})"
+    params.update(hogql_values)
+    return combined, params
+
+
 def _build_event_filter(obj) -> tuple[str, dict]:
     """Build the WHERE clause and params for matching events."""
-    return event_match_sql_fragment(obj), event_match_params(obj)
+    return _append_hogql_predicate(event_match_sql_fragment(obj), event_match_params(obj), obj)
 
 
 def _build_property_filter(obj) -> tuple[str, dict]:
@@ -169,7 +194,7 @@ def _build_property_filter(obj) -> tuple[str, dict]:
             params[f"fp_{i}_{j}"] = part
 
     filter_clause = f"{event_clause} {property_clause}".strip()
-    return filter_clause, params
+    return _append_hogql_predicate(filter_clause, params, obj)
 
 
 def _fetch_stats(team_id: int, extra_filter: str, params: dict) -> dict:
@@ -323,6 +348,7 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
                     "events",
                     "delete_all_events",
                     "properties",
+                    "hogql_predicate",
                     "notes",
                     "requires_approval",
                 ),
