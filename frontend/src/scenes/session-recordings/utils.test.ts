@@ -24,24 +24,29 @@ describe('session recording utils', () => {
     })
 
     describe('filtersFromUniversalFilterGroups', () => {
-        it('returns leaves from the canonical values: [{ values: [...] }] shape', () => {
-            const filters = withFilterGroup({
-                type: FilterLogicalOperator.And,
-                values: [{ type: FilterLogicalOperator.And, values: [event('a'), event('b'), event('c')] }],
-            })
-            expect(filtersFromUniversalFilterGroups(filters)).toEqual([event('a'), event('b'), event('c')])
-        })
-
-        it('flattens the broken per-event-group top-level shape seen in some saved filters', () => {
-            const filters = withFilterGroup({
-                type: FilterLogicalOperator.And,
-                values: [
-                    { type: FilterLogicalOperator.And, values: [] },
-                    { type: FilterLogicalOperator.And, values: [event('a')] },
-                    { type: FilterLogicalOperator.And, values: [event('b')] },
-                ],
-            })
-            expect(filtersFromUniversalFilterGroups(filters)).toEqual([event('a'), event('b')])
+        it.each([
+            [
+                'canonical values: [{ values: [...] }] shape',
+                {
+                    type: FilterLogicalOperator.And,
+                    values: [{ type: FilterLogicalOperator.And, values: [event('a'), event('b'), event('c')] }],
+                },
+                [event('a'), event('b'), event('c')],
+            ],
+            [
+                'broken per-event-group top-level shape seen in some saved filters',
+                {
+                    type: FilterLogicalOperator.And,
+                    values: [
+                        { type: FilterLogicalOperator.And, values: [] },
+                        { type: FilterLogicalOperator.And, values: [event('a')] },
+                        { type: FilterLogicalOperator.And, values: [event('b')] },
+                    ],
+                },
+                [event('a'), event('b')],
+            ],
+        ])('returns all leaves for the %s', (_label, filterGroup, expected) => {
+            expect(filtersFromUniversalFilterGroups(withFilterGroup(filterGroup))).toEqual(expected)
         })
     })
 })
