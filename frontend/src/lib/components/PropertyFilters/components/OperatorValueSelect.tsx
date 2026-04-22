@@ -248,9 +248,11 @@ export function OperatorValueSelect({
                             ) {
                                 // If the new operator is date and the value is not a valid date, clear it
                                 onChange(newOperator, null)
-                            } else if (isOperatorFlag(newOperator)) {
-                                onChange(newOperator, newOperator)
-                            } else if (isOperatorFlag(currentOperator || PropertyOperator.Exact)) {
+                            } else if (isOperatorFlag(newOperator) && !isOperatorFlag(currentOperator || PropertyOperator.Exact)) {
+                                // Only set default value when first switching TO flag operator
+                                onChange(newOperator, true)
+                            } else if (isOperatorFlag(currentOperator || PropertyOperator.Exact) && !isOperatorFlag(newOperator)) {
+                                // Only clear value when switching FROM flag operator to non-flag operator
                                 onChange(newOperator, null)
                             } else if (
                                 isOperatorMulti(currentOperator || PropertyOperator.Exact) &&
@@ -258,7 +260,7 @@ export function OperatorValueSelect({
                                 Array.isArray(value)
                             ) {
                                 onChange(newOperator, value[0])
-                            } else if (value) {
+                            } else if (value !== undefined) {
                                 onChange(newOperator, value)
                             }
                         }}
