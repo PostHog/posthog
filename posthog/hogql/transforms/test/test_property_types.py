@@ -228,17 +228,6 @@ class TestPropertyTypes(BaseTest):
 
 
 class TestJSONExtractToMaterializedColumn(ClickhouseTestMixin, BaseTest):
-    # Value semantics of JSONExtractString(properties, 'x') after the transform
-    # replaces the call with a mat_x column read:
-    # - Non-nullable mat columns: byte-equivalent to the raw JSONExtractString call.
-    #   PropertyType.skip_nullable_wrap=True keeps the printer from adding its usual
-    #   nullIf(nullIf(col, ''), 'null') wrap, and since the column's DEFAULT is the
-    #   same JSONExtractString call, unset/empty/'null' all round-trip unchanged.
-    # - Nullable mat columns: empty string and literal 'null' round-trip, but unset
-    #   keys return SQL NULL (the mat column uses JSONHas gating) where raw
-    #   JSONExtractString would return ''. Callers who need strict equivalence for
-    #   unset keys should wrap in ifNull(..., '') explicitly.
-    # See test_rewrite_value_semantics_* for the concrete matrix.
     def _print_select(self, select: str):
         expr = parse_select(select)
         query, _ = prepare_and_print_ast(
@@ -314,41 +303,27 @@ class TestJSONExtractToMaterializedColumn(ClickhouseTestMixin, BaseTest):
         return values, response.clickhouse or ""
 
     def test_rewrite_value_semantics_no_mat_column(self):
-        # Baseline: no materialized column, no rewrite. JSONExtractString returns ''
-        # for every non-string case (unset, empty string), and 'null' for the literal string.
         self._seed_edge_case_events()
         values, sql = self._run_and_collect()
-        # No rewrite — the raw JSONExtractString call stays in the compiled SQL.
         assert "JSONExtractString(events.properties" in sql, sql
         assert "mat_$browser" not in sql, sql
         assert values == {"set": "Chrome", "empty": "", "null_str": "null", "unset": ""}
 
     def test_rewrite_value_semantics_non_nullable_mat_column(self):
-        # Non-nullable mat column: the rewrite sets skip_nullable_wrap on the PropertyType,
-        # so the printer emits the bare mat column (no nullIf wrap). The mat column's
-        # DEFAULT expression is the same JSONExtractString call, so values round-trip
-        # exactly — this path is byte-equivalent to raw JSONExtractString.
         self._seed_edge_case_events()
         with materialized("events", "$browser", is_nullable=False):
             values, sql = self._run_and_collect()
-        # Rewrite fired: raw JSONExtractString on properties replaced by the bare mat
-        # column, no nullIf wrap around the mat column (thanks to skip_nullable_wrap).
-        # Other columns in the query (e.g. properties.tag) still use the standard
-        # nullIf-wrapped access path, so the assertion only targets mat_$browser.
         assert "JSONExtractString(events.properties" not in sql, sql
         assert "mat_$browser" in sql, sql
+        # Only target mat_$browser: properties.tag in the same query still uses the
+        # standard nullIf-wrapped access path.
         assert "nullIf(events.`mat_$browser`" not in sql, sql
         assert values == {"set": "Chrome", "empty": "", "null_str": "null", "unset": ""}
 
     def test_rewrite_value_semantics_nullable_mat_column(self):
-        # Nullable mat column: no nullIf wrapping. Empty string and the literal string 'null'
-        # round-trip unchanged. Only unset keys diverge from raw JSONExtractString: the mat
-        # column stores NULL for missing keys while raw extract returns ''.
         self._seed_edge_case_events()
         with materialized("events", "$browser", is_nullable=True):
             values, sql = self._run_and_collect()
-        # Rewrite fired: raw JSONExtractString replaced by the nullable mat column
-        # (nullable columns are already emitted raw by the printer).
         assert "JSONExtractString(events.properties" not in sql, sql
         assert "mat_$browser" in sql, sql
         assert values == {"set": "Chrome", "empty": "", "null_str": "null", "unset": None}
