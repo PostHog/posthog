@@ -849,8 +849,10 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
                 is_first_interval_after_start_event, intervals_from_base_array_aggregator
             )
 
-        data_warehouse = False
-        if not data_warehouse:
+        has_data_warehouse_series = (
+            self.start_event.kind == EntityType.DATA_WAREHOUSE or self.return_event.kind == EntityType.DATA_WAREHOUSE
+        )
+        if not has_data_warehouse_series:
             minimum_occurrences_aliases = self._get_minimum_occurrences_aliases(
                 minimum_occurrences=minimum_occurrences,
                 start_of_interval_sql=start_of_interval_sql,
@@ -1005,8 +1007,10 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
 
             return_entity_is_dwh = self.return_event.kind == EntityType.DATA_WAREHOUSE
 
-            return_actor_column_name = self.start_event.distinct_id_field if start_entity_is_dwh else self.target_field
-            return_actor_field = ast.Field(chain=[start_actor_column_name])
+            return_actor_column_name = (
+                self.return_event.distinct_id_field if return_entity_is_dwh else self.target_field
+            )
+            return_actor_field = ast.Field(chain=[return_actor_column_name])
 
             # start_timestamp_column_name = self.start_event.timestamp_field if start_entity_is_dwh else "timestamp"
             # start_timestamp_field = ast.Field(chain=[start_timestamp_column_name])
