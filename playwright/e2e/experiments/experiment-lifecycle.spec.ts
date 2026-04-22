@@ -88,13 +88,17 @@ test.describe('Experiment lifecycle', () => {
                 await expect(page.locator('[aria-current="step"]', { hasText: 'Analytics' })).toBeVisible()
                 await expect(page.getByText('How to measure impact?')).toBeVisible()
 
-                // This click occasionally doesn't produce a navigation. Possible causes:
-                // the click not reaching React's event handler after the step transition,
-                // or the backend response being slow. Retry until navigation confirms success.
-                await expect(async () => {
-                    await page.getByRole('button', { name: 'Save as draft' }).click()
-                    await page.waitForURL(/\/experiments\/\d+$/, { timeout: 5000 })
-                }).toPass({ timeout: 30000 })
+                // Synchronize on the POST response so a slow backend doesn't race the URL assertion.
+                // The retry-click loop that used to live here was a no-op: the kea listener guards
+                // against double-submission (isExperimentSubmitting), so re-clicking while the first
+                // POST is in flight does nothing.
+                const createResponse = page.waitForResponse(
+                    (resp) =>
+                        /\/api\/projects\/\d+\/experiments\/?$/.test(resp.url()) && resp.request().method() === 'POST'
+                )
+                await page.getByRole('button', { name: 'Save as draft' }).click()
+                await createResponse
+                await page.waitForURL(/\/experiments\/\d+$/)
                 await expect(page.getByTestId('launch-experiment')).toBeVisible()
 
                 // Verify the custom split is preserved
