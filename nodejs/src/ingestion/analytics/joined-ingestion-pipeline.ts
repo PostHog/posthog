@@ -10,7 +10,14 @@ import { GroupTypeManager } from '../../worker/ingestion/group-type-manager'
 import { BatchWritingGroupStore } from '../../worker/ingestion/groups/batch-writing-group-store'
 import { PersonsStore } from '../../worker/ingestion/persons/persons-store'
 import { EventFilterManager } from '../common/event-filters'
-import { AppMetricsOutput, DlqOutput, GroupsOutput, IngestionWarningsOutput, OverflowOutput } from '../common/outputs'
+import {
+    APP_METRICS_OUTPUT,
+    AppMetricsOutput,
+    DlqOutput,
+    GroupsOutput,
+    IngestionWarningsOutput,
+    OverflowOutput,
+} from '../common/outputs'
 import {
     EventFiltersBatchContext,
     createEventFiltersBatchAppMetricsBeforeBatchStep,
@@ -186,7 +193,8 @@ export function createJoinedIngestionPipeline<
         TContext,
         OverflowOutput | AsyncOutput
     >(
-        (beforeBatch) => beforeBatch.pipe(createEventFiltersBatchAppMetricsBeforeBatchStep(outputs)),
+        (beforeBatch) =>
+            beforeBatch.pipe(createEventFiltersBatchAppMetricsBeforeBatchStep(outputs.get(APP_METRICS_OUTPUT))),
         (batch) =>
             batch
                 .messageAware((b) =>

@@ -39,10 +39,10 @@ function testOutput(name: string, topic: string, producer: KafkaProducerWrapper)
 }
 
 export function createTestMonitoringOutputs(kafkaProducer: KafkaProducerWrapper) {
-    return new IngestionOutputs({
-        [APP_METRICS_OUTPUT]: testOutput(APP_METRICS_OUTPUT, KAFKA_APP_METRICS_2, kafkaProducer),
-        [LOG_ENTRIES_OUTPUT]: testOutput(LOG_ENTRIES_OUTPUT, KAFKA_LOG_ENTRIES, kafkaProducer),
-    })
+    return {
+        appMetricsOutput: testOutput(APP_METRICS_OUTPUT, KAFKA_APP_METRICS_2, kafkaProducer),
+        logEntriesOutput: testOutput(LOG_ENTRIES_OUTPUT, KAFKA_LOG_ENTRIES, kafkaProducer),
+    }
 }
 
 export function createTestIngestionOutputs(kafkaProducer: KafkaProducerWrapper) {

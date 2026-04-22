@@ -1,11 +1,11 @@
 import { Counter, Gauge, Histogram } from 'prom-client'
 
-import { AppMetricsService } from '~/common/services/app-metrics.service'
+import { AggregatingProducer } from '~/common/services/aggregating-producer'
+import { AppMetricInput, createAppMetricsProducer } from '~/common/services/app-metrics'
 import { InternalCaptureEvent, InternalCaptureService } from '~/common/services/internal-capture'
 import { instrumentFn } from '~/common/tracing/tracing-utils'
 import { KAFKA_WAREHOUSE_SOURCE_WEBHOOKS } from '~/config/kafka-topics'
-import { AppMetricsOutput, LOG_ENTRIES_OUTPUT, LogEntriesOutput } from '~/ingestion/common/outputs'
-import { IngestionOutputs } from '~/ingestion/outputs/ingestion-outputs'
+import { IngestionOutput } from '~/ingestion/outputs/ingestion-output'
 import { KafkaProducerWrapper } from '~/kafka/producer'
 
 import { safeClickhouseString } from '../../../utils/db/utils'
@@ -45,12 +45,14 @@ const hogFunctionMonitoringPendingEvents = new Gauge({
     help: 'Number of internal capture events queued and waiting to be flushed. High values indicate accumulation and potential memory leak.',
 })
 
-export type MonitoringOutput = AppMetricsOutput | LogEntriesOutput
-
 export type HogFunctionMonitoringMessage = {
-    output: LogEntriesOutput
     value: LogEntrySerialized
     headers?: Record<string, string>
+}
+
+export interface HogFunctionMonitoringOutputs {
+    appMetricsOutput: IngestionOutput
+    logEntriesOutput: IngestionOutput
 }
 
 // Check if the result is of type CyclotronJobInvocationHogFunction
@@ -66,16 +68,16 @@ export class HogFunctionMonitoringService {
     warehouseWebhookPayloads: WarehouseWebhookPayload[] = []
 
     private warehouseKafkaProducer?: KafkaProducerWrapper
-    private appMetricsService: AppMetricsService
+    private logEntriesOutput: IngestionOutput
+    private appMetricsProducer: AggregatingProducer<AppMetricInput>
 
     constructor(
-        private outputs: IngestionOutputs<MonitoringOutput>,
+        outputs: HogFunctionMonitoringOutputs,
         private internalCaptureService: InternalCaptureService,
         private teamManager: TeamManager
     ) {
-        // The shared service narrows the union to AppMetricsOutput and only ever
-        // calls outputs.queueMessages(APP_METRICS_OUTPUT, …), so this cast is safe.
-        this.appMetricsService = new AppMetricsService(outputs as unknown as IngestionOutputs<AppMetricsOutput>)
+        this.logEntriesOutput = outputs.logEntriesOutput
+        this.appMetricsProducer = createAppMetricsProducer(outputs.appMetricsOutput)
     }
 
     setWarehouseKafkaProducer(producer: KafkaProducerWrapper): void {
@@ -95,7 +97,7 @@ export class HogFunctionMonitoringService {
         this.warehouseWebhookPayloads = []
 
         await Promise.all([
-            this.appMetricsService.flush().catch((error) => {
+            this.appMetricsProducer.flush().catch((error) => {
                 // NOTE: We don't hard fail here — we don't want to disrupt the
                 // entire processing just for metrics.
                 logger.error('⚠️', `failed to flush app metrics: ${error}`, { error: String(error) })
@@ -103,19 +105,18 @@ export class HogFunctionMonitoringService {
             }),
             ...messages.map((x) => {
                 const value = x.value ? Buffer.from(safeClickhouseString(JSON.stringify(x.value))) : null
-                return this.outputs
-                    .produce(x.output, {
+                return this.logEntriesOutput
+                    .produce({
                         key: null,
                         value,
                         headers: x.headers,
                     })
-                    .catch((error) => {
+                    .catch((error: unknown) => {
                         // NOTE: We don't hard fail here - this is because we don't want to disrupt the
                         // entire processing just for metrics.
-                        logger.error('⚠️', `failed to produce message: ${error}`, {
+                        logger.error('⚠️', `failed to produce log entry: ${error}`, {
                             error: String(error),
                             messageLength: value?.length,
-                            output: x.output,
                             headers: x.headers,
                         })
 
@@ -152,7 +153,7 @@ export class HogFunctionMonitoringService {
     queueAppMetric(metric: MinimalAppMetric, source: MetricLogSource) {
         counterHogFunctionMetric.labels(metric.metric_kind, metric.metric_name).inc(metric.count)
 
-        this.appMetricsService.queueMetric({
+        this.appMetricsProducer.queue({
             team_id: metric.team_id,
             app_source: source,
             app_source_id: metric.app_source_id,
@@ -177,7 +178,6 @@ export class HogFunctionMonitoringService {
 
         logs.forEach((logEntry) => {
             this.messagesToProduce.push({
-                output: LOG_ENTRIES_OUTPUT,
                 value: logEntry,
             })
         })

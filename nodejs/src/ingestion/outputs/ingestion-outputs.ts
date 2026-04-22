@@ -24,6 +24,15 @@ export class IngestionOutputs<O extends string> {
     }
 
     /**
+     * Return a single resolved output by name. Used by callers that need to
+     * pass an individual `IngestionOutput` to a service that doesn't take the
+     * full registry (e.g. an aggregating producer wrapping one topic).
+     */
+    get(output: O): IngestionOutput {
+        return this.outputs[output]
+    }
+
+    /**
      * Check that all producers can reach their brokers.
      *
      * @param timeoutMs - Timeout for each broker connectivity check.

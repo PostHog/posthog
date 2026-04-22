@@ -8,8 +8,6 @@ import { CyclotronJobInvocationResult, HogFunctionInvocationGlobals, HogFunction
 import { isLegacyPluginHogFunction } from '../../cdp/utils'
 import type { CommonConfig } from '../../common/config'
 import { InternalCaptureService } from '../../common/services/internal-capture'
-import { AppMetricsOutput, LogEntriesOutput } from '../../ingestion/common/outputs'
-import { IngestionOutputs } from '../../ingestion/outputs/ingestion-outputs'
 import { PostgresRouter } from '../../utils/db/postgres'
 import { GeoIPService, GeoIp } from '../../utils/geoip'
 import { logger } from '../../utils/logger'
@@ -23,7 +21,10 @@ import { HogFunctionManagerService } from '../services/managers/hog-function-man
 import { IntegrationManagerService } from '../services/managers/integration-manager.service'
 import { EmailService } from '../services/messaging/email.service'
 import { RecipientTokensService } from '../services/messaging/recipient-tokens.service'
-import { HogFunctionMonitoringService } from '../services/monitoring/hog-function-monitoring.service'
+import {
+    HogFunctionMonitoringOutputs,
+    HogFunctionMonitoringService,
+} from '../services/monitoring/hog-function-monitoring.service'
 import { HogWatcherService, HogWatcherState } from '../services/monitoring/hog-watcher.service'
 import { EncryptedFields } from '../utils/encryption-utils'
 import { convertToHogFunctionFilterGlobal, filterFunctionInstrumented } from '../utils/hog-function-filtering'
@@ -411,7 +412,7 @@ export interface HogTransformerServiceDeps {
     pubSub: PubSub
     encryptedFields: EncryptedFields
     integrationManager: IntegrationManagerService
-    monitoringOutputs: IngestionOutputs<AppMetricsOutput | LogEntriesOutput>
+    monitoringOutputs: HogFunctionMonitoringOutputs
     teamManager: TeamManager
     internalCaptureService: InternalCaptureService
 }

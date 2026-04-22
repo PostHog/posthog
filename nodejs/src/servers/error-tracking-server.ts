@@ -19,7 +19,7 @@ import {
     getDefaultKafkaProducerEnvConfig,
     getDefaultKafkaWarpstreamProducerEnvConfig,
 } from '../ingestion/common/config'
-import { ProducerName } from '../ingestion/common/outputs'
+import { APP_METRICS_OUTPUT, LOG_ENTRIES_OUTPUT, ProducerName } from '../ingestion/common/outputs'
 import { createProducerRegistry } from '../ingestion/common/outputs/registry'
 import {
     DatabaseConnectionConfig,
@@ -178,7 +178,10 @@ export class ErrorTrackingServer implements NodeServer {
             pubSub: this.pubsub,
             encryptedFields,
             integrationManager,
-            monitoringOutputs: outputs,
+            monitoringOutputs: {
+                appMetricsOutput: outputs.get(APP_METRICS_OUTPUT),
+                logEntriesOutput: outputs.get(LOG_ENTRIES_OUTPUT),
+            },
             teamManager,
             internalCaptureService,
         }

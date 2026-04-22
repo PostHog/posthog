@@ -1,23 +1,24 @@
 import { createTestEventHeaders } from '../../../../tests/helpers/event-headers'
 import { getMetricValues, resetMetrics } from '../../../../tests/helpers/metrics'
 import { createTestTeam } from '../../../../tests/helpers/team'
-import { IngestionOutputs } from '../../outputs/ingestion-outputs'
+import { IngestionOutput } from '../../outputs/ingestion-output'
 import { isDropResult, isOkResult, ok } from '../../pipelines/results'
 import { EventFilterManager } from '../event-filters'
 import { EventFiltersBatchAppMetrics } from '../event-filters/batch-app-metrics'
 import { FilterNode } from '../event-filters/schema'
 import { and, cond, not, or } from '../event-filters/test-helpers'
-import { AppMetricsOutput } from '../outputs'
 import {
     createApplyEventFiltersStep,
     createEventFiltersBatchAppMetricsBeforeBatchStep,
     createFlushEventFiltersBatchAppMetricsStep,
 } from './event-filters-steps'
 
-const mockOutputs = {
+const mockOutput = {
+    produce: jest.fn().mockResolvedValue(undefined),
     queueMessages: jest.fn().mockResolvedValue(undefined),
-} as unknown as jest.Mocked<Pick<IngestionOutputs<AppMetricsOutput>, 'queueMessages'>> &
-    IngestionOutputs<AppMetricsOutput>
+    checkHealth: jest.fn().mockResolvedValue(undefined),
+    checkTopicExists: jest.fn().mockResolvedValue(undefined),
+} as unknown as jest.Mocked<IngestionOutput>
 
 function makePipelineContext(extra: Record<string, unknown> = {}) {
     return { sideEffects: [], warnings: [], ...extra }
@@ -29,7 +30,7 @@ describe('createEventFiltersBatchAppMetricsBeforeBatchStep', () => {
     })
 
     it('creates a batch metrics instance in the batch context', async () => {
-        const step = createEventFiltersBatchAppMetricsBeforeBatchStep(mockOutputs)
+        const step = createEventFiltersBatchAppMetricsBeforeBatchStep(mockOutput)
         const result = await step({
             elements: [{ result: ok({ foo: 1 }), context: makePipelineContext() }],
             batchId: 0,
@@ -43,7 +44,7 @@ describe('createEventFiltersBatchAppMetricsBeforeBatchStep', () => {
     })
 
     it('attaches the same batch metrics instance to each element', async () => {
-        const step = createEventFiltersBatchAppMetricsBeforeBatchStep(mockOutputs)
+        const step = createEventFiltersBatchAppMetricsBeforeBatchStep(mockOutput)
         const result = await step({
             elements: [
                 { result: ok({ a: 1 }), context: makePipelineContext() },
@@ -64,7 +65,7 @@ describe('createEventFiltersBatchAppMetricsBeforeBatchStep', () => {
     })
 
     it('preserves existing element values and context', async () => {
-        const step = createEventFiltersBatchAppMetricsBeforeBatchStep(mockOutputs)
+        const step = createEventFiltersBatchAppMetricsBeforeBatchStep(mockOutput)
         const result = await step({
             elements: [{ result: ok({ data: 'hello' }), context: makePipelineContext({ ctx: true }) }],
             batchId: 0,
@@ -91,7 +92,7 @@ describe('createApplyEventFiltersStep', () => {
 
     it('passes through when no filter exists for the team', async () => {
         mockManager.getFilter.mockReturnValue(null)
-        const metrics = new EventFiltersBatchAppMetrics(mockOutputs)
+        const metrics = new EventFiltersBatchAppMetrics(mockOutput)
         const step = createApplyEventFiltersStep(mockManager)
         const input = {
             team: createTestTeam({ id: 1 }),
@@ -111,7 +112,7 @@ describe('createApplyEventFiltersStep', () => {
             mode: 'live',
             filter_tree: cond('event_name', 'exact', '$internal'),
         })
-        const metrics = new EventFiltersBatchAppMetrics(mockOutputs)
+        const metrics = new EventFiltersBatchAppMetrics(mockOutput)
         const incrementSpy = jest.spyOn(metrics, 'increment')
         const step = createApplyEventFiltersStep(mockManager)
         const input = {
@@ -133,7 +134,7 @@ describe('createApplyEventFiltersStep', () => {
             mode: 'dry_run',
             filter_tree: cond('event_name', 'exact', '$internal'),
         })
-        const metrics = new EventFiltersBatchAppMetrics(mockOutputs)
+        const metrics = new EventFiltersBatchAppMetrics(mockOutput)
         const incrementSpy = jest.spyOn(metrics, 'increment')
         const step = createApplyEventFiltersStep(mockManager)
         const input = {
@@ -155,7 +156,7 @@ describe('createApplyEventFiltersStep', () => {
             mode: 'live',
             filter_tree: cond('event_name', 'exact', '$internal'),
         })
-        const metrics = new EventFiltersBatchAppMetrics(mockOutputs)
+        const metrics = new EventFiltersBatchAppMetrics(mockOutput)
         const incrementSpy = jest.spyOn(metrics, 'increment')
         const step = createApplyEventFiltersStep(mockManager)
         const input = {
@@ -176,7 +177,7 @@ describe('createApplyEventFiltersStep', () => {
             mode: 'live',
             filter_tree: cond('event_name', 'exact', '$internal'),
         })
-        const metrics = new EventFiltersBatchAppMetrics(mockOutputs)
+        const metrics = new EventFiltersBatchAppMetrics(mockOutput)
         const step = createApplyEventFiltersStep(mockManager)
 
         await step({
@@ -196,7 +197,7 @@ describe('createApplyEventFiltersStep', () => {
             mode: 'dry_run',
             filter_tree: cond('event_name', 'exact', '$internal'),
         })
-        const metrics = new EventFiltersBatchAppMetrics(mockOutputs)
+        const metrics = new EventFiltersBatchAppMetrics(mockOutput)
         const step = createApplyEventFiltersStep(mockManager)
 
         await step({
@@ -216,7 +217,7 @@ describe('createApplyEventFiltersStep', () => {
             mode: 'live',
             filter_tree: cond('event_name', 'exact', '$internal'),
         })
-        const metrics = new EventFiltersBatchAppMetrics(mockOutputs)
+        const metrics = new EventFiltersBatchAppMetrics(mockOutput)
         const step = createApplyEventFiltersStep(mockManager)
 
         await step({
@@ -231,7 +232,7 @@ describe('createApplyEventFiltersStep', () => {
 
     it('does not increment prometheus metric when no filter exists', async () => {
         mockManager.getFilter.mockReturnValue(null)
-        const metrics = new EventFiltersBatchAppMetrics(mockOutputs)
+        const metrics = new EventFiltersBatchAppMetrics(mockOutput)
         const step = createApplyEventFiltersStep(mockManager)
 
         await step({
@@ -472,7 +473,7 @@ describe('createApplyEventFiltersStep', () => {
             mode: 'live',
             filter_tree: filter,
         })
-        const metrics = new EventFiltersBatchAppMetrics(mockOutputs)
+        const metrics = new EventFiltersBatchAppMetrics(mockOutput)
         const step = createApplyEventFiltersStep(mockManager)
         const input = {
             team: createTestTeam({ id: 1 }),
@@ -496,7 +497,7 @@ describe('createFlushEventFiltersBatchAppMetricsStep', () => {
     })
 
     it('flushes batch metrics and returns flush as a side effect', async () => {
-        const metrics = new EventFiltersBatchAppMetrics(mockOutputs)
+        const metrics = new EventFiltersBatchAppMetrics(mockOutput)
         metrics.increment(1, 'f1', 'dropped')
         metrics.increment(1, 'f1', 'dropped')
 
@@ -515,11 +516,11 @@ describe('createFlushEventFiltersBatchAppMetricsStep', () => {
         expect(result.sideEffects).toHaveLength(1)
 
         await Promise.all(result.sideEffects)
-        expect(mockOutputs.queueMessages).toHaveBeenCalledTimes(1)
+        expect(mockOutput.queueMessages).toHaveBeenCalledTimes(1)
     })
 
     it('returns flush side effect even when no metrics were recorded', async () => {
-        const metrics = new EventFiltersBatchAppMetrics(mockOutputs)
+        const metrics = new EventFiltersBatchAppMetrics(mockOutput)
 
         const step = createFlushEventFiltersBatchAppMetricsStep()
         const input = {
@@ -536,11 +537,11 @@ describe('createFlushEventFiltersBatchAppMetricsStep', () => {
         expect(result.sideEffects).toHaveLength(1)
 
         await Promise.all(result.sideEffects)
-        expect(mockOutputs.queueMessages).not.toHaveBeenCalled()
+        expect(mockOutput.queueMessages).not.toHaveBeenCalled()
     })
 
     it('preserves input in the result', async () => {
-        const metrics = new EventFiltersBatchAppMetrics(mockOutputs)
+        const metrics = new EventFiltersBatchAppMetrics(mockOutput)
 
         const step = createFlushEventFiltersBatchAppMetricsStep()
         const input = {

@@ -1033,7 +1033,7 @@ describe('LogsIngestionConsumer', () => {
         })
     })
 
-    describe('produceUsageMetric', () => {
+    describe('queueUsageMetric', () => {
         const parseMetricValue = (value: any): any => {
             if (Buffer.isBuffer(value)) {
                 return parseJSON(value.toString())
@@ -1043,8 +1043,10 @@ describe('LogsIngestionConsumer', () => {
             }
             return value
         }
-        it('should produce metric with correct structure', async () => {
-            await consumer['produceUsageMetric'](123, 'test_metric', 500, '2025-01-01 00:00:00.000')
+
+        it('should queue + flush metric with correct structure', async () => {
+            consumer['queueUsageMetric'](123, 'test_metric', 500)
+            await consumer['appMetricsProducer'].flush()
 
             const messages = getProducedKafkaMessages().filter((m) => m.topic === KAFKA_APP_METRICS_2)
 
@@ -1057,11 +1059,13 @@ describe('LogsIngestionConsumer', () => {
             expect(value?.metric_kind).toBe('usage')
             expect(value?.metric_name).toBe('test_metric')
             expect(value?.count).toBe(500)
-            expect(value?.timestamp).toBe('2025-01-01 00:00:00.000')
+            // timestamp now set by AppMetricsService at flush time, not by caller
+            expect(typeof value?.timestamp).toBe('string')
         })
 
-        it('should not produce metric when count is zero', async () => {
-            await consumer['produceUsageMetric'](123, 'test_metric', 0, '2025-01-01 00:00:00.000')
+        it('should not queue metric when count is zero', async () => {
+            consumer['queueUsageMetric'](123, 'test_metric', 0)
+            await consumer['appMetricsProducer'].flush()
 
             const messages = getProducedKafkaMessages().filter((m) => m.topic === KAFKA_APP_METRICS_2)
 

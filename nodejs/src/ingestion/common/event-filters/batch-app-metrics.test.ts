@@ -1,40 +1,40 @@
 import { parseJSON } from '../../../utils/json-parse'
-import { IngestionOutputs } from '../../outputs/ingestion-outputs'
-import { AppMetricsOutput } from '../outputs'
+import { IngestionOutput } from '../../outputs/ingestion-output'
 import { EventFiltersBatchAppMetrics } from './batch-app-metrics'
 
 describe('EventFiltersBatchAppMetrics', () => {
-    const mockOutputs = {
+    const mockOutput = {
         produce: jest.fn().mockResolvedValue(undefined),
         queueMessages: jest.fn().mockResolvedValue(undefined),
-    } as unknown as jest.Mocked<Pick<IngestionOutputs<AppMetricsOutput>, 'produce' | 'queueMessages'>> &
-        IngestionOutputs<AppMetricsOutput>
+        checkHealth: jest.fn().mockResolvedValue(undefined),
+        checkTopicExists: jest.fn().mockResolvedValue(undefined),
+    } as unknown as jest.Mocked<IngestionOutput>
 
     beforeEach(() => {
         jest.clearAllMocks()
     })
 
     function getQueuedPayloads(): Record<string, unknown>[] {
-        const messages = mockOutputs.queueMessages.mock.calls[0][1]
-        return messages.map((msg) => parseJSON(msg.value!.toString()) as Record<string, unknown>)
+        const messages = (mockOutput.queueMessages as jest.Mock).mock.calls[0][0]
+        return messages.map((msg: { value: Buffer }) => parseJSON(msg.value.toString()) as Record<string, unknown>)
     }
 
     it('flush is a no-op when nothing was incremented', async () => {
-        const metrics = new EventFiltersBatchAppMetrics(mockOutputs)
+        const metrics = new EventFiltersBatchAppMetrics(mockOutput)
         await metrics.flush()
-        expect(mockOutputs.queueMessages).not.toHaveBeenCalled()
+        expect(mockOutput.queueMessages).not.toHaveBeenCalled()
     })
 
     it('queues one message per unique (teamId, filterId, metricName)', async () => {
-        const metrics = new EventFiltersBatchAppMetrics(mockOutputs)
+        const metrics = new EventFiltersBatchAppMetrics(mockOutput)
 
         metrics.increment(1, 'filter-a', 'dropped')
         metrics.increment(2, 'filter-b', 'would_be_dropped')
 
         await metrics.flush()
 
-        expect(mockOutputs.queueMessages).toHaveBeenCalledTimes(1)
-        expect(mockOutputs.queueMessages).toHaveBeenCalledWith('app_metrics', expect.any(Array))
+        expect(mockOutput.queueMessages).toHaveBeenCalledTimes(1)
+        expect(mockOutput.queueMessages).toHaveBeenCalledWith(expect.any(Array))
 
         const payloads = getQueuedPayloads()
         expect(payloads).toHaveLength(2)
@@ -59,7 +59,7 @@ describe('EventFiltersBatchAppMetrics', () => {
     })
 
     it('aggregates counts for the same key', async () => {
-        const metrics = new EventFiltersBatchAppMetrics(mockOutputs)
+        const metrics = new EventFiltersBatchAppMetrics(mockOutput)
 
         metrics.increment(1, 'filter-a', 'dropped')
         metrics.increment(1, 'filter-a', 'dropped')
@@ -73,7 +73,7 @@ describe('EventFiltersBatchAppMetrics', () => {
     })
 
     it('separates different metric names for the same team and filter', async () => {
-        const metrics = new EventFiltersBatchAppMetrics(mockOutputs)
+        const metrics = new EventFiltersBatchAppMetrics(mockOutput)
 
         metrics.increment(1, 'filter-a', 'dropped')
         metrics.increment(1, 'filter-a', 'would_be_dropped')
@@ -85,7 +85,7 @@ describe('EventFiltersBatchAppMetrics', () => {
     })
 
     it('separates different teams', async () => {
-        const metrics = new EventFiltersBatchAppMetrics(mockOutputs)
+        const metrics = new EventFiltersBatchAppMetrics(mockOutput)
 
         metrics.increment(1, 'filter-a', 'dropped')
         metrics.increment(2, 'filter-b', 'dropped')
@@ -96,19 +96,19 @@ describe('EventFiltersBatchAppMetrics', () => {
         expect(payloads).toHaveLength(2)
     })
 
-    it('sets the Kafka message key to the team id', async () => {
-        const metrics = new EventFiltersBatchAppMetrics(mockOutputs)
+    it('sets a null Kafka message key (round-robin partitioning)', async () => {
+        const metrics = new EventFiltersBatchAppMetrics(mockOutput)
 
         metrics.increment(42, 'filter-a', 'dropped')
 
         await metrics.flush()
 
-        const messages = mockOutputs.queueMessages.mock.calls[0][1]
-        expect(messages[0].key!.toString()).toBe('42')
+        const messages = (mockOutput.queueMessages as jest.Mock).mock.calls[0][0]
+        expect(messages[0].key).toBeNull()
     })
 
     it('clears counts after flush', async () => {
-        const metrics = new EventFiltersBatchAppMetrics(mockOutputs)
+        const metrics = new EventFiltersBatchAppMetrics(mockOutput)
 
         metrics.increment(1, 'filter-a', 'dropped')
         await metrics.flush()
@@ -116,6 +116,6 @@ describe('EventFiltersBatchAppMetrics', () => {
         jest.clearAllMocks()
 
         await metrics.flush()
-        expect(mockOutputs.queueMessages).not.toHaveBeenCalled()
+        expect(mockOutput.queueMessages).not.toHaveBeenCalled()
     })
 })

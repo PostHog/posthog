@@ -1,12 +1,11 @@
 import { EventHeaders, Team } from '../../../types'
-import { IngestionOutputs } from '../../outputs/ingestion-outputs'
+import { IngestionOutput } from '../../outputs/ingestion-output'
 import { BeforeBatchStep } from '../../pipelines/batching-pipeline'
 import { PipelineResult, drop, ok } from '../../pipelines/results'
 import { ProcessingStep } from '../../pipelines/steps'
 import { EventFilterManager, evaluateFilterTree } from '../event-filters'
 import { EventFiltersBatchAppMetrics } from '../event-filters/batch-app-metrics'
 import { eventFiltersEventsEvaluated } from '../event-filters/metrics'
-import { AppMetricsOutput } from '../outputs'
 
 export interface EventFiltersBatchContext {
     eventFiltersBatchAppMetrics: EventFiltersBatchAppMetrics
@@ -17,10 +16,10 @@ export interface EventFiltersBatchContext {
  * and attaches it to the batch context and each element.
  */
 export function createEventFiltersBatchAppMetricsBeforeBatchStep<TInput, CInput>(
-    outputs: IngestionOutputs<AppMetricsOutput>
+    output: IngestionOutput
 ): BeforeBatchStep<TInput, CInput, EventFiltersBatchContext> {
     return function eventFiltersBatchAppMetricsBeforeBatchStep(input) {
-        const eventFiltersBatchAppMetrics = new EventFiltersBatchAppMetrics(outputs)
+        const eventFiltersBatchAppMetrics = new EventFiltersBatchAppMetrics(output)
         const batchContext: EventFiltersBatchContext = { eventFiltersBatchAppMetrics }
 
         const elements = input.elements.map((element) => ({

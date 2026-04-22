@@ -34,7 +34,7 @@ import {
     getDefaultKafkaWarpstreamProducerEnvConfig,
 } from '../ingestion/common/config'
 import { EventFilterManager } from '../ingestion/common/event-filters'
-import { ProducerName } from '../ingestion/common/outputs'
+import { APP_METRICS_OUTPUT, LOG_ENTRIES_OUTPUT, ProducerName } from '../ingestion/common/outputs'
 import { createProducerRegistry } from '../ingestion/common/outputs/registry'
 import {
     DatabaseConnectionConfig,
@@ -258,7 +258,10 @@ export class IngestionApiServer implements NodeServer {
             pubSub: this.pubsub,
             encryptedFields,
             integrationManager,
-            monitoringOutputs: ingestionOutputs,
+            monitoringOutputs: {
+                appMetricsOutput: ingestionOutputs.get(APP_METRICS_OUTPUT),
+                logEntriesOutput: ingestionOutputs.get(LOG_ENTRIES_OUTPUT),
+            },
             teamManager,
             internalCaptureService,
         }

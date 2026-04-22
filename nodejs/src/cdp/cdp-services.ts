@@ -3,7 +3,6 @@ import { RedisV2, createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
 import type { CommonConfig } from '../common/config'
 import { InternalCaptureService } from '../common/services/internal-capture'
 import { APP_METRICS_OUTPUT, LOG_ENTRIES_OUTPUT } from '../ingestion/common/outputs'
-import { IngestionOutputs } from '../ingestion/outputs/ingestion-outputs'
 import { SingleIngestionOutput } from '../ingestion/outputs/single-ingestion-output'
 import { KafkaProducerWrapper } from '../kafka/producer'
 import { PostgresRouter } from '../utils/db/postgres'
@@ -175,20 +174,20 @@ export function createCdpCoreServices(
     const hogFlowExecutor = new HogFlowExecutorService(hogFlowFunctionsService, recipientPreferencesService)
 
     const hogFunctionMonitoringService = new HogFunctionMonitoringService(
-        new IngestionOutputs({
-            [APP_METRICS_OUTPUT]: new SingleIngestionOutput(
+        {
+            appMetricsOutput: new SingleIngestionOutput(
                 APP_METRICS_OUTPUT,
                 config.HOG_FUNCTION_MONITORING_APP_METRICS_TOPIC,
                 deps.monitoringProducer,
                 'default'
             ),
-            [LOG_ENTRIES_OUTPUT]: new SingleIngestionOutput(
+            logEntriesOutput: new SingleIngestionOutput(
                 LOG_ENTRIES_OUTPUT,
                 config.HOG_FUNCTION_MONITORING_LOG_ENTRIES_TOPIC,
                 deps.monitoringProducer,
                 'default'
             ),
-        }),
+        },
         deps.internalCaptureService,
         deps.teamManager
     )

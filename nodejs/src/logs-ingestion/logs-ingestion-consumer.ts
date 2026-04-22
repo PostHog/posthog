@@ -2,17 +2,20 @@ import { Message } from 'node-rdkafka'
 import { Counter } from 'prom-client'
 
 import { RedisV2, createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
+import { AggregatingProducer } from '~/common/services/aggregating-producer'
+import { AppMetricInput, createAppMetricsProducer } from '~/common/services/app-metrics'
 import { QuotaLimiting } from '~/common/services/quota-limiting.service'
 import { instrumentFn, instrumented } from '~/common/tracing/tracing-utils'
+import { APP_METRICS_OUTPUT } from '~/ingestion/common/outputs'
+import { SingleIngestionOutput } from '~/ingestion/outputs/single-ingestion-output'
 import { KafkaProducerWrapper } from '~/kafka/producer'
 
 import { KAFKA_APP_METRICS_2 } from '../config/kafka-topics'
 import { KafkaConsumer, parseKafkaHeaders } from '../kafka/consumer'
-import { HealthCheckResult, PluginServerService, TimestampFormat } from '../types'
+import { HealthCheckResult, PluginServerService } from '../types'
 import { isDevEnv } from '../utils/env-utils'
 import { logger } from '../utils/logger'
 import { TeamManager } from '../utils/team-manager'
-import { castTimestampOrNow } from '../utils/utils'
 import { LogsIngestionConsumerConfig } from './config'
 import { processLogMessageBuffer } from './log-record-avro'
 import { LogsRateLimiterService } from './services/logs-rate-limiter.service'
@@ -96,7 +99,7 @@ export class LogsIngestionConsumer {
     protected name = 'LogsIngestionConsumer'
     protected kafkaConsumer: KafkaConsumer
     private kafkaProducer: KafkaProducerWrapper
-    private mskProducer: KafkaProducerWrapper
+    private appMetricsProducer: AggregatingProducer<AppMetricInput>
     private redis: RedisV2
     private rateLimiter: LogsRateLimiterService
 
@@ -121,7 +124,10 @@ export class LogsIngestionConsumer {
         this.dlqTopic = overrides.LOGS_INGESTION_CONSUMER_DLQ_TOPIC ?? config.LOGS_INGESTION_CONSUMER_DLQ_TOPIC
 
         this.kafkaProducer = deps.kafkaProducer
-        this.mskProducer = deps.mskProducer
+        // app_metrics writes go to MSK (not the Warpstream cluster used for logs).
+        this.appMetricsProducer = createAppMetricsProducer(
+            new SingleIngestionOutput(APP_METRICS_OUTPUT, KAFKA_APP_METRICS_2, deps.mskProducer, 'msk')
+        )
 
         this.kafkaConsumer = new KafkaConsumer({ groupId: this.groupId, topic: this.topic })
         // Logs ingestion uses its own Redis instance with TLS support
@@ -372,51 +378,35 @@ export class LogsIngestionConsumer {
             return
         }
 
-        const timestamp = castTimestampOrNow(null, TimestampFormat.ClickHouse)
-
-        const metricsPromises: Promise<void>[] = []
         for (const [teamId, stats] of usageStats) {
-            metricsPromises.push(
-                this.produceUsageMetric(teamId, 'bytes_received', stats.bytesReceived, timestamp),
-                this.produceUsageMetric(teamId, 'records_received', stats.recordsReceived, timestamp),
-                this.produceUsageMetric(teamId, 'bytes_ingested', stats.bytesAllowed, timestamp),
-                this.produceUsageMetric(teamId, 'records_ingested', stats.recordsAllowed, timestamp),
-                this.produceUsageMetric(teamId, 'bytes_dropped', stats.bytesDropped, timestamp),
-                this.produceUsageMetric(teamId, 'records_dropped', stats.recordsDropped, timestamp)
-            )
+            this.queueUsageMetric(teamId, 'bytes_received', stats.bytesReceived)
+            this.queueUsageMetric(teamId, 'records_received', stats.recordsReceived)
+            this.queueUsageMetric(teamId, 'bytes_ingested', stats.bytesAllowed)
+            this.queueUsageMetric(teamId, 'records_ingested', stats.recordsAllowed)
+            this.queueUsageMetric(teamId, 'bytes_dropped', stats.bytesDropped)
+            this.queueUsageMetric(teamId, 'records_dropped', stats.recordsDropped)
         }
 
         // Best-effort: don't let metric failures block ingestion
-        const results = await Promise.allSettled(metricsPromises)
-        const failures = results.filter((r) => r.status === 'rejected')
-        if (failures.length > 0) {
-            logger.error('🔴', 'Failed to emit usage metrics - billing data may be lost', {
-                failureCount: failures.length,
-                totalCount: metricsPromises.length,
-            })
+        try {
+            await this.appMetricsProducer.flush()
+        } catch (error) {
+            logger.error('🔴', 'Failed to emit usage metrics - billing data may be lost', { error })
         }
     }
 
-    private produceUsageMetric(teamId: number, metricName: string, count: number, timestamp: string): Promise<void> {
+    private queueUsageMetric(teamId: number, metricName: string, count: number): void {
         if (count === 0) {
-            return Promise.resolve()
+            return
         }
-        // Use MSK producer for app_metrics, not the Warpstream producer used for logs
-        return this.mskProducer!.produce({
-            topic: KAFKA_APP_METRICS_2,
-            value: Buffer.from(
-                JSON.stringify({
-                    team_id: teamId,
-                    timestamp,
-                    app_source: 'logs',
-                    app_source_id: '',
-                    instance_id: '',
-                    metric_kind: 'usage',
-                    metric_name: metricName,
-                    count,
-                })
-            ),
-            key: null,
+        this.appMetricsProducer.queue({
+            team_id: teamId,
+            app_source: 'logs',
+            app_source_id: '',
+            instance_id: '',
+            metric_kind: 'usage',
+            metric_name: metricName,
+            count,
         })
     }
 
@@ -502,6 +492,7 @@ export class LogsIngestionConsumer {
     public async stop(): Promise<void> {
         logger.info('💤', 'Stopping consumer...')
         await this.kafkaConsumer.disconnect()
+        await this.appMetricsProducer.shutdown()
         logger.info('💤', 'Consumer stopped!')
     }
 
