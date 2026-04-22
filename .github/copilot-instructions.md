@@ -1,3 +1,3 @@
 # PostHog Development Guide
 
-See consolidated agents instructions in [AGENTS.md](../AGENTS.md)
+See consolidated agent instructions in [AGENTS.md](../AGENTS.md)
