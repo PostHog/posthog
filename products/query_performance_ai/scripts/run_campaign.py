@@ -334,6 +334,19 @@ def _run_pi_with_streaming_events(cmd: list[str], cwd: Path) -> None:
 
 
 def _print_pi_event(line: str) -> None:
+    """Format one JSON event from ``pi --mode json`` for a human operator.
+
+    Pi emits a verbose event stream: session/turn framing, then for every
+    assistant turn a series of ``message_update`` events carrying deltas,
+    then outer ``message_end`` and tool execution frames. Printing every
+    event verbatim floods the terminal (each delta echoes the accumulated
+    partial message including ``thinkingSignature`` base64 blobs).
+
+    Strategy: only print on terminal events (``thinking_end``, ``text_end``,
+    ``toolcall_end``, ``tool_execution_end``) plus per-turn headers and
+    token/cost summaries. Skip deltas and start markers — they duplicate
+    content the ``_end`` event will surface cleanly.
+    """
     if not line:
         return
     try:
@@ -346,15 +359,76 @@ def _print_pi_event(line: str) -> None:
     if not isinstance(event, dict):
         print(f"[pi] {line[:500]}", flush=True)  # noqa: T201
         return
-    kind = event.get("type") or event.get("event") or event.get("kind") or "event"
-    # Extract a short human text if the event carries one; otherwise dump
-    # compact JSON. 800 chars is plenty to eyeball what pi's doing without
-    # flooding the terminal on a long assistant reply.
-    text = event.get("text")
-    if isinstance(text, str):
-        print(f"[pi:{kind}] {text}", flush=True)  # noqa: T201
+
+    kind = event.get("type", "event")
+
+    # Pi has lots of scaffolding events that add no operator signal.
+    if kind in ("agent_start", "agent_end", "turn_start", "turn_end", "tool_execution_start"):
         return
-    print(f"[pi:{kind}] {json.dumps(event, separators=(',', ':'))[:800]}", flush=True)  # noqa: T201
+
+    if kind == "session":
+        print(f"[pi:session] id={str(event.get('id', ''))[:8]}", flush=True)  # noqa: T201
+        return
+
+    if kind == "message_start":
+        msg = event.get("message") or {}
+        if msg.get("role") == "assistant":
+            model = msg.get("model") or "?"
+            print(f"[pi:turn] model={model}", flush=True)  # noqa: T201
+        return
+
+    if kind == "message_end":
+        msg = event.get("message") or {}
+        if msg.get("role") != "assistant":
+            return
+        usage = msg.get("usage") or {}
+        bits = []
+        if tokens := usage.get("totalTokens"):
+            bits.append(f"tokens={tokens}")
+        cost = (usage.get("cost") or {}).get("total")
+        if isinstance(cost, int | float) and cost > 0:
+            bits.append(f"cost=${cost:.4f}")
+        print("[pi:turn_end] " + " ".join(bits), flush=True)  # noqa: T201
+        return
+
+    if kind == "message_update":
+        sub = event.get("assistantMessageEvent") or {}
+        sub_type = sub.get("type", "")
+        if sub_type == "thinking_end":
+            content = sub.get("content") or ""
+            print(f"[pi:thinking] {content[:800]}", flush=True)  # noqa: T201
+            return
+        if sub_type == "text_end":
+            content = sub.get("content") or ""
+            print(f"[pi:text] {content[:800]}", flush=True)  # noqa: T201
+            return
+        if sub_type == "toolcall_end":
+            tc = sub.get("toolCall") or {}
+            name = tc.get("name", "?")
+            args = tc.get("arguments") or {}
+            args_str = json.dumps(args, separators=(",", ":"))[:500]
+            print(f"[pi:tool] {name}({args_str})", flush=True)  # noqa: T201
+            return
+        # thinking_start / toolcall_start / *_delta — skip, the _end event
+        # will carry the complete content.
+        return
+
+    if kind == "tool_execution_end":
+        name = event.get("toolName", "?")
+        result = event.get("result") or {}
+        content = result.get("content") or []
+        preview = ""
+        if isinstance(content, list):
+            for item in content:
+                if isinstance(item, dict) and isinstance(item.get("text"), str):
+                    preview = item["text"]
+                    break
+        preview = preview.replace("\n", " ⏎ ")[:300]
+        print(f"[pi:result] {name} -> {preview}", flush=True)  # noqa: T201
+        return
+
+    # Unknown event — dump compact JSON so we notice.
+    print(f"[pi:{kind}] {json.dumps(event, separators=(',', ':'))[:500]}", flush=True)  # noqa: T201
 
 
 def _preflight_anthropic_gateway(base_url: str, api_key: str) -> None:
