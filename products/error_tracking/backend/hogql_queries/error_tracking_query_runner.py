@@ -79,10 +79,7 @@ class ErrorTrackingQueryRunner(AnalyticsQueryRunner[ErrorTrackingQueryResponse])
         ctx = HogQLContext(team_id=self.team.pk, team=self.team, user=self.user, enable_select_queries=True)
         raw = self.query.phantomFingerprintIssueStates or []
         if raw:
-            # team_id is always stamped server-side, never trusted from the client.
-            ctx.error_tracking_fingerprint_phantoms = [
-                {**row.model_dump(mode="json"), "team_id": self.team.id} for row in raw
-            ]
+            ctx.error_tracking_fingerprint_phantoms = [row.model_dump(mode="json") for row in raw]
         return ctx
 
     def _calculate(self):

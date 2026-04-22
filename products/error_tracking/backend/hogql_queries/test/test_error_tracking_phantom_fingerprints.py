@@ -21,7 +21,6 @@ VALID_ROLE_ID = "01936e80-5e69-7e70-b837-871f5cdad28b"
 class TestPhantomUnionBuilder(BaseTest):
     def _sanitized_row(self, **overrides: Any) -> dict[str, Any]:
         base: dict[str, Any] = {
-            "team_id": self.team.id,
             "fingerprint": "fp-1",
             "issue_id": VALID_ISSUE_ID,
             "issue_name": "MyError",

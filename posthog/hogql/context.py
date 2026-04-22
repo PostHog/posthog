@@ -75,7 +75,8 @@ class HogQLContext:
 
     # Error tracking: client-supplied phantom rows to UNION into the denormalized
     # fingerprint_issue_state subquery. Each dict matches the raw table row shape
-    # (team_id stamped server-side). See products/error_tracking.
+    # minus team_id (team-scoping is enforced by HogQL's team-id guard on the raw
+    # table scan inside the same UNION). See products/error_tracking.
     error_tracking_fingerprint_phantoms: Optional[list[dict[str, Any]]] = None
 
     def __post_init__(self):

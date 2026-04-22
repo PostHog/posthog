@@ -33,8 +33,9 @@ ERROR_TRACKING_FINGERPRINT_ISSUE_STATE_FIELDS: dict[str, FieldOrTable] = {
 RAW_TABLE_NAME = "raw_error_tracking_fingerprint_issue_state"
 
 # UNION ALL matches by position, so every branch must select these columns in this order.
+# team_id is intentionally omitted: the raw table scan gets its team_id filter from HogQL's
+# team-id guard, argMax groups by fingerprint, and nothing downstream reads team_id here.
 _PHANTOM_COLUMNS: list[str] = [
-    "team_id",
     "fingerprint",
     "issue_id",
     "issue_name",
@@ -142,7 +143,6 @@ def _phantom_select(row: dict[str, Any]):
     assigned_role_id = row.get("assigned_role_id")
 
     column_exprs = {
-        "team_id": ast.Call(name="_toInt64", args=[ast.Constant(value=int(row["team_id"]))]),
         "fingerprint": ast.Constant(value=str(row["fingerprint"])),
         "issue_id": ast.Call(name="toUUID", args=[ast.Constant(value=str(row["issue_id"]))]),
         "issue_name": ast.Constant(value=row.get("issue_name")),
