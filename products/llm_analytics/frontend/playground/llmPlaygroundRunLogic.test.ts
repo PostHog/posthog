@@ -91,7 +91,7 @@ describe('llmPlaygroundRunLogic', () => {
     })
 
     it('surfaces backend error message and captures exception when stream fails with ApiError', async () => {
-        const apiError = new ApiError('Thinking is not supported for this model', 400, undefined, {
+        const apiError = new ApiError('fallback message', 400, undefined, {
             error: 'Thinking is not supported for this model',
         })
         const streamSpy = jest.spyOn(api, 'stream').mockImplementation(async (_url, options: any) => {
@@ -156,7 +156,7 @@ describe('llmPlaygroundRunLogic', () => {
     })
 
     it('captures exceptions thrown before the stream opens', async () => {
-        const thrownError = new ApiError('Invalid provider key configuration', 400, undefined, {
+        const thrownError = new ApiError('fallback message', 400, undefined, {
             error: 'Invalid provider key configuration',
         })
         const streamSpy = jest.spyOn(api, 'stream').mockImplementation(async () => {
