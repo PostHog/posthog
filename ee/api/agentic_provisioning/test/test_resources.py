@@ -201,6 +201,32 @@ class TestProvisioningResources(StripeProvisioningTestBase):
         assert len(access_token.scoped_teams) == 2
         assert self.team.id in access_token.scoped_teams
 
+    def test_create_resource_with_existing_project_id_adds_resolved_team_to_scoped_teams(self):
+        from posthog.models.team.team_provisioning_config import TeamProvisioningConfig
+
+        existing_team = Team.objects.create_with_data(
+            initiating_user=self.user,
+            organization=self.organization,
+            name="Pre-existing project",
+        )
+        TeamProvisioningConfig.objects.create(team=existing_team, stripe_project_id="proj_existing")
+
+        token = self._get_bearer_token()
+        access_token = OAuthAccessToken.objects.get(token=token)
+        assert access_token.scoped_teams == [self.team.id]
+
+        res = self._post_signed_with_bearer(
+            "/api/agentic/provisioning/resources",
+            data={"service_id": "analytics", "project_id": "proj_existing"},
+            token=token,
+        )
+        assert res.status_code == 200
+        assert res.json()["id"] == str(existing_team.id)
+
+        access_token.refresh_from_db()
+        assert existing_team.id in access_token.scoped_teams
+        assert self.team.id in access_token.scoped_teams
+
     def test_create_resource_without_project_id_returns_existing_team(self):
         token = self._get_bearer_token()
         res = self._post_signed_with_bearer(

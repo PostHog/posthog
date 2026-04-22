@@ -1156,7 +1156,7 @@ def _resolve_or_create_project_team(
         .first()
     )
     if existing:
-        return existing.team, scoped_teams
+        return _ensure_team_in_token_scopes(access_token, scoped_teams, existing.team)
 
     base_team = Team.objects.get(id=scoped_teams[0])
     project_name = configuration.get("project_name", "Default project")
@@ -1175,12 +1175,19 @@ def _resolve_or_create_project_team(
         new_team.delete()
         race_winner = TeamProvisioningConfig.objects.filter(stripe_project_id=project_id).select_related("team").first()
         if race_winner:
-            return race_winner.team, scoped_teams
+            return _ensure_team_in_token_scopes(access_token, scoped_teams, race_winner.team)
         return base_team, scoped_teams
 
-    _add_team_to_token_scopes(access_token, new_team.id)
+    return _ensure_team_in_token_scopes(access_token, scoped_teams, new_team)
 
-    return new_team, [*scoped_teams, new_team.id]
+
+def _ensure_team_in_token_scopes(
+    access_token: OAuthAccessToken, scoped_teams: list[int], team: Team
+) -> tuple[Team, list[int]]:
+    _add_team_to_token_scopes(access_token, team.id)
+    if team.id in scoped_teams:
+        return team, scoped_teams
+    return team, [*scoped_teams, team.id]
 
 
 def _add_team_to_token_scopes(access_token: OAuthAccessToken, team_id: int) -> None:
