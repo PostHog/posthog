@@ -649,8 +649,9 @@ describe('ErrorTrackingPipeline', () => {
             // the service is fully down.
             await runErrorTrackingPipeline(pipeline, [message])
 
-            // Cymbal was retried (default 3 attempts)
-            expect(mockCymbalClient.processExceptions).toHaveBeenCalledTimes(3)
+            // Cymbal was retried (default 4 attempts — one more than the CB
+            // threshold so the final retry hits the open circuit)
+            expect(mockCymbalClient.processExceptions).toHaveBeenCalledTimes(4)
             // Processing should not continue past Cymbal
             expect(mockHogTransformer.transformEventAndProduceMessages).not.toHaveBeenCalled()
             // Event should not be produced to output topic

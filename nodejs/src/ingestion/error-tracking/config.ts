@@ -35,6 +35,17 @@ export type ErrorTrackingConsumerConfig = {
      *  split large batches before they hit Cymbal's body limit. */
     ERROR_TRACKING_CYMBAL_MAX_BODY_BYTES: number
 
+    /** Consecutive all-fail Cymbal calls before the circuit breaker opens.
+     *  Should match the retry wrapper's maxAttempts minus one so the circuit
+     *  trips before retries exhaust, preventing overflow. */
+    ERROR_TRACKING_CYMBAL_CIRCUIT_BREAKER_FAILURE_THRESHOLD: number
+    /** Initial backoff in ms between circuit breaker probes */
+    ERROR_TRACKING_CYMBAL_CIRCUIT_BREAKER_INITIAL_BACKOFF_MS: number
+    /** Maximum backoff in ms between circuit breaker probes */
+    ERROR_TRACKING_CYMBAL_CIRCUIT_BREAKER_MAX_BACKOFF_MS: number
+    /** Number of events to send in each circuit breaker probe */
+    ERROR_TRACKING_CYMBAL_CIRCUIT_BREAKER_PROBE_SIZE: number
+
     /** Pipeline name for metrics labeling */
     INGESTION_PIPELINE: string | null
     /** Lane identifier (main, overflow) for metrics labeling */
@@ -56,6 +67,10 @@ export function getDefaultErrorTrackingConsumerConfig(): ErrorTrackingConsumerCo
         ERROR_TRACKING_STATEFUL_OVERFLOW_REDIS_TTL_SECONDS: 300, // 5 minutes
         ERROR_TRACKING_STATEFUL_OVERFLOW_LOCAL_CACHE_TTL_SECONDS: 60, // 1 minute
         ERROR_TRACKING_CYMBAL_MAX_BODY_BYTES: 1_800_000,
+        ERROR_TRACKING_CYMBAL_CIRCUIT_BREAKER_FAILURE_THRESHOLD: 3,
+        ERROR_TRACKING_CYMBAL_CIRCUIT_BREAKER_INITIAL_BACKOFF_MS: 1_000,
+        ERROR_TRACKING_CYMBAL_CIRCUIT_BREAKER_MAX_BACKOFF_MS: 5_000,
+        ERROR_TRACKING_CYMBAL_CIRCUIT_BREAKER_PROBE_SIZE: 10,
         INGESTION_PIPELINE: null,
         INGESTION_LANE: null,
     }

@@ -40,6 +40,10 @@ export interface ErrorTrackingConsumerOptions {
     cymbalBaseUrl: string
     cymbalTimeoutMs: number
     cymbalMaxBodyBytes: number
+    cymbalCircuitBreakerFailureThreshold: number
+    cymbalCircuitBreakerInitialBackoffMs: number
+    cymbalCircuitBreakerMaxBackoffMs: number
+    cymbalCircuitBreakerProbeSize: number
     lane: IngestionLane
     overflowEnabled: boolean
     overflowBucketCapacity: number
@@ -118,6 +122,13 @@ export class ErrorTrackingConsumer {
             baseUrl: config.cymbalBaseUrl,
             timeoutMs: config.cymbalTimeoutMs,
             maxBodyBytes: config.cymbalMaxBodyBytes,
+            circuitBreaker: {
+                name: 'cymbal',
+                failureThreshold: this.config.cymbalCircuitBreakerFailureThreshold,
+                initialBackoffMs: config.cymbalCircuitBreakerInitialBackoffMs,
+                maxBackoffMs: config.cymbalCircuitBreakerMaxBackoffMs,
+                probeSize: config.cymbalCircuitBreakerProbeSize,
+            },
         })
 
         this.promiseScheduler = new PromiseScheduler()

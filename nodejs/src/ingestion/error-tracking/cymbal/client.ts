@@ -5,6 +5,7 @@ import { z } from 'zod'
 import { logger } from '~/utils/logger'
 import { FetchResponse, internalFetch } from '~/utils/request'
 
+import { CircuitBreaker, CircuitBreakerConfig } from '../../utils/circuit-breaker'
 import { CymbalRequest, CymbalResponse } from './types'
 
 /** Zod schema for validating Cymbal API responses */
@@ -68,6 +69,9 @@ export interface CymbalClientConfig {
     timeoutMs: number
     /** Target max body size in bytes for proactive chunking. */
     maxBodyBytes: number
+    /** Circuit breaker config. When the service is down, the client blocks
+     *  and probes rather than returning failures. */
+    circuitBreaker: CircuitBreakerConfig
     /** Custom fetch implementation for testing. Defaults to internalFetch. */
     fetch?: FetchFunction
     /** Custom DNS resolution function for testing. */
@@ -136,12 +140,14 @@ export class CymbalClient {
     private maxBodyBytes: number
     private fetch: FetchFunction
     private dnsResolve: DnsResolveFunction
+    private circuitBreaker: CircuitBreaker
 
     constructor(config: CymbalClientConfig) {
         this.timeoutMs = config.timeoutMs
         this.maxBodyBytes = config.maxBodyBytes
         this.fetch = config.fetch ?? internalFetch
         this.dnsResolve = config.dnsResolve ?? defaultDnsResolve
+        this.circuitBreaker = new CircuitBreaker(config.circuitBreaker)
 
         const parsed = new URL(config.baseUrl)
         this.hostname = parsed.hostname
@@ -180,6 +186,30 @@ export class CymbalClient {
         if (items.length === 0) {
             return []
         }
+
+        // If the circuit is open, block and probe until the service recovers
+        // rather than making a request that will almost certainly fail.
+        if (this.circuitBreaker.isOpen()) {
+            await this.circuitBreaker.waitForRecovery(async (probeSize) => {
+                const probeResults = await this.doProcessExceptions(items.slice(0, probeSize))
+                return probeResults.some((r) => r.status === 'success')
+            })
+        }
+
+        const results = await this.doProcessExceptions(items)
+
+        if (results.some((r) => r.status === 'success')) {
+            this.circuitBreaker.recordSuccess()
+        } else if (results.every((r) => r.status === 'failed' && r.retriable)) {
+            this.circuitBreaker.recordFailure()
+        }
+
+        return results
+    }
+
+    private async doProcessExceptions(
+        items: { request: CymbalRequest; estimatedSize: number }[]
+    ): Promise<CymbalEventResult[]> {
         cymbalBatchSizeHistogram.observe(items.length)
 
         let endpoints: string[]

@@ -50,12 +50,22 @@ describe('CymbalClient', () => {
         ...overrides,
     })
 
+    // High threshold so the CB doesn't interfere with non-CB tests
+    const defaultCBConfig = {
+        name: 'test',
+        failureThreshold: 1000,
+        initialBackoffMs: 1,
+        maxBackoffMs: 10,
+        probeSize: 10,
+    }
+
     /** Create a client with a single-IP DNS response (no sticky routing). */
     const createClient = (fetchMock: jest.Mock = mockFetch) => {
         return new CymbalClient({
             baseUrl: 'http://cymbal.example.com:8080',
             timeoutMs: 5000,
             maxBodyBytes: 1_800_000,
+            circuitBreaker: defaultCBConfig,
             fetch: fetchMock as FetchFunction,
             dnsResolve: jest.fn().mockResolvedValue(['1.2.3.4']) as DnsResolveFunction,
         })
@@ -70,6 +80,7 @@ describe('CymbalClient', () => {
             baseUrl: 'http://cymbal.example.com:8080',
             timeoutMs: 5000,
             maxBodyBytes: 1_800_000,
+            circuitBreaker: defaultCBConfig,
             fetch: fetchMock as FetchFunction,
             dnsResolve: jest.fn().mockResolvedValue(pods) as DnsResolveFunction,
         })
@@ -280,7 +291,7 @@ describe('CymbalClient', () => {
                 baseUrl: 'http://cymbal.example.com:8080',
                 timeoutMs: 5000,
                 maxBodyBytes: 1_800_000,
-
+                circuitBreaker: defaultCBConfig,
                 fetch: mockFetch as FetchFunction,
                 dnsResolve: jest.fn().mockRejectedValue(new Error('DNS failed')) as DnsResolveFunction,
             })
@@ -317,7 +328,7 @@ describe('CymbalClient', () => {
                 baseUrl: 'http://cymbal.example.com:8080',
                 timeoutMs: 5000,
                 maxBodyBytes: 150,
-
+                circuitBreaker: defaultCBConfig,
                 fetch: mockFetch as FetchFunction,
                 dnsResolve: jest.fn().mockResolvedValue(['1.2.3.4']) as DnsResolveFunction,
             })
@@ -348,7 +359,7 @@ describe('CymbalClient', () => {
                 baseUrl: 'http://cymbal.example.com:8080',
                 timeoutMs: 5000,
                 maxBodyBytes: 500,
-
+                circuitBreaker: defaultCBConfig,
                 fetch: mockFetch as FetchFunction,
                 dnsResolve: jest.fn().mockResolvedValue(['1.2.3.4']) as DnsResolveFunction,
             })
@@ -379,7 +390,7 @@ describe('CymbalClient', () => {
                 baseUrl: 'http://cymbal.example.com:8080',
                 timeoutMs: 5000,
                 maxBodyBytes: 50,
-
+                circuitBreaker: defaultCBConfig,
                 fetch: mockFetch as FetchFunction,
                 dnsResolve: jest.fn().mockResolvedValue(['1.2.3.4']) as DnsResolveFunction,
             })
@@ -405,7 +416,7 @@ describe('CymbalClient', () => {
                 baseUrl: 'http://cymbal.example.com:8080',
                 timeoutMs: 5000,
                 maxBodyBytes: 150,
-
+                circuitBreaker: defaultCBConfig,
                 fetch: mockFetch as FetchFunction,
                 dnsResolve: jest.fn().mockResolvedValue(['1.2.3.4']) as DnsResolveFunction,
             })
@@ -665,6 +676,97 @@ describe('CymbalClient', () => {
             const client = createClient()
             mockFetch.mockRejectedValueOnce(new Error('Network error'))
             expect(await client.healthCheck()).toBe(false)
+        })
+    })
+
+    describe('circuit breaker', () => {
+        const createCBClient = (threshold: number = 3) => {
+            return new CymbalClient({
+                baseUrl: 'http://cymbal.example.com:8080',
+                timeoutMs: 5000,
+                maxBodyBytes: 1_800_000,
+                circuitBreaker: {
+                    name: 'test-cymbal',
+                    failureThreshold: threshold,
+                    initialBackoffMs: 1,
+                    maxBackoffMs: 10,
+                    probeSize: 10,
+                },
+                fetch: mockFetch as FetchFunction,
+                dnsResolve: jest.fn().mockResolvedValue(['1.2.3.4']) as DnsResolveFunction,
+            })
+        }
+
+        it('trips after consecutive all-fail retriable batches reach the threshold', async () => {
+            const client = createCBClient(2)
+
+            // All-fail with retriable errors (5xx)
+            mockFetch.mockResolvedValue({ status: 500, json: () => Promise.resolve({}) })
+
+            // First call — below threshold
+            await client.processExceptions(toItems([createRequest()]))
+            // Second call — reaches threshold, circuit opens
+            await client.processExceptions(toItems([createRequest()]))
+
+            // Third call — circuit is open, blocks in waitForRecovery.
+            // Probe succeeds, then full batch succeeds.
+            let callCount = 0
+            mockFetch.mockImplementation(() => {
+                callCount++
+                if (callCount <= 1) {
+                    // First probe fails
+                    return Promise.resolve({ status: 500, json: () => Promise.resolve({}) })
+                }
+                // Second probe + full batch succeed
+                return Promise.resolve({
+                    status: 200,
+                    json: () => Promise.resolve([createResponse()]),
+                })
+            })
+
+            const results = await client.processExceptions(toItems([createRequest()]))
+            expect(results[0].status).toBe('success')
+        })
+
+        it('resets failure count when some events succeed', async () => {
+            const client = createCBClient(3)
+
+            // Two all-fail calls
+            mockFetch.mockResolvedValue({ status: 500, json: () => Promise.resolve({}) })
+            await client.processExceptions(toItems([createRequest()]))
+            await client.processExceptions(toItems([createRequest()]))
+
+            // Partial success — resets the counter
+            mockFetch.mockResolvedValueOnce({
+                status: 200,
+                json: () => Promise.resolve([createResponse()]),
+            })
+            await client.processExceptions(toItems([createRequest()]))
+
+            // Two more all-fails — still below threshold (count reset to 0)
+            mockFetch.mockResolvedValue({ status: 500, json: () => Promise.resolve({}) })
+            await client.processExceptions(toItems([createRequest()]))
+            const results = await client.processExceptions(toItems([createRequest()]))
+
+            // Should return failed, not block — circuit not open (only 2 failures)
+            expect(results[0].status).toBe('failed')
+        })
+
+        it('does not count non-retriable failures toward the threshold', async () => {
+            const client = createCBClient(2)
+
+            // 4xx errors are non-retriable — should not count
+            mockFetch.mockResolvedValue({ status: 400, json: () => Promise.resolve({}) })
+            await client.processExceptions(toItems([createRequest()]))
+            await client.processExceptions(toItems([createRequest()]))
+            await client.processExceptions(toItems([createRequest()]))
+
+            // Next call with retriable error — should be first failure, not third
+            mockFetch.mockResolvedValueOnce({ status: 500, json: () => Promise.resolve({}) })
+            const results = await client.processExceptions(toItems([createRequest()]))
+
+            // Should return failed without blocking (only 1 retriable failure, threshold is 2)
+            expect(results[0].status).toBe('failed')
         })
     })
 })

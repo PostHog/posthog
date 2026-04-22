@@ -23,7 +23,10 @@ export type BatchRetryStep<TIn, TOut, R extends string = never> = (
 ) => Promise<BatchRetryStepResult<TOut, R>[]>
 
 export interface BatchRetryOptions {
-    /** Total number of attempts per failed event group. Defaults to 3. */
+    /** Total number of attempts per failed event group. Defaults to 4.
+     *  Set one higher than the dependency's circuit breaker threshold so
+     *  the final retry hits the open circuit and blocks until recovery
+     *  instead of overflowing. */
     maxAttempts?: number
     /** Base sleep between retries in ms. Doubles each attempt. Defaults to 100. */
     retrySleepMs?: number
@@ -54,15 +57,17 @@ const dlqCounter = new Counter({
  *    - Non-retriable → DLQ (event is broken, retrying won't help)
  *    - Retriable → overflow (service may be degraded for these events)
  *
- * Designed to work with client-level resilience patterns: when a dependency
- * is down, the client can fast-fail or block, and the retry wrapper's
- * subsequent attempts will reflect the client's behavior.
+ * Works with a client-level circuit breaker: the client tracks failures
+ * from each call. When its threshold is reached, the circuit opens and
+ * subsequent calls block until recovery. This means the retry wrapper's
+ * later attempts hit an open circuit and wait rather than hammering a
+ * dead service.
  */
 export function withBatchRetry<TIn, TOut, R extends string = never>(
     step: BatchRetryStep<TIn, TOut, R>,
     options: BatchRetryOptions = {}
 ): BatchProcessingStep<TIn, TOut, OverflowOutput | DlqOutput | R> {
-    const maxAttempts = options.maxAttempts ?? 3
+    const maxAttempts = options.maxAttempts ?? 4
     const baseSleepMs = options.retrySleepMs ?? 100
     const maxSleepMs = options.maxRetrySleepMs ?? 10_000
     const stepName = step.name || 'anonymousBatchRetryStep'

@@ -149,6 +149,10 @@ describe('ErrorTrackingConsumer', () => {
             cymbalBaseUrl: hub.ERROR_TRACKING_CYMBAL_BASE_URL,
             cymbalTimeoutMs: hub.ERROR_TRACKING_CYMBAL_TIMEOUT_MS,
             cymbalMaxBodyBytes: hub.ERROR_TRACKING_CYMBAL_MAX_BODY_BYTES,
+            cymbalCircuitBreakerFailureThreshold: 3,
+            cymbalCircuitBreakerInitialBackoffMs: 1_000,
+            cymbalCircuitBreakerMaxBackoffMs: 30_000,
+            cymbalCircuitBreakerProbeSize: 10,
             lane: hub.INGESTION_LANE ?? ('main' as const),
             overflowEnabled:
                 !!hub.ERROR_TRACKING_CONSUMER_OVERFLOW_TOPIC &&
