@@ -57,6 +57,7 @@ ACCESS_CONTROL_RESOURCES: tuple[APIScopeObject, ...] = (
     "dashboard",
     "experiment",
     "external_data_source",
+    "warehouse_table",
     "feature_flag",
     "insight",
     "llm_analytics",
@@ -64,7 +65,6 @@ ACCESS_CONTROL_RESOURCES: tuple[APIScopeObject, ...] = (
     "revenue_analytics",
     "session_recording",
     "survey",
-    "warehouse_table",
     "web_analytics",
     "activity_log",
     "error_tracking",
@@ -127,7 +127,7 @@ def resource_to_display_name(resource: APIScopeObject) -> str:
         return "data warehouse sources"
     if resource == "warehouse_table":
         # Umbrella label for both tables and views, since warehouse_view inherits from warehouse_table
-        return "data warehouse"
+        return "data warehouse management"
 
     # Default: replace underscores and add 's' for plural
     return f"{resource.replace('_', ' ')}s"

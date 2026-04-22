@@ -288,6 +288,7 @@ export const resourcesAccessControlLogic = kea<resourcesAccessControlLogicType>(
                     AccessControlResourceType.Dashboard,
                     AccessControlResourceType.Experiment,
                     AccessControlResourceType.ExternalDataSource,
+                    AccessControlResourceType.WarehouseTable,
                     AccessControlResourceType.FeatureFlag,
                     AccessControlResourceType.Insight,
                     AccessControlResourceType.LlmAnalytics,
@@ -296,7 +297,6 @@ export const resourcesAccessControlLogic = kea<resourcesAccessControlLogicType>(
                     AccessControlResourceType.SessionRecording,
                     AccessControlResourceType.ErrorTracking,
                     AccessControlResourceType.Survey,
-                    AccessControlResourceType.WarehouseTable,
                     AccessControlResourceType.WebAnalytics,
                 ]
 
