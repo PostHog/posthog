@@ -9,7 +9,8 @@ the Postgres equivalents we emit by default.
 # HogQL name → DuckDB target name. Overlays POSTGRES_FUNCTION_RENAMES.
 DUCKDB_FUNCTION_RENAMES: dict[str, str] = {
     # ClickHouse's ``any`` is "pick any row"; DuckDB has a native ``any_value`` aggregator.
-    # Postgres fakes it with ``MIN``, which is correct but mis-spelled for analytics intent.
+    # Postgres approximates this with ``MIN``, which is not semantically equivalent — it
+    # deterministically picks the smallest value rather than an arbitrary one.
     "any": "any_value",
     # Native type introspection; Postgres uses ``pg_typeof`` which prints differently.
     "toTypeName": "typeof",

@@ -5754,8 +5754,9 @@ class TestDuckDBPrinter(BaseTest):
         )
 
     def test_identifier_no_truncation(self):
-        # PG would truncate a >63-char generated alias with double underscores into a SHA-suffixed name,
-        # and raise outright via escape_postgres_identifier. DuckDB leaves it intact.
+        # PG would truncate a >63-char generated alias containing double underscores into a SHA-suffixed
+        # name via ``_print_identifier``'s truncation heuristic. The separate ``escape_postgres_identifier``
+        # length error applies to overlong identifiers that don't hit that heuristic. DuckDB leaves it intact.
         long_name = "a_really_long_table_name_that_would_force_pg_to_truncate__here"
         long_name += "_even_further_past_63_chars"
         self.assertGreater(len(long_name), 63)

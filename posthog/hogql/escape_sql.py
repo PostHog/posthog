@@ -227,7 +227,7 @@ def escape_clickhouse_identifier(identifier: str) -> str:
 
 
 def escape_hogql_string(
-    name: float | int | str | list | tuple | date | datetime | UUID | UUIDT,
+    name: bool | float | int | str | list | tuple | date | datetime | UUID | UUIDT | None,
     timezone: Optional[str] = None,
 ) -> str:
     return SQLValueEscaper(timezone=timezone, dialect="hogql").visit(name)
