@@ -142,7 +142,7 @@ class TestGetFullRepoNames:
         )
 
         mock_github = MagicMock()
-        mock_github.list_all_repositories.return_value = [
+        mock_github.list_all_cached_repositories.return_value = [
             _repo_dict("posthog", "zebra", 1),
             _repo_dict("posthog", "alpha", 2),
             _repo_dict("posthog", "middle", 3),

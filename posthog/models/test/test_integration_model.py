@@ -1129,10 +1129,10 @@ class TestGitHubIntegrationModel(BaseTest):
         )
 
         cached = cache.get(GitHubIntegration(integration)._get_branch_cache_key(repo))
-        assert branches == ["main", "develop"]
+        assert branches == ["develop", "feature/test"]
         assert default_branch == "main"
-        assert has_more is True
-        assert cached["branches"] == ["main", "develop", "feature/test"]
+        assert has_more is False
+        assert cached["branches"] == ["develop", "feature/test"]
         assert cached["default_branch"] == "main"
         mock_list_branches.assert_called_once_with(repo, limit=100, offset=0)
         mock_default_branch.assert_called_once_with(repo)
