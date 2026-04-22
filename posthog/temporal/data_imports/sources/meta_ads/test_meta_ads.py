@@ -95,8 +95,10 @@ class TestSimplePagination:
         # First call: initial URL + params.
         assert mock_get.call_args_list[0].args[0] == self.INITIAL_URL
         assert mock_get.call_args_list[0].kwargs["params"] == self.INITIAL_PARAMS
-        # Second call: paging.next URL, with access_token injected via params (not baked into URL).
-        assert mock_get.call_args_list[1].args[0] == "https://graph.facebook.com/v20/next?access_token=tok&cursor=abc"
+        # Second call: the saved (token-stripped) URL plus access_token supplied via params.
+        # Using the stripped URL for the fetch too prevents `requests` from sending duplicate
+        # `access_token` query parameters.
+        assert mock_get.call_args_list[1].args[0] == "https://graph.facebook.com/v20/next?cursor=abc"
         assert mock_get.call_args_list[1].kwargs["params"] == {"access_token": "tok"}
 
         # Saved state: access_token stripped from the saved URL.
@@ -221,10 +223,8 @@ class TestTimeRangePagination:
         assert final.chunk_since == "2026-04-22"
         assert final.chunk_next_url is None
 
-        # Second request used the saved next_url with access_token injected via params.
-        assert mock_get.call_args_list[1].args[0] == (
-            "https://graph.facebook.com/v20/act_1/insights?access_token=tok&after=abc"
-        )
+        # Second request uses the stripped URL plus access_token via params (no duplicate token).
+        assert mock_get.call_args_list[1].args[0] == "https://graph.facebook.com/v20/act_1/insights?after=abc"
         assert mock_get.call_args_list[1].kwargs["params"] == {"access_token": "tok"}
 
     def test_fresh_run_saves_chunk_boundary_between_chunks(self) -> None:

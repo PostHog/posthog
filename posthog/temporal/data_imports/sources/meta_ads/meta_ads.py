@@ -196,9 +196,11 @@ def _iter_simple_pagination(
 
         # Saved state points at the NEXT page. On resume we re-fetch from there;
         # the already-yielded page is not re-emitted (primary keys would dedupe it anyway).
-        # We strip the access_token before saving so it never sits at rest in Redis or in logs.
-        resumable_source_manager.save_state(MetaAdsResumeConfig(next_url=_strip_access_token(next_url)))
-        response = _fetch_paging_url(next_url, access_token)
+        # Strip access_token from the URL before using it so we don't end up with a
+        # duplicated `access_token` query param (requests merges `params=...` into the URL).
+        stripped_next_url = _strip_access_token(next_url)
+        resumable_source_manager.save_state(MetaAdsResumeConfig(next_url=stripped_next_url))
+        response = _fetch_paging_url(stripped_next_url, access_token)
 
 
 def _iter_time_range_pagination(
@@ -278,8 +280,12 @@ def _iter_time_range_pagination(
             if not next_url:
                 break
 
-            _save(current_start, chunk_size_days, next_url)
-            response = _fetch_paging_url(next_url, access_token)
+            # Strip the token once and use the same URL for both save and fetch,
+            # otherwise `requests.get(url_with_token, params={access_token: ...})`
+            # would send two `access_token` query params.
+            stripped_next_url = _strip_access_token(next_url)
+            _save(current_start, chunk_size_days, stripped_next_url)
+            response = _fetch_paging_url(stripped_next_url, access_token)
 
         current_start = current_end + dt.timedelta(days=1)
         # Always save the chunk-boundary state, even when we've advanced past
