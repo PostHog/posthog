@@ -198,7 +198,7 @@ export const issuesDataNodeLogic = kea<issuesDataNodeLogicType>([
         },
 
         mutationSuccess: () => {
-            // in v3 when mutation succeeds, phatom gets addeed (which is injected into the query) so the query reloads
+            // in v3 when mutation succeeds, phantom gets added (which is injected into the query) so the query reloads
             // in v1 when mutation succeeds, we need to reload the data manually
             const query = props.query as Record<string, any> | null
             if (query?.useQueryV3) {
