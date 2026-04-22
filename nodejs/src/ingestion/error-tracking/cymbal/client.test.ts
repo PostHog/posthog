@@ -752,6 +752,50 @@ describe('CymbalClient', () => {
             expect(results[0].status).toBe('failed')
         })
 
+        it('does not double-process probed events when batch is larger than probe size', async () => {
+            const client = new CymbalClient({
+                baseUrl: 'http://cymbal.example.com:8080',
+                timeoutMs: 5000,
+                maxBodyBytes: 1_800_000,
+                circuitBreaker: {
+                    name: 'test-cymbal',
+                    failureThreshold: 1,
+                    initialBackoffMs: 1,
+                    maxBackoffMs: 10,
+                    probeSize: 1, // Probe with 1 event, batch has 3
+                },
+                fetch: mockFetch as FetchFunction,
+                dnsResolve: jest.fn().mockResolvedValue(['1.2.3.4']) as DnsResolveFunction,
+            })
+
+            // Trip the circuit
+            mockFetch.mockResolvedValueOnce({ status: 500, json: () => Promise.resolve({}) })
+            await client.processExceptions(toItems([createRequest()]))
+
+            // Circuit is now open. Next call has 3 events — probe uses 1.
+            const requests = [createRequest({ uuid: 'a' }), createRequest({ uuid: 'b' }), createRequest({ uuid: 'c' })]
+            const fetchBodies: string[] = []
+            mockFetch.mockImplementation((_url: string, opts: { body: string }) => {
+                fetchBodies.push(opts.body)
+                const parsed = parseJSON(opts.body)
+                return Promise.resolve({
+                    status: 200,
+                    json: () => Promise.resolve(parsed.map((r: any) => createResponse({ uuid: r.uuid }))),
+                })
+            })
+
+            const results = await client.processExceptions(toItems(requests))
+
+            // All 3 events should succeed
+            expect(results).toHaveLength(3)
+            expect(results.every((r) => r.status === 'success')).toBe(true)
+
+            // The probe should have sent 1 event, then the remainder sends 2.
+            // Without the fix, the remainder would re-send all 3.
+            const sentBatches = fetchBodies.map((b) => parseJSON(b).length)
+            expect(sentBatches).toEqual([1, 2])
+        })
+
         it('does not count non-retriable failures toward the threshold', async () => {
             const client = createCBClient(2)
 

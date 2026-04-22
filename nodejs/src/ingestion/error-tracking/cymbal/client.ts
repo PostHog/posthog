@@ -189,11 +189,24 @@ export class CymbalClient {
 
         // If the circuit is open, block and probe until the service recovers
         // rather than making a request that will almost certainly fail.
+        // NOTE: concurrent callers each probe independently. This is fine
+        // for now since the consumer processes one batch at a time, but if
+        // we move to concurrent batches we should serialize probing behind
+        // a shared promise.
         if (this.circuitBreaker.isOpen()) {
+            let probeResults: CymbalEventResult[] = []
             await this.circuitBreaker.waitForRecovery(async (probeSize) => {
-                const probeResults = await this.doProcessExceptions(items.slice(0, probeSize))
+                probeResults = await this.doProcessExceptions(items.slice(0, probeSize))
                 return probeResults.some((r) => r.status === 'success')
             })
+
+            // The probe already processed some events — only process the rest.
+            const remainingResults = await this.doProcessExceptions(items.slice(probeResults.length))
+            const combined = [...probeResults, ...remainingResults]
+            if (combined.some((r) => r.status === 'success')) {
+                this.circuitBreaker.recordSuccess()
+            }
+            return combined
         }
 
         const results = await this.doProcessExceptions(items)
