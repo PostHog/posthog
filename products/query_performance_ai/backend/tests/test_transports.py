@@ -31,9 +31,9 @@ class TestPosthogProxyTransport:
 
         proxy_response = json.dumps(
             {
-                "result": "1\n",
+                "result": [[1, "a"], [2, None]],
                 "elapsed_ms": 42.5,
-                "rows_read": 1,
+                "rows_read": 2,
                 "bytes_read": 1,
                 "query_id": "qid-abc",
             }
@@ -51,9 +51,12 @@ class TestPosthogProxyTransport:
         assert called_req.headers["Content-type"] == "application/json"
         assert json.loads(called_req.data) == {"sql": "SELECT 1"}
 
-        assert result.result_bytes == b"1\n"
+        # Rows come off the wire as JSON; the transport serializes them to
+        # JSON-lines bytes so ch_compare_results.py (which diffs text files)
+        # keeps working unchanged.
+        assert result.result_bytes == b'[1,"a"]\n[2,null]\n'
         assert result.elapsed_ms == pytest.approx(42.5)
-        assert result.rows_read == 1
+        assert result.rows_read == 2
         assert result.bytes_read == 1
         assert "qid-abc" in result.stdout
 
@@ -63,7 +66,7 @@ class TestPosthogProxyTransport:
             token="tok",
         )
 
-        proxy_response = b'{"result": "", "elapsed_ms": 1.0, "rows_read": null, "bytes_read": null, "query_id": null}'
+        proxy_response = b'{"result": [], "elapsed_ms": 1.0, "rows_read": 0, "bytes_read": null, "query_id": null}'
         mock_ctx = MagicMock()
         mock_ctx.__enter__.return_value.read.return_value = proxy_response
         with patch("transports.urllib.request.urlopen", return_value=mock_ctx) as mocked:
