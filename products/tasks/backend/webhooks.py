@@ -137,12 +137,12 @@ def github_pr_webhook(request: HttpRequest) -> HttpResponse:
 
 
 def _handle_check_run_event(payload: dict) -> HttpResponse:
-    # This is a placeholder for handling GitHub Actions workflow_run events if needed in the future.
+    # This is a placeholder for handling GitHub check_run events if needed in the future.
     # For now, we simply log the event and return a 200 response.
     logger.info(
-        "github_workflow_run_webhook_received",
+        "github_check_run_webhook_received",
         action=payload.get("action"),
-        workflow_run_name=payload.get("workflow_run", {}).get("name"),
+        check_run_name=payload.get("check_run", {}).get("name"),
         repository=payload.get("repository", {}).get("full_name"),
     )
     if payload.get("action") != "completed":
