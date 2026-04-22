@@ -348,7 +348,24 @@ jobs:
                   LOG_LEVEL: info
                   # Enable localstack integration tests for DynamoDB/KMS
                   LOCALSTACK_ENABLED: '1'
-              run: bin/turbo run test --filter=@posthog/nodejs
+              run: |
+                  echo "=== Pre-test memory ==="
+                  free -h || true
+
+                  set +e
+                  bin/turbo run test --filter=@posthog/nodejs 2>/tmp/jest-stderr.log
+                  JEST_EXIT=$?
+                  set -e
+
+                  echo "=== Jest/turbo exit code: $JEST_EXIT ==="
+                  echo "=== Captured stderr ==="
+                  cat /tmp/jest-stderr.log || true
+                  echo "=== Post-test memory ==="
+                  free -h || true
+                  echo "=== dmesg OOM check ==="
+                  sudo dmesg | grep -i 'oom\|killed\|out of memory' | tail -20 || true
+
+                  exit $JEST_EXIT
 
             - name: Test postgres-parity (isolated DB)
               if: (success() || failure()) && matrix.shard == 1
