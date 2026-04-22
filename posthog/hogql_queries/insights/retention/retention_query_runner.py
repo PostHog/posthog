@@ -1039,8 +1039,98 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
                 group_by=[ast.Field(chain=["actor_id"])],
             )
 
+            retention_events = ast.SelectSetQuery.create_from_queries(
+                [start_event_query, return_event_query], "UNION ALL"
+            )
 
-            inner_query=
+            inner_query = ast.SelectQuery(
+                select=[
+                    ast.Alias(alias="actor_id", expr=ast.Field(chain=["retention_events", "actor_id"])),
+                    ast.Alias(
+                        alias="start_event_timestamps",
+                        expr=parse_expr(
+                            """
+                            arraySort(
+                                arrayDistinct(
+                                    arrayFlatten(
+                                        groupArrayIf(
+                                            start_event_timestamps,
+                                            isNotNull(start_event_timestamps)
+                                        )
+                                    )
+                                )
+                            )
+                            """
+                        ),
+                    ),
+                    ast.Alias(alias="date_range", expr=parse_expr("any(date_range)")),
+                    ast.Alias(
+                        alias="return_event_timestamps",
+                        expr=parse_expr(
+                            """
+                            arraySort(
+                                arrayDistinct(
+                                    arrayFlatten(
+                                        groupArrayIf(
+                                            return_event_timestamps,
+                                            isNotNull(return_event_timestamps)
+                                        )
+                                    )
+                                )
+                            )
+                            """
+                        ),
+                    ),
+                    ast.Alias(
+                        alias="start_interval_index",
+                        expr=parse_expr(
+                            """
+                            arrayJoin(
+                                arrayFilter(
+                                    x -> x > -1,
+                                    arrayMap(
+                                    (interval_index, interval_date) ->
+                                        if(
+                                            {is_valid_start_interval},
+                                            interval_index - 1,
+                                            -1
+                                        ),
+                                        arrayEnumerate(date_range),
+                                        date_range
+                                    )
+                                )
+                            )
+                        """,
+                            {"is_valid_start_interval": is_valid_start_interval},
+                        ),
+                    ),
+                    ast.Alias(alias="intervals_from_base", expr=intervals_from_base_expr),
+                ],
+                select_from=ast.JoinExpr(table=retention_events, alias="retention_events"),
+                group_by=[ast.Field(chain=["retention_events", "actor_id"])],
+                having=ast.And(
+                    exprs=[
+                        (
+                            ast.CompareOperation(
+                                op=ast.CompareOperationOp.Eq,
+                                left=ast.Field(chain=["start_interval_index"]),
+                                right=ast.Constant(value=start_interval_index_filter),
+                            )
+                            if start_interval_index_filter is not None
+                            else ast.Constant(value=1)
+                        ),
+                        (
+                            ast.CompareOperation(
+                                op=ast.CompareOperationOp.Eq,
+                                left=ast.Field(chain=["breakdown_value"]),
+                                right=ast.Constant(value=selected_breakdown_value),
+                            )
+                            if selected_breakdown_value is not None
+                            else ast.Constant(value=1)
+                        ),
+                    ]
+                ),
+            )
 
         return inner_query
 
