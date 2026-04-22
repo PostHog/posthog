@@ -115,6 +115,10 @@
                     "minLength": 1,
                     "description": "The final SQL query to be executed."
                 },
+                "connectionId": {
+                    "description": "Optional direct data warehouse source id. Omit unless the user explicitly asks to query a specific warehouse or connection discovered from read-data-warehouse-schema.",
+                    "type": "string"
+                },
                 "truncate": {
                     "default": true,
                     "description": "Whether to truncate large blob/JSON values in results. Defaults to true. Set to false when you need full untruncated results (e.g., for dumping to a file).",
@@ -2402,6 +2406,9 @@
                                             "type": "string",
                                             "const": "HogQLQuery"
                                         },
+                                        "connectionId": {
+                                            "type": "string"
+                                        },
                                         "query": {
                                             "type": "string"
                                         },
@@ -2548,6 +2555,9 @@
                                                     "type": "boolean"
                                                 }
                                             }
+                                        },
+                                        "sendRawQuery": {
+                                            "type": "boolean"
                                         }
                                     },
                                     "required": ["kind", "query"]
@@ -2697,8 +2707,13 @@
         },
         "ReadDataWarehouseSchemaSchema": {
             "type": "object",
-            "properties": {},
-            "description": "No input required. Returns core data warehouse schemas."
+            "properties": {
+                "connectionId": {
+                    "description": "Optional direct data warehouse source id. When set, returns schema for that connection.",
+                    "type": "string"
+                }
+            },
+            "description": "Returns core data warehouse schemas and direct query connections."
         },
         "SurveyResponseCountsSchema": {
             "type": "object",
