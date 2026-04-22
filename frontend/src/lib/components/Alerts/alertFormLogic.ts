@@ -3,7 +3,7 @@ import { forms, type DeepPartialMap, type ValidationErrorType } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import posthog from 'posthog-js'
 
-import api from 'lib/api'
+import api, { ApiError } from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 
@@ -99,6 +99,18 @@ function hydrateAlertLogicFromSaveResponse(updatedAlert: AlertType, historyChart
     }
     logic.actions.loadAlertSuccess(mergedAlert)
     void logic.asyncActions.loadAlert()
+}
+
+function formatSaveError(error: unknown): string {
+    if (error instanceof ApiError) {
+        const field = error.attr?.replace(/_/g, ' ')
+        const detail = error.detail ?? error.message
+        return field ? `${field}: ${detail}` : detail
+    }
+    if (error instanceof Error) {
+        return error.message
+    }
+    return 'Unknown error'
 }
 
 function insightIntervalToAlertInterval(interval?: IntervalType | null): AlertCalculationInterval {
@@ -263,9 +275,11 @@ export const alertFormLogic = kea<alertFormLogicType>([
                         alert.id === undefined
                             ? await api.alerts.create(payload)
                             : await api.alerts.update(alert.id, payload)
-                } catch (error: any) {
-                    const field = error.data?.attr?.replace(/_/g, ' ')
-                    lemonToast.error(`Error saving alert: ${field}: ${error.detail}`)
+                } catch (error: unknown) {
+                    // `AlertViewSet` is a standard DRF ModelViewSet, so validation errors arrive as
+                    // `{attr, detail}`. Anything else (network blip, non-ApiError thrown somehow) shouldn't
+                    // be formatted with those fields or we end up with "undefined: undefined".
+                    lemonToast.error(`Error saving alert: ${formatSaveError(error)}`)
                     throw error
                 }
 

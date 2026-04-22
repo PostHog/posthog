@@ -205,4 +205,19 @@ describe('alertFormLogic', () => {
         )
         expect(successToastSpy).not.toHaveBeenCalled()
     })
+
+    // Guard against the original symptom: a non-ApiError thrown from the save path (or a bare Error
+    // with no `attr` / `detail`) must not render as "undefined: undefined". We fall back to `.message`.
+    it('shows the error message when the create API call fails with a non-ApiError', async () => {
+        createSpy.mockRejectedValueOnce(new Error('Network request failed'))
+
+        const logic = mountForm()
+
+        await expectLogic(logic, () => {
+            logic.actions.submitAlertForm()
+        }).toFinishAllListeners()
+
+        expect(errorToastSpy).toHaveBeenCalledWith('Error saving alert: Network request failed')
+        expect(successToastSpy).not.toHaveBeenCalled()
+    })
 })
