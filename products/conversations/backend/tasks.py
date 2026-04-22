@@ -441,7 +441,7 @@ def send_email_reply(
         txt_body = content
         html_body = f"<p>{html_mod.escape(content)}</p>"
 
-    subject = ticket.email_subject or "Re: Your support request"
+    subject = ticket.email_subject or f"#{ticket.ticket_number}"
     if not subject.lower().startswith("re:"):
         subject = f"Re: {subject}"
 

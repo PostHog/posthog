@@ -3,6 +3,8 @@
 from urllib.parse import urlparse
 
 from drf_spectacular.utils import extend_schema_field
+from django.core.exceptions import ValidationError as DjangoValidationError
+from django.core.validators import validate_email
 from rest_framework import serializers
 
 from posthog.api.utils import on_permitted_recording_domain
@@ -119,6 +121,14 @@ class WidgetMessageSerializer(WidgetAuthSerializer):
             str_value = str(val) if val is not None else None
             if str_value and len(str_value) > 500:
                 raise serializers.ValidationError(f"Trait value too long for '{key}' (max 500 chars)")
+
+            if key == "email" and str_value:
+                normalized_email = str_value.strip()
+                try:
+                    validate_email(normalized_email)
+                except DjangoValidationError as err:
+                    raise serializers.ValidationError({"email": err.messages}) from err
+                str_value = normalized_email
 
             validated[key] = str_value
 

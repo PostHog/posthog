@@ -1,5 +1,7 @@
 from typing import Any, cast
 
+from django.core.exceptions import ValidationError as DjangoValidationError
+from django.core.validators import validate_email
 from django.db import transaction
 from django.db.models import F, Q
 from django.db.models.functions import Greatest
@@ -22,13 +24,22 @@ from .tasks import post_reply_to_slack, send_email_reply
 logger = structlog.get_logger(__name__)
 
 
+def _get_widget_reply_subject(ticket: Ticket) -> str:
+    return f"#{ticket.ticket_number}"
+
+
 def _get_ticket_customer_email(ticket: Ticket) -> str:
     if ticket.email_from:
         return ticket.email_from
     if isinstance(ticket.anonymous_traits, dict):
         email = ticket.anonymous_traits.get("email")
         if isinstance(email, str):
-            return email.strip()
+            normalized_email = email.strip()
+            try:
+                validate_email(normalized_email)
+            except DjangoValidationError:
+                return ""
+            return normalized_email
     return ""
 
 
@@ -355,11 +366,11 @@ def send_email_reply_on_team_message(sender, instance: Comment, created: bool, *
                     ticket.email_from = customer_email
                     update_fields.append("email_from")
                 if not ticket.email_subject:
-                    ticket.email_subject = "Your support request"
+                    ticket.email_subject = _get_widget_reply_subject(ticket)
                     update_fields.append("email_subject")
                 if update_fields:
                     ticket.save(update_fields=[*update_fields, "updated_at"])
-            elif ticket.email_from != customer_email:
+            elif ticket.channel_source == Channel.WIDGET and ticket.email_from != customer_email:
                 ticket.email_from = customer_email
                 ticket.save(update_fields=["email_from", "updated_at"])
 

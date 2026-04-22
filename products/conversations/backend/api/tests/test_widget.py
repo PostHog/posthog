@@ -71,6 +71,21 @@ class TestWidgetAPI(BaseTest):
         self.assertEqual(ticket.status, "new")
         self.assertEqual(ticket.unread_team_count, 1)
 
+    def test_create_message_rejects_invalid_email_trait(self):
+        response = self.client.post(
+            "/api/conversations/v1/widget/message",
+            {
+                "message": "Hello, I need help!",
+                "widget_session_id": self.widget_session_id,
+                "distinct_id": self.distinct_id,
+                "traits": {"email": "not-an-email"},
+            },
+            **self._get_headers(),
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("email", str(response.json()))
+
     def test_create_ticket_channel_detail_widget_enabled(self):
         self.team.conversations_settings = {**self.team.conversations_settings, "widget_enabled": True}
         self.team.save()
