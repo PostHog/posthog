@@ -5710,11 +5710,23 @@ class TestDuckDBPrinter(BaseTest):
 
     @parameterized.expand(
         [
-            ("pivot",),
-            ("unpivot",),
-            ("qualify",),
+            ("anti",),
+            ("asof",),
+            ("attach",),
+            ("detach",),
             ("exclude",),
+            ("install",),
+            ("load",),
+            ("macro",),
+            ("pivot",),
+            ("positional",),
+            ("pragma",),
+            ("qualify",),
             ("replace",),
+            ("sample",),
+            ("semi",),
+            ("summarize",),
+            ("unpivot",),
         ]
     )
     def test_duckdb_extra_reserved_keywords_are_quoted(self, name: str):

@@ -162,12 +162,25 @@ POSTGRES_RESERVED_KEYWORDS = {
 
 # DuckDB reserves a handful of additional keywords that Postgres doesn't, so identifiers
 # colliding with these must be quoted when emitting DuckDB SQL even though they'd be
-# unambiguous in Postgres.
+# unambiguous in Postgres. Derived from DuckDB's ``duckdb_keywords()`` catalog with
+# ``keyword_category = 'reserved'`` — re-verify and update before major DuckDB version bumps.
 DUCKDB_EXTRA_RESERVED_KEYWORDS = {
+    "ANTI",
+    "ASOF",
+    "ATTACH",
+    "DETACH",
     "EXCLUDE",
+    "INSTALL",
+    "LOAD",
+    "MACRO",
     "PIVOT",
+    "POSITIONAL",
+    "PRAGMA",
     "QUALIFY",
     "REPLACE",
+    "SAMPLE",
+    "SEMI",
+    "SUMMARIZE",
     "UNPIVOT",
 }
 
