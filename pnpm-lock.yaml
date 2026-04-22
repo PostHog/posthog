@@ -329,11 +329,11 @@ importers:
         specifier: workspace:*
         version: link:../replay-shared
       '@posthog/rrweb':
-        specifier: 0.0.26
-        version: 0.0.26
+        specifier: 0.0.59
+        version: 0.0.59
       '@posthog/rrweb-types':
-        specifier: 0.0.26
-        version: 0.0.26
+        specifier: 0.0.59
+        version: 0.0.59
       p-limit:
         specifier: 3.1.0
         version: 3.1.0
@@ -357,11 +357,11 @@ importers:
   common/replay-shared:
     dependencies:
       '@posthog/rrweb':
-        specifier: 0.0.26
-        version: 0.0.26
+        specifier: 0.0.59
+        version: 0.0.59
       '@posthog/rrweb-types':
-        specifier: 0.0.26
-        version: 0.0.26
+        specifier: 0.0.59
+        version: 0.0.59
       fflate:
         specifier: ^0.8.2
         version: 0.8.2
@@ -729,14 +729,14 @@ importers:
         specifier: workspace:*
         version: link:../common/replay-shared
       '@posthog/rrweb':
-        specifier: 0.0.26
-        version: 0.0.26
+        specifier: 0.0.59
+        version: 0.0.59
       '@posthog/rrweb-plugin-console-record':
-        specifier: 0.0.26
-        version: 0.0.26(@posthog/rrweb-utils@0.0.4)(@posthog/rrweb@0.0.26)
+        specifier: 0.0.59
+        version: 0.0.59(@posthog/rrweb-utils@0.0.59)(@posthog/rrweb@0.0.59)
       '@posthog/rrweb-types':
-        specifier: 0.0.26
-        version: 0.0.26
+        specifier: 0.0.59
+        version: 0.0.59
       '@posthog/tailwind':
         specifier: workspace:*
         version: link:../common/tailwind
@@ -8853,26 +8853,26 @@ packages:
       '@types/react':
         optional: true
 
-  '@posthog/rrdom@0.0.4':
-    resolution: {integrity: sha512-hUZOgnIxzB6ZWgKBbuf79oHko+7x1+sQMVtovY0k6fO67e5SwhKkLq3Y/Tn2ayIyUqEKqL8971wP1cmIeIVO+A==}
+  '@posthog/rrdom@0.0.59':
+    resolution: {integrity: sha512-0Xl1N9kyAzdwoL/brJaVTmbCBEGg8BWBziZ/k6a/V01etF4KFz7ws+neoXmnP69ClKnHC44Y8FhiegUags5CTA==}
 
-  '@posthog/rrweb-plugin-console-record@0.0.26':
-    resolution: {integrity: sha512-x1pcNVQ5yNRgNObrvMcXOui3d82Ulqils2fYkF87NFQpPCCoLKTb4BIFn9IYIaqkzrUmAdq2zU5bjPlAakzM2A==}
+  '@posthog/rrweb-plugin-console-record@0.0.59':
+    resolution: {integrity: sha512-1Akgh9vA0G9r7RZvACYqhV2UfvOLEJEGaqfbZPwwdZ/DCKyRJCF7r3fr3LaETv1xhvLKTMwjLLd/X+X35hvtXQ==}
     peerDependencies:
-      '@posthog/rrweb': '*'
-      '@posthog/rrweb-utils': '*'
+      '@posthog/rrweb': 0.0.59
+      '@posthog/rrweb-utils': 0.0.59
 
-  '@posthog/rrweb-snapshot@0.0.4':
-    resolution: {integrity: sha512-ifZH6T0FYjHtiCcqQOdrLn8YH9I7OOIWu2GSZMCzFd8F8oX1gtX4Tk/yX0sA6qAIWtfwDC0dKXgHWS2/EqGjgg==}
+  '@posthog/rrweb-snapshot@0.0.59':
+    resolution: {integrity: sha512-SmYUY0ktfmCMUlYTI0whxpQXYoxARoGJDJuo98k/F9qanE7LP7EG0TxZD7ZWzJ41cqgINiUaiUmzhDeFAMZfgw==}
 
-  '@posthog/rrweb-types@0.0.26':
-    resolution: {integrity: sha512-aMQ8zcW1xWH7k2Pk2LcS0ZMev5Jah8JrN43prYNk4t960Fr0NjINP1eeF7vTvDtoQyEBJ6zNg7xa0D0nn4atzA==}
+  '@posthog/rrweb-types@0.0.59':
+    resolution: {integrity: sha512-uTwrfIra1C7z7kzTQ2Mp3UohgPyOiUOZjVnwueA1ue3VcQVwbqT9poVJ6mNEY9U2kyLCuH+gNcOlq8sWab6pXw==}
 
-  '@posthog/rrweb-utils@0.0.4':
-    resolution: {integrity: sha512-ndkpquzqXV/i0u4paOPiESWE/wdOEPdM+Q+sFQfcn6KnvjxtkzsnNNSlOcNHSwuRh0bCk3Cgs2ixDVTSZ+Zdtg==}
+  '@posthog/rrweb-utils@0.0.59':
+    resolution: {integrity: sha512-79CWqVJ+DYwMa4h2dcx2p8I3PGdkI8EiqJeqTVZDP4QMkGhsNv+gt9kU+KFmJaaZREfEPdIEJ48zcqdZphXx0A==}
 
-  '@posthog/rrweb@0.0.26':
-    resolution: {integrity: sha512-UvH8ki2poxIInMbySlTLHWstiY8mhm5pCFFelUf5fe8ke5IYTpDVH6/JrLJbcmxlpad/nhwHH4UU4mx4nnY46Q==}
+  '@posthog/rrweb@0.0.59':
+    resolution: {integrity: sha512-jZySV/9SD/6gOu1jO5Wz/syRckjuj59mD+Rd8FFc0FSO9bnoXoz9Jx5AiME5wkRLPXBy6iGRLYabaYx9G1FIMg==}
 
   '@posthog/siphash@1.1.1':
     resolution: {integrity: sha512-JUFk57H89fOnHpF62FDyFGw4uXeHAX20OPfkLL8/iqg/xrVp5Q21LvJUDijmS5wt0avgUwXF2bxYgaZ5iWRmAg==}
@@ -12159,6 +12159,9 @@ packages:
 
   '@types/pixelmatch@5.2.4':
     resolution: {integrity: sha512-HDaSHIAv9kwpMN7zlmwfTv6gax0PiporJOipcrGsVNF3Ba+kryOZc0Pio5pn6NhisgWr7TaajlPEKTbTAypIBQ==}
+
+  '@types/postcss-safe-parser@5.0.4':
+    resolution: {integrity: sha512-5zGTm1jsW3j4+omgND1SIDbrZOcigTuxa4ihppvKbLkg2INUGBHV/fWNRSRFibK084tU3fxqZ/kVoSIGqRHnrQ==}
 
   '@types/prettier@2.7.3':
     resolution: {integrity: sha512-+68kP9yzs4LMp7VNh8gdzMSPZFL44MLGqiHWvttYJe+6qnuVr4Ek9wSBQoveqY/r+LwjCcU29kNVkidwim+kYA==}
@@ -18534,9 +18537,6 @@ packages:
     resolution: {integrity: sha512-KZxYo1BUkWD2TVFLr0MQoM8vUUigWD3LlD83a/75BqC+4qE0Hb1Vo5v1FgcfaNXvfXzr+5EhQ6ing/CaBijTlw==}
     engines: {node: '>= 18'}
 
-  mitt@3.0.0:
-    resolution: {integrity: sha512-7dX2/10ITVyqh4aOSVI9gdape+t9l2/8QxHrFmUXu4EEUpdlxl6RudZUPZoc+zuY2hk1j7XxVroIVIan/pD/SQ==}
-
   mitt@3.0.1:
     resolution: {integrity: sha512-vKivATfr97l2/QBCYAkXYDbrIWPM2IIKEl7YPhjCvKlG3kE2gm+uBo6nEXK3M5/Ffh/FLpKExzOQ3JJoJGFKBw==}
 
@@ -19787,6 +19787,12 @@ packages:
     engines: {node: '>=12.0'}
     peerDependencies:
       postcss: ^8.3.3
+
+  postcss-safe-parser@7.0.1:
+    resolution: {integrity: sha512-0AioNCJZ2DPYz5ABT6bddIqlhgwhpHZ/l65YAYo0BCIn0xiDpsnTHz0gnoTGk0OXZW0JRs+cDwL8u/teRdz+8A==}
+    engines: {node: '>=18.0'}
+    peerDependencies:
+      postcss: ^8.4.31
 
   postcss-scss@4.0.9:
     resolution: {integrity: sha512-AjKOeiwAitL/MXxQW2DliT28EKukvvbEWx3LBmJIRN8KfBGZbRTxNYW0kSqi1COiTZ57nZ9NW06S6ux//N1c9A==}
@@ -31750,33 +31756,35 @@ snapshots:
     optionalDependencies:
       '@types/react': 18.3.27
 
-  '@posthog/rrdom@0.0.4':
+  '@posthog/rrdom@0.0.59':
     dependencies:
-      '@posthog/rrweb-snapshot': 0.0.4
+      '@posthog/rrweb-snapshot': 0.0.59
 
-  '@posthog/rrweb-plugin-console-record@0.0.26(@posthog/rrweb-utils@0.0.4)(@posthog/rrweb@0.0.26)':
+  '@posthog/rrweb-plugin-console-record@0.0.59(@posthog/rrweb-utils@0.0.59)(@posthog/rrweb@0.0.59)':
     dependencies:
-      '@posthog/rrweb': 0.0.26
-      '@posthog/rrweb-utils': 0.0.4
+      '@posthog/rrweb': 0.0.59
+      '@posthog/rrweb-utils': 0.0.59
 
-  '@posthog/rrweb-snapshot@0.0.4':
+  '@posthog/rrweb-snapshot@0.0.59':
     dependencies:
+      '@types/postcss-safe-parser': 5.0.4
       postcss: 8.5.6
+      postcss-safe-parser: 7.0.1(postcss@8.5.6)
 
-  '@posthog/rrweb-types@0.0.26': {}
+  '@posthog/rrweb-types@0.0.59': {}
 
-  '@posthog/rrweb-utils@0.0.4': {}
+  '@posthog/rrweb-utils@0.0.59': {}
 
-  '@posthog/rrweb@0.0.26':
+  '@posthog/rrweb@0.0.59':
     dependencies:
-      '@posthog/rrdom': 0.0.4
-      '@posthog/rrweb-snapshot': 0.0.4
-      '@posthog/rrweb-types': 0.0.26
-      '@posthog/rrweb-utils': 0.0.4
+      '@posthog/rrdom': 0.0.59
+      '@posthog/rrweb-snapshot': 0.0.59
+      '@posthog/rrweb-types': 0.0.59
+      '@posthog/rrweb-utils': 0.0.59
       '@types/css-font-loading-module': 0.0.7
       '@xstate/fsm': 1.6.5
       base64-arraybuffer: 1.0.2
-      mitt: 3.0.0
+      mitt: 3.0.1
 
   '@posthog/siphash@1.1.1': {}
 
@@ -35988,6 +35996,10 @@ snapshots:
   '@types/pixelmatch@5.2.4':
     dependencies:
       '@types/node': 22.18.8
+
+  '@types/postcss-safe-parser@5.0.4':
+    dependencies:
+      postcss: 8.5.6
 
   '@types/prettier@2.7.3': {}
 
@@ -44412,8 +44424,6 @@ snapshots:
     dependencies:
       minipass: 7.1.2
 
-  mitt@3.0.0: {}
-
   mitt@3.0.1: {}
 
   mj-context-menu@0.6.1: {}
@@ -46050,6 +46060,10 @@ snapshots:
   postcss-safe-parser@6.0.0(postcss@8.4.31):
     dependencies:
       postcss: 8.4.31
+
+  postcss-safe-parser@7.0.1(postcss@8.5.6):
+    dependencies:
+      postcss: 8.5.6
 
   postcss-scss@4.0.9(postcss@8.5.6):
     dependencies:

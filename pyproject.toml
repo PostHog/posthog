@@ -97,7 +97,7 @@ dependencies = [
     "paramiko==3.4.1",
     "pillow==12.2.0",
     "protobuf~=5.29.6",
-    "posthoganalytics==7.10.2",
+    "posthoganalytics==7.13.0",
     "polars==1.37.1",
     "psycopg2-binary==2.9.10",
     "psycopg[binary]==3.2.4",
