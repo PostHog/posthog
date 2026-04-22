@@ -86,7 +86,7 @@ def test_capture_session_summary_ready_swallow_capture_errors(
 
     from ee.hogai.session_summaries.events import capture_session_summary_ready
 
-    capture_session_summary_ready(summary, summary_origin="single")
+    capture_session_summary_ready(summary, summary_origin="single", team_api_token=team.api_token)
 
     logger.exception.assert_called_once()
 

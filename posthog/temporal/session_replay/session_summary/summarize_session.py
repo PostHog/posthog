@@ -108,6 +108,7 @@ VIDEO_PHASE_ORDER: tuple[str, ...] = (
 )
 VIDEO_PHASE_INDEX: dict[str, int] = {name: idx for idx, name in enumerate(VIDEO_PHASE_ORDER)}
 VIDEO_TOTAL_STEPS: int = len(VIDEO_PHASE_ORDER)
+SINGLE_SESSION_SUMMARY_REDIS_KEY_PREFIX = "session-summary:single:"
 
 
 def _set_phase(progress: SingleSessionProgress | None, phase: str) -> None:
@@ -120,6 +121,10 @@ def _set_phase(progress: SingleSessionProgress | None, phase: str) -> None:
     progress["phase"] = phase
     if phase in VIDEO_PHASE_INDEX:
         progress["step"] = VIDEO_PHASE_INDEX[phase]
+
+
+def _is_single_session_summary_key(redis_key_base: str) -> bool:
+    return redis_key_base.startswith(SINGLE_SESSION_SUMMARY_REDIS_KEY_PREFIX)
 
 
 @temporalio.activity.defn
@@ -222,8 +227,13 @@ def _store_final_summary_in_db_from_activity(
         distinct_id=llm_input.distinct_id,
         created_by=user,
     )
-    if inputs.redis_key_base.startswith("session-summary:single:"):
-        capture_session_summary_ready(stored_summary, summary_origin="single")
+    if _is_single_session_summary_key(inputs.redis_key_base):
+        team_api_token = Team.objects.only("api_token").get(id=inputs.team_id).api_token
+        capture_session_summary_ready(
+            stored_summary,
+            summary_origin="single",
+            team_api_token=team_api_token,
+        )
 
 
 @temporalio.activity.defn
@@ -239,7 +249,7 @@ async def get_llm_single_session_summary_activity(
         extra_summary_context=inputs.extra_summary_context,
     )
     if summary_exists.get(inputs.session_id):
-        if inputs.redis_key_base.startswith("session-summary:single:"):
+        if _is_single_session_summary_key(inputs.redis_key_base):
             existing_summary = await database_sync_to_async(
                 SingleSessionSummary.objects.get_summary,
                 thread_sensitive=False,
@@ -253,7 +263,8 @@ async def get_llm_single_session_summary_activity(
                     lambda: Team.objects.only("api_token").get(id=inputs.team_id).api_token,
                     thread_sensitive=False,
                 )()
-                capture_session_summary_ready(
+                await asyncio.to_thread(
+                    capture_session_summary_ready,
                     existing_summary,
                     summary_origin="single",
                     team_api_token=team_api_token,

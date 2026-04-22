@@ -23,12 +23,12 @@ def capture_session_summary_ready(
     summary: SingleSessionSummary,
     *,
     summary_origin: SummaryOrigin,
-    team_api_token: str | None = None,
+    team_api_token: str,
 ) -> None:
     run_metadata = summary.run_metadata or {}
     try:
         response = capture_internal(
-            token=team_api_token or summary.team.api_token,
+            token=team_api_token,
             event_name="$session_summary_ready",
             event_source=EVENT_SOURCE,
             distinct_id=summary.distinct_id or f"session_summary:{summary.team_id}:{summary.session_id}",

@@ -3,6 +3,7 @@ Activity 6b of the video-based summarization workflow:
 Saving the single session summary.
 """
 
+import asyncio
 from typing import Any
 
 import structlog
@@ -77,7 +78,8 @@ async def store_video_session_summary_activity(
                 extra_summary_context=inputs.extra_summary_context,
             )
             if existing_summary:
-                capture_session_summary_ready(
+                await asyncio.to_thread(
+                    capture_session_summary_ready,
                     existing_summary,
                     summary_origin="single",
                     team_api_token=team_api_token,
@@ -150,7 +152,8 @@ async def store_video_session_summary_activity(
             distinct_id=distinct_id,
             created_by=user,
         )
-        capture_session_summary_ready(
+        await asyncio.to_thread(
+            capture_session_summary_ready,
             stored_summary,
             summary_origin="single",
             team_api_token=team_api_token,
