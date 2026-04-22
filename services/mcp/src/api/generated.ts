@@ -11957,25 +11957,6 @@ export namespace Schemas {
       version?: number | null;
     }
 
-    export interface ErrorTrackingPhantomFingerprintIssueState {
-      /** @nullable */
-      assigned_role_id: string | null;
-      /** @nullable */
-      assigned_user_id: number | null;
-      fingerprint: string;
-      /** ISO 8601 datetime string. */
-      first_seen: string;
-      is_deleted: number;
-      /** @nullable */
-      issue_description: string | null;
-      issue_id: string;
-      /** @nullable */
-      issue_name: string | null;
-      issue_status: string;
-      /** Client-stamped monotonic version (`Date.now()` ms at mutation success). */
-      version: number;
-    }
-
     export type ErrorTrackingQueryKind = typeof ErrorTrackingQueryKind[keyof typeof ErrorTrackingQueryKind];
 
 
@@ -12001,6 +11982,25 @@ export namespace Schemas {
       Asc: 'ASC',
       Desc: 'DESC',
     } as const;
+
+    export interface ErrorTrackingPhantomFingerprintIssueState {
+      /** @nullable */
+      assigned_role_id?: string | null;
+      /** @nullable */
+      assigned_user_id?: number | null;
+      fingerprint: string;
+      /** ISO 8601 datetime string. */
+      first_seen: string;
+      is_deleted: number;
+      /** @nullable */
+      issue_description?: string | null;
+      issue_id: string;
+      /** @nullable */
+      issue_name?: string | null;
+      issue_status: string;
+      /** Client-stamped monotonic version (`Date.now()` ms at mutation success). */
+      version: number;
+    }
 
     export interface ErrorTrackingQueryResponse {
       /** @nullable */
@@ -12045,11 +12045,6 @@ export namespace Schemas {
        * @nullable
        */
       filterTestAccounts?: boolean | null;
-      /**
-       * Client-side phantom rows to UNION into the denormalized fingerprint issue state subquery (V3 only). Used to hide Kafka→ClickHouse sync lag after mutations.
-       * @nullable
-       */
-      phantomFingerprintIssueStates?: ErrorTrackingPhantomFingerprintIssueState[] | null;
       /** @nullable */
       groupKey?: string | null;
       /** @nullable */
@@ -12072,6 +12067,11 @@ export namespace Schemas {
       orderDirection?: OrderDirection2 | null;
       /** @nullable */
       personId?: string | null;
+      /**
+       * Phantom rows UNIONed into the fingerprint issue state subquery (V3 only).
+       * @nullable
+       */
+      phantomFingerprintIssueStates?: ErrorTrackingPhantomFingerprintIssueState[] | null;
       response?: ErrorTrackingQueryResponse | null;
       /**
        * Free-text search across exception type, message, and stack frames.
