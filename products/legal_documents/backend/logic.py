@@ -5,7 +5,11 @@ ORM queries, validation, calculations, business rules.
 Called by facade/api.py — do not call from outside this module.
 """
 
+from __future__ import annotations
+
 from uuid import UUID
+
+from django.db.models import QuerySet
 
 import structlog
 import posthoganalytics
@@ -38,7 +42,7 @@ def exists_for_organization_and_type(organization_id: UUID, document_type: str) 
     return LegalDocument.objects.filter(organization_id=organization_id, document_type=document_type).exists()
 
 
-def list_for_organization(organization_id: UUID):
+def list_for_organization(organization_id: UUID) -> QuerySet[LegalDocument]:
     return (
         LegalDocument.objects.select_related("created_by")
         .filter(organization_id=organization_id)

@@ -8,6 +8,7 @@ from rest_framework import exceptions, permissions, status, viewsets
 from rest_framework.permissions import BasePermission
 from rest_framework.request import Request
 from rest_framework.response import Response
+from rest_framework.views import APIView
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models.organization import OrganizationMembership
@@ -27,7 +28,7 @@ class IsOrganizationAdminOrOwner(BasePermission):
 
     message = "Your organization access level is insufficient."
 
-    def has_permission(self, request: Request, view) -> bool:
+    def has_permission(self, request: Request, view: "APIView") -> bool:
         organization = getattr(view, "organization", None)
         if organization is None:
             # Mixin hasn't resolved the org yet — defer. TeamAndOrgViewSetMixin

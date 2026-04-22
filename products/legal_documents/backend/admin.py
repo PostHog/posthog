@@ -1,6 +1,9 @@
 from django.contrib import admin
+from django.forms import ModelForm
+from django.http import HttpRequest
 from django.urls import reverse
 from django.utils.html import format_html
+from django.utils.safestring import SafeString
 
 from .models import LegalDocument
 
@@ -85,14 +88,14 @@ class LegalDocumentAdmin(admin.ModelAdmin):
         ),
     )
 
-    def has_add_permission(self, request) -> bool:
+    def has_add_permission(self, request: HttpRequest) -> bool:
         return False
 
-    def has_delete_permission(self, request, obj=None) -> bool:
+    def has_delete_permission(self, request: HttpRequest, obj: LegalDocument | None = None) -> bool:
         return False
 
     @admin.display(description="Organization", ordering="organization__name")
-    def organization_link(self, document: LegalDocument):
+    def organization_link(self, document: LegalDocument) -> SafeString:
         url = reverse("admin:posthog_organization_change", args=[document.organization_id])
         return format_html('<a href="{}">{}</a>', url, document.organization.name)
 
@@ -105,7 +108,7 @@ class LegalDocumentAdmin(admin.ModelAdmin):
             url=document.signed_document_url,
         )
 
-    def save_model(self, request, obj, form, change) -> None:
+    def save_model(self, request: HttpRequest, obj: LegalDocument, form: ModelForm, change: bool) -> None:
         # If an admin pastes a URL for the first time, move the row into the signed state.
         if change and "signed_document_url" in form.changed_data and obj.signed_document_url:
             obj.status = LegalDocument.Status.SIGNED

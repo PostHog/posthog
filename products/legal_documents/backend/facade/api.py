@@ -6,15 +6,18 @@ to import. Accepts frozen dataclasses as input, returns frozen dataclasses as
 output, and never leaks ORM instances or QuerySets across the boundary.
 """
 
+from __future__ import annotations
+
 from uuid import UUID
 
 from posthog.models.organization import Organization
 
 from .. import logic
+from ..models import LegalDocument
 from . import contracts
 
 
-def _to_dto(doc) -> contracts.LegalDocumentDTO:
+def _to_dto(doc: LegalDocument) -> contracts.LegalDocumentDTO:
     creator = doc.created_by
     return contracts.LegalDocumentDTO(
         id=doc.id,
