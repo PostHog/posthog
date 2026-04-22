@@ -119,6 +119,10 @@ const DefaultAxisSettings = (): AxisSeriesSettings => ({
     },
 })
 
+/** Deep clone settings to prevent shared references between Y-axis entries */
+const cloneSettings = (settings: AxisSeriesSettings): AxisSeriesSettings =>
+    mergeObject({}, settings) as AxisSeriesSettings
+
 const TRANSPOSED_FIELD_COLUMN_NAME = '__transpose_field__'
 const TRANSPOSED_ROW_COLUMN_PREFIX = '__transpose_row__'
 
@@ -471,7 +475,7 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                     if (node.tableSettings?.columns) {
                         return node.tableSettings.columns.map((column) => ({
                             name: column.column,
-                            settings: column.settings ?? DefaultAxisSettings(),
+                            settings: column.settings ? cloneSettings(column.settings) : DefaultAxisSettings(),
                         }))
                     }
                     return state
@@ -547,14 +551,14 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
         selectedYAxis: [
             (props.query.chartSettings?.yAxis?.map((axis) => ({
                 name: axis.column,
-                settings: axis.settings ?? DefaultAxisSettings(),
+                settings: axis.settings ? cloneSettings(axis.settings) : DefaultAxisSettings(),
             })) ?? null) as (SelectedYAxis | null)[] | null,
             {
                 _setQuery: (state, { node }) => {
                     if (node.chartSettings?.yAxis) {
                         return node.chartSettings.yAxis.map((axis) => ({
                             name: axis.column,
-                            settings: axis.settings ?? DefaultAxisSettings(),
+                            settings: axis.settings ? cloneSettings(axis.settings) : DefaultAxisSettings(),
                         }))
                     }
                     return state
@@ -1178,12 +1182,12 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                 ...query,
                 chartSettings: {
                     ...query.chartSettings,
-                    yAxis: yColumns.map((n) => ({ column: n.name, settings: n.settings })),
+                    yAxis: yColumns.map((n) => ({ column: n.name, settings: cloneSettings(n.settings) })),
                     xAxis: xColumn,
                 },
                 tableSettings: {
                     ...query.tableSettings,
-                    columns: columns.map((n) => ({ column: n.name, settings: n.settings })),
+                    columns: columns.map((n) => ({ column: n.name, settings: cloneSettings(n.settings) })),
                 },
             }))
         },
