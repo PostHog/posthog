@@ -771,50 +771,24 @@ class TestImpersonationReadOnlyMiddleware(APIBaseTest):
         response = self.client.get(f"/api/projects/{self.team.id}/dashboards/")
         assert response.status_code == 200
 
-    def test_read_only_impersonation_allows_query_endpoint(self):
-        """Verify read-only impersonation allows POST to query endpoint."""
-        self.login_as_other_user_read_only()
-
-        # Verify we're logged in as the other user
-        assert self.client.get("/api/users/@me").json()["email"] == "other-user@posthog.com"
-
-        # POST to query endpoint - the query itself may fail but we shouldn't get blocked by the middleware
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/query/",
-            data={"query": {"kind": "EventsQuery", "select": ["event"]}},
-            content_type="application/json",
-        )
-
-        # Should not be blocked by impersonation middleware (might get other errors)
-        assert response.status_code != 403 or response.json().get("code") != "impersonation_read_only"
-
-    def test_read_only_impersonation_allows_query_kind_endpoint(self):
-        """POST to /query/<kind>/ must be allowlisted (same as /query/), not blocked as non-idempotent."""
+    @parameterized.expand(
+        [
+            ("query", "query/", {"query": {"kind": "EventsQuery", "select": ["event"]}}),
+            ("query_kind", "query/HogQLQuery/", {"query": {"kind": "HogQLQuery", "query": "select 1"}}),
+            ("endpoint_materialization_preview", "endpoints/some_endpoint/materialization_preview/", {}),
+        ]
+    )
+    def test_read_only_impersonation_allows_allowlisted_post(self, _name, path_suffix, body):
         self.login_as_other_user_read_only()
 
         assert self.client.get("/api/users/@me").json()["email"] == "other-user@posthog.com"
 
         response = self.client.post(
-            f"/api/projects/{self.team.id}/query/HogQLQuery/",
-            data={"query": {"kind": "HogQLQuery", "query": "select 1"}},
+            f"/api/projects/{self.team.id}/{path_suffix}",
+            data=body,
             content_type="application/json",
         )
 
-        assert response.status_code != 403 or response.json().get("code") != "impersonation_read_only"
-
-    def test_read_only_impersonation_allows_endpoint_materialization_preview(self):
-        """POST to /endpoints/<name>/materialization_preview/ must be allowlisted — it's a read-only preview."""
-        self.login_as_other_user_read_only()
-
-        assert self.client.get("/api/users/@me").json()["email"] == "other-user@posthog.com"
-
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/endpoints/some_endpoint/materialization_preview/",
-            data={},
-            content_type="application/json",
-        )
-
-        # Endpoint itself may 404 (no such endpoint), but it must not be blocked by the middleware
         assert response.status_code != 403 or response.json().get("code") != "impersonation_read_only"
 
     def test_regular_impersonation_allows_write(self):
