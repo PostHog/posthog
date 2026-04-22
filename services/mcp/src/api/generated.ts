@@ -5827,6 +5827,18 @@ export namespace Schemas {
       PositionBased: 'position_based',
     } as const;
 
+    /**
+     * * `api_key` - API Key
+    * `oauth` - OAuth
+     */
+    export type AuthType9cbEnum = typeof AuthType9cbEnum[keyof typeof AuthType9cbEnum];
+
+
+    export const AuthType9cbEnum = {
+      ApiKey: 'api_key',
+      Oauth: 'oauth',
+    } as const;
+
     export interface UserBasicInfo {
       id: number;
       first_name: string;
@@ -19759,6 +19771,15 @@ export namespace Schemas {
       auth_type: InstallCustomAuthTypeEnum;
       api_key?: string;
       description?: string;
+      client_id?: string;
+      client_secret?: string;
+      install_source?: InstallSourceEnum;
+      posthog_code_callback_url?: string;
+    }
+
+    export interface InstallTemplate {
+      template_id: string;
+      api_key?: string;
       install_source?: InstallSourceEnum;
       posthog_code_callback_url?: string;
     }
@@ -20687,29 +20708,17 @@ export namespace Schemas {
       blocked?: boolean;
     }
 
-    /**
-     * * `api_key` - API Key
-    * `oauth` - OAuth
-     */
-    export type MCPServerInstallationAuthTypeEnum = typeof MCPServerInstallationAuthTypeEnum[keyof typeof MCPServerInstallationAuthTypeEnum];
-
-
-    export const MCPServerInstallationAuthTypeEnum = {
-      ApiKey: 'api_key',
-      Oauth: 'oauth',
-    } as const;
-
     export interface MCPServerInstallation {
       readonly id: string;
       /** @nullable */
-      readonly server_id: string | null;
+      readonly template_id: string | null;
       readonly name: string;
       /** @maxLength 200 */
       display_name?: string;
       /** @maxLength 2048 */
       url?: string;
       description?: string;
-      auth_type?: MCPServerInstallationAuthTypeEnum;
+      auth_type?: AuthType9cbEnum;
       is_enabled?: boolean;
       readonly needs_reauth: boolean;
       readonly pending_oauth: boolean;
@@ -20717,6 +20726,47 @@ export namespace Schemas {
       readonly created_at: string;
       /** @nullable */
       readonly updated_at: string | null;
+    }
+
+    /**
+     * * `approved` - Approved
+    * `needs_approval` - Needs approval
+    * `do_not_use` - Do not use
+     */
+    export type MCPServerInstallationToolApprovalStateEnum = typeof MCPServerInstallationToolApprovalStateEnum[keyof typeof MCPServerInstallationToolApprovalStateEnum];
+
+
+    export const MCPServerInstallationToolApprovalStateEnum = {
+      Approved: 'approved',
+      NeedsApproval: 'needs_approval',
+      DoNotUse: 'do_not_use',
+    } as const;
+
+    export interface MCPServerInstallationTool {
+      readonly id: string;
+      readonly tool_name: string;
+      readonly display_name: string;
+      readonly description: string;
+      readonly input_schema: unknown;
+      approval_state?: MCPServerInstallationToolApprovalStateEnum;
+      readonly last_seen_at: string;
+      /** @nullable */
+      readonly removed_at: string | null;
+      readonly created_at: string;
+      /** @nullable */
+      readonly updated_at: string | null;
+    }
+
+    export interface MCPServerTemplate {
+      readonly id: string;
+      /** @maxLength 200 */
+      name: string;
+      /** @maxLength 2048 */
+      url: string;
+      description?: string;
+      auth_type?: AuthType9cbEnum;
+      /** @maxLength 100 */
+      icon_key?: string;
     }
 
     export interface MarkToleratedInput {
@@ -22228,6 +22278,24 @@ export namespace Schemas {
       results: MCPServerInstallation[];
     }
 
+    export interface PaginatedMCPServerInstallationToolList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: MCPServerInstallationTool[];
+    }
+
+    export interface PaginatedMCPServerTemplateList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: MCPServerTemplate[];
+    }
+
     export interface PaginatedMaterializedColumnSlotList {
       count: number;
       /** @nullable */
@@ -22638,36 +22706,6 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: QuickFilter[];
-    }
-
-    /**
-     * * `none` - none
-    * `api_key` - api_key
-    * `oauth` - oauth
-     */
-    export type RecommendedServerAuthTypeEnum = typeof RecommendedServerAuthTypeEnum[keyof typeof RecommendedServerAuthTypeEnum];
-
-
-    export const RecommendedServerAuthTypeEnum = {
-      None: 'none',
-      ApiKey: 'api_key',
-      Oauth: 'oauth',
-    } as const;
-
-    export interface RecommendedServer {
-      name: string;
-      url: string;
-      description: string;
-      auth_type: RecommendedServerAuthTypeEnum;
-    }
-
-    export interface PaginatedRecommendedServerList {
-      count: number;
-      /** @nullable */
-      next?: string | null;
-      /** @nullable */
-      previous?: string | null;
-      results: RecommendedServer[];
     }
 
     export type RepoBaselineFilePaths = {[key: string]: string};
@@ -29329,6 +29367,24 @@ export namespace Schemas {
       readonly cc_participants?: unknown;
       readonly person?: TicketPerson | null;
       tags?: unknown[];
+    }
+
+    /**
+     * * `approved` - approved
+    * `needs_approval` - needs_approval
+    * `do_not_use` - do_not_use
+     */
+    export type ToolApprovalUpdateApprovalStateEnum = typeof ToolApprovalUpdateApprovalStateEnum[keyof typeof ToolApprovalUpdateApprovalStateEnum];
+
+
+    export const ToolApprovalUpdateApprovalStateEnum = {
+      Approved: 'approved',
+      NeedsApproval: 'needs_approval',
+      DoNotUse: 'do_not_use',
+    } as const;
+
+    export interface PatchedToolApprovalUpdate {
+      approval_state?: ToolApprovalUpdateApprovalStateEnum;
     }
 
     export interface TraceReviewScoreWrite {
@@ -38386,8 +38442,9 @@ export namespace Schemas {
      * @minLength 1
      */
     install_source?: McpServerInstallationsAuthorizeRetrieveInstallSource;
+    installation_id?: string;
     posthog_code_callback_url?: string;
-    server_id: string;
+    template_id?: string;
     };
 
     export type McpServerInstallationsAuthorizeRetrieveInstallSource = typeof McpServerInstallationsAuthorizeRetrieveInstallSource[keyof typeof McpServerInstallationsAuthorizeRetrieveInstallSource];

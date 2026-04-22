@@ -125,8 +125,6 @@ class MCPServerTemplate(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
 class MCPServerInstallation(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
     user = models.ForeignKey("posthog.User", on_delete=models.CASCADE, related_name="mcp_server_installations")
-    # Legacy FK — populated before the template refactor. New code reads `template` instead.
-    server = models.ForeignKey(MCPServer, on_delete=models.CASCADE, related_name="installations", null=True, blank=True)
     template = models.ForeignKey(
         MCPServerTemplate, on_delete=models.SET_NULL, related_name="installations", null=True, blank=True
     )
@@ -175,9 +173,6 @@ class MCPOAuthState(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
     token_hash = models.CharField(max_length=64, unique=True, db_index=True)
     installation = models.ForeignKey(MCPServerInstallation, on_delete=models.CASCADE, related_name="oauth_states")
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
-    # Legacy FK for the DCR-keyed server. New flows populate `template` instead (or
-    # leave it null for custom installs, which resolve creds from the installation itself).
-    server = models.ForeignKey(MCPServer, on_delete=models.CASCADE, related_name="oauth_states", null=True, blank=True)
     template = models.ForeignKey(
         MCPServerTemplate, on_delete=models.CASCADE, related_name="oauth_states", null=True, blank=True
     )
