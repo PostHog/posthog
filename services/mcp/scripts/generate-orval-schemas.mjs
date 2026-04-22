@@ -222,7 +222,14 @@ function postprocessOrvalOutput(outputFile) {
     // Annotate top-level exported Zod expressions with @__PURE__ so esbuild
     // can tree-shake unused schemas out of the bundle.
     const generated = fs.readFileSync(outputFile, 'utf-8')
-    const annotated = generated.replace(/^(export const \w+ =) (zod\.)/gm, '$1 /* @__PURE__ */ $2')
+    const withoutRedundantEnumDescriptions = generated.replace(
+        /\n\s*\.describe\(\n\s*(['"`])\* `(?:\\.|(?!\1)[\s\S])*?\1\n\s*\)(?=\s*(?:\.(?:optional|nullish)\(\)\s*)?\.describe\()/g,
+        ''
+    )
+    const annotated = withoutRedundantEnumDescriptions.replace(
+        /^(export const \w+ =) (zod\.)/gm,
+        '$1 /* @__PURE__ */ $2'
+    )
     fs.writeFileSync(outputFile, annotated)
 }
 
