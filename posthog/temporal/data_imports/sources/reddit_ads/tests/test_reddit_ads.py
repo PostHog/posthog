@@ -1,7 +1,10 @@
 import datetime as dt
+from typing import Any, Optional
 
 import pytest
 from unittest import mock
+
+from parameterized import parameterized
 
 from posthog.temporal.data_imports.sources.reddit_ads.reddit_ads import (
     RedditAdsPaginator,
@@ -184,3 +187,53 @@ class TestRedditAdsPaginator:
 
         # URL should remain unchanged
         assert mock_request.url == original_url
+
+    @parameterized.expand(
+        [
+            ("fresh_paginator", None, None),
+            (
+                "after_update_with_next_url",
+                {"pagination": {"next_url": "https://api.reddit.com/page-2"}},
+                {"next_url": "https://api.reddit.com/page-2"},
+            ),
+            ("after_terminal_page", {"pagination": {}}, None),
+        ]
+    )
+    def test_get_resume_state(
+        self, _name: str, response_body: Optional[dict[str, Any]], expected: Optional[dict[str, Any]]
+    ) -> None:
+        paginator = RedditAdsPaginator()
+        if response_body is not None:
+            mock_response = mock.MagicMock()
+            mock_response.json.return_value = response_body
+            paginator.update_state(mock_response)
+
+        assert paginator.get_resume_state() == expected
+
+    def test_set_resume_state_round_trip(self):
+        """set_resume_state then get_resume_state returns the same value."""
+        paginator = RedditAdsPaginator()
+        paginator.set_resume_state({"next_url": "https://api.reddit.com/page-5"})
+
+        assert paginator.has_next_page is True
+        assert paginator.get_resume_state() == {"next_url": "https://api.reddit.com/page-5"}
+
+    @parameterized.expand(
+        [
+            ("no_seed", None),
+            ("seeded", "https://api.reddit.com/page-3"),
+        ]
+    )
+    def test_init_request(self, _name: str, seed_url: Optional[str]) -> None:
+        paginator = RedditAdsPaginator()
+        if seed_url is not None:
+            paginator.set_resume_state({"next_url": seed_url})
+
+        mock_request = mock.MagicMock()
+        original_url = mock_request.url
+        paginator.init_request(mock_request)
+
+        if seed_url is not None:
+            assert mock_request.url == seed_url
+        else:
+            assert mock_request.url == original_url
