@@ -301,7 +301,7 @@ class PostgreSQLClient:
         )
 
         try:
-            with self._ensure_ssl_root_cert_file() as ssl_root_cert:
+            async with self._ensure_ssl_root_cert_file() as ssl_root_cert:
                 connection: psycopg.AsyncConnection = await connect(
                     user=self.user,
                     password=self.password,
@@ -329,14 +329,14 @@ class PostgreSQLClient:
             self._connection = connection
             yield self
 
-    @contextlib.contextmanager
-    def _ensure_ssl_root_cert_file(self):
+    @contextlib.asynccontextmanager
+    async def _ensure_ssl_root_cert_file(self):
         if self.ssl_root_cert in ("system", MISSING_CERT_PATH):
             yield self.ssl_root_cert
             return
 
         with tempfile.NamedTemporaryFile(mode="w+", suffix=".crt", delete_on_close=False) as fp:
-            fp.write(self.ssl_root_cert)
+            await asyncio.to_thread(fp.write, self.ssl_root_cert)
             fp.close()
 
             yield fp.name

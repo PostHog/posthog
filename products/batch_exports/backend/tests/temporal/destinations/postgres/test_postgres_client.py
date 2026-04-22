@@ -144,7 +144,7 @@ async def test_ensure_ssl_root_cert_file(postgres_config, setup_postgres_test_db
 
     check_file_deleted = None
 
-    with postgres_client._ensure_ssl_root_cert_file() as ssl_root_cert:
+    async with postgres_client._ensure_ssl_root_cert_file() as ssl_root_cert:
         if contents in ("system", MISSING_CERT_PATH):
             assert ssl_root_cert == contents
             assert not pathlib.Path(ssl_root_cert).is_file()
