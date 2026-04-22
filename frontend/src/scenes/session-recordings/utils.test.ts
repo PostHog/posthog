@@ -1,5 +1,17 @@
 import { defaultQuickEmojis } from 'lib/lemon-ui/LemonTextArea/emojiUsageLogic'
-import { isSingleEmoji } from 'scenes/session-recordings/utils'
+import { filtersFromUniversalFilterGroups, isSingleEmoji } from 'scenes/session-recordings/utils'
+
+import { FilterLogicalOperator, RecordingUniversalFilters } from '~/types'
+
+const withFilterGroup = (filterGroup: RecordingUniversalFilters['filter_group']): RecordingUniversalFilters => ({
+    date_from: '-3d',
+    date_to: null,
+    filter_test_accounts: false,
+    duration: [],
+    filter_group: filterGroup,
+})
+
+const event = (name: string): any => ({ id: name, name, type: 'events' })
 
 describe('session recording utils', () => {
     defaultQuickEmojis.forEach((quickEmoji) => {
@@ -8,6 +20,28 @@ describe('session recording utils', () => {
         })
         it(`can check ${quickEmoji}${quickEmoji} is not a single emoji`, () => {
             expect(isSingleEmoji(`${quickEmoji}${quickEmoji}`)).toBe(false)
+        })
+    })
+
+    describe('filtersFromUniversalFilterGroups', () => {
+        it('returns leaves from the canonical values: [{ values: [...] }] shape', () => {
+            const filters = withFilterGroup({
+                type: FilterLogicalOperator.And,
+                values: [{ type: FilterLogicalOperator.And, values: [event('a'), event('b'), event('c')] }],
+            })
+            expect(filtersFromUniversalFilterGroups(filters)).toEqual([event('a'), event('b'), event('c')])
+        })
+
+        it('flattens the broken per-event-group top-level shape seen in some saved filters', () => {
+            const filters = withFilterGroup({
+                type: FilterLogicalOperator.And,
+                values: [
+                    { type: FilterLogicalOperator.And, values: [] },
+                    { type: FilterLogicalOperator.And, values: [event('a')] },
+                    { type: FilterLogicalOperator.And, values: [event('b')] },
+                ],
+            })
+            expect(filtersFromUniversalFilterGroups(filters)).toEqual([event('a'), event('b')])
         })
     })
 })
