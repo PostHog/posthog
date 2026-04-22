@@ -467,7 +467,7 @@ async def fetch_signals_for_report_activity(input: FetchSignalsForReportInput) -
 
 def fetch_signals_for_report_sync(team: Team, report_id: str) -> list[dict]:
     """Fetch all signals for a report from ClickHouse, including full metadata. Synchronous."""
-    tag_queries(product=Product.SIGNALS, feature=Feature.USAGE_REPORT)
+    tag_queries(product=Product.SIGNALS, feature=Feature.QUERY)
     result = execute_hogql_query(
         query_type="SignalsDebugFetchForReport",
         query=_signals_for_report_query(),
@@ -523,7 +523,7 @@ def fetch_report_ids_for_source_products(team: Team, source_products: list[str])
         LIMIT 300
     """
 
-    tag_queries(product=Product.SIGNALS, feature=Feature.USAGE_REPORT)
+    tag_queries(product=Product.SIGNALS, feature=Feature.QUERY)
     result = execute_hogql_query(
         query_type="SignalsFilterBySourceProduct",
         query=ch_query,
@@ -566,7 +566,7 @@ def fetch_source_products_for_reports(team: Team, report_ids: list[str]) -> dict
         GROUP BY report_id
     """
 
-    tag_queries(product=Product.SIGNALS, feature=Feature.USAGE_REPORT)
+    tag_queries(product=Product.SIGNALS, feature=Feature.QUERY)
     result = execute_hogql_query(
         query_type="SignalsFetchSourceProductsForReports",
         query=ch_query,
