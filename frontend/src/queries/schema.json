@@ -15116,7 +15116,7 @@
         },
         "ErrorTrackingPhantomFingerprintIssueState": {
             "additionalProperties": false,
-            "description": "Client-side phantom row UNIONed into the argMax subquery to hide Kafka→CH sync lag after mutations.",
+            "description": "Client-side phantom row UNIONed into the argMax subquery to hide Kafka->CH sync lag after mutations.",
             "properties": {
                 "assigned_role_id": {
                     "type": ["string", "null"]

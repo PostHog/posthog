@@ -2565,7 +2565,7 @@ export type CachedRevenueExampleDataWarehouseTablesQueryResponse =
 /** @title ErrorTrackingOrderBy */
 export type ErrorTrackingOrderBy = 'last_seen' | 'first_seen' | 'occurrences' | 'users' | 'sessions'
 
-/** Client-side phantom row UNIONed into the argMax subquery to hide Kafka→CH sync lag after mutations. */
+/** Client-side phantom row UNIONed into the argMax subquery to hide Kafka->CH sync lag after mutations. */
 export interface ErrorTrackingPhantomFingerprintIssueState {
     fingerprint: string
     issue_id: string

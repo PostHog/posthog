@@ -1,18 +1,7 @@
-import uuid
 import datetime
-from typing import Any
 from zoneinfo import ZoneInfo
 
-import structlog
-from rest_framework.exceptions import ValidationError
-
-from posthog.schema import (
-    CachedErrorTrackingQueryResponse,
-    ErrorTrackingIssueStatus,
-    ErrorTrackingPhantomFingerprintIssueState,
-    ErrorTrackingQuery,
-    ErrorTrackingQueryResponse,
-)
+from posthog.schema import CachedErrorTrackingQueryResponse, ErrorTrackingQuery, ErrorTrackingQueryResponse
 
 from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
@@ -26,28 +15,6 @@ from posthog.utils import relative_date_parse
 from products.error_tracking.backend.hogql_queries.error_tracking_query_runner_v1 import ErrorTrackingQueryV1Builder
 from products.error_tracking.backend.hogql_queries.error_tracking_query_runner_v2 import ErrorTrackingQueryV2Builder
 from products.error_tracking.backend.hogql_queries.error_tracking_query_runner_v3 import ErrorTrackingQueryV3Builder
-
-logger = structlog.get_logger(__name__)
-
-MAX_FINGERPRINT_PHANTOMS = 500
-_VALID_STATUSES = {s.value for s in ErrorTrackingIssueStatus}
-
-
-def _coerce_first_seen(value: Any) -> str:
-    # Normalize for ClickHouse `toDateTime64(..., 3, 'UTC')`: no trailing Z, space separator.
-    if isinstance(value, datetime.datetime):
-        dt = value
-    else:
-        s = str(value).strip()
-        if s.endswith("Z"):
-            s = s[:-1] + "+00:00"
-        try:
-            dt = datetime.datetime.fromisoformat(s)
-        except ValueError:
-            raise ValidationError(f"Invalid first_seen in phantom fingerprint row: {value!r}")
-    if dt.tzinfo is not None:
-        dt = dt.astimezone(ZoneInfo("UTC")).replace(tzinfo=None)
-    return dt.strftime("%Y-%m-%d %H:%M:%S.%f")
 
 
 class ErrorTrackingQueryRunner(AnalyticsQueryRunner[ErrorTrackingQueryResponse]):
@@ -108,58 +75,14 @@ class ErrorTrackingQueryRunner(AnalyticsQueryRunner[ErrorTrackingQueryResponse])
     def to_query(self) -> ast.SelectQuery:
         return self._builder.build_query()
 
-    @cached_property
-    def _sanitized_fingerprint_phantoms(self) -> list[dict[str, Any]]:
-        # team_id is always stamped from self.team.id, never trusted from the client.
-        raw = self.query.phantomFingerprintIssueStates or []
-        if not raw:
-            return []
-        if len(raw) > MAX_FINGERPRINT_PHANTOMS:
-            raise ValidationError(f"phantomFingerprintIssueStates exceeds limit of {MAX_FINGERPRINT_PHANTOMS} rows")
-
-        sanitized: list[dict[str, Any]] = []
-        for row in raw:
-            if not isinstance(row, ErrorTrackingPhantomFingerprintIssueState):
-                continue
-            try:
-                issue_uuid = uuid.UUID(row.issue_id)
-            except (ValueError, TypeError, AttributeError):
-                raise ValidationError(f"Invalid issue_id in phantom fingerprint row: {row.issue_id!r}")
-
-            if row.issue_status not in _VALID_STATUSES:
-                raise ValidationError(f"Invalid issue_status in phantom fingerprint row: {row.issue_status!r}")
-
-            assigned_role_id = None
-            if row.assigned_role_id is not None:
-                try:
-                    assigned_role_id = str(uuid.UUID(str(row.assigned_role_id)))
-                except (ValueError, TypeError):
-                    raise ValidationError(
-                        f"Invalid assigned_role_id in phantom fingerprint row: {row.assigned_role_id!r}"
-                    )
-
-            sanitized.append(
-                {
-                    "team_id": self.team.id,
-                    "fingerprint": str(row.fingerprint),
-                    "issue_id": str(issue_uuid),
-                    "issue_name": None if row.issue_name is None else str(row.issue_name),
-                    "issue_description": None if row.issue_description is None else str(row.issue_description),
-                    "issue_status": str(row.issue_status),
-                    "assigned_user_id": None if row.assigned_user_id is None else int(row.assigned_user_id),
-                    "assigned_role_id": assigned_role_id,
-                    "first_seen": _coerce_first_seen(row.first_seen),
-                    "is_deleted": int(row.is_deleted) if row.is_deleted is not None else 0,
-                    "version": int(row.version),
-                }
-            )
-        return sanitized
-
     def _hogql_context(self) -> HogQLContext:
         ctx = HogQLContext(team_id=self.team.pk, team=self.team, user=self.user, enable_select_queries=True)
-        phantoms = self._sanitized_fingerprint_phantoms
-        if phantoms:
-            ctx.error_tracking_fingerprint_phantoms = phantoms
+        raw = self.query.phantomFingerprintIssueStates or []
+        if raw:
+            # team_id is always stamped server-side, never trusted from the client.
+            ctx.error_tracking_fingerprint_phantoms = [
+                {**row.model_dump(mode="json"), "team_id": self.team.id} for row in raw
+            ]
         return ctx
 
     def _calculate(self):
