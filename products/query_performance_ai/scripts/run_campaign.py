@@ -35,13 +35,13 @@ Exits non-zero on any failure.
 
 from __future__ import annotations
 
-import argparse
-import json
 import os
-import shutil
-import subprocess
 import sys
+import json
+import shutil
+import argparse
 import tempfile
+import subprocess
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -57,7 +57,7 @@ class CampaignError(RuntimeError):
 
 
 def log(msg: str) -> None:
-    print(f"[campaign] {msg}", file=sys.stderr, flush=True)
+    print(f"[campaign] {msg}", file=sys.stderr, flush=True)  # noqa: T201
 
 
 def run(cmd: list[str], *, cwd: Path | None = None) -> subprocess.CompletedProcess[str]:
@@ -109,8 +109,7 @@ def check_proxy_reachable(posthog_url: str, token: str, cluster: str) -> None:
         data = json.loads(raw)
     except json.JSONDecodeError as e:
         raise CampaignError(
-            f"proxy preflight returned non-JSON response (status={status}) at {endpoint}: "
-            f"{raw[:300]!r}"
+            f"proxy preflight returned non-JSON response (status={status}) at {endpoint}: {raw[:300]!r}"
         ) from e
 
     log(f"proxy preflight OK ({data.get('elapsed_ms')}ms, query_id={data.get('query_id')})")
@@ -181,8 +180,12 @@ def _patch_pi_ai_anthropic_baseurl() -> None:
     # Locate the bundled pi-ai models file. npm's global install path is
     # platform-dependent; try the common locations.
     candidates = [
-        Path("/usr/lib/node_modules/@mariozechner/pi-coding-agent/node_modules/@mariozechner/pi-ai/dist/models.generated.js"),
-        Path("/usr/local/lib/node_modules/@mariozechner/pi-coding-agent/node_modules/@mariozechner/pi-ai/dist/models.generated.js"),
+        Path(
+            "/usr/lib/node_modules/@mariozechner/pi-coding-agent/node_modules/@mariozechner/pi-ai/dist/models.generated.js"
+        ),
+        Path(
+            "/usr/local/lib/node_modules/@mariozechner/pi-coding-agent/node_modules/@mariozechner/pi-ai/dist/models.generated.js"
+        ),
     ]
     models_file = next((p for p in candidates if p.is_file()), None)
     if models_file is None:
@@ -292,8 +295,66 @@ def run_pi_campaign(workspace: Path) -> None:
     if anthropic_base != "<unset>" and anthropic_key:
         _preflight_anthropic_gateway(anthropic_base, anthropic_key)
 
-    log(f"invoking pi campaign (cwd={cwd})")
-    run(["pi", "/skill::clickhouse-autoresearch-campaign"], cwd=cwd)
+    log(f"invoking pi campaign (cwd={cwd}, --mode json for live event stream)")
+    cmd = ["pi", "--mode", "json", "/skill::clickhouse-autoresearch-campaign"]
+    log("$ " + " ".join(cmd) + f"  (cwd={cwd})")
+    _run_pi_with_streaming_events(cmd, cwd)
+
+
+def _run_pi_with_streaming_events(cmd: list[str], cwd: Path) -> None:
+    """Run ``pi --mode json`` and pretty-print each JSON event as it arrives.
+
+    Without --mode json, pi's human-format output only lands at turn
+    boundaries — the operator sees a long silence between "invoking pi"
+    and the final summary. --mode json emits every agent event (tool
+    invocations, assistant messages, results) as a JSON line to stdout,
+    so we can print them live.
+
+    We don't try to parse the exact event schema — pi's is upstream and
+    may change. We just label each event with its ``type``/``event`` key
+    and dump a truncated JSON body. Non-JSON lines (e.g. subprocess
+    output pi's Bash tool spawned) pass through verbatim.
+    """
+    process = subprocess.Popen(
+        cmd,
+        cwd=str(cwd),
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        bufsize=1,
+        text=True,
+    )
+    assert process.stdout is not None
+    try:
+        for raw in process.stdout:
+            _print_pi_event(raw.rstrip("\n"))
+    finally:
+        exit_code = process.wait()
+    if exit_code != 0:
+        raise CampaignError(f"pi exited with {exit_code}")
+
+
+def _print_pi_event(line: str) -> None:
+    if not line:
+        return
+    try:
+        event = json.loads(line)
+    except json.JSONDecodeError:
+        # Non-JSON line (pi startup banner, subprocess output from a
+        # tool pi invoked, etc.). Pass through so operators still see it.
+        print(line, flush=True)  # noqa: T201
+        return
+    if not isinstance(event, dict):
+        print(f"[pi] {line[:500]}", flush=True)  # noqa: T201
+        return
+    kind = event.get("type") or event.get("event") or event.get("kind") or "event"
+    # Extract a short human text if the event carries one; otherwise dump
+    # compact JSON. 800 chars is plenty to eyeball what pi's doing without
+    # flooding the terminal on a long assistant reply.
+    text = event.get("text")
+    if isinstance(text, str):
+        print(f"[pi:{kind}] {text}", flush=True)  # noqa: T201
+        return
+    print(f"[pi:{kind}] {json.dumps(event, separators=(',', ':'))[:800]}", flush=True)  # noqa: T201
 
 
 def _preflight_anthropic_gateway(base_url: str, api_key: str) -> None:
@@ -328,7 +389,7 @@ def _preflight_anthropic_gateway(base_url: str, api_key: str) -> None:
 
 
 def print_summary(workspace: Path) -> None:
-    print()
+    print()  # noqa: T201
     log("===== campaign artifacts =====")
     for subdir in ("baseline", "runs", "runtime", "lanes", "hypotheses"):
         path = workspace / subdir
@@ -336,12 +397,12 @@ def print_summary(workspace: Path) -> None:
             continue
         for entry in sorted(path.rglob("*")):
             if entry.is_file():
-                print(f"  {entry.relative_to(workspace)} ({entry.stat().st_size} bytes)")
-    print()
+                print(f"  {entry.relative_to(workspace)} ({entry.stat().st_size} bytes)")  # noqa: T201
+    print()  # noqa: T201
     last_run_path = workspace / "runtime" / "last_run.json"
     if last_run_path.exists():
         log("last run:")
-        print(json.dumps(json.loads(last_run_path.read_text()), indent=2))
+        print(json.dumps(json.loads(last_run_path.read_text()), indent=2))  # noqa: T201
 
 
 def parse_args(argv: list[str]) -> argparse.Namespace:
