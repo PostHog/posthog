@@ -1,4 +1,4 @@
-"""Schedule configuration for hourly video segment clustering coordinator."""
+"""Schedule configuration for the session replay priming coordinator."""
 
 from django.conf import settings
 
@@ -21,11 +21,7 @@ from posthog.temporal.common.schedule import a_create_schedule, a_schedule_exist
 
 
 async def create_video_segment_clustering_coordinator_schedule(client: Client):
-    """Run task inference on schedule.
-
-    Every PROACTIVE_TASKS_SCHEDULE_INTERVAL, we run video segment clustering for teams with proactive tasks enabled,
-    with a lookback window of DEFAULT_LOOKBACK_WINDOW.
-    """
+    """Start the coordinator on an interval to prime session summarization for eligible teams."""
     coordinator_schedule = Schedule(
         action=ScheduleActionStartWorkflow(
             "video-segment-clustering-coordinator",

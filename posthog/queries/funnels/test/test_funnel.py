@@ -138,7 +138,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             if properties is not None:
                 filters.update({"properties": properties})
 
-            filters["insight"] = INSIGHT_FUNNELS
+            filters["insight"] = INSIGHT_FUNNELS  # ty: ignore[invalid-assignment]
             filter = Filter(data=filters, team=self.team)
             return Funnel(filter=filter, team=self.team)
 

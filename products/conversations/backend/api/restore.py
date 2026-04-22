@@ -80,7 +80,7 @@ class WidgetRestoreRequestView(APIView):
     throttle_classes = [RestoreRequestThrottle, WidgetUserBurstThrottle, WidgetTeamThrottle]
 
     def post(self, request: Request) -> Response:
-        team: Team | None = request.auth  # type: ignore[assignment]
+        team: Team | None = request.auth  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
         if not team:
             return Response({"error": "Authentication required"}, status=status.HTTP_403_FORBIDDEN)
 
@@ -146,7 +146,7 @@ class WidgetRestoreRedeemView(APIView):
     throttle_classes = [RestoreRedeemThrottle, WidgetUserBurstThrottle, WidgetTeamThrottle]
 
     def post(self, request: Request) -> Response:
-        team: Team | None = request.auth  # type: ignore[assignment]
+        team: Team | None = request.auth  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
         if not team:
             return Response({"error": "Authentication required"}, status=status.HTTP_403_FORBIDDEN)
 
