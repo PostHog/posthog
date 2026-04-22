@@ -33,7 +33,7 @@ class TestRenderSignalForResearch:
         rendered = _render_signal_for_research(signal, index=1, total=1)
 
         assert (
-            "- **Attached images:** [customer] https://media.posthog.com/a.png, [team] https://media.posthog.com/b.png"
+            "- images: [customer] https://media.posthog.com/a.png, [team] https://media.posthog.com/b.png"
         ) in rendered
 
     @pytest.mark.parametrize(
@@ -49,7 +49,7 @@ class TestRenderSignalForResearch:
 
         rendered = _render_signal_for_research(signal, index=1, total=1)
 
-        assert "Attached images" not in rendered
+        assert "- images:" not in rendered
 
     def test_skips_image_entries_without_url(self):
         signal = _make_signal(
@@ -64,5 +64,5 @@ class TestRenderSignalForResearch:
 
         rendered = _render_signal_for_research(signal, index=1, total=1)
 
-        assert "- **Attached images:** [customer] https://media.posthog.com/ok.png" in rendered
+        assert "- images: [customer] https://media.posthog.com/ok.png" in rendered
         assert "[team]" not in rendered
