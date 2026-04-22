@@ -14,7 +14,7 @@ use personhog_coordination::routing_table::{CutoverHandler, RoutingTable, Routin
 use personhog_coordination::store::PersonhogStore;
 use personhog_coordination::strategy::StickyBalancedStrategy;
 use personhog_proto::personhog::service::v1::person_hog_service_server::PersonHogServiceServer;
-use personhog_router::backend::{LeaderBackend, ReplicaBackend};
+use personhog_router::backend::{LeaderBackend, ReplicaBackend, ReplicaBackendConfig};
 use personhog_router::config::{Config, RouterMode};
 use personhog_router::router::PersonHogRouter;
 use personhog_router::service::PersonHogRouterService;
@@ -173,18 +173,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     });
 
     // Create backend connection(s) to personhog-replica
-    let replica_backend = ReplicaBackend::new(
-        &config.replica_url,
-        config.backend_timeout(),
-        config.retry_config(),
-        config.backend_keepalive_interval(),
-        config.backend_keepalive_timeout(),
-        config.grpc_max_send_message_size,
-        config.grpc_max_recv_message_size,
-        config.replica_channels,
-        config.channel_recycle_interval(),
-    )
-    .expect("Failed to create replica backend");
+    let replica_backend = ReplicaBackend::new(ReplicaBackendConfig {
+        url: config.replica_url.clone(),
+        timeout: config.backend_timeout(),
+        retry_config: config.retry_config(),
+        keepalive_interval: config.backend_keepalive_interval(),
+        keepalive_timeout: config.backend_keepalive_timeout(),
+        max_send_message_size: config.grpc_max_send_message_size,
+        max_recv_message_size: config.grpc_max_recv_message_size,
+        num_channels: config.replica_channels,
+        recycle_interval: config.channel_recycle_interval(),
+    });
 
     // Build the router — in leader mode, also wire up etcd coordination
     // and the leader backend for person writes / strong reads.

@@ -41,23 +41,23 @@ pub struct ReplicaBackend {
     retry_config: RetryConfig,
 }
 
-struct ChannelConfig {
-    url: String,
-    timeout: Duration,
-    keepalive_interval: Option<Duration>,
-    keepalive_timeout: Option<Duration>,
-    max_send_message_size: usize,
-    max_recv_message_size: usize,
+/// Configuration for creating replica backend channels.
+#[derive(Clone)]
+pub struct ReplicaBackendConfig {
+    pub url: String,
+    pub timeout: Duration,
+    pub retry_config: RetryConfig,
+    pub keepalive_interval: Option<Duration>,
+    pub keepalive_timeout: Option<Duration>,
+    pub max_send_message_size: usize,
+    pub max_recv_message_size: usize,
+    pub num_channels: usize,
+    pub recycle_interval: Option<Duration>,
 }
 
-fn build_endpoint(config: &ChannelConfig) -> Result<Endpoint, tonic::transport::Error> {
+fn build_endpoint(config: &ReplicaBackendConfig) -> Endpoint {
     let mut endpoint = Channel::from_shared(config.url.clone())
-        .map_err(|e| {
-            // InvalidUri doesn't impl Into<tonic::transport::Error>, so we
-            // surface it via the endpoint builder by building a throwaway.
-            panic!("invalid replica URL '{}': {e}", config.url);
-        })
-        .unwrap()
+        .unwrap_or_else(|e| panic!("invalid replica URL '{}': {e}", config.url))
         .timeout(config.timeout)
         .tcp_nodelay(true);
     if let Some(interval) = config.keepalive_interval {
@@ -68,17 +68,13 @@ fn build_endpoint(config: &ChannelConfig) -> Result<Endpoint, tonic::transport::
     if let Some(timeout) = config.keepalive_timeout {
         endpoint = endpoint.keep_alive_timeout(timeout);
     }
-    Ok(endpoint)
+    endpoint
 }
 
-fn create_clients(
-    config: &ChannelConfig,
-    num_channels: usize,
-) -> Vec<PersonHogReplicaClient<Channel>> {
-    (0..num_channels)
+fn create_clients(config: &ReplicaBackendConfig) -> Vec<PersonHogReplicaClient<Channel>> {
+    (0..config.num_channels)
         .map(|_| {
-            let endpoint = build_endpoint(config).expect("failed to build endpoint");
-            let channel = endpoint.connect_lazy();
+            let channel = build_endpoint(config).connect_lazy();
             PersonHogReplicaClient::new(channel)
                 .max_encoding_message_size(config.max_send_message_size)
                 .max_decoding_message_size(config.max_recv_message_size)
@@ -87,63 +83,50 @@ fn create_clients(
 }
 
 impl ReplicaBackend {
-    /// Create a new replica backend with multiple lazy channels to the given URL.
-    pub fn new(
-        url: &str,
-        timeout: Duration,
-        retry_config: RetryConfig,
-        keepalive_interval: Option<Duration>,
-        keepalive_timeout: Option<Duration>,
-        max_send_message_size: usize,
-        max_recv_message_size: usize,
-        num_channels: usize,
-        recycle_interval: Option<Duration>,
-    ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
-        let num_channels = num_channels.max(1);
-
-        let config = ChannelConfig {
-            url: url.to_string(),
-            timeout,
-            keepalive_interval,
-            keepalive_timeout,
-            max_send_message_size,
-            max_recv_message_size,
+    pub fn new(config: ReplicaBackendConfig) -> Self {
+        let retry_config = config.retry_config;
+        let config = ReplicaBackendConfig {
+            num_channels: config.num_channels.max(1),
+            ..config
         };
 
-        let clients = create_clients(&config, num_channels);
+        let clients = create_clients(&config);
         info!(
-            num_channels = num_channels,
-            url = url,
+            num_channels = config.num_channels,
+            url = config.url,
             "created replica backend channels"
         );
 
         let clients = Arc::new(RwLock::new(clients));
 
-        if let Some(interval) = recycle_interval {
+        if let Some(interval) = config.recycle_interval {
             let clients = Arc::clone(&clients);
             tokio::spawn(async move {
                 loop {
                     tokio::time::sleep(interval).await;
-                    let new_clients = create_clients(&config, num_channels);
+                    let new_clients = create_clients(&config);
                     let mut guard = clients.write().await;
                     *guard = new_clients;
                     drop(guard);
                     info!(
-                        num_channels = num_channels,
+                        num_channels = config.num_channels,
                         "recycled replica backend channels"
                     );
                 }
             });
         }
 
-        Ok(Self {
+        Self {
             clients,
             next_idx: AtomicUsize::new(0),
             retry_config,
-        })
+        }
     }
 
-    fn next_client(&self, clients: &[PersonHogReplicaClient<Channel>]) -> PersonHogReplicaClient<Channel> {
+    fn next_client(
+        &self,
+        clients: &[PersonHogReplicaClient<Channel>],
+    ) -> PersonHogReplicaClient<Channel> {
         let idx = self.next_idx.fetch_add(1, Ordering::Relaxed) % clients.len();
         clients[idx].clone()
     }
