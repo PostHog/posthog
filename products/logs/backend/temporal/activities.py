@@ -222,6 +222,28 @@ def _evaluate_single_alert(
             team_id=alert.team_id,
             notified=notified,
         )
+    elif outcome.notification == NotificationAction.ERROR:
+        notified = _emit_alert_errored_event(alert, outcome, now)
+        notification_failed = not notified
+        logger.info(
+            "Alert entered errored state",
+            alert_id=str(alert.id),
+            alert_name=alert.name,
+            team_id=alert.team_id,
+            consecutive_failures=outcome.consecutive_failures,
+            notified=notified,
+        )
+    elif outcome.notification == NotificationAction.BROKEN:
+        notified = _emit_auto_disabled_event(alert, outcome, now)
+        notification_failed = not notified
+        logger.warning(
+            "Alert broken after consecutive failures",
+            alert_id=str(alert.id),
+            alert_name=alert.name,
+            team_id=alert.team_id,
+            consecutive_failures=outcome.consecutive_failures,
+            notified=notified,
+        )
     # If the notification delivery failed, don't commit the state transition
     # so the next tick will re-evaluate and retry the notification.
     if notification_failed:
@@ -278,29 +300,6 @@ def _evaluate_single_alert(
             LogsAlertEvent.objects.filter(id__in=prunable_ids).delete()
     except Exception:
         logger.exception("Failed to prune non-event rows", alert_id=str(alert.id))
-
-    transitioned_to_broken = committed_state == AlertState.BROKEN and state_before != AlertState.BROKEN.value
-    if transitioned_to_broken:
-        logger.warning(
-            "Alert broken after consecutive failures",
-            alert_id=str(alert.id),
-            alert_name=alert.name,
-            team_id=alert.team_id,
-            consecutive_failures=outcome.consecutive_failures,
-        )
-        _emit_auto_disabled_event(alert, outcome, now)
-
-    if outcome.notification == NotificationAction.ERROR:
-        logger.info(
-            "Alert entered errored state",
-            alert_id=str(alert.id),
-            alert_name=alert.name,
-            team_id=alert.team_id,
-            consecutive_failures=outcome.consecutive_failures,
-        )
-        # Best-effort, consistent with _emit_auto_disabled_event — state is already committed
-        # so there is no retry path; a missed delivery is acceptable for this diagnostic event.
-        _emit_alert_errored_event(alert, outcome, now)
 
     stats["checked"] += 1
 
@@ -407,21 +406,21 @@ def _emit_auto_disabled_event(
     alert: LogsAlertConfiguration,
     outcome: AlertCheckOutcome,
     now: datetime,
-) -> None:
+) -> bool:
     properties = {
         **_base_failure_properties(alert, outcome, now),
         "last_error_message": outcome.error_message or "",
     }
-    _produce_alert_internal_event(alert, "$logs_alert_auto_disabled", properties, now)
+    return _produce_alert_internal_event(alert, "$logs_alert_auto_disabled", properties, now)
 
 
 def _emit_alert_errored_event(
     alert: LogsAlertConfiguration,
     outcome: AlertCheckOutcome,
     now: datetime,
-) -> None:
+) -> bool:
     properties = {
         **_base_failure_properties(alert, outcome, now),
         "error_message": outcome.error_message or "",
     }
-    _produce_alert_internal_event(alert, "$logs_alert_errored", properties, now)
+    return _produce_alert_internal_event(alert, "$logs_alert_errored", properties, now)
