@@ -10,6 +10,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.sync import database_sync_to_async
 
 from products.data_modeling.backend.models import Node
+from products.data_warehouse.backend.data_load.saved_query_service import pause_saved_query_schedule
 from products.data_warehouse.backend.models import DataModelingJob
 from products.data_warehouse.backend.models.data_modeling_job import DataModelingJobStatus
 from products.data_warehouse.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
@@ -111,8 +112,6 @@ def _maybe_pause_schedule_on_timeout(job: DataModelingJob, saved_query: DataWare
     Returns True if the schedule was paused, False otherwise. This prevents pausing
     schedules for transient timeouts that can occur due to temporary ClickHouse load.
     """
-    from products.data_warehouse.backend.data_load.saved_query_service import pause_saved_query_schedule
-
     if not should_pause_schedule_for_timeout(saved_query.id, job.id):
         return False
 

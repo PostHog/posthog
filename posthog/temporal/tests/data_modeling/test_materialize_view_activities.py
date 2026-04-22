@@ -288,6 +288,7 @@ class TestFailMaterializationActivity:
             mock_pause.assert_called_once_with(asaved_query)
 
         await database_sync_to_async(current_job.refresh_from_db)()
+        assert current_job.error is not None
         assert "schedule has been paused" in current_job.error
 
         await database_sync_to_async(asaved_query.refresh_from_db)()

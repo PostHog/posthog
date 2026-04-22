@@ -992,6 +992,10 @@ async def test_run_workflow_timeout_does_not_pause_schedule_without_consecutive_
     temporal_client,
 ):
     """Timeout should not pause the schedule when there aren't 5 consecutive timeout failures."""
+    for query in saved_queries:
+        query.sync_frequency_interval = dt.timedelta(hours=1)
+        await database_sync_to_async(query.save)()
+
     workflow_id = str(uuid.uuid4())
     inputs = RunWorkflowInputs(team_id=ateam.pk)
 
