@@ -1,20 +1,18 @@
 import { Counter, Gauge, Histogram } from 'prom-client'
 
+import { AppMetricsService } from '~/common/services/app-metrics.service'
 import { InternalCaptureEvent, InternalCaptureService } from '~/common/services/internal-capture'
 import { instrumentFn } from '~/common/tracing/tracing-utils'
 import { KAFKA_WAREHOUSE_SOURCE_WEBHOOKS } from '~/config/kafka-topics'
-import { APP_METRICS_OUTPUT, AppMetricsOutput, LOG_ENTRIES_OUTPUT, LogEntriesOutput } from '~/ingestion/common/outputs'
+import { AppMetricsOutput, LOG_ENTRIES_OUTPUT, LogEntriesOutput } from '~/ingestion/common/outputs'
 import { IngestionOutputs } from '~/ingestion/outputs/ingestion-outputs'
 import { KafkaProducerWrapper } from '~/kafka/producer'
 
-import { TimestampFormat } from '../../../types'
 import { safeClickhouseString } from '../../../utils/db/utils'
 import { logger } from '../../../utils/logger'
 import { captureException } from '../../../utils/posthog'
 import { TeamManager } from '../../../utils/team-manager'
-import { castTimestampOrNow } from '../../../utils/utils'
 import {
-    AppMetricType,
     CyclotronJobInvocationHogFunction,
     CyclotronJobInvocationResult,
     LogEntry,
@@ -50,8 +48,8 @@ const hogFunctionMonitoringPendingEvents = new Gauge({
 export type MonitoringOutput = AppMetricsOutput | LogEntriesOutput
 
 export type HogFunctionMonitoringMessage = {
-    output: MonitoringOutput
-    value: LogEntrySerialized | AppMetricType
+    output: LogEntriesOutput
+    value: LogEntrySerialized
     headers?: Record<string, string>
 }
 
@@ -68,12 +66,17 @@ export class HogFunctionMonitoringService {
     warehouseWebhookPayloads: WarehouseWebhookPayload[] = []
 
     private warehouseKafkaProducer?: KafkaProducerWrapper
+    private appMetricsService: AppMetricsService
 
     constructor(
         private outputs: IngestionOutputs<MonitoringOutput>,
         private internalCaptureService: InternalCaptureService,
         private teamManager: TeamManager
-    ) {}
+    ) {
+        // The shared service narrows the union to AppMetricsOutput and only ever
+        // calls outputs.queueMessages(APP_METRICS_OUTPUT, …), so this cast is safe.
+        this.appMetricsService = new AppMetricsService(outputs as unknown as IngestionOutputs<AppMetricsOutput>)
+    }
 
     setWarehouseKafkaProducer(producer: KafkaProducerWrapper): void {
         this.warehouseKafkaProducer = producer
@@ -92,6 +95,12 @@ export class HogFunctionMonitoringService {
         this.warehouseWebhookPayloads = []
 
         await Promise.all([
+            this.appMetricsService.flush().catch((error) => {
+                // NOTE: We don't hard fail here — we don't want to disrupt the
+                // entire processing just for metrics.
+                logger.error('⚠️', `failed to flush app metrics: ${error}`, { error: String(error) })
+                captureException(error)
+            }),
             ...messages.map((x) => {
                 const value = x.value ? Buffer.from(safeClickhouseString(JSON.stringify(x.value))) : null
                 return this.outputs
@@ -141,19 +150,17 @@ export class HogFunctionMonitoringService {
     }
 
     queueAppMetric(metric: MinimalAppMetric, source: MetricLogSource) {
-        const appMetric: AppMetricType = {
+        counterHogFunctionMetric.labels(metric.metric_kind, metric.metric_name).inc(metric.count)
+
+        this.appMetricsService.queueMetric({
+            team_id: metric.team_id,
             app_source: source,
-            ...metric,
-            timestamp: castTimestampOrNow(null, TimestampFormat.ClickHouse),
-        }
-
-        counterHogFunctionMetric.labels(metric.metric_kind, metric.metric_name).inc(appMetric.count)
-
-        this.messagesToProduce.push({
-            output: APP_METRICS_OUTPUT,
-            value: appMetric,
+            app_source_id: metric.app_source_id,
+            instance_id: metric.instance_id,
+            metric_kind: metric.metric_kind,
+            metric_name: metric.metric_name,
+            count: metric.count,
         })
-        hogFunctionMonitoringPendingMessages.set(this.messagesToProduce.length)
     }
 
     queueAppMetrics(metrics: MinimalAppMetric[], source: MetricLogSource) {
