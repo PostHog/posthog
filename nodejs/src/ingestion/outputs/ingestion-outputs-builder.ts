@@ -175,6 +175,15 @@ export class IngestionOutputsBuilder<
                 const teamDenylist = def.teamDenylistKey
                     ? parseTeamDenylist(config[def.teamDenylistKey])
                     : new Set<number>()
+                if (usesDenylist && teamDenylist.size === 0) {
+                    // An empty denylist in denylist mode would silently route all identifiable-team
+                    // traffic to the secondary cluster — fail loudly so a blank/misconfigured env
+                    // var is caught at startup rather than in a partial outage.
+                    throw new Error(
+                        `Output "${name}" uses mode "${mode}" but the team denylist is empty — ` +
+                            `all team-attributed traffic would be routed to secondary. Provide at least one team ID.`
+                    )
+                }
                 record[name] = new DualWriteIngestionOutput(
                     primary,
                     new SingleIngestionOutput(
@@ -197,15 +206,24 @@ export class IngestionOutputsBuilder<
     }
 }
 
-/** Parse a comma-separated string of team IDs into a Set. Whitespace and non-numeric entries are skipped. */
+/**
+ * Parse a comma-separated string of team IDs into a Set.
+ *
+ * Whitespace around entries is trimmed. Empty and non-integer tokens are skipped;
+ * mixed tokens like `"1234abc"` are rejected rather than truncated to `1234`.
+ */
 export function parseTeamDenylist(raw: string): Set<number> {
     if (!raw.trim()) {
         return new Set()
     }
     const ids = new Set<number>()
     for (const part of raw.split(',')) {
-        const n = parseInt(part.trim(), 10)
-        if (!isNaN(n)) {
+        const trimmed = part.trim()
+        if (trimmed === '') {
+            continue
+        }
+        const n = Number(trimmed)
+        if (Number.isInteger(n)) {
             ids.add(n)
         }
     }

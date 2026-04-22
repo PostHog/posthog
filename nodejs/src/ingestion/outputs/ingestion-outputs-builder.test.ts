@@ -254,6 +254,33 @@ describe('IngestionOutputsBuilder', () => {
         ).toThrow(/teamDenylistKey/)
     })
 
+    it('throws when a denylist mode is configured with an empty denylist', () => {
+        const registry = createRegistry()
+        const config = {
+            EVENTS_TOPIC: 'events_v1',
+            EVENTS_PRODUCER: 'PRIMARY' as TestProducer,
+            EVENTS_SECONDARY_TOPIC: 'events_v2',
+            EVENTS_SECONDARY_PRODUCER: 'SECONDARY' as TestProducer,
+            EVENTS_MODE: 'move_team_denylist',
+            EVENTS_PERCENTAGE: 0,
+            EVENTS_TEAM_DENYLIST: '',
+        }
+
+        expect(() =>
+            new IngestionOutputsBuilder()
+                .registerDualWrite('events', {
+                    topicKey: 'EVENTS_TOPIC',
+                    producerKey: 'EVENTS_PRODUCER',
+                    secondaryTopicKey: 'EVENTS_SECONDARY_TOPIC',
+                    secondaryProducerKey: 'EVENTS_SECONDARY_PRODUCER',
+                    modeKey: 'EVENTS_MODE',
+                    percentageKey: 'EVENTS_PERCENTAGE',
+                    teamDenylistKey: 'EVENTS_TEAM_DENYLIST',
+                })
+                .build(registry, config)
+        ).toThrow(/team denylist is empty/)
+    })
+
     it('mixes register and registerDualWrite', async () => {
         const registry = createRegistry()
         const config = {
@@ -315,6 +342,15 @@ describe('parseTeamDenylist', () => {
 
     it('skips non-numeric entries', () => {
         expect(parseTeamDenylist('1,abc,3')).toEqual(new Set([1, 3]))
+    })
+
+    it('rejects mixed tokens instead of truncating', () => {
+        // parseInt('1234abc', 10) would silently yield 1234 — we want this rejected.
+        expect(parseTeamDenylist('1234abc,42')).toEqual(new Set([42]))
+    })
+
+    it('skips empty entries from double commas', () => {
+        expect(parseTeamDenylist('1,,2')).toEqual(new Set([1, 2]))
     })
 
     it('deduplicates repeated ids', () => {
