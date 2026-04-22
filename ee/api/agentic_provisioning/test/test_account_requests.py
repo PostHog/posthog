@@ -10,11 +10,12 @@ from django.utils import timezone
 from parameterized import parameterized
 from rest_framework.response import Response
 
+from posthog.models.oauth import OAuthApplication
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
-from ee.api.agentic_provisioning import AUTH_CODE_CACHE_PREFIX
+from ee.api.agentic_provisioning import AUTH_CODE_CACHE_PREFIX, PENDING_AUTH_CACHE_PREFIX
 from ee.api.agentic_provisioning.test.base import HMAC_SECRET, StripeProvisioningTestBase
 
 
@@ -246,3 +247,103 @@ class TestAccountRequests(StripeProvisioningTestBase):
         res = self._post_signed("/api/agentic/provisioning/account_requests", data=payload)
         assert res.status_code == 500
         assert res.json()["error"]["code"] == "account_creation_failed"
+
+    def test_hmac_partner_existing_user_still_gets_direct_code(self):
+        User.objects.create_and_join(
+            organization=self.organization, email="existing@example.com", password="testpass", first_name="Existing"
+        )
+        payload = self._account_request_payload(email="existing@example.com")
+        res = self._post_signed("/api/agentic/provisioning/account_requests", data=payload)
+        assert res.status_code == 200
+        assert res.json()["type"] == "oauth"
+        assert "code" in res.json()["oauth"]
+
+
+@override_settings(STRIPE_SIGNING_SECRET=HMAC_SECRET)
+class TestPKCEPartnerExistingUserConsent(StripeProvisioningTestBase):
+    def setUp(self):
+        super().setUp()
+        self.pkce_partner = OAuthApplication.objects.create(
+            client_id="pkce-test-partner",
+            name="PKCE Test Partner",
+            client_secret="",
+            client_type=OAuthApplication.CLIENT_PUBLIC,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://partner.example.com/callback",
+            algorithm="RS256",
+            is_first_party=True,
+            provisioning_auth_method="pkce",
+            provisioning_partner_type="test_partner",
+            provisioning_active=True,
+            provisioning_can_create_accounts=True,
+            provisioning_can_provision_resources=True,
+        )
+
+    def _post_as_pkce_partner(self, data: dict):
+        import json
+
+        body = json.dumps(data).encode()
+        return self.client.post(
+            "/api/agentic/provisioning/account_requests",
+            data=body,
+            content_type="application/json",
+            HTTP_API_VERSION="0.1d",
+        )
+
+    def _account_request_payload(self, **overrides):
+        payload = {
+            "id": "acctreq_pkce_test",
+            "email": "existing@example.com",
+            "scopes": ["query:read"],
+            "client_id": "pkce-test-partner",
+            "confirmation_secret": "cs_test",
+            "expires_at": (timezone.now() + timedelta(minutes=10)).isoformat(),
+            "orchestrator": {"type": "test", "account": "acct_123"},
+        }
+        payload.update(overrides)
+        return payload
+
+    def test_pkce_partner_existing_user_returns_requires_auth(self):
+        User.objects.create_and_join(
+            organization=self.organization, email="existing@example.com", password="testpass", first_name="Existing"
+        )
+        payload = self._account_request_payload()
+        res = self._post_as_pkce_partner(payload)
+        assert res.status_code == 200
+        data = res.json()
+        assert data["type"] == "requires_auth"
+        assert "url" in data["requires_auth"]
+        assert "/api/agentic/authorize" in data["requires_auth"]["url"]
+
+    def test_pkce_partner_existing_user_creates_pending_auth(self):
+        User.objects.create_and_join(
+            organization=self.organization, email="existing@example.com", password="testpass", first_name="Existing"
+        )
+        payload = self._account_request_payload()
+        res = self._post_as_pkce_partner(payload)
+        data = res.json()
+
+        url = data["requires_auth"]["url"]
+        state = url.split("state=")[1].split("&")[0]
+        pending = cache.get(f"{PENDING_AUTH_CACHE_PREFIX}{state}")
+        assert pending is not None
+        assert pending["email"] == "existing@example.com"
+        assert pending["partner_id"] == str(self.pkce_partner.id)
+        assert pending["scopes"] == ["query:read"]
+
+    def test_pkce_partner_existing_user_does_not_issue_code(self):
+        User.objects.create_and_join(
+            organization=self.organization, email="existing@example.com", password="testpass", first_name="Existing"
+        )
+        payload = self._account_request_payload()
+        res = self._post_as_pkce_partner(payload)
+        data = res.json()
+        assert "oauth" not in data
+
+    def test_pkce_partner_new_user_still_gets_direct_code(self):
+        payload = self._account_request_payload(email="brand_new@example.com")
+        res = self._post_as_pkce_partner(payload)
+        assert res.status_code == 200
+        data = res.json()
+        assert data["type"] == "oauth"
+        assert "code" in data["oauth"]

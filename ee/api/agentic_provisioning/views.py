@@ -399,6 +399,14 @@ def _handle_existing_user(
     code_challenge: str = "",
     code_challenge_method: str = "S256",
 ) -> Response:
+    # PKCE/public clients must go through the browser consent flow so the
+    # user actively approves the partner.  Trusted server-to-server partners
+    # (HMAC) keep the direct-code path.
+    if partner and partner.provisioning_auth_method == "pkce":
+        return _require_user_consent(
+            request_id, user, scopes, partner_account_id, region, partner, code_challenge, code_challenge_method
+        )
+
     team = _resolve_team_for_existing_user(user, team_id)
     if team is None:
         _capture_provisioning_event("account_request", "error", error_code="team_resolution_failed")
@@ -431,6 +439,45 @@ def _handle_existing_user(
     _capture_provisioning_event("account_request", "existing_user", region=region, team_id=team.id)
 
     return Response({"id": request_id, "type": "oauth", "oauth": {"code": code}})
+
+
+def _require_user_consent(
+    request_id: str,
+    user: User,
+    scopes: list[str],
+    partner_account_id: str,
+    region: str,
+    partner: OAuthApplication,
+    code_challenge: str,
+    code_challenge_method: str,
+) -> Response:
+    state = secrets.token_urlsafe(32)
+    pending_key = f"{PENDING_AUTH_CACHE_PREFIX}{state}"
+    cache.set(
+        pending_key,
+        {
+            "email": user.email,
+            "scopes": scopes,
+            "stripe_account_id": partner_account_id,
+            "partner_id": str(partner.id),
+            "region": region,
+            "code_challenge": code_challenge,
+            "code_challenge_method": code_challenge_method,
+        },
+        timeout=PENDING_AUTH_TTL_SECONDS,
+    )
+
+    auth_url = _build_authorize_url(state, scopes)
+
+    _capture_provisioning_event("account_request", "requires_auth", region=region)
+
+    return Response(
+        {
+            "id": request_id,
+            "type": "requires_auth",
+            "requires_auth": {"url": auth_url},
+        }
+    )
 
 
 def _resolve_team_for_existing_user(user: User, requested_team_id: int | None = None) -> Team | None:
