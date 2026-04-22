@@ -159,26 +159,26 @@ class Command(BaseCommand):
         sandbox = sandbox_cls.create(config)
 
         try:
-            write(f"Sandbox {sandbox.id} up. Cloning {repository}@{branch}…")
-            clone_result = sandbox.clone_repository(repository, github_token=github_token, shallow=True)
+            write(f"Sandbox {sandbox.id} up. Cloning {repository}@{branch} (shallow, target branch only)…")
+            org, repo = repository.lower().split("/")
+            repo_path = f"/tmp/workspace/repos/{org}/{repo}"
+            org_path = f"/tmp/workspace/repos/{org}"
+            repo_url = f"https://x-access-token:{github_token}@github.com/{org}/{repo}.git"
+            # Single round trip: --depth 1 --single-branch --branch <name> fetches
+            # exactly the one commit on the target branch, skipping master entirely.
+            # The shared sandbox.clone_repository helper always clones the default
+            # branch first, which wastes a network round trip for our use case.
+            clone_cmd = (
+                f"rm -rf {shlex.quote(repo_path)} && "
+                f"mkdir -p {shlex.quote(org_path)} && "
+                f"cd {shlex.quote(org_path)} && "
+                f"git clone --depth 1 --single-branch --branch {shlex.quote(branch)} "
+                f"{shlex.quote(repo_url)} {shlex.quote(repo)}"
+            )
+            clone_result = sandbox.execute(clone_cmd, timeout_seconds=5 * 60)
             if clone_result.exit_code != 0:
                 raise CommandError(
                     f"git clone failed (exit {clone_result.exit_code}):\n{(clone_result.stderr or '')[-2000:]}"
-                )
-
-            org, repo = repository.lower().split("/")
-            repo_path = f"/tmp/workspace/repos/{org}/{repo}"
-
-            write(f"Checking out branch {branch}…")
-            checkout = sandbox.execute(
-                f"cd {shlex.quote(repo_path)} && "
-                f"git fetch --depth 1 origin -- {shlex.quote(branch)} && "
-                f"git checkout -B {shlex.quote(branch)} FETCH_HEAD",
-                timeout_seconds=5 * 60,
-            )
-            if checkout.exit_code != 0:
-                raise CommandError(
-                    f"branch checkout failed (exit {checkout.exit_code}):\n{(checkout.stderr or '')[-2000:]}"
                 )
 
             env_values: dict[str, str] = {
