@@ -194,10 +194,14 @@ class Command(BaseCommand):
                 env_values["ANTHROPIC_API_KEY"] = token
 
             env_assignments = " ".join(f"{name}={shlex.quote(value)}" for name, value in env_values.items())
+            # 2>&1 merges stderr into stdout so execute_stream (which only iterates
+            # stdout) picks up both. run_campaign.py writes its progress markers to
+            # stderr; without merging, the operator sees only child-process stdout
+            # and nothing between "baseline captured" and pi's final summary.
             command = (
                 f"cd {shlex.quote(repo_path)} && "
                 f"env {env_assignments} "
-                f"python3 products/query_performance_ai/scripts/run_campaign.py"
+                f"python3 products/query_performance_ai/scripts/run_campaign.py 2>&1"
             )
 
             write("Running run_campaign.py (live stdout below)…")
