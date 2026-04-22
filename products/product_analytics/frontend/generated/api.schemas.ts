@@ -8423,6 +8423,7 @@ export interface ErrorTrackingQueryApi {
     personId?: string | null
     /**
      * Phantom rows UNIONed into the fingerprint issue state subquery (V3 only).
+     * @maxItems 50
      * @nullable
      */
     phantomFingerprintIssueStates?: ErrorTrackingPhantomFingerprintIssueStateApi[] | null
