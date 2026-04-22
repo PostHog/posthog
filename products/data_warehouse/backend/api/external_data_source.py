@@ -702,6 +702,23 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
     """
 
     scope_object = "external_data_source"
+    scope_object_write_actions = [
+        "create",
+        "update",
+        "partial_update",
+        "patch",
+        "destroy",
+        "reload",
+        "refresh_schemas",
+        "database_schema",
+        "source_prefix",
+        "revenue_analytics_config",
+        "create_webhook",
+        "update_webhook_inputs",
+        "delete_webhook",
+        "check_cdc_prerequisites",
+    ]
+    scope_object_read_actions = ["list", "retrieve", "jobs", "wizard", "webhook_info", "connections"]
     queryset = ExternalDataSource.objects.all()
     serializer_class = ExternalDataSourceSerializers
     filter_backends = [filters.SearchFilter]
@@ -1554,7 +1571,15 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         before = request.query_params.get("before", None)
         schemas = request.query_params.getlist("schemas")
 
-        jobs = instance.jobs.filter(billable=True).prefetch_related("schema").order_by("-created_at")
+        # select_related joins the full ExternalDataSchema row; defer its large JSON/text
+        # columns so the serializer only pulls the fields SimpleExternalDataSchemaSerializer
+        # actually reads (sync_type_config + latest_error can each be sizeable).
+        jobs = (
+            instance.jobs.filter(billable=True)
+            .select_related("schema")
+            .defer("schema__sync_type_config", "schema__latest_error")
+            .order_by("-created_at")
+        )
 
         if schemas:
             jobs = jobs.filter(schema__name__in=schemas)

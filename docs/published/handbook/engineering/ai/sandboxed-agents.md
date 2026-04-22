@@ -161,6 +161,70 @@ They're copied to three discovery locations during image build:
 
 For details on writing skills, see [Writing skills](/handbook/engineering/ai/writing-skills).
 
+## Multi-turn sessions
+
+`MultiTurnSession` provides a structured API for building custom multi-turn research agents.
+Use it when your agent needs multiple conversation turns with schema-validated responses –
+for example, a discovery pass followed by per-item research, then assessment and summarization.
+
+### Mental model
+
+1. **Start** – `MultiTurnSession.start(prompt, context, model=Shape)` launches a sandbox, sends the first prompt, and returns a validated Pydantic model.
+2. **Follow up** – `session.send_followup(prompt, Shape)` sends additional prompts within the same sandbox session. Each response is validated against the provided schema. The session retries once on empty responses.
+3. **End** – `session.end()` signals the sandbox workflow to shut down.
+
+### Example
+
+```python
+from products.tasks.backend.services.custom_prompt_multi_turn_runner import MultiTurnSession
+from products.tasks.backend.services.custom_prompt_runner import CustomPromptSandboxContext
+
+# 1. Start: discovery turn
+session, candidates = await MultiTurnSession.start(
+    prompt="Find up to 10 items to investigate.",
+    context=context,  # CustomPromptSandboxContext
+    model=DiscoveryResult,
+    branch="master",
+    step_name="my_discovery",
+)
+
+# 2. Follow up: research each item
+for item in candidates.items:
+    finding = await session.send_followup(
+        f"Research {item.name} in detail.",
+        FindingResult,
+        label=f"research_{item.name}",
+    )
+
+# 3. Follow up: summarize
+summary = await session.send_followup(
+    "Summarize all findings.",
+    SummaryResult,
+    label="summary",
+)
+
+# 4. End the session
+await session.end()
+```
+
+### Reference implementation
+
+See `products/tasks/backend/services/mts_example/` for a complete working example.
+It runs a multi-turn agent that discovers "cursed" identifiers in a repo,
+researches each one, and produces output in the shape Signals consumes:
+
+```text
+discovery → research ×N → actionability → priority? → presentation
+```
+
+Run it locally (DEBUG only):
+
+```bash
+DEBUG=1 python manage.py demo_mts_example --team-id <id> --user-id <id>
+```
+
+See the [example README](https://github.com/PostHog/posthog/blob/master/products/tasks/backend/services/mts_example/README.md) for details on adapting it to your own use case.
+
 ## Code execution
 
 Agents run inside an isolated sandbox with full code execution capabilities.

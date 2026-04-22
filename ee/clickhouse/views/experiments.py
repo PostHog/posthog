@@ -354,7 +354,7 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
         secondary_metrics_ordered_uuids = validated_data.pop("secondary_metrics_ordered_uuids", None)
         filters = validated_data.pop("filters", None)
         scheduling_config = validated_data.pop("scheduling_config", None)
-        only_count_matured_users = validated_data.pop("only_count_matured_users", False)
+        only_count_matured_users = validated_data.pop("only_count_matured_users", None)
         archived = validated_data.pop("archived", False)
         deleted = validated_data.pop("deleted", False)
         conclusion = validated_data.pop("conclusion", None)
