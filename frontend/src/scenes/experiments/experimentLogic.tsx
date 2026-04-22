@@ -5,10 +5,9 @@ import { router } from 'kea-router'
 
 import api from 'lib/api'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { featureFlagLogic, type FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { hasFormErrors, toParams } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { addProjectIdIfMissing } from 'lib/utils/router-utils'
@@ -19,10 +18,8 @@ import { runWithLimit } from 'scenes/dashboard/dashboardUtils'
 import {
     hasMultipleVariantsActive,
     hasZeroRollout,
-    indexToVariantKeyFeatureFlagPayloads,
     featureFlagLogic as sceneFeatureFlagLogic,
     validateFeatureFlagKey,
-    variantKeyToIndexFeatureFlagPayloads,
 } from 'scenes/feature-flags/featureFlagLogic'
 import { featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
@@ -98,7 +95,14 @@ import {
     legacyMinimumSampleSizePerVariant,
     legacyRecommendedExposureForCountData,
 } from './legacy/calculations/legacyExperimentCalculations'
-import { addExposureToMetric, compose, getInsight, getQuery } from './metricQueryUtils'
+import {
+    addExposureToMetric,
+    compose,
+    getExperimentExecutionMode,
+    getExperimentRefreshMode,
+    getInsight,
+    getQuery,
+} from './metricQueryUtils'
 import { getDefaultMetricTitle } from './MetricsView/shared/utils'
 import { modalsLogic } from './modalsLogic'
 import { SharedMetric } from './SharedMetrics/sharedMetricLogic'
@@ -197,7 +201,7 @@ interface MetricLoadingConfig {
     isRetry: boolean
     metricIndexOffset: number
     orderedUuids?: string[] | null
-    metricEventsPrecomputation?: boolean
+    featureFlags: FeatureFlagsSet
     onSetLegacyResults: (
         results: (
             | CachedLegacyExperimentQueryResponse
@@ -327,7 +331,7 @@ const loadMetrics = async ({
     isRetry,
     metricIndexOffset,
     orderedUuids,
-    metricEventsPrecomputation,
+    featureFlags,
     onSetLegacyResults,
     onSetResults,
     onSetErrors,
@@ -365,7 +369,6 @@ const loadMetrics = async ({
                         kind: NodeKind.ExperimentQuery,
                         metric: metric,
                         experiment_id: experimentId,
-                        ...(metricEventsPrecomputation ? { metric_events_precomputation: true } : {}),
                     }
                 } else {
                     queryWithExperimentId = {
@@ -376,7 +379,7 @@ const loadMetrics = async ({
                 response = await performQuery(
                     setLatestVersionsOnQuery(queryWithExperimentId),
                     undefined,
-                    refresh ? 'force_async' : 'async'
+                    getExperimentRefreshMode(featureFlags, !!refresh)
                 )
 
                 const durationMs = Math.round(performance.now() - startTime)
@@ -428,6 +431,7 @@ const loadMetrics = async ({
                         is_retry: isRetry,
                         refresh_id: refreshId,
                         metric_kind: metricKind,
+                        execution_mode: getExperimentExecutionMode(featureFlags),
                     }
                 )
             } catch (error: any) {
@@ -620,7 +624,7 @@ export const experimentLogic = kea<experimentLogicType>([
             teamLogic,
             ['addProductIntent'],
             featureFlagsLogic,
-            ['updateFlag'],
+            ['updateFlagFromPartial'],
             modalsLogic,
             [
                 'openPrimaryMetricModal',
@@ -795,7 +799,10 @@ export const experimentLogic = kea<experimentLogicType>([
                 | null
             )[]
         ) => ({ results }),
-        updateDistribution: (featureFlag: FeatureFlagType) => ({ featureFlag }),
+        updateDistribution: (variants: MultivariateFlagVariant[], rolloutPercentage?: number) => ({
+            variants,
+            rolloutPercentage,
+        }),
         setAutoRefresh: (enabled: boolean, interval: number) => ({ enabled, interval }),
         resetAutoRefreshInterval: true,
         stopAutoRefreshInterval: true,
@@ -1624,6 +1631,7 @@ export const experimentLogic = kea<experimentLogicType>([
                             : null,
                         experiment_status: values.experiment?.status ?? null,
                         total_metrics_count: primaryCount + secondaryCount,
+                        execution_mode: getExperimentExecutionMode(values.featureFlags),
                     }
                 )
 
@@ -1707,6 +1715,9 @@ export const experimentLogic = kea<experimentLogicType>([
         },
         updateExperimentSuccess: async ({ experiment, payload }) => {
             actions.updateExperiments(experiment)
+            if (payload?.update_feature_flag_params && experiment.feature_flag) {
+                actions.updateFlagFromPartial(experiment.feature_flag)
+            }
             if (isLaunched(experiment)) {
                 // For launched experiments, refresh results if any of these fields are updated
                 const forceRefresh =
@@ -1787,22 +1798,16 @@ export const experimentLogic = kea<experimentLogicType>([
                 lemonToast.error('Failed to update experiment variant images')
             }
         },
-        updateDistribution: async ({ featureFlag }) => {
-            const { created_at, id, ...flag } = featureFlag
-
-            const preparedFlag = indexToVariantKeyFeatureFlagPayloads(flag)
-
-            const savedFlag = await api.update(
-                `api/projects/${values.currentProjectId}/feature_flags/${id}`,
-                preparedFlag
-            )
-
-            const updatedFlag = variantKeyToIndexFeatureFlagPayloads(savedFlag)
-            actions.updateFlag(updatedFlag)
-
+        updateDistribution: async ({ variants, rolloutPercentage }) => {
+            const { rollout_percentage: _, ...otherParams } = values.experiment?.parameters || {}
             actions.updateExperiment({
+                parameters: {
+                    ...otherParams,
+                    feature_flag_variants: variants,
+                    ...(rolloutPercentage !== undefined ? { rollout_percentage: rolloutPercentage } : {}),
+                },
                 holdout_id: values.experiment.holdout_id,
-                update_feature_flag_params: false,
+                update_feature_flag_params: true,
             })
         },
         addSharedMetricsToExperiment: async ({ sharedMetricIds, metadata }) => {
@@ -2027,8 +2032,7 @@ export const experimentLogic = kea<experimentLogicType>([
                 isRetry: false,
                 metricIndexOffset: 0,
                 orderedUuids: values.experiment?.primary_metrics_ordered_uuids,
-                metricEventsPrecomputation:
-                    !!values.featureFlags[FEATURE_FLAGS.EXPERIMENTS_METRIC_EVENTS_PRECOMPUTATION],
+                featureFlags: values.featureFlags,
                 onSetLegacyResults: actions.setLegacyPrimaryMetricsResults,
                 onSetResults: actions.setPrimaryMetricsResults,
                 onSetErrors: actions.setPrimaryMetricsResultsErrors,
@@ -2068,8 +2072,7 @@ export const experimentLogic = kea<experimentLogicType>([
                 isRetry: false,
                 metricIndexOffset: 0,
                 orderedUuids: values.experiment?.secondary_metrics_ordered_uuids,
-                metricEventsPrecomputation:
-                    !!values.featureFlags[FEATURE_FLAGS.EXPERIMENTS_METRIC_EVENTS_PRECOMPUTATION],
+                featureFlags: values.featureFlags,
                 onSetLegacyResults: actions.setLegacySecondaryMetricsResults,
                 onSetResults: actions.setSecondaryMetricsResults,
                 onSetErrors: actions.setSecondaryMetricsResultsErrors,
@@ -2117,8 +2120,7 @@ export const experimentLogic = kea<experimentLogicType>([
                 isPrimary: true,
                 isRetry: true,
                 metricIndexOffset: index,
-                metricEventsPrecomputation:
-                    !!values.featureFlags[FEATURE_FLAGS.EXPERIMENTS_METRIC_EVENTS_PRECOMPUTATION],
+                featureFlags: values.featureFlags,
                 onSetLegacyResults: (results) => {
                     currentLegacyResults[index] = results[0]
                     actions.setLegacyPrimaryMetricsResults(currentLegacyResults)
@@ -2167,8 +2169,7 @@ export const experimentLogic = kea<experimentLogicType>([
                 isPrimary: false,
                 isRetry: true,
                 metricIndexOffset: index,
-                metricEventsPrecomputation:
-                    !!values.featureFlags[FEATURE_FLAGS.EXPERIMENTS_METRIC_EVENTS_PRECOMPUTATION],
+                featureFlags: values.featureFlags,
                 onSetLegacyResults: (results) => {
                     currentLegacyResults[index] = results[0]
                     actions.setLegacySecondaryMetricsResults(currentLegacyResults)
@@ -2291,8 +2292,8 @@ export const experimentLogic = kea<experimentLogicType>([
     })),
     loaders(({ actions, values }) => ({
         experiment: {
-            loadExperiment: async ({ triggeredBy }: { triggeredBy?: ExperimentTriggeredBy } = {}) => {
-                void triggeredBy
+            loadExperiment: async (payload?: { triggeredBy?: ExperimentTriggeredBy }) => {
+                void payload?.triggeredBy
                 if (values.experimentId && values.experimentId !== 'new') {
                     try {
                         let response: Experiment = await api.get(
@@ -2380,7 +2381,7 @@ export const experimentLogic = kea<experimentLogicType>([
                         end_date: experiment.end_date,
                         holdout: experiment.holdout,
                     })
-                    return await performQuery(query, undefined, refresh ? 'force_async' : 'async')
+                    return await performQuery(query, undefined, getExperimentRefreshMode(values.featureFlags, refresh))
                 },
             },
         ],

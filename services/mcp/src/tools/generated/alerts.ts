@@ -24,7 +24,7 @@ const alertsList = (): ToolBase<typeof AlertsListSchema, WithPostHogUrl<Schemas.
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.PaginatedAlertList>({
             method: 'GET',
-            path: `/api/projects/${projectId}/alerts/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/alerts/`,
             query: {
                 limit: params.limit,
                 offset: params.offset,
@@ -43,11 +43,12 @@ const alertGet = (): ToolBase<typeof AlertGetSchema, Schemas.Alert> => ({
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.Alert>({
             method: 'GET',
-            path: `/api/projects/${projectId}/alerts/${params.id}/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/alerts/${encodeURIComponent(String(params.id))}/`,
             query: {
                 checks_date_from: params.checks_date_from,
                 checks_date_to: params.checks_date_to,
                 checks_limit: params.checks_limit,
+                checks_offset: params.checks_offset,
             },
         })
         return result
@@ -98,9 +99,18 @@ const alertCreate = (): ToolBase<typeof AlertCreateSchema, Schemas.Alert> => ({
         if (params.schedule_restriction !== undefined) {
             body['schedule_restriction'] = params.schedule_restriction
         }
+        if (params.investigation_agent_enabled !== undefined) {
+            body['investigation_agent_enabled'] = params.investigation_agent_enabled
+        }
+        if (params.investigation_gates_notifications !== undefined) {
+            body['investigation_gates_notifications'] = params.investigation_gates_notifications
+        }
+        if (params.investigation_inconclusive_action !== undefined) {
+            body['investigation_inconclusive_action'] = params.investigation_inconclusive_action
+        }
         const result = await context.api.request<Schemas.Alert>({
             method: 'POST',
-            path: `/api/projects/${projectId}/alerts/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/alerts/`,
             body,
         })
         return result
@@ -151,9 +161,18 @@ const alertUpdate = (): ToolBase<typeof AlertUpdateSchema, Schemas.Alert> => ({
         if (params.schedule_restriction !== undefined) {
             body['schedule_restriction'] = params.schedule_restriction
         }
+        if (params.investigation_agent_enabled !== undefined) {
+            body['investigation_agent_enabled'] = params.investigation_agent_enabled
+        }
+        if (params.investigation_gates_notifications !== undefined) {
+            body['investigation_gates_notifications'] = params.investigation_gates_notifications
+        }
+        if (params.investigation_inconclusive_action !== undefined) {
+            body['investigation_inconclusive_action'] = params.investigation_inconclusive_action
+        }
         const result = await context.api.request<Schemas.Alert>({
             method: 'PATCH',
-            path: `/api/projects/${projectId}/alerts/${params.id}/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/alerts/${encodeURIComponent(String(params.id))}/`,
             body,
         })
         return result
@@ -169,7 +188,7 @@ const alertDelete = (): ToolBase<typeof AlertDeleteSchema, unknown> => ({
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<unknown>({
             method: 'DELETE',
-            path: `/api/projects/${projectId}/alerts/${params.id}/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/alerts/${encodeURIComponent(String(params.id))}/`,
         })
         return result
     },
@@ -197,7 +216,7 @@ const alertSimulate = (): ToolBase<typeof AlertSimulateSchema, Schemas.AlertSimu
         }
         const result = await context.api.request<Schemas.AlertSimulateResponse>({
             method: 'POST',
-            path: `/api/projects/${projectId}/alerts/simulate/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/alerts/simulate/`,
             body,
         })
         return result

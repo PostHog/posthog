@@ -7,6 +7,7 @@ from django.db.models import QuerySet
 from django.http import HttpRequest, JsonResponse
 
 import jwt
+import posthoganalytics
 from drf_spectacular.utils import (
     OpenApiParameter,
     OpenApiResponse,
@@ -14,9 +15,9 @@ from drf_spectacular.utils import (
     extend_schema_field,
     extend_schema_view,
 )
-from rest_framework import filters, serializers, status, viewsets
+from rest_framework import exceptions, filters, serializers, status, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import NotFound, ValidationError
+from rest_framework.exceptions import ValidationError
 from rest_framework.pagination import CursorPagination
 from rest_framework.response import Response
 from temporalio.exceptions import WorkflowAlreadyStartedError
@@ -25,13 +26,14 @@ from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.constants import AvailableFeature
+from posthog.event_usage import groups
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Insight
 from posthog.models.integration import Integration
 from posthog.models.subscription import Subscription, SubscriptionDelivery, unsubscribe_using_token
 from posthog.permissions import PremiumFeaturePermission
+from posthog.rate_limit import SubscriptionTestDeliveryThrottle
 from posthog.security.url_validation import is_url_allowed
-from posthog.subscription_delivery_rollout import hackathon_subscription_feature
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.subscriptions.types import ProcessSubscriptionWorkflowInputs, SubscriptionTriggerType
 from posthog.utils import str_to_bool
@@ -104,6 +106,8 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             "next_delivery_date",
             "integration_id",
             "invite_message",
+            "summary_enabled",
+            "summary_prompt_guide",
         ]
         read_only_fields = [
             "id",
@@ -182,6 +186,17 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             allowed, error = is_url_allowed(target_value)
             if not allowed:
                 raise ValidationError({"target_value": [f"Invalid webhook URL: {error}"]})
+
+        prompt_guide = attrs.get("summary_prompt_guide")
+        if prompt_guide and len(prompt_guide) > 500:
+            raise ValidationError({"summary_prompt_guide": ["AI summary context must be 500 characters or fewer."]})
+
+        if attrs.get("summary_enabled"):
+            organization = self.context["get_organization"]()
+            if not organization.is_ai_data_processing_approved:
+                raise exceptions.PermissionDenied(
+                    "AI data processing must be approved by your organization before enabling AI summaries"
+                )
 
         return attrs
 
@@ -417,7 +432,13 @@ class SubscriptionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.M
         request=None,
         responses={202: OpenApiResponse(description="Test delivery workflow started")},
     )
-    @action(methods=["POST"], detail=True, url_path="test-delivery")
+    @action(
+        methods=["POST"],
+        detail=True,
+        url_path="test-delivery",
+        throttle_classes=[SubscriptionTestDeliveryThrottle],
+        required_scopes=["subscription:write"],
+    )
     def test_delivery(self, request, **kwargs):
         subscription = self.get_object()
         if subscription.deleted:
@@ -454,6 +475,20 @@ class SubscriptionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.M
                 {"detail": "Failed to schedule delivery"},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
+
+        posthoganalytics.capture(
+            distinct_id=str(request.user.distinct_id),
+            event="subscription_test_delivery_scheduled",
+            properties={
+                "subscription_id": subscription.id,
+                "team_id": subscription.team_id,
+                "target_type": subscription.target_type,
+                "insight_id": subscription.insight_id,
+                "dashboard_id": subscription.dashboard_id,
+                "temporal_workflow_id": workflow_id,
+            },
+            groups=groups(None, subscription.team),
+        )
 
         return Response(status=status.HTTP_202_ACCEPTED)
 
@@ -515,11 +550,7 @@ class SubscriptionDeliveryCursorPagination(CursorPagination):
 @extend_schema_view(
     list=extend_schema(
         summary="List subscription deliveries",
-        description=(
-            "Paginated delivery history for a subscription. "
-            "Requires premium subscriptions. Listing is gated by the `hackathons_subscriptions` feature flag; "
-            "single-delivery retrieve is not."
-        ),
+        description="Paginated delivery history for a subscription. Requires premium subscriptions.",
         parameters=[
             OpenApiParameter(
                 name="status",
@@ -534,7 +565,7 @@ class SubscriptionDeliveryCursorPagination(CursorPagination):
     ),
     retrieve=extend_schema(
         summary="Retrieve subscription delivery",
-        description="Fetch one delivery row by id (not gated by `hackathons_subscriptions`).",
+        description="Fetch one delivery row by id.",
         responses={200: SubscriptionDeliverySerializer},
     ),
 )
@@ -547,11 +578,6 @@ class SubscriptionDeliveryViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModel
     premium_feature = AvailableFeature.SUBSCRIPTIONS
     pagination_class = SubscriptionDeliveryCursorPagination
     ordering = "-created_at"
-
-    def initial(self, request, *args, **kwargs):
-        super().initial(request, *args, **kwargs)
-        if self.action == "list" and not hackathon_subscription_feature(self.team_id):
-            raise NotFound()
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
         subscription_id = self.kwargs.get("parent_lookup_subscription_id")

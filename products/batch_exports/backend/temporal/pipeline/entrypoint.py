@@ -101,7 +101,7 @@ async def execute_batch_export_using_internal_stage(
             activity.
     """
     if hasattr(inputs, "batch_export"):
-        batch_export_inputs: _BatchExportInputsProtocol = inputs.batch_export
+        batch_export_inputs: _BatchExportInputsProtocol = inputs.batch_export  # ty: ignore[invalid-assignment]
     else:
         batch_export_inputs = inputs
 

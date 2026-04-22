@@ -1,0 +1,8 @@
+{"notification":{"method":"session/update","params":{"update":{"sessionUpdate":"agent_message","content":{"type":"text","text":"{\"value\":\"initial-turn-result\"}"}}}}}
+{"notification":{"result":{"stopReason":"end_turn"}}}
+{"notification":{"method":"session/update","params":{"update":{"sessionUpdate":"user_message_chunk","content":{"type":"text","text":"please respond"}}}}}
+{"notification":{"method":"session/update","params":{"update":{"sessionUpdate":"usage_update","used":0}}}}
+{"notification":{"result":{"stopReason":"end_turn"}}}
+{"notification":{"method":"session/update","params":{"update":{"sessionUpdate":"user_message_chunk","content":{"type":"text","text":"retry with nudge"}}}}}
+{"notification":{"method":"session/update","params":{"update":{"sessionUpdate":"agent_message","content":{"type":"text","text":"{\"value\":\"recovered-after-retry\"}"}}}}}
+{"notification":{"result":{"stopReason":"end_turn"}}}

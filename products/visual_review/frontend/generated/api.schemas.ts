@@ -46,17 +46,55 @@ export interface PatchedUpdateRepoRequestInputApi {
     enable_pr_comments?: boolean | null
 }
 
+export interface UserBasicInfoApi {
+    id: number
+    first_name: string
+    email: string
+}
+
+export interface QuarantinedIdentifierEntryApi {
+    created_by?: UserBasicInfoApi | null
+    id: string
+    identifier: string
+    run_type: string
+    reason: string
+    /** @nullable */
+    expires_at: string | null
+    created_at: string
+    updated_at: string
+}
+
+export interface PaginatedQuarantinedIdentifierEntryListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: QuarantinedIdentifierEntryApi[]
+}
+
+export interface QuarantineInputApi {
+    /** @maxLength 512 */
+    identifier: string
+    /** @maxLength 255 */
+    reason: string
+    /** @nullable */
+    expires_at?: string | null
+}
+
 export interface RunSummaryApi {
     total: number
     changed: number
     new: number
     removed: number
     unchanged: number
+    tolerated_matched?: number
 }
 
 export type RunApiMetadata = { [key: string]: unknown }
 
 export interface RunApi {
+    approved_by?: UserBasicInfoApi | null
     id: string
     repo_id: string
     status: string
@@ -75,6 +113,8 @@ export interface RunApi {
     /** @nullable */
     completed_at: string | null
     is_stale?: boolean
+    /** @nullable */
+    superseded_by_id?: string | null
     metadata?: RunApiMetadata
 }
 
@@ -193,9 +233,11 @@ export interface SnapshotApi {
     current_artifact?: ArtifactApi | null
     baseline_artifact?: ArtifactApi | null
     diff_artifact?: ArtifactApi | null
+    reviewed_by?: UserBasicInfoApi | null
     id: string
     identifier: string
     result: string
+    classification_reason: string
     /** @nullable */
     diff_percentage: number | null
     /** @nullable */
@@ -204,6 +246,9 @@ export interface SnapshotApi {
     /** @nullable */
     reviewed_at: string | null
     approved_hash: string
+    /** @nullable */
+    tolerated_hash_id?: string | null
+    is_quarantined?: boolean
     metadata?: SnapshotApiMetadata
 }
 
@@ -214,6 +259,31 @@ export interface PaginatedSnapshotListApi {
     /** @nullable */
     previous?: string | null
     results: SnapshotApi[]
+}
+
+export interface MarkToleratedInputApi {
+    snapshot_id: string
+}
+
+export interface ToleratedHashEntryApi {
+    id: string
+    alternate_hash: string
+    baseline_hash: string
+    reason: string
+    /** @nullable */
+    diff_percentage: number | null
+    created_at: string
+    /** @nullable */
+    source_run_id: string | null
+}
+
+export interface PaginatedToleratedHashEntryListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: ToleratedHashEntryApi[]
 }
 
 export interface ReviewStateCountsApi {
@@ -232,6 +302,34 @@ export type VisualReviewReposListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
+}
+
+export type VisualReviewReposQuarantineListParams = {
+    /**
+     * Filter by identifier (returns full history)
+     */
+    identifier?: string
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+    /**
+     * Filter by run type
+     */
+    run_type?: string
+}
+
+export type VisualReviewReposQuarantineDestroyParams = {
+    /**
+     * Snapshot identifier to unquarantine
+     * @minLength 1
+     * @maxLength 512
+     */
+    identifier: string
 }
 
 export type VisualReviewRunsListParams = {
@@ -265,6 +363,21 @@ export type VisualReviewRunsSnapshotHistoryListParams = {
 }
 
 export type VisualReviewRunsSnapshotsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type VisualReviewRunsToleratedHashesListParams = {
+    /**
+     * Snapshot identifier
+     */
+    identifier: string
     /**
      * Number of results to return per page.
      */
