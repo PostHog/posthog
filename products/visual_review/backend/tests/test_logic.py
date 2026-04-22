@@ -1515,7 +1515,7 @@ class TestMergeBaseBaselineHealing:
 
     def test_healing_detects_changed_when_hash_differs(self, repo, mocker):
         """Healed entry with different hash shows as changed, not new."""
-        branch_baseline = {}
+        branch_baseline: dict[str, str] = {}
         merge_base_baseline = {"flaky": "master_hash"}
         self._mock_github(mocker, branch_baseline=branch_baseline, merge_base_baseline=merge_base_baseline)
 

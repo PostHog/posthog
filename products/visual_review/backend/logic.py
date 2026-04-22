@@ -1212,6 +1212,9 @@ def _commit_baseline_to_github(run: Run, repo: Repo, approved_snapshots: list[di
     if not result.get("success"):
         raise GitHubCommitError(f"Failed to commit baseline: {result.get('error')}")
 
+    run.metadata["baseline_commit_sha"] = result.get("commit_sha")
+    run.save(update_fields=["metadata"])
+
     return result
 
 
