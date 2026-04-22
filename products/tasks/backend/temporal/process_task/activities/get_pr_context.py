@@ -77,6 +77,8 @@ def get_pr_context(input: GetPrContextInput):
 
     try:
         pull_request = github_integration.get_pull_request_from_url(pr_url)  # Validate PR URL and permissions
+        if not pull_request.get("success"):
+            return None
         fingerprint = compute_pr_fingerprint(pull_request)
     except Exception as e:
         raise TaskInvalidStateError(
