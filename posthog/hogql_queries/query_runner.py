@@ -1845,8 +1845,8 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             and (
                 has_multi_breakdown(dashboard_breakdown_filter)
                 or (
-                    dashboard_breakdown_filter is not None
-                    and has_single_breakdown(dashboard_breakdown_filter)
+                    has_single_breakdown(dashboard_breakdown_filter)
+                    and dashboard_breakdown_filter is not None
                     and dashboard_breakdown_filter.breakdown_type != BreakdownType.DATA_WAREHOUSE
                 )
             )

@@ -62,7 +62,7 @@ import {
     isPathsQuery,
     isRetentionQuery,
     isTrendsQuery,
-    isValidBreakdown,
+    hasBreakdownFilter,
 } from '~/queries/utils'
 import { AnyPropertyFilter, BaseMathType, FilterLogicalOperator, PropertyGroupFilter, UserBasicType } from '~/types'
 
@@ -123,7 +123,7 @@ function SeriesDisplay({
     const { mathDefinitions } = useValues(mathsLogic)
     const series = query.series[seriesIndex]
 
-    const hasBreakdown = isInsightQueryWithBreakdown(query) && isValidBreakdown(query.breakdownFilter)
+    const hasBreakdown = isInsightQueryWithBreakdown(query) && hasBreakdownFilter(query.breakdownFilter)
 
     const mathKey = isLifecycleQuery(query)
         ? BaseMathType.UniqueUsers
@@ -408,7 +408,7 @@ export function VariablesSummary({
 }
 
 export function InsightBreakdownSummary({ query }: { query: InsightQueryNode | HogQLQuery }): JSX.Element | null {
-    if (!isInsightQueryWithBreakdown(query) || !isValidBreakdown(query.breakdownFilter)) {
+    if (!isInsightQueryWithBreakdown(query) || !hasBreakdownFilter(query.breakdownFilter)) {
         return null
     }
 
@@ -420,7 +420,7 @@ export function BreakdownSummary({
 }: {
     breakdownFilter: BreakdownFilter | null | undefined
 }): JSX.Element | null {
-    if (!isValidBreakdown(breakdownFilter)) {
+    if (!hasBreakdownFilter(breakdownFilter)) {
         return null
     }
 
