@@ -4603,8 +4603,6 @@ export namespace Schemas {
       experiment_id?: number | null;
       kind?: ExperimentQueryKind;
       metric: ExperimentMeanMetric | ExperimentFunnelMetric | ExperimentRatioMetric | ExperimentRetentionMetric;
-      /** @nullable */
-      metric_events_precomputation?: boolean | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
       /** @nullable */
@@ -7725,6 +7723,8 @@ export namespace Schemas {
       resume_from_run_id?: string;
       /** Initial or follow-up user message to include in the run prompt. */
       pending_user_message?: string;
+      /** Identifiers for staged task artifacts that should be attached to the initial run prompt. */
+      pending_user_artifact_ids?: string[];
       /** Optional sandbox environment to apply for this cloud run. */
       sandbox_environment_id?: string;
       /** Whether pull requests for this run should be authored by the user or the bot.
@@ -8021,6 +8021,8 @@ export namespace Schemas {
       resume_from_run_id?: string;
       /** Initial or follow-up user message to include in the run prompt. */
       pending_user_message?: string;
+      /** Identifiers for staged task artifacts that should be attached to the initial run prompt. */
+      pending_user_artifact_ids?: string[];
       /** Optional sandbox environment to apply for this cloud run. */
       sandbox_environment_id?: string;
       /** Whether pull requests for this run should be authored by the user or the bot.
@@ -8288,6 +8290,18 @@ export namespace Schemas {
       /** JWT token for authenticating with the sandbox */
       token: string;
     }
+
+    /**
+     * * `utf-8` - utf-8
+    * `base64` - base64
+     */
+    export type ContentEncodingEnum = typeof ContentEncodingEnum[keyof typeof ContentEncodingEnum];
+
+
+    export const ContentEncodingEnum = {
+      Utf8: 'utf-8',
+      Base64: 'base64',
+    } as const;
 
     export type ConversationMessagesItem = {[key: string]: unknown};
 
@@ -13550,6 +13564,18 @@ export namespace Schemas {
       readonly created_at: string;
       readonly updated_at: string;
     }
+
+    /**
+     * * `slack` - slack
+    * `webhook` - webhook
+     */
+    export type DestinationTypesEnum = typeof DestinationTypesEnum[keyof typeof DestinationTypesEnum];
+
+
+    export const DestinationTypesEnum = {
+      Slack: 'slack',
+      Webhook: 'webhook',
+    } as const;
 
     /**
      * * `Desktop` - Desktop
@@ -20191,6 +20217,8 @@ export namespace Schemas {
       breached: number;
       /** Count of errored checks in this hour. */
       errored: number;
+      /** Count of checks that transitioned the alert from firing to resolved in this hour. */
+      resolved: number;
     }
 
     export interface LogsAlertConfiguration {
@@ -20274,6 +20302,8 @@ export namespace Schemas {
       readonly last_error_message: string | null;
       /** 24 hourly buckets of breached + errored check counts for the last 24h, ordered oldest-first. Drives the activity column on the alert list — empty sparkline = healthy alert. Ok checks are not included: retention caps OK rows at MAX_EVALUATION_PERIODS (~50min at 5-min cadence), so only events that survive the prune (breached + errored) are meaningful over a 24h window. */
       readonly sparkline: readonly LogsAlertSparklineBucket[];
+      /** Notification destination types configured for this alert — e.g. 'slack', 'webhook'. Empty list means no notifications will fire. One or more destinations should be added after creating an alert. */
+      readonly destination_types: readonly DestinationTypesEnum[];
       /** When the alert was created. */
       readonly created_at: string;
       readonly created_by: UserBasic;
@@ -20288,10 +20318,10 @@ export namespace Schemas {
      * * `slack` - slack
     * `webhook` - webhook
      */
-    export type LogsAlertCreateDestinationTypeEnum = typeof LogsAlertCreateDestinationTypeEnum[keyof typeof LogsAlertCreateDestinationTypeEnum];
+    export type TypeC34Enum = typeof TypeC34Enum[keyof typeof TypeC34Enum];
 
 
-    export const LogsAlertCreateDestinationTypeEnum = {
+    export const TypeC34Enum = {
       Slack: 'slack',
       Webhook: 'webhook',
     } as const;
@@ -20301,7 +20331,7 @@ export namespace Schemas {
 
     * `slack` - slack
     * `webhook` - webhook */
-      type: LogsAlertCreateDestinationTypeEnum;
+      type: TypeC34Enum;
       /** Integration ID for the Slack workspace. Required when type=slack. */
       slack_workspace_id?: number;
       /** Slack channel ID. Required when type=slack. */
@@ -23756,10 +23786,14 @@ export namespace Schemas {
     } as const;
 
     export interface TaskRunArtifactResponse {
+      /** Stable identifier for the artifact within this run */
+      id?: string;
       /** Artifact file name */
       name: string;
       /** Artifact classification (plan, context, etc.) */
       type: string;
+      /** Source of the artifact, such as agent_output or user_attachment */
+      source?: string;
       /** Artifact size in bytes */
       size?: number;
       /** Optional MIME type */
@@ -26532,6 +26566,8 @@ export namespace Schemas {
       readonly last_error_message?: string | null;
       /** 24 hourly buckets of breached + errored check counts for the last 24h, ordered oldest-first. Drives the activity column on the alert list — empty sparkline = healthy alert. Ok checks are not included: retention caps OK rows at MAX_EVALUATION_PERIODS (~50min at 5-min cadence), so only events that survive the prune (breached + errored) are meaningful over a 24h window. */
       readonly sparkline?: readonly LogsAlertSparklineBucket[];
+      /** Notification destination types configured for this alert — e.g. 'slack', 'webhook'. Empty list means no notifications will fire. One or more destinations should be added after creating an alert. */
+      readonly destination_types?: readonly DestinationTypesEnum[];
       /** When the alert was created. */
       readonly created_at?: string;
       readonly created_by?: UserBasic;
@@ -28965,6 +29001,8 @@ export namespace Schemas {
       output?: unknown | null;
       /** State of the run */
       state?: unknown;
+      /** State keys to remove atomically before applying any state updates. */
+      state_remove_keys?: string[];
       /**
        * Error message if execution failed
        * @nullable
@@ -33548,6 +33586,18 @@ export namespace Schemas {
       results: DashboardTileResult[];
     }
 
+    /**
+     * Form fields that must be submitted verbatim with the file upload
+     */
+    export type S3PresignedPostFields = {[key: string]: string};
+
+    export interface S3PresignedPost {
+      /** Presigned S3 POST URL */
+      url: string;
+      /** Form fields that must be submitted verbatim with the file upload */
+      fields: S3PresignedPostFields;
+    }
+
     export interface SandboxEnvironment {
       readonly id: string;
       /** @maxLength 255 */
@@ -34313,6 +34363,118 @@ export namespace Schemas {
       entries: TaskRunAppendLogRequestEntriesItem[];
     }
 
+    /**
+     * * `plan` - plan
+    * `context` - context
+    * `reference` - reference
+    * `output` - output
+    * `artifact` - artifact
+    * `tree_snapshot` - tree_snapshot
+    * `user_attachment` - user_attachment
+     */
+    export type TypeE8eEnum = typeof TypeE8eEnum[keyof typeof TypeE8eEnum];
+
+
+    export const TypeE8eEnum = {
+      Plan: 'plan',
+      Context: 'context',
+      Reference: 'reference',
+      Output: 'output',
+      Artifact: 'artifact',
+      TreeSnapshot: 'tree_snapshot',
+      UserAttachment: 'user_attachment',
+    } as const;
+
+    export interface TaskRunArtifactFinalizeUpload {
+      /** Stable identifier returned by the prepare upload endpoint */
+      id: string;
+      /**
+       * File name associated with the artifact
+       * @maxLength 255
+       */
+      name: string;
+      /** Classification for the artifact
+
+    * `plan` - plan
+    * `context` - context
+    * `reference` - reference
+    * `output` - output
+    * `artifact` - artifact
+    * `tree_snapshot` - tree_snapshot
+    * `user_attachment` - user_attachment */
+      type: TypeE8eEnum;
+      /**
+       * Optional source label for the artifact, such as agent_output or user_attachment
+       * @maxLength 64
+       */
+      source?: string;
+      /**
+       * S3 object key returned by the prepare step
+       * @maxLength 500
+       */
+      storage_path: string;
+      /**
+       * Optional MIME type recorded for the artifact
+       * @maxLength 255
+       */
+      content_type?: string;
+    }
+
+    export interface TaskRunArtifactPrepareUpload {
+      /**
+       * File name to associate with the artifact
+       * @maxLength 255
+       */
+      name: string;
+      /** Classification for the artifact
+
+    * `plan` - plan
+    * `context` - context
+    * `reference` - reference
+    * `output` - output
+    * `artifact` - artifact
+    * `tree_snapshot` - tree_snapshot
+    * `user_attachment` - user_attachment */
+      type: TypeE8eEnum;
+      /**
+       * Optional source label for the artifact, such as agent_output or user_attachment
+       * @maxLength 64
+       */
+      source?: string;
+      /**
+       * Expected upload size in bytes (max 31457280 bytes)
+       * @minimum 1
+       * @maximum 31457280
+       */
+      size: number;
+      /**
+       * Optional MIME type for the artifact upload
+       * @maxLength 255
+       */
+      content_type?: string;
+    }
+
+    export interface TaskRunArtifactPrepareUploadResponse {
+      /** Stable identifier for the prepared artifact within this run */
+      id: string;
+      /** Artifact file name */
+      name: string;
+      /** Artifact classification (plan, context, etc.) */
+      type: string;
+      /** Source of the artifact, such as agent_output or user_attachment */
+      source?: string;
+      /** Expected upload size in bytes */
+      size: number;
+      /** Optional MIME type */
+      content_type?: string;
+      /** S3 object key reserved for the artifact */
+      storage_path: string;
+      /** Presigned POST expiry in seconds */
+      expires_in: number;
+      /** Presigned S3 POST configuration for uploading the file */
+      presigned_post: S3PresignedPost;
+    }
+
     export interface TaskRunArtifactPresignRequest {
       /**
        * S3 storage path returned in the artifact manifest
@@ -34328,26 +34490,6 @@ export namespace Schemas {
       expires_in: number;
     }
 
-    /**
-     * * `plan` - plan
-    * `context` - context
-    * `reference` - reference
-    * `output` - output
-    * `artifact` - artifact
-    * `tree_snapshot` - tree_snapshot
-     */
-    export type TaskRunArtifactUploadTypeEnum = typeof TaskRunArtifactUploadTypeEnum[keyof typeof TaskRunArtifactUploadTypeEnum];
-
-
-    export const TaskRunArtifactUploadTypeEnum = {
-      Plan: 'plan',
-      Context: 'context',
-      Reference: 'reference',
-      Output: 'output',
-      Artifact: 'artifact',
-      TreeSnapshot: 'tree_snapshot',
-    } as const;
-
     export interface TaskRunArtifactUpload {
       /**
        * File name to associate with the artifact
@@ -34361,15 +34503,46 @@ export namespace Schemas {
     * `reference` - reference
     * `output` - output
     * `artifact` - artifact
-    * `tree_snapshot` - tree_snapshot */
-      type: TaskRunArtifactUploadTypeEnum;
-      /** Raw file contents (UTF-8 string or base64 data) */
+    * `tree_snapshot` - tree_snapshot
+    * `user_attachment` - user_attachment */
+      type: TypeE8eEnum;
+      /**
+       * Optional source label for the artifact, such as agent_output or user_attachment
+       * @maxLength 64
+       */
+      source?: string;
+      /** Artifact contents encoded according to content_encoding */
       content: string;
+      /** Encoding used for content. Use base64 for binary files and utf-8 for text payloads.
+
+    * `utf-8` - utf-8
+    * `base64` - base64 */
+      content_encoding?: ContentEncodingEnum;
       /**
        * Optional MIME type for the artifact
        * @maxLength 255
        */
       content_type?: string;
+    }
+
+    export interface TaskRunArtifactsFinalizeUploadRequest {
+      /** Array of uploaded artifacts to finalize */
+      artifacts: TaskRunArtifactFinalizeUpload[];
+    }
+
+    export interface TaskRunArtifactsFinalizeUploadResponse {
+      /** Updated list of artifacts on the run */
+      artifacts: TaskRunArtifactResponse[];
+    }
+
+    export interface TaskRunArtifactsPrepareUploadRequest {
+      /** Array of artifacts to prepare */
+      artifacts: TaskRunArtifactPrepareUpload[];
+    }
+
+    export interface TaskRunArtifactsPrepareUploadResponse {
+      /** Prepared uploads for the requested artifacts */
+      artifacts: TaskRunArtifactPrepareUploadResponse[];
     }
 
     export interface TaskRunArtifactsUploadRequest {
@@ -34479,6 +34652,116 @@ export namespace Schemas {
       status: string;
       /** Relay workflow ID when accepted */
       relay_id?: string;
+    }
+
+    export interface TaskStagedArtifactFinalizeUpload {
+      /** Stable identifier returned by the staged prepare upload endpoint */
+      id: string;
+      /**
+       * File name associated with the staged artifact
+       * @maxLength 255
+       */
+      name: string;
+      /** Classification for the artifact
+
+    * `plan` - plan
+    * `context` - context
+    * `reference` - reference
+    * `output` - output
+    * `artifact` - artifact
+    * `tree_snapshot` - tree_snapshot
+    * `user_attachment` - user_attachment */
+      type: TypeE8eEnum;
+      /**
+       * Optional source label for the artifact, such as agent_output or user_attachment
+       * @maxLength 64
+       */
+      source?: string;
+      /**
+       * S3 object key returned by the prepare step
+       * @maxLength 500
+       */
+      storage_path: string;
+      /**
+       * Optional MIME type recorded for the artifact
+       * @maxLength 255
+       */
+      content_type?: string;
+    }
+
+    export interface TaskStagedArtifactPrepareUpload {
+      /**
+       * File name to associate with the staged artifact
+       * @maxLength 255
+       */
+      name: string;
+      /** Classification for the artifact
+
+    * `plan` - plan
+    * `context` - context
+    * `reference` - reference
+    * `output` - output
+    * `artifact` - artifact
+    * `tree_snapshot` - tree_snapshot
+    * `user_attachment` - user_attachment */
+      type: TypeE8eEnum;
+      /**
+       * Optional source label for the artifact, such as agent_output or user_attachment
+       * @maxLength 64
+       */
+      source?: string;
+      /**
+       * Expected upload size in bytes (max 31457280 bytes)
+       * @minimum 1
+       * @maximum 31457280
+       */
+      size: number;
+      /**
+       * Optional MIME type for the artifact upload
+       * @maxLength 255
+       */
+      content_type?: string;
+    }
+
+    export interface TaskStagedArtifactPrepareUploadResponse {
+      /** Stable identifier for the prepared staged artifact within this task */
+      id: string;
+      /** Artifact file name */
+      name: string;
+      /** Artifact classification (plan, context, etc.) */
+      type: string;
+      /** Source of the artifact, such as agent_output or user_attachment */
+      source?: string;
+      /** Expected upload size in bytes */
+      size: number;
+      /** Optional MIME type */
+      content_type?: string;
+      /** S3 object key reserved for the staged artifact */
+      storage_path: string;
+      /** Presigned POST expiry in seconds */
+      expires_in: number;
+      /** Presigned S3 POST configuration for uploading the file */
+      presigned_post: S3PresignedPost;
+    }
+
+    export interface TaskStagedArtifactsFinalizeUploadRequest {
+      /** Array of staged artifacts to finalize after upload */
+      artifacts: TaskStagedArtifactFinalizeUpload[];
+    }
+
+    export interface TaskStagedArtifactsFinalizeUploadResponse {
+      /** Finalized staged artifacts available for attachment to a new run */
+      artifacts: TaskRunArtifactResponse[];
+    }
+
+    export interface TaskStagedArtifactsPrepareUploadRequest {
+      /** Array of staged artifacts to prepare before creating a run */
+      artifacts: TaskStagedArtifactPrepareUpload[];
+    }
+
+    export interface TaskStagedArtifactsPrepareUploadResponse {
+      /** Prepared staged uploads for the requested artifacts */
+      artifacts: TaskStagedArtifactPrepareUploadResponse[];
     }
 
     export type TeamDefaultModifiers = {[key: string]: unknown};
