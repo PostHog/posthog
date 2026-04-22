@@ -235,6 +235,11 @@ const handleRequest = async (
     const rawUserAgent = request.headers.get('User-Agent') || undefined
     const clientUserAgent = sanitizeHeaderValue(rawUserAgent)
 
+    // Self-identification signal set by a wrapping consumer app (e.g. PostHog's
+    // Tasks sandbox) when the wrapped MCP client's name is too generic to
+    // distinguish (e.g. both direct and sandboxed Claude Code send `claude-code`).
+    const mcpConsumer = sanitizeHeaderValue(request.headers.get('x-posthog-mcp-consumer') || undefined)
+
     Object.assign(ctx.props, {
         apiToken: token,
         userHash: hash(token),
@@ -242,6 +247,7 @@ const handleRequest = async (
         organizationId,
         projectId,
         clientUserAgent,
+        mcpConsumer,
         requestStartTime: Date.now(),
     })
 
@@ -267,6 +273,9 @@ const handleRequest = async (
     const extraContextProps = { features, tools, region: regionParam, version, readOnly }
     Object.assign(ctx.props, extraContextProps)
     log.extend(extraContextProps)
+    if (mcpConsumer) {
+        log.extend({ mcpConsumer })
+    }
 
     let server: Promise<Response> | null = null
     if (url.pathname.startsWith('/mcp')) {

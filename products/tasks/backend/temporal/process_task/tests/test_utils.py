@@ -25,6 +25,7 @@ class TestGetSandboxMcpConfigs(TestCase):
             {"name": "x-posthog-project-id", "value": str(self.PROJECT_ID)},
             {"name": "x-posthog-mcp-version", "value": "2"},
             {"name": "x-posthog-read-only", "value": str(read_only).lower()},
+            {"name": "x-posthog-mcp-consumer", "value": "posthog_agent"},
         ]
 
     @parameterized.expand(

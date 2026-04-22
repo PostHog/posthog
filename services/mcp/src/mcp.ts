@@ -16,7 +16,7 @@ import {
 } from '@/lib/analytics'
 import { buildToolResultPayload, isToolCallPayload } from '@/lib/build-tool-result'
 import { DurableObjectCache } from '@/lib/cache/DurableObjectCache'
-import { isCodingAgentClient } from '@/lib/client-detection'
+import { isCodingAgentClient, isPostHogAgentConsumer } from '@/lib/client-detection'
 import {
     CUSTOM_API_BASE_URL,
     POSTHOG_EU_BASE_URL,
@@ -52,6 +52,7 @@ export type RequestProperties = {
     organizationId?: string
     projectId?: string
     clientUserAgent?: string
+    mcpConsumer?: string
     readOnly?: boolean
     transport?: 'streamable-http' | 'sse'
     requestStartTime?: number
@@ -199,6 +200,7 @@ export class MCP extends McpAgent<Env> {
                 mcpClientName: this._mcpClientName,
                 mcpClientVersion: this._mcpClientVersion,
                 mcpProtocolVersion: this._mcpProtocolVersion,
+                mcpConsumer: this.requestProperties.mcpConsumer,
             })
         }
 
@@ -297,6 +299,7 @@ export class MCP extends McpAgent<Env> {
                     ...(this._mcpClientName ? { mcp_client_name: this._mcpClientName } : {}),
                     ...(this._mcpClientVersion ? { mcp_client_version: this._mcpClientVersion } : {}),
                     ...(this._mcpProtocolVersion ? { mcp_protocol_version: this._mcpProtocolVersion } : {}),
+                    ...(this.requestProperties.mcpConsumer ? { mcp_consumer: this.requestProperties.mcpConsumer } : {}),
                     ...(this.requestProperties.transport ? { mcp_transport: this.requestProperties.transport } : {}),
                     ...contextProperties,
                     ...previousContextProperties,
@@ -470,8 +473,12 @@ export class MCP extends McpAgent<Env> {
         // Restrict single-exec mode to coding agents only — Cursor and other clients that
         // render `structuredContent` in their UI need the full per-tool roster, not the
         // wrapped CLI. `resolveClientInfo()` ran inside `getContext()` above, so
-        // `_mcpClientName` is populated here.
-        const useSingleExec = singleExecFlagOn && isCodingAgentClient(this._mcpClientName)
+        // `_mcpClientName` is populated here. PostHog's agent wrapper self-identifies via
+        // the `x-posthog-mcp-consumer` header and forces single-exec regardless of the
+        // wrapped client's reported name.
+        const useSingleExec =
+            singleExecFlagOn &&
+            (isCodingAgentClient(this._mcpClientName) || isPostHogAgentConsumer(this.requestProperties.mcpConsumer))
         const version = useSingleExec ? 2 : (flagVersion ?? clientVersion ?? 1)
 
         // Fetch group types and metadata in parallel (cache is now seeded)

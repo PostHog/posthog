@@ -78,4 +78,32 @@ describe('ApiClient', () => {
 
         vi.unstubAllGlobals()
     })
+
+    it('should send x-posthog-mcp-consumer header when mcpConsumer is provided', async () => {
+        const mockFetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({}), { status: 200 }))
+        vi.stubGlobal('fetch', mockFetch)
+
+        const client = new ApiClient({
+            apiToken: 'test-token-123',
+            baseUrl: 'https://example.com',
+            mcpConsumer: 'posthog_agent',
+        })
+
+        await (client as any).fetch('https://example.com/api/test', {
+            method: 'POST',
+            body: JSON.stringify({ key: 'value' }),
+        })
+
+        expect(mockFetch).toHaveBeenCalledOnce()
+        const [, options] = mockFetch.mock.calls[0]!
+        expect(options.headers).toEqual({
+            Authorization: 'Bearer test-token-123',
+            'Content-Type': 'application/json',
+            'User-Agent': USER_AGENT,
+            'X-PostHog-Client': 'mcp',
+            'x-posthog-mcp-consumer': 'posthog_agent',
+        })
+
+        vi.unstubAllGlobals()
+    })
 })

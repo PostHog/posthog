@@ -48,3 +48,12 @@ export const CODING_AGENT_CLIENT_NAME_FRAGMENTS = [
 export function isCodingAgentClient(clientName: string | undefined): boolean {
     return matchesAnyFragment(clientName, CODING_AGENT_CLIENT_NAME_FRAGMENTS)
 }
+
+// Value sent in `x-posthog-mcp-consumer` by PostHog's agent-SDK wrapper
+// (the Tasks sandbox). Used to force coding-agent behavior even when the
+// wrapped MCP client reports a generic name.
+export const POSTHOG_AGENT_CONSUMER = 'posthog_agent'
+
+export function isPostHogAgentConsumer(mcpConsumer: string | undefined): boolean {
+    return mcpConsumer === POSTHOG_AGENT_CONSUMER
+}
