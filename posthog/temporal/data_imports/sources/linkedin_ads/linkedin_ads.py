@@ -3,16 +3,33 @@ import datetime as dt
 import collections.abc
 from dataclasses import dataclass
 
+import pyarrow as pa
+from structlog.types import FilteringBoundLogger
+
 from posthog.models.integration import Integration
 from posthog.temporal.data_imports.naming_convention import NamingConvention
 from posthog.temporal.data_imports.pipelines.helpers import incremental_type_to_initial_value, initial_datetime
+from posthog.temporal.data_imports.pipelines.pipeline.batcher import Batcher
 from posthog.temporal.data_imports.pipelines.pipeline.typings import PartitionFormat, PartitionMode, SourceResponse
+from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.sources.generated_configs import LinkedinAdsSourceConfig
 
 from products.data_warehouse.backend.types import IncrementalFieldType
 
 from .client import LinkedinAdsClient, LinkedinAdsResource
 from .schemas import FLOAT_FIELDS, RESOURCE_SCHEMAS, URN_COLUMNS, VIRTUAL_COLUMN_URN_MAPPING
+
+
+@dataclass
+class LinkedInAdsResumeConfig:
+    """Resume state for LinkedIn Ads sync.
+
+    page_token is the LinkedIn Marketing API `nextPageToken` that points to the next
+    page to fetch. Only paginated resources (campaigns, campaign_groups) produce a
+    meaningful token; single-shot resources (accounts, analytics) never save state.
+    """
+
+    page_token: str
 
 
 @dataclass
@@ -95,6 +112,8 @@ def linkedin_ads_source(
     config: LinkedinAdsSourceConfig,
     resource_name: str,
     team_id: int,
+    resumable_source_manager: ResumableSourceManager[LinkedInAdsResumeConfig],
+    logger: FilteringBoundLogger,
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: typing.Any = None,
     incremental_field: str | None = None,
@@ -103,12 +122,12 @@ def linkedin_ads_source(
     """A data warehouse LinkedIn Ads source.
 
     Uses the LinkedIn Marketing API to query for the configured resource and
-    yields batches of records as list[dict].
+    yields batches of records as pyarrow Tables.
     """
     name = NamingConvention.normalize_identifier(resource_name)
     schema = get_schemas()[resource_name]
 
-    def get_rows() -> collections.abc.Iterator[list[dict]]:
+    def get_rows() -> collections.abc.Iterator[pa.Table]:
         client = linkedin_ads_client(config, team_id)
         resource = LinkedinAdsResource(resource_name)
 
@@ -139,21 +158,48 @@ def linkedin_ads_source(
             start_date = initial_datetime
             date_start = start_date.strftime("%Y-%m-%d")
 
+        resume_config = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+        starting_page_token = resume_config.page_token if resume_config is not None else None
+        if starting_page_token:
+            logger.debug(f"LinkedInAds: resuming {resource_name} from saved pageToken")
+
         data_pages = client.get_data_by_resource(
             resource=resource,
             account_id=config.account_id,
             date_start=date_start,
             date_end=date_end,
+            starting_page_token=starting_page_token,
         )
 
-        # Process each page
-        for page in data_pages:
-            flattened_records = []
-            for record in page:
-                flattened_record = _flatten_linkedin_record(record, schema)
-                flattened_records.append(flattened_record)
+        # Yield `pa.Table` chunks so each yield is written by the pipeline before the
+        # generator is asked for the next one. Because the pipeline buffers raw
+        # `list[dict]` yields across multiple pages (see Batcher in pipeline.py), saving
+        # the next-page token right after yielding a list could advance the checkpoint
+        # past rows still sitting in that buffer — a crash before the flush would then
+        # permanently skip those rows on resume.
+        #
+        # Instead, we hold the next-page token in `pending_next_page_token` until all of
+        # that page's rows have been batched AND a subsequent flush yields a pa.Table.
+        # Only then is the token guaranteed durable and safe to persist. Re-fetches on
+        # resume may produce duplicates, which the delta sink dedupes via primary_keys.
+        batcher = Batcher(logger=logger)
+        pending_next_page_token: str | None = None
 
-            yield flattened_records
+        for page, next_page_token in data_pages:
+            flattened_records = [_flatten_linkedin_record(record, schema) for record in page]
+            for record in flattened_records:
+                batcher.batch(record)
+                if batcher.should_yield():
+                    yield batcher.get_table()
+                    if pending_next_page_token is not None:
+                        resumable_source_manager.save_state(LinkedInAdsResumeConfig(page_token=pending_next_page_token))
+                        pending_next_page_token = None
+
+            if next_page_token is not None:
+                pending_next_page_token = next_page_token
+
+        if batcher.should_yield(include_incomplete_chunk=True):
+            yield batcher.get_table()
 
     return SourceResponse(
         name=name,

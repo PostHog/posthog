@@ -323,7 +323,7 @@ export const SessionRecordingPreview = memo(
         const { filters } = useValues(sessionRecordingsPlaylistLogic)
         const { recordingPropertiesById, recordingPropertiesLoading } = useValues(sessionRecordingsListPropertiesLogic)
         const { featureFlags } = useValues(featureFlagLogic)
-        const summaryEnabled = !!featureFlags[FEATURE_FLAGS.AI_SESSION_SUMMARY]
+        const summaryEnabled = !!featureFlags[FEATURE_FLAGS.REPLAY_VIDEO_BASED_SUMMARIZATION]
 
         const recordingProperties = recordingPropertiesById[recording.id]
         const loading = !recordingProperties && recordingPropertiesLoading

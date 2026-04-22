@@ -664,7 +664,7 @@ class FeatureFlagSerializer(
     experiment_set_metadata = serializers.SerializerMethodField()
     surveys: serializers.SerializerMethodField = serializers.SerializerMethodField()
     features: serializers.SerializerMethodField = serializers.SerializerMethodField()
-    usage_dashboard: serializers.PrimaryKeyRelatedField = serializers.PrimaryKeyRelatedField(read_only=True)
+    usage_dashboard: serializers.PrimaryKeyRelatedField = serializers.PrimaryKeyRelatedField(read_only=True)  # ty: ignore[invalid-assignment]
     analytics_dashboards = TeamScopedPrimaryKeyRelatedField(
         many=True,
         required=False,
@@ -757,7 +757,7 @@ class FeatureFlagSerializer(
         """Check if this feature flag is used in any team's session recording linked flag setting."""
         # Use annotated value if available (set by queryset annotation)
         if hasattr(feature_flag, "is_used_in_replay_settings_annotation"):
-            return feature_flag.is_used_in_replay_settings_annotation
+            return bool(feature_flag.is_used_in_replay_settings_annotation)
         # Return False if team is not available
         if not hasattr(feature_flag, "team") or feature_flag.team is None:
             return False
@@ -2043,6 +2043,12 @@ class LocalEvaluationResponseSerializer(serializers.Serializer):
     )
 
 
+# ClickHouse cost attribution: this viewset currently has no direct ClickHouse calls —
+# all ClickHouse work is delegated to helpers (user_blast_radius.py, flag_analytics.py)
+# that already tag their queries. If you add a new ClickHouse query reachable from an
+# action on this viewset, wrap it with tag_queries(product=Product.FEATURE_FLAGS,
+# feature=Feature.QUERY, team_id=self.team_id) so query_log attribution stays correct.
+# See posthog/models/feature_flag/user_blast_radius.py for the pattern.
 @extend_schema(tags=[ProductKey.FEATURE_FLAGS])
 class FeatureFlagViewSet(
     ApprovalHandlingMixin,

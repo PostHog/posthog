@@ -5,6 +5,8 @@ import React, { useCallback, useEffect, useState } from 'react'
 import { IconInfo } from '@posthog/icons'
 import {
     LemonButton,
+    LemonCheckbox,
+    LemonCollapse,
     LemonDialog,
     LemonInput,
     LemonModal,
@@ -26,12 +28,12 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { pluralize } from 'lib/utils'
+import { groupBy, pluralize } from 'lib/utils'
+import { newInternalTab } from 'lib/utils/newInternalTab'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { ExternalDataSourceType, ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
-import { escapePropertyAsHogQLIdentifier } from '~/queries/utils'
 import {
     AccessControlLevel,
     AccessControlResourceType,
@@ -44,6 +46,7 @@ import {
 
 import {
     SyncTypeLabelMap,
+    buildTableQueryUrl,
     defaultQuery,
     syncAnchorIntervalToHumanReadable,
 } from 'products/data_warehouse/frontend/utils'
@@ -79,6 +82,54 @@ export interface SchemasTabProps {
     id: string
 }
 
+export function splitDirectQuerySchemaName(
+    name: string,
+    fallbackSchema?: string | null
+): { schemaName: string; tableName: string } {
+    const firstDotIndex = name.indexOf('.')
+
+    if (firstDotIndex === -1) {
+        const normalizedFallbackSchema = fallbackSchema?.trim()
+        return {
+            schemaName: normalizedFallbackSchema || 'Unqualified',
+            tableName: name,
+        }
+    }
+
+    return {
+        schemaName: name.slice(0, firstDotIndex),
+        tableName: name.slice(firstDotIndex + 1),
+    }
+}
+
+export function groupDirectQuerySourceSchemasBySchema(
+    schemas: ExternalDataSourceSchema[],
+    fallbackSchema?: string | null
+): { schemaName: string; schemas: ExternalDataSourceSchema[] }[] {
+    return Object.entries(
+        groupBy(
+            schemas,
+            (schema) => splitDirectQuerySchemaName(schema.table?.name ?? schema.name, fallbackSchema).schemaName
+        )
+    )
+        .sort(([schemaA], [schemaB]) => schemaA.localeCompare(schemaB))
+        .map(([schemaName, groupedSchemas]) => ({ schemaName, schemas: groupedSchemas }))
+}
+
+function getSchemaSelectionState(schemas: ExternalDataSourceSchema[]): boolean | 'indeterminate' {
+    const enabledCount = schemas.filter((schema) => schema.should_sync).length
+
+    if (enabledCount === 0) {
+        return false
+    }
+
+    if (enabledCount === schemas.length) {
+        return true
+    }
+
+    return 'indeterminate'
+}
+
 const REVENUE_ENABLED_SOURCES: ExternalDataSourceType[] = ['Stripe']
 export const SchemasTab = ({ id }: SchemasTabProps): JSX.Element => {
     const logicProps = { id, availableSources: {} }
@@ -89,15 +140,29 @@ export const SchemasTab = ({ id }: SchemasTabProps): JSX.Element => {
         filteredSchemas,
         showEnabledSchemasOnly,
         schemaNameFilter,
+        isProjectTime,
         syncingNow,
         refreshingSchemas,
     } = useValues(logic)
-    const { setShowEnabledSchemasOnly, setSchemaNameFilter, syncNow, refreshSchemas } = useActions(logic)
+    const {
+        setShowEnabledSchemasOnly,
+        setSchemaNameFilter,
+        setIsProjectTime,
+        syncNow,
+        refreshSchemas,
+        updateSchema,
+        reloadSchema,
+        resyncSchema,
+        cancelSchema,
+        deleteTable,
+    } = useActions(logic)
     const { addProductIntentForCrossSell } = useActions(teamLogic)
 
     const { featureFlags } = useValues(featureFlagLogic)
     const isDirectQuerySource =
         !!featureFlags[FEATURE_FLAGS.DWH_POSTGRES_DIRECT_QUERY] && source?.access_method === 'direct'
+    const directQueryDefaultSchema = typeof source?.job_inputs?.schema === 'string' ? source.job_inputs.schema : null
+    const groupedDirectQuerySchemas = groupDirectQuerySourceSchemasBySchema(filteredSchemas, directQueryDefaultSchema)
 
     return (
         <BindLogic logic={sourceSettingsLogic} props={logicProps}>
@@ -115,7 +180,13 @@ export const SchemasTab = ({ id }: SchemasTabProps): JSX.Element => {
                         value={schemaNameFilter}
                         onChange={setSchemaNameFilter}
                     />
-                    <span className="text-muted text-sm">{pluralize(filteredSchemas.length, 'schema', 'schemas')}</span>
+                    <span className="text-muted text-sm">
+                        {pluralize(
+                            isDirectQuerySource ? groupedDirectQuerySchemas.length : filteredSchemas.length,
+                            'schema',
+                            'schemas'
+                        )}
+                    </span>
                 </div>
                 <div className="flex items-center gap-2">
                     {!isDirectQuerySource && (
@@ -173,6 +244,14 @@ export const SchemasTab = ({ id }: SchemasTabProps): JSX.Element => {
                 schemas={filteredSchemas}
                 isLoading={sourceLoading}
                 isDirectQuerySource={isDirectQuerySource}
+                source={source}
+                isProjectTime={isProjectTime}
+                updateSchema={updateSchema}
+                reloadSchema={reloadSchema}
+                resyncSchema={resyncSchema}
+                cancelSchema={cancelSchema}
+                deleteTable={deleteTable}
+                setIsProjectTime={setIsProjectTime}
             />
             {source?.source_type &&
                 REVENUE_ENABLED_SOURCES.includes(source.source_type) &&
@@ -206,6 +285,14 @@ interface SchemaTableProps {
     schemas: ExternalDataSourceSchema[]
     isLoading: boolean
     isDirectQuerySource: boolean
+    source: ExternalDataSource | null
+    isProjectTime: boolean
+    updateSchema: (schema: ExternalDataSourceSchema) => void
+    reloadSchema: (schema: ExternalDataSourceSchema) => void
+    resyncSchema: (schema: ExternalDataSourceSchema) => void
+    cancelSchema: (schema: ExternalDataSourceSchema) => void
+    deleteTable: (schema: ExternalDataSourceSchema) => void
+    setIsProjectTime: (isProjectTime: boolean) => void
 }
 
 const StatusTagSetting: Record<ExternalDataSchemaStatus | ExternalDataJobStatus, LemonTagType> = {
@@ -218,13 +305,142 @@ const StatusTagSetting: Record<ExternalDataSchemaStatus | ExternalDataJobStatus,
     Paused: 'warning',
 }
 
-export const SchemaTable = ({ schemas, isLoading, isDirectQuerySource }: SchemaTableProps): JSX.Element => {
+interface DirectQuerySchemaGroupsProps {
+    groupedSchemas: { schemaName: string; schemas: ExternalDataSourceSchema[] }[]
+    expandedSchemaKeys: string[]
+    initialLoad: boolean
+    source: ExternalDataSource | null
+    getPreviewUrl: (tableName: string) => string
+    setExpandedSchemaKeys: (keys: string[]) => void
+    setDirectQuerySchemaEnabled: (schema: ExternalDataSourceSchema, shouldSync: boolean) => void
+    toggleDirectQuerySchemaGroup: (schemaName: string, shouldSync: boolean) => void
+}
+
+function DirectQuerySchemaGroups({
+    groupedSchemas,
+    expandedSchemaKeys,
+    initialLoad,
+    source,
+    getPreviewUrl,
+    setExpandedSchemaKeys,
+    setDirectQuerySchemaEnabled,
+    toggleDirectQuerySchemaGroup,
+}: DirectQuerySchemaGroupsProps): JSX.Element {
+    if (initialLoad) {
+        return <LemonSkeleton className="h-48" />
+    }
+
+    if (groupedSchemas.length === 0) {
+        return <div className="border rounded px-4 py-8 text-center text-muted-alt">No schemas found</div>
+    }
+
+    return (
+        <div className="border rounded bg-bg-light">
+            <LemonCollapse
+                multiple
+                embedded
+                activeKeys={expandedSchemaKeys}
+                onChange={setExpandedSchemaKeys}
+                panels={groupedSchemas.map(({ schemaName, schemas }) => {
+                    const selectedTablesCount = schemas.filter((schema) => schema.should_sync).length
+
+                    return {
+                        key: schemaName,
+                        header: (
+                            <div className="flex items-center justify-between gap-3 w-full">
+                                <div className="flex items-center gap-2 min-w-0">
+                                    <LemonCheckbox
+                                        checked={getSchemaSelectionState(schemas)}
+                                        stopPropagation
+                                        onChange={(checked) => toggleDirectQuerySchemaGroup(schemaName, checked)}
+                                    />
+                                    <span className="font-semibold truncate">{schemaName}</span>
+                                </div>
+                                <span className="text-xs text-muted-alt whitespace-nowrap">
+                                    {selectedTablesCount} of {schemas.length} tables queryable
+                                </span>
+                            </div>
+                        ),
+                        content: (
+                            <div className="bg-bg-light">
+                                <div>
+                                    {schemas.map((schema) => {
+                                        const qualifiedName = schema.table?.name ?? schema.name
+                                        const { tableName } = splitDirectQuerySchemaName(
+                                            qualifiedName,
+                                            typeof source?.job_inputs?.schema === 'string'
+                                                ? source.job_inputs.schema
+                                                : null
+                                        )
+
+                                        return (
+                                            <div
+                                                key={schema.id}
+                                                className="grid grid-cols-[auto_minmax(0,1fr)] gap-2 px-6 py-1 items-center"
+                                            >
+                                                <SourceEditorAction source={source}>
+                                                    <LemonCheckbox
+                                                        checked={schema.should_sync}
+                                                        onChange={(active) =>
+                                                            setDirectQuerySchemaEnabled(schema, active)
+                                                        }
+                                                    />
+                                                </SourceEditorAction>
+                                                <div className="flex items-center gap-1 min-w-0">
+                                                    {schema.should_sync ? (
+                                                        <Link
+                                                            to={getPreviewUrl(qualifiedName)}
+                                                            className="truncate"
+                                                            onClick={(event) => {
+                                                                event.preventDefault()
+                                                                newInternalTab(getPreviewUrl(qualifiedName))
+                                                            }}
+                                                        >
+                                                            {tableName}
+                                                        </Link>
+                                                    ) : (
+                                                        <span className="truncate">{tableName}</span>
+                                                    )}
+                                                    {schema.description && (
+                                                        <Tooltip title={schema.description}>
+                                                            <IconInfo className="text-muted-alt text-base shrink-0" />
+                                                        </Tooltip>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        )
+                                    })}
+                                </div>
+                            </div>
+                        ),
+                    }
+                })}
+            />
+        </div>
+    )
+}
+
+export const SchemaTable = ({
+    schemas,
+    isLoading,
+    isDirectQuerySource,
+    source,
+    isProjectTime,
+    updateSchema,
+    reloadSchema,
+    resyncSchema,
+    cancelSchema,
+    deleteTable,
+    setIsProjectTime,
+}: SchemaTableProps): JSX.Element => {
     const { currentTeam } = useValues(teamLogic)
-    const { updateSchema, reloadSchema, resyncSchema, cancelSchema, deleteTable, setIsProjectTime } =
-        useActions(sourceSettingsLogic)
-    const { isProjectTime, source } = useValues(sourceSettingsLogic)
     const { schemaReloadingById } = useValues(sourceManagementLogic)
     const [initialLoad, setInitialLoad] = useState(true)
+    const directQueryDefaultSchema = typeof source?.job_inputs?.schema === 'string' ? source.job_inputs.schema : null
+    const groupedDirectQuerySchemas = groupDirectQuerySourceSchemasBySchema(schemas, directQueryDefaultSchema)
+    const groupedSchemaKeys = groupedDirectQuerySchemas.map((group) => group.schemaName)
+    const groupedSchemaKeysFingerprint = groupedSchemaKeys.join('|')
+    const [expandedSchemaKeys, setExpandedSchemaKeys] = useState<string[]>([])
 
     useEffect(() => {
         if (initialLoad && !isLoading) {
@@ -232,10 +448,71 @@ export const SchemaTable = ({ schemas, isLoading, isDirectQuerySource }: SchemaT
         }
     }, [isLoading, initialLoad])
 
-    const getPreviewQuery = useCallback(
-        (tableName: string): string => `SELECT * FROM ${escapePropertyAsHogQLIdentifier(tableName)} LIMIT 100`,
-        []
+    useEffect(() => {
+        if (!isDirectQuerySource) {
+            return
+        }
+
+        setExpandedSchemaKeys((currentKeys) => {
+            const nextKeys = currentKeys.filter((key) => groupedSchemaKeys.includes(key))
+
+            if (
+                nextKeys.length > 0 &&
+                nextKeys.length === currentKeys.length &&
+                nextKeys.every((key, index) => key === currentKeys[index])
+            ) {
+                return currentKeys
+            }
+
+            if (nextKeys.length > 0) {
+                return nextKeys
+            }
+
+            return groupedSchemaKeys
+        })
+    }, [groupedSchemaKeysFingerprint, isDirectQuerySource])
+    const directConnectionId = isDirectQuerySource ? source?.id : undefined
+    const getPreviewUrl = useCallback(
+        (tableName: string): string => buildTableQueryUrl(tableName, directConnectionId),
+        [directConnectionId]
     )
+    const setDirectQuerySchemaEnabled = useCallback(
+        (schema: ExternalDataSourceSchema, shouldSync: boolean) => {
+            updateSchema({ ...schema, should_sync: shouldSync })
+        },
+        [updateSchema]
+    )
+    const toggleDirectQuerySchemaGroup = useCallback(
+        (schemaName: string, shouldSync: boolean) => {
+            const schemaGroup = groupedDirectQuerySchemas.find((group) => group.schemaName === schemaName)
+
+            for (const schema of schemaGroup?.schemas ?? []) {
+                setDirectQuerySchemaEnabled(schema, shouldSync)
+            }
+
+            setExpandedSchemaKeys((currentKeys) =>
+                shouldSync
+                    ? Array.from(new Set([...currentKeys, schemaName]))
+                    : currentKeys.filter((key) => key !== schemaName)
+            )
+        },
+        [groupedDirectQuerySchemas, setDirectQuerySchemaEnabled]
+    )
+
+    if (isDirectQuerySource) {
+        return (
+            <DirectQuerySchemaGroups
+                groupedSchemas={groupedDirectQuerySchemas}
+                expandedSchemaKeys={expandedSchemaKeys}
+                initialLoad={initialLoad}
+                source={source}
+                getPreviewUrl={getPreviewUrl}
+                setExpandedSchemaKeys={setExpandedSchemaKeys}
+                setDirectQuerySchemaEnabled={setDirectQuerySchemaEnabled}
+                toggleDirectQuerySchemaGroup={toggleDirectQuerySchemaGroup}
+            />
+        )
+    }
 
     return (
         <>
@@ -250,9 +527,7 @@ export const SchemaTable = ({ schemas, isLoading, isDirectQuerySource }: SchemaT
                         render: function RenderName(_, schema) {
                             const nameContent =
                                 isDirectQuerySource && schema.table ? (
-                                    <Link to={urls.sqlEditor({ query: getPreviewQuery(schema.table.name) })}>
-                                        {schema.label ?? schema.name}
-                                    </Link>
+                                    <Link to={getPreviewUrl(schema.table.name)}>{schema.label ?? schema.name}</Link>
                                 ) : (
                                     <span>{schema.label ?? schema.name}</span>
                                 )
@@ -294,7 +569,12 @@ export const SchemaTable = ({ schemas, isLoading, isDirectQuerySource }: SchemaT
                             return (
                                 <SourceEditorAction source={source}>
                                     {({ disabledReason }) => (
-                                        <AnchorTime schema={schema} disabledReason={disabledReason} />
+                                        <AnchorTime
+                                            schema={schema}
+                                            disabledReason={disabledReason}
+                                            isProjectTime={isProjectTime}
+                                            updateSchema={updateSchema}
+                                        />
                                     )}
                                 </SourceEditorAction>
                             )
@@ -456,7 +736,13 @@ export const SchemaTable = ({ schemas, isLoading, isDirectQuerySource }: SchemaT
                             if (schema.table) {
                                 const query = defaultQuery(schema.table.name, schema.table.columns)
                                 return (
-                                    <Link to={urls.sqlEditor({ query: query.source.query })}>
+                                    <Link
+                                        to={urls.sqlEditor({ query: query.source.query })}
+                                        onClick={(event) => {
+                                            event.preventDefault()
+                                            newInternalTab(urls.sqlEditor({ query: query.source.query }))
+                                        }}
+                                    >
                                         <code>{schema.table.name}</code>
                                     </Link>
                                 )
@@ -560,9 +846,14 @@ export const SchemaTable = ({ schemas, isLoading, isDirectQuerySource }: SchemaT
                                                                     type="tertiary"
                                                                     size="xsmall"
                                                                     fullWidth
-                                                                    to={urls.sqlEditor({
-                                                                        query: getPreviewQuery(schema.table.name),
-                                                                    })}
+                                                                    onClick={() => {
+                                                                        const table = schema.table
+                                                                        if (!table) {
+                                                                            return
+                                                                        }
+
+                                                                        newInternalTab(getPreviewUrl(table.name))
+                                                                    }}
                                                                 >
                                                                     Open in SQL editor
                                                                 </LemonButton>
@@ -852,13 +1143,15 @@ const SyncMethodModal = ({ schema }: { schema: ExternalDataSourceSchema }): JSX.
 const AnchorTime = ({
     schema,
     disabledReason,
+    isProjectTime,
+    updateSchema,
 }: {
     schema: ExternalDataSourceSchema
     disabledReason: string | null
+    isProjectTime: boolean
+    updateSchema: (schema: ExternalDataSourceSchema) => void
 }): JSX.Element => {
-    const { isProjectTime } = useValues(sourceSettingsLogic)
     const { currentTeam } = useValues(teamLogic)
-    const { updateSchema } = useActions(sourceSettingsLogic)
     const [isSyncTimeSet, setIsSyncTimeSet] = useState(!!schema.sync_time_of_day)
 
     const utcTime = schema.sync_time_of_day || '00:00:00'
