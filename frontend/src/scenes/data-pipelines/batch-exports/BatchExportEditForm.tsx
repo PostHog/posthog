@@ -99,7 +99,7 @@ export function BatchExportsEditFields({
 }): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
     const bigQueryIntegrationEnabled = featureFlags[FEATURE_FLAGS.BATCH_EXPORTS_BIGQUERY_INTEGRATION]
-    const postgreSQLIntegrationEnabled = true
+    const postgreSQLIntegrationEnabled = featureFlags[FEATURE_FLAGS.BATCH_EXPORTS_POSTGRESQL_INTEGRATION]
 
     return (
         <div className="flex flex-col gap-y-4 max-w-200">
