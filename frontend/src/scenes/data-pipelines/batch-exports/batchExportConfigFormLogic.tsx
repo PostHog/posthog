@@ -89,7 +89,12 @@ function getConfigurationFromBatchExportConfig(batchExportConfig: BatchExportCon
         ...batchExportConfig.destination.config,
     }
 
-    if (destinationType === 'Databricks' || destinationType === 'AzureBlob' || destinationType === 'BigQuery') {
+    if (
+        destinationType === 'Databricks' ||
+        destinationType === 'AzureBlob' ||
+        destinationType === 'BigQuery' ||
+        destinationType === 'Postgres'
+    ) {
         config.integration_id = batchExportConfig.destination.integration
     }
 
@@ -900,10 +905,12 @@ export const batchExportConfigFormLogic = kea<batchExportConfigFormLogicType>([
                 if (service === 'Postgres') {
                     return [
                         ...generalRequiredFields,
-                        ...(isNew ? ['user'] : []),
-                        ...(isNew ? ['password'] : []),
-                        'host',
-                        'port',
+                        // TODO: Replace hardcoded value with FF.
+                        ...(isNew && false ? ['user'] : []),
+                        ...(isNew && false ? ['password'] : []),
+                        ...(false ? ['host'] : []),
+                        ...(false ? ['port'] : []),
+                        ...(isNew && true ? ['integration_id'] : []),
                         'database',
                         'schema',
                         'table_name',
