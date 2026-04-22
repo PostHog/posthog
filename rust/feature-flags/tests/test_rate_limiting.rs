@@ -346,6 +346,81 @@ async fn test_rate_limit_ip_fallback_on_malformed_body() -> Result<()> {
 }
 
 #[tokio::test]
+async fn test_rate_limit_replenishment() -> Result<()> {
+    let mut config = Config::default_test_config();
+    config.flags_rate_limit_enabled = FlexBool(true);
+    config.flags_rate_limit_log_only = FlexBool(false);
+    config.flags_bucket_capacity = 1;
+    config.flags_bucket_replenish_rate = 10.0;
+
+    let redis_client = setup_redis_client(Some(config.redis_url.clone())).await;
+    let team = insert_new_team_in_redis(redis_client.clone())
+        .await
+        .unwrap();
+    let token = team.api_token.clone();
+
+    let context = TestContext::new(None).await;
+    context.insert_new_team(Some(team.id)).await.unwrap();
+    context
+        .insert_person(team.id, "user123".to_string(), None)
+        .await
+        .unwrap();
+
+    let remote_config = json!({
+        "supportedCompression": ["gzip", "gzip-js"],
+        "config": {}
+    });
+    insert_config_in_hypercache(redis_client.clone(), &token, remote_config).await?;
+
+    let server = ServerHandle::for_config(config).await;
+    let client = reqwest::Client::new();
+
+    let payload = json!({
+        "token": token,
+        "distinct_id": "user123",
+    });
+
+    let response = client
+        .post(format!("http://{}/flags", server.addr))
+        .header("content-type", "application/json")
+        .json(&payload)
+        .send()
+        .await?;
+
+    assert_eq!(response.status(), StatusCode::OK, "First request allowed");
+
+    let response = client
+        .post(format!("http://{}/flags", server.addr))
+        .header("content-type", "application/json")
+        .json(&payload)
+        .send()
+        .await?;
+
+    assert_eq!(
+        response.status(),
+        StatusCode::TOO_MANY_REQUESTS,
+        "Second request blocked"
+    );
+
+    tokio::time::sleep(tokio::time::Duration::from_millis(250)).await;
+
+    let response = client
+        .post(format!("http://{}/flags", server.addr))
+        .header("content-type", "application/json")
+        .json(&payload)
+        .send()
+        .await?;
+
+    assert_eq!(
+        response.status(),
+        StatusCode::OK,
+        "Third request allowed after replenishment"
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
 async fn test_ip_rate_limit_basic() -> Result<()> {
     // Create config with IP rate limiting enabled
     let mut config = Config::default_test_config();

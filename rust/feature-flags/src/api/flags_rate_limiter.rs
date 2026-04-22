@@ -464,13 +464,14 @@ mod tests {
         warn_capacity: Option<u32>,
         enforce_capacity: u32,
     ) -> FlagsRateLimiter {
-        FlagsRateLimiter::new(
+        FlagsRateLimiter::new_with_clock(
             enabled,
             replenish_rate,
             warn_capacity,
             enforce_capacity,
             false,
             HashMap::new(),
+            clock::DefaultClock::default(),
         )
         .unwrap()
     }

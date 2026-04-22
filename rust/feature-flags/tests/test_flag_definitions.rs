@@ -1483,7 +1483,6 @@ async fn test_flag_definitions_rate_limit_enforced() {
 async fn test_flag_definitions_custom_rate_limit_overrides_default() {
     use feature_flags::{config::Config, utils::test_utils::TestContext};
     use reqwest;
-    use tokio::time::{sleep, Duration};
 
     let context = TestContext::new(None).await;
 
