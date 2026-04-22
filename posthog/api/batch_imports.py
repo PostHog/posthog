@@ -52,6 +52,8 @@ class BatchImportSerializer(serializers.ModelSerializer):
             "updated_at",
             "state",
             "display_status_message",
+            "import_config",
+            "status",
         ]
 
     def create(self, validated_data: dict) -> BatchImport:

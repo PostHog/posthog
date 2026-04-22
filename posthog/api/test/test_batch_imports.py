@@ -564,3 +564,62 @@ class TestBatchImportAPI(APIBaseTest):
         self.assertEqual(batch_import.backoff_attempt, 0)
         self.assertIsNone(batch_import.backoff_until)
         self.assertEqual(batch_import.status_message, "Resumed by user")
+
+    def test_patch_cannot_modify_import_config(self):
+        original_config = {"source": {"type": "date_range_export", "base_url": "https://mixpanel.com/api"}}
+        batch_import = BatchImport.objects.create(
+            team=self.team,
+            created_by_id=self.user.id,
+            import_config=original_config,
+            secrets={"api_key": "legit", "secret_key": "legit"},
+            status=BatchImport.Status.PAUSED,
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/managed_migrations/{batch_import.id}",
+            {"import_config": {"source": {"type": "date_range_export", "base_url": "https://attacker.example/"}}},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        batch_import.refresh_from_db()
+        self.assertEqual(batch_import.import_config, original_config)
+
+    def test_put_cannot_modify_import_config(self):
+        original_config = {"source": {"type": "date_range_export", "base_url": "https://mixpanel.com/api"}}
+        batch_import = BatchImport.objects.create(
+            team=self.team,
+            created_by_id=self.user.id,
+            import_config=original_config,
+            secrets={"api_key": "legit", "secret_key": "legit"},
+            status=BatchImport.Status.PAUSED,
+        )
+
+        response = self.client.put(
+            f"/api/projects/{self.team.id}/managed_migrations/{batch_import.id}",
+            {"import_config": {"source": {"type": "date_range_export", "base_url": "https://attacker.example/"}}},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        batch_import.refresh_from_db()
+        self.assertEqual(batch_import.import_config, original_config)
+
+    def test_patch_cannot_modify_status(self):
+        batch_import = BatchImport.objects.create(
+            team=self.team,
+            created_by_id=self.user.id,
+            import_config={"source": {"type": "s3"}},
+            secrets={"access_key": "test"},
+            status=BatchImport.Status.RUNNING,
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/managed_migrations/{batch_import.id}",
+            {"status": BatchImport.Status.PAUSED},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        batch_import.refresh_from_db()
+        self.assertEqual(batch_import.status, BatchImport.Status.RUNNING)
