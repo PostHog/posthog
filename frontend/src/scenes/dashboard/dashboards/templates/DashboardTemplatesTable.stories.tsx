@@ -216,6 +216,7 @@ function organizationToUserOrganizationsList(
             allow_publicly_shared_resources,
             is_active,
             is_not_active_reason,
+            is_pending_deletion,
         }) => ({
             id,
             name,
@@ -226,6 +227,7 @@ function organizationToUserOrganizationsList(
             logo_media_id: null,
             is_active,
             is_not_active_reason,
+            is_pending_deletion,
         })
     )
 }

@@ -36,7 +36,7 @@ describe('dashboardTemplateCopyLogic', () => {
         jest.spyOn(router.actions, 'replace')
         jest.spyOn(dashboardTemplatesLogic, 'findMounted').mockReturnValue({
             actions: { getAllTemplates: jest.fn() },
-        } as ReturnType<typeof dashboardTemplatesLogic.findMounted>)
+        } as unknown as ReturnType<typeof dashboardTemplatesLogic.findMounted>)
     })
 
     afterEach(() => {
