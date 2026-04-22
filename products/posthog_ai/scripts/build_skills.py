@@ -75,9 +75,6 @@ def _assert_text_file(file_path: Path) -> None:
 class SkillFrontmatter(BaseModel):
     name: str
     description: str
-    # Optional PostHog feature flag key that gates this skill at MCP request
-    # time. Skills without a flag are always included. See the MCP server's
-    # shouldIncludeByFlag helper for the gating rule.
     feature_flag: str | None = None
     feature_flag_behavior: Literal["enable", "disable"] | None = None
 
@@ -325,10 +322,8 @@ class SkillBuilder:
             skill_files = [SkillFile(path=out_name, content=rendered.strip())]
             source = str(skill.source_file.relative_to(self.repo_root))
 
-        # Parse typed frontmatter when present — the stringified `metadata` dict from
-        # `parse_frontmatter` would turn `feature_flag: null` into the literal string
-        # "None" and ship a bogus flag key in the manifest. Skills without frontmatter
-        # fall back to legacy defaults (lint catches this separately).
+        # Use typed frontmatter: `parse_frontmatter` stringifies YAML values, so
+        # `feature_flag: null` would ship as the literal string "None".
         fm = _try_validate_frontmatter(entry_content, source)
         if fm is not None:
             display_name = fm.name

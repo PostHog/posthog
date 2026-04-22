@@ -3,20 +3,16 @@ import { strToU8, zipSync } from 'fflate'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { type FlagGated, shouldIncludeByFlag } from '@/lib/feature-flag-gating'
-import type { ContextMillEnv } from '@/resources'
 import { loadContextMillManifest } from '@/resources/manifest-loader'
 import type { Context } from '@/tools/types'
 
-// POSTHOG_MCP_LOCAL_SKILLS_URL isn't declared on `Env`; fetchContextMillResources
-// reads it via a loose Record cast. Tests mirror that escape hatch narrowly.
-const envForLocalFetch: ContextMillEnv = {
-    env: { POSTHOG_MCP_LOCAL_SKILLS_URL: 'http://localhost/test-skills.zip' } as unknown as Context['env'],
-}
+// POSTHOG_MCP_LOCAL_SKILLS_URL isn't declared on Env; the production code reads
+// it via a Record cast in fetchContextMillResources. Tests mirror that.
+const testEnv = { POSTHOG_MCP_LOCAL_SKILLS_URL: 'http://localhost/test-skills.zip' } as unknown as Context['env']
+const testContext = { env: testEnv } as unknown as Context
 
-type FakeServer = Pick<McpServer, 'registerResource'>
-
-function fakeServerRecording(registered: string[]): FakeServer {
-    return { registerResource: (name: string) => registered.push(name) } as unknown as FakeServer
+function fakeServerRecording(registered: string[]): McpServer {
+    return { registerResource: (name: string) => registered.push(name) } as unknown as McpServer
 }
 
 describe('shouldIncludeByFlag', () => {
@@ -91,7 +87,6 @@ function buildArchiveZip(resources: unknown[]): ArrayBuffer {
         }
     }
     const zipped = zipSync(files)
-    // fflate returns a Uint8Array; copy into a dedicated ArrayBuffer for fetch Response
     const buf = new ArrayBuffer(zipped.byteLength)
     new Uint8Array(buf).set(zipped)
     return buf
@@ -127,14 +122,14 @@ describe('getRequiredSkillFlags', () => {
             ])
         )
         const { getRequiredSkillFlags } = await import('@/resources')
-        const flags = await getRequiredSkillFlags(envForLocalFetch)
+        const flags = await getRequiredSkillFlags(testEnv)
         expect(flags.sort()).toEqual(['flag-a', 'flag-b'])
     })
 
     it('returns empty array when no resources declare flags', async () => {
         mockFetchOnceWithZip(buildArchiveZip([makeResource('r1'), makeResource('r2')]))
         const { getRequiredSkillFlags } = await import('@/resources')
-        expect(await getRequiredSkillFlags(envForLocalFetch)).toEqual([])
+        expect(await getRequiredSkillFlags(testEnv)).toEqual([])
     })
 
     it('returns empty array on manifest fetch failure (never throws)', async () => {
@@ -147,7 +142,7 @@ describe('getRequiredSkillFlags', () => {
             } as unknown as Response)
         )
         const { getRequiredSkillFlags } = await import('@/resources')
-        expect(await getRequiredSkillFlags(envForLocalFetch)).toEqual([])
+        expect(await getRequiredSkillFlags(testEnv)).toEqual([])
     })
 })
 
@@ -170,10 +165,8 @@ describe('registerResources flag filtering', () => {
         )
 
         const registered: string[] = []
-        const fakeServer = fakeServerRecording(registered)
-
         const { registerResources } = await import('@/resources')
-        await registerResources(fakeServer as unknown as McpServer, envForLocalFetch, {
+        await registerResources(fakeServerRecording(registered), testContext, {
             'flag-on': true,
             'flag-off': false,
         })
@@ -195,13 +188,13 @@ describe('registerResources flag filtering', () => {
         const { registerResources } = await import('@/resources')
 
         const registeredOn: string[] = []
-        await registerResources(fakeServerRecording(registeredOn) as unknown as McpServer, envForLocalFetch, {
+        await registerResources(fakeServerRecording(registeredOn), testContext, {
             'flag-exp': true,
         })
         expect(registeredOn.sort()).toEqual(['neutral', 'new'])
 
         const registeredOff: string[] = []
-        await registerResources(fakeServerRecording(registeredOff) as unknown as McpServer, envForLocalFetch, {
+        await registerResources(fakeServerRecording(registeredOff), testContext, {
             'flag-exp': false,
         })
         expect(registeredOff.sort()).toEqual(['neutral', 'old'])
@@ -214,7 +207,7 @@ describe('registerResources flag filtering', () => {
 
         const registered: string[] = []
         const { registerResources } = await import('@/resources')
-        await registerResources(fakeServerRecording(registered) as unknown as McpServer, envForLocalFetch)
+        await registerResources(fakeServerRecording(registered), testContext)
 
         expect(registered).toContain('plain')
         expect(registered).not.toContain('gated')
@@ -251,13 +244,13 @@ describe('loadContextMillManifest flag validation', () => {
 
     it('rejects empty-string feature_flag', () => {
         expect(() => loadContextMillManifest(buildManifest(makeResource('r1', { feature_flag: '' })))).toThrow(
-            /empty "feature_flag" field/
+            /invalid flag fields/
         )
     })
 
     it('rejects whitespace-only feature_flag', () => {
         expect(() => loadContextMillManifest(buildManifest(makeResource('r1', { feature_flag: '   ' })))).toThrow(
-            /empty "feature_flag" field/
+            /invalid flag fields/
         )
     })
 
@@ -266,7 +259,7 @@ describe('loadContextMillManifest flag validation', () => {
             loadContextMillManifest(
                 buildManifest(makeResource('r1', { feature_flag: 'flag-x', feature_flag_behavior: 'on' }))
             )
-        ).toThrow(/invalid "feature_flag_behavior"/)
+        ).toThrow(/invalid flag fields/)
     })
 
     it('accepts valid flag + behavior', () => {

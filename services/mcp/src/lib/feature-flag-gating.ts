@@ -1,22 +1,18 @@
 import z from 'zod'
 
 /**
- * Shared predicate for deciding whether a flag-gated entry (tool, resource,
- * skill) should be exposed given a map of evaluated feature flags.
+ * Shared flag-gating schema for tools, resources, and skills.
  *
- * Behavior:
- * - Entries without a `feature_flag` are always included.
- * - `enable` (default): entry included iff the flag is on.
- * - `disable`: entry included iff the flag is off.
- * - Missing flag key in `featureFlags` is treated as off — so `enable`
- *   entries are hidden by default until their flag evaluates true.
- * - Passing `undefined` for `featureFlags` has the same effect as an empty
- *   map: `enable` entries are hidden, `disable` entries are shown.
+ * - No `feature_flag`: always included.
+ * - `enable` (default): included iff the flag is on.
+ * - `disable`: included iff the flag is off.
+ * - Missing or `undefined` flags map are treated as off.
  */
 export const FlagGatedSchema = z.object({
-    /** PostHog feature flag key that gates this entry. */
-    feature_flag: z.string().min(1).optional(),
-    /** How the flag gates the entry: 'enable' (default) or 'disable'. */
+    feature_flag: z
+        .string()
+        .refine((v) => v.trim().length > 0, { message: 'feature_flag must be a non-empty string' })
+        .optional(),
     feature_flag_behavior: z.enum(['enable', 'disable']).optional(),
 })
 

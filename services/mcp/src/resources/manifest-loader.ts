@@ -1,5 +1,7 @@
 import { type Unzipped, strFromU8 } from 'fflate'
 
+import { FlagGatedSchema } from '@/lib/feature-flag-gating'
+
 import type { ContextMillManifest, ResourceManifest } from './manifest-types'
 
 const MANIFEST_FILENAME = 'manifest.json'
@@ -89,23 +91,12 @@ export function loadContextMillManifest(manifest: unknown): ContextMillManifest 
         if (!res.text || typeof res.text !== 'string') {
             throw new Error(`Resource "${r.id}" resource is missing required "text" field`)
         }
-        if (r.feature_flag !== undefined) {
-            if (typeof r.feature_flag !== 'string') {
-                throw new Error(`Resource "${r.id}" has invalid "feature_flag" field (must be a string)`)
-            }
-            if (r.feature_flag.trim() === '') {
-                throw new Error(`Resource "${r.id}" has empty "feature_flag" field`)
-            }
+        const gated = FlagGatedSchema.safeParse(r)
+        if (!gated.success) {
+            throw new Error(`Resource "${r.id}" has invalid flag fields: ${gated.error.message}`)
         }
-        if (r.feature_flag_behavior !== undefined) {
-            if (r.feature_flag_behavior !== 'enable' && r.feature_flag_behavior !== 'disable') {
-                throw new Error(
-                    `Resource "${r.id}" has invalid "feature_flag_behavior" field (must be 'enable' or 'disable')`
-                )
-            }
-            if (r.feature_flag === undefined) {
-                throw new Error(`Resource "${r.id}" has "feature_flag_behavior" but no "feature_flag"`)
-            }
+        if (gated.data.feature_flag_behavior !== undefined && gated.data.feature_flag === undefined) {
+            throw new Error(`Resource "${r.id}" has "feature_flag_behavior" but no "feature_flag"`)
         }
     }
 

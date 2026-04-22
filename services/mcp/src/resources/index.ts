@@ -14,43 +14,35 @@ import type { ContextMillManifest, ResourceManifest } from './manifest-types'
 export const CONTEXT_MILL_URL =
     'https://github.com/PostHog/context-mill/releases/latest/download/skills-mcp-resources.zip'
 
-// Cache for context-mill resources ZIP contents. Stored as a Promise so
-// concurrent cold-path callers (e.g. getRequiredSkillFlags racing with
-// registerContextMillResources) collapse onto a single fetch.
+// Promise-typed so concurrent cold-path callers collapse onto one fetch.
 let cachedResourcesPromise: Promise<Unzipped> | null = null
-
-export type ContextMillEnv = { env: Context['env'] }
 
 /**
  * Fetches and caches the context-mill resources ZIP
  * For local testing, set POSTHOG_MCP_LOCAL_SKILLS_URL to a local HTTP URL
  */
-async function fetchContextMillResources(context: ContextMillEnv): Promise<Unzipped> {
-    // Check for local URL override in environment (for testing)
-    const localUrlRaw = (context.env as Record<string, string | undefined>)?.POSTHOG_MCP_LOCAL_SKILLS_URL
+async function fetchContextMillResources(env: Context['env']): Promise<Unzipped> {
+    const localUrlRaw = (env as Record<string, string | undefined>)?.POSTHOG_MCP_LOCAL_SKILLS_URL
     const localUrl = localUrlRaw && localUrlRaw.trim() !== '' ? localUrlRaw : undefined
 
-    if (localUrl) {
-        return doFetchContextMillResources(localUrl, true)
+    const doFetch = async (url: string, noStore: boolean): Promise<Unzipped> => {
+        const response = await fetch(url, noStore ? { cache: 'no-store' } : {})
+        if (!response.ok) {
+            throw new Error(`Failed to fetch context-mill resources from ${url}: ${response.statusText}`)
+        }
+        return unzipSync(new Uint8Array(await response.arrayBuffer()))
     }
 
+    if (localUrl) {
+        return doFetch(localUrl, true)
+    }
     if (!cachedResourcesPromise) {
-        cachedResourcesPromise = doFetchContextMillResources(CONTEXT_MILL_URL, false).catch((err) => {
-            // Clear the cache on failure so subsequent calls can retry.
+        cachedResourcesPromise = doFetch(CONTEXT_MILL_URL, false).catch((err) => {
             cachedResourcesPromise = null
             throw err
         })
     }
     return cachedResourcesPromise
-}
-
-async function doFetchContextMillResources(url: string, noStore: boolean): Promise<Unzipped> {
-    const response = await fetch(url, noStore ? { cache: 'no-store' } : {})
-    if (!response.ok) {
-        throw new Error(`Failed to fetch context-mill resources from ${url}: ${response.statusText}`)
-    }
-    const arrayBuffer = await response.arrayBuffer()
-    return unzipSync(new Uint8Array(arrayBuffer))
 }
 
 /**
@@ -75,19 +67,15 @@ export async function getPromptsFromManifest(): Promise<ResourceManifest['resour
 
 /**
  * Register resources from the context-mill manifest.
- * The manifest fully defines each resource's MCP representation —
- * this function is a pure pass-through.
- *
- * Resources declaring `feature_flag` are filtered via `shouldIncludeByFlag`
- * using the evaluated `featureFlags` map (same semantics as tool gating).
+ * Resources declaring `feature_flag` are filtered via `shouldIncludeByFlag`.
  */
 async function registerContextMillResources(
     server: McpServer,
-    context: ContextMillEnv,
+    context: Context,
     featureFlags?: Record<string, boolean>
 ): Promise<void> {
     try {
-        const archive = await fetchContextMillResources(context)
+        const archive = await fetchContextMillResources(context.env)
         const manifest = loadManifestFromArchive(archive)
 
         for (const entry of manifest.resources) {
@@ -95,7 +83,6 @@ async function registerContextMillResources(
                 continue
             }
 
-            // Validate archive file exists for non-inline resources
             if (entry.file) {
                 const zipData = archive[entry.file]
                 if (!zipData) {
@@ -127,18 +114,10 @@ async function registerContextMillResources(
     }
 }
 
-/**
- * Collect all distinct feature flag keys referenced by context-mill resources.
- * Used at init time to batch-evaluate flags alongside tool flags before
- * registering resources.
- *
- * Never throws — on manifest fetch/parse failure, returns an empty list so
- * init can proceed (resources will just skip flag-gated entries when they
- * can't be fetched either).
- */
-export async function getRequiredSkillFlags(context: ContextMillEnv): Promise<string[]> {
+/** Distinct feature flag keys referenced by context-mill resources. */
+export async function getRequiredSkillFlags(env: Context['env']): Promise<string[]> {
     try {
-        const archive = await fetchContextMillResources(context)
+        const archive = await fetchContextMillResources(env)
         const manifest = loadManifestFromArchive(archive)
         const flags = new Set<string>()
         for (const entry of manifest.resources) {
@@ -158,7 +137,7 @@ export async function getRequiredSkillFlags(context: ContextMillEnv): Promise<st
  */
 export async function registerResources(
     server: McpServer,
-    context: ContextMillEnv,
+    context: Context,
     featureFlags?: Record<string, boolean>
 ): Promise<void> {
     await registerContextMillResources(server, context, featureFlags)

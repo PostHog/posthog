@@ -470,8 +470,6 @@ export class MCP extends McpAgent<Env> {
         const { features, tools, version: clientVersion, organizationId, projectId, readOnly } = this.requestProperties
 
         // Start feature flag resolution in parallel with cache seeding.
-        // Tool and skill flags share one batch evaluation so we only pay a
-        // single network round-trip for flag evaluation per init.
         const flagPromise = this.resolveVersionFlag()
         const featureFlagsPromise = this.resolveFeatureFlags(clientVersion)
 
@@ -602,16 +600,12 @@ export class MCP extends McpAgent<Env> {
         }
     }
 
-    /**
-     * Batch-evaluate feature flags referenced by both tool and skill (resource)
-     * definitions. Skills and tools share one round-trip so init latency
-     * doesn't grow linearly with the number of gated surfaces.
-     */
+    // Batches tool + skill flag keys into a single evaluation round-trip.
     private async resolveFeatureFlags(version?: number): Promise<Record<string, boolean> | undefined> {
         try {
             const { getRequiredFeatureFlags } = await import('@/tools/toolDefinitions')
             const toolFlagKeys = getRequiredFeatureFlags(version)
-            const skillFlagKeys = await getRequiredSkillFlags({ env: this.env })
+            const skillFlagKeys = await getRequiredSkillFlags(this.env)
             const allKeys = [...new Set([...toolFlagKeys, ...skillFlagKeys])]
             if (allKeys.length === 0) {
                 return undefined
@@ -620,7 +614,6 @@ export class MCP extends McpAgent<Env> {
             return await evaluateFeatureFlags(allKeys, distinctId)
         } catch (err) {
             // Degrade gracefully: enable-gated surfaces stay hidden, disable-gated stay shown.
-            // Log so operators can diagnose recurrent failures (e.g. distinct_id lookup flakes).
             console.warn('[feature-flag-gating] resolution failed', err)
             return undefined
         }
