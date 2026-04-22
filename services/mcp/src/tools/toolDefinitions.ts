@@ -1,29 +1,31 @@
 import z from 'zod'
 
-import { FlagGatedSchema, shouldIncludeByFlag } from '@/lib/feature-flag-gating'
+import { shouldIncludeByFlag } from '@/lib/feature-flag-gating'
 
 import generatedToolDefinitionsJson from '../../schema/generated-tool-definitions.json'
 import toolDefinitionsV2Json from '../../schema/tool-definitions-v2.json'
 import toolDefinitionsJson from '../../schema/tool-definitions.json'
 
-export const ToolDefinitionSchema = z
-    .object({
-        description: z.string(),
-        category: z.string(),
-        feature: z.string(),
-        summary: z.string(),
-        title: z.string(),
-        required_scopes: z.array(z.string()),
-        new_mcp: z.boolean().optional(),
-        requires_ai_consent: z.boolean().optional(),
-        annotations: z.object({
-            destructiveHint: z.boolean(),
-            idempotentHint: z.boolean(),
-            openWorldHint: z.boolean(),
-            readOnlyHint: z.boolean(),
-        }),
-    })
-    .merge(FlagGatedSchema)
+export const ToolDefinitionSchema = z.object({
+    description: z.string(),
+    category: z.string(),
+    feature: z.string(),
+    summary: z.string(),
+    title: z.string(),
+    required_scopes: z.array(z.string()),
+    new_mcp: z.boolean().optional(),
+    requires_ai_consent: z.boolean().optional(),
+    /** PostHog feature flag key that gates this tool. */
+    feature_flag: z.string().optional(),
+    /** How the flag gates the tool: 'enable' (default) or 'disable'. */
+    feature_flag_behavior: z.enum(['enable', 'disable']).optional(),
+    annotations: z.object({
+        destructiveHint: z.boolean(),
+        idempotentHint: z.boolean(),
+        openWorldHint: z.boolean(),
+        readOnlyHint: z.boolean(),
+    }),
+})
 
 export type ToolDefinition = z.infer<typeof ToolDefinitionSchema>
 
