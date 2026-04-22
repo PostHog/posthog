@@ -501,7 +501,7 @@ export class MCP extends McpAgent<Env> {
             toolFlagsPromise,
             singleExecPromise,
         ])
-        const version = flagVersion ?? clientVersion ?? 1
+        const version = useSingleExec ? 2 : (flagVersion ?? clientVersion ?? 1)
 
         // Fetch group types and metadata in parallel (cache is now seeded)
         const resolvedProjectId = projectId || (await this.cache.get('projectId'))
