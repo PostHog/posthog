@@ -98,9 +98,7 @@ tools:
             destructive: false
             idempotent: false
         title: Create log alert
-        description: >
-            Create a threshold-based alert on log streams. The alert periodically counts log entries matching the given
-            filters and fires when the count crosses the threshold. Maximum 20 alerts per project.
+        description_file: ./prompts/logs-alerts.md
         exclude_params:
             - id
             - state
@@ -182,9 +180,7 @@ tools:
             destructive: false
             idempotent: true
         title: Update log alert
-        description: >
-            Update a log alert configuration by ID. Only the fields you provide are changed. Use this to adjust
-            thresholds, filters, enable/disable alerts, or snooze them.
+        description_file: ./prompts/logs-alerts.md
         exclude_params:
             - id
             - state
