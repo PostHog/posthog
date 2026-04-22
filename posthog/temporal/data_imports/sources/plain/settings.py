@@ -33,7 +33,6 @@ CREATED_AT_INCREMENTAL_FIELD: list[IncrementalField] = [
 @dataclass
 class PlainEndpointConfig:
     incremental_fields: list[IncrementalField]
-    graphql_query_name: str | None = None
     primary_key: str = ID
     partition_count: int = 1
     partition_size: int = 1

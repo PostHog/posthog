@@ -1,3 +1,5 @@
+from datetime import UTC, datetime
+
 import pytest
 from unittest import mock
 
@@ -5,9 +7,13 @@ import requests
 
 from posthog.temporal.data_imports.sources.plain.plain import (
     PlainRetryableError,
+    _datetime_to_plain_iso8601,
+    _fetch_thread_timeline_entries,
+    _fetch_timeline_entries,
     _flatten_datetime,
     _flatten_node,
     _flatten_timeline_entry,
+    _parse_plain_datetime,
     plain_source,
     validate_credentials,
 )
@@ -197,3 +203,181 @@ class TestValidateCredentials:
 class TestPlainRetryableError:
     def test_is_exception(self):
         assert issubclass(PlainRetryableError, Exception)
+
+
+class TestDatetimeHelpers:
+    def test_datetime_to_plain_iso8601_uses_z_suffix(self):
+        assert _datetime_to_plain_iso8601(datetime(2024, 1, 15, 10, 30, 0, tzinfo=UTC)) == "2024-01-15T10:30:00Z"
+
+    def test_datetime_to_plain_iso8601_assumes_utc_for_naive(self):
+        assert _datetime_to_plain_iso8601(datetime(2024, 1, 15, 10, 30, 0)) == "2024-01-15T10:30:00Z"
+
+    def test_parse_plain_datetime_from_string(self):
+        assert _parse_plain_datetime("2024-01-15T10:30:00Z") == datetime(2024, 1, 15, 10, 30, 0, tzinfo=UTC)
+
+    def test_parse_plain_datetime_passthrough_datetime(self):
+        dt = datetime(2024, 1, 15, 10, 30, 0, tzinfo=UTC)
+        assert _parse_plain_datetime(dt) is dt
+
+    def test_parse_plain_datetime_none(self):
+        assert _parse_plain_datetime(None) is None
+
+
+class TestTimelineEntryIncrementalFilter:
+    """Verify incremental filtering compares datetimes, not ISO-8601 strings."""
+
+    def _make_execute(self, pages):
+        calls = iter(pages)
+
+        def execute(_query, _variables):
+            return next(calls)
+
+        return execute
+
+    def test_filters_older_entries_by_datetime(self):
+        execute = self._make_execute(
+            [
+                {
+                    "data": {
+                        "thread": {
+                            "timelineEntries": {
+                                "edges": [
+                                    {
+                                        "node": {
+                                            "id": "te_old",
+                                            "timestamp": {"iso8601": "2024-01-01T00:00:00Z"},
+                                            "actor": {"actorType": "customer", "customerId": "c_1"},
+                                            "entry": {"__typename": "ChatEntry", "chatId": "c", "text": "old"},
+                                        }
+                                    },
+                                    {
+                                        "node": {
+                                            "id": "te_new",
+                                            "timestamp": {"iso8601": "2024-02-01T00:00:00Z"},
+                                            "actor": {"actorType": "customer", "customerId": "c_1"},
+                                            "entry": {"__typename": "ChatEntry", "chatId": "c", "text": "new"},
+                                        }
+                                    },
+                                ],
+                                "pageInfo": {"hasNextPage": False, "endCursor": None},
+                            }
+                        }
+                    }
+                }
+            ]
+        )
+
+        pages = list(
+            _fetch_thread_timeline_entries(
+                execute,
+                thread_id="t_1",
+                logger=mock.MagicMock(),
+                created_at_gte=datetime(2024, 1, 15, tzinfo=UTC),
+            )
+        )
+
+        assert len(pages) == 1
+        assert [e["id"] for e in pages[0]] == ["te_new"]
+
+    def test_includes_entries_with_null_created_at(self):
+        execute = self._make_execute(
+            [
+                {
+                    "data": {
+                        "thread": {
+                            "timelineEntries": {
+                                "edges": [
+                                    {
+                                        "node": {
+                                            "id": "te_null",
+                                            # No timestamp field at all -> createdAt becomes absent
+                                            "actor": {"actorType": "customer", "customerId": "c_1"},
+                                            "entry": {"__typename": "ChatEntry", "chatId": "c", "text": "x"},
+                                        }
+                                    }
+                                ],
+                                "pageInfo": {"hasNextPage": False, "endCursor": None},
+                            }
+                        }
+                    }
+                }
+            ]
+        )
+
+        pages = list(
+            _fetch_thread_timeline_entries(
+                execute,
+                thread_id="t_1",
+                logger=mock.MagicMock(),
+                created_at_gte=datetime(2024, 1, 15, tzinfo=UTC),
+            )
+        )
+
+        assert len(pages) == 1
+        assert [e["id"] for e in pages[0]] == ["te_null"]
+
+
+class TestFetchTimelineEntriesStreaming:
+    def test_sends_updatedat_filter_when_incremental(self):
+        recorded = []
+
+        def execute(query, variables):
+            recorded.append((query, dict(variables)))
+            if "ThreadIdsList" in query or "threads" in query:
+                return {"data": {"threads": {"edges": [], "pageInfo": {"hasNextPage": False, "endCursor": None}}}}
+            raise AssertionError("unexpected query")
+
+        list(
+            _fetch_timeline_entries(
+                execute,
+                logger=mock.MagicMock(),
+                created_at_gte=datetime(2024, 1, 15, 10, 30, 0, tzinfo=UTC),
+            )
+        )
+
+        assert recorded, "expected threads query to be issued"
+        _, variables = recorded[0]
+        assert variables["filter"] == {"updatedAt": {"gte": "2024-01-15T10:30:00Z"}}
+
+    def test_streams_thread_pages_without_buffering_all_ids(self):
+        executed_queries: list[str] = []
+
+        def execute(query, _variables):
+            executed_queries.append(query)
+            # First threads page: returns one thread id then no next page.
+            if "ThreadIdsList" in query:
+                return {
+                    "data": {
+                        "threads": {
+                            "edges": [{"node": {"id": "t_1"}}],
+                            "pageInfo": {"hasNextPage": False, "endCursor": None},
+                        }
+                    }
+                }
+            # Timeline entries for t_1.
+            return {
+                "data": {
+                    "thread": {
+                        "timelineEntries": {
+                            "edges": [
+                                {
+                                    "node": {
+                                        "id": "te_1",
+                                        "timestamp": {"iso8601": "2024-02-01T00:00:00Z"},
+                                        "actor": {"actorType": "customer", "customerId": "c_1"},
+                                        "entry": {"__typename": "ChatEntry", "chatId": "c", "text": "x"},
+                                    }
+                                }
+                            ],
+                            "pageInfo": {"hasNextPage": False, "endCursor": None},
+                        }
+                    }
+                }
+            }
+
+        pages = list(_fetch_timeline_entries(execute, logger=mock.MagicMock()))
+
+        assert len(pages) == 1
+        assert [e["id"] for e in pages[0]] == ["te_1"]
+        # Threads query first, then TIMELINE_ENTRIES_QUERY after we've seen the first edge — no second threads page expected.
+        assert "ThreadIdsList" in executed_queries[0]

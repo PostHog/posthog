@@ -1,6 +1,8 @@
+from datetime import UTC, datetime
 from typing import Any
 
 import requests
+from dateutil import parser
 from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
@@ -16,6 +18,31 @@ from posthog.temporal.data_imports.sources.plain.settings import PLAIN_API_URL, 
 
 class PlainRetryableError(Exception):
     pass
+
+
+_MESSAGE_INFO_FIELDS: list[tuple[str, str]] = [
+    ("firstInboundMessageInfo", "firstInboundMessageAt"),
+    ("firstOutboundMessageInfo", "firstOutboundMessageAt"),
+    ("lastInboundMessageInfo", "lastInboundMessageAt"),
+    ("lastOutboundMessageInfo", "lastOutboundMessageAt"),
+]
+
+
+def _datetime_to_plain_iso8601(value: datetime) -> str:
+    """Serialize a datetime to the ISO-8601 format Plain returns and accepts (e.g. 2024-01-15T10:30:00.000Z)."""
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=UTC)
+    else:
+        value = value.astimezone(UTC)
+    return value.isoformat().replace("+00:00", "Z")
+
+
+def _parse_plain_datetime(value: str | datetime | None) -> datetime | None:
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value if value.tzinfo else value.replace(tzinfo=UTC)
+    return parser.parse(value)
 
 
 def _flatten_datetime(obj: dict[str, Any]) -> dict[str, Any]:
@@ -78,21 +105,10 @@ def _flatten_node(node: dict[str, Any]) -> dict[str, Any]:
                 actor.get("userId") or actor.get("machineUserId") or actor.get("customerId") or actor.get("systemId")
             )
 
-    if "firstInboundMessageInfo" in flattened:
-        info = flattened.pop("firstInboundMessageInfo")
-        flattened["firstInboundMessageAt"] = info.get("timestamp") if info else None
-
-    if "firstOutboundMessageInfo" in flattened:
-        info = flattened.pop("firstOutboundMessageInfo")
-        flattened["firstOutboundMessageAt"] = info.get("timestamp") if info else None
-
-    if "lastInboundMessageInfo" in flattened:
-        info = flattened.pop("lastInboundMessageInfo")
-        flattened["lastInboundMessageAt"] = info.get("timestamp") if info else None
-
-    if "lastOutboundMessageInfo" in flattened:
-        info = flattened.pop("lastOutboundMessageInfo")
-        flattened["lastOutboundMessageAt"] = info.get("timestamp") if info else None
+    for src_field, dst_field in _MESSAGE_INFO_FIELDS:
+        if src_field in flattened:
+            info = flattened.pop(src_field)
+            flattened[dst_field] = info.get("timestamp") if info else None
 
     return flattened
 
@@ -144,7 +160,7 @@ def _make_paginated_request(
     api_key: str,
     endpoint_name: str,
     logger: FilteringBoundLogger,
-    updated_at_gte: str | None = None,
+    incremental_since: datetime | None = None,
 ):
     endpoint_config = PLAIN_ENDPOINTS.get(endpoint_name)
     if not endpoint_config:
@@ -201,9 +217,9 @@ def _make_paginated_request(
 
     try:
         if endpoint_name == "timeline_entries":
-            yield from _fetch_timeline_entries(execute, logger, updated_at_gte)
+            yield from _fetch_timeline_entries(execute, logger, incremental_since)
         else:
-            yield from _fetch_paginated_endpoint(execute, endpoint_name, query, logger, updated_at_gte)
+            yield from _fetch_paginated_endpoint(execute, endpoint_name, query, logger, incremental_since)
     finally:
         sess.close()
 
@@ -213,12 +229,12 @@ def _fetch_paginated_endpoint(
     endpoint_name: str,
     query: str,
     logger: FilteringBoundLogger,
-    updated_at_gte: str | None = None,
+    updated_at_gte: datetime | None = None,
 ):
     variables: dict[str, Any] = {"first": PLAIN_DEFAULT_PAGE_SIZE}
 
-    if updated_at_gte:
-        variables["filter"] = {"updatedAt": {"gte": updated_at_gte}}
+    if updated_at_gte is not None:
+        variables["filter"] = {"updatedAt": {"gte": _datetime_to_plain_iso8601(updated_at_gte)}}
 
     has_next_page = True
     while has_next_page:
@@ -241,11 +257,16 @@ def _fetch_paginated_endpoint(
 def _fetch_timeline_entries(
     execute,
     logger: FilteringBoundLogger,
-    created_at_gte: str | None = None,
+    created_at_gte: datetime | None = None,
 ):
-    """Fetch timeline entries by first getting all thread IDs, then fetching entries for each thread."""
-    thread_ids: list[str] = []
+    """Stream timeline entries page-by-page, yielding entries for each thread as its ID is discovered.
+
+    When ``created_at_gte`` is set, a server-side ``ThreadsFilter`` limits the scan to threads
+    updated since that timestamp so incremental syncs avoid enumerating every thread.
+    """
     variables: dict[str, Any] = {"first": PLAIN_DEFAULT_PAGE_SIZE}
+    if created_at_gte is not None:
+        variables["filter"] = {"updatedAt": {"gte": _datetime_to_plain_iso8601(created_at_gte)}}
 
     has_next_page = True
     while has_next_page:
@@ -253,25 +274,20 @@ def _fetch_timeline_entries(
         payload = execute(THREADS_LIST_QUERY, variables)
 
         data = payload["data"]["threads"]
-        edges = data.get("edges", [])
-        thread_ids.extend(edge["node"]["id"] for edge in edges)
+        for edge in data.get("edges", []):
+            yield from _fetch_thread_timeline_entries(execute, edge["node"]["id"], logger, created_at_gte)
 
         page_info = data["pageInfo"]
         has_next_page = page_info["hasNextPage"]
         if has_next_page:
             variables["after"] = page_info["endCursor"]
 
-    logger.debug(f"Found {len(thread_ids)} threads, fetching timeline entries")
-
-    for thread_id in thread_ids:
-        yield from _fetch_thread_timeline_entries(execute, thread_id, logger, created_at_gte)
-
 
 def _fetch_thread_timeline_entries(
     execute,
     thread_id: str,
     logger: FilteringBoundLogger,
-    created_at_gte: str | None = None,
+    created_at_gte: datetime | None = None,
 ):
     """Fetch timeline entries for a specific thread."""
     variables: dict[str, Any] = {"threadId": thread_id, "first": PLAIN_DEFAULT_PAGE_SIZE}
@@ -290,8 +306,10 @@ def _fetch_thread_timeline_entries(
         entries = []
         for edge in edges:
             entry = _flatten_timeline_entry(edge["node"], thread_id)
-            if created_at_gte and entry.get("createdAt"):
-                if entry["createdAt"] < created_at_gte:
+            if created_at_gte is not None:
+                entry_created_at = _parse_plain_datetime(entry.get("createdAt"))
+                # Entries missing a createdAt get included — drop is a stronger claim than we can make here.
+                if entry_created_at is not None and entry_created_at < created_at_gte:
                     continue
             entries.append(entry)
 
@@ -316,16 +334,16 @@ def plain_source(
         raise ValueError(f"Unknown Plain endpoint: {endpoint_name}")
 
     def get_rows():
-        incremental_value = None
+        incremental_since: datetime | None = None
         if should_use_incremental_field and db_incremental_field_last_value is not None:
-            incremental_value = str(db_incremental_field_last_value)
-            logger.debug(f"Plain: incremental sync for {endpoint_name} since {incremental_value}")
+            incremental_since = _parse_plain_datetime(db_incremental_field_last_value)
+            logger.debug(f"Plain: incremental sync for {endpoint_name} since {incremental_since}")
 
         yield from _make_paginated_request(
             api_key=api_key,
             endpoint_name=endpoint_name,
             logger=logger,
-            updated_at_gte=incremental_value,
+            incremental_since=incremental_since,
         )
 
     return SourceResponse(
