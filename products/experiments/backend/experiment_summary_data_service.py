@@ -6,6 +6,7 @@ from zoneinfo import ZoneInfo
 
 from django.conf import settings
 
+import posthoganalytics
 from posthoganalytics import capture_exception
 from typing_extensions import TypeIs
 
@@ -26,13 +27,17 @@ from posthog.schema import (
     QueryStatusResponse,
 )
 
+from posthog.hogql.constants import LimitContext
+
 from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.query_tagging import Product, tags_context
+from posthog.constants import EXPERIMENTS_SYNC_QUERIES_FEATURE_FLAG_KEY
 from posthog.event_usage import EventSource
 from posthog.hogql_queries.experiments.experiment_exposures_query_runner import ExperimentExposuresQueryRunner
 from posthog.hogql_queries.experiments.experiment_query_runner import ExperimentQueryRunner
 from posthog.hogql_queries.experiments.utils import get_experiment_stats_method
 from posthog.hogql_queries.query_runner import ExecutionMode
+from posthog.models.team.team import Team
 from posthog.sync import database_sync_to_async
 
 from products.experiments.backend.metric_utils import get_default_metric_title
@@ -65,6 +70,23 @@ FRESHNESS_THRESHOLD_SECONDS = 60
 ExperimentMetricType = Union[
     ExperimentMeanMetric, ExperimentFunnelMetric, ExperimentRatioMetric, ExperimentRetentionMetric
 ]
+
+
+def is_experiments_sync_queries_enabled(team: Team) -> bool:
+    """Return whether experiment queries should block on stale cache for this project."""
+    return bool(
+        posthoganalytics.feature_enabled(
+            EXPERIMENTS_SYNC_QUERIES_FEATURE_FLAG_KEY,
+            str(team.uuid),
+            groups={"organization": str(team.organization_id), "project": str(team.id)},
+            group_properties={
+                "organization": {"id": str(team.organization_id)},
+                "project": {"id": str(team.id), "uuid": str(team.uuid)},
+            },
+            only_evaluate_locally=True,
+            send_feature_flag_events=False,
+        )
+    )
 
 
 def parse_metric_dict(metric_dict: dict) -> ExperimentMetricType | None:
@@ -172,6 +194,11 @@ class ExperimentSummaryDataService:
         multivariate = feature_flag.filters.get("multivariate", {})
         variants = [v.get("key") for v in multivariate.get("variants", []) if v.get("key")]
         stats_method = get_experiment_stats_method(experiment)
+        execution_mode = (
+            ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE
+            if is_experiments_sync_queries_enabled(experiment.team)
+            else ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS
+        )
 
         semaphore = asyncio.Semaphore(MAX_CONCURRENT_EXPERIMENT_SUMMARY_QUERIES)
 
@@ -194,9 +221,10 @@ class ExperimentSummaryDataService:
                         query=experiment_query,
                         team=experiment.team,
                         workload=Workload.ONLINE,
+                        limit_context=LimitContext.QUERY_ASYNC,
                     )
                     result = query_runner.run(
-                        execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS,
+                        execution_mode=execution_mode,
                         analytics_props={"source": EventSource.POSTHOG_AI},
                     )
                 refresh_time = getattr(result, "last_refresh", None)
@@ -245,9 +273,10 @@ class ExperimentSummaryDataService:
                         exposure_runner = ExperimentExposuresQueryRunner(
                             query=exposure_query,
                             team=experiment.team,
+                            limit_context=LimitContext.QUERY_ASYNC,
                         )
                         exposure_result = exposure_runner.run(
-                            execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS,
+                            execution_mode=execution_mode,
                             analytics_props={"source": EventSource.POSTHOG_AI},
                         )
 
