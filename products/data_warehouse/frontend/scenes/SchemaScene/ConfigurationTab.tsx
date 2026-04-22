@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { IconInfo } from '@posthog/icons'
 import {
@@ -25,7 +25,10 @@ import { urls } from 'scenes/urls'
 
 import { DataWarehouseSyncInterval, ExternalDataSource, ExternalDataSourceSchema } from '~/types'
 
-import { SyncMethodForm } from 'products/data_warehouse/frontend/shared/components/forms/SyncMethodForm'
+import {
+    SyncMethodForm,
+    SyncMethodFormHandle,
+} from 'products/data_warehouse/frontend/shared/components/forms/SyncMethodForm'
 import { SourceEditorAction } from 'products/data_warehouse/frontend/shared/components/SourceEditorAction'
 import {
     StatusTagSetting,
@@ -271,6 +274,9 @@ function SyncMethodSection({
     const { schemaIncrementalFields, schemaIncrementalFieldsLoading, saveButtonIsLoading } = useValues(logic)
     const { loadSchemaIncrementalFields, resetSchemaIncrementalFields, updateSchema } = useActions(logic)
 
+    const formRef = useRef<SyncMethodFormHandle>(null)
+    const [saveDisabledReason, setSaveDisabledReason] = useState<string | undefined>()
+
     useEffect(() => {
         resetSchemaIncrementalFields()
         loadSchemaIncrementalFields(schema.id)
@@ -296,6 +302,9 @@ function SyncMethodSection({
                         {({ disabled }) => (
                             <fieldset disabled={disabled}>
                                 <SyncMethodForm
+                                    ref={formRef}
+                                    hideFooter
+                                    onSaveDisabledReasonChange={setSaveDisabledReason}
                                     saveButtonIsLoading={saveButtonIsLoading}
                                     schema={{
                                         table: schema.name,
@@ -319,10 +328,7 @@ function SyncMethodSection({
                                     availableColumns={schemaIncrementalFields.available_columns ?? []}
                                     detectedPrimaryKeys={schemaIncrementalFields.detected_primary_keys ?? null}
                                     primaryKeyLocked={!!schema.table}
-                                    onClose={() => {
-                                        resetSchemaIncrementalFields()
-                                        loadSchemaIncrementalFields(schema.id)
-                                    }}
+                                    onClose={() => {}}
                                     onSave={(
                                         syncType,
                                         incrementalField,
@@ -351,6 +357,22 @@ function SyncMethodSection({
                     </SourceEditorAction>
                 )}
             </div>
+            {!loading && schemaIncrementalFields && (
+                <div className="mt-4 flex justify-end">
+                    <SourceEditorAction source={source}>
+                        {({ disabledReason: accessDisabledReason }) => (
+                            <LemonButton
+                                type="primary"
+                                loading={saveButtonIsLoading}
+                                disabledReason={accessDisabledReason ?? saveDisabledReason}
+                                onClick={() => formRef.current?.triggerSave()}
+                            >
+                                Save
+                            </LemonButton>
+                        )}
+                    </SourceEditorAction>
+                </div>
+            )}
         </div>
     )
 }
