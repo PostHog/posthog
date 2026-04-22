@@ -656,7 +656,7 @@ class TaskRun(models.Model):
                     error=str(e),
                 )
 
-    def capture_event(self, event: str, properties: dict | None = None) -> None:
+    def capture_event(self, event: str, properties: dict | None = None, event_uuid: str | None = None) -> None:
         try:
             distinct_id = (
                 str(self.task.created_by.distinct_id)
@@ -676,12 +676,15 @@ class TaskRun(models.Model):
             }
             if properties:
                 all_properties.update(properties)
-            posthoganalytics.capture(
-                distinct_id=distinct_id,
-                event=event,
-                properties=all_properties,
-                groups=groups(team=self.team),
-            )
+            capture_kwargs: dict = {
+                "distinct_id": distinct_id,
+                "event": event,
+                "properties": all_properties,
+                "groups": groups(team=self.team),
+            }
+            if event_uuid:
+                capture_kwargs["uuid"] = event_uuid
+            posthoganalytics.capture(**capture_kwargs)
         except Exception as e:
             logger.warning("task_run.capture_event_failed", analytics_event=event, error=str(e))
 
@@ -763,6 +766,42 @@ class TaskRun(models.Model):
                     "level": level,
                     "message": message,
                 },
+            },
+        }
+        self.append_log([event])
+        self.publish_stream_event(event)
+
+    def emit_progress_event(
+        self,
+        step: str,
+        status: str,
+        label: str,
+        group: str,
+        detail: Optional[str] = None,
+    ) -> None:
+        """Emit a structured progress notification in ACP format.
+
+        Consumed by the desktop client as `_posthog/progress`. Events sharing a
+        `group` coalesce into a single collapsible card on the client, so the
+        backend decides grouping granularity by picking a phase id (e.g.
+        `"setup"`, `"pr_create"`).
+        """
+        params: dict[str, Any] = {
+            "sessionId": str(self.id),
+            "step": step,
+            "status": status,
+            "label": label,
+            "group": group,
+        }
+        if detail is not None:
+            params["detail"] = detail
+        event = {
+            "type": "notification",
+            "timestamp": django_timezone.now().isoformat(),
+            "notification": {
+                "jsonrpc": "2.0",
+                "method": "_posthog/progress",
+                "params": params,
             },
         }
         self.append_log([event])

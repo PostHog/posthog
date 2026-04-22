@@ -6718,6 +6718,33 @@ dependencies = [
 ]
 
 [[package]]
+name = "personhog-writer"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "axum 0.7.9",
+ "chrono",
+ "common-alloc",
+ "common-database",
+ "common-kafka",
+ "common-metrics",
+ "envconfig",
+ "futures",
+ "health",
+ "lifecycle",
+ "metrics",
+ "personhog-proto",
+ "prost 0.13.5",
+ "rdkafka",
+ "serde_json",
+ "sqlx",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+]
+
+[[package]]
 name = "pest"
 version = "2.8.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"

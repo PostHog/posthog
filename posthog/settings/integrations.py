@@ -35,7 +35,10 @@ LINEAR_APP_CLIENT_SECRET = get_from_env("LINEAR_APP_CLIENT_SECRET", "")
 
 GITHUB_APP_CLIENT_ID = get_from_env("GITHUB_APP_CLIENT_ID", "")
 GITHUB_APP_PRIVATE_KEY = get_from_env("GITHUB_APP_PRIVATE_KEY", "")
-# The GH client secret is only available with "Request user authorization during installation" enabled, it's for OAuth
+# OAuth *secret* for the same GitHub App as above - generated in the App's settings
+# when "Request user authorization during installation" is enabled.
+# Used with GITHUB_APP_CLIENT_ID to exchange an authorization code for a user access token,
+# which is separate from the private key used for App-as-App JWT signing.
 GITHUB_APP_CLIENT_SECRET = get_from_env("GITHUB_APP_CLIENT_SECRET", "")
 
 ZENDESK_ADMIN_EMAIL = get_from_env("ZENDESK_ADMIN_EMAIL", "")

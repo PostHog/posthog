@@ -43,7 +43,7 @@ import { PathStepPicker } from 'scenes/insights/views/Paths/PathStepPicker'
 import { RetentionBreakdownFilter } from 'scenes/retention/RetentionBreakdownFilter'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 
-import { isValidBreakdown, isWebAnalyticsInsightQuery } from '~/queries/utils'
+import { hasBreakdownFilter, isWebAnalyticsInsightQuery } from '~/queries/utils'
 import { isTrendsQuery } from '~/queries/utils'
 import { ChartDisplayType } from '~/types'
 
@@ -346,7 +346,7 @@ export function InsightDisplayConfig(): JSX.Element {
                 {!!isRetention && (
                     <ConfigFilter>
                         <RetentionDatePicker />
-                        {isValidBreakdown(breakdownFilter) && <RetentionBreakdownFilter />}
+                        {hasBreakdownFilter(breakdownFilter) && <RetentionBreakdownFilter />}
                     </ConfigFilter>
                 )}
 

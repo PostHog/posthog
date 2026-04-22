@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 24 enabled ops
+ * PostHog API - MCP 27 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -217,6 +217,65 @@ export const ExternalDataSourcesReloadCreateBody = /* @__PURE__ */ zod
  * Create, Read, Update and Delete External data Sources.
  */
 export const ExternalDataSourcesWizardRetrieveParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const InsightVariablesCreateParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const insightVariablesCreateBodyNameMax = 400
+
+export const InsightVariablesCreateBody = /* @__PURE__ */ zod.object({
+    name: zod.string().max(insightVariablesCreateBodyNameMax).describe('Human-readable name for the SQL variable.'),
+    type: zod
+        .enum(['String', 'Number', 'Boolean', 'List', 'Date'])
+        .describe('* `String` - String\n* `Number` - Number\n* `Boolean` - Boolean\n* `List` - List\n* `Date` - Date')
+        .describe(
+            'Variable type. Controls how the value is rendered and substituted in HogQL.\n\n* `String` - String\n* `Number` - Number\n* `Boolean` - Boolean\n* `List` - List\n* `Date` - Date'
+        ),
+    default_value: zod.unknown().nullish().describe('Default value used when a query references this variable.'),
+    values: zod.unknown().nullish().describe('Allowed values for List variables. Null for other variable types.'),
+})
+
+export const InsightVariablesPartialUpdateParams = /* @__PURE__ */ zod.object({
+    id: zod.string().describe('A UUID string identifying this insight variable.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const insightVariablesPartialUpdateBodyNameMax = 400
+
+export const InsightVariablesPartialUpdateBody = /* @__PURE__ */ zod.object({
+    name: zod
+        .string()
+        .max(insightVariablesPartialUpdateBodyNameMax)
+        .optional()
+        .describe('Human-readable name for the SQL variable.'),
+    type: zod
+        .enum(['String', 'Number', 'Boolean', 'List', 'Date'])
+        .describe('* `String` - String\n* `Number` - Number\n* `Boolean` - Boolean\n* `List` - List\n* `Date` - Date')
+        .optional()
+        .describe(
+            'Variable type. Controls how the value is rendered and substituted in HogQL.\n\n* `String` - String\n* `Number` - Number\n* `Boolean` - Boolean\n* `List` - List\n* `Date` - Date'
+        ),
+    default_value: zod.unknown().nullish().describe('Default value used when a query references this variable.'),
+    values: zod.unknown().nullish().describe('Allowed values for List variables. Null for other variable types.'),
+})
+
+export const InsightVariablesDestroyParams = /* @__PURE__ */ zod.object({
+    id: zod.string().describe('A UUID string identifying this insight variable.'),
     project_id: zod
         .string()
         .describe(
