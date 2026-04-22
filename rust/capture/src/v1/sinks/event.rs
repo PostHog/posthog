@@ -1,3 +1,4 @@
+use common_types::CapturedEventHeaders;
 use uuid::Uuid;
 
 use crate::v1::context::Context;
@@ -18,9 +19,13 @@ pub trait Event: Send + Sync {
     /// backend target (e.g. Kafka topic, S3 bucket) using its own config.
     fn destination(&self) -> &Destination;
 
-    /// Event-owned metadata as key-value pairs. The Sink merges these with
-    /// context-level headers before converting to transport-specific format.
-    fn headers(&self) -> Vec<(String, String)>;
+    /// Resolve the full set of transport headers for this event, using the
+    /// supplied [`Context`] for batch-scoped fields (token, now,
+    /// historical_migration) alongside any event-owned fields. Sinks convert
+    /// the returned [`CapturedEventHeaders`] to their backend-specific format
+    /// (e.g. `rdkafka::message::OwnedHeaders` via the `From` impl in
+    /// `common_types`).
+    fn headers(&self, ctx: &Context) -> CapturedEventHeaders;
 
     /// Resolve the partition key for this message, and write
     /// to the supplied buffer. Called by Sinks that write to
@@ -29,57 +34,4 @@ pub trait Event: Send + Sync {
 
     /// Serialize the event payload into a caller-provided buffer.
     fn serialize_into(&self, ctx: &Context, buf: &mut String) -> Result<(), String>;
-}
-
-/// Build the context-level headers that are identical for every event in a
-/// batch: token, server timestamp, and (optionally) historical_migration.
-/// Called once per batch; event-level headers are merged separately.
-pub fn build_context_headers(ctx: &Context) -> Vec<(String, String)> {
-    let mut headers = Vec::with_capacity(3);
-    headers.push(("token".into(), ctx.api_token.clone()));
-    headers.push(("now".into(), ctx.server_received_at.to_rfc3339()));
-    if ctx.historical_migration {
-        headers.push(("historical_migration".into(), "true".into()));
-    }
-    headers
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::v1::test_utils;
-
-    fn header_val(headers: &[(String, String)], key: &str) -> Option<String> {
-        headers
-            .iter()
-            .find(|(k, _)| k == key)
-            .map(|(_, v)| v.clone())
-    }
-
-    #[test]
-    fn context_headers_include_token_and_now() {
-        let ctx = test_utils::test_context();
-        let headers = build_context_headers(&ctx);
-        assert_eq!(header_val(&headers, "token"), Some(ctx.api_token.clone()));
-        assert!(header_val(&headers, "now").is_some());
-    }
-
-    #[test]
-    fn context_headers_include_historical_migration_when_set() {
-        let mut ctx = test_utils::test_context();
-        ctx.historical_migration = true;
-        let headers = build_context_headers(&ctx);
-        assert_eq!(
-            header_val(&headers, "historical_migration"),
-            Some("true".into())
-        );
-    }
-
-    #[test]
-    fn context_headers_omit_historical_migration_when_false() {
-        let mut ctx = test_utils::test_context();
-        ctx.historical_migration = false;
-        let headers = build_context_headers(&ctx);
-        assert!(header_val(&headers, "historical_migration").is_none());
-    }
 }
