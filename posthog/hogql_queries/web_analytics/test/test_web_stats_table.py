@@ -35,6 +35,7 @@ from posthog.schema import (
 )
 
 from posthog.hogql_queries.web_analytics.stats_table import WebStatsTableQueryRunner
+from posthog.hogql_queries.web_analytics.stats_table_sessions_only import WebStatsTableSessionsOnlyQueryBuilder
 from posthog.models import Action, Cohort, Element
 from posthog.models.utils import uuid7
 
@@ -2490,3 +2491,77 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest, FloatAwareT
 
         assert results_dict["example.com/features"][0] == 2
         assert results_dict["subdomain.example.com/features"][0] == 1
+
+
+class TestWebStatsTableSessionsOnlyQueryBuilder(ClickhouseTestMixin, APIBaseTest):
+    @parameterized.expand(
+        [
+            (WebStatsBreakdown.INITIAL_CHANNEL_TYPE,),
+            (WebStatsBreakdown.INITIAL_REFERRING_DOMAIN,),
+            (WebStatsBreakdown.INITIAL_UTM_SOURCE,),
+            (WebStatsBreakdown.INITIAL_UTM_CAMPAIGN,),
+        ]
+    )
+    @unittest.mock.patch(
+        "posthog.hogql_queries.web_analytics.stats_table_sessions_only.posthoganalytics.feature_enabled",
+        return_value=True,
+    )
+    def test_can_run_for_supported_session_scope_breakdowns(self, breakdown, _mock_flag):
+        query = WebStatsTableQuery(
+            dateRange=DateRange(date_from="2023-11-01", date_to="2023-11-30"),
+            properties=[],
+            breakdownBy=breakdown,
+        )
+        runner = WebStatsTableQueryRunner(team=self.team, query=query)
+        self.assertTrue(WebStatsTableSessionsOnlyQueryBuilder(runner).can_run())
+
+    @parameterized.expand(
+        [
+            (WebStatsBreakdown.PAGE,),
+            (WebStatsBreakdown.BROWSER,),
+            (WebStatsBreakdown.DEVICE_TYPE,),
+            (WebStatsBreakdown.COUNTRY,),
+            (WebStatsBreakdown.LANGUAGE,),
+            (WebStatsBreakdown.FRUSTRATION_METRICS,),
+        ]
+    )
+    @unittest.mock.patch(
+        "posthog.hogql_queries.web_analytics.stats_table_sessions_only.posthoganalytics.feature_enabled",
+        return_value=True,
+    )
+    def test_does_not_run_for_event_scope_breakdowns(self, breakdown, _mock_flag):
+        query = WebStatsTableQuery(
+            dateRange=DateRange(date_from="2023-11-01", date_to="2023-11-30"),
+            properties=[],
+            breakdownBy=breakdown,
+        )
+        runner = WebStatsTableQueryRunner(team=self.team, query=query)
+        self.assertFalse(WebStatsTableSessionsOnlyQueryBuilder(runner).can_run())
+
+    @unittest.mock.patch(
+        "posthog.hogql_queries.web_analytics.stats_table_sessions_only.posthoganalytics.feature_enabled",
+        return_value=True,
+    )
+    def test_does_not_run_with_property_filter(self, _mock_flag):
+        query = WebStatsTableQuery(
+            dateRange=DateRange(date_from="2023-11-01", date_to="2023-11-30"),
+            properties=[
+                SessionPropertyFilter(key="$channel_type", value="Direct", operator="exact", type="session"),
+            ],
+            breakdownBy=WebStatsBreakdown.INITIAL_CHANNEL_TYPE,
+        )
+        runner = WebStatsTableQueryRunner(team=self.team, query=query)
+        self.assertFalse(WebStatsTableSessionsOnlyQueryBuilder(runner).can_run())
+
+    @unittest.mock.patch(
+        "posthog.hogql_queries.web_analytics.stats_table_sessions_only.posthoganalytics.feature_enabled",
+        return_value=False,
+    )
+    def test_does_not_run_when_feature_flag_disabled(self, _mock_flag):
+        query = WebStatsTableQuery(
+            dateRange=DateRange(date_from="2023-11-01", date_to="2023-11-30"),
+            properties=[],
+            breakdownBy=WebStatsBreakdown.INITIAL_CHANNEL_TYPE,
+        )
+        runner = WebStatsTableQueryRunner(team=self.team, query=query)
+        self.assertFalse(WebStatsTableSessionsOnlyQueryBuilder(runner).can_run())

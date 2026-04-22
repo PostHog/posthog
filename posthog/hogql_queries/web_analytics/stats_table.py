@@ -32,6 +32,7 @@ from posthog.hogql_queries.web_analytics.query_constants.stats_table_queries imp
     PATH_BOUNCE_QUERY,
 )
 from posthog.hogql_queries.web_analytics.stats_table_pre_aggregated import StatsTablePreAggregatedQueryBuilder
+from posthog.hogql_queries.web_analytics.stats_table_sessions_only import WebStatsTableSessionsOnlyQueryBuilder
 from posthog.hogql_queries.web_analytics.web_analytics_query_runner import WebAnalyticsQueryRunner, map_columns
 from posthog.settings.data_stores import is_web_analytics_events_prefilter_team
 
@@ -73,6 +74,8 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
             )
 
         self.preaggregated_query_builder = StatsTablePreAggregatedQueryBuilder(self)
+        self.sessions_only_query_builder = WebStatsTableSessionsOnlyQueryBuilder(self)
+        self.used_sessions_only: bool = False
 
     def to_query(self) -> ast.SelectQuery:
         should_use_preaggregated = (
@@ -86,6 +89,10 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
         if should_use_preaggregated:
             self.used_preaggregated_tables = True
             return self.preaggregated_query_builder.get_query()
+
+        if self.sessions_only_query_builder.can_run():
+            self.used_sessions_only = True
+            return self.sessions_only_query_builder.get_query()
 
         if self.query.breakdownBy == WebStatsBreakdown.PAGE:
             if self.query.conversionGoal:
