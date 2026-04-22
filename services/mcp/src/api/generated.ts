@@ -18256,156 +18256,6 @@ export namespace Schemas {
       version?: number | null;
     }
 
-    export type WebTrendsQueryKind = typeof WebTrendsQueryKind[keyof typeof WebTrendsQueryKind];
-
-
-    export const WebTrendsQueryKind = {
-      WebTrendsQuery: 'WebTrendsQuery',
-    } as const;
-
-    export type WebTrendsMetric = typeof WebTrendsMetric[keyof typeof WebTrendsMetric];
-
-
-    export const WebTrendsMetric = {
-      UniqueUsers: 'UniqueUsers',
-      PageViews: 'PageViews',
-      Sessions: 'Sessions',
-      Bounces: 'Bounces',
-      SessionDuration: 'SessionDuration',
-      TotalSessions: 'TotalSessions',
-    } as const;
-
-    export interface Metrics {
-      /** @nullable */
-      Bounces?: number | null;
-      /** @nullable */
-      PageViews?: number | null;
-      /** @nullable */
-      SessionDuration?: number | null;
-      /** @nullable */
-      Sessions?: number | null;
-      /** @nullable */
-      TotalSessions?: number | null;
-      /** @nullable */
-      UniqueUsers?: number | null;
-    }
-
-    export interface WebTrendsItem {
-      bucket: string;
-      metrics: Metrics;
-    }
-
-    export interface WebTrendsQueryResponse {
-      /**
-       * Executed ClickHouse query
-       * @nullable
-       */
-      clickhouse?: string | null;
-      /**
-       * Returned columns
-       * @nullable
-       */
-      columns?: unknown[] | null;
-      /**
-       * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-       * @nullable
-       */
-      error?: string | null;
-      /**
-       * Query explanation output
-       * @nullable
-       */
-      explain?: string[] | null;
-      /** @nullable */
-      hasMore?: boolean | null;
-      /**
-       * Generated HogQL query.
-       * @nullable
-       */
-      hogql?: string | null;
-      /** @nullable */
-      limit?: number | null;
-      /** Query metadata output */
-      metadata?: HogQLMetadataResponse | null;
-      /** Modifiers used when performing the query */
-      modifiers?: HogQLQueryModifiers | null;
-      /** @nullable */
-      offset?: number | null;
-      /**
-       * Input query string
-       * @nullable
-       */
-      query?: string | null;
-      /** Query status indicates whether next to the provided data, a query is still running. */
-      query_status?: QueryStatus | null;
-      /** The date range used for the query */
-      resolved_date_range?: ResolvedDateRangeResponse | null;
-      results: WebTrendsItem[];
-      samplingRate?: SamplingRate | null;
-      /**
-       * Measured timings for different parts of the query generation process
-       * @nullable
-       */
-      timings?: QueryTiming[] | null;
-      /**
-       * Types of returned columns
-       * @nullable
-       */
-      types?: unknown[] | null;
-      /** @nullable */
-      usedPreAggregatedTables?: boolean | null;
-    }
-
-    export const WebTrendsQueryOrderByItem = {...WebAnalyticsOrderByFields,...WebAnalyticsOrderByDirection,} as const
-    export interface WebTrendsQuery {
-      /**
-       * Groups aggregation - not used in Web Analytics but required for type compatibility
-       * @nullable
-       */
-      aggregation_group_type_index?: number | null;
-      compareFilter?: CompareFilter | null;
-      conversionGoal?: ActionConversionGoal | CustomEventConversionGoal | null;
-      /**
-       * Colors used in the insight's visualization - not used in Web Analytics but required for type compatibility
-       * @nullable
-       */
-      dataColorTheme?: number | null;
-      dateRange?: DateRange | null;
-      /** @nullable */
-      doPathCleaning?: boolean | null;
-      /** @nullable */
-      filterTestAccounts?: boolean | null;
-      /** @nullable */
-      includeRevenue?: boolean | null;
-      /** Interval for date range calculation (affects date_to rounding for hour vs day ranges) */
-      interval: IntervalType;
-      kind?: WebTrendsQueryKind;
-      /** @nullable */
-      limit?: number | null;
-      metrics: WebTrendsMetric[];
-      /** Modifiers used when performing the query */
-      modifiers?: HogQLQueryModifiers | null;
-      /** @nullable */
-      offset?: number | null;
-      /** @nullable */
-      orderBy?: typeof WebTrendsQueryOrderByItem[keyof typeof WebTrendsQueryOrderByItem] [] | null;
-      properties: (EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter | CohortPropertyFilter)[];
-      response?: WebTrendsQueryResponse | null;
-      sampling?: WebAnalyticsSampling | null;
-      /**
-       * Sampling rate
-       * @nullable
-       */
-      samplingFactor?: number | null;
-      tags?: QueryLogTags | null;
-      /** @nullable */
-      useSessionsTable?: boolean | null;
-      /**
-       * version of the node, used for schema migrations
-       * @nullable
-       */
-      version?: number | null;
-    }
 
     export type WebAnalyticsExternalSummaryQueryKind = typeof WebAnalyticsExternalSummaryQueryKind[keyof typeof WebAnalyticsExternalSummaryQueryKind];
 
@@ -19441,7 +19291,7 @@ export namespace Schemas {
       query: string;
       response?: HogQLMetadataResponse | null;
       /** Query within which "expr" and "template" are validated. Defaults to "select * from events" */
-      sourceQuery?: EventsNode | ActionsNode | PersonsNode | EventsQuery | SessionsQuery | ActorsQuery | GroupsQuery | InsightActorsQuery | InsightActorsQueryOptions | SessionsTimelineQuery | HogQuery | HogQLQuery | HogQLMetadata | HogQLAutocomplete | RevenueAnalyticsGrossRevenueQuery | RevenueAnalyticsMetricsQuery | RevenueAnalyticsMRRQuery | RevenueAnalyticsOverviewQuery | RevenueAnalyticsTopCustomersQuery | MarketingAnalyticsTableQuery | MarketingAnalyticsAggregatedQuery | NonIntegratedConversionsTableQuery | WebOverviewQuery | WebStatsTableQuery | WebExternalClicksTableQuery | WebGoalsQuery | WebVitalsQuery | WebVitalsPathBreakdownQuery | WebPageURLSearchQuery | WebTrendsQuery | WebAnalyticsExternalSummaryQuery | WebNotableChangesQuery | SessionAttributionExplorerQuery | RevenueExampleEventsQuery | RevenueExampleDataWarehouseTablesQuery | ErrorTrackingQuery | ErrorTrackingSimilarIssuesQuery | ErrorTrackingBreakdownsQuery | ErrorTrackingIssueCorrelationQuery | LogsQuery | LogAttributesQuery | LogValuesQuery | TraceSpansQuery | ExperimentFunnelsQuery | ExperimentTrendsQuery | CalendarHeatmapQuery | RecordingsQuery | TracesQuery | TraceQuery | TraceNeighborsQuery | VectorSearchQuery | UsageMetricsQuery | EndpointsUsageOverviewQuery | EndpointsUsageTableQuery | EndpointsUsageTrendsQuery | null;
+      sourceQuery?: EventsNode | ActionsNode | PersonsNode | EventsQuery | SessionsQuery | ActorsQuery | GroupsQuery | InsightActorsQuery | InsightActorsQueryOptions | SessionsTimelineQuery | HogQuery | HogQLQuery | HogQLMetadata | HogQLAutocomplete | RevenueAnalyticsGrossRevenueQuery | RevenueAnalyticsMetricsQuery | RevenueAnalyticsMRRQuery | RevenueAnalyticsOverviewQuery | RevenueAnalyticsTopCustomersQuery | MarketingAnalyticsTableQuery | MarketingAnalyticsAggregatedQuery | NonIntegratedConversionsTableQuery | WebOverviewQuery | WebStatsTableQuery | WebExternalClicksTableQuery | WebGoalsQuery | WebVitalsQuery | WebVitalsPathBreakdownQuery | WebPageURLSearchQuery | WebAnalyticsExternalSummaryQuery | WebNotableChangesQuery | SessionAttributionExplorerQuery | RevenueExampleEventsQuery | RevenueExampleDataWarehouseTablesQuery | ErrorTrackingQuery | ErrorTrackingSimilarIssuesQuery | ErrorTrackingBreakdownsQuery | ErrorTrackingIssueCorrelationQuery | LogsQuery | LogAttributesQuery | LogValuesQuery | TraceSpansQuery | ExperimentFunnelsQuery | ExperimentTrendsQuery | CalendarHeatmapQuery | RecordingsQuery | TracesQuery | TraceQuery | TraceNeighborsQuery | VectorSearchQuery | UsageMetricsQuery | EndpointsUsageOverviewQuery | EndpointsUsageTableQuery | EndpointsUsageTrendsQuery | null;
       tags?: QueryLogTags | null;
       /**
        * Variables to be subsituted into the query
@@ -19479,7 +19329,7 @@ export namespace Schemas {
       query: string;
       response?: HogQLAutocompleteResponse | null;
       /** Query in whose context to validate. */
-      sourceQuery?: EventsNode | ActionsNode | PersonsNode | EventsQuery | SessionsQuery | ActorsQuery | GroupsQuery | InsightActorsQuery | InsightActorsQueryOptions | SessionsTimelineQuery | HogQuery | HogQLQuery | HogQLMetadata | HogQLAutocomplete | RevenueAnalyticsGrossRevenueQuery | RevenueAnalyticsMetricsQuery | RevenueAnalyticsMRRQuery | RevenueAnalyticsOverviewQuery | RevenueAnalyticsTopCustomersQuery | MarketingAnalyticsTableQuery | MarketingAnalyticsAggregatedQuery | NonIntegratedConversionsTableQuery | WebOverviewQuery | WebStatsTableQuery | WebExternalClicksTableQuery | WebGoalsQuery | WebVitalsQuery | WebVitalsPathBreakdownQuery | WebPageURLSearchQuery | WebTrendsQuery | WebAnalyticsExternalSummaryQuery | WebNotableChangesQuery | SessionAttributionExplorerQuery | RevenueExampleEventsQuery | RevenueExampleDataWarehouseTablesQuery | ErrorTrackingQuery | ErrorTrackingSimilarIssuesQuery | ErrorTrackingBreakdownsQuery | ErrorTrackingIssueCorrelationQuery | LogsQuery | LogAttributesQuery | LogValuesQuery | TraceSpansQuery | ExperimentFunnelsQuery | ExperimentTrendsQuery | CalendarHeatmapQuery | RecordingsQuery | TracesQuery | TraceQuery | TraceNeighborsQuery | VectorSearchQuery | UsageMetricsQuery | EndpointsUsageOverviewQuery | EndpointsUsageTableQuery | EndpointsUsageTrendsQuery | null;
+      sourceQuery?: EventsNode | ActionsNode | PersonsNode | EventsQuery | SessionsQuery | ActorsQuery | GroupsQuery | InsightActorsQuery | InsightActorsQueryOptions | SessionsTimelineQuery | HogQuery | HogQLQuery | HogQLMetadata | HogQLAutocomplete | RevenueAnalyticsGrossRevenueQuery | RevenueAnalyticsMetricsQuery | RevenueAnalyticsMRRQuery | RevenueAnalyticsOverviewQuery | RevenueAnalyticsTopCustomersQuery | MarketingAnalyticsTableQuery | MarketingAnalyticsAggregatedQuery | NonIntegratedConversionsTableQuery | WebOverviewQuery | WebStatsTableQuery | WebExternalClicksTableQuery | WebGoalsQuery | WebVitalsQuery | WebVitalsPathBreakdownQuery | WebPageURLSearchQuery | WebAnalyticsExternalSummaryQuery | WebNotableChangesQuery | SessionAttributionExplorerQuery | RevenueExampleEventsQuery | RevenueExampleDataWarehouseTablesQuery | ErrorTrackingQuery | ErrorTrackingSimilarIssuesQuery | ErrorTrackingBreakdownsQuery | ErrorTrackingIssueCorrelationQuery | LogsQuery | LogAttributesQuery | LogValuesQuery | TraceSpansQuery | ExperimentFunnelsQuery | ExperimentTrendsQuery | CalendarHeatmapQuery | RecordingsQuery | TracesQuery | TraceQuery | TraceNeighborsQuery | VectorSearchQuery | UsageMetricsQuery | EndpointsUsageOverviewQuery | EndpointsUsageTableQuery | EndpointsUsageTrendsQuery | null;
       /** Start position of the editor word */
       startPosition: number;
       tags?: QueryLogTags | null;

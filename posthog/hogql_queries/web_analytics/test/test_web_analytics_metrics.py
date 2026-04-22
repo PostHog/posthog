@@ -98,13 +98,6 @@ class TestWebAnalyticsMetrics(TestCase):
                     "has_conversion_goal": "true",
                 },
             ),
-            (
-                "trends",
-                "WebTrendsQuery",
-                None,
-                None,
-                {"query_kind": "WebTrendsQuery", "breakdown": "none", "has_conversion_goal": "false"},
-            ),
         ],
     )
     @patch(
