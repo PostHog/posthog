@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 import structlog
@@ -33,7 +33,6 @@ PRO_PLAN_PREFIX = "posthog-code-200"
 @dataclass
 class PlanInfo:
     plan_key: str | None
-    in_trial_period: bool
     seat_created_at: str | None
 
 
@@ -60,19 +59,6 @@ def get_billing_period_number(seat_created_at: str | None, period_days: int = 30
         return 0
 
 
-def _is_in_trial(seat_created_at: str | None) -> bool:
-    if not seat_created_at:
-        return True
-    try:
-        created = datetime.fromisoformat(seat_created_at)
-        if created.tzinfo is None:
-            created = created.replace(tzinfo=UTC)
-        trial_days = get_settings().free_plan_trial_period_days
-        return datetime.now(tz=UTC) - created < timedelta(days=trial_days)
-    except (ValueError, TypeError):
-        return True
-
-
 async def resolve_plan_info(
     request: Request,
     user_id: int,
@@ -80,7 +66,7 @@ async def resolve_plan_info(
 ) -> PlanInfo:
     """Resolve plan info, returning safe defaults on failure."""
     if product != POSTHOG_CODE_PRODUCT:
-        return PlanInfo(plan_key=None, in_trial_period=True, seat_created_at=None)
+        return PlanInfo(plan_key=None, seat_created_at=None)
 
     plan_resolver: PlanResolver = request.app.state.plan_resolver
     auth_header = request.headers.get("Authorization", "")
@@ -91,7 +77,7 @@ async def resolve_plan_info(
         )
     except Exception:
         logger.warning("plan_resolve_failed", user_id=user_id)
-        return PlanInfo(plan_key=None, in_trial_period=True, seat_created_at=None)
+        return PlanInfo(plan_key=None, seat_created_at=None)
 
 
 class PlanResolver:
@@ -114,7 +100,7 @@ class PlanResolver:
     async def get_plan(self, user_id: int, auth_header: str) -> PlanInfo:
         """Return the user's plan info, using cache when available."""
         if not auth_header:
-            return PlanInfo(plan_key=None, in_trial_period=True, seat_created_at=None)
+            return PlanInfo(plan_key=None, seat_created_at=None)
 
         cached = await self._get_cached(user_id)
         if cached is not None:
@@ -124,12 +110,11 @@ class PlanResolver:
             plan_key, seat_created_at = await self._fetch_plan(auth_header)
         except Exception:
             logger.warning("seat_fetch_failed", user_id=user_id, exc_info=True)
-            return PlanInfo(plan_key=None, in_trial_period=True, seat_created_at=None)
+            return PlanInfo(plan_key=None, seat_created_at=None)
 
         await self._set_cached(user_id, plan_key, seat_created_at)
         return PlanInfo(
             plan_key=plan_key,
-            in_trial_period=_is_in_trial(seat_created_at),
             seat_created_at=seat_created_at,
         )
 
@@ -144,7 +129,6 @@ class PlanResolver:
                 seat_created_at = data.get("created_at")
                 return PlanInfo(
                     plan_key=plan_key,
-                    in_trial_period=_is_in_trial(seat_created_at),
                     seat_created_at=seat_created_at,
                 )
         except Exception:

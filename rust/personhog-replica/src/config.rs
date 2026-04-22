@@ -35,6 +35,12 @@ pub struct Config {
     #[envconfig(default = "5000")]
     pub statement_timeout_ms: u64,
 
+    /// Maximum number of server-side (PgBouncer → Postgres) connections to
+    /// warm at startup via SELECT 1. Clamped to min_pg_connections. Set to 0
+    /// to skip server-side warming entirely.
+    #[envconfig(default = "3")]
+    pub warmup_server_connections: u32,
+
     #[envconfig(default = "10")]
     pub pool_monitor_interval_secs: u64,
 

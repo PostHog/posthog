@@ -1571,7 +1571,15 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         before = request.query_params.get("before", None)
         schemas = request.query_params.getlist("schemas")
 
-        jobs = instance.jobs.filter(billable=True).prefetch_related("schema").order_by("-created_at")
+        # select_related joins the full ExternalDataSchema row; defer its large JSON/text
+        # columns so the serializer only pulls the fields SimpleExternalDataSchemaSerializer
+        # actually reads (sync_type_config + latest_error can each be sizeable).
+        jobs = (
+            instance.jobs.filter(billable=True)
+            .select_related("schema")
+            .defer("schema__sync_type_config", "schema__latest_error")
+            .order_by("-created_at")
+        )
 
         if schemas:
             jobs = jobs.filter(schema__name__in=schemas)

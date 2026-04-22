@@ -2,13 +2,12 @@ import ssl
 import asyncio
 import dataclasses
 
-from django.conf import settings
-
 import aiokafka
 from aiokafka import TopicPartition
 from structlog import get_logger
 from temporalio import activity
 
+from posthog.kafka_client.routing import get_profile_settings
 from posthog.temporal.common.heartbeat import Heartbeater
 
 LOGGER = get_logger(__name__)
@@ -55,9 +54,9 @@ class ReplayPartitionResult:
     messages_replayed: int
 
 
-def configure_ssl_context() -> ssl.SSLContext | None:
-    """Configure SSL context for Kafka if needed."""
-    if settings.KAFKA_SECURITY_PROTOCOL != "SSL":
+def configure_ssl_context(security_protocol: str | None) -> ssl.SSLContext | None:
+    """Configure SSL context for Kafka if the profile uses SSL."""
+    if security_protocol != "SSL":
         return None
 
     context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
@@ -74,11 +73,12 @@ async def get_topic_partitions(inputs: GetTopicPartitionsInputs) -> list[int]:
     logger = LOGGER.bind(topic=inputs.topic)
     logger.info("Getting partitions for topic")
 
-    ssl_context = configure_ssl_context()
+    profile = get_profile_settings(topic=inputs.topic)
+    ssl_context = configure_ssl_context(profile.security_protocol)
 
     consumer = aiokafka.AIOKafkaConsumer(
-        bootstrap_servers=settings.KAFKA_HOSTS,
-        security_protocol=settings.KAFKA_SECURITY_PROTOCOL or "PLAINTEXT",
+        bootstrap_servers=profile.hosts,
+        security_protocol=profile.security_protocol or "PLAINTEXT",
         ssl_context=ssl_context,
         api_version="2.5.0",
     )
@@ -121,21 +121,27 @@ async def replay_partition(inputs: ReplayPartitionInputs) -> ReplayPartitionResu
     )
     logger.info("Starting partition replay")
 
-    ssl_context = configure_ssl_context()
+    source_profile = get_profile_settings(topic=inputs.source_topic)
+    ssl_context = configure_ssl_context(source_profile.security_protocol)
 
     consumer = aiokafka.AIOKafkaConsumer(
-        bootstrap_servers=settings.KAFKA_HOSTS,
-        security_protocol=settings.KAFKA_SECURITY_PROTOCOL or "PLAINTEXT",
+        bootstrap_servers=source_profile.hosts,
+        security_protocol=source_profile.security_protocol or "PLAINTEXT",
         ssl_context=ssl_context,
         enable_auto_commit=False,
         auto_offset_reset="earliest",
         api_version="2.5.0",
     )
 
+    # Replay must preserve per-message headers, which confluent-kafka's AIOProducer
+    # refuses to pass through in batch mode. Use aiokafka directly for this activity
+    # only — cluster routing still flows through `get_profile_settings(topic=...)`.
+    target_profile = get_profile_settings(topic=inputs.target_topic)
+    target_ssl_context = configure_ssl_context(target_profile.security_protocol)
     producer = aiokafka.AIOKafkaProducer(
-        bootstrap_servers=settings.KAFKA_HOSTS,
-        security_protocol=settings.KAFKA_SECURITY_PROTOCOL or "PLAINTEXT",
-        ssl_context=ssl_context,
+        bootstrap_servers=target_profile.hosts,
+        security_protocol=target_profile.security_protocol or "PLAINTEXT",
+        ssl_context=target_ssl_context,
         acks="all",
         api_version="2.5.0",
     )
@@ -184,11 +190,12 @@ async def replay_partition(inputs: ReplayPartitionInputs) -> ReplayPartitionResu
                         reached_end = True
                         break
 
-                    # Produce the message to the target topic, preserving key, value, and headers
-                    # Convert headers to list as aiokafka producer expects list, not tuple
+                    # Produce the message to the target topic, preserving key, value, and headers.
+                    # aiokafka expects `list[tuple[str, bytes]]`, which is what record.headers
+                    # already is.
                     headers = list(record.headers) if record.headers else []
                     future = await producer.send(
-                        inputs.target_topic,
+                        topic=inputs.target_topic,
                         value=record.value,
                         key=record.key,
                         headers=headers,
@@ -215,8 +222,14 @@ async def replay_partition(inputs: ReplayPartitionInputs) -> ReplayPartitionResu
                     break
 
         finally:
-            await consumer.stop()
-            await producer.stop()
+            try:
+                await consumer.stop()
+            except asyncio.CancelledError:
+                pass
+            try:
+                await producer.stop()
+            except asyncio.CancelledError:
+                pass
 
     logger.info("Partition replay completed", messages_replayed=messages_replayed)
 

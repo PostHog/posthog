@@ -6628,7 +6628,9 @@ dependencies = [
  "assignment-coordination",
  "async-trait",
  "axum 0.7.9",
+ "chrono",
  "common-alloc",
+ "common-database",
  "common-kafka",
  "common-metrics",
  "dashmap 6.1.0",
@@ -6642,6 +6644,7 @@ dependencies = [
  "prost 0.13.5",
  "rdkafka",
  "serde_json",
+ "sqlx",
  "tokio",
  "tokio-stream",
  "tokio-util",
@@ -6715,6 +6718,33 @@ dependencies = [
  "tonic 0.12.3",
  "tracing",
  "tracing-subscriber",
+]
+
+[[package]]
+name = "personhog-writer"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "axum 0.7.9",
+ "chrono",
+ "common-alloc",
+ "common-database",
+ "common-kafka",
+ "common-metrics",
+ "envconfig",
+ "futures",
+ "health",
+ "lifecycle",
+ "metrics",
+ "personhog-proto",
+ "prost 0.13.5",
+ "rdkafka",
+ "serde_json",
+ "sqlx",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
 ]
 
 [[package]]
