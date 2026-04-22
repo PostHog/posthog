@@ -141,7 +141,7 @@ export class TrendsInsight extends ChartInsightBase {
     }
 
     async openOptionsPanel(): Promise<void> {
-        await this.page.locator('[data-attr="insight-filters"]').getByRole('button', { name: 'Options' }).click()
+        await this.page.locator('[data-attr="insight-filters"]').getByRole('button', { name: 'Data' }).click()
     }
 
     async duplicateSeries(seriesIndex: number): Promise<void> {

@@ -10,6 +10,7 @@ import { ChartFilter } from 'lib/components/ChartFilter'
 import { CompareFilter } from 'lib/components/CompareFilter/CompareFilter'
 import { IntervalFilter } from 'lib/components/IntervalFilter'
 import { SmoothingFilter } from 'lib/components/SmoothingFilter/SmoothingFilter'
+import { smoothingOptions } from 'lib/components/SmoothingFilter/smoothings'
 import { UnitPicker } from 'lib/components/UnitPicker/UnitPicker'
 import { FEATURE_FLAGS, NON_TIME_SERIES_DISPLAY_TYPES } from 'lib/constants'
 import { LemonMenu, LemonMenuItems } from 'lib/lemon-ui/LemonMenu'
@@ -73,6 +74,7 @@ export function InsightDisplayConfig(): JSX.Element {
         isNonTimeSeriesDisplay,
         compareFilter,
         supportsCompare,
+        interval,
     } = useValues(insightVizDataLogic(insightProps))
     const { updateQuerySource, updateCompareFilter } = useActions(insightVizDataLogic(insightProps))
     const { isTrendsFunnel, isStepsFunnel, isTimeToConvertFunnel, isEmptyFunnel } = useValues(
@@ -95,7 +97,8 @@ export function InsightDisplayConfig(): JSX.Element {
     const showSmoothing =
         isTrends &&
         !hasBreakdownFilter(breakdownFilter) &&
-        (!display || display === ChartDisplayType.ActionsLineGraph || display === ChartDisplayType.ActionsAreaGraph)
+        (!display || display === ChartDisplayType.ActionsLineGraph || display === ChartDisplayType.ActionsAreaGraph) &&
+        (smoothingOptions[interval ?? 'day']?.length ?? 0) > 0
     const showMultipleYAxesConfig = (isTrends || isStickiness) && !isNonTimeSeriesDisplay
     const showAlertThresholdLinesConfig = isTrends && !isNonTimeSeriesDisplay
     const isLineGraph =
@@ -109,7 +112,7 @@ export function InsightDisplayConfig(): JSX.Element {
     )
 
     const isBoxPlot = display === ChartDisplayType.BoxPlot
-    const advancedOptions: LemonMenuItems = [
+    const displayOptions: LemonMenuItems = [
         ...((isTrends && display !== ChartDisplayType.CalendarHeatmap) ||
         isRetention ||
         isTrendsFunnel ||
@@ -178,6 +181,25 @@ export function InsightDisplayConfig(): JSX.Element {
                   },
               ]
             : []),
+        ...(supportsResultCustomizationBy
+            ? [
+                  {
+                      title: (
+                          <>
+                              <h5 className="mx-2 my-1">
+                                  Color customization by{' '}
+                                  <Tooltip title="You can customize the appearance of individual results in your insights. This can be done based on the result's name (e.g., customize the breakdown value 'pizza' for the first series) or based on the result's rank (e.g., customize the first dataset in the results).">
+                                      <IconInfo className="relative top-0.5 text-lg text-secondary" />
+                                  </Tooltip>
+                              </h5>
+                          </>
+                      ),
+                      items: [{ label: () => <ResultCustomizationByPicker /> }],
+                  },
+              ]
+            : []),
+    ]
+    const dataOptions: LemonMenuItems = [
         ...(showCompare
             ? [
                   {
@@ -213,23 +235,6 @@ export function InsightDisplayConfig(): JSX.Element {
                               ),
                           },
                       ],
-                  },
-              ]
-            : []),
-        ...(supportsResultCustomizationBy
-            ? [
-                  {
-                      title: (
-                          <>
-                              <h5 className="mx-2 my-1">
-                                  Color customization by{' '}
-                                  <Tooltip title="You can customize the appearance of individual results in your insights. This can be done based on the result's name (e.g., customize the breakdown value 'pizza' for the first series) or based on the result's rank (e.g., customize the first dataset in the results).">
-                                      <IconInfo className="relative top-0.5 text-lg text-secondary" />
-                                  </Tooltip>
-                              </h5>
-                          </>
-                      ),
-                      items: [{ label: () => <ResultCustomizationByPicker /> }],
                   },
               ]
             : []),
@@ -343,19 +348,20 @@ export function InsightDisplayConfig(): JSX.Element {
               ]
             : []),
     ]
-    const advancedOptionsCount: number =
+    const displayOptionsCount: number =
         (supportsValueOnSeries && showValuesOnSeries ? 1 : 0) +
         (showPercentStackView ? 1 : 0) +
+        (hasLegend && showLegend ? 1 : 0) +
+        (showMultipleYAxes ? 1 : 0) +
+        (trendsFilter?.hideWeekends && hideWeekendsEnabled ? 1 : 0)
+    const dataOptionsCount: number =
         (!showPercentStackView &&
         isTrends &&
         trendsFilter?.aggregationAxisFormat &&
         trendsFilter.aggregationAxisFormat !== 'numeric'
             ? 1
             : 0) +
-        (hasLegend && showLegend ? 1 : 0) +
         (!!yAxisScaleType && yAxisScaleType !== 'linear' ? 1 : 0) +
-        (showMultipleYAxes ? 1 : 0) +
-        (trendsFilter?.hideWeekends && hideWeekendsEnabled ? 1 : 0) +
         (showCompare && !!compareFilter?.compare ? 1 : 0) +
         (showSmoothing && !!trendsFilter?.smoothingIntervals && trendsFilter.smoothingIntervals > 1 ? 1 : 0)
 
@@ -391,19 +397,35 @@ export function InsightDisplayConfig(): JSX.Element {
                 )}
             </div>
             <div className="flex items-center gap-x-2 flex-wrap">
-                {advancedOptions.length > 0 && (
+                {displayOptions.length > 0 && (
                     <LemonMenu
-                        items={advancedOptions}
+                        items={displayOptions}
                         closeOnClickInside={false}
                         placement={isTrendsFunnel ? 'bottom-end' : undefined}
                     >
                         <LemonButton size="small" disabledReason={editingDisabledReason}>
                             <span className="font-medium whitespace-nowrap">
-                                Options
-                                {advancedOptionsCount ? (
+                                Display
+                                {displayOptionsCount ? (
                                     <span className="ml-0.5 text-secondary ligatures-none">
-                                        ({advancedOptionsCount})
+                                        ({displayOptionsCount})
                                     </span>
+                                ) : null}
+                            </span>
+                        </LemonButton>
+                    </LemonMenu>
+                )}
+                {dataOptions.length > 0 && (
+                    <LemonMenu
+                        items={dataOptions}
+                        closeOnClickInside={false}
+                        placement={isTrendsFunnel ? 'bottom-end' : undefined}
+                    >
+                        <LemonButton size="small" disabledReason={editingDisabledReason}>
+                            <span className="font-medium whitespace-nowrap">
+                                Data
+                                {dataOptionsCount ? (
+                                    <span className="ml-0.5 text-secondary ligatures-none">({dataOptionsCount})</span>
                                 ) : null}
                             </span>
                         </LemonButton>
