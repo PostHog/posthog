@@ -50,11 +50,7 @@ def get_pr_context(input: GetPrContextInput) -> GetPrContextOutput | None:
     """Get PR context for a task run, including PR URL, repository, and allowed domains."""
     ctx = input.context
     if not ctx.github_integration_id:
-        raise TaskInvalidStateError(
-            "GitHub integration ID is missing from context",
-            context={"run_id": ctx.run_id, "github_integration_id": ctx.github_integration_id},
-            cause=RuntimeError("GitHub integration ID missing"),
-        )
+        return None
     try:
         task_run = TaskRun.objects.get(id=ctx.run_id)
     except TaskRun.DoesNotExist:
