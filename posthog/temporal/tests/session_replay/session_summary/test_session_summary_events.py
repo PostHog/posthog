@@ -2,7 +2,7 @@ import pytest
 from unittest.mock import MagicMock
 
 from pytest_mock import MockerFixture
-from requests import HTTPError
+from requests import HTTPError, Response
 
 from posthog.sync import database_sync_to_async
 from posthog.temporal.session_replay.session_summary.activities.a6b_store_video_session_summary import (
@@ -84,7 +84,7 @@ def test_capture_session_summary_ready_swallow_capture_errors(
         created_by=user,
     )
     response = mocker.MagicMock()
-    response.raise_for_status.side_effect = HTTPError("boom")
+    response.raise_for_status.side_effect = HTTPError("boom", response=Response())
     mocker.patch("ee.hogai.session_summaries.events.capture_internal", return_value=response)
     logger = mocker.patch("ee.hogai.session_summaries.events.logger")
 

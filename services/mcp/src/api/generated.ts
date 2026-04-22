@@ -6509,10 +6509,7 @@ export namespace Schemas {
       type: BatchExportDestinationTypeEnum;
       /** A JSON field to store all configuration parameters required to access a BatchExportDestination. */
       config?: unknown;
-      /**
-       * The integration for this destination.
-       * @nullable
-       */
+      /** @nullable */
       integration?: number | null;
       /** @nullable */
       integration_id?: number | null;
@@ -8764,32 +8761,17 @@ export namespace Schemas {
     * `DPA` - DPA */
       document_type: DocumentTypeEnum;
       /**
-       * The customer legal entity entering the agreement.
+       * The customer legal entity entering the agreement (PandaDoc's Client.Company).
        * @maxLength 255
        */
       company_name: string;
       /**
-       * Customer address. Required for DPAs; ignored for BAAs.
+       * The customer address (PandaDoc's Client.StreetAddress).
        * @maxLength 512
        */
-      company_address?: string;
-      /**
-       * Name of the signer at the customer.
-       * @maxLength 255
-       */
-      representative_name: string;
-      /**
-       * Title of the signer at the customer.
-       * @maxLength 255
-       */
-      representative_title: string;
-      /** Email the signed PandaDoc envelope is sent to. */
+      company_address: string;
+      /** Email the signed PandaDoc envelope is sent to (PandaDoc's Client.Email). */
       representative_email: string;
-      /**
-       * DPA style: 'pretty' or 'lawyer' for submittable versions. 'fairytale' and 'tswift' are preview-only on posthog.com and are not accepted by the API.
-       * @maxLength 16
-       */
-      dpa_mode?: string;
     }
 
     /**
@@ -17163,6 +17145,11 @@ export namespace Schemas {
       full_name: string;
     }
 
+    export interface GitHubReposRefreshResponse {
+      /** The refreshed repository cache. */
+      repositories: GitHubRepo[];
+    }
+
     export interface GitHubReposResponse {
       repositories: GitHubRepo[];
       /** Whether more repositories are available beyond this page. */
@@ -17244,6 +17231,18 @@ export namespace Schemas {
       Sparkline: 'sparkline',
     } as const;
 
+    /**
+     * * `count` - count
+    * `sum` - sum
+     */
+    export type MathEnum = typeof MathEnum[keyof typeof MathEnum];
+
+
+    export const MathEnum = {
+      Count: 'count',
+      Sum: 'sum',
+    } as const;
+
     export interface GroupUsageMetric {
       readonly id: string;
       /** @maxLength 255 */
@@ -17257,6 +17256,12 @@ export namespace Schemas {
       interval?: number;
       display?: GroupUsageMetricDisplayEnum;
       filters: unknown;
+      math?: MathEnum;
+      /**
+       * @maxLength 255
+       * @nullable
+       */
+      math_property?: string | null;
     }
 
     /**
@@ -20164,7 +20169,6 @@ export namespace Schemas {
       id: string;
       document_type: string;
       company_name: string;
-      representative_name: string;
       representative_email: string;
       status: string;
       signed_document_url: string;
@@ -26087,6 +26091,12 @@ export namespace Schemas {
       interval?: number;
       display?: GroupUsageMetricDisplayEnum;
       filters?: unknown;
+      math?: MathEnum;
+      /**
+       * @maxLength 255
+       * @nullable
+       */
+      math_property?: string | null;
     }
 
     export interface PatchedHealthIssue {
@@ -36918,6 +36928,10 @@ export namespace Schemas {
      * @minLength 1
      */
     repo: string;
+    /**
+     * Optional case-insensitive branch name search query.
+     */
+    search?: string;
     };
 
     export type EnvironmentsIntegrationsGithubReposRetrieveParams = {
@@ -41046,6 +41060,10 @@ export namespace Schemas {
      * @minLength 1
      */
     repo: string;
+    /**
+     * Optional case-insensitive branch name search query.
+     */
+    search?: string;
     };
 
     export type IntegrationsGithubReposRetrieveParams = {

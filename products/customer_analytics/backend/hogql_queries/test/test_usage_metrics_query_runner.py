@@ -395,6 +395,199 @@ class TestUsageMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(results[1]["value"], 5.0)
 
     @freeze_time("2025-10-09T12:11:00")
+    @snapshot_clickhouse_queries
+    def test_sum_math_aggregation(self):
+        GroupUsageMetric.objects.create(
+            id=self.test_metric_id,
+            team=self.team,
+            group_type_index=0,
+            name="Revenue",
+            format=GroupUsageMetric.Format.CURRENCY,
+            interval=7,
+            display=GroupUsageMetric.Display.NUMBER,
+            filters={"events": [{"id": "purchase", "type": "events", "order": 0}]},
+            math=GroupUsageMetric.Math.SUM,
+            math_property="amount",
+        )
+        _create_event(
+            event="purchase",
+            team=self.team,
+            person_id=str(self.person.uuid),
+            distinct_id=self.person_distinct_id,
+            properties={"amount": 100},
+        )
+        _create_event(
+            event="purchase",
+            team=self.team,
+            person_id=str(self.person.uuid),
+            distinct_id=self.person_distinct_id,
+            properties={"amount": 250.5},
+        )
+        _create_event(
+            event="purchase",
+            team=self.team,
+            person_id=str(self.another_person.uuid),
+            distinct_id=self.another_person_distinct_id,
+            properties={"amount": 999},
+        )
+        flush_persons_and_events()
+
+        query_result = self._calculate(person_id=str(self.person.uuid))
+
+        results = query_result["results"]
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["name"], "Revenue")
+        self.assertEqual(results[0]["value"], 350.5)
+
+    @freeze_time("2025-10-09T12:11:00")
+    def test_sum_math_with_missing_property_returns_zero(self):
+        GroupUsageMetric.objects.create(
+            id=self.test_metric_id,
+            team=self.team,
+            group_type_index=0,
+            name="Revenue",
+            format=GroupUsageMetric.Format.CURRENCY,
+            interval=7,
+            display=GroupUsageMetric.Display.NUMBER,
+            filters={"events": [{"id": "purchase", "type": "events", "order": 0}]},
+            math=GroupUsageMetric.Math.SUM,
+            math_property="amount",
+        )
+        _create_event(
+            event="purchase",
+            team=self.team,
+            person_id=str(self.person.uuid),
+            distinct_id=self.person_distinct_id,
+            properties={},
+        )
+        flush_persons_and_events()
+
+        query_result = self._calculate(person_id=str(self.person.uuid))
+
+        results = query_result["results"]
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["value"], 0.0)
+
+    @freeze_time("2025-10-09T12:11:00")
+    def test_sum_math_with_null_math_property_returns_zero(self):
+        GroupUsageMetric.objects.create(
+            id=self.test_metric_id,
+            team=self.team,
+            group_type_index=0,
+            name="Revenue",
+            format=GroupUsageMetric.Format.CURRENCY,
+            interval=7,
+            display=GroupUsageMetric.Display.NUMBER,
+            filters={"events": [{"id": "purchase", "type": "events", "order": 0}]},
+            math=GroupUsageMetric.Math.SUM,
+            math_property=None,
+        )
+        _create_event(
+            event="purchase",
+            team=self.team,
+            person_id=str(self.person.uuid),
+            distinct_id=self.person_distinct_id,
+            properties={"amount": 100},
+        )
+        flush_persons_and_events()
+
+        query_result = self._calculate(person_id=str(self.person.uuid))
+
+        results = query_result["results"]
+        self.assertEqual(len(results), 0)
+
+    @freeze_time("2025-10-09T12:11:00")
+    def test_sum_math_previous_period_comparison(self):
+        GroupUsageMetric.objects.create(
+            id=self.test_metric_id,
+            team=self.team,
+            group_type_index=0,
+            name="Revenue",
+            format=GroupUsageMetric.Format.CURRENCY,
+            interval=7,
+            display=GroupUsageMetric.Display.NUMBER,
+            filters={"events": [{"id": "purchase", "type": "events", "order": 0}]},
+            math=GroupUsageMetric.Math.SUM,
+            math_property="amount",
+        )
+
+        with freeze_time(timezone.now() - timedelta(days=8)):
+            _create_event(
+                event="purchase",
+                team=self.team,
+                person_id=str(self.person.uuid),
+                distinct_id=self.person_distinct_id,
+                properties={"amount": 200},
+            )
+
+        with freeze_time(timezone.now()):
+            _create_event(
+                event="purchase",
+                team=self.team,
+                person_id=str(self.person.uuid),
+                distinct_id=self.person_distinct_id,
+                properties={"amount": 300},
+            )
+
+        flush_persons_and_events()
+
+        query_result = self._calculate(person_id=str(self.person.uuid))
+
+        results = query_result["results"]
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["value"], 300.0)
+        self.assertEqual(results[0]["previous"], 200.0)
+        self.assertEqual(results[0]["change_from_previous_pct"], 50.0)
+
+    @freeze_time("2025-10-09T12:11:00")
+    def test_count_and_sum_metrics_together(self):
+        GroupUsageMetric.objects.create(
+            id=self.test_metric_id,
+            team=self.team,
+            group_type_index=0,
+            name="Purchases",
+            format=GroupUsageMetric.Format.NUMERIC,
+            interval=7,
+            display=GroupUsageMetric.Display.NUMBER,
+            filters={"events": [{"id": "purchase", "type": "events", "order": 0}]},
+        )
+        GroupUsageMetric.objects.create(
+            id=self.another_test_metric_id,
+            team=self.team,
+            group_type_index=0,
+            name="Revenue",
+            format=GroupUsageMetric.Format.CURRENCY,
+            interval=7,
+            display=GroupUsageMetric.Display.NUMBER,
+            filters={"events": [{"id": "purchase", "type": "events", "order": 0}]},
+            math=GroupUsageMetric.Math.SUM,
+            math_property="amount",
+        )
+        _create_event(
+            event="purchase",
+            team=self.team,
+            person_id=str(self.person.uuid),
+            distinct_id=self.person_distinct_id,
+            properties={"amount": 100},
+        )
+        _create_event(
+            event="purchase",
+            team=self.team,
+            person_id=str(self.person.uuid),
+            distinct_id=self.person_distinct_id,
+            properties={"amount": 200},
+        )
+        flush_persons_and_events()
+
+        query_result = self._calculate(person_id=str(self.person.uuid))
+
+        results = query_result["results"]
+        self.assertEqual(len(results), 2)
+        results_by_name = {r["name"]: r for r in results}
+        self.assertEqual(results_by_name["Revenue"]["value"], 300.0)
+        self.assertEqual(results_by_name["Purchases"]["value"], 2.0)
+
+    @freeze_time("2025-10-09T12:11:00")
     def test_cache_invalidates_when_metric_created(self):
         _create_event(
             event="metric_event",
