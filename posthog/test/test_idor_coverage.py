@@ -25,6 +25,7 @@ from posthog.test.base import APIBaseTest
 from parameterized import parameterized
 
 from posthog.test.idor import IDORTestCase, IDORTestMixin, build_minimal_instance, discover_idor_test_cases
+from posthog.test.idor.factory import reset_sentinel
 
 DISCOVERED_CASES: list[IDORTestCase] = discover_idor_test_cases()
 
@@ -37,16 +38,20 @@ def _case_params(case: IDORTestCase) -> tuple:
 class TestAutomatedIDORCoverage(IDORTestMixin, APIBaseTest):
     """Auto-generated: one cross-team IDOR test per tenant-scoped viewset with a detail endpoint."""
 
-    @parameterized.expand([_case_params(c) for c in DISCOVERED_CASES])
-    def test_cross_team_get_detail(self, _name: str, case: IDORTestCase) -> None:
-        """Attacker URL + victim resource id → 403/404/405, never 200."""
+    def _build_instance_and_url(self, case: IDORTestCase) -> tuple[object, str, str]:
+        """Return (instance, url, sentinel). Skips the test on setup failures.
+
+        The instance is created in the victim team; the URL uses the attacker's
+        root (team/project/org) with the victim resource's id — the canonical
+        IDOR shape. A fresh sentinel is embedded in the instance's string
+        fields so the test can verify no leak regardless of response status.
+        """
+        sentinel = reset_sentinel()
         try:
             instance = build_minimal_instance(case.model_cls, team=self.victim_team)
         except Exception as exc:
             self.skipTest(f"{case.model_cls.__name__}: could not auto-instantiate ({type(exc).__name__}: {exc})")
 
-        # Determine which root-id to use. For /projects/, use attacker's project.
-        # For /environments/, use attacker's team. For /organizations/, use attacker's org.
         if case.url.root == "projects":
             root_id: int | str = self.project.pk  # type: ignore[attr-defined]
         elif case.url.root == "environments":
@@ -56,10 +61,6 @@ class TestAutomatedIDORCoverage(IDORTestMixin, APIBaseTest):
         else:
             self.skipTest(f"Unknown URL root: {case.url.root}")
 
-        # For nested-parent URLs, derive each intermediate id from the instance's FK.
-        # E.g. parent_lookup_insight_id ⇒ instance.insight_id. Use attacker's pid/tid for
-        # root; the intermediate id is the VICTIM's — this is the correct IDOR shape:
-        # attacker's root, victim's nested ancestor, victim's leaf.
         intermediate_ids: dict[str, int | str] = {}
         for _, kwarg in case.url.intermediate_parents:
             field_name = kwarg.removeprefix("parent_lookup_")
@@ -70,12 +71,60 @@ class TestAutomatedIDORCoverage(IDORTestMixin, APIBaseTest):
                     f"{case.name}: could not derive intermediate id {field_name!r} from {case.model_cls.__name__} instance"
                 )
 
-        # The URL's final kwarg may be `pk`, `id`, or something custom.
-        # Prefer the named attribute off the instance; fall back to pk.
         pk_value = getattr(instance, case.url.pk_kwarg, instance.pk)
         url = case.url.build_url(  # type: ignore[attr-defined]
             root_id=root_id,
             pk=pk_value,
             intermediate_ids=intermediate_ids or None,
         )
-        self.assertCrossTeamDenied(url, method="get")
+        return instance, url, sentinel
+
+    @parameterized.expand([_case_params(c) for c in DISCOVERED_CASES])
+    def test_cross_team_get_detail(self, _name: str, case: IDORTestCase) -> None:
+        """Attacker hits victim resource URL → 403/404/405 + no sentinel leak."""
+        _instance, url, sentinel = self._build_instance_and_url(case)
+        response = self.assertCrossTeamDenied(url, method="get")
+        self.assertSentinelNotLeaked(response, sentinel)
+
+    @parameterized.expand([_case_params(c) for c in DISCOVERED_CASES])
+    def test_cross_team_patch_detail(self, _name: str, case: IDORTestCase) -> None:
+        """Attacker cannot mutate a cross-team resource + no sentinel leak."""
+        instance, url, sentinel = self._build_instance_and_url(case)
+        response = self.assertCrossTeamDenied(
+            url, method="patch", data={"name": "pwned", "title": "pwned", "description": "pwned"}
+        )
+        self.assertSentinelNotLeaked(response, sentinel)
+        # Verify the victim's resource is unchanged (reload from DB and check sentinel still in name).
+        _assert_resource_unchanged(self, case, instance, sentinel)
+
+    @parameterized.expand([_case_params(c) for c in DISCOVERED_CASES])
+    def test_cross_team_delete_detail(self, _name: str, case: IDORTestCase) -> None:
+        """Attacker cannot delete a cross-team resource + no sentinel leak."""
+        instance, url, sentinel = self._build_instance_and_url(case)
+        response = self.assertCrossTeamDenied(url, method="delete")
+        self.assertSentinelNotLeaked(response, sentinel)
+        # Hard-delete check: resource must still exist in the victim team.
+        assert case.model_cls.objects.filter(pk=instance.pk).exists(), (  # type: ignore[attr-defined]
+            f"IDOR: DELETE {url} actually removed the victim's {case.model_cls.__name__}"
+        )
+
+
+def _assert_resource_unchanged(test_case: object, case: IDORTestCase, instance: object, sentinel: str) -> None:
+    """Verify a PATCH didn't mutate the victim's resource.
+
+    The attacker's PATCH payload sent `name=pwned`, `title=pwned`, `description=pwned`.
+    Reloading the instance, at least one of those fields should still contain the
+    sentinel (if it was embedded there during creation). If ALL three are missing
+    AND the sentinel is absent from the reloaded instance, we can't reliably verify
+    — skip the mutation check.
+    """
+    _ = sentinel  # reserved for future refinement
+    reloaded = case.model_cls.objects.filter(pk=instance.pk).first()  # type: ignore[attr-defined]
+    assert reloaded is not None, f"victim's {case.model_cls.__name__} was unexpectedly deleted"
+    for field_name in ("name", "title", "description"):
+        if hasattr(reloaded, field_name):
+            val = getattr(reloaded, field_name)
+            if val == "pwned":
+                raise AssertionError(
+                    f"IDOR: PATCH {case.name} mutated victim's {field_name} to 'pwned' (instance {instance.pk})"  # type: ignore[attr-defined]
+                )

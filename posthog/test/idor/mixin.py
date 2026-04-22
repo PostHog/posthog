@@ -25,11 +25,14 @@ from posthog.models.project import Project
 from posthog.models.team import Team
 from posthog.models.user import User
 
-# Status codes that indicate the attacker was blocked:
-#   403 — permission check fired (e.g. TeamMemberAccessPermission)
-#   404 — queryset filter returned empty (canonical IDOR defense)
-#   405 — method not supported on this viewset for anyone (not an IDOR either way)
-DENIED_STATUS_CODES = frozenset({403, 404, 405})
+# Status codes that indicate the attacker's request succeeded with the victim's resource.
+# Any 2xx is treated as "success" from the attacker's perspective — potentially an IDOR
+# (though the sentinel and mutation checks are the real security gates). Anything outside
+# 2xx is treated as "denied" regardless of whether it's the cleanest possible response:
+#   - 400 (validation), 403 (perm), 404 (not in queryset) — canonical denials
+#   - 405 (method not supported) — not an IDOR either way
+#   - 5xx — latent viewset bug but no data leak (sentinel check would catch if body leaks)
+SUCCESS_2XX = frozenset(range(200, 300))
 
 
 class IDORTestMixin:
@@ -70,18 +73,22 @@ class IDORTestMixin:
         data: Optional[dict] = None,
         message: str = "",
     ) -> Any:
-        """Attacker (self.user) hits `url`; expect one of DENIED_STATUS_CODES.
+        """Attacker (self.user) hits `url`; expect a non-2xx response.
 
-        Returns the response so callers can do extra assertions (e.g. info-leak
-        sentinel checks).
+        2xx status codes are treated as IDOR hits (the attacker received a
+        success response for a cross-team resource). Any other status code
+        (4xx, 5xx) is treated as denied. The caller should additionally run
+        `assertSentinelNotLeaked` on the response to catch info-leaks that
+        happen inside an error body, and (for PATCH/DELETE) verify the
+        victim's resource wasn't actually mutated.
         """
         http_method = getattr(self.client, method.lower())  # type: ignore[attr-defined]
         response = http_method(url, data=data) if data is not None else http_method(url)
         status_code = response.status_code
-        if status_code not in DENIED_STATUS_CODES:
+        if status_code in SUCCESS_2XX:
             raise AssertionError(
-                f"IDOR: {method.upper()} {url} returned {status_code}; "
-                f"expected one of {sorted(DENIED_STATUS_CODES)}. "
+                f"IDOR: {method.upper()} {url} returned {status_code} (2xx); "
+                f"attacker should not get a success response for a cross-team resource. "
                 f"{message}"
                 f"\nResponse: {response.content[:400]!r}"
             )

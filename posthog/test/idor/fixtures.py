@@ -254,7 +254,12 @@ register_label_fixture("experiments.Experiment", _experiment_factory)
 def _web_experiment_factory(team: Team) -> models.Model:
     from products.experiments.backend.models.web_experiment import WebExperiment
 
-    return WebExperiment.objects.create(team=team, feature_flag=_create_feature_flag(team, "-web"), name="idor-web-exp")
+    # WebExperiment is a proxy model filtered to type="web" by its manager.
+    # Must pass type="web" explicitly or the created row won't be visible via
+    # WebExperiment.objects.filter().
+    return WebExperiment.objects.create(
+        team=team, feature_flag=_create_feature_flag(team, "-web"), name="idor-web-exp", type="web"
+    )
 
 
 register_label_fixture("experiments.WebExperiment", _web_experiment_factory)

@@ -9,6 +9,11 @@ always win.
 When a required field can't be filled automatically (e.g. a non-nullable
 ForeignKey without a default), we raise `UnfillableField`. Callers can
 catch this and either skip the test or consult the fixture registry.
+
+**Sentinel embedding**: Each auto-built instance has `current_sentinel()`
+embedded in its string fields so the test can later verify the sentinel
+does not appear in the attacker's response body (info-leak check).
+Call `reset_sentinel()` at the start of each test to get a unique value.
 """
 
 from __future__ import annotations
@@ -21,9 +26,26 @@ from django.utils import timezone
 
 from posthog.models.team import Team
 
+# Prefix for auto-generated sentinels. Tests can detect this pattern in
+# response bodies to flag an info-leak even when status code is 200/500/etc.
+_SENTINEL_PREFIX = "idor-sentinel-"
+_current_sentinel: str = _SENTINEL_PREFIX + "boot"
+
+
+def reset_sentinel() -> str:
+    """Generate a new unique sentinel. Call once per test."""
+    global _current_sentinel
+    _current_sentinel = _SENTINEL_PREFIX + uuid.uuid4().hex[:12]
+    return _current_sentinel
+
+
+def current_sentinel() -> str:
+    return _current_sentinel
+
+
 # Short enough to fit in most CharField(max_length=...) constraints but long
 # enough to appear distinctive in test output.
-DEFAULT_SENTINEL = "idor-test-sentinel"
+DEFAULT_SENTINEL = current_sentinel
 
 
 class UnfillableField(ValueError):
@@ -91,7 +113,8 @@ def _default_for_field(field: models.Field, model_cls: type) -> Any:
         return "idor@example.com"
     if isinstance(field, (models.CharField, models.TextField, models.SlugField, models.URLField)):
         max_len = getattr(field, "max_length", None) or 64
-        return DEFAULT_SENTINEL[:max_len]
+        # Embed the current sentinel so tests can detect info-leaks in responses.
+        return current_sentinel()[:max_len]
     if isinstance(field, (models.IntegerField, models.BigIntegerField, models.SmallIntegerField)):
         return 0
     if isinstance(field, models.FloatField):
