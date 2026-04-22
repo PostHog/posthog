@@ -14,7 +14,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.rate_limit import IPThrottle
 
 from ..facade import api
-from ..integrations.pandadoc import verify_webhook_signature
+from ..logic.pandadoc import verify_webhook_signature
 
 logger = structlog.get_logger(__name__)
 

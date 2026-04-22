@@ -19,12 +19,12 @@ from posthog.models.organization import Organization
 
 from ee.billing.billing_manager import BillingManager
 
-from .facade.enums import DocumentType
-from .integrations import (
+from ..facade.enums import DocumentType
+from ..models import LegalDocument
+from . import (
     pandadoc as pandadoc_client,
     slack as slack_notifier,
 )
-from .models import LegalDocument
 
 logger = structlog.get_logger(__name__)
 

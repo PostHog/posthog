@@ -5,7 +5,7 @@ from unittest.mock import MagicMock, patch
 
 from django.test import TestCase, override_settings
 
-from products.legal_documents.backend.integrations import pandadoc
+from products.legal_documents.backend.logic import pandadoc
 
 
 class TestPandaDocClient(TestCase):
@@ -27,7 +27,7 @@ class TestPandaDocClient(TestCase):
         fake_response.json.return_value = {"id": "doc_123", "status": "document.uploaded", "name": "PostHog BAA"}
 
         with patch(
-            "products.legal_documents.backend.integrations.pandadoc.requests.post", return_value=fake_response
+            "products.legal_documents.backend.logic.pandadoc.requests.post", return_value=fake_response
         ) as mock_post:
             client = pandadoc.PandaDocClient()
             result = client.create_document_from_template(
@@ -67,7 +67,7 @@ class TestPandaDocClient(TestCase):
         fake_response.status_code = 500
         fake_response.text = "boom"
 
-        with patch("products.legal_documents.backend.integrations.pandadoc.requests.post", return_value=fake_response):
+        with patch("products.legal_documents.backend.logic.pandadoc.requests.post", return_value=fake_response):
             client = pandadoc.PandaDocClient()
             with self.assertRaises(pandadoc.PandaDocError):
                 client.send_document(document_id="doc_123", subject="s", message="m")
