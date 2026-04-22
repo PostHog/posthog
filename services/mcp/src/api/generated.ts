@@ -17244,6 +17244,18 @@ export namespace Schemas {
       Sparkline: 'sparkline',
     } as const;
 
+    /**
+     * * `count` - count
+    * `sum` - sum
+     */
+    export type MathEnum = typeof MathEnum[keyof typeof MathEnum];
+
+
+    export const MathEnum = {
+      Count: 'count',
+      Sum: 'sum',
+    } as const;
+
     export interface GroupUsageMetric {
       readonly id: string;
       /** @maxLength 255 */
@@ -17257,6 +17269,12 @@ export namespace Schemas {
       interval?: number;
       display?: GroupUsageMetricDisplayEnum;
       filters: unknown;
+      math?: MathEnum;
+      /**
+       * @maxLength 255
+       * @nullable
+       */
+      math_property?: string | null;
     }
 
     /**
@@ -26087,6 +26105,12 @@ export namespace Schemas {
       interval?: number;
       display?: GroupUsageMetricDisplayEnum;
       filters?: unknown;
+      math?: MathEnum;
+      /**
+       * @maxLength 255
+       * @nullable
+       */
+      math_property?: string | null;
     }
 
     export interface PatchedHealthIssue {

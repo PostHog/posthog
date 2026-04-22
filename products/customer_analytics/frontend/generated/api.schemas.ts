@@ -69,6 +69,92 @@ export interface PaginatedCustomerProfileConfigListApi {
     results: CustomerProfileConfigApi[]
 }
 
+/**
+ * * `numeric` - numeric
+ * `currency` - currency
+ */
+export type GroupUsageMetricFormatEnumApi =
+    (typeof GroupUsageMetricFormatEnumApi)[keyof typeof GroupUsageMetricFormatEnumApi]
+
+export const GroupUsageMetricFormatEnumApi = {
+    Numeric: 'numeric',
+    Currency: 'currency',
+} as const
+
+/**
+ * * `number` - number
+ * `sparkline` - sparkline
+ */
+export type GroupUsageMetricDisplayEnumApi =
+    (typeof GroupUsageMetricDisplayEnumApi)[keyof typeof GroupUsageMetricDisplayEnumApi]
+
+export const GroupUsageMetricDisplayEnumApi = {
+    Number: 'number',
+    Sparkline: 'sparkline',
+} as const
+
+/**
+ * * `count` - count
+ * `sum` - sum
+ */
+export type MathEnumApi = (typeof MathEnumApi)[keyof typeof MathEnumApi]
+
+export const MathEnumApi = {
+    Count: 'count',
+    Sum: 'sum',
+} as const
+
+export interface GroupUsageMetricApi {
+    readonly id: string
+    /** @maxLength 255 */
+    name: string
+    format?: GroupUsageMetricFormatEnumApi
+    /**
+     * In days
+     * @minimum -2147483648
+     * @maximum 2147483647
+     */
+    interval?: number
+    display?: GroupUsageMetricDisplayEnumApi
+    filters: unknown
+    math?: MathEnumApi
+    /**
+     * @maxLength 255
+     * @nullable
+     */
+    math_property?: string | null
+}
+
+export interface PaginatedGroupUsageMetricListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: GroupUsageMetricApi[]
+}
+
+export interface PatchedGroupUsageMetricApi {
+    readonly id?: string
+    /** @maxLength 255 */
+    name?: string
+    format?: GroupUsageMetricFormatEnumApi
+    /**
+     * In days
+     * @minimum -2147483648
+     * @maximum 2147483647
+     */
+    interval?: number
+    display?: GroupUsageMetricDisplayEnumApi
+    filters?: unknown
+    math?: MathEnumApi
+    /**
+     * @maxLength 255
+     * @nullable
+     */
+    math_property?: string | null
+}
+
 export type CustomerJourneysListParams = {
     /**
      * Number of results to return per page.
@@ -81,6 +167,17 @@ export type CustomerJourneysListParams = {
 }
 
 export type CustomerProfileConfigsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type GroupsTypesMetricsListParams = {
     /**
      * Number of results to return per page.
      */
