@@ -155,7 +155,7 @@ wrappers:
             - modifiers
 
     query-trends-actors:
-        schema_ref: AssistantInsightActorsQuery
+        schema_ref: AssistantTrendsActorsQuery
         enabled: true
         scopes:
             - query:read

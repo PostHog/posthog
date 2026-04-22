@@ -251,12 +251,12 @@ const enrichBatchJsonAttributes = instrumented({
     return Promise.resolve()
 })
 
-const scrubBatchWithBodyParses = instrumented({
+const scrubBatch = instrumented({
     key: SPAN_LOGS_PII_SCRUB,
     ...logRecordProcessInstrumentOpts,
-})((records: LogRecord[], bodyParses: LogBodyParseResult[]): Promise<void> => {
-    for (let i = 0; i < records.length; i++) {
-        scrubLogRecord(records[i], { bodyParse: bodyParses[i] })
+})((records: LogRecord[]): Promise<void> => {
+    for (const record of records) {
+        scrubLogRecord(record)
     }
     return Promise.resolve()
 })
@@ -265,6 +265,9 @@ const scrubBatchWithBodyParses = instrumented({
  * Processes an AVRO-encoded log message buffer containing multiple records.
  * Passthrough (no decode) when both json_parse_logs and pii_scrub_logs are off.
  * Otherwise: decode → optional parse bodies → optional JSON enrich → optional PII scrub → encode.
+ *
+ * PII scrub does not parse log bodies; `parseLogBodiesForIngestion` runs only when `json_parse_logs` needs it for
+ * enrichment (or when both flags are on, once per record before enrich then scrub).
  */
 export async function processLogMessageBuffer(buffer: Buffer, settings: LogsSettings): Promise<Buffer> {
     const jsonParse = settings.json_parse_logs ?? false
@@ -288,13 +291,12 @@ export async function processLogMessageBuffer(buffer: Buffer, settings: LogsSett
         if (jsonParse && piiScrub) {
             const bodyParses = await parseLogBodiesForIngestion(records)
             await enrichBatchJsonAttributes(records, bodyParses)
-            await scrubBatchWithBodyParses(records, bodyParses)
+            await scrubBatch(records)
         } else if (jsonParse) {
             const bodyParses = await parseLogBodiesForIngestion(records)
             await enrichBatchJsonAttributes(records, bodyParses)
         } else if (piiScrub) {
-            const bodyParses = await parseLogBodiesForIngestion(records)
-            await scrubBatchWithBodyParses(records, bodyParses)
+            await scrubBatch(records)
         }
 
         return encodeLogRecordsInstrumented(logRecordType, codec, records)

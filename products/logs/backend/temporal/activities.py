@@ -14,7 +14,7 @@ import temporalio.activity
 from posthog.cdp.internal_events import InternalEventEvent, produce_internal_event
 from posthog.exceptions_capture import capture_exception
 
-from products.logs.backend.alert_check_query import AlertCheckQuery
+from products.logs.backend.alert_check_query import AlertCheckQuery, fetch_live_logs_checkpoint, resolve_alert_date_to
 from products.logs.backend.alert_error_classifier import (
     AlertErrorCode,
     classify as classify_alert_error,
@@ -37,6 +37,7 @@ from products.logs.backend.temporal.metrics import (
     increment_state_transition,
     record_alerts_active,
     record_check_duration,
+    record_checkpoint_lag,
     record_scheduler_lag,
 )
 
@@ -82,13 +83,25 @@ def _check_alerts_sync() -> CheckAlertsOutput:
     except Exception:
         logger.exception("Failed to record alerts_active gauge")
 
+    checkpoint: datetime | None = None
+    if all_alerts:
+        try:
+            checkpoint = fetch_live_logs_checkpoint(all_alerts[0].team)
+        except Exception:
+            logger.exception("Failed to fetch logs ingestion checkpoint; falling back to wall-clock")
+
+    try:
+        record_checkpoint_lag(now, checkpoint)
+    except Exception:
+        logger.exception("Failed to record checkpoint lag gauge")
+
     stats = {"checked": 0, "fired": 0, "resolved": 0, "errored": 0}
 
     # Sequential for now. TODO, stagger
     # or cap concurrency to avoid bursting all ClickHouse queries at :00 each minute.
     for alert in all_alerts:
         try:
-            _evaluate_single_alert(alert, now, stats)
+            _evaluate_single_alert(alert, now, stats, checkpoint=checkpoint)
         except Exception:
             logger.exception(
                 "Unexpected error evaluating alert",
@@ -116,13 +129,15 @@ def _evaluate_single_alert(
     alert: LogsAlertConfiguration,
     now: datetime,
     stats: dict[str, int],
+    *,
+    checkpoint: datetime | None = None,
 ) -> None:
     """Run the ClickHouse query, apply state machine, persist, and emit events for a single alert."""
     start_time = time.perf_counter()
     original_next_check_at = alert.next_check_at
 
-    date_to = now
-    date_from = now - timedelta(minutes=alert.window_minutes)
+    date_to = resolve_alert_date_to(now, checkpoint)
+    date_from = date_to - timedelta(minutes=alert.window_minutes)
 
     check_result: CheckResult
     error_category: AlertErrorCode | None = None
