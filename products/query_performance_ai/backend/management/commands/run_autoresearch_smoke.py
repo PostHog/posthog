@@ -80,12 +80,6 @@ class Command(BaseCommand):
             ),
         )
         parser.add_argument(
-            "--cluster",
-            choices=("test", "prod"),
-            default="test",
-            help="Which cluster the proxy should dispatch to (default: test).",
-        )
-        parser.add_argument(
             "--sql-file",
             default=_DEFAULT_SMOKE_SQL_RELPATH,
             help=(
@@ -111,7 +105,6 @@ class Command(BaseCommand):
         repository: str = options["repository"]
         branch: str = options["branch"] or _detect_current_branch() or "master"
         posthog_url: str = options["posthog_url"]
-        cluster: str = options["cluster"]
         query_id: str | None = options["query_id"]
         keep_sandbox: bool = options["keep_sandbox"]
 
@@ -121,7 +114,7 @@ class Command(BaseCommand):
 
         sql = _load_sql_from_file(options["sql_file"])
 
-        scope = f"clickhouse_perf:{cluster}_read"
+        scope = "clickhouse_perf:test_read"
         self.stdout.write(f"Minting OAuth token for user={user.id} team={team.id} scope={scope}")
         token = create_oauth_access_token_for_user(user, team.id, scopes=[scope])
 
@@ -135,7 +128,6 @@ class Command(BaseCommand):
         anthropic_base_url = _resolve_anthropic_base_url(self.stdout.write)
 
         self.stdout.write(f"Repository: {repository} (branch: {branch})")
-        self.stdout.write(f"Target cluster: {cluster}")
         self.stdout.write(f"Sandbox will reach PostHog at: {posthog_url}")
         self.stdout.write(f"SQL under test ({len(sql)} bytes):")
         self.stdout.write(_truncate(sql, 400))
@@ -190,7 +182,6 @@ class Command(BaseCommand):
             env_values: dict[str, str] = {
                 "POSTHOG_URL": posthog_url,
                 "POSTHOG_OAUTH_TOKEN": token,
-                "POSTHOG_CLUSTER": cluster,
                 "CAMPAIGN_SQL": sql,
             }
             if query_id:

@@ -7,7 +7,7 @@ Full loop:
 2. Init a campaign workspace for the supplied SQL (defaults to ``SELECT 1``,
    i.e. a smoke test).
 3. Write an ``adapter.json`` that routes queries through the PostHog
-   OAuth-gated proxy (``/api/query_performance_proxy/execute-<cluster>/``).
+   OAuth-gated proxy (``/api/query_performance_proxy/execute-test/``).
 4. Capture a baseline through the proxy.
 5. Invoke ``pi /skill::clickhouse-autoresearch-campaign`` to kick off the
    actual LLM-driven campaign — this is the step that calls Anthropic via the
@@ -21,8 +21,7 @@ Task orchestration):
 * ``--posthog-url`` / ``POSTHOG_URL`` — base URL the sandbox uses to reach
   the PostHog app (in docker, typically ``http://host.docker.internal:8000``).
 * ``--posthog-token`` / ``POSTHOG_OAUTH_TOKEN`` — scoped OAuth access token
-  with ``clickhouse_perf:<cluster>_read`` scope.
-* ``--cluster`` / ``POSTHOG_CLUSTER`` — ``test`` (default) or ``prod``.
+  with ``clickhouse_perf:test_read`` scope.
 
 Optional:
 
@@ -68,13 +67,13 @@ def run(cmd: list[str], *, cwd: Path | None = None) -> subprocess.CompletedProce
     return result
 
 
-def check_proxy_reachable(posthog_url: str, token: str, cluster: str) -> None:
+def check_proxy_reachable(posthog_url: str, token: str) -> None:
     """Round-trip a SELECT 1 through the proxy before doing anything else.
 
     If the proxy is unreachable or the token is rejected, fail fast with a
     useful error instead of discovering it three minutes into a pi install.
     """
-    endpoint = posthog_url.rstrip("/") + f"/api/query_performance_proxy/execute-{cluster}/"
+    endpoint = posthog_url.rstrip("/") + "/api/query_performance_proxy/execute-test/"
     body = json.dumps({"sql": "SELECT 1"}).encode("utf-8")
     req = urllib.request.Request(
         endpoint,
@@ -230,20 +229,19 @@ def init_campaign(workspace: Path, query_file: Path, *, query_id: str) -> None:
     )
 
 
-def write_adapter_json(workspace: Path, *, posthog_url: str, token: str, cluster: str) -> None:
+def write_adapter_json(workspace: Path, *, posthog_url: str, token: str) -> None:
     (workspace / "adapter.json").write_text(
         json.dumps(
             {
                 "type": "posthog_proxy",
                 "url": posthog_url,
-                "cluster": cluster,
                 "token": token,
             },
             indent=2,
         )
         + "\n"
     )
-    log(f"wrote adapter.json targeting {posthog_url} (cluster={cluster})")
+    log(f"wrote adapter.json targeting {posthog_url}")
 
 
 def capture_baseline(workspace: Path) -> None:
@@ -489,13 +487,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument(
         "--posthog-token",
         default=os.environ.get("POSTHOG_OAUTH_TOKEN", ""),
-        help="Scoped OAuth access token with clickhouse_perf:<cluster>_read (env: POSTHOG_OAUTH_TOKEN)",
-    )
-    parser.add_argument(
-        "--cluster",
-        choices=("test", "prod"),
-        default=os.environ.get("POSTHOG_CLUSTER", "test"),
-        help="Which cluster the proxy should dispatch to (env: POSTHOG_CLUSTER)",
+        help="Scoped OAuth access token with clickhouse_perf:test_read (env: POSTHOG_OAUTH_TOKEN)",
     )
     parser.add_argument(
         "--workspace",
@@ -552,7 +544,7 @@ def main() -> int:
         raise CampaignError("--posthog-token (or POSTHOG_OAUTH_TOKEN) is required")
 
     try:
-        check_proxy_reachable(args.posthog_url, args.posthog_token, args.cluster)
+        check_proxy_reachable(args.posthog_url, args.posthog_token)
         install_pi_toolchain()
 
         log(f"resetting workspace {args.workspace}")
@@ -570,7 +562,6 @@ def main() -> int:
             args.workspace,
             posthog_url=args.posthog_url,
             token=args.posthog_token,
-            cluster=args.cluster,
         )
         capture_baseline(args.workspace)
         run_pi_campaign(args.workspace)

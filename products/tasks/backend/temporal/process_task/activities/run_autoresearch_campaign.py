@@ -17,9 +17,9 @@ from __future__ import annotations
 import json
 import shlex
 from dataclasses import dataclass, field
-from typing import Literal
 
 from django.conf import settings
+
 from temporalio import activity
 
 from posthog.temporal.common.logger import get_logger
@@ -34,8 +34,6 @@ from products.tasks.backend.temporal.observability import emit_agent_log, log_ac
 from .get_task_processing_context import TaskProcessingContext
 
 logger = get_logger(__name__)
-
-Cluster = Literal["test", "prod"]
 
 # Where run_campaign.py initializes the campaign workspace inside the sandbox.
 # Keeping it at a stable path makes the "cat this file back" harvesting step
@@ -62,6 +60,7 @@ def _resolve_anthropic_base_url() -> str | None:
         return None
     return f"{gateway_url.rstrip('/')}/{LLM_GATEWAY_PRODUCT_SLUG}"
 
+
 # Campaign runs are long (LLM loop + many CH round-trips). The overall
 # Temporal activity timeout is set generously; inside, we still cap the child
 # processes so a hung pi call doesn't burn the whole budget.
@@ -72,7 +71,6 @@ CAMPAIGN_SCRIPT_TIMEOUT_S = 45 * 60
 class RunAutoresearchCampaignInput:
     context: TaskProcessingContext
     sandbox_id: str
-    cluster: Cluster = "test"
 
 
 @dataclass
@@ -172,11 +170,7 @@ def _best_run_metrics(sandbox: Sandbox) -> str:
     We let the agent pick "best" inside the campaign by tracking ``best.sql``;
     this function surfaces the numeric metrics alongside, scanning all runs.
     """
-    cmd = (
-        f"for m in {WORKSPACE_PATH}/runs/*/metrics.json; do "
-        f'  [ -f "$m" ] && echo "$m"; '
-        f"done"
-    )
+    cmd = f'for m in {WORKSPACE_PATH}/runs/*/metrics.json; do   [ -f "$m" ] && echo "$m"; done'
     result = sandbox.execute(cmd, timeout_seconds=15)
     metric_paths = [p for p in (result.stdout or "").splitlines() if p]
     best_value: float | None = None
@@ -237,7 +231,7 @@ def run_autoresearch_campaign_in_sandbox(
         task = Task.objects.select_related("created_by").get(id=ctx.task_id)
         sql, query_id = _parse_task_description(task)
 
-        scope = f"clickhouse_perf:{input.cluster}_read"
+        scope = "clickhouse_perf:test_read"
         emit_agent_log(ctx.run_id, "info", f"Minting scoped OAuth token (scope={scope})")
         token = create_oauth_access_token(task, scopes=[scope])
 
@@ -274,7 +268,6 @@ def run_autoresearch_campaign_in_sandbox(
         env_values = {
             "POSTHOG_URL": posthog_url,
             "POSTHOG_OAUTH_TOKEN": token,
-            "POSTHOG_CLUSTER": input.cluster,
             "CAMPAIGN_SQL": sql,
             "CAMPAIGN_QUERY_ID": query_id,
         }

@@ -82,14 +82,11 @@ When `adapter.json` has `type: "posthog_proxy"` (the automated-campaign case), t
 - `SHOW …` — `SHOW CREATE TABLE events`, `SHOW COLUMNS FROM events`, `SHOW INDEX FROM events`, `SHOW SETTINGS ILIKE '%mark_cache%'`, etc.
 - `DESCRIBE` / `DESC …`
 
-**Disallowed**: anything whose first keyword isn't in the list above (no INSERT, ALTER, CREATE, OPTIMIZE, SYSTEM, TRUNCATE, DROP, ATTACH, DETACH, etc.). The server also runs with `readonly = 2`, so writes are blocked defence-in-depth.
+**Disallowed**: anything whose first keyword isn't in the list above (no INSERT, ALTER, CREATE, OPTIMIZE, SYSTEM, TRUNCATE, DROP, ATTACH, DETACH, etc.). The server also runs with `readonly = 2`, so writes are blocked defense-in-depth.
 
 **Timeout**: every submission is wrapped with `SETTINGS max_execution_time = 60`. Keep ad-hoc probes short. If the target query itself routinely exceeds 60s, use range narrowing (see Setup step 6) and only then start the campaign.
 
-**Cluster scoping**:
-
-- The test cluster endpoint runs your SQL as-is.
-- The prod cluster endpoint additionally requires a literal `team_id = <N>` (or `team_id IN (<N>)`) predicate in the query — the proxy never rewrites. If your SELECT joins multiple team-scoped tables, each must carry the predicate or the request 400s.
+**Cluster scoping**: the cluster behind the proxy is team-scoped at the ClickHouse layer (today: it contains only team 2 data). You don't need to add team predicates yourself — the proxy runs SQL as-is.
 
 **Profiling ClickHouse's perspective**:
 

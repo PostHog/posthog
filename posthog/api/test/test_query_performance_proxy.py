@@ -1,19 +1,15 @@
 from datetime import timedelta
+
+from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
 from django.test import override_settings
 from django.utils import timezone
 
-from posthog.api.query_performance_proxy import (
-    PROD_ALLOWED_TEAM_ID,
-    _validate_readonly_sql,
-    _validate_team_scoping,
-)
+from posthog.api.query_performance_proxy import _validate_readonly_sql
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
-from posthog.test.base import APIBaseTest
 
 TEST_HTTP_URL = "http://clickhouse-test.internal:8123"
-PROD_HTTP_URL = "http://clickhouse-prod.internal:8123"
 
 
 class TestValidateReadonlySql(APIBaseTest):
@@ -56,53 +52,12 @@ class TestValidateReadonlySql(APIBaseTest):
         assert err is not None
 
     def test_rejects_statement_hidden_behind_comments(self):
-        # `--INSERT ...` on a single line is stripped; the remainder must still
-        # be a SELECT/WITH/EXPLAIN.
+        # `-- SELECT 1` is stripped; the remainder must still be a SELECT/WITH/EXPLAIN.
         err = _validate_readonly_sql("-- SELECT 1\nDROP TABLE t")
         assert err is not None
 
 
-class TestValidateTeamScoping(APIBaseTest):
-    def test_accepts_equality_predicate(self):
-        sql = "SELECT * FROM events WHERE team_id = 2 AND timestamp > now()"
-        assert _validate_team_scoping(sql, required_team_id=PROD_ALLOWED_TEAM_ID) is None
-
-    def test_accepts_in_predicate(self):
-        sql = "SELECT * FROM events WHERE team_id IN (2)"
-        assert _validate_team_scoping(sql, required_team_id=PROD_ALLOWED_TEAM_ID) is None
-
-    def test_accepts_flexible_whitespace(self):
-        sql = "SELECT * FROM events WHERE    team_id   =   2"
-        assert _validate_team_scoping(sql, required_team_id=PROD_ALLOWED_TEAM_ID) is None
-
-    def test_accepts_case_insensitive(self):
-        sql = "select * from events where TEAM_ID = 2"
-        assert _validate_team_scoping(sql, required_team_id=PROD_ALLOWED_TEAM_ID) is None
-
-    def test_rejects_missing_predicate(self):
-        sql = "SELECT * FROM events WHERE timestamp > now()"
-        err = _validate_team_scoping(sql, required_team_id=PROD_ALLOWED_TEAM_ID)
-        assert err is not None
-        assert "team_id = 2" in err.message
-
-    def test_rejects_wrong_team_id(self):
-        sql = "SELECT * FROM events WHERE team_id = 3"
-        err = _validate_team_scoping(sql, required_team_id=PROD_ALLOWED_TEAM_ID)
-        assert err is not None
-
-    def test_rejects_expression_that_evaluates_to_2(self):
-        # Defence-in-depth: we require a literal predicate, not anything that
-        # happens to evaluate to 2. An agent trying to sneak past the check
-        # must fail here.
-        sql = "SELECT * FROM events WHERE team_id = 1 + 1"
-        err = _validate_team_scoping(sql, required_team_id=PROD_ALLOWED_TEAM_ID)
-        assert err is not None
-
-
-@override_settings(
-    CLICKHOUSE_PERF_TEST_HTTP_URL=TEST_HTTP_URL,
-    CLICKHOUSE_PERF_PROD_HTTP_URL=PROD_HTTP_URL,
-)
+@override_settings(CLICKHOUSE_PERF_TEST_HTTP_URL=TEST_HTTP_URL)
 class TestQueryPerformanceProxyViewSet(APIBaseTest):
     def setUp(self):
         super().setUp()
@@ -147,21 +102,12 @@ class TestQueryPerformanceProxyViewSet(APIBaseTest):
         )
         assert resp.status_code == 401
 
-    def test_test_endpoint_rejects_token_with_only_prod_scope(self):
-        token = self._make_token(["clickhouse_perf:prod_read"])
+    def test_rejects_token_without_test_scope(self):
+        token = self._make_token(["query:read"])
         resp = self._post(
             "/api/query_performance_proxy/execute-test/",
             token=token,
             body={"sql": "SELECT 1"},
-        )
-        assert resp.status_code == 403
-
-    def test_prod_endpoint_rejects_token_with_only_test_scope(self):
-        token = self._make_token(["clickhouse_perf:test_read"])
-        resp = self._post(
-            "/api/query_performance_proxy/execute-prod/",
-            token=token,
-            body={"sql": "SELECT 1 WHERE team_id = 2"},
         )
         assert resp.status_code == 403
 
@@ -178,16 +124,20 @@ class TestQueryPerformanceProxyViewSet(APIBaseTest):
         assert resp.status_code == 400
         assert mocked.call_count == 0
 
-    def test_prod_rejects_missing_team_id_with_400_and_no_upstream_call(self):
-        token = self._make_token(["clickhouse_perf:prod_read"])
-        with patch("posthog.api.query_performance_proxy.urllib.request.urlopen") as mocked:
+    # --- config handling ---------------------------------------------------
+
+    def test_returns_503_when_url_unset(self):
+        token = self._make_token(["clickhouse_perf:test_read"])
+        with (
+            override_settings(CLICKHOUSE_PERF_TEST_HTTP_URL=""),
+            patch("posthog.api.query_performance_proxy.urllib.request.urlopen") as mocked,
+        ):
             resp = self._post(
-                "/api/query_performance_proxy/execute-prod/",
+                "/api/query_performance_proxy/execute-test/",
                 token=token,
-                body={"sql": "SELECT count() FROM events WHERE timestamp > now()"},
+                body={"sql": "SELECT 1"},
             )
-        assert resp.status_code == 400
-        assert "team_id = 2" in resp.json()["error"]
+        assert resp.status_code == 503
         assert mocked.call_count == 0
 
     # --- happy path (proxy call mocked) ------------------------------------
@@ -219,19 +169,3 @@ class TestQueryPerformanceProxyViewSet(APIBaseTest):
         called_req = mocked.call_args.args[0]
         assert called_req.full_url.startswith(TEST_HTTP_URL)
         assert b"readonly = 2" in called_req.data
-
-    def test_prod_endpoint_proxies_select_with_team_id_2(self):
-        token = self._make_token(["clickhouse_perf:prod_read"])
-
-        with patch("posthog.api.query_performance_proxy.urllib.request.urlopen") as mocked:
-            mocked.return_value.__enter__.return_value.read.return_value = b""
-            mocked.return_value.__enter__.return_value.headers = {}
-            resp = self._post(
-                "/api/query_performance_proxy/execute-prod/",
-                token=token,
-                body={"sql": "SELECT count() FROM events WHERE team_id = 2"},
-            )
-
-        assert resp.status_code == 200, resp.content
-        called_req = mocked.call_args.args[0]
-        assert called_req.full_url.startswith(PROD_HTTP_URL)

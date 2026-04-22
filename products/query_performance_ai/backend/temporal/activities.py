@@ -7,14 +7,15 @@ operations with trusted service credentials. The sandbox-facing work is in
 
 from __future__ import annotations
 
-import asyncio
 import json
+import asyncio
 import logging
 from dataclasses import dataclass, field
 from typing import Any
 
-from asgiref.sync import sync_to_async
 from django.conf import settings
+
+from asgiref.sync import sync_to_async
 from temporalio import activity
 
 from posthog.models.organization import OrganizationMembership
@@ -34,6 +35,7 @@ logger = logging.getLogger(__name__)
 
 
 # ------------------------------------------------------------ fetch step --
+
 
 @dataclass
 class FetchCandidatesInput:
@@ -65,6 +67,7 @@ async def fetch_slow_query_candidates_activity(
 
 
 # -------------------------------------------- create autoresearch task --
+
 
 @dataclass
 class CreateAutoresearchTaskInput:
@@ -132,6 +135,7 @@ async def create_autoresearch_task(input: CreateAutoresearchTaskInput) -> Create
 
 
 # -------------------------------------------- create PR-writing task --
+
 
 @dataclass
 class CreatePrWritingTaskInput:
@@ -202,10 +206,8 @@ async def create_pr_writing_task(input: CreatePrWritingTaskInput) -> CreatePrWri
             mode="background",
             posthog_mcp_scopes=[
                 "clickhouse_perf:test_read",
-                "clickhouse_perf:prod_read",
                 "query:read",
                 "insight:read",
-                "llm_gateway:read",
             ],
             branch=input.branch,
         )
@@ -216,6 +218,7 @@ async def create_pr_writing_task(input: CreatePrWritingTaskInput) -> CreatePrWri
 
 
 # ------------------------------------------------------------- wait step --
+
 
 @dataclass
 class WaitForTaskInput:
@@ -241,7 +244,6 @@ async def wait_for_autoresearch_task(input: WaitForTaskInput) -> WaitForTaskOutp
     Heartbeats every poll so Temporal keeps the activity alive for the full
     campaign duration (up to the activity's start-to-close timeout).
     """
-    from products.tasks.backend.models import TaskRun
 
     while True:
         activity.heartbeat()
@@ -255,6 +257,7 @@ async def wait_for_autoresearch_task(input: WaitForTaskInput) -> WaitForTaskOutp
 
 
 # ------------------------------------------------------------ slack step --
+
 
 @dataclass
 class _PrLink:
@@ -310,6 +313,7 @@ async def post_slack_summary(input: PostSlackSummaryInput) -> None:
 
 
 # ----------------------------------------------------------------- helpers --
+
 
 def _resolve_team_and_owner(team_id: int) -> tuple[Team, Any]:
     team = Team.objects.select_related("organization").get(id=team_id)
