@@ -36,7 +36,7 @@ export const scene: SceneExport<SchemaSceneProps> = {
 }
 
 const SECTION_LABELS: Record<SchemaConfigurationSection, string> = {
-    status: 'Status',
+    details: 'Details',
     'sync-method': 'Sync method',
     schedule: 'Schedule',
     'danger-zone': 'Danger zone',

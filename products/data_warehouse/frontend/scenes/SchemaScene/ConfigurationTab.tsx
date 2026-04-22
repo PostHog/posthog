@@ -6,7 +6,6 @@ import {
     LemonButton,
     LemonDialog,
     LemonInput,
-    LemonModal,
     LemonSelect,
     LemonSelectOption,
     LemonSkeleton,
@@ -14,8 +13,10 @@ import {
     LemonTag,
     Link,
     Tooltip,
+    lemonToast,
 } from '@posthog/lemon-ui'
 
+import api from 'lib/api'
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
 import { newInternalTab } from 'lib/utils/newInternalTab'
@@ -28,7 +29,6 @@ import { SyncMethodForm } from 'products/data_warehouse/frontend/shared/componen
 import { SourceEditorAction } from 'products/data_warehouse/frontend/shared/components/SourceEditorAction'
 import {
     StatusTagSetting,
-    SyncTypeLabelMap,
     defaultQuery,
     syncAnchorIntervalToHumanReadable,
 } from 'products/data_warehouse/frontend/utils'
@@ -50,25 +50,26 @@ export function ConfigurationTab({ sourceId, schema, source, section }: Configur
     const { setIsProjectTime, updateSchema, reloadSchema, resyncSchema, cancelSchema, deleteTable } = useActions(logic)
 
     switch (section) {
-        case 'status':
+        case 'details':
             return (
-                <StatusSection
+                <DetailsSection
                     source={source}
                     schema={schema}
                     reloadSchema={reloadSchema}
                     cancelSchema={cancelSchema}
+                    updateSchema={updateSchema}
                 />
             )
         case 'sync-method':
-            return <SyncMethodSection source={source} schema={schema} updateSchema={updateSchema} />
+            return <SyncMethodSection source={source} schema={schema} />
         case 'schedule':
             return (
                 <ScheduleSection
+                    sourceId={sourceId}
                     source={source}
                     schema={schema}
                     isProjectTime={isProjectTime}
                     setIsProjectTime={setIsProjectTime}
-                    updateSchema={updateSchema}
                 />
             )
         case 'danger-zone':
@@ -92,24 +93,78 @@ function SectionHeader({ title, description }: { title: string; description?: st
     )
 }
 
-function StatusSection({
+function DetailsSection({
     source,
     schema,
     reloadSchema,
     cancelSchema,
+    updateSchema,
 }: {
     source: ExternalDataSource | null
     schema: ExternalDataSourceSchema
     reloadSchema: (schema: ExternalDataSourceSchema) => void
     cancelSchema: (schema: ExternalDataSourceSchema) => void
+    updateSchema: (schema: ExternalDataSourceSchema) => void
 }): JSX.Element {
     return (
         <div>
             <SectionHeader
-                title="Status"
-                description="Current sync state for this schema. Kick off a sync on demand or cancel one in progress."
+                title="Details"
+                description="Enable or disable syncing for this schema, see its current state, and trigger a sync on demand."
             />
             <div className="border rounded p-4 bg-surface-primary flex flex-col gap-3">
+                <div className="flex items-center justify-between">
+                    <span className="text-muted">Enabled</span>
+                    <SourceEditorAction source={source}>
+                        <LemonSwitch
+                            disabledReason={
+                                schema.sync_type === null ? 'You must set up the sync method first' : undefined
+                            }
+                            checked={schema.should_sync}
+                            label={schema.should_sync ? 'Syncing' : 'Disabled'}
+                            onChange={(active) => {
+                                if (!active && schema.sync_type === 'cdc') {
+                                    LemonDialog.open({
+                                        title: 'Disable CDC table?',
+                                        content: (
+                                            <div className="text-sm text-secondary space-y-2">
+                                                <p>
+                                                    Disabling <strong>{schema.table?.name ?? schema.name}</strong> will
+                                                    remove it from the replication publication. Changes made while
+                                                    disabled will be permanently lost.
+                                                </p>
+                                                <p>
+                                                    Re-enabling this table will require a <strong>full resync</strong>{' '}
+                                                    to ensure data consistency.
+                                                </p>
+                                            </div>
+                                        ),
+                                        primaryButton: {
+                                            children: 'Disable',
+                                            status: 'danger',
+                                            onClick: () => updateSchema({ ...schema, should_sync: false }),
+                                        },
+                                        secondaryButton: { children: 'Cancel', type: 'tertiary' },
+                                    })
+                                } else if (!active && schema.sync_type === 'webhook') {
+                                    LemonDialog.open({
+                                        title: 'Disable webhook sync?',
+                                        description:
+                                            'Turning off this table will stop the webhook from consuming any more data. When you re-enable it, a full refresh sync will need to be completed to ensure no data is missing.',
+                                        primaryButton: {
+                                            children: 'Disable',
+                                            status: 'danger',
+                                            onClick: () => updateSchema({ ...schema, should_sync: false }),
+                                        },
+                                        secondaryButton: { children: 'Cancel' },
+                                    })
+                                } else {
+                                    updateSchema({ ...schema, should_sync: active })
+                                }
+                            }}
+                        />
+                    </SourceEditorAction>
+                </div>
                 <div className="flex items-center justify-between">
                     <span className="text-muted">Current status</span>
                     {schema.status ? (
@@ -200,13 +255,20 @@ function StatusSection({
 function SyncMethodSection({
     source,
     schema,
-    updateSchema,
 }: {
     source: ExternalDataSource | null
     schema: ExternalDataSourceSchema
-    updateSchema: (schema: ExternalDataSourceSchema) => void
 }): JSX.Element {
-    const { openSyncMethodModal } = useActions(syncMethodModalLogic({ schema }))
+    const logic = syncMethodModalLogic({ schema })
+    const { schemaIncrementalFields, schemaIncrementalFieldsLoading, saveButtonIsLoading } = useValues(logic)
+    const { loadSchemaIncrementalFields, resetSchemaIncrementalFields, updateSchema } = useActions(logic)
+
+    useEffect(() => {
+        resetSchemaIncrementalFields()
+        loadSchemaIncrementalFields(schema.id)
+    }, [schema.id, resetSchemaIncrementalFields, loadSchemaIncrementalFields])
+
+    const loading = schemaIncrementalFieldsLoading || !schemaIncrementalFields
 
     return (
         <div>
@@ -214,46 +276,91 @@ function SyncMethodSection({
                 title="Sync method"
                 description="How this schema is synced from the source — incremental, full refresh, CDC, append, or webhook."
             />
-            <div className="border rounded p-4 bg-surface-primary flex items-center justify-between gap-3">
-                <div className="flex items-center gap-2">
-                    {schema.sync_type ? (
-                        <LemonTag type="primary">{SyncTypeLabelMap[schema.sync_type]}</LemonTag>
-                    ) : (
-                        <span className="text-muted">Not configured</span>
-                    )}
-                    {schema.incremental_field && (
-                        <span className="text-xs text-muted">
-                            Field: <code>{schema.incremental_field}</code>
-                        </span>
-                    )}
-                </div>
-                <SourceEditorAction source={source}>
-                    <LemonButton
-                        type={schema.sync_type ? 'secondary' : 'primary'}
-                        onClick={() => openSyncMethodModal(schema)}
-                    >
-                        {schema.sync_type ? 'Edit' : 'Set up'}
-                    </LemonButton>
-                </SourceEditorAction>
+            <div className="border rounded p-4 bg-surface-primary">
+                {loading && (
+                    <div className="deprecated-space-y-2">
+                        <LemonSkeleton className="w-1/2 h-4" />
+                        <LemonSkeleton.Row repeat={3} />
+                    </div>
+                )}
+                {!loading && schemaIncrementalFields && (
+                    <SourceEditorAction source={source}>
+                        {({ disabled }) => (
+                            <fieldset disabled={disabled}>
+                                <SyncMethodForm
+                                    saveButtonIsLoading={saveButtonIsLoading}
+                                    schema={{
+                                        table: schema.name,
+                                        should_sync: schema.should_sync,
+                                        description: schema.description,
+                                        should_sync_default: schema.should_sync_default ?? true,
+                                        sync_type: schema.sync_type,
+                                        sync_time_of_day: schema.sync_time_of_day ?? null,
+                                        incremental_field: schema.incremental_field ?? null,
+                                        incremental_field_type: schema.incremental_field_type ?? null,
+                                        incremental_available: schemaIncrementalFields.incremental_available,
+                                        append_available: schemaIncrementalFields.append_available,
+                                        cdc_available: schemaIncrementalFields.cdc_available,
+                                        cdc_table_mode: schema.cdc_table_mode,
+                                        incremental_fields: schemaIncrementalFields.incremental_fields,
+                                        supports_webhooks: schemaIncrementalFields.supports_webhooks ?? false,
+                                        primary_key_columns: schema.primary_key_columns ?? null,
+                                        available_columns: [],
+                                        detected_primary_keys: null,
+                                    }}
+                                    availableColumns={schemaIncrementalFields.available_columns ?? []}
+                                    detectedPrimaryKeys={schemaIncrementalFields.detected_primary_keys ?? null}
+                                    primaryKeyLocked={!!schema.table}
+                                    onClose={() => {
+                                        resetSchemaIncrementalFields()
+                                        loadSchemaIncrementalFields(schema.id)
+                                    }}
+                                    onSave={(
+                                        syncType,
+                                        incrementalField,
+                                        incrementalFieldType,
+                                        primaryKeyColumns,
+                                        cdcTableMode
+                                    ) => {
+                                        const noIncrementalField = syncType === 'full_refresh' || syncType === 'cdc'
+                                        updateSchema({
+                                            ...schema,
+                                            should_sync: true,
+                                            sync_type: syncType,
+                                            incremental_field: noIncrementalField ? null : incrementalField,
+                                            incremental_field_type: noIncrementalField ? null : incrementalFieldType,
+                                            sync_time_of_day: schema.sync_time_of_day ?? null,
+                                            primary_key_columns:
+                                                syncType === 'incremental' ? (primaryKeyColumns ?? null) : null,
+                                            ...(syncType === 'cdc' && cdcTableMode
+                                                ? { cdc_table_mode: cdcTableMode }
+                                                : {}),
+                                        })
+                                    }}
+                                />
+                            </fieldset>
+                        )}
+                    </SourceEditorAction>
+                )}
             </div>
-            <SyncMethodModal schema={schema} updateSchema={updateSchema} />
         </div>
     )
 }
 
 function ScheduleSection({
+    sourceId,
     source,
     schema,
     isProjectTime,
     setIsProjectTime,
-    updateSchema,
 }: {
+    sourceId: string
     source: ExternalDataSource | null
     schema: ExternalDataSourceSchema
     isProjectTime: boolean
     setIsProjectTime: (v: boolean) => void
-    updateSchema: (schema: ExternalDataSourceSchema) => void
 }): JSX.Element {
+    const { loadSource } = useActions(sourceSettingsLogic({ id: sourceId }))
     const isCdc = schema.sync_type === 'cdc'
     const cdcOnlyOptions: LemonSelectOption<DataWarehouseSyncInterval>[] = [{ value: '1min', label: '1 min' }]
     const standardOptions: LemonSelectOption<DataWarehouseSyncInterval>[] = [
@@ -268,66 +375,60 @@ function ScheduleSection({
         { value: '30day', label: 'Monthly' },
     ]
 
+    const [draftFrequency, setDraftFrequency] = useState<DataWarehouseSyncInterval>(
+        schema.sync_frequency || (isCdc ? '5min' : '6hour')
+    )
+    const [draftSyncTimeOfDay, setDraftSyncTimeOfDay] = useState<string | null>(schema.sync_time_of_day ?? null)
+    const [saving, setSaving] = useState(false)
+
+    const serverFrequency = schema.sync_frequency || (isCdc ? '5min' : '6hour')
+    const serverSyncTimeOfDay = schema.sync_time_of_day ?? null
+
+    // Reset the draft when the user navigates to a different schema
+    useEffect(() => {
+        setDraftFrequency(serverFrequency)
+        setDraftSyncTimeOfDay(serverSyncTimeOfDay)
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [schema.id])
+
+    const isDirty = draftFrequency !== serverFrequency || draftSyncTimeOfDay !== serverSyncTimeOfDay
+
+    const handleSave = async (): Promise<void> => {
+        setSaving(true)
+        try {
+            await api.externalDataSources.bulkUpdateSchemas(sourceId, [
+                {
+                    id: schema.id,
+                    should_sync: schema.should_sync,
+                    sync_type: schema.sync_type,
+                    incremental_field: schema.incremental_field,
+                    incremental_field_type: schema.incremental_field_type,
+                    sync_frequency: draftFrequency,
+                    sync_time_of_day: draftSyncTimeOfDay,
+                    cdc_table_mode: schema.cdc_table_mode,
+                },
+            ])
+            lemonToast.success('Schedule saved')
+            loadSource()
+        } catch (e: any) {
+            lemonToast.error(e?.message || "Can't save schedule at this time")
+        } finally {
+            setSaving(false)
+        }
+    }
+
+    const handleDiscard = (): void => {
+        setDraftFrequency(serverFrequency)
+        setDraftSyncTimeOfDay(serverSyncTimeOfDay)
+    }
+
     return (
         <div>
             <SectionHeader
                 title="Schedule"
-                description="Control whether this schema is synced and how often it runs."
+                description="Configure how often this schema is synced. Changes are only applied when you click Save."
             />
             <div className="border rounded p-4 bg-surface-primary flex flex-col gap-4">
-                <div className="flex flex-col gap-1">
-                    <span className="text-xs text-muted">Enabled</span>
-                    <SourceEditorAction source={source}>
-                        <LemonSwitch
-                            bordered={false}
-                            disabledReason={
-                                schema.sync_type === null ? 'You must set up the sync method first' : undefined
-                            }
-                            checked={schema.should_sync}
-                            label={schema.should_sync ? 'Syncing' : 'Disabled'}
-                            onChange={(active) => {
-                                if (!active && schema.sync_type === 'cdc') {
-                                    LemonDialog.open({
-                                        title: 'Disable CDC table?',
-                                        content: (
-                                            <div className="text-sm text-secondary space-y-2">
-                                                <p>
-                                                    Disabling <strong>{schema.table?.name ?? schema.name}</strong> will
-                                                    remove it from the replication publication. Changes made while
-                                                    disabled will be permanently lost.
-                                                </p>
-                                                <p>
-                                                    Re-enabling this table will require a <strong>full resync</strong>{' '}
-                                                    to ensure data consistency.
-                                                </p>
-                                            </div>
-                                        ),
-                                        primaryButton: {
-                                            children: 'Disable',
-                                            status: 'danger',
-                                            onClick: () => updateSchema({ ...schema, should_sync: false }),
-                                        },
-                                        secondaryButton: { children: 'Cancel', type: 'tertiary' },
-                                    })
-                                } else if (!active && schema.sync_type === 'webhook') {
-                                    LemonDialog.open({
-                                        title: 'Disable webhook sync?',
-                                        description:
-                                            'Turning off this table will stop the webhook from consuming any more data. When you re-enable it, a full refresh sync will need to be completed to ensure no data is missing.',
-                                        primaryButton: {
-                                            children: 'Disable',
-                                            status: 'danger',
-                                            onClick: () => updateSchema({ ...schema, should_sync: false }),
-                                        },
-                                        secondaryButton: { children: 'Cancel' },
-                                    })
-                                } else {
-                                    updateSchema({ ...schema, should_sync: active })
-                                }
-                            }}
-                        />
-                    </SourceEditorAction>
-                </div>
                 <div className="flex flex-col gap-1">
                     <span className="text-xs text-muted">Sync frequency</span>
                     <SourceEditorAction source={source}>
@@ -338,10 +439,8 @@ function ScheduleSection({
                                     accessDisabledReason ??
                                     (!schema.should_sync ? 'Enable syncing to set frequency' : undefined)
                                 }
-                                value={schema.sync_frequency || (isCdc ? '5min' : '6hour')}
-                                onChange={(value) =>
-                                    updateSchema({ ...schema, sync_frequency: value as DataWarehouseSyncInterval })
-                                }
+                                value={draftFrequency}
+                                onChange={(value) => setDraftFrequency(value as DataWarehouseSyncInterval)}
                                 options={isCdc ? [...cdcOnlyOptions, ...standardOptions] : standardOptions}
                             />
                         )}
@@ -350,10 +449,35 @@ function ScheduleSection({
                 <AnchorTimeField
                     source={source}
                     schema={schema}
+                    draftFrequency={draftFrequency}
+                    draftSyncTimeOfDay={draftSyncTimeOfDay}
+                    setDraftSyncTimeOfDay={setDraftSyncTimeOfDay}
                     isProjectTime={isProjectTime}
                     setIsProjectTime={setIsProjectTime}
-                    updateSchema={updateSchema}
                 />
+            </div>
+            <div className="mt-4 flex gap-2 justify-end">
+                {isDirty && (
+                    <LemonButton
+                        type="secondary"
+                        onClick={handleDiscard}
+                        disabledReason={saving ? 'Saving…' : undefined}
+                    >
+                        Discard
+                    </LemonButton>
+                )}
+                <SourceEditorAction source={source}>
+                    {({ disabledReason: accessDisabledReason }) => (
+                        <LemonButton
+                            type="primary"
+                            loading={saving}
+                            onClick={handleSave}
+                            disabledReason={accessDisabledReason ?? (!isDirty ? 'No changes to save' : undefined)}
+                        >
+                            Save
+                        </LemonButton>
+                    )}
+                </SourceEditorAction>
             </div>
         </div>
     )
@@ -362,20 +486,24 @@ function ScheduleSection({
 function AnchorTimeField({
     source,
     schema,
+    draftFrequency,
+    draftSyncTimeOfDay,
+    setDraftSyncTimeOfDay,
     isProjectTime,
     setIsProjectTime,
-    updateSchema,
 }: {
     source: ExternalDataSource | null
     schema: ExternalDataSourceSchema
+    draftFrequency: DataWarehouseSyncInterval
+    draftSyncTimeOfDay: string | null
+    setDraftSyncTimeOfDay: (value: string | null) => void
     isProjectTime: boolean
     setIsProjectTime: (v: boolean) => void
-    updateSchema: (schema: ExternalDataSourceSchema) => void
 }): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
-    const [isSyncTimeSet, setIsSyncTimeSet] = useState(!!schema.sync_time_of_day)
 
-    const utcTime = schema.sync_time_of_day || '00:00:00'
+    const isSyncTimeSet = draftSyncTimeOfDay !== null
+    const utcTime = draftSyncTimeOfDay || '00:00:00'
     const localTime = isProjectTime
         ? dayjs
               .utc(`${dayjs().format('YYYY-MM-DD')}T${utcTime}`)
@@ -394,15 +522,11 @@ function AnchorTimeField({
         if (!isSyncTimeSet) {
             return 'Enable anchor times to set anchor time'
         }
-        if (
-            schema.sync_frequency === '5min' ||
-            schema.sync_frequency === '30min' ||
-            schema.sync_frequency === '1hour'
-        ) {
+        if (draftFrequency === '5min' || draftFrequency === '30min' || draftFrequency === '1hour') {
             return 'Anchor time does not apply to sync intervals one hour or less'
         }
         return undefined
-    }, [isSyncTimeSet, schema.should_sync, schema.sync_frequency])
+    }, [isSyncTimeSet, schema.should_sync, draftFrequency])
 
     return (
         <div className="flex flex-col gap-1">
@@ -426,11 +550,7 @@ function AnchorTimeField({
                                 (!schema.should_sync ? 'Enable syncing to set anchor time' : undefined)
                             }
                             onChange={(checked) => {
-                                setIsSyncTimeSet(checked)
-                                updateSchema({
-                                    ...schema,
-                                    sync_time_of_day: checked ? (isProjectTime ? localTime : utcTime) : null,
-                                })
+                                setDraftSyncTimeOfDay(checked ? (isProjectTime ? localTime : utcTime) : null)
                             }}
                         />
                         <LemonInput
@@ -446,11 +566,11 @@ function AnchorTimeField({
                                           .utc()
                                           .format('HH:mm:00')
                                     : newValue
-                                updateSchema({ ...schema, sync_time_of_day: utcValue })
+                                setDraftSyncTimeOfDay(utcValue)
                             }}
                             suffix={
                                 isSyncTimeSet && schema.should_sync ? (
-                                    <Tooltip title={syncAnchorIntervalToHumanReadable(utcTime, schema.sync_frequency)}>
+                                    <Tooltip title={syncAnchorIntervalToHumanReadable(utcTime, draftFrequency)}>
                                         <IconInfo className="text-muted-alt" />
                                     </Tooltip>
                                 ) : undefined
@@ -592,112 +712,5 @@ function DangerZoneSection({
                 </SourceEditorAction>
             </div>
         </div>
-    )
-}
-
-function SyncMethodModal({
-    schema,
-    updateSchema,
-}: {
-    schema: ExternalDataSourceSchema
-    updateSchema: (schema: ExternalDataSourceSchema) => void
-}): JSX.Element {
-    const logic = syncMethodModalLogic({ schema })
-    const {
-        syncMethodModalIsOpen,
-        currentSyncMethodModalSchema,
-        schemaIncrementalFields,
-        schemaIncrementalFieldsLoading,
-        saveButtonIsLoading,
-    } = useValues(logic)
-    const { closeSyncMethodModal, loadSchemaIncrementalFields, resetSchemaIncrementalFields } = useActions(logic)
-
-    useEffect(() => {
-        if (currentSyncMethodModalSchema?.id) {
-            resetSchemaIncrementalFields()
-            loadSchemaIncrementalFields(currentSyncMethodModalSchema.id)
-        }
-    }, [currentSyncMethodModalSchema?.id, resetSchemaIncrementalFields, loadSchemaIncrementalFields])
-
-    if (!currentSyncMethodModalSchema) {
-        return <></>
-    }
-
-    const schemaLoading = schemaIncrementalFieldsLoading || !schemaIncrementalFields
-    const showForm = !schemaLoading && schemaIncrementalFields
-
-    return (
-        <LemonModal
-            title={
-                <>
-                    Sync method for{' '}
-                    <span className="font-mono">
-                        {currentSyncMethodModalSchema.label ?? currentSyncMethodModalSchema.name}
-                    </span>
-                </>
-            }
-            isOpen={syncMethodModalIsOpen}
-            onClose={closeSyncMethodModal}
-            footer={
-                schemaLoading ? (
-                    <>
-                        <LemonSkeleton.Button />
-                        <LemonSkeleton.Button />
-                    </>
-                ) : null
-            }
-        >
-            {schemaLoading && (
-                <div className="deprecated-space-y-2">
-                    <LemonSkeleton className="w-1/2 h-4" />
-                    <LemonSkeleton.Row repeat={3} />
-                </div>
-            )}
-            {showForm && (
-                <SyncMethodForm
-                    saveButtonIsLoading={saveButtonIsLoading}
-                    schema={{
-                        table: currentSyncMethodModalSchema.name,
-                        should_sync: currentSyncMethodModalSchema.should_sync,
-                        description: currentSyncMethodModalSchema.description,
-                        should_sync_default: currentSyncMethodModalSchema.should_sync_default ?? true,
-                        sync_type: currentSyncMethodModalSchema.sync_type,
-                        sync_time_of_day: currentSyncMethodModalSchema.sync_time_of_day ?? null,
-                        incremental_field: currentSyncMethodModalSchema.incremental_field ?? null,
-                        incremental_field_type: currentSyncMethodModalSchema.incremental_field_type ?? null,
-                        incremental_available: schemaIncrementalFields.incremental_available,
-                        append_available: schemaIncrementalFields.append_available,
-                        cdc_available: schemaIncrementalFields.cdc_available,
-                        cdc_table_mode: currentSyncMethodModalSchema.cdc_table_mode,
-                        incremental_fields: schemaIncrementalFields.incremental_fields,
-                        supports_webhooks: schemaIncrementalFields?.supports_webhooks ?? false,
-                        primary_key_columns: currentSyncMethodModalSchema.primary_key_columns ?? null,
-                        available_columns: [],
-                        detected_primary_keys: null,
-                    }}
-                    availableColumns={schemaIncrementalFields.available_columns ?? []}
-                    detectedPrimaryKeys={schemaIncrementalFields.detected_primary_keys ?? null}
-                    primaryKeyLocked={!!currentSyncMethodModalSchema.table}
-                    onClose={() => {
-                        resetSchemaIncrementalFields()
-                        closeSyncMethodModal()
-                    }}
-                    onSave={(syncType, incrementalField, incrementalFieldType, primaryKeyColumns, cdcTableMode) => {
-                        const noIncrementalField = syncType === 'full_refresh' || syncType === 'cdc'
-                        updateSchema({
-                            ...currentSyncMethodModalSchema,
-                            should_sync: true,
-                            sync_type: syncType,
-                            incremental_field: noIncrementalField ? null : incrementalField,
-                            incremental_field_type: noIncrementalField ? null : incrementalFieldType,
-                            sync_time_of_day: currentSyncMethodModalSchema.sync_time_of_day ?? null,
-                            primary_key_columns: syncType === 'incremental' ? (primaryKeyColumns ?? null) : null,
-                            ...(syncType === 'cdc' && cdcTableMode ? { cdc_table_mode: cdcTableMode } : {}),
-                        })
-                        closeSyncMethodModal()
-                    }}
-                />
-            )}
-        </LemonModal>
     )
 }
