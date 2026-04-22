@@ -81,7 +81,7 @@ function ConnectOAuthButton({
 export function McpStoreSettings(): JSX.Element {
     const restrictedReason = useRestrictedArea({
         scope: RestrictionScope.Project,
-        minimumAccessLevel: TeamMembershipLevel.Admin,
+        minimumAccessLevel: TeamMembershipLevel.Member,
     })
     const { installations, installationsLoading, installedServerUrls, recommendedServers, serversLoading } =
         useValues(mcpStoreLogic)

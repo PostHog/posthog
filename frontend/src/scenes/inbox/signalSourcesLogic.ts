@@ -6,11 +6,12 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { externalDataSourcesLogic } from 'scenes/data-warehouse/externalDataSourcesLogic'
 
 import { ExternalDataSourceType } from '~/queries/schema/schema-general'
 import { SignalSourceProduct, SignalSourceType } from '~/queries/schema/schema-signals'
 import { ExternalDataSource, ExternalDataSourceSchema, RecordingUniversalFilters } from '~/types'
+
+import { sourcesDataLogic } from 'products/data_warehouse/frontend/shared/logics/sourcesDataLogic'
 
 import type { signalSourcesLogicType } from './signalSourcesLogicType'
 import { SignalSourceConfig, SignalSourceConfigStatus, ToggleSignalSourceParams } from './types'
@@ -106,8 +107,8 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
     path(['scenes', 'inbox', 'signalSourcesLogic']),
 
     connect(() => ({
-        values: [externalDataSourcesLogic, ['dataWarehouseSources', 'dataWarehouseSourcesLoading']],
-        actions: [externalDataSourcesLogic, ['loadSources']],
+        values: [sourcesDataLogic, ['dataWarehouseSources', 'dataWarehouseSourcesLoading']],
+        actions: [sourcesDataLogic, ['loadSources']],
     })),
 
     actions({

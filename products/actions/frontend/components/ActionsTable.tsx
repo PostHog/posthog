@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconCheckCircle, IconPin, IconPinFilled } from '@posthog/icons'
+import { IconPin, IconPinFilled } from '@posthog/icons'
 import { LemonInput, LemonSegmentedButton } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
@@ -38,7 +38,6 @@ import { SCREEN_NAME_MATCHING_LABEL, type ScreenNameMatching, isScreenNameFilter
 import { NewActionButton } from './NewActionButton'
 
 export function ActionsTable(): JSX.Element {
-    const { currentTeam } = useValues(teamLogic)
     // actionsModel is a singleton; params are set on first mount by actionsLogic's connect
     const { actionsLoading } = useValues(actionsModel)
     const { loadActions, pinAction, unpinAction } = useActions(actionsModel)
@@ -211,18 +210,6 @@ export function ActionsTable(): JSX.Element {
             : []),
         createdByColumn() as LemonTableColumn<ActionType, keyof ActionType | undefined>,
         createdAtColumn() as LemonTableColumn<ActionType, keyof ActionType | undefined>,
-        ...(currentTeam?.slack_incoming_webhook
-            ? [
-                  {
-                      title: 'Webhook',
-                      dataIndex: 'post_to_slack',
-                      sorter: (a: ActionType, b: ActionType) => Number(a.post_to_slack) - Number(b.post_to_slack),
-                      render: function RenderActions(post_to_slack): JSX.Element | null {
-                          return post_to_slack ? <IconCheckCircle /> : null
-                      },
-                  } as LemonTableColumn<ActionType, keyof ActionType | undefined>,
-              ]
-            : []),
         {
             width: 0,
             render: function RenderActions(_, action) {

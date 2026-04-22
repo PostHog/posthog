@@ -2,7 +2,7 @@ import { combineUrl } from 'kea-router'
 
 import { urls } from 'scenes/urls'
 
-import { FileSystemIconType, ProductKey } from '~/queries/schema/schema-general'
+import { FileSystemIconType, ProductItemCategory, ProductKey } from '~/queries/schema/schema-general'
 
 import { FileSystemIconColor, ProductManifest } from '../../frontend/src/types'
 
@@ -47,7 +47,7 @@ export const manifest: ProductManifest = {
         {
             path: 'Dashboards',
             intents: [ProductKey.PRODUCT_ANALYTICS],
-            category: 'Analytics',
+            category: ProductItemCategory.ANALYTICS,
             type: 'dashboard',
             iconType: 'dashboard',
             iconColor: ['var(--color-product-dashboards-light)'],

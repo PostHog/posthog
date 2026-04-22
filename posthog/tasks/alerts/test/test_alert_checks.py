@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Any, Optional, cast
 
 import pytest
 from freezegun import freeze_time
@@ -266,7 +266,8 @@ class TestAlertChecks(APIBaseTest, ClickhouseDestroyTablesMixin):
                     "created_at"
                 )
 
-                error_message = latest_alert_check.error["message"]
+                error = cast(dict[str, Any], latest_alert_check.error)
+                error_message = error["message"]
                 assert "Some error" in error_message
 
     def test_error_while_calculating_on_alert_in_firing_state(
@@ -296,7 +297,8 @@ class TestAlertChecks(APIBaseTest, ClickhouseDestroyTablesMixin):
                 )
                 assert latest_alert_check.state == AlertState.ERRORED
 
-                error_message = latest_alert_check.error["message"]
+                error = cast(dict[str, Any], latest_alert_check.error)
+                error_message = error["message"]
                 assert "Some error" in error_message
 
     def test_error_while_calculating_on_alert_in_not_firing_state(
@@ -325,7 +327,8 @@ class TestAlertChecks(APIBaseTest, ClickhouseDestroyTablesMixin):
                     "created_at"
                 )
 
-                error_message = latest_alert_check.error["message"]
+                error = cast(dict[str, Any], latest_alert_check.error)
+                error_message = error["message"]
                 assert "Some error" in error_message
 
     def test_alert_with_insight_with_filter(

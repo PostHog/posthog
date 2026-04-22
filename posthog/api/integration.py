@@ -1,7 +1,7 @@
 import os
 import re
 import json
-from typing import Any
+from typing import Any, cast
 from urllib.parse import urlencode
 
 from django.conf import settings
@@ -24,6 +24,7 @@ from posthog.domain_connect import discover_domain_connect, extract_root_domain_
 from posthog.exceptions_capture import capture_exception
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.integration import (
+    ERROR_TOKEN_REFRESH_FAILED,
     AzureBlobIntegration,
     AzureBlobIntegrationError,
     ClickUpIntegration,
@@ -47,6 +48,31 @@ from posthog.models.integration import (
 )
 from posthog.permissions import TeamMemberStrictManagementPermission
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
+
+
+def _ensure_oauth_token_valid(instance: Integration) -> None:
+    """Check that an OAuth integration's token is usable, attempting refresh if needed.
+
+    Raises ValidationError with a clear message instead of letting stale tokens
+    cause unhandled 500s from external API calls.
+    """
+    if instance.kind not in OauthIntegration.supported_kinds:
+        return
+
+    if instance.errors == ERROR_TOKEN_REFRESH_FAILED:
+        raise ValidationError(
+            "This integration's authentication token could not be refreshed. "
+            "Please reconnect or disconnect this integration and connect a different account."
+        )
+
+    oauth = OauthIntegration(instance)
+    if oauth.access_token_expired():
+        oauth.refresh_access_token()
+        if instance.errors == ERROR_TOKEN_REFRESH_FAILED:
+            raise ValidationError(
+                "This integration's authentication token could not be refreshed. "
+                "Please reconnect or disconnect this integration and connect a different account."
+            )
 
 
 class NativeEmailIntegrationSerializer(serializers.Serializer):
@@ -376,7 +402,7 @@ class IntegrationViewSet(
         slack = SlackIntegration(instance)
         should_include_private_channels: bool = instance.created_by_id == request.user.id
         force_refresh: bool = request.query_params.get("force_refresh", "false").lower() == "true"
-        authed_user: str = instance.config.get("authed_user", {}).get("id") if instance.config else None
+        authed_user = cast(str | None, instance.config.get("authed_user", {}).get("id")) if instance.config else None
         if not authed_user:
             raise ValidationError("SlackIntegration: Missing authed_user_id in integration config")
 
@@ -455,6 +481,7 @@ class IntegrationViewSet(
     @action(methods=["GET"], detail=True, url_path="google_conversion_actions")
     def conversion_actions(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         instance = self.get_object()
+        _ensure_oauth_token_valid(instance)
         google_ads = GoogleAdsIntegration(instance)
         customer_id = request.query_params.get("customerId")
         parent_id = request.query_params.get("parentId")
@@ -478,6 +505,7 @@ class IntegrationViewSet(
     @action(methods=["GET"], detail=True, url_path="google_accessible_accounts")
     def accessible_accounts(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         instance = self.get_object()
+        _ensure_oauth_token_valid(instance)
         google_ads = GoogleAdsIntegration(instance)
 
         key = f"google_ads/{google_ads.integration.integration_id}/accessible_accounts"
@@ -493,6 +521,7 @@ class IntegrationViewSet(
     @action(methods=["GET"], detail=True, url_path="linkedin_ads_conversion_rules")
     def linkedin_ad_conversion_rules(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         instance = self.get_object()
+        _ensure_oauth_token_valid(instance)
         linkedin_ads = LinkedInAdsIntegration(instance)
         account_id = request.query_params.get("accountId")
 
@@ -510,6 +539,7 @@ class IntegrationViewSet(
     @action(methods=["GET"], detail=True, url_path="linkedin_ads_accounts")
     def linkedin_ad_accounts(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         instance = self.get_object()
+        _ensure_oauth_token_valid(instance)
         linkedin_ads = LinkedInAdsIntegration(instance)
 
         accounts = [
@@ -526,6 +556,7 @@ class IntegrationViewSet(
     @action(methods=["GET"], detail=True, url_path="clickup_spaces")
     def clickup_spaces(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         instance = self.get_object()
+        _ensure_oauth_token_valid(instance)
         clickup = ClickUpIntegration(instance)
         workspace_id = request.query_params.get("workspaceId")
 
@@ -542,6 +573,7 @@ class IntegrationViewSet(
     @action(methods=["GET"], detail=True, url_path="clickup_lists")
     def clickup_lists(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         instance = self.get_object()
+        _ensure_oauth_token_valid(instance)
         clickup = ClickUpIntegration(instance)
         space_id = request.query_params.get("spaceId")
 
@@ -573,6 +605,7 @@ class IntegrationViewSet(
     @action(methods=["GET"], detail=True, url_path="clickup_workspaces")
     def clickup_workspaces(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         instance = self.get_object()
+        _ensure_oauth_token_valid(instance)
         clickup = ClickUpIntegration(instance)
 
         workspaces = [
@@ -587,7 +620,9 @@ class IntegrationViewSet(
 
     @action(methods=["GET"], detail=True, url_path="linear_teams")
     def linear_teams(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        linear = LinearIntegration(self.get_object())
+        instance = self.get_object()
+        _ensure_oauth_token_valid(instance)
+        linear = LinearIntegration(instance)
         return Response({"teams": linear.list_teams()})
 
     @extend_schema(
@@ -649,7 +684,9 @@ class IntegrationViewSet(
 
     @action(methods=["GET"], detail=True, url_path="jira_projects")
     def jira_projects(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        jira = JiraIntegration(self.get_object())
+        instance = self.get_object()
+        _ensure_oauth_token_valid(instance)
+        jira = JiraIntegration(instance)
         return Response({"projects": jira.list_projects()})
 
     @action(methods=["POST"], detail=True, url_path="email/verify")

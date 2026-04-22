@@ -5,6 +5,7 @@ use axum::{
     routing::{any, get},
     Router,
 };
+use common_cache::NegativeCache;
 use common_hypercache::HyperCacheReader;
 use common_metrics::{setup_metrics_recorder, track_metrics};
 use health::readiness_handler;
@@ -23,16 +24,22 @@ use crate::{
 pub struct State {
     pub surveys_hypercache_reader: Arc<HyperCacheReader>,
     pub config_hypercache_reader: Arc<HyperCacheReader>,
+    pub surveys_negative_cache: Option<NegativeCache>,
+    pub config_negative_cache: Option<NegativeCache>,
 }
 
 pub fn router(
     surveys_hypercache_reader: Arc<HyperCacheReader>,
     config_hypercache_reader: Arc<HyperCacheReader>,
+    surveys_negative_cache: Option<NegativeCache>,
+    config_negative_cache: Option<NegativeCache>,
     config: Config,
 ) -> Router {
     let state = State {
         surveys_hypercache_reader,
         config_hypercache_reader,
+        surveys_negative_cache,
+        config_negative_cache,
     };
 
     // Permissive CORS policy matching the feature-flags service
@@ -61,11 +68,11 @@ pub fn router(
             "/array/:token/config.js",
             any(remote_config::config_js_endpoint),
         )
-        // Explicit 404 for sourcemap requests to avoid high-cardinality unmatched paths in metrics
-        .route(
-            "/array/:token/config.js.map",
-            any(|| ready(StatusCode::NOT_FOUND)),
-        )
+        // Catch-all 404s for known prefixes to avoid high-cardinality unmatched paths in metrics.
+        // Without these, unmatched requests fall through with the raw URI as the metric label,
+        // creating a unique time series for every distinct 404 path (tokens, locales, probes, etc.).
+        // With explicit routes, axum sets MatchedPath so metrics get clean parameterized labels.
+        .route("/array/:token/*rest", any(|| ready(StatusCode::NOT_FOUND)))
         .layer(ConcurrencyLimitLayer::new(config.max_concurrency));
 
     let router = Router::new()

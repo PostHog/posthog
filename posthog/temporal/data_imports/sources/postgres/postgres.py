@@ -4,6 +4,7 @@ import re
 import math
 import time
 import collections
+import dataclasses
 from collections.abc import Callable, Iterator
 from contextlib import _GeneratorContextManager, contextmanager
 from datetime import UTC, date, datetime
@@ -16,6 +17,7 @@ from django.conf import settings
 
 import psycopg
 import pyarrow as pa
+import structlog
 from psycopg import sql
 from psycopg.adapt import Loader
 from structlog.types import FilteringBoundLogger
@@ -29,6 +31,7 @@ from posthog.temporal.data_imports.pipelines.pipeline.utils import (
     DEFAULT_NUMERIC_PRECISION,
     DEFAULT_NUMERIC_SCALE,
     DEFAULT_PARTITION_TARGET_SIZE_IN_BYTES,
+    MAX_NUMERIC_SCALE,
     QueryTimeoutException,
     TemporaryFileSizeExceedsLimitException,
     build_pyarrow_decimal_type,
@@ -41,17 +44,56 @@ from products.data_warehouse.backend.types import IncrementalFieldType, Partitio
 # Sources created after this date must use SSL/TLS connections
 SSL_REQUIRED_AFTER_DATE = datetime(2026, 2, 18, tzinfo=UTC)
 IDENTIFIER_FUNCTION_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+SYSTEM_POSTGRES_SCHEMAS = ["information_schema", "pg_catalog", "pg_toast"]
+
+# Max rows per FETCH when reading a partitioned parent table. A partitioned
+# parent scan dispatches across every child partition; a large chunk size can
+# blow past the source's statement_timeout even when per-row payload is small.
+PARTITIONED_TABLE_MAX_CHUNK_SIZE = 10_000
+
+# Statement timeout applied to the row-streaming connection so a slow FETCH
+# (large partitioned scan, cold cache, etc.) does not get killed by a short
+# default statement_timeout on the source role.
+SYNC_STATEMENT_TIMEOUT_MS = 1000 * 60 * 10  # 10 mins
 
 
-def source_requires_ssl(source: ExternalDataSource) -> bool:
-    """Return whether this source must connect over SSL/TLS."""
-    return source.created_at >= SSL_REQUIRED_AFTER_DATE
+def source_requires_ssl(source: ExternalDataSource, source_config: Any = None) -> bool:
+    """Return whether this source must connect over SSL/TLS.
+
+    SSL is required for sources created after the cutoff date, unless the
+    user has explicitly opted out via the ``require_tls`` toggle on an active
+    SSH tunnel.
+    """
+    if source.created_at < SSL_REQUIRED_AFTER_DATE:
+        return False
+
+    if source_config is not None:
+        ssh_tunnel = source_config.ssh_tunnel
+        if ssh_tunnel is not None and ssh_tunnel.enabled and not ssh_tunnel.require_tls.enabled:
+            return False
+
+    return True
 
 
 class SSLRequiredError(Exception):
     """Raised when SSL/TLS is required but the database does not support it."""
 
     pass
+
+
+@dataclasses.dataclass(frozen=True)
+class PostgresDiscoveredSchema:
+    source_catalog: str | None
+    source_schema: str
+    source_table_name: str
+    columns: list[tuple[str, str, bool]]
+
+
+def _is_duckdb_connection(cursor: psycopg.Cursor) -> bool:
+    cursor.execute("SELECT version()")
+    row = cursor.fetchone()
+    version = str(row[0]) if row and row[0] is not None else ""
+    return "duckdb" in version.lower() or "duckgres" in version.lower()
 
 
 def _get_sslmode(require_ssl: bool) -> str:
@@ -125,21 +167,29 @@ def pg_connection(
 
 
 def get_primary_key_columns(conn: psycopg.Connection, schema: str, table_names: list[str]) -> dict[str, list[str]]:
-    """Return ordered PK columns per table: {table_name: [col, ...]}."""
+    """Return ordered PK columns per table: {table_name: [col, ...]}.
+
+    Uses pg_catalog rather than information_schema because information_schema views
+    are ACL-filtered — a user with only SELECT grants may not see PK constraint rows
+    depending on PostgreSQL version, which would silently hide `supports_cdc=True`
+    for their tables and make CDC look unavailable in the source wizard.
+    """
     if not table_names:
         return {}
     with conn.cursor() as cur:
         cur.execute(
             """
-            SELECT kcu.table_name, kcu.column_name
-            FROM information_schema.table_constraints tc
-            JOIN information_schema.key_column_usage kcu
-                ON tc.constraint_name = kcu.constraint_name
-                AND tc.table_schema = kcu.table_schema
-            WHERE tc.constraint_type = 'PRIMARY KEY'
-                AND tc.table_schema = %s
-                AND tc.table_name = ANY(%s)
-            ORDER BY kcu.table_name, kcu.ordinal_position
+            SELECT c.relname AS table_name,
+                   a.attname AS column_name,
+                   array_position(i.indkey, a.attnum) AS ord
+            FROM pg_index i
+            JOIN pg_class c ON c.oid = i.indrelid
+            JOIN pg_namespace n ON n.oid = c.relnamespace
+            JOIN pg_attribute a ON a.attrelid = c.oid AND a.attnum = ANY(i.indkey)
+            WHERE i.indisprimary
+              AND n.nspname = %s
+              AND c.relname = ANY(%s)
+            ORDER BY c.relname, array_position(i.indkey, a.attnum)
             """,
             (schema, table_names),
         )
@@ -175,16 +225,142 @@ def filter_postgres_incremental_fields(
     return results
 
 
+def _normalize_selected_schema(schema: str | None) -> str | None:
+    if not isinstance(schema, str):
+        return None
+
+    normalized = schema.strip()
+    return normalized or None
+
+
+def _get_display_table_name(schema_name: str, table_name: str, *, qualify_with_schema: bool) -> str:
+    return f"{schema_name}.{table_name}" if qualify_with_schema else table_name
+
+
+def _build_named_value_placeholders(prefix: str, values: list[str]) -> tuple[str, dict[str, str]]:
+    placeholders: list[str] = []
+    params: dict[str, str] = {}
+
+    for index, value in enumerate(values):
+        key = f"{prefix}_{index}"
+        placeholders.append(f"%({key})s")
+        params[key] = value
+
+    return ", ".join(placeholders), params
+
+
+def _get_discovered_tables(
+    cursor: psycopg.Cursor, schema: str | None, names: list[str] | None = None
+) -> tuple[dict[str, tuple[str | None, str, str]], bool]:
+    selected_schema = _normalize_selected_schema(schema)
+    qualify_with_schema = selected_schema is None
+    is_duckdb = _is_duckdb_connection(cursor)
+
+    if is_duckdb:
+        cursor.execute("SELECT current_database()")
+        row = cursor.fetchone()
+        current_database = str(row[0]) if row and row[0] is not None else None
+
+        if selected_schema is not None:
+            cursor.execute(
+                """
+                SELECT table_catalog, table_schema, table_name
+                FROM information_schema.tables
+                WHERE table_catalog = %(current_database)s
+                  AND table_schema = %(schema)s
+                ORDER BY table_schema, table_name
+                """,
+                {"current_database": current_database, "schema": selected_schema},
+            )
+        else:
+            system_schema_placeholders, system_schema_params = _build_named_value_placeholders(
+                "system_schema", SYSTEM_POSTGRES_SCHEMAS
+            )
+            cursor.execute(
+                f"""
+                SELECT table_catalog, table_schema, table_name
+                FROM information_schema.tables
+                WHERE table_catalog = %(current_database)s
+                  AND table_schema NOT IN ({system_schema_placeholders})
+                ORDER BY table_schema, table_name
+                """,
+                {"current_database": current_database, **system_schema_params},
+            )
+
+        discovered_rows = cursor.fetchall()
+        all_tables = {
+            _get_display_table_name(schema_name, table_name, qualify_with_schema=qualify_with_schema): (
+                table_catalog,
+                schema_name,
+                table_name,
+            )
+            for table_catalog, schema_name, table_name in discovered_rows
+        }
+    else:
+        if selected_schema is not None:
+            cursor.execute(
+                """
+                SELECT schemaname AS schema_name, tablename AS table_name
+                FROM pg_tables
+                WHERE schemaname = %(schema)s
+                UNION ALL
+                SELECT schemaname AS schema_name, matviewname AS table_name
+                FROM pg_matviews
+                WHERE schemaname = %(schema)s
+                ORDER BY schema_name, table_name
+                """,
+                {"schema": selected_schema},
+            )
+        else:
+            system_schema_placeholders, system_schema_params = _build_named_value_placeholders(
+                "system_schema", SYSTEM_POSTGRES_SCHEMAS
+            )
+            cursor.execute(
+                f"""
+                SELECT schemaname AS schema_name, tablename AS table_name
+                FROM pg_tables
+                WHERE schemaname NOT IN ({system_schema_placeholders})
+                  AND schemaname NOT LIKE 'pg_temp_%%'
+                  AND schemaname NOT LIKE 'pg_toast_temp_%%'
+                UNION ALL
+                SELECT schemaname AS schema_name, matviewname AS table_name
+                FROM pg_matviews
+                WHERE schemaname NOT IN ({system_schema_placeholders})
+                  AND schemaname NOT LIKE 'pg_temp_%%'
+                  AND schemaname NOT LIKE 'pg_toast_temp_%%'
+                ORDER BY schema_name, table_name
+                """,
+                system_schema_params,
+            )
+
+        discovered_rows = cursor.fetchall()
+        all_tables = {
+            _get_display_table_name(schema_name, table_name, qualify_with_schema=qualify_with_schema): (
+                None,
+                schema_name,
+                table_name,
+            )
+            for schema_name, table_name in discovered_rows
+        }
+
+    if names is None:
+        return all_tables, qualify_with_schema
+
+    return {name: all_tables[name] for name in names if name in all_tables}, qualify_with_schema
+
+
 def get_postgres_row_count(
     host: str,
     port: int,
     database: str,
     user: str,
     password: str,
-    schema: str,
+    schema: str | None,
     require_ssl: bool = False,
     names: list[str] | None = None,
 ) -> dict[str, int]:
+    if _normalize_selected_schema(schema) is None and not names:
+        return {}
     try:
         with pg_connection(
             host=host, port=port, database=database, user=user, password=password, require_ssl=require_ssl
@@ -195,33 +371,17 @@ def get_postgres_row_count(
                         timeout=sql.Literal(1000 * 30)  # 30 secs
                     )
                 )
-
-                params: dict = {"schema": schema}
-                names_filter_tables = ""
-                names_filter_matviews = ""
-                if names:
-                    params["names"] = names
-                    names_filter_tables = "AND tablename = ANY(%(names)s)"
-                    names_filter_matviews = "AND matviewname = ANY(%(names)s)"
-
-                cursor.execute(
-                    f"""
-                    SELECT tablename as table_name FROM pg_tables WHERE schemaname = %(schema)s {names_filter_tables}
-                    UNION ALL
-                    SELECT matviewname as table_name FROM pg_matviews WHERE schemaname = %(schema)s {names_filter_matviews}
-                    """,
-                    params,
-                )
-                tables = cursor.fetchall()
-
-                if not tables:
+                discovered_tables, _qualify_with_schema = _get_discovered_tables(cursor, schema, names)
+                if not discovered_tables:
                     return {}
 
                 counts = [
                     sql.SQL("SELECT {table_name} AS table_name, COUNT(*) AS row_count FROM {schema}.{table}").format(
-                        table_name=sql.Literal(table[0]), schema=sql.Identifier(schema), table=sql.Identifier(table[0])
+                        table_name=sql.Literal(display_name),
+                        schema=sql.Identifier(schema_name),
+                        table=sql.Identifier(table_name),
                     )
-                    for table in tables
+                    for display_name, (_source_catalog, schema_name, table_name) in discovered_tables.items()
                 ]
 
                 union_counts = sql.SQL(" UNION ALL ").join(counts)
@@ -237,55 +397,107 @@ def get_schemas(
     database: str,
     user: str,
     password: str,
-    schema: str,
+    schema: str | None,
     port: int,
     require_ssl: bool = False,
     names: list[str] | None = None,
-) -> dict[str, list[tuple[str, str, bool]]]:
+) -> dict[str, PostgresDiscoveredSchema]:
     """Get all tables from PostgreSQL source schemas to sync."""
 
     with pg_connection(
         host=host, port=port, database=database, user=user, password=password, require_ssl=require_ssl
     ) as connection:
         with connection.cursor() as cursor:
-            params: dict = {"schema": schema}
-            names_filter = ""
-            names_filter_pg = ""
-            if names:
-                params["names"] = names
-                names_filter = "AND table_name = ANY(%(names)s)"
-                names_filter_pg = "AND c.relname = ANY(%(names)s)"
+            discovered_tables, _qualify_with_schema = _get_discovered_tables(cursor, schema, names)
+            if not discovered_tables:
+                return {}
+
+            source_schemas = sorted(
+                {schema_name for _table_catalog, schema_name, _table_name in discovered_tables.values()}
+            )
+            schema_placeholders, schema_params = _build_named_value_placeholders("schema", source_schemas)
 
             cursor.execute(
                 f"""
                 SELECT * FROM (
-                    SELECT table_name, column_name, data_type, is_nullable FROM information_schema.columns
-                    WHERE table_schema = %(schema)s {names_filter}
+                    SELECT
+                        table_schema,
+                        table_name,
+                        column_name,
+                        data_type,
+                        is_nullable,
+                        ordinal_position
+                    FROM information_schema.columns
+                    WHERE table_schema IN ({schema_placeholders})
                     UNION ALL
                     SELECT
+                        n.nspname AS table_schema,
                         c.relname AS table_name,
                         a.attname AS column_name,
                         pg_catalog.format_type(a.atttypid, a.atttypmod) AS data_type,
-                        CASE WHEN a.attnotnull THEN 'NO' ELSE 'YES' END AS is_nullable
+                        CASE WHEN a.attnotnull THEN 'NO' ELSE 'YES' END AS is_nullable,
+                        a.attnum AS ordinal_position
                     FROM pg_class c
                     JOIN pg_namespace n ON c.relnamespace = n.oid
                     JOIN pg_attribute a ON a.attrelid = c.oid
-                    WHERE c.relkind = 'm'  -- materialized view
-                    AND n.nspname = %(schema)s
-                    AND a.attnum > 0
-                    AND NOT a.attisdropped
-                    {names_filter_pg}
+                    WHERE c.relkind = 'm'
+                      AND n.nspname IN ({schema_placeholders})
+                      AND a.attnum > 0
+                      AND NOT a.attisdropped
                 ) t
-                ORDER BY table_name ASC""",
-                params,
+                ORDER BY table_schema ASC, table_name ASC, ordinal_position ASC
+                """,
+                schema_params,
             )
             result = cursor.fetchall()
 
-        schema_list: dict[str, list[tuple[str, str, bool]]] = collections.defaultdict(list)
-        for row in result:
-            schema_list[row[0]].append((row[1], row[2], row[3] == "YES"))
+            columns_by_table: dict[str, list[tuple[str, str, bool]]] = collections.defaultdict(list)
+            discovered_pairs_by_schema_and_table = {
+                (schema_name, table_name): display_name
+                for display_name, (_source_catalog, schema_name, table_name) in discovered_tables.items()
+            }
+            for table_schema, table_name, column_name, data_type, is_nullable, _ordinal_position in result:
+                display_name = discovered_pairs_by_schema_and_table.get((table_schema, table_name))
+                if display_name is None:
+                    continue
 
-    return schema_list
+                columns_by_table[display_name].append((column_name, data_type, is_nullable == "YES"))
+
+            return {
+                display_name: PostgresDiscoveredSchema(
+                    source_catalog=source_catalog,
+                    source_schema=schema_name,
+                    source_table_name=table_name,
+                    columns=columns_by_table.get(display_name, []),
+                )
+                for display_name, (source_catalog, schema_name, table_name) in discovered_tables.items()
+            }
+
+
+def get_primary_keys_for_schemas(
+    host: str,
+    database: str,
+    user: str,
+    password: str,
+    schema: str,
+    port: int,
+    table_names: list[str],
+    require_ssl: bool = False,
+) -> dict[str, list[str] | None]:
+    """Detect primary keys for all tables in a single query."""
+    result: dict[str, list[str] | None] = dict.fromkeys(table_names)
+
+    try:
+        with pg_connection(
+            host=host, port=port, database=database, user=user, password=password, require_ssl=require_ssl
+        ) as connection:
+            pks = get_primary_key_columns(connection, schema, table_names)
+            for table_name, pk_cols in pks.items():
+                result[table_name] = pk_cols
+    except Exception as e:
+        structlog.get_logger().warning("Failed to detect primary keys for Postgres schemas", exc_info=e)
+
+    return result
 
 
 def get_foreign_keys(
@@ -293,7 +505,7 @@ def get_foreign_keys(
     database: str,
     user: str,
     password: str,
-    schema: str,
+    schema: str | None,
     port: int,
     require_ssl: bool = False,
     names: list[str] | None = None,
@@ -304,41 +516,65 @@ def get_foreign_keys(
         host=host, port=port, database=database, user=user, password=password, require_ssl=require_ssl
     ) as connection:
         with connection.cursor() as cursor:
-            params: dict = {"schema": schema}
-            names_filter = ""
-            if names:
-                params["names"] = names
-                names_filter = "AND tc.table_name = ANY(%(names)s)"
+            discovered_tables, qualify_with_schema = _get_discovered_tables(cursor, schema, names)
+            if not discovered_tables:
+                return {}
+
+            source_schemas = sorted(
+                {schema_name for _table_catalog, schema_name, _table_name in discovered_tables.values()}
+            )
+            schema_placeholders, schema_params = _build_named_value_placeholders("schema", source_schemas)
 
             cursor.execute(
                 f"""
                 SELECT
+                    tc.table_schema AS source_schema_name,
                     tc.table_name AS table_name,
                     kcu.column_name AS column_name,
+                    ccu.table_schema AS target_schema_name,
                     ccu.table_name AS target_table_name,
                     ccu.column_name AS target_column_name
                 FROM information_schema.table_constraints AS tc
                 JOIN information_schema.key_column_usage AS kcu
                     ON tc.constraint_name = kcu.constraint_name
+                    AND tc.constraint_schema = kcu.constraint_schema
                     AND tc.table_schema = kcu.table_schema
                 JOIN information_schema.constraint_column_usage AS ccu
                     ON ccu.constraint_name = tc.constraint_name
-                    AND ccu.table_schema = tc.table_schema
+                    AND ccu.constraint_schema = tc.constraint_schema
                 WHERE tc.constraint_type = 'FOREIGN KEY'
-                  AND tc.table_schema = %(schema)s
-                  AND ccu.table_schema = %(schema)s
-                  {names_filter}
-                ORDER BY tc.table_name, kcu.ordinal_position
+                  AND tc.table_schema IN ({schema_placeholders})
+                ORDER BY tc.table_schema, tc.table_name, kcu.ordinal_position
                 """,
-                params,
+                schema_params,
             )
             result = cursor.fetchall()
 
-        foreign_keys_by_table: dict[str, list[tuple[str, str, str]]] = collections.defaultdict(list)
-        for table_name, column_name, target_table_name, target_column_name in result:
-            foreign_keys_by_table[table_name].append((column_name, target_table_name, target_column_name))
+            foreign_keys_by_table: dict[str, list[tuple[str, str, str]]] = collections.defaultdict(list)
+            discovered_pairs_by_schema_and_table = {
+                (schema_name, table_name): display_name
+                for display_name, (_source_catalog, schema_name, table_name) in discovered_tables.items()
+            }
+            for (
+                source_schema_name,
+                table_name,
+                column_name,
+                target_schema_name,
+                target_table_name,
+                target_column_name,
+            ) in result:
+                display_name = discovered_pairs_by_schema_and_table.get((source_schema_name, table_name))
+                if display_name is None:
+                    continue
 
-    return foreign_keys_by_table
+                target_display_name = _get_display_table_name(
+                    target_schema_name,
+                    target_table_name,
+                    qualify_with_schema=qualify_with_schema or target_schema_name != source_schema_name,
+                )
+                foreign_keys_by_table[display_name].append((column_name, target_display_name, target_column_name))
+
+            return foreign_keys_by_table
 
 
 def get_connection_metadata(
@@ -995,7 +1231,11 @@ class PostgreSQLColumn(Column):
             case "smallint":
                 arrow_type = pa.int16()
             case "numeric" | "decimal":
-                if not self.numeric_precision or not self.numeric_scale:
+                # Use `is None` for the scale half of the guard so that legitimate `NUMERIC(X, 0)`
+                # columns (integer-valued numerics, scale == 0) are not mistakenly treated as
+                # "missing scale". Precision still uses a truthiness check — precision == 0 is a
+                # real pathology (zero-digit budget) and should keep raising from our layer.
+                if not self.numeric_precision or self.numeric_scale is None:
                     raise TypeError("expected `numeric_precision` and `numeric_scale` to be `int`, got `NoneType`")
 
                 arrow_type = build_pyarrow_decimal_type(self.numeric_precision, self.numeric_scale)
@@ -1041,8 +1281,24 @@ def _is_read_replica(cursor: psycopg.Cursor) -> bool:
 
 
 def _get_table(
-    cursor: psycopg.Cursor, schema: str, table_name: str, logger: FilteringBoundLogger
+    cursor: psycopg.Cursor,
+    schema: str,
+    table_name: str,
+    logger: FilteringBoundLogger,
+    probe_unconstrained_numeric_scale: bool = False,
 ) -> Table[PostgreSQLColumn]:
+    """Read column metadata for `schema.table_name`.
+
+    If `probe_unconstrained_numeric_scale` is True, additionally run a `MAX(scale(col))`
+    aggregation on unconstrained `numeric` columns (those declared as `numeric` with no
+    precision/scale) to pick a source arrow decimal scale that matches the real data.
+
+    The probe is only useful when a fresh delta column is about to be created — either a
+    first-ever sync or a post-reset sync with a cleared incremental watermark — because delta
+    decimal column types are immutable after creation. On normal incremental syncs the delta
+    column already exists and the probed value is discarded, so the caller should gate
+    probing on "is a fresh schema being created" (see the equivalent gating on
+    `_get_estimated_row_count_for_partitioned_table` in `postgres_source`)."""
     is_mat_view_query = sql.SQL(
         "select {table} in (select matviewname from pg_matviews where schemaname = {schema}) as res"
     ).format(schema=sql.Literal(schema), table=sql.Literal(table_name))
@@ -1106,11 +1362,130 @@ def _get_table(
     cursor.execute(query)
 
     numeric_data_types = {"numeric", "decimal"}
+    metadata_rows = cursor.fetchall()
+
+    # For unconstrained numeric columns (declared as `numeric` with no precision/scale),
+    # postgres returns NULL for numeric_precision/numeric_scale in information_schema. Falling
+    # back to a static default scale (18) causes the delta column to be created with less scale
+    # than the actual data requires, which later breaks merges when a chunk contains values with
+    # trailing non-zero digits past that default scale. Probe the actual data for its max used
+    # scale so the delta column is sized correctly from the start.
+    unconstrained_numeric_columns = [
+        name
+        for name, data_type, _nullable, _np, numeric_scale_candidate in metadata_rows
+        if data_type in numeric_data_types and numeric_scale_candidate is None
+    ]
+    probed_scales: dict[str, int | None] = {}
+    # Alongside scale, we also probe the max integer digits per column so we can size precision
+    # to cover BOTH dimensions. Freezing the delta column at `decimal128(38, probed_scale)` when
+    # the observed data has `int_digits + scale > 38` would cause later arrow casts to fail — the
+    # probe alone cannot protect the integer side because precision is hard-capped at 38 for
+    # decimal128.
+    probed_int_digits: dict[str, int | None] = {}
+    # Only probe when a fresh delta column is about to be created. On incremental syncs the
+    # delta column type is already set and probing wastes a full-table aggregation per sync.
+    # Skip regular views: `MAX(scale(col))` on a view forces the view definition to execute,
+    # which can be arbitrarily expensive for join/aggregate views. Materialized views are
+    # already materialized on disk and behave like tables here.
+    if unconstrained_numeric_columns and probe_unconstrained_numeric_scale and not is_view:
+        try:
+            # Isolate the probe in a savepoint so that any failure (permission denied, bad
+            # type, statement_timeout, network blip) rolls back cleanly without poisoning the
+            # enclosing metadata transaction. Without this, a probe error leaves the
+            # transaction in `INERROR` state and every subsequent query in `postgres_source`
+            # (SET LOCAL statement_timeout, _is_read_replica, _get_primary_keys, _get_rows_to_sync,
+            # ...) fails with `InFailedSqlTransaction: current transaction is aborted`.
+            with cursor.connection.transaction(savepoint_name="probe_numeric_scale"):
+                # Scope a short statement_timeout to the probe so a pathologically large table
+                # or slow aggregation can't hang schema discovery. The outer 10-minute
+                # statement_timeout isn't set until `postgres_source` continues after
+                # `_get_table` returns, so without this the probe inherits whatever role-level
+                # default postgres has — which might be "no limit" on some hosted instances.
+                cursor.execute(
+                    sql.SQL("SET LOCAL statement_timeout = {timeout}").format(
+                        timeout=sql.Literal(30 * 1000)  # 30 seconds
+                    )
+                )
+                # `abs(col)` strips the minus sign before `::text` so negative values don't
+                # inflate the measured integer-digit count. `trunc` drops the fractional part;
+                # the result is always numeric (never scientific notation), so `length(::text)`
+                # is the integer-digit count. Pairs: (MAX(scale), MAX(int_digits)) per column,
+                # emitted in the same order as `unconstrained_numeric_columns`.
+                select_parts = sql.SQL(", ").join(
+                    sql.SQL("MAX(scale({col})), MAX(length(trunc(abs({col}))::text))").format(
+                        col=sql.Identifier(col_name)
+                    )
+                    for col_name in unconstrained_numeric_columns
+                )
+                probe_query = sql.SQL("SELECT {parts} FROM {table}").format(
+                    parts=select_parts,
+                    table=sql.Identifier(schema, table_name),
+                )
+                logger.debug(f"Probing numeric dimensions: {probe_query.as_string()}")
+                cursor.execute(probe_query)
+                row = cursor.fetchone()
+                if row is not None:
+                    for i, col_name in enumerate(unconstrained_numeric_columns):
+                        probed_scales[col_name] = row[2 * i]
+                        probed_int_digits[col_name] = row[2 * i + 1]
+        except Exception as e:
+            # Probe is best-effort. Fall back to DEFAULT_NUMERIC_SCALE and let the downstream
+            # `_process_batch` fallback chain infer the right type at row-fetching time.
+            logger.warning(
+                "Failed to probe numeric dimensions",
+                schema=schema,
+                table=table_name,
+                error=str(e),
+            )
+
     columns = []
-    for name, data_type, nullable, numeric_precision_candidate, numeric_scale_candidate in cursor:
+    for name, data_type, nullable, numeric_precision_candidate, numeric_scale_candidate in metadata_rows:
         if data_type in numeric_data_types:
-            numeric_precision = numeric_precision_candidate or DEFAULT_NUMERIC_PRECISION
-            numeric_scale = numeric_scale_candidate or DEFAULT_NUMERIC_SCALE
+            if numeric_scale_candidate is not None:
+                # Constrained `NUMERIC(p, s)`: trust the declared precision and scale directly.
+                numeric_precision = numeric_precision_candidate or DEFAULT_NUMERIC_PRECISION
+                numeric_scale = numeric_scale_candidate
+            else:
+                probed_scale = probed_scales.get(name)
+                probed_int = probed_int_digits.get(name)
+                # Intentionally fall back to DEFAULT_NUMERIC_SCALE when probed_scale is 0 or
+                # missing. A scale of 0 means every row we saw today happens to be integer-valued,
+                # but the source column is declared as unconstrained `numeric` — meaning the schema
+                # makes no scale promise. Freezing the delta column at scale=0 based on a transient
+                # all-integer snapshot would reintroduce this PR's original bug the moment a future
+                # sync sees a fractional value. DEFAULT_NUMERIC_SCALE leaves room for that future.
+                if probed_scale is not None and probed_scale > 0:
+                    # MAX_NUMERIC_SCALE bounds the scale we're willing to write into delta.
+                    effective_scale = min(probed_scale, MAX_NUMERIC_SCALE)
+                    # Precision must cover BOTH integer digits and scale — if `int_digits +
+                    # effective_scale` fits within the decimal128 budget (38), keep precision at
+                    # 38 to leave maximum integer headroom for future rows. Otherwise escalate
+                    # precision past 38 so `build_pyarrow_decimal_type` promotes the column to
+                    # decimal256. That column will then be collapsed to `string` at delta write
+                    # time (see `ensure_delta_compatible_arrow_schema` in dlt's deltalake libs) —
+                    # a known fidelity loss that's preferable to silently truncating either
+                    # integer digits (undersized precision) or fractional digits (undersized
+                    # scale).
+                    total_needed = (probed_int or 0) + effective_scale
+                    if total_needed <= DEFAULT_NUMERIC_PRECISION:
+                        numeric_precision = DEFAULT_NUMERIC_PRECISION
+                    else:
+                        numeric_precision = total_needed
+                        logger.warning(
+                            "Unconstrained numeric column exceeds decimal128 budget; "
+                            "will be stored as string in delta to preserve fidelity",
+                            schema=schema,
+                            table=table_name,
+                            column=name,
+                            total_digits_needed=total_needed,
+                            integer_digits=probed_int,
+                            scale=effective_scale,
+                            decimal128_budget=DEFAULT_NUMERIC_PRECISION,
+                        )
+                    numeric_scale = effective_scale
+                else:
+                    numeric_precision = DEFAULT_NUMERIC_PRECISION
+                    numeric_scale = DEFAULT_NUMERIC_SCALE
         else:
             numeric_precision = None
             numeric_scale = None
@@ -1183,7 +1558,20 @@ def postgres_source(
         with connection:
             with connection.cursor() as cursor:
                 logger.debug("Getting table types...")
-                table = _get_table(cursor, schema, table_name, logger)
+                # Only probe the actual data for numeric scale when a fresh delta column is
+                # about to be created — either a first-ever sync or a post-reset full scan
+                # (watermark cleared). On normal incremental syncs the delta column already
+                # exists, so probing would be a wasted full-table aggregation. Mirrors the
+                # `is_initial_sync or full_table_scan` gating used a few lines below for
+                # partitioned-table row estimation.
+                fresh_schema_being_created = is_initial_sync or db_incremental_field_last_value is None
+                table = _get_table(
+                    cursor,
+                    schema,
+                    table_name,
+                    logger,
+                    probe_unconstrained_numeric_scale=fresh_schema_being_created,
+                )
                 logger.debug(f"Source schema: {table.to_arrow_schema()}")
 
                 inner_query_with_limit = _build_query(
@@ -1218,12 +1606,27 @@ def postgres_source(
                     primary_keys = _get_primary_keys(cursor, schema, table_name, logger)
                     if primary_keys:
                         logger.debug(f"Found primary keys: {primary_keys}")
+                    logger.debug("Checking if table is partitioned...")
+                    is_partitioned = False
+                    try:
+                        is_partitioned = _is_partitioned_table(cursor, schema, table_name)
+                    except Exception as e:
+                        logger.debug(f"Partition detection failed: {e}")
                     logger.debug("Getting table chunk size...")
                     if chunk_size_override is not None:
                         chunk_size = chunk_size_override
                         logger.debug(f"Using chunk_size_override: {chunk_size_override}")
                     else:
                         chunk_size = _get_table_chunk_size(cursor, inner_query_with_limit, logger)
+                        # Cap chunk size for partitioned tables. Server-cursor FETCH
+                        # on a partitioned parent scans across all child partitions,
+                        # so a large chunk can exceed statement_timeout even when
+                        # per-row size is small.
+                        if is_partitioned and chunk_size > PARTITIONED_TABLE_MAX_CHUNK_SIZE:
+                            logger.debug(
+                                f"Capping chunk_size from {chunk_size} to {PARTITIONED_TABLE_MAX_CHUNK_SIZE} for partitioned table"
+                            )
+                            chunk_size = PARTITIONED_TABLE_MAX_CHUNK_SIZE
                     logger.debug("Getting rows to sync...")
                     # For partitioned tables without an incremental cursor (initial
                     # sync, re-sync, or non-incremental), use pg_class.reltuples
@@ -1234,18 +1637,17 @@ def postgres_source(
                     # scan (no incremental cursor value).
                     rows_to_sync: int | None = None
                     full_table_scan = db_incremental_field_last_value is None
-                    if is_initial_sync or full_table_scan:
+                    if is_partitioned and (is_initial_sync or full_table_scan):
                         try:
-                            if _is_partitioned_table(cursor, schema, table_name):
-                                logger.debug(
-                                    f"Partitioned table detected (is_initial_sync={is_initial_sync}, "
-                                    f"full_table_scan={full_table_scan}), using estimated row count"
-                                )
-                                rows_to_sync = _get_estimated_row_count_for_partitioned_table(
-                                    cursor, schema, table_name, logger
-                                )
+                            logger.debug(
+                                f"Partitioned table detected (is_initial_sync={is_initial_sync}, "
+                                f"full_table_scan={full_table_scan}), using estimated row count"
+                            )
+                            rows_to_sync = _get_estimated_row_count_for_partitioned_table(
+                                cursor, schema, table_name, logger
+                            )
                         except Exception as e:
-                            logger.debug(f"Partition detection failed, falling back to exact count: {e}")
+                            logger.debug(f"Estimated row count failed, falling back to exact count: {e}")
                     if rows_to_sync is None:
                         rows_to_sync = _get_rows_to_sync(cursor, count_query, logger)
                     logger.debug("Getting partition settings...")
@@ -1309,6 +1711,19 @@ def postgres_source(
                 connection.adapters.register_loader("tstzrange", RangeAsStringLoader)
                 connection.adapters.register_loader("daterange", RangeAsStringLoader)
                 connection.adapters.register_loader("date", SafeDateLoader)
+                # Bump statement_timeout for the streaming connection. A server
+                # cursor FETCH inherits the session statement_timeout, and on
+                # wide/partitioned scans the source's default (often 30-60s)
+                # kills the fetch before rows come back.
+                try:
+                    with connection.cursor() as setup_cursor:
+                        setup_cursor.execute(
+                            sql.SQL("SET statement_timeout = {timeout}").format(
+                                timeout=sql.Literal(SYNC_STATEMENT_TIMEOUT_MS)
+                            )
+                        )
+                except Exception as e:
+                    logger.debug(f"Failed to set statement_timeout on sync connection: {e}")
                 return connection
 
             def offset_chunking(offset: int, chunk_size: int):

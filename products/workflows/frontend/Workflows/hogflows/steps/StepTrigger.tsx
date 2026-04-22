@@ -30,7 +30,6 @@ import {
 import { CodeSnippet } from 'lib/components/CodeSnippet'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { IconAdsClick } from 'lib/lemon-ui/icons'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
@@ -539,7 +538,6 @@ function StepTriggerConfigurationBatch({
     config: Extract<HogFlowAction['config'], { type: 'batch' }>
 }): JSX.Element {
     const { partialSetWorkflowActionConfig } = useActions(workflowLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
 
     return (
         <div className="flex flex-col gap-2 my-2 w-full">
@@ -581,7 +579,7 @@ function StepTriggerConfigurationBatch({
                 />
             </div>
 
-            {featureFlags[FEATURE_FLAGS.WORKFLOWS_RECURRING_SCHEDULES] && <BatchScheduleSection />}
+            <BatchScheduleSection />
         </div>
     )
 }
@@ -664,9 +662,13 @@ function StepTriggerConfigurationTrackingPixel({
     )
 }
 
+const MASKING_HASH_PER_PERSON_PER_DAY = "{concat(toString(person.id), '-', formatDateTime(now(), '%Y-%m-%d'))}"
+const CALENDAR_DAY_TTL = 24 * 60 * 60
+
 const FREQUENCY_OPTIONS = [
     { value: null, label: 'Every time the trigger fires' },
     { value: '{person.id}', label: 'One time' },
+    { value: MASKING_HASH_PER_PERSON_PER_DAY, label: 'Once per calendar day' },
 ]
 
 const TTL_OPTIONS = [
@@ -725,13 +727,17 @@ function FrequencySection(): JSX.Element {
                                 val
                                     ? {
                                           hash: val,
-                                          ttl: workflow.trigger_masking?.ttl ?? 60 * 30,
+                                          ttl:
+                                              val === MASKING_HASH_PER_PERSON_PER_DAY
+                                                  ? CALENDAR_DAY_TTL
+                                                  : (workflow.trigger_masking?.ttl ?? 60 * 30),
                                       }
                                     : null
                             )
                         }
                     />
-                    {workflow.trigger_masking?.hash ? (
+                    {workflow.trigger_masking?.hash &&
+                    workflow.trigger_masking.hash !== MASKING_HASH_PER_PERSON_PER_DAY ? (
                         <TTLSelect
                             value={workflow.trigger_masking.ttl}
                             onChange={(val) =>

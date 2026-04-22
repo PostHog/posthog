@@ -3,7 +3,7 @@ import { combineUrl } from 'kea-router'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
-import { FileSystemIconType, ProductKey } from '~/queries/schema/schema-general'
+import { FileSystemIconType, ProductItemCategory, ProductKey } from '~/queries/schema/schema-general'
 
 import { FileSystemIconColor, ProductManifest } from '../../frontend/src/types'
 
@@ -16,7 +16,6 @@ export const manifest: ProductManifest = {
             name: 'Endpoints',
             activityScope: 'Endpoints',
             layout: 'app-container',
-            defaultDocsPath: '/docs/endpoints',
             iconType: 'endpoints',
             description: 'Define queries your application will use via the API and monitor their cost and usage.',
         },
@@ -87,7 +86,7 @@ export const manifest: ProductManifest = {
         {
             path: 'Endpoints',
             intents: [ProductKey.ENDPOINTS],
-            category: 'Tools',
+            category: ProductItemCategory.TOOLS,
             href: urls.endpoints(),
             type: 'endpoints',
             flag: FEATURE_FLAGS.ENDPOINTS,

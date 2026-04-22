@@ -26,8 +26,8 @@ export const LogsViewerToolbar = ({
     onChangeOrderBy,
     onOpenFullScreen,
 }: LogsViewerToolbarProps): JSX.Element => {
-    const { wrapBody, prettifyJson, timezone } = useValues(logsViewerLogic)
-    const { setWrapBody, setPrettifyJson, setTimezone } = useActions(logsViewerLogic)
+    const { wrapBody, timezone } = useValues(logsViewerLogic)
+    const { setWrapBody, setTimezone } = useActions(logsViewerLogic)
 
     return (
         <div className="flex justify-between flex-wrap gap-2">
@@ -48,13 +48,6 @@ export const LogsViewerToolbar = ({
                     size="small"
                 />
                 <LemonCheckbox checked={wrapBody} bordered onChange={setWrapBody} label="Wrap message" size="small" />
-                <LemonCheckbox
-                    checked={prettifyJson}
-                    bordered
-                    onChange={setPrettifyJson}
-                    label="Prettify JSON"
-                    size="small"
-                />
                 <TimezoneSelect value={timezone} onChange={setTimezone} size="small" />
                 <LogsExportMenu totalLogsCount={totalLogsCount} />
                 {onOpenFullScreen && (

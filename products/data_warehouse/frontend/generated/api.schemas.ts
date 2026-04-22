@@ -211,6 +211,8 @@ export interface ExternalDataSchemaApi {
     readonly sync_time_of_day: string | null
     /** @nullable */
     readonly description: string | null
+    /** @nullable */
+    readonly primary_key_columns: readonly string[] | null
     readonly cdc_table_mode: CdcTableModeEnumApi
 }
 
@@ -221,6 +223,45 @@ export interface PaginatedExternalDataSchemaListApi {
     /** @nullable */
     previous?: string | null
     results: ExternalDataSchemaApi[]
+}
+
+/**
+ * @nullable
+ */
+export type PatchedExternalDataSchemaApiTable = { [key: string]: unknown } | null | null
+
+export interface PatchedExternalDataSchemaApi {
+    readonly id?: string
+    readonly name?: string
+    /** @nullable */
+    readonly label?: string | null
+    /** @nullable */
+    readonly table?: PatchedExternalDataSchemaApiTable
+    should_sync?: boolean
+    /** @nullable */
+    readonly last_synced_at?: string | null
+    /**
+     * The latest error that occurred when syncing this schema.
+     * @nullable
+     */
+    readonly latest_error?: string | null
+    readonly incremental?: boolean
+    /** @nullable */
+    readonly status?: string | null
+    readonly sync_type?: SyncTypeEnumApi | null
+    /** @nullable */
+    readonly incremental_field?: string | null
+    /** @nullable */
+    readonly incremental_field_type?: string | null
+    /** @nullable */
+    readonly sync_frequency?: string | null
+    /** @nullable */
+    readonly sync_time_of_day?: string | null
+    /** @nullable */
+    readonly description?: string | null
+    /** @nullable */
+    readonly primary_key_columns?: readonly string[] | null
+    readonly cdc_table_mode?: CdcTableModeEnumApi
 }
 
 /**
@@ -365,10 +406,11 @@ export interface PaginatedExternalDataSchemaListApi {
  * `Granola` - Granola
  * `BuildBetter` - BuildBetter
  * `Convex` - Convex
+ * `ClickHouse` - ClickHouse
  */
-export type SourceType432EnumApi = (typeof SourceType432EnumApi)[keyof typeof SourceType432EnumApi]
+export type SourceTypeF0aEnumApi = (typeof SourceTypeF0aEnumApi)[keyof typeof SourceTypeF0aEnumApi]
 
-export const SourceType432EnumApi = {
+export const SourceTypeF0aEnumApi = {
     Ashby: 'Ashby',
     Supabase: 'Supabase',
     CustomerIO: 'CustomerIO',
@@ -510,6 +552,7 @@ export const SourceType432EnumApi = {
     Granola: 'Granola',
     BuildBetter: 'BuildBetter',
     Convex: 'Convex',
+    ClickHouse: 'ClickHouse',
 } as const
 
 /**
@@ -556,7 +599,7 @@ export interface ExternalDataSourceSerializersApi {
     readonly status: string
     client_secret: string
     account_id: string
-    readonly source_type: SourceType432EnumApi
+    readonly source_type: SourceTypeF0aEnumApi
     /** @nullable */
     readonly latest_error: string | null
     /**
@@ -575,7 +618,8 @@ export interface ExternalDataSourceSerializersApi {
 * `duckdb` - duckdb
 * `postgres` - postgres */
     readonly engine: EngineEnumApi | NullEnumApi | null
-    readonly last_run_at: string
+    /** @nullable */
+    readonly last_run_at: string | null
     readonly schemas: readonly ExternalDataSourceSerializersApiSchemasItem[]
     job_inputs?: unknown | null
     readonly revenue_analytics_config: ExternalDataSourceRevenueAnalyticsConfigApi
@@ -609,7 +653,7 @@ export interface PatchedExternalDataSourceSerializersApi {
     readonly status?: string
     client_secret?: string
     account_id?: string
-    readonly source_type?: SourceType432EnumApi
+    readonly source_type?: SourceTypeF0aEnumApi
     /** @nullable */
     readonly latest_error?: string | null
     /**
@@ -628,7 +672,8 @@ export interface PatchedExternalDataSourceSerializersApi {
 * `duckdb` - duckdb
 * `postgres` - postgres */
     readonly engine?: EngineEnumApi | NullEnumApi | null
-    readonly last_run_at?: string
+    /** @nullable */
+    readonly last_run_at?: string | null
     readonly schemas?: readonly PatchedExternalDataSourceSerializersApiSchemasItem[]
     job_inputs?: unknown | null
     readonly revenue_analytics_config?: ExternalDataSourceRevenueAnalyticsConfigApi
@@ -638,6 +683,52 @@ export interface PatchedExternalDataSourceSerializersApi {
      */
     readonly user_access_level?: string | null
     readonly supports_webhooks?: boolean
+}
+
+export interface ExternalDataSourceBulkUpdateSchemaApi {
+    /** Schema identifier to update. */
+    id: string
+    /** Whether the schema should be queryable/synced. */
+    should_sync?: boolean
+    /** Requested sync mode for the schema.
+
+* `full_refresh` - full_refresh
+* `incremental` - incremental
+* `append` - append
+* `webhook` - webhook
+* `cdc` - cdc */
+    sync_type?: SyncTypeEnumApi | NullEnumApi | null
+    /**
+     * Incremental cursor field for incremental or append syncs.
+     * @nullable
+     */
+    incremental_field?: string | null
+    /**
+     * Type of the incremental cursor field.
+     * @nullable
+     */
+    incremental_field_type?: string | null
+    /**
+     * Human-readable sync frequency value.
+     * @nullable
+     */
+    sync_frequency?: string | null
+    /**
+     * UTC anchor time for scheduled syncs.
+     * @nullable
+     */
+    sync_time_of_day?: string | null
+    /** How CDC-backed tables should be exposed.
+
+* `consolidated` - consolidated
+* `cdc_only` - cdc_only
+* `both` - both */
+    cdc_table_mode?: CdcTableModeEnumApi | NullEnumApi | null
+}
+
+export interface PatchedExternalDataSourceBulkUpdateSchemasApi {
+    /** Schema updates to apply in a single batch. */
+    schemas?: ExternalDataSourceBulkUpdateSchemaApi[]
 }
 
 export interface ExternalDataSourceConnectionOptionApi {
@@ -776,9 +867,9 @@ export interface PaginatedDataWarehouseModelPathListApi {
  * `Failed` - Failed
  * `Running` - Running
  */
-export type StatusD5cEnumApi = (typeof StatusD5cEnumApi)[keyof typeof StatusD5cEnumApi]
+export type Status550EnumApi = (typeof Status550EnumApi)[keyof typeof Status550EnumApi]
 
-export const StatusD5cEnumApi = {
+export const Status550EnumApi = {
     Cancelled: 'Cancelled',
     Modified: 'Modified',
     Completed: 'Completed',
@@ -821,7 +912,7 @@ export interface DataWarehouseSavedQueryMinimalApi {
 * `Completed` - Completed
 * `Failed` - Failed
 * `Running` - Running */
-    readonly status: StatusD5cEnumApi | NullEnumApi | null
+    readonly status: Status550EnumApi | NullEnumApi | null
     /** @nullable */
     readonly last_run_at: string | null
     /** @nullable */
@@ -888,7 +979,7 @@ export interface DataWarehouseSavedQueryApi {
 * `Completed` - Completed
 * `Failed` - Failed
 * `Running` - Running */
-    readonly status: StatusD5cEnumApi | NullEnumApi | null
+    readonly status: Status550EnumApi | NullEnumApi | null
     /** @nullable */
     readonly last_run_at: string | null
     /** @nullable */
@@ -969,7 +1060,7 @@ export interface PatchedDataWarehouseSavedQueryApi {
 * `Completed` - Completed
 * `Failed` - Failed
 * `Running` - Running */
-    readonly status?: StatusD5cEnumApi | NullEnumApi | null
+    readonly status?: Status550EnumApi | NullEnumApi | null
     /** @nullable */
     readonly last_run_at?: string | null
     /** @nullable */
@@ -1079,7 +1170,7 @@ export interface SimpleExternalDataSourceSerializersApi {
     /** @nullable */
     readonly created_by: number | null
     readonly status: string
-    readonly source_type: SourceType432EnumApi
+    readonly source_type: SourceTypeF0aEnumApi
 }
 
 export type TableApiColumnsItem = { [key: string]: unknown }
@@ -1178,10 +1269,7 @@ export type DataModelingJobsListParams = {
      * Number of results to return per page.
      */
     limit?: number
-    /**
-     * @nullable
-     */
-    saved_query_id?: string | null
+    saved_query_id?: string
 }
 
 export type DataWarehouseCheckDatabaseNameRetrieveParams = {
@@ -1220,6 +1308,26 @@ export type ExternalDataSourcesListParams = {
      * A search term.
      */
     search?: string
+}
+
+export type ExternalDataSourcesBulkUpdateSchemasPartialUpdateParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+    /**
+     * A search term.
+     */
+    search?: string
+}
+
+export type ExternalDataSourcesCheckCdcPrerequisitesCreate200 = {
+    valid?: boolean
+    errors?: string[]
 }
 
 export type ExternalDataSourcesConnectionsListParams = {

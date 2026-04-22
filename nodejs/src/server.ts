@@ -49,6 +49,7 @@ export class PluginServer implements NodeServer {
 
     // Infrastructure resources (tracked for shutdown cleanup)
     private kafkaProducer?: KafkaProducerWrapper
+    private monitoringProducer?: KafkaProducerWrapper
     private postgres?: PostgresRouter
     private redisPool?: RedisPool
     private posthogRedisPool?: RedisPool
@@ -94,6 +95,10 @@ export class PluginServer implements NodeServer {
         // 2. Services shared by CDP (geoip, repos, encryption)
         let cdpServices: Awaited<ReturnType<typeof this.createCdpSharedServices>> | undefined
         if (needsCdp) {
+            this.monitoringProducer = await KafkaProducerWrapper.create(
+                this.config.KAFKA_CLIENT_RACK,
+                'MONITORING_PRODUCER'
+            )
             cdpServices = await this.createCdpSharedServices()
         }
 
@@ -112,6 +117,7 @@ export class PluginServer implements NodeServer {
                   teamManager,
                   integrationManager: cdpServices!.integrationManager,
                   kafkaProducer: this.kafkaProducer!,
+                  monitoringProducer: this.monitoringProducer!,
                   internalCaptureService: cdpServices!.internalCaptureService,
                   personRepository: cdpServices!.personRepository,
                   geoipService: cdpServices!.geoipService,
@@ -267,7 +273,7 @@ export class PluginServer implements NodeServer {
 
     private getCleanupResources(): CleanupResources {
         return {
-            kafkaProducers: [this.kafkaProducer].filter(Boolean) as KafkaProducerWrapper[],
+            kafkaProducers: [this.kafkaProducer, this.monitoringProducer].filter(Boolean) as KafkaProducerWrapper[],
             redisPools: [this.redisPool, this.posthogRedisPool].filter(Boolean) as RedisPool[],
             postgres: this.postgres,
             pubsub: this.pubsub,
