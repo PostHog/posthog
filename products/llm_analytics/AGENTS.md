@@ -1,6 +1,6 @@
 # LLM analytics agent guide
 
-Repo-wide conventions live in `/AGENTS.md` — kea over hooks, generated
+Repo-wide conventions live in [`../../AGENTS.md`](../../AGENTS.md) — kea over hooks, generated
 API over `api.get`, `ph_scoped_capture` in Celery, etc. Read that first.
 
 This file is only for rules that are specific to `products/llm_analytics/`
