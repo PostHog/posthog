@@ -627,9 +627,6 @@ tools:
         cmd: python manage.py print_hog_stl_table
         description: Print HogSQL standard library definitions for reference
         hidden: true
-    clickhouse:ai:init:
-        bin_script: clickhouse-ai-events-init
-        description: Create ai_events ClickHouse tables for local development
     clickhouse:logs:init:
         bin_script: clickhouse-logs-init
         description: 'TODO: add description for clickhouse-logs-init'

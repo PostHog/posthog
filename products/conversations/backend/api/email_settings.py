@@ -20,6 +20,8 @@ from posthog.models.user import User
 from posthog.rate_limit import EmailSendTestThrottle, EmailVerifyDomainThrottle
 
 from products.conversations.backend.mailgun import (
+    MailgunDomainConflict,
+    MailgunNotConfigured,
     add_domain as mailgun_add_domain,
     delete_domain as mailgun_delete_domain,
     get_smtp_connection,
@@ -158,8 +160,11 @@ class EmailConnectView(APIView):
         else:
             try:
                 dns_records = mailgun_add_domain(domain)
-            except ValueError as e:
-                logger.info("email_connect_mailgun_domain_error", team_id=team.id, domain=domain, error=str(e))
+            except MailgunNotConfigured:
+                logger.info("email_connect_mailgun_not_configured", team_id=team.id, domain=domain)
+                return Response({"error": "Mailgun API key not configured"}, status=400)
+            except MailgunDomainConflict as e:
+                logger.info("email_connect_mailgun_domain_conflict", team_id=team.id, domain=domain, error=str(e))
                 return Response(
                     {
                         "error": "This domain cannot be registered for sending. "
@@ -225,7 +230,7 @@ class EmailVerifyDomainView(APIView):
 
         try:
             mg_result = mailgun_verify_domain(config.domain)
-        except ValueError:
+        except MailgunNotConfigured:
             return Response({"error": "Mailgun API key not configured"}, status=400)
         except Exception:
             logger.exception("email_verify_domain_failed", team_id=team.id, domain=config.domain)
@@ -340,7 +345,7 @@ class EmailDisconnectView(APIView):
             assert domain_to_delete is not None
             try:
                 mailgun_delete_domain(domain_to_delete)
-            except ValueError:
+            except MailgunNotConfigured:
                 logger.info("email_disconnect_no_mailgun_key", team_id=team.id)
             except Exception:
                 logger.exception("email_disconnect_mailgun_delete_failed", team_id=team.id, domain=domain_to_delete)

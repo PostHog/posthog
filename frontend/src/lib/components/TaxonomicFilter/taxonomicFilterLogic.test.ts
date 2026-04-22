@@ -321,6 +321,24 @@ describe('taxonomicFilterLogic', () => {
             })
         })
 
+        it.each([
+            { description: 'undefined first entry', payload: [undefined as any] },
+            { description: 'null first entry', payload: [null as any] },
+            { description: 'entry missing group', payload: [{ name: 'anything' } as any] },
+        ])('appendTopMatches is a no-op when $description', async ({ payload }) => {
+            await expectLogic(quickLogic, () => {
+                quickLogic.actions.setSearchQuery('$pageview')
+            })
+                .toDispatchActions(['setSearchQuery', 'appendTopMatches'])
+                .delay(1)
+
+            const before = quickLogic.values.topMatchItems
+            expect(before).toHaveLength(1)
+
+            expect(() => quickLogic.actions.appendTopMatches(payload)).not.toThrow()
+            expect(quickLogic.values.topMatchItems).toEqual(before)
+        })
+
         it('promotes top match from groups without getValue', async () => {
             const logicProps: TaxonomicFilterLogicProps = {
                 taxonomicFilterLogicKey: 'testNoGetValue',
