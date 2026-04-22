@@ -502,7 +502,14 @@ def run_attribute_names_query(
     )
 
     property_filter_type = (
-        attribute_type if attribute_type in ("span", "span_attribute", "span_resource_attribute") else "span_attribute"
+        attribute_type
+        if attribute_type
+        in (
+            SpanPropertyFilterType.SPAN,
+            SpanPropertyFilterType.SPAN_ATTRIBUTE,
+            SpanPropertyFilterType.SPAN_RESOURCE_ATTRIBUTE,
+        )
+        else SpanPropertyFilterType.SPAN_ATTRIBUTE
     )
 
     query = parse_select(
