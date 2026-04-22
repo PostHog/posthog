@@ -9,7 +9,7 @@ from posthog.models import Integration
 from posthog.models.integration import GitHubIntegration
 
 from products.tasks.backend.models import TaskRun
-from products.tasks.backend.temporal.exceptions import TaskInvalidStateError, TaskNotFoundError
+from products.tasks.backend.temporal.exceptions import TaskInvalidStateError
 from products.tasks.backend.temporal.process_task.activities import TaskProcessingContext
 
 
@@ -54,22 +54,19 @@ def get_pr_context(input: GetPrContextInput) -> GetPrContextOutput | None:
     try:
         task_run = TaskRun.objects.get(id=ctx.run_id)
     except TaskRun.DoesNotExist:
-        raise TaskNotFoundError(
-            f"TaskRun with id {ctx.run_id} not found",
-            context={"run_id": ctx.run_id},
-            cause=RuntimeError("TaskRun not found"),
-        )
+        activity.logger.warning("get_pr_context_task_run_not_found", run_id=ctx.run_id)
+        return None
     pr_url = (task_run.output or {}).get("pr_url")
     if not pr_url:
         return None
     try:
         github_integration = get_github_integration(ctx.github_integration_id)
     except ObjectDoesNotExist:
-        raise TaskInvalidStateError(
-            f"GitHub integration with id {ctx.github_integration_id} not found",
-            context={"github_integration_id": ctx.github_integration_id},
-            cause=RuntimeError("GitHub integration not found"),
+        activity.logger.warning(
+            "get_pr_context_github_integration_not_found",
+            github_integration_id=ctx.github_integration_id,
         )
+        return None
 
     try:
         pull_request = github_integration.get_pull_request_from_url(pr_url)  # Validate PR URL and permissions
