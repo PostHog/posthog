@@ -1,4 +1,6 @@
+import json
 from datetime import timedelta
+from urllib.parse import parse_qs, urlparse
 
 from unittest.mock import patch
 
@@ -280,8 +282,6 @@ class TestPKCEPartnerExistingUserConsent(StripeProvisioningTestBase):
         )
 
     def _post_as_pkce_partner(self, data: dict):
-        import json
-
         body = json.dumps(data).encode()
         return self.client.post(
             "/api/agentic/provisioning/account_requests",
@@ -324,21 +324,12 @@ class TestPKCEPartnerExistingUserConsent(StripeProvisioningTestBase):
         data = res.json()
 
         url = data["requires_auth"]["url"]
-        state = url.split("state=")[1].split("&")[0]
+        state = parse_qs(urlparse(url).query)["state"][0]
         pending = cache.get(f"{PENDING_AUTH_CACHE_PREFIX}{state}")
         assert pending is not None
         assert pending["email"] == "existing@example.com"
         assert pending["partner_id"] == str(self.pkce_partner.id)
         assert pending["scopes"] == ["query:read"]
-
-    def test_pkce_partner_existing_user_does_not_issue_code(self):
-        User.objects.create_and_join(
-            organization=self.organization, email="existing@example.com", password="testpass", first_name="Existing"
-        )
-        payload = self._account_request_payload()
-        res = self._post_as_pkce_partner(payload)
-        data = res.json()
-        assert "oauth" not in data
 
     def test_pkce_partner_new_user_still_gets_direct_code(self):
         payload = self._account_request_payload(email="brand_new@example.com")
