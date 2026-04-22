@@ -69,14 +69,6 @@ export const issuesDataNodeLogic = kea<issuesDataNodeLogicType>([
         reloadData: () => {
             actions.loadData('force_blocking')
         },
-        loadData: () => {
-            const query = props.query as Record<string, any>
-            if (query?.useQueryV3) {
-                const phantoms = query?.phantomFingerprintIssueStates ?? []
-                // eslint-disable-next-line no-console
-                console.log(`[error_tracking] v3 query sent with ${phantoms.length} phantom(s):`, phantoms)
-            }
-        },
         loadDataSuccess: () => {
             const durationMs =
                 values.loadStartTime !== null ? Math.round(performance.now() - values.loadStartTime) : null
