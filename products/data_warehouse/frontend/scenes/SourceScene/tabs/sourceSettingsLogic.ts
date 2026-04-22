@@ -554,10 +554,10 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                     return () => clearTimeout(timerId)
                 }, 'sourceRefreshTimeout')
 
-                const activeTabId = sceneLogic.findMounted()?.values.activeTabId ?? undefined
+                const tabId = props.tabId ?? sceneLogic.findMounted()?.values.activeTabId ?? undefined
                 const sceneLogicInstance =
-                    sourceSceneLogic.findMounted({ id: `managed-${props.id}`, tabId: activeTabId }) ??
-                    sourceSceneLogic.findMounted({ id: props.id, tabId: activeTabId })
+                    sourceSceneLogic.findMounted({ id: `managed-${props.id}`, tabId }) ??
+                    sourceSceneLogic.findMounted({ id: props.id, tabId })
 
                 sceneLogicInstance?.actions.setBreadcrumbName(breadcrumbName)
             },
