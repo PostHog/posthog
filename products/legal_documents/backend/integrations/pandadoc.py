@@ -49,7 +49,7 @@ class PandaDocSenderPostHog:
     on the PandaDoc envelopes, so let's assign it here.
     """
 
-    email: str = "simon@posthog.com"
+    email: str = "sales@posthog.com"
     role: str = "PostHog"
 
 
@@ -104,7 +104,7 @@ class PandaDocClient:
         *,
         template_id: str,
         name: str,
-        recipients: list[PandaDocRecipient],
+        recipients: list[PandaDocRecipient | PandaDocSenderPostHog],
         metadata: dict[str, str] | None = None,
     ) -> PandaDocDocument:
         """
@@ -135,16 +135,18 @@ class PandaDocClient:
         )
 
 
-def _serialize_recipient(r: PandaDocRecipient) -> dict[str, Any]:
+def _serialize_recipient(r: PandaDocRecipient | PandaDocSenderPostHog) -> dict[str, Any]:
     payload: dict[str, Any] = {"email": r.email, "role": r.role}
     # PandaDoc expects contact fields under `fields`, keyed by the snake_case
     # field name (e.g. `Client.Company` → `company`). Only include fields we
-    # actually have a value for so we don't stomp existing template defaults.
+    # actually have a value for so we don't stomp existing template defaults,
+    # and only for recipient types that declare them (the PostHog sender doesn't).
     fields: dict[str, dict[str, str]] = {}
-    if r.company:
-        fields["company"] = {"value": r.company}
-    if r.street_address:
-        fields["street_address"] = {"value": r.street_address}
+    if company := getattr(r, "company", ""):
+        fields["company"] = {"value": company}
+    if street_address := getattr(r, "street_address", ""):
+        fields["street_address"] = {"value": street_address}
+
     if fields:
         payload["fields"] = fields
     return payload

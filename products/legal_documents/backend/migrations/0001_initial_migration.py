@@ -11,7 +11,7 @@ import posthog.models.utils
 
 def _generate_webhook_secret() -> str:
     # Inlined here so the field default still resolves even after the column
-    # was dropped from the model in migration 0003.
+    # was dropped from the model in migration 0002_legaldocument_pandadoc_integration.
     return secrets.token_urlsafe(32)
 
 

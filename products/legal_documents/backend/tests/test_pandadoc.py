@@ -84,3 +84,30 @@ class TestPandaDocClient(TestCase):
     def test_verify_webhook_signature_rejects_empty_inputs(self) -> None:
         self.assertFalse(pandadoc.verify_webhook_signature(secret="", body=b"{}", signature="abc"))
         self.assertFalse(pandadoc.verify_webhook_signature(secret="k", body=b"{}", signature=""))
+
+    def test_serialize_recipient_handles_posthog_sender_without_client_fields(self) -> None:
+        # The PostHog sender recipient doesn't carry Client.* fields, so
+        # _serialize_recipient must not blow up when it's passed — otherwise
+        # every real submission 500s (tests don't catch this on their own
+        # because submit_to_pandadoc short-circuits when template IDs are unset).
+        sender = pandadoc.PandaDocSenderPostHog()
+        payload = pandadoc._serialize_recipient(sender)
+        self.assertEqual(payload, {"email": sender.email, "role": "PostHog"})
+        self.assertNotIn("fields", payload)
+
+    def test_serialize_recipient_serializes_client_fields(self) -> None:
+        client = pandadoc.PandaDocRecipient(
+            email="ada@acme.example", company="Acme, Inc.", street_address="1 Analytics Way"
+        )
+        payload = pandadoc._serialize_recipient(client)
+        self.assertEqual(
+            payload,
+            {
+                "email": "ada@acme.example",
+                "role": "Client",
+                "fields": {
+                    "company": {"value": "Acme, Inc."},
+                    "street_address": {"value": "1 Analytics Way"},
+                },
+            },
+        )
