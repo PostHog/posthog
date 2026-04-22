@@ -292,9 +292,8 @@ class UpsertDashboardTool(MaxTool):
         DashboardTile.objects.bulk_create(tiles)
         layout_updates = self._compute_reflow_layout_updates(tiles, [])
         for layout_update in layout_updates:
-            row_tile = layout_update["tile"]
-            row_tile.layouts = layout_update["layouts"]
-            row_tile.save(update_fields=["layouts"])
+            layout_update["tile"].layouts = layout_update["layouts"]
+        DashboardTile.objects.bulk_update([lu["tile"] for lu in layout_updates], ["layouts"])
         return dashboard
 
     @database_sync_to_async
@@ -403,9 +402,8 @@ class UpsertDashboardTool(MaxTool):
         # 4. Reflow insight tile layouts when requested.
         layout_updates = self._compute_reflow_layout_updates(tiles_to_update, fixed_non_insight_vertical_spans)
         for layout_update in layout_updates:
-            row_tile = layout_update["tile"]
-            row_tile.layouts = layout_update["layouts"]
-            row_tile.save(update_fields=["layouts", "deleted"])
+            layout_update["tile"].layouts = layout_update["layouts"]
+        DashboardTile.objects.bulk_update([lu["tile"] for lu in layout_updates], ["layouts", "deleted"])
 
         return dashboard, resolved_insights
 
