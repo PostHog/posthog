@@ -24,7 +24,12 @@ services:
             - 'hypercache-server:host-gateway'
         environment:
             CADDYFILE: |
-                http://localhost:8000 {
+                {
+                    servers {
+                        trusted_proxies static ${CADDY_TRUSTED_PROXIES:-127.0.0.1/32 ::1/128}
+                    }
+                }
+                ${CADDY_HOST:-http://localhost:8000} {
                     @replay-capture {
                         path /s
                         path /s/*

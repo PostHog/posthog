@@ -59,6 +59,7 @@ from posthog.helpers.two_factor_session import (
     has_passkeys,
     set_two_factor_verified_in_session,
 )
+from posthog.helpers.user_devices import has_valid_known_device_cookie
 from posthog.models import OrganizationDomain, User
 from posthog.models.activity_logging import signal_handlers  # noqa: F401
 from posthog.models.webauthn_credential import WebauthnCredential
@@ -349,7 +350,7 @@ class LoginSerializer(serializers.Serializer):
         request.session.save()
 
         # Trigger login notification (password, no-2FA) and skip re-auth
-        if not was_authenticated_before_login_attempt:
+        if not was_authenticated_before_login_attempt and not has_valid_known_device_cookie(request, user):
             short_user_agent = get_short_user_agent(request)
             ip_address = get_ip_address(request)
             backend_name = request.session.get("_auth_user_backend", "django.contrib.auth.backends.ModelBackend")
@@ -994,7 +995,10 @@ def social_login_notification(
         report_user_logged_in(user, social_provider=getattr(backend, "name", ""))
 
         request = strategy.request
-        short_user_agent = get_short_user_agent(request)
-        ip_address = get_ip_address(request)
-        backend_name = getattr(backend, "name", "")
-        login_from_new_device_notification.delay(user.id, timezone.now(), short_user_agent, ip_address, backend_name)
+        if not has_valid_known_device_cookie(request, user):
+            short_user_agent = get_short_user_agent(request)
+            ip_address = get_ip_address(request)
+            backend_name = getattr(backend, "name", "")
+            login_from_new_device_notification.delay(
+                user.id, timezone.now(), short_user_agent, ip_address, backend_name
+            )
