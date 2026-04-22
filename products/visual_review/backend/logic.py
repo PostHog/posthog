@@ -340,18 +340,25 @@ def _resolve_baselines_at_ref(repo: Repo, github: GitHubIntegration, run_type: s
 
 def _get_merge_base_sha(github: GitHubIntegration, repo_full_name: str, base: str, head: str) -> str | None:
     """Get the merge-base SHA between two refs via the GitHub Compare API."""
+    from urllib.parse import quote
+
     import requests
 
     access_token = github.integration.sensitive_config["access_token"]
-    response = requests.get(
-        f"https://api.github.com/repos/{repo_full_name}/compare/{base}...{head}",
-        headers={
-            "Accept": "application/vnd.github+json",
-            "Authorization": f"Bearer {access_token}",
-            "X-GitHub-Api-Version": "2022-11-28",
-        },
-        timeout=10,
-    )
+    try:
+        response = requests.get(
+            f"https://api.github.com/repos/{repo_full_name}/compare/{quote(base, safe='')}...{quote(head, safe='')}",
+            headers={
+                "Accept": "application/vnd.github+json",
+                "Authorization": f"Bearer {access_token}",
+                "X-GitHub-Api-Version": "2022-11-28",
+            },
+            timeout=10,
+        )
+    except requests.RequestException:
+        logger.warning("visual_review.merge_base_fetch_failed", repo=repo_full_name, base=base, head=head)
+        return None
+
     if response.status_code != 200:
         logger.warning(
             "visual_review.merge_base_fetch_failed",
@@ -374,21 +381,31 @@ def _get_merge_base_sha(github: GitHubIntegration, repo_full_name: str, base: st
 
 
 def _get_default_branch(github: GitHubIntegration, repo_full_name: str) -> str:
-    """Get the repo's default branch name via the GitHub API."""
+    """Get the repo's default branch name via the GitHub API. Falls back to 'master'."""
     import requests
 
     access_token = github.integration.sensitive_config["access_token"]
-    response = requests.get(
-        f"https://api.github.com/repos/{repo_full_name}",
-        headers={
-            "Accept": "application/vnd.github+json",
-            "Authorization": f"Bearer {access_token}",
-            "X-GitHub-Api-Version": "2022-11-28",
-        },
-        timeout=10,
-    )
+    try:
+        response = requests.get(
+            f"https://api.github.com/repos/{repo_full_name}",
+            headers={
+                "Accept": "application/vnd.github+json",
+                "Authorization": f"Bearer {access_token}",
+                "X-GitHub-Api-Version": "2022-11-28",
+            },
+            timeout=10,
+        )
+    except requests.RequestException:
+        logger.warning("visual_review.default_branch_fetch_failed", repo=repo_full_name)
+        return "master"
+
     if response.status_code == 200:
         return response.json().get("default_branch", "master")
+    logger.warning(
+        "visual_review.default_branch_fetch_failed",
+        repo=repo_full_name,
+        status=response.status_code,
+    )
     return "master"
 
 
@@ -396,10 +413,8 @@ def _resolve_baselines(repo, run_type: str, branch: str) -> dict[str, str]:
     """Fetch baseline content hashes from GitHub for snapshot comparison.
 
     Returns a dict of identifier → content_hash (plain, not signed).
-    The baseline YAML in the repo is the source of truth.
-    Returns empty dict when baseline file doesn't exist (first run).
-    Raises on network/auth errors — silent failure would misclassify all
-    snapshots as NEW and risk baseline data loss on auto-approve.
+    Returns empty dict when no GitHub integration exists or the baseline
+    file is missing (first run).
     """
     try:
         github = get_github_integration_for_repo(repo)

@@ -290,6 +290,19 @@ export function VisualImageDiffViewer({
                             <EmptyImageState title="Before snapshot missing" />
                         )}
 
+                        {/* Flicker overlay — full image swap inside image area */}
+                        {flicker && mode === 'split' && activeOverlayUrl && (
+                            <div className="absolute top-0 left-0 w-full h-full overflow-hidden">
+                                <img
+                                    src={activeOverlayUrl}
+                                    alt="Flicker frame"
+                                    className="w-full h-auto bg-black/5 block"
+                                    // eslint-disable-next-line react/forbid-dom-props
+                                    style={isSmallImage ? { imageRendering: 'pixelated' as const } : undefined}
+                                />
+                            </div>
+                        )}
+
                         {/* Blend overlay — inside image area only */}
                         {mode === 'blend' && activeOverlayUrl && (
                             <div
