@@ -15,6 +15,9 @@ declare namespace Cloudflare {
 		POSTHOG_ANALYTICS_API_KEY: string;
 		POSTHOG_ANALYTICS_HOST: string;
 		MCP_OBJECT: DurableObjectNamespace<import("./src/index").MCP>;
+		FLAG_DEFS_KV: KVNamespace;
+		MCP_FLAG_LOCAL_EVAL_KEY: string;
+		MCP_LOCAL_EVAL_ENABLED?: string;
 	}
 }
 interface Env extends Cloudflare.Env {}

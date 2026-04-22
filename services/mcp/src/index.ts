@@ -6,6 +6,7 @@ import {
     findPostHogPermissionError,
     formatPermissionErrorMessage,
 } from '@/lib/errors'
+import { refreshFlagDefinitions } from '@/lib/flag-cache'
 import { RequestLogger, withLogging } from '@/lib/logging'
 import { extractClientInfoFromBody } from '@/lib/mcp-client-info'
 import { buildRedirectUrl, matchAuthServerRedirect } from '@/lib/routing'
@@ -362,4 +363,8 @@ export { MCP } from './mcp'
 // Worker entry point
 export default {
     fetch: withLogging(handleRequest),
+    scheduled: (_event: ScheduledController, env: Env, ctx: ExecutionContext) => {
+        // Cron keeps the shared KV flag-defs cache warm (every 5m via wrangler.jsonc).
+        ctx.waitUntil(refreshFlagDefinitions(env))
+    },
 }

@@ -35,6 +35,16 @@
             },
         ],
     },
+    "kv_namespaces": [
+        {
+            "binding": "FLAG_DEFS_KV",
+            "id": "00000000000000000000000000000000",
+            "preview_id": "00000000000000000000000000000000",
+        },
+    ],
+    "triggers": {
+        "crons": ["*/5 * * * *"],
+    },
     "observability": {
         "enabled": true,
         "logs": {
