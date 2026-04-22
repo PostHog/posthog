@@ -94,6 +94,7 @@ from posthog.clickhouse.query_tagging import get_query_tag_value, tag_queries
 from posthog.errors import classify_query_error, clickhouse_error_type
 from posthog.event_usage import AnalyticsProps, groups, report_user_or_team_action
 from posthog.exceptions_capture import capture_exception
+from posthog.hogql_queries.insights.utils.breakdowns import has_multi_breakdown, has_single_breakdown
 from posthog.hogql_queries.insights.utils.entities import has_data_warehouse_node
 from posthog.hogql_queries.insights.utils.properties import has_any_property_filters
 from posthog.hogql_queries.query_cache import count_query_cache_hit
@@ -101,7 +102,6 @@ from posthog.hogql_queries.query_cache_base import QueryCacheManagerBase
 from posthog.hogql_queries.query_cache_factory import get_query_cache_manager
 from posthog.hogql_queries.query_metadata import extract_query_metadata
 from posthog.hogql_queries.utils.event_usage import log_event_usage_from_query_metadata
-from posthog.hogql_queries.validation.rules import has_multi_breakdown, has_single_breakdown
 from posthog.hogql_queries.validation.validation import (
     QueryValidationContext,
     QueryValidationRule,
@@ -1837,11 +1837,15 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             and has_data_warehouse_node(self.query.series)
         )
 
-        should_ignore_dashboard_breakdown = has_data_warehouse_series and (
-            has_multi_breakdown(dashboard_filter.breakdown_filter)
-            or (
-                has_single_breakdown(dashboard_filter.breakdown_filter)
-                and dashboard_filter.breakdown_filter.breakdown_type != BreakdownType.DATA_WAREHOUSE
+        should_ignore_dashboard_breakdown = (
+            isinstance(self.query, TrendsQuery)
+            and has_data_warehouse_series
+            and (
+                has_multi_breakdown(dashboard_filter.breakdown_filter)
+                or (
+                    has_single_breakdown(dashboard_filter.breakdown_filter)
+                    and dashboard_filter.breakdown_filter.breakdown_type != BreakdownType.DATA_WAREHOUSE
+                )
             )
         )
 

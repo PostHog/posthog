@@ -496,7 +496,10 @@ export const InsightDetails = React.memo(
     ): JSX.Element {
         const hasPropertyOverrides = !!filtersOverride?.properties?.length || !!tileFiltersOverride?.properties?.length
         const hasIgnoredBreakdownOverrides =
-            containsNonDataWarehouseBreakdown(filtersOverride) || containsNonDataWarehouseBreakdown(tileFiltersOverride)
+            isInsightVizNode(query) &&
+            isTrendsQuery(query.source) &&
+            (containsNonDataWarehouseBreakdown(filtersOverride) ||
+                containsNonDataWarehouseBreakdown(tileFiltersOverride))
 
         return (
             <div className="InsightDetails space-y-2" ref={ref}>
