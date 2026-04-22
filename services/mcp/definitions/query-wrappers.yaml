@@ -20,6 +20,7 @@ wrappers:
         mcp_version: 2
         title: Run a trends query
         description_file: ./prompts/query-trends.md
+        system_prompt_hint: Time series, aggregations, formulas, comparisons
         ui_resource_uri: ui://posthog/query-results.html
         use_optimized_output: true
         exclude_properties:
@@ -39,6 +40,7 @@ wrappers:
         mcp_version: 2
         title: Run a funnel query
         description_file: ./prompts/query-funnel.md
+        system_prompt_hint: Conversion rates, drop-off analysis, time to convert
         ui_resource_uri: ui://posthog/query-results.html
         use_optimized_output: true
         exclude_properties:
@@ -58,6 +60,7 @@ wrappers:
         mcp_version: 2
         title: Run a retention query
         description_file: ./prompts/query-retention.md
+        system_prompt_hint: User return patterns over time
         ui_resource_uri: ui://posthog/query-results.html
         use_optimized_output: true
         exclude_properties:
@@ -77,6 +80,7 @@ wrappers:
         mcp_version: 2
         title: Run a stickiness query
         description_file: ./prompts/query-stickiness.md
+        system_prompt_hint: Engagement frequency (how many days users do X)
         ui_resource_uri: ui://posthog/query-results.html
         use_optimized_output: true
         exclude_properties:
@@ -96,6 +100,7 @@ wrappers:
         mcp_version: 2
         title: Run a paths query
         description_file: ./prompts/query-paths.md
+        system_prompt_hint: User navigation flows and sequences
         ui_resource_uri: ui://posthog/query-results.html
         use_optimized_output: true
         exclude_properties:
@@ -115,6 +120,7 @@ wrappers:
         mcp_version: 2
         title: Run a lifecycle query
         description_file: ./prompts/query-lifecycle.md
+        system_prompt_hint: New, returning, resurrecting, dormant user composition
         ui_resource_uri: ui://posthog/query-results.html
         use_optimized_output: true
         exclude_properties:
@@ -134,6 +140,7 @@ wrappers:
         mcp_version: 2
         title: List LLM traces
         description_file: ./prompts/query-llm-traces-list.md
+        system_prompt_hint: LLM/AI trace listing and inspection
         exclude_properties:
             - response
             - modifiers
@@ -150,6 +157,7 @@ wrappers:
         mcp_version: 2
         title: Get LLM trace
         description_file: ./prompts/query-llm-trace.md
+        system_prompt_hint: Single LLM/AI trace deep-dive
         exclude_properties:
             - response
             - modifiers
@@ -167,6 +175,7 @@ wrappers:
         mcp_version: 2
         title: List persons behind a trends data point
         description_file: ./prompts/query-trends-actors.md
+        system_prompt_hint: List persons behind a trends data point
         ui_resource_uri: ui://posthog/query-results.html
         exclude_properties:
             - response
