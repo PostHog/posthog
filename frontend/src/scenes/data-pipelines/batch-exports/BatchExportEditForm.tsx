@@ -99,6 +99,7 @@ export function BatchExportsEditFields({
 }): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
     const bigQueryIntegrationEnabled = featureFlags[FEATURE_FLAGS.BATCH_EXPORTS_BIGQUERY_INTEGRATION]
+    const postgreSQLIntegrationEnabled = true
 
     return (
         <div className="flex flex-col gap-y-4 max-w-200">
@@ -406,21 +407,31 @@ export function BatchExportsEditFields({
                 </>
             ) : batchExportConfigForm.destination === 'Postgres' ? (
                 <>
-                    <LemonField name="user" label="User">
-                        <LemonInput placeholder={isNew ? 'my-user' : 'Leave unchanged'} />
-                    </LemonField>
+                    {postgreSQLIntegrationEnabled ? (
+                        <LemonField name="integration_id" label="Integration">
+                            {({ value, onChange }) => (
+                                <IntegrationChoice integration="postgresql" value={value} onChange={onChange} />
+                            )}
+                        </LemonField>
+                    ) : (
+                        <>
+                            <LemonField name="user" label="User">
+                                <LemonInput placeholder={isNew ? 'my-user' : 'Leave unchanged'} />
+                            </LemonField>
 
-                    <LemonField name="password" label="Password">
-                        <LemonInput placeholder={isNew ? 'my-password' : 'Leave unchanged'} type="password" />
-                    </LemonField>
+                            <LemonField name="password" label="Password">
+                                <LemonInput placeholder={isNew ? 'my-password' : 'Leave unchanged'} type="password" />
+                            </LemonField>
 
-                    <LemonField name="host" label="Host">
-                        <LemonInput placeholder="my-host" />
-                    </LemonField>
+                            <LemonField name="host" label="Host">
+                                <LemonInput placeholder="my-host" />
+                            </LemonField>
 
-                    <LemonField name="port" label="Port">
-                        <LemonInput placeholder="5432" type="number" min="0" max="65535" />
-                    </LemonField>
+                            <LemonField name="port" label="Port">
+                                <LemonInput placeholder="5432" type="number" min="0" max="65535" />
+                            </LemonField>
+                        </>
+                    )}
 
                     <LemonField name="database" label="Database">
                         <LemonInput placeholder="my-database" />
