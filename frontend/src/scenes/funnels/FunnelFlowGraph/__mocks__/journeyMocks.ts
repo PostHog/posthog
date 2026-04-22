@@ -63,7 +63,7 @@ export const emptyJourneysList = {
     results: [] as unknown[],
 }
 
-export const JOURNEY_FEATURE_FLAGS = [FEATURE_FLAGS.CUSTOMER_ANALYTICS_JOURNEYS]
+export const JOURNEY_FEATURE_FLAGS = [FEATURE_FLAGS.CUSTOMER_ANALYTICS, FEATURE_FLAGS.CUSTOMER_ANALYTICS_JOURNEYS]
 
 export function allCompletedSteps(): Record<string, unknown>[] {
     return [
