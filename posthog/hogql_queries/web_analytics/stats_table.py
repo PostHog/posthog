@@ -314,6 +314,17 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
 
         assert isinstance(query, ast.SelectQuery)
 
+        if self.query.includeBounceRate:
+            query.select.append(
+                ast.Alias(
+                    alias="is_bounce",
+                    expr=ast.Call(
+                        name="any",
+                        args=[ast.Field(chain=["session", "$is_bounce"])],
+                    ),
+                )
+            )
+
         if self.conversion_count_expr and self.conversion_person_id_expr:
             query.select.append(ast.Alias(alias="conversion_count", expr=self.conversion_count_expr))
             query.select.append(ast.Alias(alias="conversion_person_id", expr=self.conversion_person_id_expr))
