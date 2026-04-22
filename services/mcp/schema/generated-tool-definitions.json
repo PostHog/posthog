@@ -3231,7 +3231,7 @@
         }
     },
     "skill-update": {
-        "description": "Publish a new version of an existing agent skill by name. Any field not provided is carried forward from the current latest version. Requires base_version for optimistic concurrency. If files are provided, they replace all files from the previous version; if omitted, files are carried forward.",
+        "description": "Publish a new version of an existing agent skill by name. Any field not provided\nis carried forward from the current latest version. Requires base_version for\noptimistic concurrency. If files are provided, they replace all files from the\nprevious version; if omitted, files are carried forward.\n\nFor the body, you can either provide the full content via 'body', or use 'edits'\nfor incremental find/replace updates. Each edit must have 'old' (text to find,\nmust match exactly once) and 'new' (replacement text). Edits are applied\nsequentially. Only one of 'body' or 'edits' may be provided.",
         "category": "Skills",
         "feature": "skills",
         "summary": "Update skill",

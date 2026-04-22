@@ -144,15 +144,12 @@ def direct_postgres_session_setup_sql(
     normalized_schema = schema.strip() if isinstance(schema, str) and schema.strip() else None
 
     if engine == "duckdb" or (host is not None and host.endswith(".postwh.com")):
-        if isinstance(database, str) and database.strip():
-            quoted_database = escape_postgres_identifier(database.strip())
-            if normalized_schema:
-                quoted_schema = escape_postgres_identifier(normalized_schema)
-                return f"USE {quoted_database}.{quoted_schema}"
-            return f"USE {quoted_database}"
         if normalized_schema:
             quoted_schema = escape_postgres_identifier(normalized_schema)
             return f"USE {quoted_schema}"
+        if isinstance(database, str) and database.strip():
+            quoted_database = escape_postgres_identifier(database.strip())
+            return f"USE {quoted_database}"
         return None
 
     if not normalized_schema:
@@ -227,15 +224,7 @@ def should_hydrate_runtime_direct_postgres_connection_metadata(
     connection_metadata: dict[str, object] | None = None,
 ) -> bool:
     normalized_schema = schema.strip() if isinstance(schema, str) and schema.strip() else None
-    if normalized_schema is None:
-        return True
-
-    if not isinstance(connection_metadata, dict):
-        return False
-
-    engine = connection_metadata.get("engine")
-    database = connection_metadata.get("database")
-    return engine == "duckdb" and not (isinstance(database, str) and database.strip())
+    return normalized_schema is None
 
 
 @dataclasses.dataclass

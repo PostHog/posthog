@@ -14,7 +14,7 @@
             "type": "number"
         },
         "body": {
-            "description": "Full skill body (SKILL.md instruction content) to publish as a new version.",
+            "description": "Full skill body (SKILL.md instruction content) to publish as a new version. Mutually exclusive with edits.",
             "type": "string"
         },
         "compatibility": {
@@ -26,6 +26,24 @@
             "description": "Updated description for the new version.",
             "maxLength": 4096,
             "type": "string"
+        },
+        "edits": {
+            "description": "List of find/replace operations to apply to the current skill body. Each edit's 'old' text must match exactly once. Edits are applied sequentially. Mutually exclusive with body.",
+            "items": {
+                "properties": {
+                    "new": {
+                        "description": "Replacement text.",
+                        "type": "string"
+                    },
+                    "old": {
+                        "description": "Text to find in the current skill body. Must match exactly once.",
+                        "type": "string"
+                    }
+                },
+                "required": ["old", "new"],
+                "type": "object"
+            },
+            "type": "array"
         },
         "files": {
             "description": "Bundled files to include with this version. Replaces all files from the previous version.",
