@@ -8,6 +8,7 @@ from unittest.mock import patch
 
 import pytest_asyncio
 from asgiref.sync import sync_to_async
+from temporalio.exceptions import ApplicationError
 from temporalio.testing import ActivityEnvironment
 
 from posthog.schema import (
@@ -148,7 +149,7 @@ class TestPrepareAlert:
     @pytest.mark.parametrize(
         "frozen_time,setup_kwargs,expected_reason,advances_next_check_at",
         [
-            pytest.param(None, {"enabled": False}, SkipReason.NOT_FOUND, False, id="disabled"),
+            pytest.param(None, {"enabled": False}, SkipReason.DISABLED, False, id="disabled"),
             pytest.param(None, {"insight_deleted": True}, SkipReason.INSIGHT_DELETED, False, id="insight_deleted"),
             pytest.param(
                 "2024-06-03T10:00:00Z",
@@ -331,6 +332,20 @@ class TestEvaluateAlert:
         # No AlertCheck should have been written
         count = await sync_to_async(AlertCheck.objects.filter(alert_configuration=alert).count)()
         assert count == 0
+
+    async def test_evaluate_non_retryable_when_alert_deleted_mid_workflow(self) -> None:
+        env = ActivityEnvironment()
+        with pytest.raises(ApplicationError) as exc_info:
+            await env.run(evaluate_alert, EvaluateAlertActivityInputs(alert_id=str(uuid.uuid4())))
+        assert exc_info.value.non_retryable is True
+
+    async def test_evaluate_non_retryable_when_alert_disabled_mid_workflow(self, alert) -> None:
+        await sync_to_async(AlertConfiguration.objects.filter(pk=alert.id).update)(enabled=False)
+
+        env = ActivityEnvironment()
+        with pytest.raises(ApplicationError) as exc_info:
+            await env.run(evaluate_alert, EvaluateAlertActivityInputs(alert_id=str(alert.id)))
+        assert exc_info.value.non_retryable is True
 
 
 @pytest.mark.asyncio

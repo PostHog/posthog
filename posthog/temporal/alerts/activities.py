@@ -6,6 +6,7 @@ from django.db.models import Case, F, IntegerField, Q, Value, When
 
 import structlog
 import temporalio.activity
+from temporalio.exceptions import ApplicationError
 
 from posthog.schema import AlertCalculationInterval, AlertState
 
@@ -89,12 +90,14 @@ async def prepare_alert(inputs: PrepareAlertActivityInputs) -> PrepareAlertResul
     @database_sync_to_async(thread_sensitive=False)
     def _prepare() -> PrepareAlertResult:
         try:
-            alert = AlertConfiguration.objects.select_related("insight", "team", "threshold").get(
-                id=inputs.alert_id, enabled=True
-            )
+            alert = AlertConfiguration.objects.select_related("insight", "team", "threshold").get(id=inputs.alert_id)
         except AlertConfiguration.DoesNotExist:
-            logger.warning("Alert not found or not enabled", alert_id=inputs.alert_id)
+            logger.warning("Alert not found", alert_id=inputs.alert_id)
             return PrepareAlertResult(action=PrepareAction.SKIP, reason=SkipReason.NOT_FOUND)
+
+        if not alert.enabled:
+            logger.info("Skipping disabled alert", alert_id=inputs.alert_id)
+            return PrepareAlertResult(action=PrepareAction.SKIP, reason=SkipReason.DISABLED)
 
         if alert.insight.deleted:
             logger.info(
@@ -167,11 +170,22 @@ async def evaluate_alert(inputs: EvaluateAlertActivityInputs) -> EvaluateAlertRe
 
     @database_sync_to_async(thread_sensitive=False)
     def _evaluate() -> EvaluateAlertResult:
-        # enabled=True guards against the race where the alert is disabled between
-        # prepare_alert and evaluate_alert (e.g. user disables via API mid-workflow).
-        alert = AlertConfiguration.objects.select_related("insight", "team", "threshold").get(
-            id=inputs.alert_id, enabled=True
-        )
+        # Guard against the race where the alert is disabled/deleted between prepare_alert and
+        # evaluate_alert (e.g. user disables via API mid-workflow). Retries can't recover from
+        # either case, so surface as non-retryable to avoid a retry storm.
+        try:
+            alert = AlertConfiguration.objects.select_related("insight", "team", "threshold").get(id=inputs.alert_id)
+        except AlertConfiguration.DoesNotExist:
+            raise ApplicationError(
+                f"Alert {inputs.alert_id} not found between prepare and evaluate",
+                non_retryable=True,
+            )
+
+        if not alert.enabled:
+            raise ApplicationError(
+                f"Alert {inputs.alert_id} disabled between prepare and evaluate",
+                non_retryable=True,
+            )
 
         # CH workload management keys off this tag to isolate alert queries from other tenants.
         tag_queries(alert_config_id=str(alert.id))

@@ -14,6 +14,7 @@ class PrepareAction(StrEnum):
 
 class SkipReason(StrEnum):
     NOT_FOUND = "not_found"
+    DISABLED = "disabled"
     INSIGHT_DELETED = "insight_deleted"
     NOT_DUE = "not_due"
     WEEKEND = "weekend"
