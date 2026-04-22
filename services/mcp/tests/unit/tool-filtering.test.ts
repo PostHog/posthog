@@ -562,10 +562,9 @@ describe('Tool Filtering - Feature Flags', () => {
         expect(withFlags).toEqual(withoutFlags)
     })
 
-    it('getRequiredFeatureFlags should return empty for current definitions', () => {
-        // No real tools have feature_flag set yet
+    it('getRequiredFeatureFlags should return flags used by current definitions', () => {
         const flags = getRequiredFeatureFlags()
-        expect(flags).toEqual([])
+        expect(flags).toEqual(['logs-alerting'])
     })
 
     // Test the filtering logic with a direct unit test approach using

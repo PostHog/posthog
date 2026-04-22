@@ -7,6 +7,7 @@ import { DebugCHQueries } from 'lib/components/AppShortcuts/utils/DebugCHQueries
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { Spinner } from 'lib/lemon-ui/Spinner'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { performQuery } from '~/queries/query'
 import {
@@ -21,6 +22,7 @@ import {
 import { setLatestVersionsOnQuery } from '~/queries/utils'
 
 import { experimentLogic, ExperimentSavedMetric } from '../experimentLogic'
+import { getExperimentRefreshMode } from '../metricQueryUtils'
 import { getDefaultMetricTitle } from '../MetricsView/shared/utils'
 
 interface PathResult {
@@ -127,6 +129,7 @@ function MetricComparison({
     experimentId: number
     isPrimary: boolean
 }): JSX.Element {
+    const { featureFlags } = useValues(featureFlagLogic)
     const [direct, setDirect] = useState<PathResult>({ response: null, durationMs: null, error: null, loading: false })
     const [precomputed, setPrecomputed] = useState<PathResult>({
         response: null,
@@ -148,7 +151,11 @@ function MetricComparison({
             }
             const startTime = performance.now()
             try {
-                const response = await performQuery(setLatestVersionsOnQuery(query), undefined, 'force_async')
+                const response = await performQuery(
+                    setLatestVersionsOnQuery(query),
+                    undefined,
+                    getExperimentRefreshMode(featureFlags, true)
+                )
                 setter({
                     response: response as ExperimentQueryResponse,
                     durationMs: Math.round(performance.now() - startTime),

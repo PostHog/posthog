@@ -47,7 +47,7 @@ def create_sandbox_from_snapshot(input: CreateSandboxFromSnapshotInput) -> Creat
         snapshot_id=input.snapshot_id,
         **ctx.to_log_context(),
     ):
-        emit_agent_log(ctx.run_id, "info", "Creating development environment from snapshot")
+        emit_agent_log(ctx.run_id, "debug", "Creating development environment from snapshot")
 
         try:
             snapshot = SandboxSnapshot.objects.get(id=input.snapshot_id)

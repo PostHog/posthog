@@ -10746,6 +10746,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "warm-flags-cache"
+version = "0.1.0"
+dependencies = [
+ "aws-config",
+ "aws-sdk-s3",
+ "clap",
+ "common-alloc",
+ "common-database",
+ "common-hypercache",
+ "common-redis",
+ "common-s3",
+ "common-types",
+ "envconfig",
+ "feature-flags",
+ "rand 0.8.5",
+ "serde_json",
+ "sqlx",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "wasi"
 version = "0.10.2+wasi-snapshot-preview1"
 source = "registry+https://github.com/rust-lang/crates.io-index"

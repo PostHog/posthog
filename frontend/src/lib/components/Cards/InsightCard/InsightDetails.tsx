@@ -1,8 +1,17 @@
 import { useValues } from 'kea'
 import React from 'react'
 
-import { IconCalculator, IconCalendar, IconCode2, IconFilter, IconPencil, IconSort, IconUser } from '@posthog/icons'
-import { Lettermark, LettermarkColor } from '@posthog/lemon-ui'
+import {
+    IconCalculator,
+    IconCalendar,
+    IconCode2,
+    IconFilter,
+    IconPencil,
+    IconSort,
+    IconUser,
+    IconWarning,
+} from '@posthog/icons'
+import { Lettermark, LettermarkColor, Tooltip } from '@posthog/lemon-ui'
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { convertPropertiesToPropertyGroup } from 'lib/components/PropertyFilters/utils'
@@ -15,7 +24,7 @@ import { Link } from 'lib/lemon-ui/Link'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { capitalizeFirstLetter, dateFilterToText } from 'lib/utils'
 import { BreakdownTag } from 'scenes/insights/filters/BreakdownFilter/BreakdownTag'
-import { humanizePathsEventTypes } from 'scenes/insights/utils'
+import { humanizePathsEventTypes, hasUnsupportedBreakdownForDataWarehouseTrends } from 'scenes/insights/utils'
 import { QUERY_TYPES_METADATA } from 'scenes/saved-insights/SavedInsights'
 import { MathCategory, apiValueToMathType, mathsLogic } from 'scenes/trends/mathsLogic'
 import { urls } from 'scenes/urls'
@@ -36,6 +45,8 @@ import {
     TrendsFormulaNode,
     TrendsQuery,
     AnyDataWarehouseNode,
+    DashboardFilter,
+    TileFilters,
 } from '~/queries/schema/schema-general'
 import {
     isActionsNode,
@@ -51,7 +62,7 @@ import {
     isPathsQuery,
     isRetentionQuery,
     isTrendsQuery,
-    isValidBreakdown,
+    hasBreakdownFilter,
 } from '~/queries/utils'
 import { AnyPropertyFilter, BaseMathType, FilterLogicalOperator, PropertyGroupFilter, UserBasicType } from '~/types'
 
@@ -112,7 +123,7 @@ function SeriesDisplay({
     const { mathDefinitions } = useValues(mathsLogic)
     const series = query.series[seriesIndex]
 
-    const hasBreakdown = isInsightQueryWithBreakdown(query) && isValidBreakdown(query.breakdownFilter)
+    const hasBreakdown = isInsightQueryWithBreakdown(query) && hasBreakdownFilter(query.breakdownFilter)
 
     const mathKey = isLifecycleQuery(query)
         ? BaseMathType.UniqueUsers
@@ -338,6 +349,30 @@ export function PropertiesSummary({
     )
 }
 
+export function PropertiesIgnoredWarning(): JSX.Element {
+    return (
+        <InsightDetailSectionDisplay icon={<IconFilter />} label="Filters">
+            <Tooltip title="Filter overrides are not applied. Insights with a data warehouse series do not support filters.">
+                <div className="flex items-center gap-1 text-warning italic">
+                    <IconWarning /> Filter overrides ignored (data warehouse series).
+                </div>
+            </Tooltip>
+        </InsightDetailSectionDisplay>
+    )
+}
+
+export function BreakdownIgnoredWarning(): JSX.Element {
+    return (
+        <InsightDetailSectionDisplay icon={<IconSort />} label="Breakdown by">
+            <Tooltip title="Breakdown overrides are not applied. Insights with a data warehouse series only support a single data warehouse property breakdown.">
+                <div className="flex items-center gap-1 text-warning italic">
+                    <IconWarning /> Breakdown overrides ignored (data warehouse series).
+                </div>
+            </Tooltip>
+        </InsightDetailSectionDisplay>
+    )
+}
+
 export function VariablesSummary({
     variables,
     variablesOverride,
@@ -373,7 +408,7 @@ export function VariablesSummary({
 }
 
 export function InsightBreakdownSummary({ query }: { query: InsightQueryNode | HogQLQuery }): JSX.Element | null {
-    if (!isInsightQueryWithBreakdown(query) || !isValidBreakdown(query.breakdownFilter)) {
+    if (!isInsightQueryWithBreakdown(query) || !hasBreakdownFilter(query.breakdownFilter)) {
         return null
     }
 
@@ -385,7 +420,7 @@ export function BreakdownSummary({
 }: {
     breakdownFilter: BreakdownFilter | null | undefined
 }): JSX.Element | null {
-    if (!isValidBreakdown(breakdownFilter)) {
+    if (!hasBreakdownFilter(breakdownFilter)) {
         return null
     }
 
@@ -449,13 +484,23 @@ interface InsightDetailsProps {
         last_refresh: string | null
     }
     variablesOverride?: Record<string, HogQLVariable>
+    filtersOverride?: DashboardFilter | null
+    tileFiltersOverride?: TileFilters | null
+    hasDataWarehouseSeries?: boolean
 }
 
 export const InsightDetails = React.memo(
     React.forwardRef<HTMLDivElement, InsightDetailsProps>(function InsightDetailsInternal(
-        { query, footerInfo, variablesOverride },
+        { query, footerInfo, variablesOverride, filtersOverride, tileFiltersOverride, hasDataWarehouseSeries },
         ref
     ): JSX.Element {
+        const hasPropertyOverrides = !!filtersOverride?.properties?.length || !!tileFiltersOverride?.properties?.length
+        const hasIgnoredBreakdownOverrides =
+            isInsightVizNode(query) &&
+            isTrendsQuery(query.source) &&
+            (hasUnsupportedBreakdownForDataWarehouseTrends(filtersOverride) ||
+                hasUnsupportedBreakdownForDataWarehouseTrends(tileFiltersOverride))
+
         return (
             <div className="InsightDetails space-y-2" ref={ref}>
                 {(isInsightVizNode(query) ||
@@ -467,12 +512,22 @@ export const InsightDetails = React.memo(
                             variables={isHogQLQuery(query.source) ? query.source.variables : undefined}
                             variablesOverride={variablesOverride}
                         />
-                        <PropertiesSummary
-                            properties={
-                                isHogQLQuery(query.source) ? query.source.filters?.properties : query.source.properties
-                            }
-                        />
-                        <InsightBreakdownSummary query={query.source} />
+                        {hasDataWarehouseSeries && hasPropertyOverrides ? (
+                            <PropertiesIgnoredWarning />
+                        ) : (
+                            <PropertiesSummary
+                                properties={
+                                    isHogQLQuery(query.source)
+                                        ? query.source.filters?.properties
+                                        : query.source.properties
+                                }
+                            />
+                        )}
+                        {hasDataWarehouseSeries && hasIgnoredBreakdownOverrides ? (
+                            <BreakdownIgnoredWarning />
+                        ) : (
+                            <InsightBreakdownSummary query={query.source} />
+                        )}
                     </>
                 )}
                 {footerInfo && (

@@ -1,7 +1,6 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
 import { useMemo } from 'react'
 
-import { IconPlus } from '@posthog/icons'
 import { LemonButton, LemonInput } from '@posthog/lemon-ui'
 
 import { DialogClose, DialogPrimitive, DialogPrimitiveTitle } from 'lib/ui/DialogPrimitive/DialogPrimitive'
@@ -63,9 +62,8 @@ export function NewDashboardModal(): JSX.Element {
                     className="min-w-0 flex-1"
                 />
                 <LemonButton
-                    type="secondary"
-                    size="small"
-                    icon={<IconPlus />}
+                    type="primary"
+                    size="medium"
                     onClick={() => blankTileClicked('modal_toolbar')}
                     disabled={blankDashboardLoading}
                     data-attr="create-dashboard-blank"
