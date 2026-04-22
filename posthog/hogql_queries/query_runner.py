@@ -1837,14 +1837,17 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             and has_data_warehouse_node(self.query.series)
         )
 
+        dashboard_breakdown_filter = dashboard_filter.breakdown_filter
+
         should_ignore_dashboard_breakdown = (
             isinstance(self.query, TrendsQuery)
             and has_data_warehouse_series
             and (
-                has_multi_breakdown(dashboard_filter.breakdown_filter)
+                has_multi_breakdown(dashboard_breakdown_filter)
                 or (
-                    has_single_breakdown(dashboard_filter.breakdown_filter)
-                    and dashboard_filter.breakdown_filter.breakdown_type != BreakdownType.DATA_WAREHOUSE
+                    dashboard_breakdown_filter is not None
+                    and has_single_breakdown(dashboard_breakdown_filter)
+                    and dashboard_breakdown_filter.breakdown_type != BreakdownType.DATA_WAREHOUSE
                 )
             )
         )

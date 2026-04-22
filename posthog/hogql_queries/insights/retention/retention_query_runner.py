@@ -253,6 +253,7 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
             if self.query.breakdownFilter.breakdown_type == "cohort":
                 # Ensure breakdown is always a list for cohorts
                 breakdown_values = self.query.breakdownFilter.breakdown
+                assert breakdown_values is not None  # type checking
                 if not isinstance(breakdown_values, list):
                     breakdown_values = [breakdown_values]
 
