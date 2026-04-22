@@ -69,6 +69,14 @@ export const issuesDataNodeLogic = kea<issuesDataNodeLogicType>([
         reloadData: () => {
             actions.loadData('force_blocking')
         },
+        loadData: () => {
+            const query = props.query as Record<string, any>
+            if (query?.useQueryV3) {
+                const phantoms = query?.phantomFingerprintIssueStates ?? []
+                // eslint-disable-next-line no-console
+                console.log(`[error_tracking] v3 query sent with ${phantoms.length} phantom(s):`, phantoms)
+            }
+        },
         loadDataSuccess: () => {
             const durationMs =
                 values.loadStartTime !== null ? Math.round(performance.now() - values.loadStartTime) : null
@@ -201,7 +209,15 @@ export const issuesDataNodeLogic = kea<issuesDataNodeLogicType>([
             }
         },
 
-        mutationSuccess: () => actions.reloadData(),
+        mutationSuccess: () => {
+            // in v3 when mutation succeeds, phatom gets addeed (which is injected into the query) so the query reloads
+            // in v1 when mutation succeeds, we need to reload the data manually
+            const query = props.query as Record<string, any> | null
+            if (query?.useQueryV3) {
+                return
+            }
+            actions.reloadData()
+        },
         mutationFailure: () => actions.reloadData(),
     })),
 
