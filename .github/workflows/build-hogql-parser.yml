@@ -223,7 +223,6 @@ jobs:
               run: |
                   if [[ "$PUSHED" != "true" ]]; then
                     echo "::error::hogql-parser wheel was published to PyPI but pyproject.toml pin was not updated."
-                    echo "This is the silent-green-check failure mode that caused the 2026-04-17 incident."
                     echo "Check the 'Update hogql-parser in requirements' step above for why uv add did not produce a diff."
                     exit 1
                   fi
