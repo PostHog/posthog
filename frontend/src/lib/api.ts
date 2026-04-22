@@ -3231,10 +3231,6 @@ const api = {
             return new ApiRequest().dashboardsDetail(id).get()
         },
 
-        async generateMetadata(id: number): Promise<{ name: string; description: string }> {
-            return await new ApiRequest().dashboardsDetail(id).withAction('generate_metadata').create({ data: {} })
-        },
-
         async createUnlistedDashboard(tag: string): Promise<DashboardType> {
             return new ApiRequest().dashboards().withAction('create_unlisted_dashboard').create({ data: { tag } })
         },

@@ -1334,18 +1334,16 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             team_id=self.team.pk,
             uuid=str(person_a.uuid),
             version=0,
-            sync=True,
         )
         create_person_distinct_id(
             team_id=self.team.pk,
             distinct_id="deleted_user",
             person_id=str(person_a.uuid),
             version=0,
-            sync=True,
         )
 
         # Delete person A (this creates a delete event with version 100 = 0 + 100)
-        delete_person(person_a, sync=True)
+        delete_person(person_a)
         person_a.delete()
 
         # Create person B with a different distinct_id (will also have version 0 by default)
@@ -1368,7 +1366,6 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             distinct_id="deleted_user",
             person_id=str(person_b.uuid),
             version=2,
-            sync=True,
         )
 
         # Now person_b has both "active_user" and "deleted_user"
@@ -1629,7 +1626,6 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             team_id=self.team.pk,
             is_deleted=True,
             version=105,
-            sync=True,
         )
         create_person_distinct_id(
             team_id=self.team.pk,
@@ -1637,7 +1633,6 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             person_id=shared_uuid,
             is_deleted=True,
             version=107,
-            sync=True,
         )
 
         # Phase 2: New event reuses the distinct_id, creating a new person in PG

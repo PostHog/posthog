@@ -143,4 +143,46 @@ describe('sourceSettingsLogic', () => {
 
         expect(loadJobsSpy).not.toHaveBeenCalled()
     })
+
+    it.each([408, 502, 503, 504])(
+        'treats a %i gateway response from loadJobs as a soft failure (preserves existing jobs, no loadJobsFailure)',
+        async (status) => {
+            logic = sourceSettingsLogic({ id: 'source-1' })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            // Prime with a successful response first so we can confirm the soft failure
+            // keeps (rather than clears) the previously-loaded jobs.
+            const existingJob = { id: 'job-1', created_at: '2026-01-01T00:00:00Z' } as any
+            jest.spyOn(api.externalDataSources, 'jobs').mockResolvedValueOnce([existingJob])
+            logic.actions.loadJobs()
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.jobs).toEqual([existingJob])
+
+            const gatewayError = Object.assign(new Error('gateway'), { status })
+            jest.spyOn(api.externalDataSources, 'jobs').mockRejectedValueOnce(gatewayError)
+
+            await expectLogic(logic, () => {
+                logic.actions.loadJobs()
+            })
+                .toDispatchActions(['loadJobsSuccess'])
+                .toNotHaveDispatchedActions(['loadJobsFailure'])
+
+            // Existing jobs are preserved and no error surfaced
+            expect(logic.values.jobs).toEqual([existingJob])
+        }
+    )
+
+    it('re-throws non-transient errors from loadJobs so the failure path runs', async () => {
+        logic = sourceSettingsLogic({ id: 'source-1' })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        const serverError = Object.assign(new Error('boom'), { status: 500 })
+        jest.spyOn(api.externalDataSources, 'jobs').mockRejectedValueOnce(serverError)
+
+        await expectLogic(logic, () => {
+            logic.actions.loadJobs()
+        }).toDispatchActions(['loadJobsFailure'])
+    })
 })

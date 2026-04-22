@@ -1848,7 +1848,7 @@ When set, the specified dashboard's filters and date range override will be appl
     @extend_schema(exclude=True)  # internal endpoint, not for public use
     @action(methods=["POST"], detail=False)
     def timing(self, request: request.Request, **kwargs):
-        from posthog.kafka_client.client import KafkaProducer
+        from posthog.kafka_client.routing import get_producer
         from posthog.models.event.util import format_clickhouse_timestamp
         from posthog.utils import cast_timestamp_or_now
 
@@ -1863,7 +1863,9 @@ When set, the specified dashboard's filters and date range override will be appl
                 payload["min_last_refresh"] = format_clickhouse_timestamp(payload["min_last_refresh"])
             if "max_last_refresh" in payload:
                 payload["max_last_refresh"] = format_clickhouse_timestamp(payload["max_last_refresh"])
-            KafkaProducer().produce(topic=KAFKA_METRICS_TIME_TO_SEE_DATA, data=payload)
+            get_producer(topic=KAFKA_METRICS_TIME_TO_SEE_DATA).produce(
+                topic=KAFKA_METRICS_TIME_TO_SEE_DATA, data=payload
+            )
 
         return Response(status=status.HTTP_201_CREATED)
 

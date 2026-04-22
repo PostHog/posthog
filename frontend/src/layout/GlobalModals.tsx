@@ -9,6 +9,7 @@ import { superpowersLogic } from 'lib/components/Superpowers/superpowersLogic'
 import { TimeSensitiveAuthenticationModal } from 'lib/components/TimeSensitiveAuthentication/TimeSensitiveAuthentication'
 import { GlobalCustomUnitModal } from 'lib/components/UnitPicker/GlobalCustomUnitModal'
 import { UpgradeModal } from 'lib/components/UpgradeModal/UpgradeModal'
+import { bindModalToUrl } from 'lib/logic/bindModalToUrl'
 import { TwoFactorSetupModal } from 'scenes/authentication/TwoFactorSetupModal'
 import { PaymentEntryModal } from 'scenes/billing/PaymentEntryModal'
 import { CreateOrganizationModal } from 'scenes/organization/CreateOrganizationModal'
@@ -47,6 +48,12 @@ export const globalModalsLogic = kea<globalModalsLogicType>([
                 hideCreateProjectModal: () => false,
             },
         ],
+    }),
+    bindModalToUrl({
+        urlKey: 'create-organization',
+        openActionKey: 'showCreateOrganizationModal',
+        closeActionKey: 'hideCreateOrganizationModal',
+        isOpenKey: 'isCreateOrganizationModalShown',
     }),
 ])
 

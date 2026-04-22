@@ -37,6 +37,22 @@ export interface SourceSettingsLogicProps {
 
 const REFRESH_INTERVAL = 5000
 const SCHEMA_UPDATE_DEBOUNCE_MS = 500
+const JOBS_POLL_MAX_BACKOFF_MS = 60000
+const JOBS_POLL_TRANSIENT_STATUSES = new Set([408, 502, 503, 504])
+
+function isTransientGatewayError(error: unknown): boolean {
+    const status = (error as { status?: number } | null | undefined)?.status
+    return typeof status === 'number' && JOBS_POLL_TRANSIENT_STATUSES.has(status)
+}
+
+function nextJobsPollDelay(softFailureCount: number): number {
+    if (softFailureCount <= 0) {
+        return REFRESH_INTERVAL
+    }
+    const exponential = Math.min(REFRESH_INTERVAL * 2 ** softFailureCount, JOBS_POLL_MAX_BACKOFF_MS)
+    // Equal-jitter: spread retries over [0.5x, 1.0x] to avoid synchronized polling after a gateway blip
+    return exponential * (0.5 + Math.random() * 0.5)
+}
 
 interface PendingSchemaUpdate {
     revision: number
@@ -222,7 +238,7 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
         }),
         updateSchemaFailure: (error: string, errorObject?: any) => ({ error, errorObject }),
     }),
-    loaders(({ actions, values }) => ({
+    loaders(({ actions, values, cache }) => ({
         source: [
             null as ExternalDataSource | null,
             {
@@ -237,25 +253,39 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                 loadJobs: async () => {
                     const schemas = values.selectedSchemas.length > 0 ? values.selectedSchemas : undefined
 
-                    if (values.jobs.length === 0) {
-                        return await api.externalDataSources.jobs(values.sourceId, null, null, schemas)
+                    try {
+                        let result: ExternalDataJob[]
+                        if (values.jobs.length === 0) {
+                            result = await api.externalDataSources.jobs(values.sourceId, null, null, schemas)
+                        } else {
+                            // Re-fetch recent jobs without an `after` filter to get updated statuses.
+                            // The API returns up to 50 jobs sorted by created_at desc, so this
+                            // will refresh the status of recent jobs (e.g. Running -> Completed).
+                            const freshJobs = await api.externalDataSources.jobs(values.sourceId, null, null, schemas)
+
+                            // Merge fresh jobs with existing jobs, preferring the fresh data
+                            const jobsById = new Map(values.jobs.map((job) => [job.id, job]))
+                            for (const job of freshJobs) {
+                                jobsById.set(job.id, job)
+                            }
+
+                            // Sort by created_at descending (newest first)
+                            result = Array.from(jobsById.values()).sort(
+                                (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+                            )
+                        }
+                        cache.jobsPollSoftFailureCount = 0
+                        return result
+                    } catch (error) {
+                        // Gateway timeouts / transient upstream errors are expected when the jobs
+                        // query is slow. Swallow them here so the 5s poll doesn't become a source
+                        // of error-tracking noise; loadJobsSuccess reschedules with backoff.
+                        if (isTransientGatewayError(error)) {
+                            cache.jobsPollSoftFailureCount = (cache.jobsPollSoftFailureCount ?? 0) + 1
+                            return values.jobs
+                        }
+                        throw error
                     }
-
-                    // Re-fetch recent jobs without an `after` filter to get updated statuses.
-                    // The API returns up to 50 jobs sorted by created_at desc, so this
-                    // will refresh the status of recent jobs (e.g. Running -> Completed).
-                    const freshJobs = await api.externalDataSources.jobs(values.sourceId, null, null, schemas)
-
-                    // Merge fresh jobs with existing jobs, preferring the fresh data
-                    const jobsById = new Map(values.jobs.map((job) => [job.id, job]))
-                    for (const job of freshJobs) {
-                        jobsById.set(job.id, job)
-                    }
-
-                    // Sort by created_at descending (newest first)
-                    return Array.from(jobsById.values()).sort(
-                        (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
-                    )
                 },
                 loadMoreJobs: async () => {
                     const schemas = values.selectedSchemas.length > 0 ? values.selectedSchemas : undefined
@@ -605,10 +635,11 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                 actions.loadJobs()
             },
             loadJobsSuccess: () => {
+                const delay = nextJobsPollDelay(cache.jobsPollSoftFailureCount ?? 0)
                 cache.disposables.add(() => {
                     const timerId = setTimeout(() => {
                         actions.loadJobs()
-                    }, REFRESH_INTERVAL)
+                    }, delay)
                     return () => clearTimeout(timerId)
                 }, 'jobsRefreshTimeout')
             },

@@ -172,7 +172,7 @@ export function createCdpCoreServices(
 
     const recipientsManager = new RecipientsManagerService(deps.postgres)
     const recipientPreferencesService = new RecipientPreferencesService(recipientsManager)
-    const hogFlowExecutor = new HogFlowExecutorService(hogFlowFunctionsService, recipientPreferencesService, redis)
+    const hogFlowExecutor = new HogFlowExecutorService(hogFlowFunctionsService, recipientPreferencesService)
 
     const hogFunctionMonitoringService = new HogFunctionMonitoringService(
         new IngestionOutputs({

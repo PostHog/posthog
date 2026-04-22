@@ -226,6 +226,45 @@ export interface PaginatedExternalDataSchemaListApi {
 }
 
 /**
+ * @nullable
+ */
+export type PatchedExternalDataSchemaApiTable = { [key: string]: unknown } | null | null
+
+export interface PatchedExternalDataSchemaApi {
+    readonly id?: string
+    readonly name?: string
+    /** @nullable */
+    readonly label?: string | null
+    /** @nullable */
+    readonly table?: PatchedExternalDataSchemaApiTable
+    should_sync?: boolean
+    /** @nullable */
+    readonly last_synced_at?: string | null
+    /**
+     * The latest error that occurred when syncing this schema.
+     * @nullable
+     */
+    readonly latest_error?: string | null
+    readonly incremental?: boolean
+    /** @nullable */
+    readonly status?: string | null
+    readonly sync_type?: SyncTypeEnumApi | null
+    /** @nullable */
+    readonly incremental_field?: string | null
+    /** @nullable */
+    readonly incremental_field_type?: string | null
+    /** @nullable */
+    readonly sync_frequency?: string | null
+    /** @nullable */
+    readonly sync_time_of_day?: string | null
+    /** @nullable */
+    readonly description?: string | null
+    /** @nullable */
+    readonly primary_key_columns?: readonly string[] | null
+    readonly cdc_table_mode?: CdcTableModeEnumApi
+}
+
+/**
  * * `Ashby` - Ashby
  * `Supabase` - Supabase
  * `CustomerIO` - CustomerIO
