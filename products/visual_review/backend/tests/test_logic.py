@@ -1433,11 +1433,31 @@ class TestMergeBaseBaselineHealing:
     def test_falls_back_on_merge_base_failure(self, repo, mocker):
         branch_baseline = {"A": "h1"}
         self._mock_github(mocker, branch_baseline=branch_baseline, merge_base_sha=None)
-        mocker.patch("products.visual_review.backend.logic._get_merge_base_sha", return_value=None)
 
         merged, healed = logic._resolve_baselines_with_merge_base(repo, "storybook", "my-branch")
 
         assert merged == branch_baseline
+        assert healed == 0
+
+    def test_falls_back_when_merge_base_file_fetch_raises(self, repo, mocker):
+        branch_baseline = {"A": "h1"}
+        self._mock_github(mocker, branch_baseline=branch_baseline, merge_base_baseline={"A": "h1", "B": "h2"})
+        mocker.patch(
+            "products.visual_review.backend.logic._resolve_baselines_at_ref",
+            side_effect=[branch_baseline, Exception("GitHub 500")],
+        )
+
+        merged, healed = logic._resolve_baselines_with_merge_base(repo, "storybook", "my-branch")
+
+        assert merged == branch_baseline
+        assert healed == 0
+
+    def test_first_run_both_baselines_empty(self, repo, mocker):
+        self._mock_github(mocker, branch_baseline={}, merge_base_baseline={})
+
+        merged, healed = logic._resolve_baselines_with_merge_base(repo, "storybook", "my-branch")
+
+        assert merged == {}
         assert healed == 0
 
     def test_heals_rebase_scenario_end_to_end(self, repo, mocker):

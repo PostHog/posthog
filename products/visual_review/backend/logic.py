@@ -344,6 +344,7 @@ def _get_merge_base_sha(github, repo_full_name: str, base: str, head: str) -> st
             "Authorization": f"Bearer {access_token}",
             "X-GitHub-Api-Version": "2022-11-28",
         },
+        timeout=10,
     )
     if response.status_code != 200:
         logger.warning(
@@ -355,7 +356,15 @@ def _get_merge_base_sha(github, repo_full_name: str, base: str, head: str) -> st
         )
         return None
 
-    return response.json().get("merge_base_commit", {}).get("sha")
+    sha = response.json().get("merge_base_commit", {}).get("sha")
+    if sha is None:
+        logger.warning(
+            "visual_review.merge_base_sha_missing_from_response",
+            repo=repo_full_name,
+            base=base,
+            head=head,
+        )
+    return sha
 
 
 def _get_default_branch(github, repo_full_name: str) -> str:
@@ -370,6 +379,7 @@ def _get_default_branch(github, repo_full_name: str) -> str:
             "Authorization": f"Bearer {access_token}",
             "X-GitHub-Api-Version": "2022-11-28",
         },
+        timeout=10,
     )
     if response.status_code == 200:
         return response.json().get("default_branch", "master")
@@ -424,7 +434,16 @@ def _resolve_baselines_with_merge_base(repo, run_type: str, branch: str) -> tupl
     if not merge_base_sha:
         return branch_baseline, 0
 
-    merge_base_baseline = _resolve_baselines_at_ref(repo, github, run_type, merge_base_sha)
+    try:
+        merge_base_baseline = _resolve_baselines_at_ref(repo, github, run_type, merge_base_sha)
+    except Exception:
+        logger.warning(
+            "visual_review.merge_base_baseline_fetch_failed",
+            repo_id=str(repo.id),
+            branch=branch,
+            merge_base_sha=merge_base_sha,
+        )
+        return branch_baseline, 0
     if not merge_base_baseline:
         return branch_baseline, 0
 
@@ -992,6 +1011,7 @@ def _fetch_baseline_file(
             "Authorization": f"Bearer {access_token}",
             "X-GitHub-Api-Version": "2022-11-28",
         },
+        timeout=10,
     )
 
     if response.status_code == 404:
