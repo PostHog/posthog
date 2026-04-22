@@ -1424,9 +1424,10 @@ class TestCustomerDashboardTemplateCopyBetweenProjects(APIBaseTest):
         assert resp.status_code == status.HTTP_403_FORBIDDEN
 
     def test_non_staff_copy_403_when_only_viewer_on_target(self) -> None:
+        # `dashboard_template` inherits access from `dashboard`, so ACs must target the parent resource
         AccessControl.objects.create(
             team=self.team,
-            resource="dashboard_template",
+            resource="dashboard",
             resource_id=None,
             organization_member=self.organization_membership,
             role=None,
@@ -1434,7 +1435,7 @@ class TestCustomerDashboardTemplateCopyBetweenProjects(APIBaseTest):
         )
         AccessControl.objects.create(
             team=self.team_b,
-            resource="dashboard_template",
+            resource="dashboard",
             resource_id=None,
             organization_member=self.organization_membership,
             role=None,
@@ -1463,9 +1464,18 @@ class TestCustomerDashboardTemplateCopyBetweenProjects(APIBaseTest):
             tags=[],
         )
         tpl = DashboardTemplate.objects.get(template_name="source without template rbac")
+        # Explicitly revoke the user's dashboard access on the source project (dashboard_template inherits from dashboard)
+        AccessControl.objects.create(
+            team=self.team,
+            resource="dashboard",
+            resource_id=None,
+            organization_member=self.organization_membership,
+            role=None,
+            access_level="none",
+        )
         AccessControl.objects.create(
             team=self.team_b,
-            resource="dashboard_template",
+            resource="dashboard",
             resource_id=None,
             organization_member=self.organization_membership,
             role=None,
