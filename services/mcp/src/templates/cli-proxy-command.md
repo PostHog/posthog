@@ -30,6 +30,15 @@ For query tools, you will typically need:
 
 **For multiple tools:** Run `info` for ALL tools first, then make your `call` commands.
 
+**Data discovery:** Before any analytical `call` that touches collected data (`query-*`,
+`execute-sql` against `events`/`persons`/`sessions`), confirm the event/property exists via
+`call read-data-schema`. Applies to canonical-looking names like `$pageview` too — they vary
+per team. If the event isn't in the schema, tell the user instead of querying a guessed name.
+
+- Events: `call read-data-schema {"kind": "events", "search": "<keyword>"}`
+- Properties: `call read-data-schema {"kind": "event_properties", "event_name": "<event>"}`
+- Values: `call read-data-schema {"kind": "event_property_values", "event_name": "<event>", "property_name": "<prop>"}`
+
 **CORRECT usage pattern:**
 
 <example>
@@ -82,6 +91,18 @@ User: Show me a trends chart of signups
 Assistant: [Runs info query-trends, sees summary with hints, then immediately calls query-trends with guessed series structure]
 WRONG — info returned a summary with hint: "Run `schema query-trends series` for full structure".
 You MUST follow the hint and run `schema` before constructing the series field.
+</bad-example>
+
+<bad-example>
+User: query pageviews for the last 7 days
+Assistant: [Runs `info query-trends`, then `call query-trends` with `event: "$pageview"` from the prompt]
+WRONG — skipped `call read-data-schema {"kind": "events", "search": "pageview"}`. Canonical-looking events still need confirmation per team.
+</bad-example>
+
+<bad-example>
+User: show me the file downloads trend for the last 7 days
+Assistant: [Runs `info query-trends`, then `call query-trends` with `event: "downloaded_file"` inferred from the wording]
+WRONG — the real event might be `file_downloaded`, `download_completed`, or not captured. Confirm with `read-data-schema` before querying.
 </bad-example>
 
 **Handling errors:**
@@ -181,14 +202,16 @@ Only reach for `execute-sql` when a wrapper cannot express the question — arbi
 
 #### Schema-first workflow
 
-Before constructing any insight query, always verify the data schema:
+Verify the data schema before constructing any insight query. Canonical-looking events
+(`$pageview`, `$identify`, `$autocapture`, …) still need confirmation — they can be absent,
+renamed, or filtered per team.
 
-1. **Discover events** - Use `read-data-schema` with `kind: events` to find available events matching the user's intent.
-2. **Discover properties** - Use `read-data-schema` with `kind: event_properties` (or `person_properties`, `session_properties`) to find relevant property names.
-3. **Verify property values** - Use `read-data-schema` with `kind: event_property_values` to confirm that property values match expectations (e.g., "US" vs "United States").
-4. **Only then construct the query** - Once you've confirmed the data exists, choose the appropriate query wrapper and build the schema.
+1. **Discover events** - `read-data-schema` with `kind: events` to find events matching the user's intent.
+2. **Discover properties** - `read-data-schema` with `kind: event_properties` (or `person_properties`, `session_properties`).
+3. **Verify property values** - `read-data-schema` with `kind: event_property_values` when the value must match (e.g., "US" vs "United States").
+4. **Then construct the query** using the appropriate wrapper.
 
-If the required events or properties do not exist, inform the user immediately instead of running queries that will return empty results.
+If the required events or properties don't exist, tell the user instead of running an empty query.
 
 #### Insight query workflow
 
