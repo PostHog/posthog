@@ -7,13 +7,14 @@ import {
     ExperimentFunnelsQuery,
     ExperimentTrendsQuery,
 } from '~/queries/schema/schema-general'
-import { experimentLogic } from '~/scenes/experiments/experimentLogic'
 import {
     legacyGetHighestProbabilityVariant,
     legacyGetIndexForVariant,
     getInsightType,
     LegacyVariantTag,
     legacyExperimentLogic,
+    getIsPrimaryMetricSignificant,
+    getIsSecondaryMetricSignificant,
 } from '~/scenes/experiments/legacy'
 
 /**
@@ -67,7 +68,10 @@ export function LegacySignificanceText({
     metricUuid: string
     isSecondary?: boolean
 }): JSX.Element {
-    const { isPrimaryMetricSignificant, isSecondaryMetricSignificant } = useValues(experimentLogic)
+    const { experiment, legacyPrimaryMetricsResults, legacySecondaryMetricsResults } = useValues(legacyExperimentLogic)
+
+    const isSecondaryMetricSignificant = getIsSecondaryMetricSignificant(legacySecondaryMetricsResults, experiment)
+    const isPrimaryMetricSignificant = getIsPrimaryMetricSignificant(legacyPrimaryMetricsResults, experiment)
 
     return (
         <div className="flex-wrap">

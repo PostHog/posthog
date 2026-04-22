@@ -15,6 +15,8 @@ import {
     TrendExperimentVariant,
 } from '~/types'
 
+import { legacyGetSignificanceDetails } from './calculations/legacyExperimentCalculations'
+
 /**
  * @deprecated
  * Use the getInsightType function from the experimentLogic instead.
@@ -121,3 +123,86 @@ export const getExperimentMathAggregationForTrends = (
 
     return (userMathValue ?? propertyMathValue) as PropertyMathType | CountPerActorMathType | undefined
 }
+
+/**
+ * @deprecated
+ * Use the getIsPrimaryMetricSignificant function from the experimentLogic instead.
+ */
+export const getIsPrimaryMetricSignificant =
+    (
+        legacyPrimaryMetricsResults: (
+            | CachedLegacyExperimentQueryResponse
+            | CachedExperimentFunnelsQueryResponse
+            | CachedExperimentTrendsQueryResponse
+            | null
+        )[],
+        experiment: Experiment
+    ) =>
+    (metricUuid: string): boolean => {
+        // Find metric index by UUID
+        const index = experiment.metrics.findIndex((m) => m.uuid === metricUuid)
+        if (index === -1) {
+            return false
+        }
+
+        const result = legacyPrimaryMetricsResults?.[index]
+        if (!result) {
+            return false
+        }
+
+        return result.significant || false
+    }
+
+/**
+ * @deprecated
+ * Use the getIsSecondaryMetricSignificant function from the experimentLogic instead.
+ */
+export const getIsSecondaryMetricSignificant =
+    (
+        legacySecondaryMetricsResults: (
+            | CachedLegacyExperimentQueryResponse
+            | CachedExperimentFunnelsQueryResponse
+            | CachedExperimentTrendsQueryResponse
+            | null
+        )[],
+        experiment: Experiment
+    ) =>
+    (metricUuid: string): boolean => {
+        // Find metric index by UUID
+        const index = experiment.metrics_secondary.findIndex((m) => m.uuid === metricUuid)
+        if (index === -1) {
+            return false
+        }
+
+        const result = legacySecondaryMetricsResults?.[index]
+        if (!result) {
+            return false
+        }
+
+        return result.significant || false
+    }
+
+/**
+ * @deprecated
+ * Use the getSignificanceDetails function from the experimentLogic instead.
+ */
+export const getSignificanceDetails =
+    (
+        legacyPrimaryMetricsResults: (
+            | CachedLegacyExperimentQueryResponse
+            | CachedExperimentFunnelsQueryResponse
+            | CachedExperimentTrendsQueryResponse
+            | null
+        )[],
+        experiment: Experiment
+    ) =>
+    (metricUuid: string): string => {
+        // Find metric index by UUID
+        const index = experiment.metrics.findIndex((m) => m.uuid === metricUuid)
+        if (index === -1) {
+            return ''
+        }
+
+        const results = legacyPrimaryMetricsResults?.[index]
+        return legacyGetSignificanceDetails(results)
+    }
