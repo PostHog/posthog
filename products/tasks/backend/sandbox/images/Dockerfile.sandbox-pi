@@ -1,0 +1,16 @@
+# Dockerfile for the pi coding agent sandbox image.
+# Builds on top of sandbox-base and adds the pi coding agent plus the
+# pi-autoresearch extension. Versions are pinned for reproducible builds.
+
+ARG BASE_IMAGE=posthog-sandbox-base
+FROM ${BASE_IMAGE}
+
+# pi coding agent (https://pi.dev)
+ARG PI_CODING_AGENT_VERSION=0.68.1
+RUN npm install -g "@mariozechner/pi-coding-agent@${PI_CODING_AGENT_VERSION}"
+
+# pi-autoresearch extension (https://github.com/davebcn87/pi-autoresearch)
+ARG PI_AUTORESEARCH_TAG=v1.0.1
+RUN pi install "git:github.com/davebcn87/pi-autoresearch@${PI_AUTORESEARCH_TAG}"
+
+CMD ["/bin/bash"]
