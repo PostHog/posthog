@@ -345,9 +345,12 @@ def is_insight_query(query: dict) -> bool:
 
 
 def is_async_query(query: dict) -> bool:
-    """Check if a query should run asynchronously with an extended timeout.
+    """Check if a query should be granted the extended ClickHouse timeout (LimitContext.QUERY_ASYNC).
 
-    Superset of is_insight_query — also covers expensive non-insight queries.
+    Name is historical: originally these queries all ran via the async/Celery path, but membership
+    now just signals "expensive, needs the longer timeout" regardless of whether execution is sync
+    or async. Superset of is_insight_query — also covers expensive non-insight queries like traces
+    and experiments.
     """
     if is_insight_query(query):
         return True
