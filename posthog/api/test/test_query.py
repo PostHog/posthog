@@ -150,8 +150,8 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 },
             )
 
-    @patch("posthog.api.services.query.get_query_runner")
-    def test_hogql_autocomplete_bypasses_query_runner(self, mock_get_query_runner):
+    @patch("posthog.api.services.query.get_query_runner_or_none")
+    def test_hogql_autocomplete_bypasses_query_runner(self, mock_get_query_runner_or_none):
         query = HogQLAutocomplete(
             kind="HogQLAutocomplete",
             query="select event from events",
@@ -163,7 +163,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         result = process_query_model(self.team, query, user=self.user)
 
         self.assertIn("suggestions", result.model_dump())  # type: ignore
-        mock_get_query_runner.assert_not_called()
+        mock_get_query_runner_or_none.assert_not_called()
 
     @also_test_with_materialized_columns(["key"])
     @snapshot_clickhouse_queries
