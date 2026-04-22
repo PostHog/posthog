@@ -126,7 +126,7 @@ if not settings.DEBUG:
             value=0,  # bool is represented as 0/1 in ClickHouse
         ),
     )
-_DEFAULT_FILTER_TEST_ACCOUNTS = False  # Summarize all sessions (it's also faster to skip this filter)
+_DEFAULT_FILTER_TEST_ACCOUNTS = True  # Exclude sessions from internal/test users (team test account filters)
 
 
 def _fetch_recent_session_ids(team: Team, lookback_hours: int) -> list[str]:
