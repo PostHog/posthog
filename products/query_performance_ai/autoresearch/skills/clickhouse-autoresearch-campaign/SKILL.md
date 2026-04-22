@@ -41,6 +41,25 @@ Use a single workspace at:
 
 The branch is the campaign boundary. The workspace is just the artifact layout.
 
+If `autoresearch.config.json` exists in the current working directory, read its `workingDir` field and use that path as the workspace instead of the default above. Automated orchestrators (for example PostHog's `run_campaign.py`) initialize the workspace at `/tmp/autoresearch-campaign/` and write the config alongside it.
+
+## Pre-initialized workspace detection
+
+**Before doing anything in the Setup sequence, check whether the workspace has already been prepared by an external orchestrator.** If the resolved workspace contains **all** of:
+
+- `adapter.json`
+- `baseline/metrics.json`
+- `query/original.sql`
+
+…then the workspace is pre-initialized. In that case:
+
+- **Skip the entire Setup sequence (steps 1–6).** Do not ask the operator for a target query, connection details, or anything else — the orchestrator has already supplied them.
+- Treat `operator-hunches.md` as optional context. If it only contains the stub template, proceed without hunches.
+- Jump directly to step 7 of the Setup sequence (read the baseline and seed the first lanes and hypotheses), then continue with steps 8–9 and the normal campaign loop.
+- Operate headlessly: at no point prompt the operator for input. If a decision requires judgment, apply the skill's default guidance and record the choice in `state.json` / `autoresearch.md`.
+
+Only fall back to the interactive Setup sequence below when the workspace is empty or partially initialized.
+
 ## Setup sequence
 
 1. Confirm or infer the target query and query identifier.
@@ -52,6 +71,7 @@ bash ../../scripts/ch_campaign_init.sh --workspace .clickhouse-autoresearch --qu
 ```
 
 Add optional flags as needed:
+
 - `--query-file <path>`
 - `--branch-name <name>`
 - `--primary-metric latency_ms`
@@ -65,6 +85,7 @@ Add optional flags as needed:
 
 4. Inspect the generated workspace.
 5. Fill in or update:
+
 - `.clickhouse-autoresearch/adapter.env`
 - `.clickhouse-autoresearch/operator-hunches.md`
 - `.clickhouse-autoresearch/state.json`
@@ -78,16 +99,16 @@ bash ../../scripts/ch_capture_baseline.sh --workspace .clickhouse-autoresearch
 
 If the baseline times out, enter range narrowing (see `orchestration.md` § Timeout queries):
 
-   1. Copy `query/original.sql` to `query/narrowed.sql`
-   2. Halve the time range in `narrowed.sql`
-   3. Retry: `bash ../../scripts/ch_capture_baseline.sh --workspace .clickhouse-autoresearch` (after updating `query/original.sql` in the workspace to the narrowed version)
-   4. Repeat until the query completes in 1–10s
-   5. Record narrowing state in `state.json`: `{ "narrowed": true, "original_range": "...", "working_range": "..." }`
-   6. Keep `query/original.sql` in the repo root as the full-range reference
+1.  Copy `query/original.sql` to `query/narrowed.sql`
+2.  Halve the time range in `narrowed.sql`
+3.  Retry: `bash ../../scripts/ch_capture_baseline.sh --workspace .clickhouse-autoresearch` (after updating `query/original.sql` in the workspace to the narrowed version)
+4.  Repeat until the query completes in 1–10s
+5.  Record narrowing state in `state.json`: `{ "narrowed": true, "original_range": "...", "working_range": "..." }`
+6.  Keep `query/original.sql` in the repo root as the full-range reference
 
-7. Read the baseline artifacts and seed the first lanes and hypotheses.
-8. Initialize the autoresearch session against the configured primary metric.
-9. Start the experiment loop using:
+7.  Read the baseline artifacts and seed the first lanes and hypotheses.
+8.  Initialize the autoresearch session against the configured primary metric.
+9.  Start the experiment loop using:
 
 ```bash
 ./.clickhouse-autoresearch/autoresearch.sh
@@ -103,6 +124,7 @@ with correctness backpressure through:
 
 During the campaign, you must:
 
+- if the workspace was pre-initialized (see "Pre-initialized workspace detection"), never prompt the operator — assume headless operation and apply default guidance for every decision
 - keep `query/current.sql` as the next candidate to test
 - keep `query/best.sql` aligned with the best kept result
 - maintain the lane / hypothesis / review notes
@@ -119,6 +141,7 @@ During the campaign, you must:
 ## What the scripts do vs what you do
 
 The scripts do deterministic work:
+
 - create the workspace
 - invoke environment-specific commands from `adapter.env`
 - capture baseline artifacts
@@ -127,6 +150,7 @@ The scripts do deterministic work:
 - emit `METRIC ...` lines
 
 You do the reasoning:
+
 - choose the active lane
 - choose the hypothesis
 - decide whether to repair a wrong-but-fast candidate
@@ -150,6 +174,7 @@ When validated wins from different lanes appear combinable, create and test an e
 A saved baseline result set is the semantic source of truth.
 
 If a candidate is faster but fails correctness checks:
+
 - inspect the comparison summary
 - decide whether the mismatch is trivial, repairable, or fundamental
 - if the performance win is meaningful and the defect is likely fixable, open a bounded repair path
