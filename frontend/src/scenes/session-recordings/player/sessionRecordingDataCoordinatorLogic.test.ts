@@ -145,10 +145,17 @@ describe('sessionRecordingDataCoordinatorLogic', () => {
             logic.mount()
             logic.actions.loadRecordingMeta()
 
-            await expectLogic(logic).toDispatchActionsInAnyOrder(['loadRecordingMetaFailure']).toFinishAllListeners()
+            // 404s are caught inside the loader so the load succeeds (with null metadata)
+            // and a dedicated setRecordingNotFound action flips isNotFound. This avoids a
+            // loadRecordingMetaFailure, which would otherwise be captured by error tracking
+            // even though the UI handles this case via the RecordingNotFound component.
+            await expectLogic(metaLogic)
+                .toDispatchActionsInAnyOrder(['setRecordingNotFound', 'loadRecordingMetaSuccess'])
+                .toFinishAllListeners()
 
             expect(metaLogic.values.isNotFound).toBe(true)
             expect(metaLogic.values.loadMetaError).toBe(false)
+            expect(metaLogic.values.sessionPlayerMetaData).toBeNull()
             resumeKeaLoadersErrors()
         })
 

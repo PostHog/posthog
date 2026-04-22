@@ -65,15 +65,14 @@ export const sessionRecordingMetaLogic = kea<sessionRecordingMetaLogicType>([
         loadRecordingFromFile: (recording: ExportedSessionRecordingFileV2['data']) => ({ recording }),
         maybeLoadRecordingMeta: true,
         setTrackedWindow: (windowId: number | null) => ({ windowId }),
+        setRecordingNotFound: true,
     }),
     reducers(() => ({
         isNotFound: [
             false as boolean,
             {
                 loadRecordingMeta: () => false,
-                loadRecordingMetaSuccess: () => false,
-                loadRecordingMetaFailure: (_, { errorObject }) =>
-                    errorObject instanceof ApiError && errorObject.status === 404,
+                setRecordingNotFound: () => true,
             },
         ],
         loadMetaError: [
@@ -81,8 +80,7 @@ export const sessionRecordingMetaLogic = kea<sessionRecordingMetaLogicType>([
             {
                 loadRecordingMeta: () => false,
                 loadRecordingMetaSuccess: () => false,
-                loadRecordingMetaFailure: (_, { errorObject }) =>
-                    !(errorObject instanceof ApiError && errorObject.status === 404),
+                loadRecordingMetaFailure: () => true,
             },
         ],
         trackedWindow: [
@@ -92,7 +90,7 @@ export const sessionRecordingMetaLogic = kea<sessionRecordingMetaLogicType>([
             },
         ],
     })),
-    loaders(({ props }) => ({
+    loaders(({ props, actions }) => ({
         sessionPlayerMetaData: {
             loadRecordingMeta: async (_, breakpoint) => {
                 if (!props.sessionRecordingId) {
@@ -104,10 +102,20 @@ export const sessionRecordingMetaLogic = kea<sessionRecordingMetaLogicType>([
                 if (props.accessToken) {
                     headers.Authorization = `Bearer ${props.accessToken}`
                 }
-                const response = await api.recordings.get(props.sessionRecordingId, {}, headers)
-                breakpoint()
-
-                return response
+                try {
+                    const response = await api.recordings.get(props.sessionRecordingId, {}, headers)
+                    breakpoint()
+                    return response
+                } catch (error) {
+                    // Expected when a recording is expired, deleted, or never captured.
+                    // Flag via a dedicated action and return null so the UI renders the
+                    // RecordingNotFound state without a failure propagating to error tracking.
+                    if (error instanceof ApiError && error.status === 404) {
+                        actions.setRecordingNotFound()
+                        return null
+                    }
+                    throw error
+                }
             },
         },
     })),
