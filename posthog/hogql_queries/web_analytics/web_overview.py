@@ -17,6 +17,7 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.hogql_queries.web_analytics.web_analytics_query_runner import WebAnalyticsQueryRunner
 from posthog.hogql_queries.web_analytics.web_overview_pre_aggregated import WebOverviewPreAggregatedQueryBuilder
+from posthog.hogql_queries.web_analytics.web_overview_sessions_only import WebOverviewSessionsOnlyQueryBuilder
 from posthog.models.filters.mixins.utils import cached_property
 
 logger = structlog.get_logger(__name__)
@@ -33,6 +34,7 @@ class WebOverviewQueryRunner(WebAnalyticsQueryRunner[WebOverviewQueryResponse]):
         team_version = getattr(self.team, "web_analytics_pre_aggregated_tables_version", "v2")
         self.use_v2_tables = team_version == "v2" if team_version else use_v2_tables
         self.preaggregated_query_builder = WebOverviewPreAggregatedQueryBuilder(self)
+        self.sessions_only_query_builder = WebOverviewSessionsOnlyQueryBuilder(self)
 
     def to_query(self) -> ast.SelectQuery:
         return self.outer_select
@@ -75,20 +77,43 @@ class WebOverviewQueryRunner(WebAnalyticsQueryRunner[WebOverviewQueryResponse]):
             logger.exception("Error getting pre-aggregated web_overview", error=e)
             return None
 
-    def _calculate(self) -> WebOverviewQueryResponse:
-        pre_aggregated_response = self.get_pre_aggregated_response()
-
-        response = (
-            execute_hogql_query(
-                query_type="web_overview_query",
-                query=self.to_query(),
+    def get_sessions_only_response(self):
+        if not self.sessions_only_query_builder.can_run():
+            return None
+        try:
+            response = execute_hogql_query(
+                query_type="web_overview_sessions_only_query",
+                query=self.sessions_only_query_builder.get_query(),
                 team=self.team,
                 timings=self.timings,
                 modifiers=self.modifiers,
                 limit_context=self.limit_context,
             )
-            if not pre_aggregated_response
-            else pre_aggregated_response
+            assert response.results
+            return response
+        except Exception as e:
+            logger.exception("Error getting sessions-only web_overview", error=e)
+            return None
+
+    def _calculate(self) -> WebOverviewQueryResponse:
+        pre_aggregated_response = self.get_pre_aggregated_response()
+        sessions_only_response = self.get_sessions_only_response() if pre_aggregated_response is None else None
+
+        response = (
+            pre_aggregated_response
+            if pre_aggregated_response is not None
+            else (
+                sessions_only_response
+                if sessions_only_response is not None
+                else execute_hogql_query(
+                    query_type="web_overview_query",
+                    query=self.to_query(),
+                    team=self.team,
+                    timings=self.timings,
+                    modifiers=self.modifiers,
+                    limit_context=self.limit_context,
+                )
+            )
         )
 
         assert response.results

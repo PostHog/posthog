@@ -35,6 +35,7 @@ from posthog.hogql.printer import prepare_and_print_ast
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.hogql_queries.web_analytics.web_overview import WebOverviewQueryRunner
 from posthog.hogql_queries.web_analytics.web_overview_pre_aggregated import WebOverviewPreAggregatedQueryBuilder
+from posthog.hogql_queries.web_analytics.web_overview_sessions_only import WebOverviewSessionsOnlyQueryBuilder
 from posthog.models import Action, Cohort, Element
 from posthog.models.utils import uuid7
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
@@ -1031,3 +1032,90 @@ class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         builder = WebOverviewPreAggregatedQueryBuilder(runner)
         self.assertFalse(builder.can_use_preaggregated_tables())
+
+
+class TestWebOverviewSessionsOnlyQueryBuilder(ClickhouseTestMixin, APIBaseTest):
+    @patch(
+        "posthog.hogql_queries.web_analytics.web_overview_sessions_only.posthoganalytics.feature_enabled",
+        return_value=True,
+    )
+    def test_can_run_for_zero_filter_query(self, _mock_flag):
+        query = WebOverviewQuery(
+            dateRange=DateRange(date_from="2023-11-01", date_to="2023-11-30"),
+            properties=[],
+        )
+        runner = WebOverviewQueryRunner(team=self.team, query=query)
+        self.assertTrue(WebOverviewSessionsOnlyQueryBuilder(runner).can_run())
+
+    @patch(
+        "posthog.hogql_queries.web_analytics.web_overview_sessions_only.posthoganalytics.feature_enabled",
+        return_value=True,
+    )
+    def test_does_not_run_with_event_property_filter(self, _mock_flag):
+        query = WebOverviewQuery(
+            dateRange=DateRange(date_from="2023-11-01", date_to="2023-11-30"),
+            properties=[{"key": "$browser", "value": "Chrome", "operator": "exact", "type": "event"}],
+        )
+        runner = WebOverviewQueryRunner(team=self.team, query=query)
+        self.assertFalse(WebOverviewSessionsOnlyQueryBuilder(runner).can_run())
+
+    @patch(
+        "posthog.hogql_queries.web_analytics.web_overview_sessions_only.posthoganalytics.feature_enabled",
+        return_value=True,
+    )
+    def test_does_not_run_with_session_property_filter(self, _mock_flag):
+        query = WebOverviewQuery(
+            dateRange=DateRange(date_from="2023-11-01", date_to="2023-11-30"),
+            properties=[SessionPropertyFilter(key="$channel_type", value="Direct", operator="exact", type="session")],
+        )
+        runner = WebOverviewQueryRunner(team=self.team, query=query)
+        self.assertFalse(WebOverviewSessionsOnlyQueryBuilder(runner).can_run())
+
+    @patch(
+        "posthog.hogql_queries.web_analytics.web_overview_sessions_only.posthoganalytics.feature_enabled",
+        return_value=True,
+    )
+    def test_does_not_run_with_conversion_goal(self, _mock_flag):
+        query = WebOverviewQuery(
+            dateRange=DateRange(date_from="2023-11-01", date_to="2023-11-30"),
+            properties=[],
+            conversionGoal=CustomEventConversionGoal(customEventName="purchase"),
+        )
+        runner = WebOverviewQueryRunner(team=self.team, query=query)
+        self.assertFalse(WebOverviewSessionsOnlyQueryBuilder(runner).can_run())
+
+    @patch(
+        "posthog.hogql_queries.web_analytics.web_overview_sessions_only.posthoganalytics.feature_enabled",
+        return_value=False,
+    )
+    def test_does_not_run_when_feature_flag_disabled(self, _mock_flag):
+        query = WebOverviewQuery(
+            dateRange=DateRange(date_from="2023-11-01", date_to="2023-11-30"),
+            properties=[],
+        )
+        runner = WebOverviewQueryRunner(team=self.team, query=query)
+        self.assertFalse(WebOverviewSessionsOnlyQueryBuilder(runner).can_run())
+
+    @patch(
+        "posthog.hogql_queries.web_analytics.web_overview_sessions_only.posthoganalytics.feature_enabled",
+        return_value=True,
+    )
+    def test_emitted_sql_targets_sessions_table_not_events(self, _mock_flag):
+        query = WebOverviewQuery(
+            dateRange=DateRange(date_from="2023-11-01", date_to="2023-11-30"),
+            properties=[],
+        )
+        runner = WebOverviewQueryRunner(team=self.team, query=query)
+        builder = WebOverviewSessionsOnlyQueryBuilder(runner)
+        select = builder.get_query()
+        printed = prepare_and_print_ast(
+            select,
+            HogQLContext(team_id=self.team.pk, enable_select_queries=True),
+            "clickhouse",
+        )
+        # Sessions table is reachable; events table is not
+        self.assertIn("raw_sessions", printed)
+        self.assertNotIn("FROM events", printed)
+        # Output column count must match the joined-path web_overview shape
+        # so result-row indexing in WebOverviewQueryRunner._calculate stays valid.
+        self.assertEqual(len(select.select), 10)
