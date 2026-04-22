@@ -189,6 +189,7 @@ class TraceSpansQueryRunnerMixin(QueryRunner):
                     for v in values:
                         if str(v) in _STATUS_CODE_LABEL_TO_INTS:
                             expanded.extend(_STATUS_CODE_LABEL_TO_INTS[str(v)])
+                    span_filter.value = [str(v) for v in expanded]
 
                 exprs.append(property_to_expr(span_filter, team=self.team))
 
@@ -502,14 +503,7 @@ def run_attribute_names_query(
     )
 
     property_filter_type = (
-        attribute_type
-        if attribute_type
-        in (
-            SpanPropertyFilterType.SPAN,
-            SpanPropertyFilterType.SPAN_ATTRIBUTE,
-            SpanPropertyFilterType.SPAN_RESOURCE_ATTRIBUTE,
-        )
-        else SpanPropertyFilterType.SPAN_ATTRIBUTE
+        attribute_type if attribute_type in ("span", "span_attribute", "span_resource_attribute") else "span_attribute"
     )
 
     query = parse_select(
