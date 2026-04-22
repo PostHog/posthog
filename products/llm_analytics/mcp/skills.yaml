@@ -73,13 +73,18 @@ tools:
         description: |
             Publish a new version of an existing agent skill by name. Any field not provided
             is carried forward from the current latest version. Requires base_version for
-            optimistic concurrency. If files are provided, they replace all files from the
-            previous version; if omitted, files are carried forward.
+            optimistic concurrency.
 
             For the body, you can either provide the full content via 'body', or use 'edits'
             for incremental find/replace updates. Each edit must have 'old' (text to find,
             must match exactly once) and 'new' (replacement text). Edits are applied
             sequentially. Only one of 'body' or 'edits' may be provided.
+
+            For file changes, prefer the per-file tools rather than passing a 'files' list:
+            skill-file-create / skill-file-delete / skill-file-rename for add/remove/rename,
+            and skill-update with 'file_edits' for patching the content of an existing file.
+            Passing a 'files' list here replaces ALL files and risks data loss if any file
+            is omitted — use it only when you intentionally want to replace the entire bundle.
         include_params:
             - body
             - edits
@@ -90,6 +95,50 @@ tools:
             - metadata
             - files
             - base_version
+    skill-file-create:
+        operation: llm_skills_name_files_create
+        enabled: true
+        scopes:
+            - llm_skill:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Create skill file
+        description: >
+            Add a new bundled file to an agent skill. Fails with 409 if a file at the given
+            path already exists — use skill-update with files to replace, or skill-file-delete
+            followed by skill-file-create to overwrite. Publishes a new skill version.
+            Supply base_version for optimistic concurrency when chaining multiple file edits.
+    skill-file-delete:
+        operation: llm_skills_name_files_destroy
+        enabled: true
+        scopes:
+            - llm_skill:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: false
+        title: Delete skill file
+        description: >
+            Remove a bundled file from an agent skill by path. Fails with 404 if the file is
+            not in the latest version. Publishes a new skill version.
+            Supply base_version for optimistic concurrency when chaining multiple file edits.
+    skill-file-rename:
+        operation: llm_skills_name_files_rename_create
+        enabled: true
+        scopes:
+            - llm_skill:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Rename skill file
+        description: >
+            Rename a bundled file within an agent skill. Fails with 404 if old_path is not in
+            the latest version, and with 409 if new_path already exists. Use this to move a
+            file without rewriting its content. Publishes a new skill version.
+            Supply base_version for optimistic concurrency when chaining multiple file edits.
     skill-duplicate:
         operation: llm_skills_name_duplicate_create
         enabled: true

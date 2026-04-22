@@ -32,6 +32,9 @@ from .skill_serializers import (
     LLMSkillCreateSerializer,
     LLMSkillDuplicateSerializer,
     LLMSkillFetchQuerySerializer,
+    LLMSkillFileCreateSerializer,
+    LLMSkillFileDeleteQuerySerializer,
+    LLMSkillFileRenameSerializer,
     LLMSkillFileSerializer,
     LLMSkillListQuerySerializer,
     LLMSkillListSerializer,
@@ -44,15 +47,20 @@ from .skill_serializers import (
 from .skill_services import (
     LLMSkillDuplicateNameConflictError,
     LLMSkillEditError,
+    LLMSkillFileNotFoundError,
+    LLMSkillFilePathConflictError,
     LLMSkillNotFoundError,
     LLMSkillVersionConflictError,
     LLMSkillVersionLimitError,
     archive_skill,
+    create_skill_file,
+    delete_skill_file,
     duplicate_skill,
     get_active_skill_queryset,
     get_latest_skills_queryset,
     get_skill_by_name_from_db,
     publish_skill_version,
+    rename_skill_file,
     resolve_versions_page,
 )
 
@@ -445,6 +453,210 @@ class LLMSkillViewSet(
             )
 
         return Response(LLMSkillFileSerializer(skill_file).data)
+
+    @extend_schema(request=LLMSkillFileCreateSerializer, responses={201: LLMSkillSerializer})
+    @action(
+        methods=["POST"],
+        detail=False,
+        url_path=r"name/(?P<skill_name>[^/]+)/files",
+        required_scopes=["llm_skill:write"],
+    )
+    @llma_track_latency("llma_skills_create_file")
+    @monitor(feature=None, endpoint="llma_skills_create_file", method="POST")
+    def create_file(self, request: Request, skill_name: str = "", **kwargs) -> Response:
+        auth_error = self._ensure_web_authenticated(request)
+        if auth_error is not None:
+            return auth_error
+
+        payload = LLMSkillFileCreateSerializer(data=request.data)
+        payload.is_valid(raise_exception=True)
+
+        try:
+            published_skill = create_skill_file(
+                self.team,
+                user=cast(User, request.user),
+                skill_name=skill_name,
+                path=payload.validated_data["path"],
+                content=payload.validated_data["content"],
+                content_type=payload.validated_data.get("content_type", "text/plain"),
+                base_version=payload.validated_data.get("base_version"),
+            )
+        except LLMSkillNotFoundError:
+            return self._skill_not_found_response(skill_name)
+        except LLMSkillVersionConflictError as err:
+            return Response(
+                {
+                    "detail": "The skill changed since you opened it. Reload the latest version and try again.",
+                    "current_version": err.current_version,
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
+        except LLMSkillVersionLimitError as err:
+            return Response(
+                {
+                    "detail": (
+                        f"Skill has reached the maximum of {err.max_version} versions. "
+                        "Archive and recreate the skill to continue publishing."
+                    ),
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        except LLMSkillFilePathConflictError as err:
+            return Response(
+                {"detail": f"File '{err.path}' already exists in skill '{skill_name}'."},
+                status=status.HTTP_409_CONFLICT,
+            )
+
+        report_user_action(
+            cast(User, request.user),
+            "llma skill file created",
+            {
+                "skill_id": str(published_skill.id),
+                "skill_name": published_skill.name,
+                "skill_version": published_skill.version,
+                "path": payload.validated_data["path"],
+            },
+            team=self.team,
+            request=request,
+        )
+        return Response(self._serialize_skill(published_skill), status=status.HTTP_201_CREATED)
+
+    @extend_schema(parameters=[LLMSkillFileDeleteQuerySerializer], responses={200: LLMSkillSerializer})
+    @get_file.mapping.delete
+    @llma_track_latency("llma_skills_delete_file")
+    @monitor(feature=None, endpoint="llma_skills_delete_file", method="DELETE")
+    def delete_file(self, request: Request, skill_name: str = "", file_path: str = "", **kwargs) -> Response:
+        auth_error = self._ensure_web_authenticated(request)
+        if auth_error is not None:
+            return auth_error
+
+        file_path = file_path.rstrip("/")
+        normalized = file_path.replace("\\", "/")
+        if ".." in normalized.split("/") or normalized.startswith("/"):
+            return Response({"detail": "Invalid file path."}, status=status.HTTP_400_BAD_REQUEST)
+
+        query = LLMSkillFileDeleteQuerySerializer(data=request.query_params)
+        query.is_valid(raise_exception=True)
+
+        try:
+            published_skill = delete_skill_file(
+                self.team,
+                user=cast(User, request.user),
+                skill_name=skill_name,
+                path=file_path,
+                base_version=query.validated_data.get("base_version"),
+            )
+        except LLMSkillNotFoundError:
+            return self._skill_not_found_response(skill_name)
+        except LLMSkillVersionConflictError as err:
+            return Response(
+                {
+                    "detail": "The skill changed since you opened it. Reload the latest version and try again.",
+                    "current_version": err.current_version,
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
+        except LLMSkillVersionLimitError as err:
+            return Response(
+                {
+                    "detail": (
+                        f"Skill has reached the maximum of {err.max_version} versions. "
+                        "Archive and recreate the skill to continue publishing."
+                    ),
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        except LLMSkillFileNotFoundError as err:
+            return Response(
+                {"detail": f"File '{err.path}' not found in skill '{skill_name}'."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        report_user_action(
+            cast(User, request.user),
+            "llma skill file deleted",
+            {
+                "skill_id": str(published_skill.id),
+                "skill_name": published_skill.name,
+                "skill_version": published_skill.version,
+                "path": file_path,
+            },
+            team=self.team,
+            request=request,
+        )
+        return Response(self._serialize_skill(published_skill))
+
+    @extend_schema(request=LLMSkillFileRenameSerializer, responses={200: LLMSkillSerializer})
+    @action(
+        methods=["POST"],
+        detail=False,
+        url_path=r"name/(?P<skill_name>[^/]+)/files-rename",
+        required_scopes=["llm_skill:write"],
+    )
+    @llma_track_latency("llma_skills_rename_file")
+    @monitor(feature=None, endpoint="llma_skills_rename_file", method="POST")
+    def rename_file(self, request: Request, skill_name: str = "", **kwargs) -> Response:
+        auth_error = self._ensure_web_authenticated(request)
+        if auth_error is not None:
+            return auth_error
+
+        payload = LLMSkillFileRenameSerializer(data=request.data)
+        payload.is_valid(raise_exception=True)
+
+        try:
+            published_skill = rename_skill_file(
+                self.team,
+                user=cast(User, request.user),
+                skill_name=skill_name,
+                old_path=payload.validated_data["old_path"],
+                new_path=payload.validated_data["new_path"],
+                base_version=payload.validated_data.get("base_version"),
+            )
+        except LLMSkillNotFoundError:
+            return self._skill_not_found_response(skill_name)
+        except LLMSkillVersionConflictError as err:
+            return Response(
+                {
+                    "detail": "The skill changed since you opened it. Reload the latest version and try again.",
+                    "current_version": err.current_version,
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
+        except LLMSkillVersionLimitError as err:
+            return Response(
+                {
+                    "detail": (
+                        f"Skill has reached the maximum of {err.max_version} versions. "
+                        "Archive and recreate the skill to continue publishing."
+                    ),
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        except LLMSkillFileNotFoundError as err:
+            return Response(
+                {"detail": f"File '{err.path}' not found in skill '{skill_name}'."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        except LLMSkillFilePathConflictError as err:
+            return Response(
+                {"detail": f"File '{err.path}' already exists in skill '{skill_name}'."},
+                status=status.HTTP_409_CONFLICT,
+            )
+
+        report_user_action(
+            cast(User, request.user),
+            "llma skill file renamed",
+            {
+                "skill_id": str(published_skill.id),
+                "skill_name": published_skill.name,
+                "skill_version": published_skill.version,
+                "old_path": payload.validated_data["old_path"],
+                "new_path": payload.validated_data["new_path"],
+            },
+            team=self.team,
+            request=request,
+        )
+        return Response(self._serialize_skill(published_skill))
 
     @extend_schema(parameters=[LLMSkillListQuerySerializer])
     @llma_track_latency("llma_skills_list")
