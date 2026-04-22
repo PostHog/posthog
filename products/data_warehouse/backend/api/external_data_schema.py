@@ -49,7 +49,7 @@ from products.data_warehouse.backend.models.external_data_schema import (
     sync_frequency_to_sync_frequency_interval,
 )
 from products.data_warehouse.backend.models.external_data_source import ExternalDataSource
-from products.data_warehouse.backend.types import ExternalDataSourceType
+from products.data_warehouse.backend.types import ExternalDataSourceType, IncrementalFieldType
 
 logger = structlog.get_logger(__name__)
 
@@ -67,8 +67,11 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
     incremental_field = serializers.CharField(
         required=False, allow_null=True, help_text="Column name used to track sync progress."
     )
-    incremental_field_type = serializers.CharField(
-        required=False, allow_null=True, help_text="Data type of the incremental field."
+    incremental_field_type = serializers.ChoiceField(
+        choices=[(e.value, e.value) for e in IncrementalFieldType],
+        required=False,
+        allow_null=True,
+        help_text="Data type of the incremental field.",
     )
     sync_frequency = serializers.ChoiceField(
         choices=[
