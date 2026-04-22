@@ -181,6 +181,7 @@ export interface RoleLookupResponseApi {
  * `firebase` - Firebase
  * `jira` - Jira
  * `pinterest-ads` - Pinterest Ads
+ * `postgresql` - PostgreSQL
  * `stripe` - Stripe
  * `customerio-app` - Customerio App
  * `customerio-webhook` - Customerio Webhook
@@ -217,6 +218,7 @@ export const IntegrationKindEnumApi = {
     Firebase: 'firebase',
     Jira: 'jira',
     PinterestAds: 'pinterest-ads',
+    PostgreSQL: 'postgresql',
     Stripe: 'stripe',
     CustomerioApp: 'customerio-app',
     CustomerioWebhook: 'customerio-webhook',
