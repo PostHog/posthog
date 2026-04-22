@@ -59,7 +59,7 @@ export const NotificationsMenu = ({ iconOnly = false }: { iconOnly?: boolean }):
                                 badgePulse ? 'scale-125' : 'scale-100'
                             }`}
                         >
-                            <IconWithCount count={inAppUnreadCount} size="xsmall">
+                            <IconWithCount count={inAppUnreadCount}>
                                 <IconNotification className="size-4.5" />
                             </IconWithCount>
                         </span>
