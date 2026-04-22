@@ -78,6 +78,10 @@ class ObjectStorageClient(metaclass=abc.ABCMeta):
         pass
 
     @abc.abstractmethod
+    def copy(self, bucket: str, source_key: str, target_key: str) -> None:
+        pass
+
+    @abc.abstractmethod
     def delete(self, bucket: str, key: str) -> None:
         pass
 
@@ -123,6 +127,9 @@ class UnavailableStorage(ObjectStorageClient):
         pass
 
     def copy_objects(self, bucket: str, source_prefix: str, target_prefix: str) -> int | None:
+        pass
+
+    def copy(self, bucket: str, source_key: str, target_key: str) -> None:
         pass
 
     def delete(self, bucket: str, key: str) -> None:
@@ -305,6 +312,20 @@ class ObjectStorage(ObjectStorageClient):
             capture_exception(e)
             return None
 
+    def copy(self, bucket: str, source_key: str, target_key: str) -> None:
+        try:
+            self.aws_client.copy({"Bucket": bucket, "Key": source_key}, bucket, target_key)
+        except Exception as e:
+            logger.exception(
+                "object_storage.copy_failed",
+                bucket=bucket,
+                source_key=source_key,
+                target_key=target_key,
+                error=e,
+            )
+            capture_exception(e)
+            raise ObjectStorageError("copy failed") from e
+
     def delete(self, bucket: str, key: str) -> None:
         response = {}
         try:
@@ -403,6 +424,14 @@ def copy_objects(source_prefix: str, target_prefix: str) -> int:
     )
 
 
+def copy(source_key: str, target_key: str, bucket: str | None = None) -> None:
+    return object_storage_client().copy(
+        bucket=bucket or settings.OBJECT_STORAGE_BUCKET,
+        source_key=source_key,
+        target_key=target_key,
+    )
+
+
 def get_presigned_url(
     file_key: str,
     expiration: int = 3600,
@@ -462,8 +491,8 @@ def get_accelerated_presigned_post(file_key: str, conditions: list[Any], expirat
     return get_presigned_post(file_key=file_key, conditions=conditions, expiration=expiration)
 
 
-def head_object(file_key: str, bucket: str = settings.OBJECT_STORAGE_BUCKET) -> Optional[dict]:
-    return object_storage_client().head_object(file_key=file_key, bucket=bucket)
+def head_object(file_key: str, bucket: str | None = None) -> Optional[dict]:
+    return object_storage_client().head_object(file_key=file_key, bucket=bucket or settings.OBJECT_STORAGE_BUCKET)
 
 
 def health_check() -> bool:

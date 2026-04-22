@@ -222,17 +222,44 @@ class AlertConfiguration(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
             has_preprocessing = bool(detector_config.get("preprocessing"))
 
         schedule_restriction = self.schedule_restriction
+        has_schedule_restriction = False
         blocked_window_count: int | None = None
         if isinstance(schedule_restriction, dict):
             windows = schedule_restriction.get("blocked_windows")
             if isinstance(windows, list):
                 blocked_window_count = len(windows)
+                has_schedule_restriction = blocked_window_count > 0
+
+        threshold_configuration: dict = {}
+        if self.threshold and isinstance(self.threshold.configuration, dict):
+            threshold_configuration = self.threshold.configuration
+        threshold_bounds = threshold_configuration.get("bounds") or {}
+        has_threshold = self.threshold is not None
+        threshold_type = threshold_configuration.get("type") if has_threshold else None
+        has_lower_bound = threshold_bounds.get("lower") is not None if has_threshold else False
+        has_upper_bound = threshold_bounds.get("upper") is not None if has_threshold else False
+
+        trends_config = self.config if isinstance(self.config, dict) else {}
+
+        subscribed_users_count: int | None = None
+        if self.pk is not None:
+            subscribed_users_count = self.subscribed_users.count()
 
         return {
             "alert_id": self.id,
             "alert_name": self.name,
             "condition_type": self.condition.get("type") if self.condition else None,
             "calculation_interval": self.calculation_interval,
+            "enabled": self.enabled,
+            "skip_weekend": bool(self.skip_weekend),
+            "has_schedule_restriction": has_schedule_restriction,
+            "has_threshold": has_threshold,
+            "threshold_type": threshold_type,
+            "has_lower_bound": has_lower_bound,
+            "has_upper_bound": has_upper_bound,
+            "trends_series_index": trends_config.get("series_index"),
+            "trends_check_ongoing_interval": trends_config.get("check_ongoing_interval"),
+            "subscribed_users_count": subscribed_users_count,
             **derive_detector_event_fields(detector_config),
             "ensemble_detector_types": ensemble_detector_types,
             "has_preprocessing": has_preprocessing,

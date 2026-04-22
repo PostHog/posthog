@@ -18,7 +18,6 @@ if [ "$SOURCE_ENV" == "true" ]; then
     fi
 fi
 
-
 provision_api_key() {
     local max_attempts=10
     local wait_sec=3

@@ -2589,31 +2589,51 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 }
             }
 
-            // Helper to find subquery and build its decoration
+            // Helper to find subquery and build its decorations. Returns the range-wide
+            // background highlight plus, when the subquery can't run standalone, a subtle
+            // gutter glyph on the starting line — avoids painting every line with wavy
+            // underlines that read as errors.
             const buildSubqueryDecoration = async (
                 activeQuery: QueryRange,
                 offset: number
-            ): Promise<editor.IModelDeltaDecoration | null> => {
+            ): Promise<editor.IModelDeltaDecoration[]> => {
                 const subquery = await findInnermostSelectAtOffset(activeQuery.query, offset, activeQuery.start)
                 if (!subquery) {
-                    return null
+                    return []
                 }
                 const subStart = model.getPositionAt(subquery.start)
                 const subEnd = model.getPositionAt(subquery.end)
                 const { className, errorMessage } = await validateSubquery(subquery.query)
-                return {
-                    range: {
-                        startLineNumber: subStart.lineNumber,
-                        startColumn: subStart.column,
-                        endLineNumber: subEnd.lineNumber,
-                        endColumn: subEnd.column,
+                const decorations: editor.IModelDeltaDecoration[] = [
+                    {
+                        range: {
+                            startLineNumber: subStart.lineNumber,
+                            startColumn: subStart.column,
+                            endLineNumber: subEnd.lineNumber,
+                            endColumn: subEnd.column,
+                        },
+                        options: {
+                            className,
+                            linesDecorationsClassName: errorMessage ? 'active-subquery-border-invalid' : undefined,
+                            hoverMessage: errorMessage ? { value: errorMessage } : undefined,
+                        },
                     },
-                    options: {
-                        className,
-                        inlineClassName: errorMessage ? 'active-subquery-underline-invalid' : undefined,
-                        hoverMessage: errorMessage ? { value: errorMessage } : undefined,
-                    },
+                ]
+                if (errorMessage) {
+                    decorations.push({
+                        range: {
+                            startLineNumber: subStart.lineNumber,
+                            startColumn: 1,
+                            endLineNumber: subStart.lineNumber,
+                            endColumn: 1,
+                        },
+                        options: {
+                            glyphMarginClassName: 'active-subquery-glyph-invalid',
+                            glyphMarginHoverMessage: { value: errorMessage },
+                        },
+                    })
                 }
+                return decorations
             }
 
             // Single query — check for subqueries only
@@ -2622,14 +2642,14 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 actions.setActiveQueryText(singleQuery?.query ?? null, 0)
 
                 if (singleQuery) {
-                    const subDeco = await buildSubqueryDecoration(singleQuery, cursorOffset)
+                    const subDecos = await buildSubqueryDecoration(singleQuery, cursorOffset)
                     if (isStale()) {
                         return
                     }
-                    if (subDeco) {
+                    if (subDecos.length > 0) {
                         cache.activeQueryDecorationIds = editorInstance.deltaDecorations(
                             cache.activeQueryDecorationIds ?? [],
-                            [subDeco]
+                            subDecos
                         )
                         return
                     }
@@ -2676,13 +2696,11 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 },
             ]
 
-            const subDeco = await buildSubqueryDecoration(match, cursorOffset)
+            const subDecos = await buildSubqueryDecoration(match, cursorOffset)
             if (isStale()) {
                 return
             }
-            if (subDeco) {
-                decorations.push(subDeco)
-            }
+            decorations.push(...subDecos)
 
             cache.activeQueryDecorationIds = editorInstance.deltaDecorations(
                 cache.activeQueryDecorationIds ?? [],

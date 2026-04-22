@@ -15,7 +15,13 @@ import { dayjs } from 'lib/dayjs'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { SlackChannelPicker, SlackNotConfiguredBanner } from 'lib/integrations/SlackIntegrationHelpers'
 
-import { buildDeliveryTargets, evaluationReportLogic, TRIGGER_THRESHOLD_DEFAULT } from '../evaluationReportLogic'
+import {
+    buildDeliveryTargets,
+    COOLDOWN_HOURS_MAX,
+    COOLDOWN_HOURS_MIN,
+    evaluationReportLogic,
+    TRIGGER_THRESHOLD_DEFAULT,
+} from '../evaluationReportLogic'
 
 const GUIDANCE_PLACEHOLDER =
     "Optional guidance for the report agent. e.g. 'Focus on cost regressions across models', 'Compare latency between gpt-4o-mini and claude-sonnet', 'Keep it to 2 sections max'"
@@ -95,8 +101,28 @@ function ThresholdConfig({ value, onChange }: { value: number; onChange: (value:
             />
             <p className="text-xs text-muted mt-1">
                 A report will be generated after this many new evaluation results arrive. Checked every 5 minutes. Min{' '}
-                {TRIGGER_THRESHOLD_MIN}, max {TRIGGER_THRESHOLD_MAX.toLocaleString()}. Cooldown: at most one report per
-                hour, up to 10 per day.
+                {TRIGGER_THRESHOLD_MIN}, max {TRIGGER_THRESHOLD_MAX.toLocaleString()}.
+            </p>
+        </div>
+    )
+}
+
+/** Cooldown config shown when frequency is 'every_n' */
+function CooldownConfig({ value, onChange }: { value: number; onChange: (value: number) => void }): JSX.Element {
+    return (
+        <div>
+            <label className="font-semibold text-sm">Minimum hours between reports</label>
+            <LemonInput
+                type="number"
+                min={COOLDOWN_HOURS_MIN}
+                max={COOLDOWN_HOURS_MAX}
+                value={value}
+                onChange={(val) => onChange(Number(val))}
+                fullWidth
+            />
+            <p className="text-xs text-muted mt-1">
+                After a report is generated, wait this many hours before generating another — even if the threshold is
+                crossed again. Min {COOLDOWN_HOURS_MIN}, max {COOLDOWN_HOURS_MAX}.
             </p>
         </div>
     )
@@ -178,6 +204,7 @@ function ReportFormFields({ evaluationId }: { evaluationId: string }): JSX.Eleme
         setDraftSlackChannelValue,
         setDraftReportPromptGuidance,
         setDraftTriggerThreshold,
+        setDraftCooldownHours,
     } = useActions(evaluationReportLogic({ evaluationId }))
 
     return (
@@ -192,7 +219,10 @@ function ReportFormFields({ evaluationId }: { evaluationId: string }): JSX.Eleme
                 />
             </div>
             {configDraft.frequency === 'every_n' && (
-                <ThresholdConfig value={configDraft.triggerThreshold} onChange={setDraftTriggerThreshold} />
+                <>
+                    <ThresholdConfig value={configDraft.triggerThreshold} onChange={setDraftTriggerThreshold} />
+                    <CooldownConfig value={configDraft.cooldownHours} onChange={setDraftCooldownHours} />
+                </>
             )}
             {configDraft.frequency === 'scheduled' && (
                 <ScheduleConfig
@@ -335,19 +365,23 @@ function ExistingReportConfig({ evaluationId }: { evaluationId: string }): JSX.E
                 <>
                     <ReportFormFields evaluationId={evaluationId} />
                     <SaveReportButton evaluationId={evaluationId} />
-                    {configDraft.frequency === 'every_n' ? (
-                        <div className="text-sm text-muted mt-4">
-                            A report will be generated when{' '}
-                            {activeReport.trigger_threshold ?? TRIGGER_THRESHOLD_DEFAULT} new evaluation results arrive.
-                            Checked every 5 minutes.
-                        </div>
-                    ) : (
-                        activeReport.next_delivery_date && (
-                            <div className="text-sm text-muted mt-4">
-                                Next delivery: {new Date(activeReport.next_delivery_date).toLocaleString()}
-                            </div>
-                        )
-                    )}
+                    {configDraft.frequency === 'every_n'
+                        ? (() => {
+                              const cooldownHours = Math.max(1, Math.round((activeReport.cooldown_minutes ?? 60) / 60))
+                              return (
+                                  <div className="text-sm text-muted mt-4">
+                                      A report will be generated when{' '}
+                                      {activeReport.trigger_threshold ?? TRIGGER_THRESHOLD_DEFAULT} new evaluation
+                                      results arrive, at most once every {cooldownHours}{' '}
+                                      {cooldownHours === 1 ? 'hour' : 'hours'}. Checked every 5 minutes.
+                                  </div>
+                              )
+                          })()
+                        : activeReport.next_delivery_date && (
+                              <div className="text-sm text-muted mt-4">
+                                  Next delivery: {new Date(activeReport.next_delivery_date).toLocaleString()}
+                              </div>
+                          )}
                     <p className="text-xs text-muted m-0 mt-2">Generated reports appear in the Reports tab.</p>
                 </>
             ) : (
