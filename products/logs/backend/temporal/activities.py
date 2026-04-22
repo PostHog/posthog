@@ -167,7 +167,7 @@ def _dispatch_notification(
             notified=notified,
         )
     else:
-        return False
+        raise ValueError(f"Unhandled NotificationAction: {action!r}")
 
     return not notified
 
