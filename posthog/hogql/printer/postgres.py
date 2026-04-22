@@ -190,7 +190,7 @@ class PostgresPrinter(BasePrinter):
         return f"{self.visit(node.array)}[{start}:{end}]"
 
     def visit_try_cast(self, node: ast.TryCast):
-        return f"TRY_CAST({self.visit(node.expr)} AS {node.type_name})"
+        return f"TRY_CAST({self.visit(node.expr)} AS {self._print_identifier(node.type_name)})"
 
     def visit_lambda(self, node: ast.Lambda):
         identifiers = [self._print_identifier(arg) for arg in node.args]

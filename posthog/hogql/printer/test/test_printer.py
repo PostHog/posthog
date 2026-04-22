@@ -5214,6 +5214,35 @@ class TestPostgresPrinter(BaseTest):
 
     @parameterized.expand(
         [
+            # SQL injection attempts — mirrors test_type_cast_typename_escape for TRY_CAST.
+            ("int); DROP TABLE users; --", '"int); DROP TABLE users; --"'),
+            ("text' OR '1'='1", "\"text' OR '1'='1\""),
+            ("int; DELETE FROM events;", '"int; DELETE FROM events;"'),
+            ("varchar(100)); --", '"varchar(100)); --"'),
+            # Quote escaping
+            ('int"test', '"int""test"'),
+            ("int'test", '"int\'test"'),
+            # Backslash handling
+            ("int\\test", '"int\\test"'),
+            # Unicode/special chars
+            ("int\x00test", '"int\x00test"'),
+            # Newlines and whitespace injection
+            ("int\nDROP TABLE", '"int\nDROP TABLE"'),
+            ("int\rtest", '"int\rtest"'),
+            # Simple identifiers should not be quoted
+            ("varchar", "varchar"),
+            ("integer", "integer"),
+        ]
+    )
+    def test_try_cast_typename_escape(self, type_name, expected_escaped):
+        node = ast.TryCast(
+            expr=ast.Constant(value=123),
+            type_name=type_name,
+        )
+        self.assertEqual(self._expr(node), f"TRY_CAST(123 AS {expected_escaped})")
+
+    @parameterized.expand(
+        [
             (
                 "basic",
                 "WITH stats(a, b) AS (SELECT event, timestamp FROM events) SELECT a, b FROM stats",
