@@ -4126,7 +4126,37 @@
                   "name": "id",
                   "schema_valid": true,
                   "table": null,
-                  "type": "integer"
+                  "type": "string"
+              },
+              "source_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "source_id",
+                  "id": null,
+                  "name": "source_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "connection_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "connection_id",
+                  "id": null,
+                  "name": "connection_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "destination_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "destination_id",
+                  "id": null,
+                  "name": "destination_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
               },
               "source_type": {
                   "chain": null,
@@ -4134,6 +4164,16 @@
                   "hogql_value": "source_type",
                   "id": null,
                   "name": "source_type",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "status": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "status",
+                  "id": null,
+                  "name": "status",
                   "schema_valid": true,
                   "table": null,
                   "type": "string"
@@ -4147,6 +4187,36 @@
                   "schema_valid": true,
                   "table": null,
                   "type": "string"
+              },
+              "description": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "description",
+                  "id": null,
+                  "name": "description",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "access_method": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "access_method",
+                  "id": null,
+                  "name": "access_method",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "are_tables_created": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "are_tables_created",
+                  "id": null,
+                  "name": "are_tables_created",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "expression"
               },
               "created_at": {
                   "chain": null,
@@ -9976,7 +10046,37 @@
                   "name": "id",
                   "schema_valid": true,
                   "table": null,
-                  "type": "integer"
+                  "type": "string"
+              },
+              "source_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "source_id",
+                  "id": null,
+                  "name": "source_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "connection_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "connection_id",
+                  "id": null,
+                  "name": "connection_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "destination_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "destination_id",
+                  "id": null,
+                  "name": "destination_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
               },
               "source_type": {
                   "chain": null,
@@ -9984,6 +10084,16 @@
                   "hogql_value": "source_type",
                   "id": null,
                   "name": "source_type",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "status": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "status",
+                  "id": null,
+                  "name": "status",
                   "schema_valid": true,
                   "table": null,
                   "type": "string"
@@ -9997,6 +10107,36 @@
                   "schema_valid": true,
                   "table": null,
                   "type": "string"
+              },
+              "description": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "description",
+                  "id": null,
+                  "name": "description",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "access_method": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "access_method",
+                  "id": null,
+                  "name": "access_method",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "are_tables_created": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "are_tables_created",
+                  "id": null,
+                  "name": "are_tables_created",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "expression"
               },
               "created_at": {
                   "chain": null,
