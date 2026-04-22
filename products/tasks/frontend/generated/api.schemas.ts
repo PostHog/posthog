@@ -142,6 +142,48 @@ export interface SandboxEnvironmentApi {
     readonly updated_at: string
 }
 
+export interface TaskAutomationApi {
+    readonly id: string
+    /** @maxLength 255 */
+    name: string
+    prompt: string
+    /** @maxLength 255 */
+    repository: string
+    /** @nullable */
+    github_integration?: number | null
+    /** @maxLength 100 */
+    cron_expression: string
+    /** @maxLength 128 */
+    timezone?: string
+    /**
+     * @maxLength 255
+     * @nullable
+     */
+    template_id?: string | null
+    enabled?: boolean
+    /** @nullable */
+    readonly last_run_at: string | null
+    /** @nullable */
+    readonly last_run_status: string | null
+    /** @nullable */
+    readonly last_task_id: string | null
+    /** @nullable */
+    readonly last_task_run_id: string | null
+    /** @nullable */
+    readonly last_error: string | null
+    readonly created_at: string
+    readonly updated_at: string
+}
+
+export interface PaginatedTaskAutomationListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: TaskAutomationApi[]
+}
+
 /**
  * Serializer for extracted tasks
  */
@@ -171,6 +213,7 @@ export type PatchedTaskApiLatestRun = { [key: string]: unknown } | null | null
  * * `error_tracking` - Error Tracking
  * `eval_clusters` - Eval Clusters
  * `user_created` - User Created
+ * `automation` - Automation
  * `slack` - Slack
  * `support_queue` - Support Queue
  * `session_summaries` - Session Summaries
@@ -182,10 +225,21 @@ export const OriginProductEnumApi = {
     ErrorTracking: 'error_tracking',
     EvalClusters: 'eval_clusters',
     UserCreated: 'user_created',
+    Automation: 'automation',
     Slack: 'slack',
     SupportQueue: 'support_queue',
     SessionSummaries: 'session_summaries',
     SignalReport: 'signal_report',
+} as const
+
+/**
+ * * `implementation` - Implementation
+ */
+export type SignalReportTaskRelationshipEnumApi =
+    (typeof SignalReportTaskRelationshipEnumApi)[keyof typeof SignalReportTaskRelationshipEnumApi]
+
+export const SignalReportTaskRelationshipEnumApi = {
+    Implementation: 'implementation',
 } as const
 
 export interface PatchedTaskApi {
@@ -210,6 +264,7 @@ export interface PatchedTaskApi {
     github_integration?: number | null
     /** @nullable */
     signal_report?: string | null
+    signal_report_task_relationship?: SignalReportTaskRelationshipEnumApi
     /** JSON schema for the task. This is used to validate the output of the task. */
     json_schema?: unknown | null
     /** If true, this task is for internal use and should not be exposed to end users. */
@@ -222,16 +277,20 @@ export interface PatchedTaskApi {
     readonly created_at?: string
     readonly updated_at?: string
     readonly created_by?: UserBasicApi
+    /**
+     * Custom prompt for CI fixes. If blank, a default prompt will be used.
+     * @nullable
+     */
+    ci_prompt?: string | null
 }
 
 /**
  * * `interactive` - interactive
  * `background` - background
  */
-export type TaskRunCreateRequestModeEnumApi =
-    (typeof TaskRunCreateRequestModeEnumApi)[keyof typeof TaskRunCreateRequestModeEnumApi]
+export type Mode051EnumApi = (typeof Mode051EnumApi)[keyof typeof Mode051EnumApi]
 
-export const TaskRunCreateRequestModeEnumApi = {
+export const Mode051EnumApi = {
     Interactive: 'interactive',
     Background: 'background',
 } as const
@@ -260,13 +319,12 @@ export const RunSourceEnumApi = {
 
 /**
  * * `claude` - claude
- * `codex` - codex
  */
-export type RuntimeAdapterEnumApi = (typeof RuntimeAdapterEnumApi)[keyof typeof RuntimeAdapterEnumApi]
+export type ClaudeTaskRunCreateSchemaRuntimeAdapterEnumApi =
+    (typeof ClaudeTaskRunCreateSchemaRuntimeAdapterEnumApi)[keyof typeof ClaudeTaskRunCreateSchemaRuntimeAdapterEnumApi]
 
-export const RuntimeAdapterEnumApi = {
+export const ClaudeTaskRunCreateSchemaRuntimeAdapterEnumApi = {
     Claude: 'claude',
-    Codex: 'codex',
 } as const
 
 /**
@@ -290,10 +348,10 @@ export const ReasoningEffortEnumApi = {
  * `plan` - plan
  * `bypassPermissions` - bypassPermissions
  */
-export type InitialPermissionModeEnumApi =
-    (typeof InitialPermissionModeEnumApi)[keyof typeof InitialPermissionModeEnumApi]
+export type ClaudeTaskRunCreateSchemaInitialPermissionModeEnumApi =
+    (typeof ClaudeTaskRunCreateSchemaInitialPermissionModeEnumApi)[keyof typeof ClaudeTaskRunCreateSchemaInitialPermissionModeEnumApi]
 
-export const InitialPermissionModeEnumApi = {
+export const ClaudeTaskRunCreateSchemaInitialPermissionModeEnumApi = {
     Default: 'default',
     AcceptEdits: 'acceptEdits',
     Plan: 'plan',
@@ -303,12 +361,150 @@ export const InitialPermissionModeEnumApi = {
 /**
  * Request body for creating a new task run
  */
-export interface TaskRunCreateRequestApi {
+export interface ClaudeTaskRunCreateSchemaApi {
     /** Execution mode: 'interactive' for user-connected runs, 'background' for autonomous runs
 
 * `interactive` - interactive
 * `background` - background */
-    mode?: TaskRunCreateRequestModeEnumApi
+    mode?: Mode051EnumApi
+    /**
+     * Git branch to checkout in the sandbox
+     * @maxLength 255
+     * @nullable
+     */
+    branch?: string | null
+    /** ID of a previous run to resume from. Must belong to the same task. */
+    resume_from_run_id?: string
+    /** Initial or follow-up user message to include in the run prompt. */
+    pending_user_message?: string
+    /** Identifiers for staged task artifacts that should be attached to the initial run prompt. */
+    pending_user_artifact_ids?: string[]
+    /** Optional sandbox environment to apply for this cloud run. */
+    sandbox_environment_id?: string
+    /** Whether pull requests for this run should be authored by the user or the bot.
+
+* `user` - user
+* `bot` - bot */
+    pr_authorship_mode?: PrAuthorshipModeEnumApi
+    /** High-level source that triggered this run, used to distinguish manual and signal-based cloud runs.
+
+* `manual` - manual
+* `signal_report` - signal_report */
+    run_source?: RunSourceEnumApi
+    /** Optional signal report identifier when this run was started from Inbox. */
+    signal_report_id?: string
+    /** Agent runtime adapter to launch for this run. Must be 'claude' for Claude runtimes.
+
+* `claude` - claude */
+    runtime_adapter: ClaudeTaskRunCreateSchemaRuntimeAdapterEnumApi
+    /** LLM model identifier to run in the Claude runtime. */
+    model: string
+    /** Reasoning effort to request for models that expose an effort control.
+
+* `low` - low
+* `medium` - medium
+* `high` - high
+* `max` - max */
+    reasoning_effort?: ReasoningEffortEnumApi
+    /** Ephemeral GitHub user token from PostHog Code for user-authored cloud pull requests. */
+    github_user_token?: string
+    /** Initial permission mode for Claude runtimes.
+
+* `default` - default
+* `acceptEdits` - acceptEdits
+* `plan` - plan
+* `bypassPermissions` - bypassPermissions */
+    initial_permission_mode?: ClaudeTaskRunCreateSchemaInitialPermissionModeEnumApi
+}
+
+/**
+ * * `codex` - codex
+ */
+export type CodexTaskRunCreateSchemaRuntimeAdapterEnumApi =
+    (typeof CodexTaskRunCreateSchemaRuntimeAdapterEnumApi)[keyof typeof CodexTaskRunCreateSchemaRuntimeAdapterEnumApi]
+
+export const CodexTaskRunCreateSchemaRuntimeAdapterEnumApi = {
+    Codex: 'codex',
+} as const
+
+/**
+ * * `auto` - auto
+ * `read-only` - read-only
+ * `full-access` - full-access
+ */
+export type CodexTaskRunCreateSchemaInitialPermissionModeEnumApi =
+    (typeof CodexTaskRunCreateSchemaInitialPermissionModeEnumApi)[keyof typeof CodexTaskRunCreateSchemaInitialPermissionModeEnumApi]
+
+export const CodexTaskRunCreateSchemaInitialPermissionModeEnumApi = {
+    Auto: 'auto',
+    ReadOnly: 'read-only',
+    FullAccess: 'full-access',
+} as const
+
+/**
+ * Request body for creating a new task run
+ */
+export interface CodexTaskRunCreateSchemaApi {
+    /** Execution mode: 'interactive' for user-connected runs, 'background' for autonomous runs
+
+* `interactive` - interactive
+* `background` - background */
+    mode?: Mode051EnumApi
+    /**
+     * Git branch to checkout in the sandbox
+     * @maxLength 255
+     * @nullable
+     */
+    branch?: string | null
+    /** ID of a previous run to resume from. Must belong to the same task. */
+    resume_from_run_id?: string
+    /** Initial or follow-up user message to include in the run prompt. */
+    pending_user_message?: string
+    /** Identifiers for staged task artifacts that should be attached to the initial run prompt. */
+    pending_user_artifact_ids?: string[]
+    /** Optional sandbox environment to apply for this cloud run. */
+    sandbox_environment_id?: string
+    /** Whether pull requests for this run should be authored by the user or the bot.
+
+* `user` - user
+* `bot` - bot */
+    pr_authorship_mode?: PrAuthorshipModeEnumApi
+    /** High-level source that triggered this run, used to distinguish manual and signal-based cloud runs.
+
+* `manual` - manual
+* `signal_report` - signal_report */
+    run_source?: RunSourceEnumApi
+    /** Optional signal report identifier when this run was started from Inbox. */
+    signal_report_id?: string
+    /** Agent runtime adapter to launch for this run. Must be 'codex' for Codex runtimes.
+
+* `codex` - codex */
+    runtime_adapter: CodexTaskRunCreateSchemaRuntimeAdapterEnumApi
+    /** LLM model identifier to run in the Codex runtime. */
+    model: string
+    /** Reasoning effort to request for models that expose an effort control.
+
+* `low` - low
+* `medium` - medium
+* `high` - high
+* `max` - max */
+    reasoning_effort?: ReasoningEffortEnumApi
+    /** Ephemeral GitHub user token from PostHog Code for user-authored cloud pull requests. */
+    github_user_token?: string
+    /** Initial permission mode for Codex runtimes.
+
+* `auto` - auto
+* `read-only` - read-only
+* `full-access` - full-access */
+    initial_permission_mode?: CodexTaskRunCreateSchemaInitialPermissionModeEnumApi
+}
+
+export interface TaskRunResumeRequestSchemaApi {
+    /** Execution mode: 'interactive' for user-connected runs, 'background' for autonomous runs
+
+* `interactive` - interactive
+* `background` - background */
+    mode?: Mode051EnumApi
     /**
      * Git branch to checkout in the sandbox
      * @maxLength 255
@@ -333,29 +529,175 @@ export interface TaskRunCreateRequestApi {
     run_source?: RunSourceEnumApi
     /** Optional signal report identifier when this run was started from Inbox. */
     signal_report_id?: string
-    /** Agent runtime adapter to launch for this run. Use 'claude' for the Claude runtime or 'codex' for the Codex runtime.
-
-* `claude` - claude
-* `codex` - codex */
-    runtime_adapter?: RuntimeAdapterEnumApi
-    /** LLM model identifier to run in the selected runtime. */
-    model?: string
-    /** Reasoning effort to request for models that expose an effort control.
-
-* `low` - low
-* `medium` - medium
-* `high` - high
-* `max` - max */
-    reasoning_effort?: ReasoningEffortEnumApi
     /** Ephemeral GitHub user token from PostHog Code for user-authored cloud pull requests. */
     github_user_token?: string
-    /** Initial permission mode for the agent session (e.g., 'plan' to start in plan mode).
+}
 
-* `default` - default
-* `acceptEdits` - acceptEdits
+export type TaskRunCreateRequestSchemaApi =
+    | ClaudeTaskRunCreateSchemaApi
+    | CodexTaskRunCreateSchemaApi
+    | TaskRunResumeRequestSchemaApi
+
+/**
+ * * `plan` - plan
+ * `context` - context
+ * `reference` - reference
+ * `output` - output
+ * `artifact` - artifact
+ * `tree_snapshot` - tree_snapshot
+ * `user_attachment` - user_attachment
+ */
+export type TypeE8eEnumApi = (typeof TypeE8eEnumApi)[keyof typeof TypeE8eEnumApi]
+
+export const TypeE8eEnumApi = {
+    Plan: 'plan',
+    Context: 'context',
+    Reference: 'reference',
+    Output: 'output',
+    Artifact: 'artifact',
+    TreeSnapshot: 'tree_snapshot',
+    UserAttachment: 'user_attachment',
+} as const
+
+export interface TaskStagedArtifactFinalizeUploadApi {
+    /** Stable identifier returned by the staged prepare upload endpoint */
+    id: string
+    /**
+     * File name associated with the staged artifact
+     * @maxLength 255
+     */
+    name: string
+    /** Classification for the artifact
+
 * `plan` - plan
-* `bypassPermissions` - bypassPermissions */
-    initial_permission_mode?: InitialPermissionModeEnumApi
+* `context` - context
+* `reference` - reference
+* `output` - output
+* `artifact` - artifact
+* `tree_snapshot` - tree_snapshot
+* `user_attachment` - user_attachment */
+    type: TypeE8eEnumApi
+    /**
+     * Optional source label for the artifact, such as agent_output or user_attachment
+     * @maxLength 64
+     */
+    source?: string
+    /**
+     * S3 object key returned by the prepare step
+     * @maxLength 500
+     */
+    storage_path: string
+    /**
+     * Optional MIME type recorded for the artifact
+     * @maxLength 255
+     */
+    content_type?: string
+}
+
+export interface TaskStagedArtifactsFinalizeUploadRequestApi {
+    /** Array of staged artifacts to finalize after upload */
+    artifacts: TaskStagedArtifactFinalizeUploadApi[]
+}
+
+export interface TaskRunArtifactResponseApi {
+    /** Stable identifier for the artifact within this run */
+    id?: string
+    /** Artifact file name */
+    name: string
+    /** Artifact classification (plan, context, etc.) */
+    type: string
+    /** Source of the artifact, such as agent_output or user_attachment */
+    source?: string
+    /** Artifact size in bytes */
+    size?: number
+    /** Optional MIME type */
+    content_type?: string
+    /** S3 object key for the artifact */
+    storage_path: string
+    /** Timestamp when the artifact was uploaded */
+    uploaded_at: string
+}
+
+export interface TaskStagedArtifactsFinalizeUploadResponseApi {
+    /** Finalized staged artifacts available for attachment to a new run */
+    artifacts: TaskRunArtifactResponseApi[]
+}
+
+export interface TaskStagedArtifactPrepareUploadApi {
+    /**
+     * File name to associate with the staged artifact
+     * @maxLength 255
+     */
+    name: string
+    /** Classification for the artifact
+
+* `plan` - plan
+* `context` - context
+* `reference` - reference
+* `output` - output
+* `artifact` - artifact
+* `tree_snapshot` - tree_snapshot
+* `user_attachment` - user_attachment */
+    type: TypeE8eEnumApi
+    /**
+     * Optional source label for the artifact, such as agent_output or user_attachment
+     * @maxLength 64
+     */
+    source?: string
+    /**
+     * Expected upload size in bytes (max 31457280 bytes)
+     * @minimum 1
+     * @maximum 31457280
+     */
+    size: number
+    /**
+     * Optional MIME type for the artifact upload
+     * @maxLength 255
+     */
+    content_type?: string
+}
+
+export interface TaskStagedArtifactsPrepareUploadRequestApi {
+    /** Array of staged artifacts to prepare before creating a run */
+    artifacts: TaskStagedArtifactPrepareUploadApi[]
+}
+
+/**
+ * Form fields that must be submitted verbatim with the file upload
+ */
+export type S3PresignedPostApiFields = { [key: string]: string }
+
+export interface S3PresignedPostApi {
+    /** Presigned S3 POST URL */
+    url: string
+    /** Form fields that must be submitted verbatim with the file upload */
+    fields: S3PresignedPostApiFields
+}
+
+export interface TaskStagedArtifactPrepareUploadResponseApi {
+    /** Stable identifier for the prepared staged artifact within this task */
+    id: string
+    /** Artifact file name */
+    name: string
+    /** Artifact classification (plan, context, etc.) */
+    type: string
+    /** Source of the artifact, such as agent_output or user_attachment */
+    source?: string
+    /** Expected upload size in bytes */
+    size: number
+    /** Optional MIME type */
+    content_type?: string
+    /** S3 object key reserved for the staged artifact */
+    storage_path: string
+    /** Presigned POST expiry in seconds */
+    expires_in: number
+    /** Presigned S3 POST configuration for uploading the file */
+    presigned_post: S3PresignedPostApi
+}
+
+export interface TaskStagedArtifactsPrepareUploadResponseApi {
+    /** Prepared staged uploads for the requested artifacts */
+    artifacts: TaskStagedArtifactPrepareUploadResponseApi[]
 }
 
 /**
@@ -388,6 +730,14 @@ export const EnvironmentEnumApi = {
     Cloud: 'cloud',
 } as const
 
+export type TaskRunDetailRuntimeAdapterEnumApi =
+    (typeof TaskRunDetailRuntimeAdapterEnumApi)[keyof typeof TaskRunDetailRuntimeAdapterEnumApi]
+
+export const TaskRunDetailRuntimeAdapterEnumApi = {
+    Claude: 'claude',
+    Codex: 'codex',
+} as const
+
 export type TaskRunDetailProviderEnumApi =
     (typeof TaskRunDetailProviderEnumApi)[keyof typeof TaskRunDetailProviderEnumApi]
 
@@ -395,21 +745,6 @@ export const TaskRunDetailProviderEnumApi = {
     Anthropic: 'anthropic',
     Openai: 'openai',
 } as const
-
-export interface TaskRunArtifactResponseApi {
-    /** Artifact file name */
-    name: string
-    /** Artifact classification (plan, context, etc.) */
-    type: string
-    /** Artifact size in bytes */
-    size?: number
-    /** Optional MIME type */
-    content_type?: string
-    /** S3 object key for the artifact */
-    storage_path: string
-    /** Timestamp when the artifact was uploaded */
-    uploaded_at: string
-}
 
 export interface TaskRunDetailApi {
     readonly id: string
@@ -433,7 +768,7 @@ export interface TaskRunDetailApi {
 * `cloud` - Cloud */
     environment?: EnvironmentEnumApi
     /** Configured runtime adapter for this run, such as 'claude' or 'codex'. */
-    readonly runtime_adapter: RuntimeAdapterEnumApi | NullEnumApi | null
+    readonly runtime_adapter: TaskRunDetailRuntimeAdapterEnumApi | NullEnumApi | null
     /** Configured LLM provider for this run, such as 'anthropic' or 'openai'. */
     readonly provider: TaskRunDetailProviderEnumApi | NullEnumApi | null
     /**
@@ -516,6 +851,8 @@ export interface PatchedTaskRunUpdateApi {
     output?: unknown | null
     /** State of the run */
     state?: unknown
+    /** State keys to remove atomically before applying any state updates. */
+    state_remove_keys?: string[]
     /**
      * Error message if execution failed
      * @nullable
@@ -531,23 +868,14 @@ export interface TaskRunAppendLogRequestApi {
 }
 
 /**
- * * `plan` - plan
- * `context` - context
- * `reference` - reference
- * `output` - output
- * `artifact` - artifact
- * `tree_snapshot` - tree_snapshot
+ * * `utf-8` - utf-8
+ * `base64` - base64
  */
-export type TaskRunArtifactUploadTypeEnumApi =
-    (typeof TaskRunArtifactUploadTypeEnumApi)[keyof typeof TaskRunArtifactUploadTypeEnumApi]
+export type ContentEncodingEnumApi = (typeof ContentEncodingEnumApi)[keyof typeof ContentEncodingEnumApi]
 
-export const TaskRunArtifactUploadTypeEnumApi = {
-    Plan: 'plan',
-    Context: 'context',
-    Reference: 'reference',
-    Output: 'output',
-    Artifact: 'artifact',
-    TreeSnapshot: 'tree_snapshot',
+export const ContentEncodingEnumApi = {
+    Utf8: 'utf-8',
+    Base64: 'base64',
 } as const
 
 export interface TaskRunArtifactUploadApi {
@@ -563,10 +891,21 @@ export interface TaskRunArtifactUploadApi {
 * `reference` - reference
 * `output` - output
 * `artifact` - artifact
-* `tree_snapshot` - tree_snapshot */
-    type: TaskRunArtifactUploadTypeEnumApi
-    /** Raw file contents (UTF-8 string or base64 data) */
+* `tree_snapshot` - tree_snapshot
+* `user_attachment` - user_attachment */
+    type: TypeE8eEnumApi
+    /**
+     * Optional source label for the artifact, such as agent_output or user_attachment
+     * @maxLength 64
+     */
+    source?: string
+    /** Artifact contents encoded according to content_encoding */
     content: string
+    /** Encoding used for content. Use base64 for binary files and utf-8 for text payloads.
+
+* `utf-8` - utf-8
+* `base64` - base64 */
+    content_encoding?: ContentEncodingEnumApi
     /**
      * Optional MIME type for the artifact
      * @maxLength 255
@@ -590,6 +929,116 @@ export interface TaskRunArtifactPresignRequestApi {
      * @maxLength 500
      */
     storage_path: string
+}
+
+export interface TaskRunArtifactFinalizeUploadApi {
+    /** Stable identifier returned by the prepare upload endpoint */
+    id: string
+    /**
+     * File name associated with the artifact
+     * @maxLength 255
+     */
+    name: string
+    /** Classification for the artifact
+
+* `plan` - plan
+* `context` - context
+* `reference` - reference
+* `output` - output
+* `artifact` - artifact
+* `tree_snapshot` - tree_snapshot
+* `user_attachment` - user_attachment */
+    type: TypeE8eEnumApi
+    /**
+     * Optional source label for the artifact, such as agent_output or user_attachment
+     * @maxLength 64
+     */
+    source?: string
+    /**
+     * S3 object key returned by the prepare step
+     * @maxLength 500
+     */
+    storage_path: string
+    /**
+     * Optional MIME type recorded for the artifact
+     * @maxLength 255
+     */
+    content_type?: string
+}
+
+export interface TaskRunArtifactsFinalizeUploadRequestApi {
+    /** Array of uploaded artifacts to finalize */
+    artifacts: TaskRunArtifactFinalizeUploadApi[]
+}
+
+export interface TaskRunArtifactsFinalizeUploadResponseApi {
+    /** Updated list of artifacts on the run */
+    artifacts: TaskRunArtifactResponseApi[]
+}
+
+export interface TaskRunArtifactPrepareUploadApi {
+    /**
+     * File name to associate with the artifact
+     * @maxLength 255
+     */
+    name: string
+    /** Classification for the artifact
+
+* `plan` - plan
+* `context` - context
+* `reference` - reference
+* `output` - output
+* `artifact` - artifact
+* `tree_snapshot` - tree_snapshot
+* `user_attachment` - user_attachment */
+    type: TypeE8eEnumApi
+    /**
+     * Optional source label for the artifact, such as agent_output or user_attachment
+     * @maxLength 64
+     */
+    source?: string
+    /**
+     * Expected upload size in bytes (max 31457280 bytes)
+     * @minimum 1
+     * @maximum 31457280
+     */
+    size: number
+    /**
+     * Optional MIME type for the artifact upload
+     * @maxLength 255
+     */
+    content_type?: string
+}
+
+export interface TaskRunArtifactsPrepareUploadRequestApi {
+    /** Array of artifacts to prepare */
+    artifacts: TaskRunArtifactPrepareUploadApi[]
+}
+
+export interface TaskRunArtifactPrepareUploadResponseApi {
+    /** Stable identifier for the prepared artifact within this run */
+    id: string
+    /** Artifact file name */
+    name: string
+    /** Artifact classification (plan, context, etc.) */
+    type: string
+    /** Source of the artifact, such as agent_output or user_attachment */
+    source?: string
+    /** Expected upload size in bytes */
+    size: number
+    /** Optional MIME type */
+    content_type?: string
+    /** S3 object key reserved for the artifact */
+    storage_path: string
+    /** Presigned POST expiry in seconds */
+    expires_in: number
+    /** Presigned S3 POST configuration for uploading the file */
+    presigned_post: S3PresignedPostApi
+}
+
+export interface TaskRunArtifactsPrepareUploadResponseApi {
+    /** Prepared uploads for the requested artifacts */
+    artifacts: TaskRunArtifactPrepareUploadResponseApi[]
 }
 
 export interface TaskRunArtifactPresignResponseApi {
@@ -786,6 +1235,17 @@ export interface RepositoryReadinessResponseApi {
 }
 
 export type SandboxListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type TaskAutomationsListParams = {
     /**
      * Number of results to return per page.
      */

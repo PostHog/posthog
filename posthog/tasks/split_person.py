@@ -48,7 +48,7 @@ def split_person(
             from posthog.models import PersonDistinctId
 
             old_main_distinct_id: Optional[str] = team_id if isinstance(team_id, str) else None
-            old_max_splits: Optional[int] = main_distinct_id  # type: ignore[assignment]
+            old_max_splits: Optional[int] = int(main_distinct_id) if main_distinct_id is not None else None
 
             logger.info(
                 "split_person legacy path: querying PersonDistinctId for team_id",

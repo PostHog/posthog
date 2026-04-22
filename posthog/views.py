@@ -28,7 +28,7 @@ from posthog.auth import AUTH_BRAND_COOKIE, apply_auth_brand_cookie, normalize_a
 from posthog.cloud_utils import is_cloud
 from posthog.email import is_email_available
 from posthog.exceptions_capture import capture_exception
-from posthog.health import is_clickhouse_connected, is_kafka_connected
+from posthog.health import is_clickhouse_connected
 from posthog.models import Organization, User
 from posthog.models.activity_logging.activity_log import Detail, log_activity
 from posthog.models.integration import SlackIntegration
@@ -57,6 +57,7 @@ from products.messaging.backend.models.message_preferences import (
     MessageRecipientPreference,
     PreferenceStatus,
 )
+from products.messaging.backend.services.customerio_sync_service import sync_preferences_to_customerio
 
 logger = structlog.get_logger(__name__)
 
@@ -68,7 +69,7 @@ def noop(*args, **kwargs) -> None:
 try:
     from ee.models.license import get_licensed_users_available
 except ImportError:
-    get_licensed_users_available = noop
+    get_licensed_users_available = noop  # ty: ignore[invalid-assignment]
 
 
 def login_required(view):
@@ -182,7 +183,7 @@ def preflight_check(request: HttpRequest) -> JsonResponse:
         "plugins": is_cloud() or is_plugin_server_alive() or settings.TEST,
         "celery": is_cloud() or is_celery_alive() or settings.TEST,
         "clickhouse": is_cloud() or is_clickhouse_connected() or settings.TEST,
-        "kafka": is_cloud() or is_kafka_connected() or settings.TEST,
+        "kafka": is_cloud() or settings.TEST,
         "db": is_cloud() or is_postgres_alive(),
         "initiated": is_cloud() or Organization.objects.exists(),
         "cloud": is_cloud(),
@@ -509,6 +510,8 @@ def preferences_page(request: HttpRequest, token: str) -> HttpResponse:
         recipient.preferences = preferences_dict
         recipient.save(update_fields=["preferences"])
 
+        sync_preferences_to_customerio(team_id, identifier, preferences_dict)
+
         if request.method == "POST":
             return HttpResponse(status=200)
 
@@ -601,6 +604,8 @@ def update_preferences(request: HttpRequest) -> JsonResponse:
         # Update all preferences with a single DB write
         recipient.preferences = preferences_dict
         recipient.save()
+
+        sync_preferences_to_customerio(team_id, identifier, preferences_dict)
 
         return JsonResponse({"success": True})
 

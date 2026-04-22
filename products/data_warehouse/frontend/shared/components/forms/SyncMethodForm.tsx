@@ -113,6 +113,9 @@ const getInitialRadioState = (
     if (schema.supports_webhooks) {
         return 'webhook'
     }
+    if (schema.cdc_available) {
+        return 'cdc'
+    }
     if (incrementalSyncSupported) {
         return 'incremental'
     }
@@ -188,6 +191,75 @@ export const SyncMethodForm = ({
         })
     }
 
+    if (schema.cdc_available) {
+        radioOptions.push({
+            value: 'cdc',
+            disabledReason: (cdcSyncSupported.disabled && cdcSyncSupported.disabledReason) || undefined,
+            label: (
+                <div className="mb-4 font-normal rounded border border-success/40 bg-success-highlight/40 p-3">
+                    <div className="items-center flex leading-[normal] overflow-hidden mb-1">
+                        <h4 className="mb-0 mr-2 text-base font-semibold">CDC (change data capture)</h4>
+                        {!schema.supports_webhooks && <LemonTag type="success">Recommended</LemonTag>}
+                    </div>
+                    <p className="mb-2">
+                        Capture inserts, updates, and deletes in real-time via logical replication. Keeps PostHog in
+                        sync with the source continuously and handles row deletes — unlike incremental or append.
+                        Requires a primary key on the source table.
+                    </p>
+                    {radioValue === 'cdc' && (
+                        <div className="mt-3 pt-3 border-t border-success/30">
+                            <p className="text-sm font-semibold mb-2">Output tables</p>
+                            <LemonRadio
+                                radioPosition="top"
+                                value={cdcTableMode}
+                                onChange={(newValue) =>
+                                    setCdcTableMode(newValue as 'consolidated' | 'cdc_only' | 'both')
+                                }
+                                options={[
+                                    {
+                                        value: 'consolidated',
+                                        label: (
+                                            <div className="font-normal mb-2">
+                                                <div className="font-semibold">Consolidated table only</div>
+                                                <p className="m-0 text-secondary text-sm">
+                                                    Deduplicates changes — only the latest state per row is stored.
+                                                </p>
+                                            </div>
+                                        ),
+                                    },
+                                    {
+                                        value: 'cdc_only',
+                                        label: (
+                                            <div className="font-normal mb-2">
+                                                <div className="font-semibold">CDC history table only</div>
+                                                <p className="m-0 text-secondary text-sm">
+                                                    Full audit trail in a <code>_cdc</code>-suffixed table with{' '}
+                                                    <code>valid_from</code> / <code>valid_to</code> columns.
+                                                </p>
+                                            </div>
+                                        ),
+                                    },
+                                    {
+                                        value: 'both',
+                                        label: (
+                                            <div className="font-normal mb-2">
+                                                <div className="font-semibold">Both</div>
+                                                <p className="m-0 text-secondary text-sm">
+                                                    CDC history table plus an auto-generated view for the current state
+                                                    (<code>valid_to IS NULL</code>).
+                                                </p>
+                                            </div>
+                                        ),
+                                    },
+                                ]}
+                            />
+                        </div>
+                    )}
+                </div>
+            ),
+        })
+    }
+
     radioOptions.push(
         {
             value: 'incremental',
@@ -196,7 +268,7 @@ export const SyncMethodForm = ({
                 <div className="mb-4 font-normal">
                     <div className="items-center flex leading-[normal] overflow-hidden mb-1">
                         <h4 className="mb-0 mr-2 text-base font-semibold">Incremental replication</h4>
-                        {!incrementalSyncSupported.disabled && !schema.supports_webhooks && (
+                        {!incrementalSyncSupported.disabled && !schema.supports_webhooks && !schema.cdc_available && (
                             <LemonTag type="success">Recommended</LemonTag>
                         )}
                     </div>
@@ -352,25 +424,6 @@ export const SyncMethodForm = ({
         }
     )
 
-    if (schema.cdc_available) {
-        radioOptions.push({
-            value: 'cdc',
-            disabledReason: (cdcSyncSupported.disabled && cdcSyncSupported.disabledReason) || undefined,
-            label: (
-                <div className="mb-4 font-normal">
-                    <div className="items-center flex leading-[normal] overflow-hidden mb-1">
-                        <h4 className="mb-0 mr-2 text-base font-semibold">CDC (change data capture)</h4>
-                        <LemonTag type="completion">Beta</LemonTag>
-                    </div>
-                    <p className="m-0">
-                        Capture inserts, updates, and deletes in real-time via logical replication. Requires a primary
-                        key on the source table.
-                    </p>
-                </div>
-            ),
-        })
-    }
-
     return (
         <>
             <LemonRadio
@@ -379,53 +432,6 @@ export const SyncMethodForm = ({
                 options={radioOptions}
                 onChange={(newValue) => setRadioValue(newValue)}
             />
-            {radioValue === 'cdc' && (
-                <div className="mt-4 ml-6 border-l-2 border-border pl-4">
-                    <p className="text-sm font-semibold mb-2">Output tables</p>
-                    <LemonRadio
-                        radioPosition="top"
-                        value={cdcTableMode}
-                        onChange={(newValue) => setCdcTableMode(newValue as 'consolidated' | 'cdc_only' | 'both')}
-                        options={[
-                            {
-                                value: 'consolidated',
-                                label: (
-                                    <div className="font-normal mb-2">
-                                        <div className="font-semibold">Consolidated table only</div>
-                                        <p className="m-0 text-secondary text-sm">
-                                            Deduplicates changes — only the latest state per row is stored.
-                                        </p>
-                                    </div>
-                                ),
-                            },
-                            {
-                                value: 'cdc_only',
-                                label: (
-                                    <div className="font-normal mb-2">
-                                        <div className="font-semibold">CDC history table only</div>
-                                        <p className="m-0 text-secondary text-sm">
-                                            Full audit trail in a <code>_cdc</code>-suffixed table with{' '}
-                                            <code>valid_from</code> / <code>valid_to</code> columns.
-                                        </p>
-                                    </div>
-                                ),
-                            },
-                            {
-                                value: 'both',
-                                label: (
-                                    <div className="font-normal mb-2">
-                                        <div className="font-semibold">Both</div>
-                                        <p className="m-0 text-secondary text-sm">
-                                            CDC history table plus an auto-generated view for the current state (
-                                            <code>valid_to IS NULL</code>).
-                                        </p>
-                                    </div>
-                                ),
-                            },
-                        ]}
-                    />
-                </div>
-            )}
             <div className="flex flex-row justify-end w-full">
                 <LemonButton className="mr-3" type="secondary" onClick={onClose}>
                     Close
