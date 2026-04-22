@@ -123,6 +123,8 @@ def install_pi_toolchain() -> None:
         log("installing @mariozechner/pi-coding-agent globally via npm")
         run(["npm", "install", "-g", "@mariozechner/pi-coding-agent"])
 
+    _patch_pi_ai_anthropic_baseurl()
+
     pi_autoresearch_dir = Path.home() / ".pi/agent/git/github.com/davebcn87/pi-autoresearch"
     if not pi_autoresearch_dir.is_dir():
         log("installing pi-autoresearch framework from git")
@@ -157,6 +159,54 @@ def install_pi_toolchain() -> None:
         run(["pi", "install", str(AUTORESEARCH_DIR)])
     else:
         log("pi-clickhouse-autoresearch already installed")
+
+
+def _patch_pi_ai_anthropic_baseurl() -> None:
+    """Rewrite pi-ai's hardcoded Anthropic baseUrl to point at our gateway.
+
+    pi-coding-agent pulls in @mariozechner/pi-ai, which ships a static
+    ``models.generated.js`` where every Anthropic model entry has
+    ``baseUrl: "https://api.anthropic.com"``. ``ANTHROPIC_BASE_URL`` is
+    ignored — the SDK reads ``model.baseUrl`` directly. So the only way
+    to route pi through the PostHog LLM gateway is to rewrite that file
+    after install.
+
+    No-op if the file is missing (different pi version) or the env var is
+    unset — we leave pi to use its default in those cases.
+    """
+    gateway_base = os.environ.get("ANTHROPIC_BASE_URL", "").rstrip("/")
+    if not gateway_base:
+        return
+
+    # Locate the bundled pi-ai models file. npm's global install path is
+    # platform-dependent; try the common locations.
+    candidates = [
+        Path("/usr/lib/node_modules/@mariozechner/pi-coding-agent/node_modules/@mariozechner/pi-ai/dist/models.generated.js"),
+        Path("/usr/local/lib/node_modules/@mariozechner/pi-coding-agent/node_modules/@mariozechner/pi-ai/dist/models.generated.js"),
+    ]
+    models_file = next((p for p in candidates if p.is_file()), None)
+    if models_file is None:
+        log("pi-ai models.generated.js not found; skipping baseUrl patch")
+        return
+
+    contents = models_file.read_text()
+    marker = '"https://api.anthropic.com"'
+    if marker not in contents:
+        # Already patched, or version shape changed. Check for our gateway URL
+        # to disambiguate; if neither is present, log a warning.
+        if gateway_base in contents:
+            log(f"pi-ai models.generated.js already points at {gateway_base}")
+        else:
+            log("pi-ai models.generated.js has unexpected shape; skipping patch")
+        return
+
+    patched = contents.replace(marker, f'"{gateway_base}"')
+    occurrences = contents.count(marker)
+    models_file.write_text(patched)
+    log(
+        f"patched pi-ai models.generated.js: {occurrences} Anthropic baseUrl occurrence(s) "
+        f'rewritten to "{gateway_base}"'
+    )
 
 
 def init_campaign(workspace: Path, query_file: Path, *, query_id: str) -> None:
