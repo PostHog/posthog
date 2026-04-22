@@ -9,7 +9,7 @@
                     {
                         "name": "react",
                         "importNames": ["useState"],
-                        "message": "Save state in state management instead."
+                        "message": "Use kea for state management instead of React's useState. Otherwise, state will be lost when switching PostHog tabs."
                     },
                     {
                         "name": "dayjs",
