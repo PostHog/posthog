@@ -806,6 +806,82 @@
             },
             "required": ["experimentId", "data"]
         },
+        "ExternalDataJobsAfterSchema": {
+            "type": "string",
+            "description": "ISO timestamp — only return jobs created after this date (e.g. \"2025-01-01T00:00:00Z\")."
+        },
+        "ExternalDataJobsBeforeSchema": {
+            "type": "string",
+            "description": "ISO timestamp — only return jobs created before this date (e.g. \"2025-12-31T23:59:59Z\")."
+        },
+        "ExternalDataJobsSchemasSchema": {
+            "type": "array",
+            "items": {
+                "type": "string"
+            },
+            "description": "Filter jobs by table schema names (e.g. [\"users\", \"orders\"]). Only returns jobs for these tables."
+        },
+        "ExternalDataSchemaCdcTableModeSchema": {
+            "type": "string",
+            "enum": ["consolidated", "cdc_only", "both"],
+            "description": "For CDC syncs: consolidated (merge changes into one table), cdc_only (only change log), or both."
+        },
+        "ExternalDataSchemaIncrementalFieldSchema": {
+            "type": "string",
+            "description": "Column name used to track sync progress for incremental syncs (e.g. \"updated_at\", \"id\")."
+        },
+        "ExternalDataSchemaIncrementalFieldTypeSchema": {
+            "type": "string",
+            "enum": ["integer", "datetime", "timestamp", "date"],
+            "description": "Data type of the incremental field."
+        },
+        "ExternalDataSchemaPrimaryKeyColumnsSchema": {
+            "anyOf": [
+                {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Column names that form the primary key for deduplication. Set to null to use auto-detected PKs."
+        },
+        "ExternalDataSchemaSyncFrequencySchema": {
+            "type": "string",
+            "enum": ["30min", "1hour", "6hour", "12hour", "24hour"],
+            "description": "How often to sync this table."
+        },
+        "ExternalDataSchemaSyncTimeOfDaySchema": {
+            "anyOf": [
+                {
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Time of day to sync in HH:MM:SS format (e.g. \"02:00:00\"). Set to null to clear."
+        },
+        "ExternalDataSchemaSyncTypeSchema": {
+            "type": "string",
+            "enum": ["incremental", "full_refresh", "append", "cdc"],
+            "description": "Sync strategy: incremental (only new/changed rows), full_refresh (re-import all), append (add-only), or cdc (change data capture)."
+        },
+        "ExternalDataSourcePayloadSchema": {
+            "type": "object",
+            "propertyNames": {
+                "type": "string"
+            },
+            "additionalProperties": {},
+            "description": "Connection credentials for the source. Keys depend on source_type. For database sources: host, port, database, user, password, schema. For SaaS sources: api_key or OAuth fields. Use external-data-sources-wizard to see required fields per source type."
+        },
+        "ExternalDataSourceTypeSchema": {
+            "type": "string",
+            "description": "The source type name (e.g. \"Postgres\", \"MySQL\", \"Stripe\"). Use external-data-sources-wizard to see available types and their required fields."
+        },
         "InsightGenerateHogQLFromQuestionSchema": {
             "type": "object",
             "properties": {

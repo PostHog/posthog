@@ -36,6 +36,7 @@ class NotificationAction(Enum):
     NONE = "none"
     FIRE = "fire"
     RESOLVE = "resolve"
+    ERROR = "error"
 
 
 class InvalidTransition(Exception):
@@ -122,9 +123,14 @@ def evaluate_alert_check(
     if check.error_message is not None:
         consecutive_failures = snapshot.consecutive_failures + 1
         new_state = AlertState.BROKEN if consecutive_failures >= MAX_CONSECUTIVE_FAILURES else AlertState.ERRORED
+        first_error = (
+            effective_state != AlertState.ERRORED
+            and snapshot.state != AlertState.ERRORED  # prevents re-notification after snooze auto-expiry
+            and new_state == AlertState.ERRORED
+        )
         return AlertCheckOutcome(
             new_state=new_state,
-            notification=NotificationAction.NONE,
+            notification=NotificationAction.ERROR if first_error else NotificationAction.NONE,
             consecutive_failures=consecutive_failures,
             update_last_notified_at=False,
             error_message=check.error_message,
