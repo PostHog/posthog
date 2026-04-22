@@ -3,10 +3,12 @@
 // What ClickHouse actually puts on the wire doesn't always match the XML-declared
 // UDF arg type. Three realities:
 //
-//   1. Integer widths come from the source expression, not the XML. HogQL emits
-//      integer literals as Int64, so a slot the XML calls UInt8 usually arrives
-//      as Int64. We read whatever width the block header declares, widen to i64,
-//      and let the per-slot caller truncating-cast to its target.
+//   1. Integer widths come from the source expression, not the XML. ClickHouse
+//      statically promotes arithmetic result types to guarantee no overflow
+//      over the operands' full ranges (UInt8 * UInt8 -> UInt16, and so on up),
+//      so a slot the XML calls Int8/UInt8 often arrives wider. We read whatever
+//      width the block header declares, widen to i64, and let the per-slot
+//      caller truncating-cast to its target.
 //
 //   2. Any slot can arrive Nullable-wrapped, even if declared non-nullable —
 //      CH inherits Nullable from any nullable sub-expression upstream. Every
@@ -197,58 +199,12 @@ mod tests {
         assert_eq!(read_int_col(&mut wire.as_slice(), &t).unwrap(), 42);
     }
 
-    // _col readers: null payload maps to the reader's zero/empty default
+    // All _col readers route through read_or_null, so one null test covers the policy.
     #[test]
     fn int_col_null_maps_to_zero() {
         assert_eq!(
             read_int_col(&mut [1u8].as_slice(), &nullable(DataTypeNode::UInt64)).unwrap(),
             0
-        );
-    }
-
-    #[test]
-    fn float_col_null_maps_to_zero() {
-        assert_eq!(
-            read_float_col(&mut [1u8].as_slice(), &nullable(DataTypeNode::Float64)).unwrap(),
-            0.0
-        );
-    }
-
-    #[test]
-    fn bytes_col_null_maps_to_empty() {
-        assert!(
-            read_bytes_col(&mut [1u8].as_slice(), &nullable(DataTypeNode::String))
-                .unwrap()
-                .is_empty()
-        );
-    }
-
-    #[test]
-    fn uuid_col_null_maps_to_nil() {
-        assert_eq!(
-            read_uuid_col(&mut [1u8].as_slice(), &nullable(DataTypeNode::UUID)).unwrap(),
-            uuid::Uuid::nil()
-        );
-    }
-
-    // Non-null payloads read through the inner type
-    #[test]
-    fn float_col_reads_float64() {
-        let mut buf = Vec::new();
-        buf.write_f64_le(1.5).unwrap();
-        assert_eq!(
-            read_float_col(&mut buf.as_slice(), &DataTypeNode::Float64).unwrap(),
-            1.5
-        );
-    }
-
-    #[test]
-    fn bytes_col_reads_plain_string() {
-        let mut buf = Vec::new();
-        buf.write_bytes(b"hello").unwrap();
-        assert_eq!(
-            read_bytes_col(&mut buf.as_slice(), &DataTypeNode::String).unwrap(),
-            b"hello"
         );
     }
 

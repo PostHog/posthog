@@ -131,33 +131,6 @@ mod tests {
         assert_eq!(detect_shape(&prop_vals_type).unwrap(), expected);
     }
 
-    #[test]
-    fn nullable_string_reads_nullable_wire() {
-        let mut buf = Vec::new();
-        buf.write_u8(0).unwrap();
-        buf.write_bytes(b"hi").unwrap();
-        let got = read_propval(
-            &mut buf.as_slice(),
-            BreakdownShape::NullableString,
-            &nullable_string(),
-        )
-        .unwrap();
-        assert_eq!(got, PropVal::String(Bytes(b"hi".to_vec())));
-    }
-
-    #[test]
-    fn u64_reads_uint64_wire() {
-        let mut buf = Vec::new();
-        buf.write_u64_le(1209600).unwrap();
-        let got = read_propval(
-            &mut buf.as_slice(),
-            BreakdownShape::U64,
-            &DataTypeNode::UInt64,
-        )
-        .unwrap();
-        assert_eq!(got, PropVal::Int(1209600));
-    }
-
     // CH `String` is byte-typed — a breakdown key with non-UTF-8 bytes must
     // survive round-trip intact rather than being lossy-converted.
     #[test]

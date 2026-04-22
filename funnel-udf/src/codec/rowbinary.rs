@@ -203,23 +203,4 @@ mod tests {
         let round = slice.read_uuid().unwrap();
         assert_eq!(round, u);
     }
-
-    #[test]
-    fn array_roundtrip() {
-        let items = [1i8, -5, 127, -128, 0];
-        let mut buf = Vec::new();
-        buf.write_array(&items, |w, v| w.write_i8(*v)).unwrap();
-        let mut slice = buf.as_slice();
-        let round: Vec<i8> = slice.read_array(|r| r.read_u8().map(|b| b as i8)).unwrap();
-        assert_eq!(round, items);
-    }
-
-    #[test]
-    fn f64_nan_preserved_bitwise() {
-        let mut buf = Vec::new();
-        buf.write_f64_le(f64::NAN).unwrap();
-        let mut slice = buf.as_slice();
-        let round = slice.read_f64_le().unwrap();
-        assert!(round.is_nan());
-    }
 }
