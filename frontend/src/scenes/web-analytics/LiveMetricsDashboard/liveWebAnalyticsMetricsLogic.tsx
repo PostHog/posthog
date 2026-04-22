@@ -9,7 +9,7 @@ import { dayjs } from 'lib/dayjs'
 import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { hashCodeForString } from 'lib/utils'
 import { liveEventsHostOrigin } from 'lib/utils/apiHost'
-import { CATEGORY_LABELS, detectBot } from 'lib/utils/botDetection'
+import { CATEGORY_LABELS } from 'lib/utils/botDetection'
 import { deduplicateEvents } from 'scenes/activity/live/deduplicateEvents'
 import { teamLogic } from 'scenes/teamLogic'
 import { webAnalyticsFilterLogic } from 'scenes/web-analytics/webAnalyticsFilterLogic'
@@ -127,8 +127,7 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
                                       ? DIRECT_REFERRER
                                       : undefined
 
-                            // Prefer server-side classification from livestream ($virt_* properties),
-                            // fall back to client-side detection for older deployments
+                            // Server-side classification from livestream ($virt_* properties)
                             const virtBotName = event.properties?.$virt_bot_name as string | undefined
                             const virtCategory = event.properties?.$virt_traffic_category as string | undefined
                             const virtIsBot = event.properties?.$virt_is_bot as boolean | undefined
@@ -141,17 +140,6 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
                                         (CATEGORY_LABELS as Record<string, string>)[virtCategory ?? ''] ??
                                         virtCategory ??
                                         '',
-                                }
-                            } else if (virtIsBot === undefined) {
-                                // No server-side classification — fall back to client-side
-                                const rawUserAgent = event.properties?.$raw_user_agent
-                                const fallbackUserAgent = event.properties?.$user_agent
-                                const botDefinition = detectBot(rawUserAgent || fallbackUserAgent)
-                                if (botDefinition) {
-                                    botData = {
-                                        name: botDefinition.name,
-                                        category: CATEGORY_LABELS[botDefinition.category] ?? botDefinition.category,
-                                    }
                                 }
                             }
 

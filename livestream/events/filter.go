@@ -85,12 +85,11 @@ func convertToResponsePostHogEvent(event PostHogEvent, teamId int, columns []str
 		}
 	}
 
-	if event.TrafficType != "" {
-		properties["$virt_is_bot"] = event.IsBot
-		properties["$virt_traffic_type"] = event.TrafficType
-		properties["$virt_traffic_category"] = event.TrafficCategory
-		if event.BotName != "" {
-			properties["$virt_bot_name"] = event.BotName
+	// Always pass through $virt_* bot classification properties
+	// regardless of requested columns
+	for _, key := range []string{"$virt_is_bot", "$virt_traffic_type", "$virt_traffic_category", "$virt_bot_name"} {
+		if val, ok := event.Properties[key]; ok {
+			properties[key] = val
 		}
 	}
 

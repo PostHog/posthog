@@ -297,6 +297,16 @@ func parse(geolocator geo.GeoLocator, classifier *bot.Classifier, kafkaMessage [
 			phEvent.TrafficType = result.TrafficType
 			phEvent.TrafficCategory = result.TrafficCategory
 			phEvent.BotName = result.BotName
+			// Inject $virt_* properties so they flow through both the
+			// in-memory filter and the Redis pub/sub path.
+			if result.TrafficType != "" {
+				phEvent.Properties["$virt_is_bot"] = result.IsBot
+				phEvent.Properties["$virt_traffic_type"] = result.TrafficType
+				phEvent.Properties["$virt_traffic_category"] = result.TrafficCategory
+				if result.BotName != "" {
+					phEvent.Properties["$virt_bot_name"] = result.BotName
+				}
+			}
 		}
 	}
 
