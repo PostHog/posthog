@@ -399,63 +399,71 @@ class TestLLMSkillAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["body"] == "APLHA\nBETA\ngamma\n"
 
-    def test_publish_with_edits_zero_matches_fails(self, mock_feature_enabled):
-        self.create_skill(name="no-match", body="some content\n")
+    @parameterized.expand(
+        [
+            ("zero_matches", "some content\n", [{"old": "missing", "new": "x"}], None),
+            ("multi_matches", "pick pick pick\n", [{"old": "pick", "new": "chose"}], "3 times"),
+        ]
+    )
+    def test_publish_with_edits_apply_errors(self, mock_feature_enabled, label, initial_body, edits, detail_fragment):
+        skill_name = f"edit-apply-err-{label.replace('_', '-')}"
+        self.create_skill(name=skill_name, body=initial_body)
 
         response = self.client.patch(
-            self._url("name/no-match"),
+            self._url(f"name/{skill_name}"),
+            data={"edits": edits, "base_version": 1},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        body_resp = response.json()
+        assert body_resp["edit_index"] == 0
+        if detail_fragment is not None:
+            assert detail_fragment in body_resp["detail"]
+
+    @parameterized.expand(
+        [
+            (
+                "body_and_edits_conflict",
+                {
+                    "body": "new content\n",
+                    "edits": [{"old": "content", "new": "other"}],
+                    "base_version": 1,
+                },
+            ),
+            ("empty_edits_list", {"edits": [], "base_version": 1}),
+        ]
+    )
+    def test_publish_rejects_invalid_edit_requests(self, mock_feature_enabled, label, payload):
+        skill_name = f"invalid-{label.replace('_', '-')}"
+        self.create_skill(name=skill_name, body="content\n")
+
+        response = self.client.patch(
+            self._url(f"name/{skill_name}"),
+            data=payload,
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_publish_with_edits_exceeding_body_size_limit_fails(self, mock_feature_enabled):
+        # Seed a body just under the 1 MB limit, then edit to push the result over.
+        seeded_body = "x" * (1_000_000 - len("MARKER")) + "MARKER"
+        self.create_skill(name="size-edit", body=seeded_body)
+
+        response = self.client.patch(
+            self._url("name/size-edit"),
             data={
-                "edits": [{"old": "missing", "new": "replacement"}],
+                "edits": [{"old": "MARKER", "new": "MARKER" + "y" * 100}],
                 "base_version": 1,
             },
             format="json",
         )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.json()["edit_index"] == 0
-
-    def test_publish_with_edits_multiple_matches_fails(self, mock_feature_enabled):
-        self.create_skill(name="ambiguous", body="pick pick pick\n")
-
-        response = self.client.patch(
-            self._url("name/ambiguous"),
-            data={
-                "edits": [{"old": "pick", "new": "chose"}],
-                "base_version": 1,
-            },
-            format="json",
-        )
-
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        body = response.json()
-        assert body["edit_index"] == 0
-        assert "3 times" in body["detail"]
-
-    def test_publish_rejects_body_and_edits_together(self, mock_feature_enabled):
-        self.create_skill(name="conflict-fields", body="content\n")
-
-        response = self.client.patch(
-            self._url("name/conflict-fields"),
-            data={
-                "body": "new content\n",
-                "edits": [{"old": "content", "new": "other"}],
-                "base_version": 1,
-            },
-            format="json",
-        )
-
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-
-    def test_publish_rejects_empty_edits_list(self, mock_feature_enabled):
-        self.create_skill(name="empty-edits", body="content\n")
-
-        response = self.client.patch(
-            self._url("name/empty-edits"),
-            data={"edits": [], "base_version": 1},
-            format="json",
-        )
-
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        body_resp = response.json()
+        assert body_resp["edit_index"] == 0
+        assert "size limit" in body_resp["detail"]
 
     def test_publish_with_edits_carries_files_forward(self, mock_feature_enabled):
         skill = self.create_skill(name="edits-files", body="original\n")
