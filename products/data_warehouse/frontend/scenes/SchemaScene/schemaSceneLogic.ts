@@ -12,8 +12,14 @@ import { cleanSourceId } from 'products/data_warehouse/frontend/utils'
 import { sourceSettingsLogic } from '../SourceScene/tabs/sourceSettingsLogic'
 import type { schemaSceneLogicType } from './schemaSceneLogicType'
 
-const SCHEMA_SCENE_TABS = ['configuration', 'metrics'] as const
+export const SCHEMA_SCENE_TABS = ['configuration', 'metrics'] as const
 export type SchemaSceneTab = (typeof SCHEMA_SCENE_TABS)[number]
+
+export const SCHEMA_CONFIGURATION_SECTIONS = ['status', 'sync-method', 'schedule', 'danger-zone'] as const
+export type SchemaConfigurationSection = (typeof SCHEMA_CONFIGURATION_SECTIONS)[number]
+
+export const DEFAULT_SCHEMA_SCENE_TAB: SchemaSceneTab = 'configuration'
+export const DEFAULT_SCHEMA_CONFIGURATION_SECTION: SchemaConfigurationSection = 'status'
 
 export interface SchemaSceneProps {
     sourceId: string
@@ -29,14 +35,23 @@ export const schemaSceneLogic = kea<schemaSceneLogicType>([
     })),
     actions({
         setCurrentTab: (tab: SchemaSceneTab) => ({ tab }),
+        setCurrentSection: (section: SchemaConfigurationSection) => ({ section }),
         _setCurrentTab: (tab: SchemaSceneTab) => ({ tab }),
+        _setCurrentSection: (section: SchemaConfigurationSection) => ({ section }),
     }),
     reducers(() => ({
         currentTab: [
-            'configuration' as SchemaSceneTab,
+            DEFAULT_SCHEMA_SCENE_TAB as SchemaSceneTab,
             {
                 setCurrentTab: (_, { tab }) => tab,
                 _setCurrentTab: (_, { tab }) => tab,
+            },
+        ],
+        currentSection: [
+            DEFAULT_SCHEMA_CONFIGURATION_SECTION as SchemaConfigurationSection,
+            {
+                setCurrentSection: (_, { section }) => section,
+                _setCurrentSection: (_, { section }) => section,
             },
         ],
     })),
@@ -89,21 +104,50 @@ export const schemaSceneLogic = kea<schemaSceneLogicType>([
     }),
     actionToUrl(({ props, values }) => ({
         setCurrentTab: () => {
-            return urls.dataWarehouseSourceSchema(props.sourceId, props.schemaId, values.currentTab)
+            return urls.dataWarehouseSourceSchema(
+                props.sourceId,
+                props.schemaId,
+                values.currentTab,
+                values.currentTab === 'configuration' ? values.currentSection : undefined
+            )
+        },
+        setCurrentSection: () => {
+            return urls.dataWarehouseSourceSchema(
+                props.sourceId,
+                props.schemaId,
+                'configuration',
+                values.currentSection
+            )
         },
     })),
-    urlToAction(({ actions, values }) => ({
-        [urls.dataWarehouseSourceSchema(':sourceId', ':schemaId', ':tab' as any)]: (params): void => {
-            const possibleTab = (params.tab ?? 'configuration') as SchemaSceneTab
-            const tab = SCHEMA_SCENE_TABS.includes(possibleTab) ? possibleTab : 'configuration'
+    urlToAction(({ actions, values }) => {
+        const applyTabAndSection = (tab: SchemaSceneTab, section?: SchemaConfigurationSection): void => {
             if (tab !== values.currentTab) {
                 actions._setCurrentTab(tab)
             }
-        },
-        [urls.dataWarehouseSourceSchema(':sourceId', ':schemaId')]: (): void => {
-            if (values.currentTab !== 'configuration') {
-                actions._setCurrentTab('configuration')
+            if (tab === 'configuration' && section && section !== values.currentSection) {
+                actions._setCurrentSection(section)
             }
-        },
-    })),
+        }
+
+        return {
+            [urls.dataWarehouseSourceSchema(':sourceId', ':schemaId', 'configuration', ':section' as any)]: (
+                params
+            ): void => {
+                const possibleSection = params.section as SchemaConfigurationSection
+                const section = SCHEMA_CONFIGURATION_SECTIONS.includes(possibleSection)
+                    ? possibleSection
+                    : DEFAULT_SCHEMA_CONFIGURATION_SECTION
+                applyTabAndSection('configuration', section)
+            },
+            [urls.dataWarehouseSourceSchema(':sourceId', ':schemaId', ':tab' as any)]: (params): void => {
+                const possibleTab = (params.tab ?? DEFAULT_SCHEMA_SCENE_TAB) as SchemaSceneTab
+                const tab = SCHEMA_SCENE_TABS.includes(possibleTab) ? possibleTab : DEFAULT_SCHEMA_SCENE_TAB
+                applyTabAndSection(tab)
+            },
+            [urls.dataWarehouseSourceSchema(':sourceId', ':schemaId')]: (): void => {
+                applyTabAndSection(DEFAULT_SCHEMA_SCENE_TAB, DEFAULT_SCHEMA_CONFIGURATION_SECTION)
+            },
+        }
+    }),
 ])

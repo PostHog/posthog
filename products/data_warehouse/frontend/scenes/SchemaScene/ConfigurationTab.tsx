@@ -5,7 +5,6 @@ import { IconInfo } from '@posthog/icons'
 import {
     LemonButton,
     LemonDialog,
-    LemonDivider,
     LemonInput,
     LemonModal,
     LemonSelect,
@@ -23,7 +22,6 @@ import { newInternalTab } from 'lib/utils/newInternalTab'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { DataWarehouseSyncInterval, ExternalDataSource, ExternalDataSourceSchema } from '~/types'
 
 import { SyncMethodForm } from 'products/data_warehouse/frontend/shared/components/forms/SyncMethodForm'
@@ -37,25 +35,34 @@ import {
 
 import { syncMethodModalLogic } from '../SourceScene/syncMethodModalLogic'
 import { sourceSettingsLogic } from '../SourceScene/tabs/sourceSettingsLogic'
+import { SchemaConfigurationSection } from './schemaSceneLogic'
 
-export function ConfigurationTab({
-    sourceId,
-    schema,
-    source,
-}: {
+export interface ConfigurationTabProps {
     sourceId: string
     schema: ExternalDataSourceSchema
     source: ExternalDataSource | null
-}): JSX.Element {
+    section: SchemaConfigurationSection
+}
+
+export function ConfigurationTab({ sourceId, schema, source, section }: ConfigurationTabProps): JSX.Element {
     const logic = sourceSettingsLogic({ id: sourceId })
     const { isProjectTime } = useValues(logic)
     const { setIsProjectTime, updateSchema, reloadSchema, resyncSchema, cancelSchema, deleteTable } = useActions(logic)
 
-    return (
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-            <div className="flex flex-col gap-4 lg:col-span-1">
-                <StatusSection schema={schema} />
-                <EnabledSection source={source} schema={schema} updateSchema={updateSchema} />
+    switch (section) {
+        case 'status':
+            return (
+                <StatusSection
+                    source={source}
+                    schema={schema}
+                    reloadSchema={reloadSchema}
+                    cancelSchema={cancelSchema}
+                />
+            )
+        case 'sync-method':
+            return <SyncMethodSection source={source} schema={schema} updateSchema={updateSchema} />
+        case 'schedule':
+            return (
                 <ScheduleSection
                     source={source}
                     schema={schema}
@@ -63,26 +70,46 @@ export function ConfigurationTab({
                     setIsProjectTime={setIsProjectTime}
                     updateSchema={updateSchema}
                 />
-            </div>
-            <div className="flex flex-col gap-4 lg:col-span-2">
-                <SyncMethodSection source={source} schema={schema} updateSchema={updateSchema} />
-                <ActionsSection
+            )
+        case 'danger-zone':
+            return (
+                <DangerZoneSection
                     source={source}
                     schema={schema}
-                    reloadSchema={reloadSchema}
                     resyncSchema={resyncSchema}
-                    cancelSchema={cancelSchema}
                     deleteTable={deleteTable}
                 />
-            </div>
+            )
+    }
+}
+
+function SectionHeader({ title, description }: { title: string; description?: string }): JSX.Element {
+    return (
+        <div className="mb-4">
+            <h2 className="text-base font-semibold mb-1">{title}</h2>
+            {description && <p className="text-sm text-secondary">{description}</p>}
         </div>
     )
 }
 
-function StatusSection({ schema }: { schema: ExternalDataSourceSchema }): JSX.Element {
+function StatusSection({
+    source,
+    schema,
+    reloadSchema,
+    cancelSchema,
+}: {
+    source: ExternalDataSource | null
+    schema: ExternalDataSourceSchema
+    reloadSchema: (schema: ExternalDataSourceSchema) => void
+    cancelSchema: (schema: ExternalDataSourceSchema) => void
+}): JSX.Element {
     return (
-        <SceneSection title="Status" titleSize="sm">
-            <div className="border rounded p-3 bg-surface-primary flex flex-col gap-2">
+        <div>
+            <SectionHeader
+                title="Status"
+                description="Current sync state for this schema. Kick off a sync on demand or cancel one in progress."
+            />
+            <div className="border rounded p-4 bg-surface-primary flex flex-col gap-3">
                 <div className="flex items-center justify-between">
                     <span className="text-muted">Current status</span>
                     {schema.status ? (
@@ -127,11 +154,50 @@ function StatusSection({ schema }: { schema: ExternalDataSourceSchema }): JSX.El
                     )}
                 </div>
             </div>
-        </SceneSection>
+            <div className="mt-4 flex gap-2 flex-wrap">
+                <SourceEditorAction source={source}>
+                    {({ disabledReason }) => (
+                        <Tooltip
+                            title={
+                                schema.sync_type === 'cdc'
+                                    ? 'Trigger a CDC extraction run now.'
+                                    : schema.incremental
+                                      ? 'Sync incremental data since the last run.'
+                                      : 'Sync all data.'
+                            }
+                        >
+                            <LemonButton
+                                type="primary"
+                                onClick={() => reloadSchema(schema)}
+                                disabledReason={
+                                    disabledReason ?? (!schema.sync_type ? 'Set up the sync method first' : undefined)
+                                }
+                            >
+                                {schema.sync_type === 'cdc' ? 'Sync CDC now' : 'Sync now'}
+                            </LemonButton>
+                        </Tooltip>
+                    )}
+                </SourceEditorAction>
+                {schema.status === 'Running' && (
+                    <SourceEditorAction source={source}>
+                        {({ disabledReason }) => (
+                            <LemonButton
+                                type="secondary"
+                                status="danger"
+                                onClick={() => cancelSchema(schema)}
+                                disabledReason={disabledReason}
+                            >
+                                Cancel current sync
+                            </LemonButton>
+                        )}
+                    </SourceEditorAction>
+                )}
+            </div>
+        </div>
     )
 }
 
-function EnabledSection({
+function SyncMethodSection({
     source,
     schema,
     updateSchema,
@@ -140,63 +206,38 @@ function EnabledSection({
     schema: ExternalDataSourceSchema
     updateSchema: (schema: ExternalDataSourceSchema) => void
 }): JSX.Element {
+    const { openSyncMethodModal } = useActions(syncMethodModalLogic({ schema }))
+
     return (
-        <SceneSection
-            title="Enabled"
-            description="When disabled, this schema will not be synced on the configured schedule."
-            titleSize="sm"
-        >
-            <div className="border rounded p-3 bg-surface-primary">
+        <div>
+            <SectionHeader
+                title="Sync method"
+                description="How this schema is synced from the source — incremental, full refresh, CDC, append, or webhook."
+            />
+            <div className="border rounded p-4 bg-surface-primary flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2">
+                    {schema.sync_type ? (
+                        <LemonTag type="primary">{SyncTypeLabelMap[schema.sync_type]}</LemonTag>
+                    ) : (
+                        <span className="text-muted">Not configured</span>
+                    )}
+                    {schema.incremental_field && (
+                        <span className="text-xs text-muted">
+                            Field: <code>{schema.incremental_field}</code>
+                        </span>
+                    )}
+                </div>
                 <SourceEditorAction source={source}>
-                    <LemonSwitch
-                        bordered={false}
-                        disabledReason={schema.sync_type === null ? 'You must set up the sync method first' : undefined}
-                        checked={schema.should_sync}
-                        label={schema.should_sync ? 'Syncing' : 'Disabled'}
-                        onChange={(active) => {
-                            if (!active && schema.sync_type === 'cdc') {
-                                LemonDialog.open({
-                                    title: 'Disable CDC table?',
-                                    content: (
-                                        <div className="text-sm text-secondary space-y-2">
-                                            <p>
-                                                Disabling <strong>{schema.table?.name ?? schema.name}</strong> will
-                                                remove it from the replication publication. Changes made while disabled
-                                                will be permanently lost.
-                                            </p>
-                                            <p>
-                                                Re-enabling this table will require a <strong>full resync</strong> to
-                                                ensure data consistency.
-                                            </p>
-                                        </div>
-                                    ),
-                                    primaryButton: {
-                                        children: 'Disable',
-                                        status: 'danger',
-                                        onClick: () => updateSchema({ ...schema, should_sync: false }),
-                                    },
-                                    secondaryButton: { children: 'Cancel', type: 'tertiary' },
-                                })
-                            } else if (!active && schema.sync_type === 'webhook') {
-                                LemonDialog.open({
-                                    title: 'Disable webhook sync?',
-                                    description:
-                                        'Turning off this table will stop the webhook from consuming any more data. When you re-enable it, a full refresh sync will need to be completed to ensure no data is missing.',
-                                    primaryButton: {
-                                        children: 'Disable',
-                                        status: 'danger',
-                                        onClick: () => updateSchema({ ...schema, should_sync: false }),
-                                    },
-                                    secondaryButton: { children: 'Cancel' },
-                                })
-                            } else {
-                                updateSchema({ ...schema, should_sync: active })
-                            }
-                        }}
-                    />
+                    <LemonButton
+                        type={schema.sync_type ? 'secondary' : 'primary'}
+                        onClick={() => openSyncMethodModal(schema)}
+                    >
+                        {schema.sync_type ? 'Edit' : 'Set up'}
+                    </LemonButton>
                 </SourceEditorAction>
             </div>
-        </SceneSection>
+            <SyncMethodModal schema={schema} updateSchema={updateSchema} />
+        </div>
     )
 }
 
@@ -228,8 +269,65 @@ function ScheduleSection({
     ]
 
     return (
-        <SceneSection title="Schedule" titleSize="sm">
-            <div className="border rounded p-3 bg-surface-primary flex flex-col gap-3">
+        <div>
+            <SectionHeader
+                title="Schedule"
+                description="Control whether this schema is synced and how often it runs."
+            />
+            <div className="border rounded p-4 bg-surface-primary flex flex-col gap-4">
+                <div className="flex flex-col gap-1">
+                    <span className="text-xs text-muted">Enabled</span>
+                    <SourceEditorAction source={source}>
+                        <LemonSwitch
+                            bordered={false}
+                            disabledReason={
+                                schema.sync_type === null ? 'You must set up the sync method first' : undefined
+                            }
+                            checked={schema.should_sync}
+                            label={schema.should_sync ? 'Syncing' : 'Disabled'}
+                            onChange={(active) => {
+                                if (!active && schema.sync_type === 'cdc') {
+                                    LemonDialog.open({
+                                        title: 'Disable CDC table?',
+                                        content: (
+                                            <div className="text-sm text-secondary space-y-2">
+                                                <p>
+                                                    Disabling <strong>{schema.table?.name ?? schema.name}</strong> will
+                                                    remove it from the replication publication. Changes made while
+                                                    disabled will be permanently lost.
+                                                </p>
+                                                <p>
+                                                    Re-enabling this table will require a <strong>full resync</strong>{' '}
+                                                    to ensure data consistency.
+                                                </p>
+                                            </div>
+                                        ),
+                                        primaryButton: {
+                                            children: 'Disable',
+                                            status: 'danger',
+                                            onClick: () => updateSchema({ ...schema, should_sync: false }),
+                                        },
+                                        secondaryButton: { children: 'Cancel', type: 'tertiary' },
+                                    })
+                                } else if (!active && schema.sync_type === 'webhook') {
+                                    LemonDialog.open({
+                                        title: 'Disable webhook sync?',
+                                        description:
+                                            'Turning off this table will stop the webhook from consuming any more data. When you re-enable it, a full refresh sync will need to be completed to ensure no data is missing.',
+                                        primaryButton: {
+                                            children: 'Disable',
+                                            status: 'danger',
+                                            onClick: () => updateSchema({ ...schema, should_sync: false }),
+                                        },
+                                        secondaryButton: { children: 'Cancel' },
+                                    })
+                                } else {
+                                    updateSchema({ ...schema, should_sync: active })
+                                }
+                            }}
+                        />
+                    </SourceEditorAction>
+                </div>
                 <div className="flex flex-col gap-1">
                     <span className="text-xs text-muted">Sync frequency</span>
                     <SourceEditorAction source={source}>
@@ -257,7 +355,7 @@ function ScheduleSection({
                     updateSchema={updateSchema}
                 />
             </div>
-        </SceneSection>
+        </div>
     )
 }
 
@@ -365,104 +463,43 @@ function AnchorTimeField({
     )
 }
 
-function SyncMethodSection({
+function DangerZoneSection({
     source,
     schema,
-    updateSchema,
-}: {
-    source: ExternalDataSource | null
-    schema: ExternalDataSourceSchema
-    updateSchema: (schema: ExternalDataSourceSchema) => void
-}): JSX.Element {
-    const { openSyncMethodModal } = useActions(syncMethodModalLogic({ schema }))
-
-    return (
-        <SceneSection
-            title="Sync method"
-            description="How this schema is synced from the source — incremental, full refresh, CDC, append, or webhook."
-            titleSize="sm"
-        >
-            <div className="border rounded p-3 bg-surface-primary flex items-center justify-between gap-3">
-                <div className="flex items-center gap-2">
-                    {schema.sync_type ? (
-                        <LemonTag type="primary">{SyncTypeLabelMap[schema.sync_type]}</LemonTag>
-                    ) : (
-                        <span className="text-muted">Not configured</span>
-                    )}
-                    {schema.incremental_field && (
-                        <span className="text-xs text-muted">
-                            Field: <code>{schema.incremental_field}</code>
-                        </span>
-                    )}
-                </div>
-                <SourceEditorAction source={source}>
-                    <LemonButton
-                        type={schema.sync_type ? 'secondary' : 'primary'}
-                        onClick={() => openSyncMethodModal(schema)}
-                    >
-                        {schema.sync_type ? 'Edit' : 'Set up'}
-                    </LemonButton>
-                </SourceEditorAction>
-            </div>
-            <SyncMethodModal schema={schema} updateSchema={updateSchema} />
-        </SceneSection>
-    )
-}
-
-function ActionsSection({
-    source,
-    schema,
-    reloadSchema,
     resyncSchema,
-    cancelSchema,
     deleteTable,
 }: {
     source: ExternalDataSource | null
     schema: ExternalDataSourceSchema
-    reloadSchema: (schema: ExternalDataSourceSchema) => void
     resyncSchema: (schema: ExternalDataSourceSchema) => void
-    cancelSchema: (schema: ExternalDataSourceSchema) => void
     deleteTable: (schema: ExternalDataSourceSchema) => void
 }): JSX.Element {
+    const hasFullCdcResync = schema.sync_type === 'cdc'
+    const hasDeleteAndResync = schema.incremental || schema.sync_type === 'webhook'
+    const canDeleteTable = !!schema.table
+
+    if (!hasFullCdcResync && !hasDeleteAndResync && !canDeleteTable) {
+        return (
+            <div>
+                <SectionHeader title="Danger zone" />
+                <div className="border border-dashed rounded p-4 bg-surface-primary text-muted">
+                    No destructive actions are available for this schema yet.
+                </div>
+            </div>
+        )
+    }
+
     return (
-        <SceneSection
-            title="Actions"
-            description="Run a sync now, recover from issues with a full resync, or remove the synced table."
-            titleSize="sm"
-        >
-            <div className="border rounded p-3 bg-surface-primary flex flex-col gap-2">
+        <div>
+            <SectionHeader
+                title="Danger zone"
+                description="Destructive actions that rebuild or remove data. Use only if you understand the impact."
+            />
+            <div className="border border-danger/40 rounded p-4 bg-surface-primary flex flex-col gap-2">
                 <SourceEditorAction source={source}>
                     {({ disabledReason }) => (
-                        <div className="flex flex-col gap-2">
-                            <Tooltip
-                                title={
-                                    schema.sync_type === 'cdc'
-                                        ? 'Trigger a CDC extraction run now.'
-                                        : schema.incremental
-                                          ? 'Sync incremental data since the last run.'
-                                          : 'Sync all data.'
-                                }
-                            >
-                                <LemonButton
-                                    type="primary"
-                                    onClick={() => reloadSchema(schema)}
-                                    disabledReason={disabledReason}
-                                >
-                                    {schema.sync_type === 'cdc' ? 'Sync CDC now' : 'Sync now'}
-                                </LemonButton>
-                            </Tooltip>
-                            {schema.status === 'Running' && (
-                                <LemonButton
-                                    type="secondary"
-                                    status="danger"
-                                    onClick={() => cancelSchema(schema)}
-                                    disabledReason={disabledReason}
-                                >
-                                    Cancel current sync
-                                </LemonButton>
-                            )}
-                            <LemonDivider />
-                            {schema.sync_type === 'cdc' && (
+                        <>
+                            {hasFullCdcResync && (
                                 <Tooltip title="Re-snapshot the full table and replay all CDC changes on top. Use this to recover from a corrupted or out-of-sync table.">
                                     <LemonButton
                                         type="secondary"
@@ -507,7 +544,7 @@ function ActionsSection({
                                     </LemonButton>
                                 </Tooltip>
                             )}
-                            {(schema.incremental || schema.sync_type === 'webhook') && (
+                            {hasDeleteAndResync && (
                                 <Tooltip title="Completely resync data by deleting the existing table and re-importing. Only recommended if there is an issue with data quality in previously imported data.">
                                     <LemonButton
                                         type="secondary"
@@ -519,7 +556,7 @@ function ActionsSection({
                                     </LemonButton>
                                 </Tooltip>
                             )}
-                            {schema.table && (
+                            {canDeleteTable && (
                                 <Tooltip
                                     title={`Delete this table from PostHog. ${
                                         source?.source_type
@@ -550,11 +587,11 @@ function ActionsSection({
                                     </LemonButton>
                                 </Tooltip>
                             )}
-                        </div>
+                        </>
                     )}
                 </SourceEditorAction>
             </div>
-        </SceneSection>
+        </div>
     )
 }
 

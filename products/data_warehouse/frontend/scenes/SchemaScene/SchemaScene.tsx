@@ -1,7 +1,7 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
-import { LemonSkeleton } from '@posthog/lemon-ui'
+import { LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
 
 import { NotFound } from 'lib/components/NotFound'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -18,15 +18,28 @@ import { cleanSourceId } from 'products/data_warehouse/frontend/utils'
 import { sourceSettingsLogic } from '../SourceScene/tabs/sourceSettingsLogic'
 import { ConfigurationTab } from './ConfigurationTab'
 import { MetricsTab } from './MetricsTab'
-import { SchemaSceneProps, SchemaSceneTab, schemaSceneLogic } from './schemaSceneLogic'
+import {
+    SCHEMA_CONFIGURATION_SECTIONS,
+    SchemaConfigurationSection,
+    SchemaSceneProps,
+    SchemaSceneTab,
+    schemaSceneLogic,
+} from './schemaSceneLogic'
 
-export type { SchemaSceneTab } from './schemaSceneLogic'
+export type { SchemaConfigurationSection, SchemaSceneTab } from './schemaSceneLogic'
 
 export const scene: SceneExport<SchemaSceneProps> = {
     component: SchemaScene,
     logic: schemaSceneLogic,
     productKey: ProductKey.DATA_WAREHOUSE,
     paramsToProps: ({ params: { sourceId, schemaId } }) => ({ sourceId, schemaId }),
+}
+
+const SECTION_LABELS: Record<SchemaConfigurationSection, string> = {
+    status: 'Status',
+    'sync-method': 'Sync method',
+    schedule: 'Schedule',
+    'danger-zone': 'Danger zone',
 }
 
 export function SchemaScene({ sourceId, schemaId }: SchemaSceneProps): JSX.Element {
@@ -45,8 +58,10 @@ export function SchemaScene({ sourceId, schemaId }: SchemaSceneProps): JSX.Eleme
 }
 
 function SchemaSceneContent({ sourceId, schemaId }: SchemaSceneProps): JSX.Element {
-    const { currentTab, schema, source, sourceLoading } = useValues(schemaSceneLogic({ sourceId, schemaId }))
-    const { setCurrentTab } = useActions(schemaSceneLogic({ sourceId, schemaId }))
+    const { currentTab, currentSection, schema, source, sourceLoading } = useValues(
+        schemaSceneLogic({ sourceId, schemaId })
+    )
+    const { setCurrentTab, setCurrentSection } = useActions(schemaSceneLogic({ sourceId, schemaId }))
     const { featureFlags } = useValues(featureFlagLogic)
 
     const cleanedSourceId = cleanSourceId(sourceId)
@@ -75,7 +90,20 @@ function SchemaSceneContent({ sourceId, schemaId }: SchemaSceneProps): JSX.Eleme
         {
             label: 'Configuration',
             key: 'configuration',
-            content: <ConfigurationTab sourceId={cleanedSourceId} schema={schema} source={source} />,
+            content: (
+                <ConfigurationSectionLayout
+                    section={currentSection}
+                    onSectionChange={setCurrentSection}
+                    body={
+                        <ConfigurationTab
+                            sourceId={cleanedSourceId}
+                            schema={schema}
+                            source={source}
+                            section={currentSection}
+                        />
+                    }
+                />
+            ),
         },
     ]
 
@@ -87,6 +115,8 @@ function SchemaSceneContent({ sourceId, schemaId }: SchemaSceneProps): JSX.Eleme
         })
     }
 
+    const activeTab = !showMetrics && currentTab === 'metrics' ? 'configuration' : currentTab
+
     return (
         <SceneContent>
             <SceneTitleSection
@@ -94,12 +124,42 @@ function SchemaSceneContent({ sourceId, schemaId }: SchemaSceneProps): JSX.Eleme
                 description={schema.description || undefined}
                 resourceType={{ type: 'data_pipeline' }}
             />
-            <LemonTabs
-                activeKey={!showMetrics && currentTab === 'metrics' ? 'configuration' : currentTab}
-                tabs={tabs}
-                onChange={setCurrentTab}
-                sceneInset
-            />
+            <LemonTabs activeKey={activeTab} tabs={tabs} onChange={setCurrentTab} sceneInset />
         </SceneContent>
+    )
+}
+
+function ConfigurationSectionLayout({
+    section,
+    onSectionChange,
+    body,
+}: {
+    section: SchemaConfigurationSection
+    onSectionChange: (section: SchemaConfigurationSection) => void
+    body: JSX.Element
+}): JSX.Element {
+    return (
+        <div className="flex items-start gap-6">
+            <nav className="sticky top-[var(--scene-title-section-height,50px)] flex flex-col w-56 flex-shrink-0">
+                <ul className="flex flex-col gap-y-px">
+                    {SCHEMA_CONFIGURATION_SECTIONS.map((key) => (
+                        <li key={key}>
+                            <LemonButton
+                                fullWidth
+                                size="small"
+                                active={section === key}
+                                status={key === 'danger-zone' ? 'danger' : undefined}
+                                onClick={() => onSectionChange(key)}
+                                data-attr={`schema-section-${key}`}
+                                className={key === 'danger-zone' && section !== key ? 'mt-2' : undefined}
+                            >
+                                {SECTION_LABELS[key]}
+                            </LemonButton>
+                        </li>
+                    ))}
+                </ul>
+            </nav>
+            <div className="flex-1 min-w-0">{body}</div>
+        </div>
     )
 }
