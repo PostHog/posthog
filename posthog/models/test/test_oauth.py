@@ -22,7 +22,6 @@ from posthog.models.oauth import (
 )
 
 
-
 @override_settings(
     OAUTH2_PROVIDER={
         **settings.OAUTH2_PROVIDER,
