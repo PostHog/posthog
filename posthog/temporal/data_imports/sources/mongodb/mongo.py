@@ -204,6 +204,10 @@ def mongo_client(connection_string: str, team_id: int) -> Iterator[MongoClient]:
         "server_selector": _make_safe_server_selector(team_id),
         # Decode BSON Binary subtype 4 as native uuid.UUID instead of bson.Binary,
         # so UUID primary keys don't leak as Python bytes repr downstream.
+        # Subtype 3 stays as Binary under STANDARD and is handled in _convert_binary.
+        # MongoClient's uuidRepresentation kwarg rejects the UuidRepresentation enum
+        # and only accepts the lowercase string form, unlike datetime_conversion which
+        # accepts the DatetimeConversion enum directly.
         "uuidRepresentation": "standard",
         # Out-of-range dates (e.g. year 0, year > 9999) become DatetimeMS instead
         # of raising InvalidBSON during cursor iteration. We then convert DatetimeMS
