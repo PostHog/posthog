@@ -167,7 +167,8 @@ wrappers:
         mcp_version: 2
         title: List persons behind a trends data point
         description_file: ./prompts/query-trends-actors.md
-        ui_resource_uri: ui://posthog/query-results.html
+        ui_resource_uri: ui://posthog/actors.html
+        use_optimized_output: true
         exclude_properties:
             - response
             - modifiers

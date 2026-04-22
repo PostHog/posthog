@@ -2,6 +2,7 @@
 
 export const ACTION_RESOURCE_URI = 'ui://posthog/action.html'
 export const ACTION_LIST_RESOURCE_URI = 'ui://posthog/action-list.html'
+export const ACTORS_RESOURCE_URI = 'ui://posthog/actors.html'
 export const COHORT_RESOURCE_URI = 'ui://posthog/cohort.html'
 export const COHORT_LIST_RESOURCE_URI = 'ui://posthog/cohort-list.html'
 export const DEBUG_RESOURCE_URI = 'ui://posthog/debug.html'
@@ -25,6 +26,7 @@ export const WORKFLOW_LIST_RESOURCE_URI = 'ui://posthog/workflow-list.html'
 export type UiAppKey =
     | 'action'
     | 'action-list'
+    | 'actors'
     | 'cohort'
     | 'cohort-list'
     | 'debug'
@@ -48,6 +50,7 @@ export type UiAppKey =
 export const URI_MAP: Record<UiAppKey, string> = {
     action: ACTION_RESOURCE_URI,
     'action-list': ACTION_LIST_RESOURCE_URI,
+    actors: ACTORS_RESOURCE_URI,
     cohort: COHORT_RESOURCE_URI,
     'cohort-list': COHORT_LIST_RESOURCE_URI,
     debug: DEBUG_RESOURCE_URI,
@@ -86,6 +89,12 @@ export const UI_APPS: Array<{
         uri: ACTION_LIST_RESOURCE_URI,
         description: 'Action List view',
         appDir: 'generated/action-list',
+    },
+    {
+        name: 'PostHog Actors',
+        uri: ACTORS_RESOURCE_URI,
+        description: 'Actors detail view',
+        appDir: 'generated/actors',
     },
     {
         name: 'PostHog Cohort',

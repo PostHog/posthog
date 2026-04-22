@@ -102,7 +102,7 @@ describe('ui-apps', () => {
 
             await registerUiAppResources(server as any, context as any)
 
-            expect(server.registerResource).toHaveBeenCalledTimes(21)
+            expect(server.registerResource).toHaveBeenCalledTimes(22)
         })
 
         it('registers apps with correct names and URIs', async () => {
