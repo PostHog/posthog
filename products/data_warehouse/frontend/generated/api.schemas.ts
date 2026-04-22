@@ -226,6 +226,45 @@ export interface PaginatedExternalDataSchemaListApi {
 }
 
 /**
+ * @nullable
+ */
+export type PatchedExternalDataSchemaApiTable = { [key: string]: unknown } | null | null
+
+export interface PatchedExternalDataSchemaApi {
+    readonly id?: string
+    readonly name?: string
+    /** @nullable */
+    readonly label?: string | null
+    /** @nullable */
+    readonly table?: PatchedExternalDataSchemaApiTable
+    should_sync?: boolean
+    /** @nullable */
+    readonly last_synced_at?: string | null
+    /**
+     * The latest error that occurred when syncing this schema.
+     * @nullable
+     */
+    readonly latest_error?: string | null
+    readonly incremental?: boolean
+    /** @nullable */
+    readonly status?: string | null
+    readonly sync_type?: SyncTypeEnumApi | null
+    /** @nullable */
+    readonly incremental_field?: string | null
+    /** @nullable */
+    readonly incremental_field_type?: string | null
+    /** @nullable */
+    readonly sync_frequency?: string | null
+    /** @nullable */
+    readonly sync_time_of_day?: string | null
+    /** @nullable */
+    readonly description?: string | null
+    /** @nullable */
+    readonly primary_key_columns?: readonly string[] | null
+    readonly cdc_table_mode?: CdcTableModeEnumApi
+}
+
+/**
  * * `Ashby` - Ashby
  * `Supabase` - Supabase
  * `CustomerIO` - CustomerIO
@@ -711,6 +750,100 @@ export interface PaginatedExternalDataSourceConnectionOptionListApi {
     /** @nullable */
     previous?: string | null
     results: ExternalDataSourceConnectionOptionApi[]
+}
+
+/**
+ * * `String` - String
+ * `Number` - Number
+ * `Boolean` - Boolean
+ * `List` - List
+ * `Date` - Date
+ */
+export type InsightVariableTypeEnumApi = (typeof InsightVariableTypeEnumApi)[keyof typeof InsightVariableTypeEnumApi]
+
+export const InsightVariableTypeEnumApi = {
+    String: 'String',
+    Number: 'Number',
+    Boolean: 'Boolean',
+    List: 'List',
+    Date: 'Date',
+} as const
+
+export interface InsightVariableApi {
+    /** UUID of the SQL variable. */
+    readonly id: string
+    /**
+     * Human-readable name for the SQL variable.
+     * @maxLength 400
+     */
+    name: string
+    /** Variable type. Controls how the value is rendered and substituted in HogQL.
+
+* `String` - String
+* `Number` - Number
+* `Boolean` - Boolean
+* `List` - List
+* `Date` - Date */
+    type: InsightVariableTypeEnumApi
+    /** Default value used when a query references this variable. */
+    default_value?: unknown | null
+    /**
+     * ID of the user who created the SQL variable.
+     * @nullable
+     */
+    readonly created_by: number | null
+    /** Timestamp when the SQL variable was created. */
+    readonly created_at: string
+    /**
+     * Generated code-safe name used in HogQL as {variables.code_name}. Derived from name.
+     * @nullable
+     */
+    readonly code_name: string | null
+    /** Allowed values for List variables. Null for other variable types. */
+    values?: unknown | null
+}
+
+export interface PaginatedInsightVariableListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: InsightVariableApi[]
+}
+
+export interface PatchedInsightVariableApi {
+    /** UUID of the SQL variable. */
+    readonly id?: string
+    /**
+     * Human-readable name for the SQL variable.
+     * @maxLength 400
+     */
+    name?: string
+    /** Variable type. Controls how the value is rendered and substituted in HogQL.
+
+* `String` - String
+* `Number` - Number
+* `Boolean` - Boolean
+* `List` - List
+* `Date` - Date */
+    type?: InsightVariableTypeEnumApi
+    /** Default value used when a query references this variable. */
+    default_value?: unknown | null
+    /**
+     * ID of the user who created the SQL variable.
+     * @nullable
+     */
+    readonly created_by?: number | null
+    /** Timestamp when the SQL variable was created. */
+    readonly created_at?: string
+    /**
+     * Generated code-safe name used in HogQL as {variables.code_name}. Derived from name.
+     * @nullable
+     */
+    readonly code_name?: string | null
+    /** Allowed values for List variables. Null for other variable types. */
+    values?: unknown | null
 }
 
 export interface QueryTabStateApi {
@@ -1316,6 +1449,13 @@ export type ExternalDataSourcesConnectionsListParams = {
      * A search term.
      */
     search?: string
+}
+
+export type InsightVariablesListParams = {
+    /**
+     * A page number within the paginated result set.
+     */
+    page?: number
 }
 
 export type QueryTabStateListParams = {

@@ -125,6 +125,11 @@ export interface PaginatedDashboardTemplateListApi {
     results: DashboardTemplateApi[]
 }
 
+export interface CopyDashboardTemplateApi {
+    /** UUID of a team-scoped template in the same organization. Global and feature-flag templates cannot be copied with this endpoint. */
+    source_template_id: string
+}
+
 /**
  * * `default` - Default
  * `template` - Template
@@ -433,11 +438,6 @@ export interface CopyDashboardTileRequestApi {
     tileId: number
 }
 
-export interface DashboardGeneratedMetadataApi {
-    name: string
-    description: string
-}
-
 export interface ReorderTilesRequestApi {
     /**
      * Array of tile IDs in the desired display order (top to bottom, left to right).
@@ -673,18 +673,6 @@ export type DashboardsCopyTileCreateFormat =
     (typeof DashboardsCopyTileCreateFormat)[keyof typeof DashboardsCopyTileCreateFormat]
 
 export const DashboardsCopyTileCreateFormat = {
-    Json: 'json',
-    Txt: 'txt',
-} as const
-
-export type DashboardsGenerateMetadataCreateParams = {
-    format?: DashboardsGenerateMetadataCreateFormat
-}
-
-export type DashboardsGenerateMetadataCreateFormat =
-    (typeof DashboardsGenerateMetadataCreateFormat)[keyof typeof DashboardsGenerateMetadataCreateFormat]
-
-export const DashboardsGenerateMetadataCreateFormat = {
     Json: 'json',
     Txt: 'txt',
 } as const

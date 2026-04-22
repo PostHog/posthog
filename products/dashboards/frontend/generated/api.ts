@@ -11,10 +11,10 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 import type {
     BulkUpdateTagsRequestApi,
     BulkUpdateTagsResponseApi,
+    CopyDashboardTemplateApi,
     CopyDashboardTileRequestApi,
     DashboardApi,
     DashboardCollaboratorApi,
-    DashboardGeneratedMetadataApi,
     DashboardTemplateApi,
     DashboardTemplatesListParams,
     DashboardsAnalyzeRefreshResultCreateParams,
@@ -24,7 +24,6 @@ import type {
     DashboardsCreateParams,
     DashboardsCreateUnlistedDashboardCreateParams,
     DashboardsDestroyParams,
-    DashboardsGenerateMetadataCreateParams,
     DashboardsListParams,
     DashboardsMoveTilePartialUpdateParams,
     DashboardsPartialUpdateParams,
@@ -104,6 +103,27 @@ export const dashboardTemplatesCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(dashboardTemplateApi),
+    })
+}
+
+/**
+ * Creates a new team-scoped template in the **target** project (URL) from a **team-scoped** source template in the same organization. Global and feature-flag templates return 400. Cross-organization or inaccessible sources return 404. Source and destination projects must differ (400 if equal). Conflicting `template_name` values on the destination are auto-suffixed with `(copy)`, `(copy 2)`, …
+ * @summary Copy a team template to this project
+ */
+export const getDashboardTemplatesCopyBetweenProjectsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/dashboard_templates/copy_between_projects/`
+}
+
+export const dashboardTemplatesCopyBetweenProjectsCreate = async (
+    projectId: string,
+    copyDashboardTemplateApi: CopyDashboardTemplateApi,
+    options?: RequestInit
+): Promise<DashboardTemplateApi> => {
+    return apiMutator<DashboardTemplateApi>(getDashboardTemplatesCopyBetweenProjectsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(copyDashboardTemplateApi),
     })
 }
 
@@ -496,41 +516,6 @@ export const dashboardsCopyTileCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(copyDashboardTileRequestApi),
-    })
-}
-
-/**
- * Generate an AI-suggested name and description from this dashboard's tiles.
- */
-export const getDashboardsGenerateMetadataCreateUrl = (
-    projectId: string,
-    id: number,
-    params?: DashboardsGenerateMetadataCreateParams
-) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/dashboards/${id}/generate_metadata/?${stringifiedParams}`
-        : `/api/projects/${projectId}/dashboards/${id}/generate_metadata/`
-}
-
-export const dashboardsGenerateMetadataCreate = async (
-    projectId: string,
-    id: number,
-    params?: DashboardsGenerateMetadataCreateParams,
-    options?: RequestInit
-): Promise<DashboardGeneratedMetadataApi> => {
-    return apiMutator<DashboardGeneratedMetadataApi>(getDashboardsGenerateMetadataCreateUrl(projectId, id, params), {
-        ...options,
-        method: 'POST',
     })
 }
 

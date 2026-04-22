@@ -17,6 +17,7 @@ from products.logs.backend.temporal.metrics import (
     increment_state_transition,
     record_alerts_active,
     record_check_duration,
+    record_checkpoint_lag,
     record_schedule_to_start_latency,
     record_scheduler_lag,
 )
@@ -122,6 +123,43 @@ class TestRecordAlertsActive:
         (name, _description), _ = mock_meter.create_gauge.call_args
         assert name == "logs_alerting_alerts_active"
         mock_gauge.set.assert_called_once_with(count)
+
+
+class TestRecordCheckpointLag:
+    @pytest.mark.parametrize(
+        "lag_seconds,expected",
+        [
+            (0, 0),  # checkpoint == now
+            (15, 15),  # typical healthy lag
+            (300, 300),  # backlog starting
+            (-60, 0),  # checkpoint somehow ahead of now — clamped to 0
+        ],
+    )
+    @patch("products.logs.backend.temporal.metrics.get_metric_meter")
+    def test_records_positive_lag(self, mock_get_meter: MagicMock, lag_seconds: int, expected: int):
+        mock_meter = MagicMock()
+        mock_gauge = MagicMock()
+        mock_meter.create_gauge.return_value = mock_gauge
+        mock_get_meter.return_value = mock_meter
+
+        now = dt.datetime(2025, 1, 1, 0, 0, 0)
+        checkpoint = now - dt.timedelta(seconds=lag_seconds)
+        record_checkpoint_lag(now, checkpoint)
+
+        (name, _description), _ = mock_meter.create_gauge.call_args
+        assert name == "logs_alerting_ingestion_checkpoint_lag_seconds"
+        mock_gauge.set.assert_called_once_with(expected)
+
+    @patch("products.logs.backend.temporal.metrics.get_metric_meter")
+    def test_sentinel_when_checkpoint_none(self, mock_get_meter: MagicMock):
+        mock_meter = MagicMock()
+        mock_gauge = MagicMock()
+        mock_meter.create_gauge.return_value = mock_gauge
+        mock_get_meter.return_value = mock_meter
+
+        record_checkpoint_lag(dt.datetime(2025, 1, 1, 0, 0, 0), None)
+
+        mock_gauge.set.assert_called_once_with(-1)
 
 
 class TestRecordCheckDuration:

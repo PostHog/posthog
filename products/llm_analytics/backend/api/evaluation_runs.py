@@ -31,13 +31,20 @@ logger = structlog.get_logger(__name__)
 
 
 class EvaluationRunRequestSerializer(serializers.Serializer):
-    evaluation_id = serializers.UUIDField(required=True)
-    target_event_id = serializers.UUIDField(required=True)
-    timestamp = serializers.DateTimeField(required=True)
-    event = serializers.CharField(required=True)
-    distinct_id = serializers.CharField(required=False, allow_null=True)
+    evaluation_id = serializers.UUIDField(required=True, help_text="UUID of the evaluation to run.")
+    target_event_id = serializers.UUIDField(required=True, help_text="UUID of the $ai_generation event to evaluate.")
+    timestamp = serializers.DateTimeField(
+        required=True, help_text="ISO 8601 timestamp of the target event (needed for efficient ClickHouse lookup)."
+    )
+    event = serializers.CharField(
+        required=False, default="$ai_generation", help_text="Event name. Defaults to '$ai_generation'."
+    )
+    distinct_id = serializers.CharField(
+        required=False, allow_null=True, help_text="Distinct ID of the event (optional, improves lookup performance)."
+    )
 
 
+@extend_schema(tags=["llm_analytics"])
 class EvaluationRunViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     scope_object = "evaluation"
     permission_classes = [IsAuthenticated, AccessControlPermission]

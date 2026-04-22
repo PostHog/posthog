@@ -419,9 +419,8 @@ class TestGithubSourceSortMode:
     """SourceResponse.sort_mode must match the actual API request direction."""
 
     def _make_source(self, endpoint, should_use_incremental_field, db_incremental_field_last_value=None):
-        with mock.patch("posthog.temporal.data_imports.sources.github.github.rest_api_resources") as mock_resources:
-            mock_resource = mock.MagicMock()
-            mock_resources.return_value = [mock_resource]
+        with mock.patch("posthog.temporal.data_imports.sources.github.github.rest_api_resource") as mock_resource_fn:
+            mock_resource_fn.return_value = mock.MagicMock()
             return github_source(
                 personal_access_token="token",
                 repository="owner/repo",

@@ -437,7 +437,7 @@ export const organizationsProjectsCreate = async (
 }
 
 /**
- * Projects for the current organization.
+ * Retrieve a project and its settings.
  */
 export const getOrganizationsProjectsRetrieveUrl = (organizationId: string, id: number) => {
     return `/api/organizations/${organizationId}/projects/${id}/`
@@ -455,7 +455,7 @@ export const organizationsProjectsRetrieve = async (
 }
 
 /**
- * Projects for the current organization.
+ * Replace a project and its settings. Prefer the PATCH endpoint for partial updates — PUT requires every writable field to be provided.
  */
 export const getOrganizationsProjectsUpdateUrl = (organizationId: string, id: number) => {
     return `/api/organizations/${organizationId}/projects/${id}/`
@@ -476,7 +476,7 @@ export const organizationsProjectsUpdate = async (
 }
 
 /**
- * Projects for the current organization.
+ * Update one or more of a project's settings. Only the fields included in the request body are changed.
  */
 export const getOrganizationsProjectsPartialUpdateUrl = (organizationId: string, id: number) => {
     return `/api/organizations/${organizationId}/projects/${id}/`
@@ -1703,6 +1703,9 @@ export const usersList = async (params?: UsersListParams, options?: RequestInit)
     })
 }
 
+/**
+ * Retrieve a user's profile and settings. Pass `@me` as the UUID to fetch the authenticated user; non-staff callers may only access their own account.
+ */
 export const getUsersRetrieveUrl = (uuid: string) => {
     return `/api/users/${uuid}/`
 }
@@ -1714,6 +1717,9 @@ export const usersRetrieve = async (uuid: string, options?: RequestInit): Promis
     })
 }
 
+/**
+ * Replace the authenticated user's profile and settings. Pass `@me` as the UUID to update the authenticated user. Prefer the PATCH endpoint for partial updates — PUT requires every writable field to be provided.
+ */
 export const getUsersUpdateUrl = (uuid: string) => {
     return `/api/users/${uuid}/`
 }
@@ -1731,6 +1737,9 @@ export const usersUpdate = async (
     })
 }
 
+/**
+ * Update one or more of the authenticated user's profile fields or settings.
+ */
 export const getUsersPartialUpdateUrl = (uuid: string) => {
     return `/api/users/${uuid}/`
 }
