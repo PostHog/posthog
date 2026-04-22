@@ -347,6 +347,10 @@ export const authorizedUrlListLogic = kea<authorizedUrlListLogicType>([
     })),
     subscriptions(({ props, actions }) => ({
         currentTeam: (currentTeam) => {
+            // `currentTeam` can be transiently null on initial mount, team switch, or logged-out re-mount.
+            if (!currentTeam) {
+                return
+            }
             const urls =
                 (props.type === AuthorizedUrlListType.RECORDING_DOMAINS
                     ? currentTeam.recording_domains

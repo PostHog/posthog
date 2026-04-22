@@ -4,10 +4,12 @@ import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
+import { AppContext } from '~/types'
 
 import {
     AuthorizedUrlListType,
@@ -61,6 +63,42 @@ describe('the authorized urls list logic', () => {
     it('can be launchd without focussing adding new URL', async () => {
         router.actions.push(urls.toolbarLaunch())
         await expectLogic(logic).toNotHaveDispatchedActions(['newUrl'])
+    })
+
+    // Regression coverage for a TypeError ("Cannot read properties of null (reading 'app_urls')")
+    // observed on scene mount when `teamLogic.currentTeam` was transiently null. The `currentTeam`
+    // subscription in this logic must tolerate a null team instead of dereferencing it.
+    describe('when currentTeam is null', () => {
+        beforeEach(() => {
+            initKeaTests(false)
+            window.POSTHOG_APP_CONTEXT = {
+                ...window.POSTHOG_APP_CONTEXT,
+                current_team: null,
+            } as unknown as AppContext
+            teamLogic.mount()
+        })
+
+        it('does not crash on mount and leaves authorizedUrls at the default', () => {
+            const nullTeamLogic = authorizedUrlListLogic({
+                type: AuthorizedUrlListType.TOOLBAR_URLS,
+                actionId: null,
+                experimentId: null,
+                productTourId: null,
+            })
+            expect(() => nullTeamLogic.mount()).not.toThrow()
+            expect(nullTeamLogic.values.authorizedUrls).toEqual([])
+        })
+
+        it('does not crash for recording domains either', () => {
+            const nullTeamLogic = authorizedUrlListLogic({
+                type: AuthorizedUrlListType.RECORDING_DOMAINS,
+                actionId: null,
+                experimentId: null,
+                productTourId: null,
+            })
+            expect(() => nullTeamLogic.mount()).not.toThrow()
+            expect(nullTeamLogic.values.authorizedUrls).toEqual([])
+        })
     })
 
     describe('applying a suggestion', () => {
