@@ -288,6 +288,7 @@ const loadLegacyMetrics = async ({
                     response?.query_status?.id || null,
                     {
                         duration_ms: durationMs,
+                        execution_mode: 'async',
                         is_cached: isCached,
                         metric_index: metricIndex,
                         is_primary: isPrimary,
@@ -612,6 +613,8 @@ export const legacyExperimentLogic = kea<legacyExperimentLogicType>([
                 return
             }
 
+            const savedMetricsPrimary = experiment.saved_metrics.filter((sm) => sm.metadata.type === 'primary')
+
             try {
                 await loadLegacyMetrics({
                     metrics: allMetrics,
@@ -621,7 +624,7 @@ export const legacyExperimentLogic = kea<legacyExperimentLogicType>([
                     refreshId: refreshId || generateRefreshId(),
                     isPrimary: false,
                     isRetry: false,
-                    metricIndexOffset: 0,
+                    metricIndexOffset: experiment.metrics.length + savedMetricsPrimary.length,
                     orderedUuids: experiment.secondary_metrics_ordered_uuids,
                     onSetLegacyResults: (results) => actions.setLegacySecondaryMetricsResults(results),
                     onSetErrors: (errors) => actions.setSecondaryMetricsResultsErrors(errors),
