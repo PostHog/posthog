@@ -7,6 +7,7 @@ import { projectLogic } from 'scenes/projectLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
+import { FilterType } from '~/types'
 
 import {
     groupsTypesMetricsCreate,
@@ -18,7 +19,10 @@ import type { GroupUsageMetricApi } from 'products/customer_analytics/frontend/g
 
 import type { usageMetricsConfigLogicType } from './usageMetricsConfigLogicType'
 
-export type UsageMetricFormData = Omit<GroupUsageMetricApi, 'id'> & { id?: string }
+export type UsageMetricFormData = Omit<GroupUsageMetricApi, 'id' | 'filters'> & {
+    id?: string
+    filters: FilterType
+}
 
 const NEW_USAGE_METRIC: UsageMetricFormData = {
     name: '',
