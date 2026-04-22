@@ -127,6 +127,15 @@ class Artifact:
 
 
 @dataclass(frozen=True)
+class UserBasicInfo:
+    """Lightweight user info for display purposes."""
+
+    id: int
+    first_name: str
+    email: str
+
+
+@dataclass(frozen=True)
 class Snapshot:
     """A snapshot with its comparison results."""
 
@@ -144,6 +153,8 @@ class Snapshot:
     reviewed_at: datetime | None
     approved_hash: str
     tolerated_hash_id: UUID | None = None
+    is_quarantined: bool = False
+    reviewed_by: UserBasicInfo | None = None
     # Flexible metadata (browser, viewport, is_critical, is_flaky, page_group, etc.)
     metadata: dict = field(default_factory=dict)
 
@@ -179,6 +190,7 @@ class Run:
     completed_at: datetime | None
     is_stale: bool = False
     superseded_by_id: UUID | None = None
+    approved_by: UserBasicInfo | None = None
     # Flexible metadata (pr_title, ci_job_url, base_branch, etc.)
     metadata: dict = field(default_factory=dict)
 
@@ -201,6 +213,29 @@ class ToleratedHashEntry:
     reason: str
     created_at: datetime
     source_run_id: UUID | None
+
+
+@dataclass(frozen=True)
+class QuarantinedIdentifierEntry:
+    """A quarantined snapshot identifier."""
+
+    id: UUID
+    identifier: str
+    run_type: str
+    reason: str
+    expires_at: datetime | None
+    created_at: datetime
+    updated_at: datetime
+    created_by: UserBasicInfo | None = None
+
+
+@dataclass(frozen=True)
+class QuarantineInput:
+    """Input for quarantining an identifier. run_type comes from URL path."""
+
+    identifier: str
+    reason: str
+    expires_at: datetime | None = None
 
 
 @dataclass(frozen=True)

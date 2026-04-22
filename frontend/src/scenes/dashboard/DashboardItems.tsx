@@ -131,7 +131,7 @@ export function DashboardItems(): JSX.Element {
             observer.disconnect()
         }
     }, [mounted, containerRef])
-    const isMobileView = width && width <= BREAKPOINTS['sm']
+    const isMobileView = !!width && width <= BREAKPOINTS['sm']
     const isEditablePlacement = [
         DashboardPlacement.Dashboard,
         DashboardPlacement.ProjectHomepage,

@@ -24,11 +24,11 @@ def _make_config(**kwargs) -> ConsumerConfig:
 
 
 def _make_service(**kwargs) -> KafkaConsumerService:
+    # Hosts + protocol are inherited from the routing DEFAULT profile
+    # (`["kafka:9092"]` / PLAINTEXT) unless explicitly injected via kwargs.
     defaults: dict = {
         "config": _make_config(),
         "process_message": MagicMock(),
-        "kafka_hosts": ["localhost:9092"],
-        "kafka_security_protocol": "PLAINTEXT",
     }
     defaults.update(kwargs)
     return KafkaConsumerService(**defaults)

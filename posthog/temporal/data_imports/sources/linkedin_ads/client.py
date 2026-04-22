@@ -2,7 +2,9 @@ import json
 from collections.abc import Generator
 from typing import Any, Optional
 
+import requests
 from linkedin_api.clients.restli.client import RestliClient
+from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
 from .schemas import (
     LINKEDIN_ADS_ENDPOINTS,
@@ -15,6 +17,10 @@ from .schemas import (
 LINKEDIN_SPONSORED_URN_PREFIX = "urn:li:sponsored"
 MAX_PAGE_SIZE = 1000
 API_VERSION = "202508"
+
+
+class LinkedinAdsRetryableError(Exception):
+    """Transient LinkedIn API error (5xx / 429) that should be retried."""
 
 
 class LinkedinAdsClient:
@@ -99,6 +105,37 @@ class LinkedinAdsClient:
             raise ValueError(f"No schema defined for resource: {resource}")
         return RESOURCE_SCHEMAS[resource]["field_names"]
 
+    @retry(
+        retry=retry_if_exception_type((LinkedinAdsRetryableError, requests.ConnectionError, requests.Timeout)),
+        stop=stop_after_attempt(5),
+        wait=wait_exponential_jitter(initial=1, max=30),
+        reraise=True,
+    )
+    def _call_finder(self, resource_path: str, finder: str, params: dict[str, Any]) -> Any:
+        """Call the Restli finder with bounded retries on transient transport and 5xx/429 errors.
+
+        LinkedIn's edge occasionally drops TLS connections mid-handshake (SSLEOFError) or
+        returns 504s; those surface here as `requests.ConnectionError` / `requests.Timeout`
+        from the underlying requests.Session, or as a non-2xx response we convert to
+        `LinkedinAdsRetryableError`. Non-retryable 4xx responses still raise immediately.
+        """
+        response = self.client.finder(
+            resource_path=resource_path,
+            finder_name=finder,
+            access_token=self.access_token,
+            query_params=params,
+            version_string=self.api_version,
+        )
+
+        if response.status_code == 429 or response.status_code >= 500:
+            raise LinkedinAdsRetryableError(
+                f"LinkedIn API error (retryable, {response.status_code}): {response.response.text}"
+            )
+        if response.status_code != 200:
+            raise Exception(f"LinkedIn API error ({response.status_code}): {response.response.text}")
+
+        return response
+
     def _make_request(
         self, endpoint: LinkedinAdsResource, finder: str, extra_params: dict | None = None, path: str | None = None
     ) -> list[dict[str, Any]]:
@@ -109,16 +146,7 @@ class LinkedinAdsClient:
 
         resource_path = path or f"/{LINKEDIN_ADS_ENDPOINTS[endpoint]}"
 
-        response = self.client.finder(
-            resource_path=resource_path,
-            finder_name=finder,
-            access_token=self.access_token,
-            query_params=params,
-            version_string=self.api_version,
-        )
-
-        if response.status_code != 200:
-            raise Exception(f"LinkedIn API error ({response.status_code}): {response.response.text}")
+        response = self._call_finder(resource_path=resource_path, finder=finder, params=params)
 
         return response.elements
 
@@ -134,16 +162,7 @@ class LinkedinAdsClient:
             if page_token:
                 params["pageToken"] = page_token
 
-            response = self.client.finder(
-                resource_path=path,
-                finder_name="search",
-                access_token=self.access_token,
-                query_params=params,
-                version_string=self.api_version,
-            )
-
-            if response.status_code != 200:
-                raise Exception(f"LinkedIn API error ({response.status_code}): {response.response.text}")
+            response = self._call_finder(resource_path=path, finder="search", params=params)
 
             if not response.elements:
                 break

@@ -1157,21 +1157,20 @@ export interface AssistantLifecycleQuery extends AssistantInsightsQueryBase {
 }
 
 /**
- * Drills into an insight to list the persons behind a specific data point. Returned rows are
- * trimmed to `distinct_id`, `name`, `email`, and an optional per-actor `count`.
+ * Drills into a trends insight to list the persons behind a specific data point. Returned rows
+ * are `distinct_id`, `name`, `email`, `event_count`, and optionally matched session recordings.
  *
- * Currently supports trends as the source; other insight kinds will be added incrementally.
  * Use the selector fields (`day`, `series`, `breakdown`, `compare`) to identify the specific
- * cell in the source insight. Omit them to get all actors for the query.
+ * cell in the source insight.
  */
-export interface AssistantInsightActorsQuery {
+export interface AssistantTrendsActorsQuery {
     kind: NodeKind.InsightActorsQuery
 
     /** The source insight query whose data point we are drilling into. */
     source: AssistantTrendsQuery
 
-    /** Bucket date for the data point. Accepts ISO date or integer offset. */
-    day?: string | integer
+    /** Bucket date for the data point. Must be an ISO date string (YYYY-MM-DD), e.g. '2024-01-15'. */
+    day: string
 
     /** Series index (0-based) when the source has multiple series. */
     series?: integer
@@ -1184,6 +1183,12 @@ export interface AssistantInsightActorsQuery {
 
     /** Whether to pull from the previous period when `compare` is enabled in the source. */
     compare?: 'current' | 'previous'
+
+    /**
+     * Whether to include matched session recordings for each actor.
+     * @default true
+     */
+    includeRecordings?: boolean
 }
 
 /**

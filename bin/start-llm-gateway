@@ -9,12 +9,6 @@ if [ -f "$REPO_ROOT/.env" ]; then
     set +o allexport
 fi
 
-if [ -f "$REPO_ROOT/.env.local" ]; then
-    set -o allexport
-    source "$REPO_ROOT/.env.local"
-    set +o allexport
-fi
-
 provision_api_key() {
     local max_attempts=10
     local wait_sec=3

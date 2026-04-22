@@ -166,7 +166,6 @@ async def enforce_throttles(
         request_id=get_request_id() or None,
         end_user_id=end_user_id,
         plan_key=plan_info.plan_key,
-        in_trial_period=plan_info.in_trial_period,
         seat_created_at=plan_info.seat_created_at,
     )
     request.state.throttle_context = context
