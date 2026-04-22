@@ -24041,6 +24041,8 @@ export namespace Schemas {
       alternate_hash: string;
       baseline_hash: string;
       reason: string;
+      /** @nullable */
+      diff_percentage: number | null;
       created_at: string;
       /** @nullable */
       source_run_id: string | null;

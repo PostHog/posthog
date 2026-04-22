@@ -1429,6 +1429,7 @@ def mark_snapshot_as_tolerated(run_id: UUID, snapshot_id: UUID, user_id: int, te
             "reason": ToleratedReason.HUMAN,
             "source_run": run,
             "created_by_id": user_id,
+            "diff_percentage": snapshot.diff_percentage,
         },
     )
 
