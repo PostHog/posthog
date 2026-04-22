@@ -249,12 +249,11 @@ def _channel_messages_generator(
     cursor: str | None = None
     effective_oldest_ts = oldest_ts
 
-    if resumable_source_manager.can_resume():
-        resume_config = resumable_source_manager.load_state()
-        # Only honor state scoped to this channel — guards against reuse of a job_id across schemas.
-        if resume_config is not None and resume_config.channel_id == channel_id:
-            cursor = resume_config.next_cursor
-            effective_oldest_ts = resume_config.oldest_ts
+    # Only honor state scoped to this channel — guards against reuse of a job_id across schemas.
+    resume_config = resumable_source_manager.load_state()
+    if resume_config is not None and resume_config.channel_id == channel_id:
+        cursor = resume_config.next_cursor
+        effective_oldest_ts = resume_config.oldest_ts
 
     has_more = True
     while has_more:

@@ -101,7 +101,7 @@ class TestChannelMessagesGeneratorResumable:
         expected_save_calls: list[SlackResumeConfig],
     ) -> None:
         resume_mgr = MagicMock(spec=ResumableSourceManager)
-        resume_mgr.can_resume.return_value = False
+        resume_mgr.load_state.return_value = None
 
         responses = [_make_response(p) for p in pages]
         with patch(
@@ -117,7 +117,6 @@ class TestChannelMessagesGeneratorResumable:
 
     def test_resume_starts_from_saved_cursor_and_skips_initial_request(self) -> None:
         resume_mgr = MagicMock(spec=ResumableSourceManager)
-        resume_mgr.can_resume.return_value = True
         resume_mgr.load_state.return_value = SlackResumeConfig(
             channel_id="C123", next_cursor="saved_cursor", oldest_ts="1699000000.0"
         )
@@ -140,7 +139,6 @@ class TestChannelMessagesGeneratorResumable:
 
     def test_resume_state_for_different_channel_is_ignored(self) -> None:
         resume_mgr = MagicMock(spec=ResumableSourceManager)
-        resume_mgr.can_resume.return_value = True
         resume_mgr.load_state.return_value = SlackResumeConfig(
             channel_id="C_OTHER", next_cursor="wrong_cursor", oldest_ts="9999"
         )
