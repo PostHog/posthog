@@ -1,7 +1,9 @@
 import re
 import hashlib
 from collections.abc import Callable
+from datetime import date, datetime
 from typing import ClassVar
+from uuid import UUID
 
 from posthog.hogql import ast
 from posthog.hogql.ast import AST
@@ -17,6 +19,8 @@ from posthog.hogql.printer.postgres_functions import (
     POSTGRES_FUNCTION_RENAMES_LOWER,
     POSTGRES_PASSTHROUGH_FUNCTIONS,
 )
+
+from posthog.models.utils import UUIDT
 
 # Regex for validating function names — only alphanumeric and underscores allowed.
 # Prevents SQL injection via backtick-quoted identifiers in HogQL.
@@ -191,6 +195,24 @@ class PostgresPrinter(BasePrinter):
 
     def visit_try_cast(self, node: ast.TryCast):
         return f"TRY_CAST({self.visit(node.expr)} AS {self._print_identifier(node.type_name)})"
+
+    def visit_constant(self, node: ast.Constant):
+        # Parameterize string (and other complex-typed) constants via ``context.add_value`` so
+        # psycopg binds them safely at ``cursor.execute(sql, values)`` time. Inlining them
+        # through the HogQL string escape path would produce ClickHouse-style ``\'`` escape
+        # sequences that Postgres and DuckDB do not recognize (``standard_conforming_strings``
+        # defaults to ``on``), allowing statement-terminator SQL injection.
+        if (
+            node.value is None
+            or isinstance(node.value, bool)
+            or isinstance(node.value, (int, float, UUID, UUIDT, datetime, date))
+        ):
+            value = self._print_escaped_string(node.value)
+            if "%" in value:
+                # ``%`` would be interpreted as the start of a parameter placeholder by psycopg.
+                raise QueryError(f"Invalid character '%' in constant: {value}")
+            return value
+        return self.context.add_value(node.value)
 
     def visit_lambda(self, node: ast.Lambda):
         identifiers = [self._print_identifier(arg) for arg in node.args]
