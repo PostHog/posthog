@@ -187,8 +187,8 @@ pub async fn fetch_and_filter(
     // no deep copy, no regex re-compilation. `evaluation_metadata` still
     // clones (a HashMap + Vec), but it's far cheaper than the old flag-vec
     // clone that copied every FeatureFlag and all its filter properties.
-    // `cohorts.clone()` is unchanged; see TODO above `PreparedFlagDefinitions`
-    // if we want to Arc-share those too.
+    // `cohorts.clone()` is unchanged — it's an `Option<Vec<Cohort>>`,
+    // not Arc-shared.
     let flag_list = FeatureFlagList {
         flags: Arc::clone(&prepared.flags),
         filtered_out_flag_ids,

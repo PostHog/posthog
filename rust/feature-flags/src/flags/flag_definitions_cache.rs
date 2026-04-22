@@ -106,24 +106,25 @@ impl FlagDefinitionsCache {
 
         let cache_key = (team_id, hash);
 
-        if let Some(cached) = self.cache.get(&cache_key).await {
-            inc(FLAG_DEFINITIONS_INMEM_CACHE_HIT_COUNTER, &[], 1);
-            return Ok(cached);
-        }
-
-        // `get_with` coalesces concurrent misses; the closure runs at most once
-        // per coalesced group, so the miss counter lives inside.
-        let result = self
+        // Single moka round-trip: `entry().or_insert_with` coalesces concurrent
+        // misses (closure runs once for the winner) and returns an `Entry` whose
+        // `is_fresh()` tells us which branch this caller took. Counting outside
+        // the closure ensures every call increments exactly one of hit/miss —
+        // coalesced followers count as hits since they did no work.
+        let entry = self
             .cache
-            .get_with(cache_key, async move {
-                inc(FLAG_DEFINITIONS_INMEM_CACHE_MISS_COUNTER, &[], 1);
-                Self::compile_only(flags, evaluation_metadata, cohorts)
-            })
+            .entry(cache_key)
+            .or_insert_with(async move { Self::compile_only(flags, evaluation_metadata, cohorts) })
             .await;
 
-        self.report_cache_metrics();
+        if entry.is_fresh() {
+            inc(FLAG_DEFINITIONS_INMEM_CACHE_MISS_COUNTER, &[], 1);
+            self.report_cache_metrics();
+        } else {
+            inc(FLAG_DEFINITIONS_INMEM_CACHE_HIT_COUNTER, &[], 1);
+        }
 
-        Ok(result)
+        Ok(entry.into_value())
     }
 
     /// Infallible regex compilation over already-validated flag definitions.
@@ -533,6 +534,44 @@ mod tests {
             Arc::ptr_eq(&shared, &prepared.flags),
             "handler-path clone must share the Arc, not duplicate the data"
         );
+    }
+
+    /// Concurrent callers on the same cache key must coalesce onto a single
+    /// compile: all tasks see the exact same `Arc<PreparedFlagDefinitions>`
+    /// pointer. This exercises the `entry().or_insert_with().is_fresh()` path,
+    /// which is the basis for correct hit/miss accounting — one caller lands
+    /// on `is_fresh() == true` (miss, did the work) and the rest on
+    /// `is_fresh() == false` (hit, followed the coalesced result).
+    #[tokio::test]
+    async fn test_concurrent_callers_coalesce_to_single_arc() {
+        let cache = Arc::new(FlagDefinitionsCache::new(None, None));
+        let wrapper = make_test_wrapper(vec![make_flag_with_regex(1, r"^test@.*\.com$")]);
+
+        let n: usize = 16;
+        let mut handles = Vec::with_capacity(n);
+        for _ in 0..n {
+            let cache = Arc::clone(&cache);
+            let wrapper = wrapper.clone();
+            handles.push(tokio::spawn(async move {
+                cache
+                    .get_or_prepare(42, Some(wrapper), &CacheSource::Redis)
+                    .await
+                    .unwrap()
+            }));
+        }
+
+        let mut results = Vec::with_capacity(n);
+        for h in handles {
+            results.push(h.await.unwrap());
+        }
+
+        let first = &results[0];
+        for (i, r) in results.iter().enumerate().skip(1) {
+            assert!(
+                Arc::ptr_eq(first, r),
+                "concurrent caller {i} did not coalesce onto the shared Arc"
+            );
+        }
     }
 
     /// Weigher must account for JSON-valued `PropertyFilter.value` bytes.
