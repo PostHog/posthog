@@ -7,8 +7,7 @@ test.describe('Password Reset', () => {
     let loginPage: LoginPage
 
     test.beforeEach(async ({ page }) => {
-        await page.click('[data-attr=new-account-menu-button]')
-        await page.click('[data-attr=new-account-menu-logout-button]')
+        await page.goto('/logout')
         await expect(page).toHaveURL('/login')
         loginPage = new LoginPage(page)
     })
