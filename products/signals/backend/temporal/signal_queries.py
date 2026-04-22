@@ -557,10 +557,11 @@ def fetch_source_products_for_reports(team: Team, report_ids: list[str]) -> dict
                 JSONExtractString(metadata, 'report_id') as report_id,
                 JSONExtractBool(metadata, 'deleted') as is_deleted,
                 JSONExtractString(metadata, 'source_product') as source_product
-            FROM ({_deduped_signals_subquery(extra_where="JSONExtractString(metadata, 'report_id') IN ({report_ids})")})
+            FROM ({_deduped_signals_subquery()})
         )
         WHERE NOT is_deleted
           AND report_id != ''
+          AND report_id IN ({{report_ids}})
           AND source_product != ''
         GROUP BY report_id
     """
