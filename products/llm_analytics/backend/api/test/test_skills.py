@@ -362,6 +362,119 @@ class TestLLMSkillAPI(APIBaseTest):
         assert LLMSkillFile.objects.filter(skill=new_skill).count() == 1
         assert LLMSkillFile.objects.get(skill=new_skill).path == "scripts/run.sh"
 
+    # --- Publish with edits (find/replace) ---
+
+    def test_publish_with_edits_applies_single_replacement(self, mock_feature_enabled):
+        self.create_skill(name="edit-me", body="# Title\n\nHello world.\n")
+
+        response = self.client.patch(
+            self._url("name/edit-me"),
+            data={
+                "edits": [{"old": "Hello world.", "new": "Hello there."}],
+                "base_version": 1,
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert data["version"] == 2
+        assert data["body"] == "# Title\n\nHello there.\n"
+
+    def test_publish_with_edits_applies_sequential_replacements(self, mock_feature_enabled):
+        self.create_skill(name="seq-edits", body="alpha\nbeta\ngamma\n")
+
+        response = self.client.patch(
+            self._url("name/seq-edits"),
+            data={
+                "edits": [
+                    {"old": "alpha", "new": "APLHA"},
+                    {"old": "beta", "new": "BETA"},
+                ],
+                "base_version": 1,
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["body"] == "APLHA\nBETA\ngamma\n"
+
+    def test_publish_with_edits_zero_matches_fails(self, mock_feature_enabled):
+        self.create_skill(name="no-match", body="some content\n")
+
+        response = self.client.patch(
+            self._url("name/no-match"),
+            data={
+                "edits": [{"old": "missing", "new": "replacement"}],
+                "base_version": 1,
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["edit_index"] == 0
+
+    def test_publish_with_edits_multiple_matches_fails(self, mock_feature_enabled):
+        self.create_skill(name="ambiguous", body="pick pick pick\n")
+
+        response = self.client.patch(
+            self._url("name/ambiguous"),
+            data={
+                "edits": [{"old": "pick", "new": "chose"}],
+                "base_version": 1,
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        body = response.json()
+        assert body["edit_index"] == 0
+        assert "3 times" in body["detail"]
+
+    def test_publish_rejects_body_and_edits_together(self, mock_feature_enabled):
+        self.create_skill(name="conflict-fields", body="content\n")
+
+        response = self.client.patch(
+            self._url("name/conflict-fields"),
+            data={
+                "body": "new content\n",
+                "edits": [{"old": "content", "new": "other"}],
+                "base_version": 1,
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_publish_rejects_empty_edits_list(self, mock_feature_enabled):
+        self.create_skill(name="empty-edits", body="content\n")
+
+        response = self.client.patch(
+            self._url("name/empty-edits"),
+            data={"edits": [], "base_version": 1},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_publish_with_edits_carries_files_forward(self, mock_feature_enabled):
+        skill = self.create_skill(name="edits-files", body="original\n")
+        LLMSkillFile.objects.create(skill=skill, path="references/a.md", content="A")
+
+        response = self.client.patch(
+            self._url("name/edits-files"),
+            data={
+                "edits": [{"old": "original", "new": "edited"}],
+                "base_version": 1,
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        new_skill = LLMSkill.objects.get(name="edits-files", version=2, deleted=False)
+        assert new_skill.body == "edited\n"
+        assert LLMSkillFile.objects.filter(skill=new_skill, path="references/a.md").exists()
+
     # --- Archive ---
 
     def test_archive_skill(self, mock_feature_enabled):
