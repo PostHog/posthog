@@ -329,7 +329,9 @@ class TestProvisioningResources(StripeProvisioningTestBase):
             organization=self.organization,
             name="Restricted project",
         )
-        TeamProvisioningConfig.objects.create(team=restricted_team, stripe_project_id="proj_restricted")
+        TeamProvisioningConfig.objects.update_or_create(
+            team=restricted_team, defaults={"stripe_project_id": "proj_restricted"}
+        )
         AccessControl.objects.create(
             team=restricted_team,
             access_level="none",
