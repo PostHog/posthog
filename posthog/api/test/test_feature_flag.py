@@ -3066,11 +3066,11 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
     def test_rename_flag_to_key_held_by_soft_deleted_flag(self):
         # Create a flag, soft-delete it, then create another flag and rename it
         # to the key held by the soft-deleted flag.
-        FeatureFlag.objects.create(team=self.team, created_by=self.user, key="56397-delete-flag")
+        first = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="56397-delete-flag")
         other = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="56397-delete-flag-v2")
 
         response = self.client.patch(
-            f"/api/projects/{self.team.id}/feature_flags/{FeatureFlag.objects.get(key='56397-delete-flag').id}/",
+            f"/api/projects/{self.team.id}/feature_flags/{first.id}/",
             {"deleted": True},
         )
         assert response.status_code == 200
