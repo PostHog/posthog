@@ -63,6 +63,8 @@ function ImagePanel({ url, label, emptyTitle, imgClassName, imgStyle }: ImagePan
                 <img
                     src={url}
                     alt={label}
+                    loading="lazy"
+                    decoding="async"
                     className={cn('h-auto bg-black/5', imgClassName || 'max-w-full')}
                     // eslint-disable-next-line react/forbid-dom-props
                     style={imgStyle}

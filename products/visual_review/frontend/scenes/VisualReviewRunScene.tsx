@@ -82,6 +82,10 @@ function SnapshotThumbnail({
                         <img
                             src={snapshot.current_artifact.download_url}
                             alt=""
+                            width={104}
+                            height={72}
+                            loading="lazy"
+                            decoding="async"
                             className={`w-full h-full object-contain transition-opacity duration-150 ${isQuarantined ? 'grayscale opacity-40' : imageLoaded ? 'opacity-100' : 'opacity-0'}`}
                             onLoad={() => setImageLoaded(true)}
                             onError={() => setImageLoaded(true)}
