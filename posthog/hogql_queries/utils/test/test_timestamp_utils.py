@@ -1,16 +1,23 @@
 import datetime
 
 from posthog.test.base import APIBaseTest, ClickhouseDestroyTablesMixin, _create_event, flush_persons_and_events
+from unittest.mock import patch
 
 from django.core.cache import cache
 from django.test import override_settings
 
 from dateutil import parser
 
-from posthog.schema import ActionsNode, DateRange, EventsNode, IntervalType
+from posthog.schema import ActionsNode, DataWarehouseNode, DateRange, EventsNode, IntervalType
+
+from posthog.hogql.errors import QueryError
 
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
-from posthog.hogql_queries.utils.timestamp_utils import format_label_date, get_earliest_timestamp_from_series
+from posthog.hogql_queries.utils.timestamp_utils import (
+    EARLIEST_EVENT_TIMESTAMP,
+    format_label_date,
+    get_earliest_timestamp_from_series,
+)
 from posthog.models.action.action import Action
 from posthog.models.team import WeekStartDay
 
@@ -338,3 +345,34 @@ class TestTimestampUtils(APIBaseTest, ClickhouseDestroyTablesMixin):
         # should still return the earliest timestamp from the first query
         cached_earliest_timestamp = get_earliest_timestamp_from_series(self.team, series)  # type: ignore
         self.assertEqual(cached_earliest_timestamp, earliest_timestamp)
+
+    def test_data_warehouse_missing_table_falls_back_to_default(self):
+        """A deleted/renamed DWH table should not crash the insight load; fall back to EARLIEST_EVENT_TIMESTAMP."""
+        series = [
+            DataWarehouseNode(
+                id="missing_table",
+                table_name="missing_table",
+                id_field="id",
+                distinct_id_field="distinct_id",
+                timestamp_field="created",
+            ),
+        ]
+
+        with patch(
+            "posthog.hogql_queries.utils.timestamp_utils.execute_hogql_query",
+            side_effect=QueryError("Unknown table `missing_table`."),
+        ):
+            earliest_timestamp = get_earliest_timestamp_from_series(self.team, series)  # type: ignore
+
+        self.assertEqual(earliest_timestamp, EARLIEST_EVENT_TIMESTAMP)
+
+    def test_query_error_still_raised_for_event_nodes(self):
+        """QueryErrors from the event-path must keep propagating; the fallback is DWH-only."""
+        series = [EventsNode(event="$pageview")]
+
+        with patch(
+            "posthog.hogql_queries.utils.timestamp_utils.execute_hogql_query",
+            side_effect=QueryError("boom"),
+        ):
+            with self.assertRaises(QueryError):
+                get_earliest_timestamp_from_series(self.team, series)  # type: ignore

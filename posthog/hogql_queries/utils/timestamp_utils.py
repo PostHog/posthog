@@ -18,6 +18,7 @@ from posthog.schema import (
 
 from posthog.hogql import ast
 from posthog.hogql.ast import SelectQuery
+from posthog.hogql.errors import QueryError
 from posthog.hogql.property import action_to_expr
 from posthog.hogql.query import execute_hogql_query
 
@@ -139,17 +140,28 @@ def _get_earliest_timestamp_from_node(
     if cached_result is not None:
         return cached_result
 
-    if (
+    is_data_warehouse_node = (
         isinstance(node, DataWarehouseNode)
         or isinstance(node, FunnelsDataWarehouseNode)
         or isinstance(node, LifecycleDataWarehouseNode)
-    ):
+    )
+    if is_data_warehouse_node:
         query = _get_data_warehouse_earliest_timestamp_query(node)
     else:
         query = _get_event_earliest_timestamp_query(team, node)
 
     earliest_timestamp = EARLIEST_EVENT_TIMESTAMP
-    result = execute_hogql_query(query=query, team=team)
+    try:
+        result = execute_hogql_query(query=query, team=team)
+    except QueryError:
+        # The referenced data warehouse table may have been deleted or renamed.
+        # Fall back to the default earliest timestamp so the insight's date-range
+        # heuristic still resolves; the actual query path surfaces the missing-table
+        # error through the normal insight error UI.
+        if not is_data_warehouse_node:
+            raise
+        result = None
+
     if result and len(result.results) > 0 and len(result.results[0]) > 0:
         earliest_timestamp = result.results[0][0]
 
