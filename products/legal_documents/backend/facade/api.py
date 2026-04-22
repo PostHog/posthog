@@ -12,6 +12,7 @@ from posthog.models.organization import Organization
 
 from .. import logic
 from . import contracts
+from .enums import LegalDocumentStatus
 
 
 def _to_dto(doc) -> contracts.LegalDocumentDTO:
@@ -83,12 +84,19 @@ def mark_signed_by_pandadoc_document_id(
     - Double-checks the template matches the stored document variant, to guard
       against misconfigured PandaDoc templates flipping the wrong row.
     - Flips status to signed, fires analytics + Slack.
+
+    Idempotent: if the row is already signed we return the existing DTO
+    without touching the URL or re-firing Slack/analytics. PandaDoc can
+    replay the same webhook (retries, multi-instance fan-out, out-of-order
+    delivery after a manual admin paste) — the first write wins.
     """
     document = logic.get_by_pandadoc_document_id(pandadoc_document_id)
     if document is None:
         return None
     if not logic.template_id_matches_document(document, template_id):
         return None
+    if document.signed_document_url or document.status == LegalDocumentStatus.SIGNED:
+        return _to_dto(document)
     document = logic.mark_document_signed(document, signed_document_url)
     logic.notify_slack_on_signed(document)
     logic.fire_legal_document_signed_event(document)

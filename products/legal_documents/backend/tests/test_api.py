@@ -340,6 +340,33 @@ class TestLegalDocumentPandaDocWebhook(APIBaseTest):
             response = self._post_raw(body, self._sign(body))
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
+    def test_already_signed_document_keeps_original_url_and_skips_side_effects(self) -> None:
+        # First delivery flips the row to signed.
+        body = json.dumps(self._completed_payload()).encode("utf-8")
+        with self._override():
+            first = self._post_raw(body, self._sign(body))
+        self.assertEqual(first.status_code, status.HTTP_200_OK)
+        self.document.refresh_from_db()
+        original_url = self.document.signed_document_url
+        self.assertEqual(original_url, "https://app.pandadoc.com/s/signed.pdf")
+
+        # A replay with a different URL must not overwrite it and must not
+        # re-fire Slack or analytics.
+        replay = self._completed_payload()
+        replay[0]["data"]["download_link"] = "https://app.pandadoc.com/s/REPLAY.pdf"
+        replay_body = json.dumps(replay).encode("utf-8")
+        with (
+            self._override(),
+            patch("products.legal_documents.backend.logic.notify_slack_on_signed") as slack_spy,
+            patch("products.legal_documents.backend.logic.fire_legal_document_signed_event") as event_spy,
+        ):
+            response = self._post_raw(replay_body, self._sign(replay_body))
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.document.refresh_from_db()
+        self.assertEqual(self.document.signed_document_url, original_url)
+        slack_spy.assert_not_called()
+        event_spy.assert_not_called()
+
 
 @override_settings(CLOUD_DEPLOYMENT=None, DEBUG=False)
 class TestLegalDocumentsSelfHostedGate(APIBaseTest):
