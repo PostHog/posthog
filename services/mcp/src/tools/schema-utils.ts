@@ -1,6 +1,6 @@
 /** Token-aware schema summarization and drill-down utilities for the exec tool. */
 
-// 16k tokens × 6 chars/token
+// 12k tokens × 4 chars/token
 export const TOKEN_CHAR_LIMIT = 4 * 12_000
 
 type JSONSchema = Record<string, unknown>
