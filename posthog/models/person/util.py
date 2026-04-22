@@ -657,7 +657,14 @@ def list_cohort_member_ids(team_id: int, cohort_id: int) -> list[int]:
     Routes through personhog when the gate is enabled, falling back to a Django
     ORM query against ``posthog_cohortpeople`` (on the persons DB) otherwise.
     """
-    from posthog.models.cohort.cohort import CohortPeople
+    from posthog.models.cohort.cohort import Cohort, CohortPeople
+
+    # Validate cohort ownership on the default DB before querying the persons DB
+    # or the personhog RPC — neither downstream path enforces team isolation
+    # (posthog_cohortpeople has no team_id column; the proto has no team_id field).
+    # Same pattern as check_cohort_membership / delete_bulky_postgres_data.
+    if not Cohort.objects.filter(id=cohort_id, team_id=team_id).exists():
+        return []
 
     def orm_fn() -> list[int]:
         return list(

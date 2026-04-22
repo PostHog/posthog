@@ -433,6 +433,20 @@ class TestListCohortMemberIds(PersonhogTestMixin, BaseTest):
 
         assert result == [p1.id]
 
+    def test_isolates_cross_team_cohort(self):
+        from posthog.models.person.util import list_cohort_member_ids
+
+        other_team = Team.objects.create(organization=self.organization)
+        person = self._seed_person(team=other_team, distinct_ids=["d1"])
+        other_team_cohort = Cohort.objects.create(team=other_team, groups=[], is_static=True, name="other")
+        CohortPeople.objects.create(cohort=other_team_cohort, person=person)
+        self._seed_cohort_membership(person_id=person.id, cohort_id=other_team_cohort.id, is_member=True)
+
+        result = list_cohort_member_ids(team_id=self.team.id, cohort_id=other_team_cohort.id)
+
+        assert result == []
+        self._assert_personhog_not_called("list_cohort_member_ids")
+
 
 class TestListCohortMemberIdsFallback(BaseTest):
     def test_falls_back_to_orm_when_personhog_disabled(self):
