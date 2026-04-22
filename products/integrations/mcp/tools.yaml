@@ -111,9 +111,6 @@ tools:
     integrations-environment-mapping-partial-update:
         operation: integrations_environment_mapping_partial_update
         enabled: false
-    organization-integrations-destroy:
-        operation: organization_integrations_destroy
-        enabled: false
     integrations-github-repos-refresh-create:
         operation: integrations_github_repos_refresh_create
         enabled: false

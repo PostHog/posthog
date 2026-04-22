@@ -74,99 +74,6 @@ tools:
     oauth-applications-list:
         operation: oauth_applications_list
         enabled: false
-    projects-list:
-        operation: list_2
-        enabled: false
-    projects-create:
-        operation: create_2
-        enabled: false
-    project-get:
-        operation: retrieve_2
-        enabled: true
-        scopes:
-            - project:read
-        annotations:
-            readOnly: true
-            destructive: false
-            idempotent: true
-        title: Get project
-        description: >
-            Retrieve a project and its settings. Pass `@current` as the ID to fetch the caller's active project.
-        param_overrides:
-            id:
-                description: Project ID, or `@current` to fetch the caller's active project.
-        response:
-            exclude:
-                - secret_api_token
-                - secret_api_token_backup
-                - live_events_token
-                - default_modifiers
-    projects-update:
-        operation: update_2
-        enabled: false
-    project-settings-update:
-        operation: partial_update_2
-        enabled: true
-        scopes:
-            - project:write
-        annotations:
-            readOnly: false
-            destructive: true
-            idempotent: true
-        title: Update project settings
-        description: >
-            Update a project's settings using PATCH semantics — only the fields included in the request body are changed.
-            Use `project-get` first to inspect current settings. Always confirm changes with the user before applying.
-        param_overrides:
-            id:
-                description: Project ID, or `@current` to target the caller's active project.
-        exclude_params:
-            - uuid
-            - created_at
-            - updated_at
-            - api_token
-            - secret_api_token
-            - secret_api_token_backup
-            - ingested_event
-            - effective_membership_level
-            - has_group_types
-            - group_types
-            - live_events_token
-            - product_intents
-            - available_setup_task_ids
-            - default_modifiers
-            - person_on_events_querying_enabled
-            - organization
-    projects-destroy:
-        operation: destroy_2
-        enabled: false
-    activity-retrieve:
-        operation: activity_retrieve
-        enabled: false
-    add-product-intent-partial-update:
-        operation: add_product_intent_partial_update
-        enabled: false
-    change-organization-create:
-        operation: change_organization_create
-        enabled: false
-    complete-product-onboarding-partial-update:
-        operation: complete_product_onboarding_partial_update
-        enabled: false
-    delete-secret-token-backup-partial-update:
-        operation: delete_secret_token_backup_partial_update
-        enabled: false
-    generate-conversations-public-token-create:
-        operation: generate_conversations_public_token_create
-        enabled: false
-    is-generating-demo-data-retrieve:
-        operation: is_generating_demo_data_retrieve
-        enabled: false
-    reset-token-partial-update:
-        operation: reset_token_partial_update
-        enabled: false
-    rotate-secret-token-partial-update:
-        operation: rotate_secret_token_partial_update
-        enabled: false
     roles-list:
         operation: roles_list
         enabled: false
@@ -579,8 +486,8 @@ tools:
             idempotent: true
         title: Get user
         description: >
-            Retrieve a user's profile and settings. Pass `@me` as the UUID to fetch the authenticated user —
-            non-staff callers may only access their own account.
+            Retrieve a user's profile and settings. Pass `@me` as the UUID to fetch the authenticated user — non-staff
+            callers may only access their own account.
         param_overrides:
             uuid:
                 description: User UUID, or `@me` to target the authenticated user.
@@ -605,13 +512,10 @@ tools:
         title: Update user settings
         description: >
             Update the authenticated user's profile and settings using PATCH semantics — only the fields included in the
-            request body are changed. Pass `@me` as the UUID; non-staff callers may only update their own account.
-            Use `user-get` first to inspect current settings. `notification_settings` merges key-by-key; changing `email`
+            request body are changed. Pass `@me` as the UUID; non-staff callers may only update their own account. Use
+            `user-get` first to inspect current settings. `notification_settings` merges key-by-key; changing `email`
             triggers a verification flow; changing `password` also requires `current_password`. Always confirm changes
             with the user before applying.
-        param_overrides:
-            uuid:
-                description: User UUID, or `@me` to target the authenticated user.
         exclude_params:
             - date_joined
             - uuid
@@ -632,6 +536,9 @@ tools:
             - has_sso_enforcement
             - is_2fa_enabled
             - scene_personalisation
+        param_overrides:
+            uuid:
+                description: User UUID, or `@me` to target the authenticated user.
     users-destroy:
         operation: users_destroy
         enabled: false
@@ -784,4 +691,52 @@ tools:
         enabled: false
     dashboard-templates-copy-between-projects-create:
         operation: dashboard_templates_copy_between_projects_create
+        enabled: false
+    organizations-projects-list:
+        operation: organizations_projects_list
+        enabled: false
+    organizations-projects-create:
+        operation: organizations_projects_create
+        enabled: false
+    organizations-projects-retrieve:
+        operation: organizations_projects_retrieve
+        enabled: false
+    organizations-projects-update:
+        operation: organizations_projects_update
+        enabled: false
+    organizations-projects-partial-update:
+        operation: organizations_projects_partial_update
+        enabled: false
+    organizations-projects-destroy:
+        operation: organizations_projects_destroy
+        enabled: false
+    organizations-projects-activity-retrieve:
+        operation: organizations_projects_activity_retrieve
+        enabled: false
+    organizations-projects-add-product-intent-partial-update:
+        operation: organizations_projects_add_product_intent_partial_update
+        enabled: false
+    organizations-projects-change-organization-create:
+        operation: organizations_projects_change_organization_create
+        enabled: false
+    organizations-projects-complete-product-onboarding-partial-update:
+        operation: organizations_projects_complete_product_onboarding_partial_update
+        enabled: false
+    organizations-projects-delete-secret-token-backup-partial-update:
+        operation: organizations_projects_delete_secret_token_backup_partial_update
+        enabled: false
+    organizations-projects-generate-conversations-public-token-create:
+        operation: organizations_projects_generate_conversations_public_token_create
+        enabled: false
+    organizations-projects-is-generating-demo-data-retrieve:
+        operation: organizations_projects_is_generating_demo_data_retrieve
+        enabled: false
+    organizations-projects-reset-token-partial-update:
+        operation: organizations_projects_reset_token_partial_update
+        enabled: false
+    organizations-projects-rotate-secret-token-partial-update:
+        operation: organizations_projects_rotate_secret_token_partial_update
+        enabled: false
+    cohorts-all-activity-retrieve:
+        operation: cohorts_all_activity_retrieve
         enabled: false
