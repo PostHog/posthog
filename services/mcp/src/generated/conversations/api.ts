@@ -51,16 +51,7 @@ export const ConversationsTicketsListQueryParams = /* @__PURE__ */ zod.object({
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     order_by: zod
-        .enum([
-            '-created_at',
-            '-sla_due_at',
-            '-ticket_number',
-            '-updated_at',
-            'created_at',
-            'sla_due_at',
-            'ticket_number',
-            'updated_at',
-        ])
+        .string()
         .optional()
         .describe('Sort order. Prefix with `-` for descending. Defaults to `-updated_at`.'),
     priority: zod
@@ -136,6 +127,7 @@ export const ConversationsTicketsPartialUpdateBody = /* @__PURE__ */ zod
                 'Ticket priority: low, medium, or high. Null if unset.\n\n* `low` - Low\n* `medium` - Medium\n* `high` - High'
             ),
         sla_due_at: zod.iso.datetime({}).nullish().describe('SLA deadline set via workflows. Null means no SLA.'),
+        snoozed_until: zod.iso.datetime({}).nullish(),
         tags: zod.array(zod.unknown()).optional(),
     })
     .describe('Serializer mixin that handles tags for objects.')

@@ -1,5 +1,5 @@
 import datetime
-from typing import Optional, cast
+from typing import Any, Optional, cast
 
 import pytest
 from freezegun import freeze_time
@@ -191,12 +191,14 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
 
         activity_log: Optional[ActivityLog] = ActivityLog.objects.filter(scope="PropertyDefinition").first()
         assert activity_log is not None
+        detail = cast(dict[str, Any], activity_log.detail)
+        changes = cast(list[dict[str, Any]], detail["changes"])
         self.assertEqual(activity_log.scope, "PropertyDefinition")
         self.assertEqual(activity_log.activity, "changed")
-        self.assertEqual(activity_log.detail["name"], "enterprise property")
-        self.assertEqual(activity_log.detail["type"], "event")
+        self.assertEqual(detail["name"], "enterprise property")
+        self.assertEqual(detail["type"], "event")
         self.assertEqual(activity_log.user, self.user)
-        assert sorted(activity_log.detail["changes"], key=lambda x: x["field"]) == [
+        assert sorted(changes, key=lambda x: x["field"]) == [
             {
                 "action": "changed",
                 "after": "This is a description.",

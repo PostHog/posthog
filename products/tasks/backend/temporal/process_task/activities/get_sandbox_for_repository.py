@@ -111,22 +111,21 @@ def get_sandbox_for_repository(input: GetSandboxForRepositoryInput) -> GetSandbo
         "get_sandbox_for_repository",
         **ctx.to_log_context(),
     ):
-        has_repo = ctx.repository is not None and ctx.github_integration_id is not None
+        has_repo = ctx.repository is not None
         repository: str | None = ctx.repository
         github_integration_id: int | None = ctx.github_integration_id
 
         snapshot = None
         used_snapshot = False
-        if has_repo:
+        if has_repo and github_integration_id is not None:
             assert repository is not None
-            assert github_integration_id is not None
             with StepTimer("snapshot_lookup") as snapshot_lookup_timer:
                 snapshot = SandboxSnapshot.get_latest_snapshot_with_repos(github_integration_id, [repository])
                 used_snapshot = snapshot is not None
                 snapshot_lookup_timer.set_used_snapshot(used_snapshot)
             increment_snapshot_usage(used_snapshot)
-        else:
-            emit_agent_log(ctx.run_id, "info", "Creating environment without repository")
+        elif not has_repo:
+            emit_agent_log(ctx.run_id, "debug", "Creating environment without repository")
 
         try:
             task = Task.objects.select_related("created_by").get(id=ctx.task_id)
@@ -138,8 +137,7 @@ def get_sandbox_for_repository(input: GetSandboxForRepositoryInput) -> GetSandbo
         shallow = task.origin_product != Task.OriginProduct.SIGNAL_REPORT
 
         github_token = ""
-        if has_repo:
-            assert github_integration_id is not None
+        if has_repo and github_integration_id is not None:
             try:
                 github_token = (
                     get_sandbox_github_token(
@@ -229,9 +227,9 @@ def get_sandbox_for_repository(input: GetSandboxForRepositoryInput) -> GetSandbo
         )
 
         if resume_snapshot_ext_id:
-            emit_agent_log(ctx.run_id, "info", f"Resuming environment from snapshot for {repository}")
+            emit_agent_log(ctx.run_id, "debug", f"Resuming environment from snapshot for {repository}")
         elif has_repo and used_snapshot:
-            emit_agent_log(ctx.run_id, "info", f"Found existing environment for {repository}")
+            emit_agent_log(ctx.run_id, "debug", f"Found existing environment for {repository}")
         elif has_repo:
             emit_agent_log(ctx.run_id, "debug", f"Creating environment from {image_source_label} for {repository}")
         else:
@@ -263,11 +261,11 @@ def get_sandbox_for_repository(input: GetSandboxForRepositoryInput) -> GetSandbo
             if local_bind is not None and getattr(settings, "SANDBOX_PROVIDER", None) == "docker":
                 emit_agent_log(
                     ctx.run_id,
-                    "info",
+                    "debug",
                     f"Using local checkout for {repository} at {local_bind} (SANDBOX_REPO_MOUNT_MAP); skipping clone from GitHub",
                 )
             else:
-                emit_agent_log(ctx.run_id, "info", f"Cloning {repository} into sandbox")
+                emit_agent_log(ctx.run_id, "debug", f"Cloning {repository} into sandbox")
             with StepTimer("repository_clone", used_snapshot=used_snapshot):
                 clone_result = sandbox.clone_repository(repository, github_token=github_token, shallow=shallow)
             if clone_result.exit_code != 0:
@@ -276,7 +274,7 @@ def get_sandbox_for_repository(input: GetSandboxForRepositoryInput) -> GetSandbo
 
         if has_repo and ctx.branch:
             assert repository is not None
-            emit_agent_log(ctx.run_id, "info", f"Checking out branch {ctx.branch}")
+            emit_agent_log(ctx.run_id, "debug", f"Checking out branch {ctx.branch}")
             org, repo = repository.lower().split("/")
             repo_path = f"/tmp/workspace/repos/{org}/{repo}"
 
@@ -312,14 +310,13 @@ def get_sandbox_for_repository(input: GetSandboxForRepositoryInput) -> GetSandbo
 
         credentials = sandbox.get_connect_credentials()
 
-        task_run = TaskRun.objects.get(id=ctx.run_id)
-        state = task_run.state or {}
-        state["sandbox_id"] = sandbox.id
-        state["sandbox_url"] = credentials.url
+        sandbox_state = {
+            "sandbox_id": sandbox.id,
+            "sandbox_url": credentials.url,
+        }
         if credentials.token:
-            state["sandbox_connect_token"] = credentials.token
-        task_run.state = state
-        task_run.save(update_fields=["state", "updated_at"])
+            sandbox_state["sandbox_connect_token"] = credentials.token
+        TaskRun.update_state_atomic(ctx.run_id, updates=sandbox_state)
 
         activity.logger.info(f"Created sandbox {sandbox.id} (used_snapshot={used_snapshot})")
 

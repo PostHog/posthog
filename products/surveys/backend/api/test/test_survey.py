@@ -3,7 +3,7 @@ import json
 import time
 import uuid
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import Any, cast
 
 import pytest
 from freezegun.api import freeze_time
@@ -131,13 +131,15 @@ class TestSurvey(APIBaseTest):
         survey = Survey.objects.get(id=response.json()["id"])
 
         # Verify survey-level translations
+        assert survey.translations is not None
         assert survey.translations["es"]["name"] == "Encuesta de comentarios"
         assert survey.translations["fr"]["name"] == "Enquête de satisfaction"
 
         # Verify inline question translations
-        assert survey.questions[0]["translations"]["es"]["question"] == "¿Qué tan satisfecho estás?"
-        assert survey.questions[0]["translations"]["fr"]["question"] == "Êtes-vous satisfait?"
-        assert survey.questions[1]["translations"]["es"]["choices"] == ["Analítica", "Feature Flags"]
+        questions = cast(list[dict[str, Any]], survey.questions)
+        assert questions[0]["translations"]["es"]["question"] == "¿Qué tan satisfecho estás?"
+        assert questions[0]["translations"]["fr"]["question"] == "Êtes-vous satisfait?"
+        assert questions[1]["translations"]["es"]["choices"] == ["Analítica", "Feature Flags"]
 
     def test_can_create_survey_without_translations(self):
         response = self.client.post(
@@ -153,7 +155,8 @@ class TestSurvey(APIBaseTest):
         assert response.status_code == status.HTTP_201_CREATED
         survey = Survey.objects.get(id=response.json()["id"])
         assert survey.translations is None
-        assert "translations" not in survey.questions[0]
+        questions = cast(list[dict[str, Any]], survey.questions)
+        assert "translations" not in questions[0]
 
     def test_can_remove_survey_translations(self):
         create_response = self.client.post(
@@ -556,6 +559,7 @@ class TestSurvey(APIBaseTest):
             },
         )
         survey = Survey.objects.get(id=response_data["id"])
+        assert survey.internal_targeting_flag is not None
         assert survey.internal_targeting_flag.active is True
 
     def test_adding_iterations_to_existing_survey_updates_internal_targeting_flag(self):
@@ -2070,9 +2074,14 @@ class TestSurvey(APIBaseTest):
     def test_options_unauthenticated(self):
         unauthenticated_client = Client(enforce_csrf_checks=True)
         unauthenticated_client.logout()
-        request_headers = {"HTTP_ACCESS_CONTROL_REQUEST_METHOD": "GET", "HTTP_ORIGIN": "*", "USER_AGENT": "Agent 008"}
         response = unauthenticated_client.options(
-            "/api/surveys", data={}, follow=False, secure=False, headers={}, **request_headers
+            "/api/surveys",
+            data={},
+            follow=False,
+            secure=False,
+            HTTP_ACCESS_CONTROL_REQUEST_METHOD="GET",
+            HTTP_ORIGIN="*",
+            USER_AGENT="Agent 008",
         )
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.headers["Access-Control-Allow-Origin"], "*")

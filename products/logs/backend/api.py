@@ -3,7 +3,6 @@ import json
 import base64
 import datetime as dt
 
-from django.core.cache import cache
 from django.utils import timezone
 
 from drf_spectacular.utils import extend_schema
@@ -37,7 +36,7 @@ from posthog.tasks.exporter import export_asset
 
 from products.logs.backend.alerts_api import LogsAlertViewSet
 from products.logs.backend.explain import LogExplainViewSet
-from products.logs.backend.has_logs_query_runner import HasLogsQueryRunner
+from products.logs.backend.has_logs_query_runner import team_has_logs
 from products.logs.backend.log_attributes_query_runner import LogAttributesQueryRunner
 from products.logs.backend.log_values_query_runner import LogValuesQueryRunner
 from products.logs.backend.logs_query_runner import CachedLogsQueryResponse, LogsQueryResponse, LogsQueryRunner
@@ -51,31 +50,53 @@ tracer = trace.get_tracer(__name__)
 LOGS_MAX_EXPORT_ROWS = 10_000
 
 
+class DateRangeSerializer(serializers.Serializer):
+    date_from = serializers.CharField(help_text='Start of date range (ISO 8601 format, e.g., "2024-01-01T00:00:00Z").')
+    date_to = serializers.CharField(help_text='End of date range (ISO 8601 format, e.g., "2024-01-02T00:00:00Z").')
+
+
+class SparklineQuerySerializer(serializers.Serializer):
+    dateRange = DateRangeSerializer(help_text="Date range for the sparkline query.")
+    severityLevels = serializers.ListField(
+        child=serializers.ChoiceField(choices=["trace", "debug", "info", "warn", "error", "fatal"]),
+        required=False,
+        default=list,
+        help_text="Filter by severity levels (trace, debug, info, warn, error, fatal).",
+    )
+    serviceNames = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        default=list,
+        help_text="Filter by service names.",
+    )
+    searchTerm = serializers.CharField(
+        required=False,
+        allow_null=True,
+        default=None,
+        help_text="Free text search term to filter log entries.",
+    )
+    filterGroup = serializers.JSONField(
+        required=False,
+        allow_null=True,
+        default=None,
+        help_text="Property filter group object for structured filtering.",
+    )
+    sparklineBreakdownBy = serializers.ChoiceField(
+        choices=["severity", "service"],
+        required=False,
+        allow_null=True,
+        default=None,
+        help_text="Break down sparkline data by severity level or service name (default: severity).",
+    )
+
+
+class SparklineRequestSerializer(serializers.Serializer):
+    query = SparklineQuerySerializer(help_text="Sparkline query parameters.")
+
+
 # Serializers below are used exclusively for OpenAPI spec generation via
 # drf-spectacular. They are NOT used for request validation — the existing
 # manual parsing in LogsViewSet is unchanged.
-
-
-class _LogsAttributesQuerySerializer(serializers.Serializer):
-    search = serializers.CharField(required=False, help_text="Search filter for attribute names")
-    attribute_type = serializers.ChoiceField(
-        choices=["log", "resource"],
-        required=False,
-        help_text='Type of attributes: "log" for log attributes, "resource" for resource attributes',
-    )
-    limit = serializers.IntegerField(required=False, min_value=1, max_value=100, help_text="Max results (default: 100)")
-    offset = serializers.IntegerField(required=False, min_value=0, help_text="Pagination offset (default: 0)")
-
-
-class _LogsValuesQuerySerializer(serializers.Serializer):
-    key = serializers.CharField(help_text="The attribute key to get values for")
-    attribute_type = serializers.ChoiceField(
-        choices=["log", "resource"],
-        required=False,
-        help_text='Type of attribute: "log" or "resource"',
-    )
-    value = serializers.CharField(required=False, help_text="Search filter for attribute values")
-
 
 _LOG_PROPERTY_TYPE_CHOICES = ["log", "log_attribute", "log_resource_attribute"]
 _LOG_STRING_OPERATORS = ["exact", "is_not", "icontains", "not_icontains", "regex", "not_regex"]
@@ -124,6 +145,59 @@ class _LogPropertyFilterSerializer(serializers.Serializer):
     )
 
 
+class _LogsAttributesQuerySerializer(serializers.Serializer):
+    search = serializers.CharField(required=False, help_text="Search filter for attribute names")
+    attribute_type = serializers.ChoiceField(
+        choices=["log", "resource"],
+        required=False,
+        help_text='Type of attributes: "log" for log attributes, "resource" for resource attributes. Defaults to "log".',
+    )
+    limit = serializers.IntegerField(required=False, min_value=1, max_value=100, help_text="Max results (default: 100)")
+    offset = serializers.IntegerField(required=False, min_value=0, help_text="Pagination offset (default: 0)")
+    dateRange = _DateRangeSerializer(
+        required=False,
+        help_text="Date range to search within. Defaults to last hour.",
+    )
+    serviceNames = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        default=[],
+        help_text="Filter attributes to those appearing in logs from these services.",
+    )
+    filterGroup = serializers.ListField(
+        child=_LogPropertyFilterSerializer(),
+        required=False,
+        default=[],
+        help_text="Property filters to narrow which logs are scanned for attributes.",
+    )
+
+
+class _LogsValuesQuerySerializer(serializers.Serializer):
+    key = serializers.CharField(help_text="The attribute key to get values for")
+    attribute_type = serializers.ChoiceField(
+        choices=["log", "resource"],
+        required=False,
+        help_text='Type of attribute: "log" or "resource". Defaults to "log".',
+    )
+    value = serializers.CharField(required=False, help_text="Search filter for attribute values")
+    dateRange = _DateRangeSerializer(
+        required=False,
+        help_text="Date range to search within. Defaults to last hour.",
+    )
+    serviceNames = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        default=[],
+        help_text="Filter values to those appearing in logs from these services.",
+    )
+    filterGroup = serializers.ListField(
+        child=_LogPropertyFilterSerializer(),
+        required=False,
+        default=[],
+        help_text="Property filters to narrow which logs are scanned for values.",
+    )
+
+
 class _LogsQueryBodySerializer(serializers.Serializer):
     dateRange = _DateRangeSerializer(
         required=False,
@@ -159,6 +233,41 @@ class _LogsQueryBodySerializer(serializers.Serializer):
 
 class _LogsQueryRequestSerializer(serializers.Serializer):
     query = _LogsQueryBodySerializer(help_text="The logs query to execute.")
+
+
+class _LogsSparklineBodySerializer(serializers.Serializer):
+    dateRange = _DateRangeSerializer(
+        required=False,
+        help_text="Date range for the sparkline. Defaults to last hour.",
+    )
+    severityLevels = serializers.ListField(
+        child=serializers.ChoiceField(choices=["trace", "debug", "info", "warn", "error", "fatal"]),
+        required=False,
+        default=[],
+        help_text="Filter by log severity levels.",
+    )
+    serviceNames = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        default=[],
+        help_text="Filter by service names.",
+    )
+    searchTerm = serializers.CharField(required=False, help_text="Full-text search term to filter log bodies.")
+    filterGroup = serializers.ListField(
+        child=_LogPropertyFilterSerializer(),
+        required=False,
+        default=[],
+        help_text="Property filters for the query.",
+    )
+    sparklineBreakdownBy = serializers.ChoiceField(
+        choices=["severity", "service"],
+        required=False,
+        help_text='Break down sparkline by "severity" (default) or "service".',
+    )
+
+
+class _LogsSparklineRequestSerializer(serializers.Serializer):
+    query = _LogsSparklineBodySerializer(help_text="The sparkline query to execute.")
 
 
 @extend_schema(tags=["logs"])
@@ -292,6 +401,7 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
             status=200,
         )
 
+    @extend_schema(request=_LogsSparklineRequestSerializer)
     @action(detail=False, methods=["POST"], required_scopes=["logs:read"])
     def sparkline(self, request: Request, *args, **kwargs) -> Response:
         query_data = request.data.get("query", {})
@@ -496,24 +606,7 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
 
     @action(detail=False, methods=["GET"], required_scopes=["logs:read"])
     def has_logs(self, request: Request, *args, **kwargs) -> Response:
-        cache_key = f"team:{self.team.id}:has_logs"
-        cached = cache.get(cache_key)
-        if cached is True:
-            report_user_action(
-                request.user,
-                "logs has_logs checked",
-                {"has_logs": True},
-                team=self.team,
-                request=request,
-            )
-            return Response({"hasLogs": True}, status=status.HTTP_200_OK)
-
-        runner = HasLogsQueryRunner(self.team)
-        has_logs = runner.run()
-
-        # Only cache positive results (once you have logs, you always have logs)
-        if has_logs:
-            cache.set(cache_key, True, int(dt.timedelta(days=7).total_seconds()))
+        has_logs = team_has_logs(self.team)
 
         report_user_action(
             request.user,

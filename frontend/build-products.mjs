@@ -380,10 +380,12 @@ function buildProductManifests() {
     const keysToKeep = ['path', 'category', 'iconType', 'type']
     const keysToKeepArray = ['intents']
     const productKeyEnumMap = buildEnumMapping(program, 'ProductKey')
+    const productItemCategoryEnumMap = buildEnumMapping(program, 'ProductItemCategory')
+    const enumMap = new Map([...productKeyEnumMap, ...productItemCategoryEnumMap]) // Join both enum maps, will fail if they have same keys, not the case right now
     const productsJson = {
-        products: extractKeys(treeItemsProducts, { keysToKeep, keysToKeepArray, enumMap: productKeyEnumMap }),
-        games: extractKeys(treeItemsGames, { keysToKeep, keysToKeepArray, enumMap: productKeyEnumMap }),
-        metadata: extractKeys(treeItemsMetadata, { keysToKeep, keysToKeepArray, enumMap: productKeyEnumMap }),
+        products: extractKeys(treeItemsProducts, { keysToKeep, keysToKeepArray, enumMap }),
+        games: extractKeys(treeItemsGames, { keysToKeep, keysToKeepArray, enumMap }),
+        metadata: extractKeys(treeItemsMetadata, { keysToKeep, keysToKeepArray, enumMap }),
     }
 
     const jsonTmpDir = path.join(__dirname, 'tmp')
@@ -505,6 +507,17 @@ function extractKeys(
                     result[key] = prop.initializer.text
                 } else if (ts.isNumericLiteral(prop.initializer)) {
                     result[key] = Number(prop.initializer.text)
+                } else if (ts.isPropertyAccessExpression(prop.initializer)) {
+                    // Set the escaped text by default
+                    result[key] = prop.initializer.name.escapedText
+
+                    // Attempt to set the resolved enum value if found
+                    if (enumMap) {
+                        const enumValue = resolveEnumValue(prop.initializer, enumMap)
+                        if (enumValue !== null) {
+                            result[key] = enumValue
+                        }
+                    }
                 } else if (ts.isArrayLiteralExpression(prop.initializer)) {
                     result[key] = prop.initializer.elements.map((e) => {
                         // Resolve enum values first

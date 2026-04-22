@@ -189,3 +189,6 @@ tools:
     persons-batch-by-uuids-create:
         operation: persons_batch_by_uuids_create
         enabled: false
+    persons-deletion-status-list:
+        operation: persons_deletion_status_list
+        enabled: false

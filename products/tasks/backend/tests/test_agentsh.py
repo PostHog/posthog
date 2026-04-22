@@ -1,3 +1,7 @@
+from typing import Any
+
+from unittest.mock import Mock
+
 from django.test import TestCase, override_settings
 
 import yaml
@@ -177,6 +181,7 @@ class TestModalSandboxAgentShWrapping(TestCase):
             task_id="test-task",
             run_id="test-run",
             mode="background",
+            create_pr=True,
         )
         self.assertNotIn("agentsh exec --client-timeout 2h --timeout 2h", cmd)
         self.assertNotIn("env -0 > /tmp/agent-env", cmd)
@@ -192,6 +197,7 @@ class TestModalSandboxAgentShWrapping(TestCase):
             task_id="test-task",
             run_id="test-run",
             mode="background",
+            create_pr=True,
             allowed_domains=["example.com", "api.example.com"],
         )
         self.assertIn("agentsh exec --client-timeout 2h --timeout 2h", cmd)
@@ -199,3 +205,47 @@ class TestModalSandboxAgentShWrapping(TestCase):
         self.assertIn(ENV_WRAPPER_SCRIPT, cmd)
         self.assertIn("--allowedDomains", cmd)
         self.assertIn("example.com,api.example.com", cmd)
+
+    def test_command_includes_runtime_environment_variables(self):
+        from products.tasks.backend.services.modal_sandbox import ModalSandbox
+
+        sandbox = ModalSandbox.__new__(ModalSandbox)
+        cmd = sandbox._build_agent_server_command(
+            repo_path="/tmp/workspace/repos/org/repo",
+            task_id="test-task",
+            run_id="test-run",
+            mode="background",
+            create_pr=True,
+            runtime_adapter="codex",
+            provider="openai",
+            model="gpt-5.3-codex",
+            reasoning_effort="high",
+        )
+        self.assertIn("POSTHOG_CODE_RUNTIME_ADAPTER=codex", cmd)
+        self.assertIn("POSTHOG_CODE_PROVIDER=openai", cmd)
+        self.assertIn("POSTHOG_CODE_MODEL=gpt-5.3-codex", cmd)
+        self.assertIn("POSTHOG_CODE_REASONING_EFFORT=high", cmd)
+
+    def test_write_file_uses_filesystem_api_before_rename(self):
+        from products.tasks.backend.services.modal_sandbox import ModalSandbox
+        from products.tasks.backend.services.sandbox import ExecutionResult, SandboxConfig
+
+        sandbox = ModalSandbox.__new__(ModalSandbox)
+        sandbox.id = "sb-123"
+        sandbox.config = SandboxConfig(name="test-sandbox")
+        sandbox_any = sandbox  # Help mypy treat test doubles as dynamic attributes.
+        cast_sandbox: Any = sandbox_any
+        cast_sandbox.is_running = Mock(return_value=True)
+        cast_sandbox.execute = Mock(return_value=ExecutionResult(stdout="", stderr="", exit_code=0, error=None))
+        cast_sandbox._sandbox = Mock()
+        cast_sandbox._sandbox.filesystem = Mock()
+
+        result = sandbox.write_file("/tmp/workspace/config.yaml", b"payload")
+
+        cast_sandbox._sandbox.filesystem.write_bytes.assert_called_once()
+        write_payload, write_path = cast_sandbox._sandbox.filesystem.write_bytes.call_args.args
+        self.assertTrue(write_path.startswith("/tmp/workspace/config.yaml.tmp-"))
+        self.assertEqual(write_payload, b"payload")
+        cast_sandbox.execute.assert_called_once()
+        self.assertIn("mv", cast_sandbox.execute.call_args.args[0])
+        self.assertEqual(result.exit_code, 0)
