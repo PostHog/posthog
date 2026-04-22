@@ -86,7 +86,13 @@ export class ApiClient {
         // TODO: should we move rate limiting from `fetchJson` to here?
         const defaultHeaders: HeadersInit = {
             Authorization: `Bearer ${this.config.apiToken}`,
-            'User-Agent': getUserAgent(this.config.clientUserAgent),
+            // The consumer self-identifier (`mcpConsumer`) is folded into the User-Agent as
+            // `<consumer>/<wrapped-client>` rather than forwarded as a separate header.
+            'User-Agent': getUserAgent({
+                clientUserAgent: this.config.clientUserAgent,
+                mcpConsumer: this.config.mcpConsumer,
+                mcpClientName: this.config.mcpClientName,
+            }),
             ...(this.config.clientUserAgent
                 ? {
                       // Forward the originating client's User-Agent as a custom header so the
@@ -101,7 +107,6 @@ export class ApiClient {
             ...(this.config.mcpProtocolVersion
                 ? { 'x-posthog-mcp-protocol-version': this.config.mcpProtocolVersion }
                 : {}),
-            ...(this.config.mcpConsumer ? { 'x-posthog-mcp-consumer': this.config.mcpConsumer } : {}),
             ...(this.config.oauthClientName ? { 'x-posthog-mcp-oauth-client-name': this.config.oauthClientName } : {}),
             'X-PostHog-Client': 'mcp',
         }

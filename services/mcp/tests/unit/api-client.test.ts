@@ -71,7 +71,7 @@ describe('ApiClient', () => {
         expect(options.headers).toEqual({
             Authorization: 'Bearer test-token-123',
             'Content-Type': 'application/json',
-            'User-Agent': getUserAgent('posthog/wizard 1.0.0'),
+            'User-Agent': getUserAgent({ clientUserAgent: 'posthog/wizard 1.0.0' }),
             'X-PostHog-Client': 'mcp',
             'x-posthog-mcp-user-agent': 'posthog/wizard 1.0.0',
         })
@@ -79,7 +79,7 @@ describe('ApiClient', () => {
         vi.unstubAllGlobals()
     })
 
-    it('should send x-posthog-mcp-consumer header when mcpConsumer is provided', async () => {
+    it('folds mcpConsumer and mcpClientName into the User-Agent as <consumer>/<client>', async () => {
         const mockFetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({}), { status: 200 }))
         vi.stubGlobal('fetch', mockFetch)
 
@@ -87,6 +87,7 @@ describe('ApiClient', () => {
             apiToken: 'test-token-123',
             baseUrl: 'https://example.com',
             mcpConsumer: 'posthog_code',
+            mcpClientName: 'claude-code',
         })
 
         await (client as any).fetch('https://example.com/api/test', {
@@ -96,13 +97,32 @@ describe('ApiClient', () => {
 
         expect(mockFetch).toHaveBeenCalledOnce()
         const [, options] = mockFetch.mock.calls[0]!
+        // No x-posthog-mcp-consumer header is sent — the consumer signal is folded into the UA.
         expect(options.headers).toEqual({
             Authorization: 'Bearer test-token-123',
             'Content-Type': 'application/json',
-            'User-Agent': USER_AGENT,
+            'User-Agent': `posthog_code/claude-code ${USER_AGENT}`,
             'X-PostHog-Client': 'mcp',
-            'x-posthog-mcp-consumer': 'posthog_code',
+            'x-posthog-mcp-client-name': 'claude-code',
         })
+
+        vi.unstubAllGlobals()
+    })
+
+    it('falls back to <consumer>/unknown when mcpClientName is missing', async () => {
+        const mockFetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({}), { status: 200 }))
+        vi.stubGlobal('fetch', mockFetch)
+
+        const client = new ApiClient({
+            apiToken: 'test-token-123',
+            baseUrl: 'https://example.com',
+            mcpConsumer: 'slack',
+        })
+
+        await (client as any).fetch('https://example.com/api/test', { method: 'GET' })
+
+        const [, options] = mockFetch.mock.calls[0]!
+        expect(options.headers['User-Agent']).toBe(`slack/unknown ${USER_AGENT}`)
 
         vi.unstubAllGlobals()
     })
