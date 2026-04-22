@@ -98,9 +98,6 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         self._pending_followup: Optional[str] = None
         self._ci_repetitions: int = 0
         self._last_active_time: Optional[datetime] = None
-        self._pr_event_received: bool = False
-        self._pr_event_time: Optional[datetime] = None
-        self._pr_waiting_since: Optional[datetime] = None
         self._pr_fingerprint: Optional[str] = None
 
     @property
@@ -192,9 +189,11 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         raise RuntimeError("No event was completed successfully")
 
     async def _should_run_ci_follow_up(self) -> bool:
-        pr_context = await workflow.start_activity(
+        pr_context = await workflow.execute_activity(
             get_pr_context,
             GetPrContextInput(context=self.context),
+            start_to_close_timeout=timedelta(minutes=5),
+            retry_policy=RetryPolicy(maximum_attempts=3),
         )
         if not pr_context:
             workflow.logger.info(
@@ -210,27 +209,23 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 pr_state=pr_context.pr_state,
             )
             return False
-        if pr_context.fingerprint:
-            if self._pr_fingerprint != pr_context.fingerprint:
-                workflow.logger.info(
-                    "PR context has changed, running CI follow-up",
-                    run_id=self.context.run_id,
-                    pr_url=pr_context.pr_url,
-                    pr_state=pr_context.pr_state,
-                )
-                self._pr_fingerprint = pr_context.fingerprint
-                return True
-            else:
-                workflow.logger.info(
-                    "PR context has not changed, skipping CI follow-up",
-                    run_id=self.context.run_id,
-                    pr_url=pr_context.pr_url,
-                    pr_state=pr_context.pr_state,
-                )
-                return False
-        else:
-            self._pr_fingerprint = pr_context.pr_url
+        if self._pr_fingerprint != pr_context.fingerprint:
+            workflow.logger.info(
+                "PR context has changed, running CI follow-up",
+                run_id=self.context.run_id,
+                pr_url=pr_context.pr_url,
+                pr_state=pr_context.pr_state,
+            )
+            self._pr_fingerprint = pr_context.fingerprint
             return True
+        else:
+            workflow.logger.info(
+                "PR context has not changed, skipping CI follow-up",
+                run_id=self.context.run_id,
+                pr_url=pr_context.pr_url,
+                pr_state=pr_context.pr_state,
+            )
+            return False
 
     @workflow.run
     async def run(self, input: ProcessTaskInput) -> ProcessTaskOutput:
