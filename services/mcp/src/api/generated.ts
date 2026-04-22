@@ -4623,6 +4623,8 @@ export namespace Schemas {
       experiment_id?: number | null;
       kind?: ExperimentQueryKind;
       metric: ExperimentMeanMetric | ExperimentFunnelMetric | ExperimentRatioMetric | ExperimentRetentionMetric;
+      /** @nullable */
+      metric_events_precomputation?: boolean | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
       /** @nullable */
@@ -5640,6 +5642,18 @@ export namespace Schemas {
     }
 
     /**
+     * * `trace` - trace
+    * `generation` - generation
+     */
+    export type AnalysisLevelEnum = typeof AnalysisLevelEnum[keyof typeof AnalysisLevelEnum];
+
+
+    export const AnalysisLevelEnum = {
+      Trace: 'trace',
+      Generation: 'generation',
+    } as const;
+
+    /**
      * * `USR` - user
     * `GIT` - GitHub
      */
@@ -5833,18 +5847,6 @@ export namespace Schemas {
       Linear: 'linear',
       TimeDecay: 'time_decay',
       PositionBased: 'position_based',
-    } as const;
-
-    /**
-     * * `api_key` - API Key
-    * `oauth` - OAuth
-     */
-    export type AuthType9cbEnum = typeof AuthType9cbEnum[keyof typeof AuthType9cbEnum];
-
-
-    export const AuthType9cbEnum = {
-      ApiKey: 'api_key',
-      Oauth: 'oauth',
     } as const;
 
     export interface UserBasicInfo {
@@ -6529,7 +6531,10 @@ export namespace Schemas {
       type: BatchExportDestinationTypeEnum;
       /** A JSON field to store all configuration parameters required to access a BatchExportDestination. */
       config?: unknown;
-      /** @nullable */
+      /**
+       * The integration for this destination.
+       * @nullable
+       */
       integration?: number | null;
       /** @nullable */
       integration_id?: number | null;
@@ -7445,8 +7450,6 @@ export namespace Schemas {
      * * `slack_channel_message` - Channel message
     * `slack_bot_mention` - Bot mention
     * `slack_emoji_reaction` - Emoji reaction
-    * `teams_channel_message` - Teams channel message
-    * `teams_bot_mention` - Teams bot mention
     * `widget_embedded` - Widget
     * `widget_api` - API
      */
@@ -7457,8 +7460,6 @@ export namespace Schemas {
       SlackChannelMessage: 'slack_channel_message',
       SlackBotMention: 'slack_bot_mention',
       SlackEmojiReaction: 'slack_emoji_reaction',
-      TeamsChannelMessage: 'teams_channel_message',
-      TeamsBotMention: 'teams_bot_mention',
       WidgetEmbedded: 'widget_embedded',
       WidgetApi: 'widget_api',
     } as const;
@@ -7467,7 +7468,6 @@ export namespace Schemas {
      * * `widget` - Widget
     * `email` - Email
     * `slack` - Slack
-    * `teams` - Microsoft Teams
      */
     export type ChannelSourceEnum = typeof ChannelSourceEnum[keyof typeof ChannelSourceEnum];
 
@@ -7476,7 +7476,6 @@ export namespace Schemas {
       Widget: 'widget',
       Email: 'email',
       Slack: 'slack',
-      Teams: 'teams',
     } as const;
 
     export type DisplayType = typeof DisplayType[keyof typeof DisplayType];
@@ -7852,25 +7851,11 @@ export namespace Schemas {
       readonly elements_chain: string;
     }
 
-    /**
-     * * `trace` - trace
-    * `generation` - generation
-    * `evaluation` - evaluation
-     */
-    export type ClusteringJobAnalysisLevelEnum = typeof ClusteringJobAnalysisLevelEnum[keyof typeof ClusteringJobAnalysisLevelEnum];
-
-
-    export const ClusteringJobAnalysisLevelEnum = {
-      Trace: 'trace',
-      Generation: 'generation',
-      Evaluation: 'evaluation',
-    } as const;
-
     export interface ClusteringJob {
       readonly id: string;
       /** @maxLength 100 */
       name: string;
-      analysis_level: ClusteringJobAnalysisLevelEnum;
+      analysis_level: AnalysisLevelEnum;
       event_filters?: unknown;
       enabled?: boolean;
       readonly created_at: string;
@@ -8657,11 +8642,6 @@ export namespace Schemas {
       Number2: 2,
     } as const;
 
-    export interface CopyDashboardTemplate {
-      /** UUID of a team-scoped template in the same organization. Global and feature-flag templates cannot be copied with this endpoint. */
-      source_template_id: string;
-    }
-
     export interface CopyDashboardTileRequest {
       /** Dashboard id the tile currently belongs to. */
       fromDashboardId: number;
@@ -8804,17 +8784,32 @@ export namespace Schemas {
     * `DPA` - DPA */
       document_type: DocumentTypeEnum;
       /**
-       * The customer legal entity entering the agreement (PandaDoc's Client.Company).
+       * The customer legal entity entering the agreement.
        * @maxLength 255
        */
       company_name: string;
       /**
-       * The customer address (PandaDoc's Client.StreetAddress).
+       * Customer address. Required for DPAs; ignored for BAAs.
        * @maxLength 512
        */
-      company_address: string;
-      /** Email the signed PandaDoc envelope is sent to (PandaDoc's Client.Email). */
+      company_address?: string;
+      /**
+       * Name of the signer at the customer.
+       * @maxLength 255
+       */
+      representative_name: string;
+      /**
+       * Title of the signer at the customer.
+       * @maxLength 255
+       */
+      representative_title: string;
+      /** Email the signed PandaDoc envelope is sent to. */
       representative_email: string;
+      /**
+       * DPA style: 'pretty' or 'lawyer' for submittable versions. 'fairytale' and 'tswift' are preview-only on posthog.com and are not accepted by the API.
+       * @maxLength 16
+       */
+      dpa_mode?: string;
     }
 
     /**
@@ -13456,6 +13451,453 @@ export namespace Schemas {
       version?: number | null;
     }
 
+    /**
+     * * `Ashby` - Ashby
+    * `Supabase` - Supabase
+    * `CustomerIO` - CustomerIO
+    * `Github` - Github
+    * `Stripe` - Stripe
+    * `Hubspot` - Hubspot
+    * `Postgres` - Postgres
+    * `Zendesk` - Zendesk
+    * `Snowflake` - Snowflake
+    * `Salesforce` - Salesforce
+    * `MySQL` - MySQL
+    * `MongoDB` - MongoDB
+    * `MSSQL` - MSSQL
+    * `Vitally` - Vitally
+    * `BigQuery` - BigQuery
+    * `Chargebee` - Chargebee
+    * `Clerk` - Clerk
+    * `GoogleAds` - GoogleAds
+    * `TemporalIO` - TemporalIO
+    * `DoIt` - DoIt
+    * `GoogleSheets` - GoogleSheets
+    * `MetaAds` - MetaAds
+    * `Klaviyo` - Klaviyo
+    * `Mailchimp` - Mailchimp
+    * `Braze` - Braze
+    * `Mailjet` - Mailjet
+    * `Redshift` - Redshift
+    * `Polar` - Polar
+    * `RevenueCat` - RevenueCat
+    * `LinkedinAds` - LinkedinAds
+    * `RedditAds` - RedditAds
+    * `TikTokAds` - TikTokAds
+    * `BingAds` - BingAds
+    * `Shopify` - Shopify
+    * `Attio` - Attio
+    * `SnapchatAds` - SnapchatAds
+    * `Linear` - Linear
+    * `Intercom` - Intercom
+    * `Amplitude` - Amplitude
+    * `Mixpanel` - Mixpanel
+    * `Jira` - Jira
+    * `ActiveCampaign` - ActiveCampaign
+    * `Marketo` - Marketo
+    * `Adjust` - Adjust
+    * `AppsFlyer` - AppsFlyer
+    * `Freshdesk` - Freshdesk
+    * `GoogleAnalytics` - GoogleAnalytics
+    * `Pipedrive` - Pipedrive
+    * `SendGrid` - SendGrid
+    * `Slack` - Slack
+    * `PagerDuty` - PagerDuty
+    * `Asana` - Asana
+    * `Notion` - Notion
+    * `Airtable` - Airtable
+    * `Greenhouse` - Greenhouse
+    * `BambooHR` - BambooHR
+    * `Lever` - Lever
+    * `GitLab` - GitLab
+    * `Datadog` - Datadog
+    * `Sentry` - Sentry
+    * `Pendo` - Pendo
+    * `FullStory` - FullStory
+    * `AmazonAds` - AmazonAds
+    * `PinterestAds` - PinterestAds
+    * `AppleSearchAds` - AppleSearchAds
+    * `QuickBooks` - QuickBooks
+    * `Xero` - Xero
+    * `NetSuite` - NetSuite
+    * `WooCommerce` - WooCommerce
+    * `BigCommerce` - BigCommerce
+    * `PayPal` - PayPal
+    * `Square` - Square
+    * `Zoom` - Zoom
+    * `Trello` - Trello
+    * `Monday` - Monday
+    * `ClickUp` - ClickUp
+    * `Confluence` - Confluence
+    * `Recurly` - Recurly
+    * `SalesLoft` - SalesLoft
+    * `Outreach` - Outreach
+    * `Gong` - Gong
+    * `Calendly` - Calendly
+    * `Typeform` - Typeform
+    * `Iterable` - Iterable
+    * `ZohoCRM` - ZohoCRM
+    * `Close` - Close
+    * `Oracle` - Oracle
+    * `DynamoDB` - DynamoDB
+    * `Elasticsearch` - Elasticsearch
+    * `Kafka` - Kafka
+    * `LaunchDarkly` - LaunchDarkly
+    * `Braintree` - Braintree
+    * `Recharge` - Recharge
+    * `HelpScout` - HelpScout
+    * `Gorgias` - Gorgias
+    * `Instagram` - Instagram
+    * `YouTubeAnalytics` - YouTubeAnalytics
+    * `FacebookPages` - FacebookPages
+    * `TwitterAds` - TwitterAds
+    * `Workday` - Workday
+    * `ServiceNow` - ServiceNow
+    * `Pardot` - Pardot
+    * `Copper` - Copper
+    * `Front` - Front
+    * `ChartMogul` - ChartMogul
+    * `Zuora` - Zuora
+    * `Paddle` - Paddle
+    * `CircleCI` - CircleCI
+    * `CockroachDB` - CockroachDB
+    * `Firebase` - Firebase
+    * `AzureBlob` - AzureBlob
+    * `GoogleDrive` - GoogleDrive
+    * `OneDrive` - OneDrive
+    * `SharePoint` - SharePoint
+    * `Box` - Box
+    * `SFTP` - SFTP
+    * `MicrosoftTeams` - MicrosoftTeams
+    * `Aircall` - Aircall
+    * `Webflow` - Webflow
+    * `Okta` - Okta
+    * `Auth0` - Auth0
+    * `Productboard` - Productboard
+    * `Smartsheet` - Smartsheet
+    * `Wrike` - Wrike
+    * `Plaid` - Plaid
+    * `SurveyMonkey` - SurveyMonkey
+    * `Eventbrite` - Eventbrite
+    * `RingCentral` - RingCentral
+    * `Twilio` - Twilio
+    * `Freshsales` - Freshsales
+    * `Shortcut` - Shortcut
+    * `ConvertKit` - ConvertKit
+    * `Drip` - Drip
+    * `CampaignMonitor` - CampaignMonitor
+    * `MailerLite` - MailerLite
+    * `Omnisend` - Omnisend
+    * `Brevo` - Brevo
+    * `Postmark` - Postmark
+    * `Granola` - Granola
+    * `BuildBetter` - BuildBetter
+    * `Convex` - Convex
+    * `ClickHouse` - ClickHouse
+     */
+    export type SourceTypeF0aEnum = typeof SourceTypeF0aEnum[keyof typeof SourceTypeF0aEnum];
+
+
+    export const SourceTypeF0aEnum = {
+      Ashby: 'Ashby',
+      Supabase: 'Supabase',
+      CustomerIO: 'CustomerIO',
+      Github: 'Github',
+      Stripe: 'Stripe',
+      Hubspot: 'Hubspot',
+      Postgres: 'Postgres',
+      Zendesk: 'Zendesk',
+      Snowflake: 'Snowflake',
+      Salesforce: 'Salesforce',
+      MySQL: 'MySQL',
+      MongoDB: 'MongoDB',
+      Mssql: 'MSSQL',
+      Vitally: 'Vitally',
+      BigQuery: 'BigQuery',
+      Chargebee: 'Chargebee',
+      Clerk: 'Clerk',
+      GoogleAds: 'GoogleAds',
+      TemporalIO: 'TemporalIO',
+      DoIt: 'DoIt',
+      GoogleSheets: 'GoogleSheets',
+      MetaAds: 'MetaAds',
+      Klaviyo: 'Klaviyo',
+      Mailchimp: 'Mailchimp',
+      Braze: 'Braze',
+      Mailjet: 'Mailjet',
+      Redshift: 'Redshift',
+      Polar: 'Polar',
+      RevenueCat: 'RevenueCat',
+      LinkedinAds: 'LinkedinAds',
+      RedditAds: 'RedditAds',
+      TikTokAds: 'TikTokAds',
+      BingAds: 'BingAds',
+      Shopify: 'Shopify',
+      Attio: 'Attio',
+      SnapchatAds: 'SnapchatAds',
+      Linear: 'Linear',
+      Intercom: 'Intercom',
+      Amplitude: 'Amplitude',
+      Mixpanel: 'Mixpanel',
+      Jira: 'Jira',
+      ActiveCampaign: 'ActiveCampaign',
+      Marketo: 'Marketo',
+      Adjust: 'Adjust',
+      AppsFlyer: 'AppsFlyer',
+      Freshdesk: 'Freshdesk',
+      GoogleAnalytics: 'GoogleAnalytics',
+      Pipedrive: 'Pipedrive',
+      SendGrid: 'SendGrid',
+      Slack: 'Slack',
+      PagerDuty: 'PagerDuty',
+      Asana: 'Asana',
+      Notion: 'Notion',
+      Airtable: 'Airtable',
+      Greenhouse: 'Greenhouse',
+      BambooHR: 'BambooHR',
+      Lever: 'Lever',
+      GitLab: 'GitLab',
+      Datadog: 'Datadog',
+      Sentry: 'Sentry',
+      Pendo: 'Pendo',
+      FullStory: 'FullStory',
+      AmazonAds: 'AmazonAds',
+      PinterestAds: 'PinterestAds',
+      AppleSearchAds: 'AppleSearchAds',
+      QuickBooks: 'QuickBooks',
+      Xero: 'Xero',
+      NetSuite: 'NetSuite',
+      WooCommerce: 'WooCommerce',
+      BigCommerce: 'BigCommerce',
+      PayPal: 'PayPal',
+      Square: 'Square',
+      Zoom: 'Zoom',
+      Trello: 'Trello',
+      Monday: 'Monday',
+      ClickUp: 'ClickUp',
+      Confluence: 'Confluence',
+      Recurly: 'Recurly',
+      SalesLoft: 'SalesLoft',
+      Outreach: 'Outreach',
+      Gong: 'Gong',
+      Calendly: 'Calendly',
+      Typeform: 'Typeform',
+      Iterable: 'Iterable',
+      ZohoCRM: 'ZohoCRM',
+      Close: 'Close',
+      Oracle: 'Oracle',
+      DynamoDB: 'DynamoDB',
+      Elasticsearch: 'Elasticsearch',
+      Kafka: 'Kafka',
+      LaunchDarkly: 'LaunchDarkly',
+      Braintree: 'Braintree',
+      Recharge: 'Recharge',
+      HelpScout: 'HelpScout',
+      Gorgias: 'Gorgias',
+      Instagram: 'Instagram',
+      YouTubeAnalytics: 'YouTubeAnalytics',
+      FacebookPages: 'FacebookPages',
+      TwitterAds: 'TwitterAds',
+      Workday: 'Workday',
+      ServiceNow: 'ServiceNow',
+      Pardot: 'Pardot',
+      Copper: 'Copper',
+      Front: 'Front',
+      ChartMogul: 'ChartMogul',
+      Zuora: 'Zuora',
+      Paddle: 'Paddle',
+      CircleCI: 'CircleCI',
+      CockroachDB: 'CockroachDB',
+      Firebase: 'Firebase',
+      AzureBlob: 'AzureBlob',
+      GoogleDrive: 'GoogleDrive',
+      OneDrive: 'OneDrive',
+      SharePoint: 'SharePoint',
+      Box: 'Box',
+      Sftp: 'SFTP',
+      MicrosoftTeams: 'MicrosoftTeams',
+      Aircall: 'Aircall',
+      Webflow: 'Webflow',
+      Okta: 'Okta',
+      Auth0: 'Auth0',
+      Productboard: 'Productboard',
+      Smartsheet: 'Smartsheet',
+      Wrike: 'Wrike',
+      Plaid: 'Plaid',
+      SurveyMonkey: 'SurveyMonkey',
+      Eventbrite: 'Eventbrite',
+      RingCentral: 'RingCentral',
+      Twilio: 'Twilio',
+      Freshsales: 'Freshsales',
+      Shortcut: 'Shortcut',
+      ConvertKit: 'ConvertKit',
+      Drip: 'Drip',
+      CampaignMonitor: 'CampaignMonitor',
+      MailerLite: 'MailerLite',
+      Omnisend: 'Omnisend',
+      Brevo: 'Brevo',
+      Postmark: 'Postmark',
+      Granola: 'Granola',
+      BuildBetter: 'BuildBetter',
+      Convex: 'Convex',
+      ClickHouse: 'ClickHouse',
+    } as const;
+
+    /**
+     * Validate credentials and preview available tables from a remote database.
+
+    The request body contains source_type plus flat source-specific credential fields
+    (e.g. host, port, database, user, password, schema for Postgres). The credential
+    fields vary per source_type and are validated dynamically by the source registry.
+     */
+    export interface DatabaseSchemaRequest {
+      /** The source type to validate against.
+
+    * `Ashby` - Ashby
+    * `Supabase` - Supabase
+    * `CustomerIO` - CustomerIO
+    * `Github` - Github
+    * `Stripe` - Stripe
+    * `Hubspot` - Hubspot
+    * `Postgres` - Postgres
+    * `Zendesk` - Zendesk
+    * `Snowflake` - Snowflake
+    * `Salesforce` - Salesforce
+    * `MySQL` - MySQL
+    * `MongoDB` - MongoDB
+    * `MSSQL` - MSSQL
+    * `Vitally` - Vitally
+    * `BigQuery` - BigQuery
+    * `Chargebee` - Chargebee
+    * `Clerk` - Clerk
+    * `GoogleAds` - GoogleAds
+    * `TemporalIO` - TemporalIO
+    * `DoIt` - DoIt
+    * `GoogleSheets` - GoogleSheets
+    * `MetaAds` - MetaAds
+    * `Klaviyo` - Klaviyo
+    * `Mailchimp` - Mailchimp
+    * `Braze` - Braze
+    * `Mailjet` - Mailjet
+    * `Redshift` - Redshift
+    * `Polar` - Polar
+    * `RevenueCat` - RevenueCat
+    * `LinkedinAds` - LinkedinAds
+    * `RedditAds` - RedditAds
+    * `TikTokAds` - TikTokAds
+    * `BingAds` - BingAds
+    * `Shopify` - Shopify
+    * `Attio` - Attio
+    * `SnapchatAds` - SnapchatAds
+    * `Linear` - Linear
+    * `Intercom` - Intercom
+    * `Amplitude` - Amplitude
+    * `Mixpanel` - Mixpanel
+    * `Jira` - Jira
+    * `ActiveCampaign` - ActiveCampaign
+    * `Marketo` - Marketo
+    * `Adjust` - Adjust
+    * `AppsFlyer` - AppsFlyer
+    * `Freshdesk` - Freshdesk
+    * `GoogleAnalytics` - GoogleAnalytics
+    * `Pipedrive` - Pipedrive
+    * `SendGrid` - SendGrid
+    * `Slack` - Slack
+    * `PagerDuty` - PagerDuty
+    * `Asana` - Asana
+    * `Notion` - Notion
+    * `Airtable` - Airtable
+    * `Greenhouse` - Greenhouse
+    * `BambooHR` - BambooHR
+    * `Lever` - Lever
+    * `GitLab` - GitLab
+    * `Datadog` - Datadog
+    * `Sentry` - Sentry
+    * `Pendo` - Pendo
+    * `FullStory` - FullStory
+    * `AmazonAds` - AmazonAds
+    * `PinterestAds` - PinterestAds
+    * `AppleSearchAds` - AppleSearchAds
+    * `QuickBooks` - QuickBooks
+    * `Xero` - Xero
+    * `NetSuite` - NetSuite
+    * `WooCommerce` - WooCommerce
+    * `BigCommerce` - BigCommerce
+    * `PayPal` - PayPal
+    * `Square` - Square
+    * `Zoom` - Zoom
+    * `Trello` - Trello
+    * `Monday` - Monday
+    * `ClickUp` - ClickUp
+    * `Confluence` - Confluence
+    * `Recurly` - Recurly
+    * `SalesLoft` - SalesLoft
+    * `Outreach` - Outreach
+    * `Gong` - Gong
+    * `Calendly` - Calendly
+    * `Typeform` - Typeform
+    * `Iterable` - Iterable
+    * `ZohoCRM` - ZohoCRM
+    * `Close` - Close
+    * `Oracle` - Oracle
+    * `DynamoDB` - DynamoDB
+    * `Elasticsearch` - Elasticsearch
+    * `Kafka` - Kafka
+    * `LaunchDarkly` - LaunchDarkly
+    * `Braintree` - Braintree
+    * `Recharge` - Recharge
+    * `HelpScout` - HelpScout
+    * `Gorgias` - Gorgias
+    * `Instagram` - Instagram
+    * `YouTubeAnalytics` - YouTubeAnalytics
+    * `FacebookPages` - FacebookPages
+    * `TwitterAds` - TwitterAds
+    * `Workday` - Workday
+    * `ServiceNow` - ServiceNow
+    * `Pardot` - Pardot
+    * `Copper` - Copper
+    * `Front` - Front
+    * `ChartMogul` - ChartMogul
+    * `Zuora` - Zuora
+    * `Paddle` - Paddle
+    * `CircleCI` - CircleCI
+    * `CockroachDB` - CockroachDB
+    * `Firebase` - Firebase
+    * `AzureBlob` - AzureBlob
+    * `GoogleDrive` - GoogleDrive
+    * `OneDrive` - OneDrive
+    * `SharePoint` - SharePoint
+    * `Box` - Box
+    * `SFTP` - SFTP
+    * `MicrosoftTeams` - MicrosoftTeams
+    * `Aircall` - Aircall
+    * `Webflow` - Webflow
+    * `Okta` - Okta
+    * `Auth0` - Auth0
+    * `Productboard` - Productboard
+    * `Smartsheet` - Smartsheet
+    * `Wrike` - Wrike
+    * `Plaid` - Plaid
+    * `SurveyMonkey` - SurveyMonkey
+    * `Eventbrite` - Eventbrite
+    * `RingCentral` - RingCentral
+    * `Twilio` - Twilio
+    * `Freshsales` - Freshsales
+    * `Shortcut` - Shortcut
+    * `ConvertKit` - ConvertKit
+    * `Drip` - Drip
+    * `CampaignMonitor` - CampaignMonitor
+    * `MailerLite` - MailerLite
+    * `Omnisend` - Omnisend
+    * `Brevo` - Brevo
+    * `Postmark` - Postmark
+    * `Granola` - Granola
+    * `BuildBetter` - BuildBetter
+    * `Convex` - Convex
+    * `ClickHouse` - ClickHouse */
+      source_type: SourceTypeF0aEnum;
+    }
+
     export interface Dataset {
       readonly id: string;
       /** @maxLength 400 */
@@ -16103,6 +16545,13 @@ export namespace Schemas {
      */
     export type ExternalDataSchemaTable = {[key: string]: unknown} | null | null;
 
+    /**
+     * * `full_refresh` - full_refresh
+    * `incremental` - incremental
+    * `append` - append
+    * `webhook` - webhook
+    * `cdc` - cdc
+     */
     export type SyncTypeEnum = typeof SyncTypeEnum[keyof typeof SyncTypeEnum];
 
 
@@ -16112,6 +16561,56 @@ export namespace Schemas {
       Append: 'append',
       Webhook: 'webhook',
       Cdc: 'cdc',
+    } as const;
+
+    /**
+     * * `integer` - integer
+    * `numeric` - numeric
+    * `datetime` - datetime
+    * `date` - date
+    * `timestamp` - timestamp
+    * `objectid` - objectid
+     */
+    export type IncrementalFieldTypeEnum = typeof IncrementalFieldTypeEnum[keyof typeof IncrementalFieldTypeEnum];
+
+
+    export const IncrementalFieldTypeEnum = {
+      Integer: 'integer',
+      Numeric: 'numeric',
+      Datetime: 'datetime',
+      Date: 'date',
+      Timestamp: 'timestamp',
+      Objectid: 'objectid',
+    } as const;
+
+    /**
+     * * `never` - never
+    * `1min` - 1min
+    * `5min` - 5min
+    * `15min` - 15min
+    * `30min` - 30min
+    * `1hour` - 1hour
+    * `6hour` - 6hour
+    * `12hour` - 12hour
+    * `24hour` - 24hour
+    * `7day` - 7day
+    * `30day` - 30day
+     */
+    export type SyncFrequencyEnum = typeof SyncFrequencyEnum[keyof typeof SyncFrequencyEnum];
+
+
+    export const SyncFrequencyEnum = {
+      Never: 'never',
+      '1min': '1min',
+      '5min': '5min',
+      '15min': '15min',
+      '30min': '30min',
+      '1hour': '1hour',
+      '6hour': '6hour',
+      '12hour': '12hour',
+      '24hour': '24hour',
+      '7day': '7day',
+      '30day': '30day',
     } as const;
 
     export interface ExternalDataSchema {
@@ -16132,20 +16631,60 @@ export namespace Schemas {
       readonly incremental: boolean;
       /** @nullable */
       readonly status: string | null;
-      readonly sync_type: SyncTypeEnum | null;
-      /** @nullable */
-      readonly incremental_field: string | null;
-      /** @nullable */
-      readonly incremental_field_type: string | null;
-      /** @nullable */
-      readonly sync_frequency: string | null;
-      /** @nullable */
-      readonly sync_time_of_day: string | null;
+      /** Sync strategy: incremental, full_refresh, append, or cdc.
+
+    * `full_refresh` - full_refresh
+    * `incremental` - incremental
+    * `append` - append
+    * `webhook` - webhook
+    * `cdc` - cdc */
+      sync_type?: SyncTypeEnum | NullEnum | null;
+      /**
+       * Column name used to track sync progress.
+       * @nullable
+       */
+      incremental_field?: string | null;
+      /** Data type of the incremental field.
+
+    * `integer` - integer
+    * `numeric` - numeric
+    * `datetime` - datetime
+    * `date` - date
+    * `timestamp` - timestamp
+    * `objectid` - objectid */
+      incremental_field_type?: IncrementalFieldTypeEnum | NullEnum | null;
+      /** How often to sync.
+
+    * `never` - never
+    * `1min` - 1min
+    * `5min` - 5min
+    * `15min` - 15min
+    * `30min` - 30min
+    * `1hour` - 1hour
+    * `6hour` - 6hour
+    * `12hour` - 12hour
+    * `24hour` - 24hour
+    * `7day` - 7day
+    * `30day` - 30day */
+      sync_frequency?: SyncFrequencyEnum | NullEnum | null;
+      /**
+       * UTC time of day to run the sync (HH:MM:SS).
+       * @nullable
+       */
+      sync_time_of_day?: string | null;
       /** @nullable */
       readonly description: string | null;
-      /** @nullable */
-      readonly primary_key_columns: readonly string[] | null;
-      readonly cdc_table_mode: CdcTableModeEnum;
+      /**
+       * Column names for primary key deduplication.
+       * @nullable
+       */
+      primary_key_columns?: string[] | null;
+      /** For CDC syncs: consolidated, cdc_only, or both.
+
+    * `consolidated` - consolidated
+    * `cdc_only` - cdc_only
+    * `both` - both */
+      cdc_table_mode?: CdcTableModeEnum | NullEnum | null;
     }
 
     export interface ExternalDataSourceBulkUpdateSchema {
@@ -16200,15 +16739,15 @@ export namespace Schemas {
       readonly engine: EngineEnum | NullEnum | null;
     }
 
-    export interface ExternalDataSourceRevenueAnalyticsConfig {
-      enabled?: boolean;
-      include_invoiceless_charges?: boolean;
-    }
-
-    export type ExternalDataSourceSerializersSchemasItem = {[key: string]: unknown};
-
     /**
-     * * `Ashby` - Ashby
+     * Connection credentials and a 'schemas' array. Keys depend on source_type.
+     */
+    export type ExternalDataSourceCreatePayload = {[key: string]: unknown};
+
+    export interface ExternalDataSourceCreate {
+      /** The source type (e.g. 'Postgres', 'Stripe').
+
+    * `Ashby` - Ashby
     * `Supabase` - Supabase
     * `CustomerIO` - CustomerIO
     * `Github` - Github
@@ -16349,157 +16888,33 @@ export namespace Schemas {
     * `Granola` - Granola
     * `BuildBetter` - BuildBetter
     * `Convex` - Convex
-    * `ClickHouse` - ClickHouse
-    * `Plain` - Plain
-     */
-    export type SourceTypeEe8Enum = typeof SourceTypeEe8Enum[keyof typeof SourceTypeEe8Enum];
+    * `ClickHouse` - ClickHouse */
+      source_type: SourceTypeF0aEnum;
+      /** Connection credentials and a 'schemas' array. Keys depend on source_type. */
+      payload: ExternalDataSourceCreatePayload;
+      /**
+       * Table name prefix in HogQL.
+       * @nullable
+       */
+      prefix?: string | null;
+      /**
+       * Human-readable description.
+       * @nullable
+       */
+      description?: string | null;
+      /** Connection mode: 'warehouse' (import) or 'direct' (live query).
 
+    * `warehouse` - warehouse
+    * `direct` - direct */
+      access_method?: AccessMethodEnum;
+    }
 
-    export const SourceTypeEe8Enum = {
-      Ashby: 'Ashby',
-      Supabase: 'Supabase',
-      CustomerIO: 'CustomerIO',
-      Github: 'Github',
-      Stripe: 'Stripe',
-      Hubspot: 'Hubspot',
-      Postgres: 'Postgres',
-      Zendesk: 'Zendesk',
-      Snowflake: 'Snowflake',
-      Salesforce: 'Salesforce',
-      MySQL: 'MySQL',
-      MongoDB: 'MongoDB',
-      Mssql: 'MSSQL',
-      Vitally: 'Vitally',
-      BigQuery: 'BigQuery',
-      Chargebee: 'Chargebee',
-      Clerk: 'Clerk',
-      GoogleAds: 'GoogleAds',
-      TemporalIO: 'TemporalIO',
-      DoIt: 'DoIt',
-      GoogleSheets: 'GoogleSheets',
-      MetaAds: 'MetaAds',
-      Klaviyo: 'Klaviyo',
-      Mailchimp: 'Mailchimp',
-      Braze: 'Braze',
-      Mailjet: 'Mailjet',
-      Redshift: 'Redshift',
-      Polar: 'Polar',
-      RevenueCat: 'RevenueCat',
-      LinkedinAds: 'LinkedinAds',
-      RedditAds: 'RedditAds',
-      TikTokAds: 'TikTokAds',
-      BingAds: 'BingAds',
-      Shopify: 'Shopify',
-      Attio: 'Attio',
-      SnapchatAds: 'SnapchatAds',
-      Linear: 'Linear',
-      Intercom: 'Intercom',
-      Amplitude: 'Amplitude',
-      Mixpanel: 'Mixpanel',
-      Jira: 'Jira',
-      ActiveCampaign: 'ActiveCampaign',
-      Marketo: 'Marketo',
-      Adjust: 'Adjust',
-      AppsFlyer: 'AppsFlyer',
-      Freshdesk: 'Freshdesk',
-      GoogleAnalytics: 'GoogleAnalytics',
-      Pipedrive: 'Pipedrive',
-      SendGrid: 'SendGrid',
-      Slack: 'Slack',
-      PagerDuty: 'PagerDuty',
-      Asana: 'Asana',
-      Notion: 'Notion',
-      Airtable: 'Airtable',
-      Greenhouse: 'Greenhouse',
-      BambooHR: 'BambooHR',
-      Lever: 'Lever',
-      GitLab: 'GitLab',
-      Datadog: 'Datadog',
-      Sentry: 'Sentry',
-      Pendo: 'Pendo',
-      FullStory: 'FullStory',
-      AmazonAds: 'AmazonAds',
-      PinterestAds: 'PinterestAds',
-      AppleSearchAds: 'AppleSearchAds',
-      QuickBooks: 'QuickBooks',
-      Xero: 'Xero',
-      NetSuite: 'NetSuite',
-      WooCommerce: 'WooCommerce',
-      BigCommerce: 'BigCommerce',
-      PayPal: 'PayPal',
-      Square: 'Square',
-      Zoom: 'Zoom',
-      Trello: 'Trello',
-      Monday: 'Monday',
-      ClickUp: 'ClickUp',
-      Confluence: 'Confluence',
-      Recurly: 'Recurly',
-      SalesLoft: 'SalesLoft',
-      Outreach: 'Outreach',
-      Gong: 'Gong',
-      Calendly: 'Calendly',
-      Typeform: 'Typeform',
-      Iterable: 'Iterable',
-      ZohoCRM: 'ZohoCRM',
-      Close: 'Close',
-      Oracle: 'Oracle',
-      DynamoDB: 'DynamoDB',
-      Elasticsearch: 'Elasticsearch',
-      Kafka: 'Kafka',
-      LaunchDarkly: 'LaunchDarkly',
-      Braintree: 'Braintree',
-      Recharge: 'Recharge',
-      HelpScout: 'HelpScout',
-      Gorgias: 'Gorgias',
-      Instagram: 'Instagram',
-      YouTubeAnalytics: 'YouTubeAnalytics',
-      FacebookPages: 'FacebookPages',
-      TwitterAds: 'TwitterAds',
-      Workday: 'Workday',
-      ServiceNow: 'ServiceNow',
-      Pardot: 'Pardot',
-      Copper: 'Copper',
-      Front: 'Front',
-      ChartMogul: 'ChartMogul',
-      Zuora: 'Zuora',
-      Paddle: 'Paddle',
-      CircleCI: 'CircleCI',
-      CockroachDB: 'CockroachDB',
-      Firebase: 'Firebase',
-      AzureBlob: 'AzureBlob',
-      GoogleDrive: 'GoogleDrive',
-      OneDrive: 'OneDrive',
-      SharePoint: 'SharePoint',
-      Box: 'Box',
-      Sftp: 'SFTP',
-      MicrosoftTeams: 'MicrosoftTeams',
-      Aircall: 'Aircall',
-      Webflow: 'Webflow',
-      Okta: 'Okta',
-      Auth0: 'Auth0',
-      Productboard: 'Productboard',
-      Smartsheet: 'Smartsheet',
-      Wrike: 'Wrike',
-      Plaid: 'Plaid',
-      SurveyMonkey: 'SurveyMonkey',
-      Eventbrite: 'Eventbrite',
-      RingCentral: 'RingCentral',
-      Twilio: 'Twilio',
-      Freshsales: 'Freshsales',
-      Shortcut: 'Shortcut',
-      ConvertKit: 'ConvertKit',
-      Drip: 'Drip',
-      CampaignMonitor: 'CampaignMonitor',
-      MailerLite: 'MailerLite',
-      Omnisend: 'Omnisend',
-      Brevo: 'Brevo',
-      Postmark: 'Postmark',
-      Granola: 'Granola',
-      BuildBetter: 'BuildBetter',
-      Convex: 'Convex',
-      ClickHouse: 'ClickHouse',
-      Plain: 'Plain',
-    } as const;
+    export interface ExternalDataSourceRevenueAnalyticsConfig {
+      enabled?: boolean;
+      include_invoiceless_charges?: boolean;
+    }
+
+    export type ExternalDataSourceSerializersSchemasItem = {[key: string]: unknown};
 
     /**
      * Mixin for serializers to add user access control fields
@@ -16512,7 +16927,7 @@ export namespace Schemas {
       readonly status: string;
       client_secret: string;
       account_id: string;
-      readonly source_type: SourceTypeEe8Enum;
+      readonly source_type: SourceTypeF0aEnum;
       /** @nullable */
       readonly latest_error: string | null;
       /**
@@ -17222,11 +17637,6 @@ export namespace Schemas {
       full_name: string;
     }
 
-    export interface GitHubReposRefreshResponse {
-      /** The refreshed repository cache. */
-      repositories: GitHubRepo[];
-    }
-
     export interface GitHubReposResponse {
       repositories: GitHubRepo[];
       /** Whether more repositories are available beyond this page. */
@@ -17308,18 +17718,6 @@ export namespace Schemas {
       Sparkline: 'sparkline',
     } as const;
 
-    /**
-     * * `count` - count
-    * `sum` - sum
-     */
-    export type MathEnum = typeof MathEnum[keyof typeof MathEnum];
-
-
-    export const MathEnum = {
-      Count: 'count',
-      Sum: 'sum',
-    } as const;
-
     export interface GroupUsageMetric {
       readonly id: string;
       /** @maxLength 255 */
@@ -17333,12 +17731,6 @@ export namespace Schemas {
       interval?: number;
       display?: GroupUsageMetricDisplayEnum;
       filters: unknown;
-      math?: MathEnum;
-      /**
-       * @maxLength 255
-       * @nullable
-       */
-      math_property?: string | null;
     }
 
     /**
@@ -19781,36 +20173,16 @@ export namespace Schemas {
     } as const;
 
     export interface InsightVariable {
-      /** UUID of the SQL variable. */
       readonly id: string;
-      /**
-       * Human-readable name for the SQL variable.
-       * @maxLength 400
-       */
+      /** @maxLength 400 */
       name: string;
-      /** Variable type. Controls how the value is rendered and substituted in HogQL.
-
-    * `String` - String
-    * `Number` - Number
-    * `Boolean` - Boolean
-    * `List` - List
-    * `Date` - Date */
       type: InsightVariableTypeEnum;
-      /** Default value used when a query references this variable. */
       default_value?: unknown | null;
-      /**
-       * ID of the user who created the SQL variable.
-       * @nullable
-       */
+      /** @nullable */
       readonly created_by: number | null;
-      /** Timestamp when the SQL variable was created. */
       readonly created_at: string;
-      /**
-       * Generated code-safe name used in HogQL as {variables.code_name}. Derived from name.
-       * @nullable
-       */
+      /** @nullable */
       readonly code_name: string | null;
-      /** Allowed values for List variables. Null for other variable types. */
       values?: unknown | null;
     }
 
@@ -19846,15 +20218,6 @@ export namespace Schemas {
       auth_type: InstallCustomAuthTypeEnum;
       api_key?: string;
       description?: string;
-      client_id?: string;
-      client_secret?: string;
-      install_source?: InstallSourceEnum;
-      posthog_code_callback_url?: string;
-    }
-
-    export interface InstallTemplate {
-      template_id: string;
-      api_key?: string;
       install_source?: InstallSourceEnum;
       posthog_code_callback_url?: string;
     }
@@ -20161,67 +20524,12 @@ export namespace Schemas {
       new_name: string;
     }
 
-    export interface LLMSkillEditOperation {
-      /** Text to find in the target content. Must match exactly once. */
-      old: string;
-      /** Replacement text. */
-      new: string;
-    }
-
     export interface LLMSkillFile {
       /** @maxLength 500 */
       path: string;
       content: string;
       /** @maxLength 100 */
       content_type?: string;
-    }
-
-    export interface LLMSkillFileCreate {
-      /**
-       * File path relative to skill root, e.g. 'scripts/setup.sh' or 'references/guide.md'.
-       * @maxLength 500
-       */
-      path: string;
-      /** Text content of the file. */
-      content: string;
-      /**
-       * MIME type of the file content.
-       * @maxLength 100
-       */
-      content_type?: string;
-      /**
-       * Latest version you are editing from. If provided, the request fails with 409 when another write has landed in the meantime.
-       * @minimum 1
-       */
-      base_version?: number;
-    }
-
-    export interface LLMSkillFileEdit {
-      /**
-       * Path of the bundled file to edit. Must match an existing file on the current skill version.
-       * @maxLength 500
-       */
-      path: string;
-      /** Sequential find/replace operations to apply to this file's content. */
-      edits: LLMSkillEditOperation[];
-    }
-
-    export interface LLMSkillFileRename {
-      /**
-       * Current file path to rename.
-       * @maxLength 500
-       */
-      old_path: string;
-      /**
-       * New file path. Must not already exist in the skill.
-       * @maxLength 500
-       */
-      new_path: string;
-      /**
-       * Latest version you are editing from. If provided, the request fails with 409 when another write has landed in the meantime.
-       * @minimum 1
-       */
-      base_version?: number;
     }
 
     /**
@@ -20313,8 +20621,10 @@ export namespace Schemas {
       id: string;
       document_type: string;
       company_name: string;
+      representative_name: string;
       representative_email: string;
       status: string;
+      signed_document_url: string;
       created_by: LegalDocumentCreator | null;
       created_at: string;
     }
@@ -20389,22 +20699,15 @@ export namespace Schemas {
       Broken: 'broken',
     } as const;
 
-    export interface LogsAlertStateInterval {
-      /** Interval start (UTC, inclusive). */
-      start: string;
-      /** Interval end (UTC, exclusive). */
-      end: string;
-      /** Alert state during this interval.
-
-    * `not_firing` - Not firing
-    * `firing` - Firing
-    * `pending_resolve` - Pending resolve
-    * `errored` - Errored
-    * `snoozed` - Snoozed
-    * `broken` - Broken */
-      state: LogsAlertConfigurationStateEnum;
-      /** Whether the alert was enabled during this interval. Disabled alerts keep their state but are inactive. */
-      enabled: boolean;
+    export interface LogsAlertSparklineBucket {
+      /** Bucket start timestamp (UTC, hourly). */
+      timestamp: string;
+      /** Count of breached checks in this hour. */
+      breached: number;
+      /** Count of errored checks in this hour. */
+      errored: number;
+      /** Count of checks that transitioned the alert from firing to resolved in this hour. */
+      resolved: number;
     }
 
     export interface LogsAlertConfiguration {
@@ -20486,8 +20789,8 @@ export namespace Schemas {
        * @nullable
        */
       readonly last_error_message: string | null;
-      /** Continuous state intervals over the last 24h, ordered oldest-first. Each interval covers a span during which (state, enabled) was constant. Derived from LogsAlertEvent rows walked in chronological order; consecutive identical intervals are collapsed. Drives the 'Last 24h' status bar on the alert list. */
-      readonly state_timeline: readonly LogsAlertStateInterval[];
+      /** 24 hourly buckets of breached + errored check counts for the last 24h, ordered oldest-first. Drives the activity column on the alert list — empty sparkline = healthy alert. Ok checks are not included: retention caps OK rows at MAX_EVALUATION_PERIODS (~50min at 5-min cadence), so only events that survive the prune (breached + errored) are meaningful over a 24h window. */
+      readonly sparkline: readonly LogsAlertSparklineBucket[];
       /** Notification destination types configured for this alert — e.g. 'slack', 'webhook'. Empty list means no notifications will fire. One or more destinations should be added after creating an alert. */
       readonly destination_types: readonly DestinationTypesEnum[];
       /** When the alert was created. */
@@ -20837,17 +21140,29 @@ export namespace Schemas {
       blocked?: boolean;
     }
 
+    /**
+     * * `api_key` - API Key
+    * `oauth` - OAuth
+     */
+    export type MCPServerInstallationAuthTypeEnum = typeof MCPServerInstallationAuthTypeEnum[keyof typeof MCPServerInstallationAuthTypeEnum];
+
+
+    export const MCPServerInstallationAuthTypeEnum = {
+      ApiKey: 'api_key',
+      Oauth: 'oauth',
+    } as const;
+
     export interface MCPServerInstallation {
       readonly id: string;
       /** @nullable */
-      readonly template_id: string | null;
+      readonly server_id: string | null;
       readonly name: string;
       /** @maxLength 200 */
       display_name?: string;
       /** @maxLength 2048 */
       url?: string;
       description?: string;
-      auth_type?: AuthType9cbEnum;
+      auth_type?: MCPServerInstallationAuthTypeEnum;
       is_enabled?: boolean;
       readonly needs_reauth: boolean;
       readonly pending_oauth: boolean;
@@ -22455,24 +22770,6 @@ export namespace Schemas {
       results: MCPServerInstallation[];
     }
 
-    export interface PaginatedMCPServerInstallationToolList {
-      count: number;
-      /** @nullable */
-      next?: string | null;
-      /** @nullable */
-      previous?: string | null;
-      results: MCPServerInstallationTool[];
-    }
-
-    export interface PaginatedMCPServerTemplateList {
-      count: number;
-      /** @nullable */
-      next?: string | null;
-      /** @nullable */
-      previous?: string | null;
-      results: MCPServerTemplate[];
-    }
-
     export interface PaginatedMaterializedColumnSlotList {
       count: number;
       /** @nullable */
@@ -22885,6 +23182,36 @@ export namespace Schemas {
       results: QuickFilter[];
     }
 
+    /**
+     * * `none` - none
+    * `api_key` - api_key
+    * `oauth` - oauth
+     */
+    export type RecommendedServerAuthTypeEnum = typeof RecommendedServerAuthTypeEnum[keyof typeof RecommendedServerAuthTypeEnum];
+
+
+    export const RecommendedServerAuthTypeEnum = {
+      None: 'none',
+      ApiKey: 'api_key',
+      Oauth: 'oauth',
+    } as const;
+
+    export interface RecommendedServer {
+      name: string;
+      url: string;
+      description: string;
+      auth_type: RecommendedServerAuthTypeEnum;
+    }
+
+    export interface PaginatedRecommendedServerList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: RecommendedServer[];
+    }
+
     export type RepoBaselineFilePaths = {[key: string]: string};
 
     export interface Repo {
@@ -23064,7 +23391,7 @@ export namespace Schemas {
       /** ISO 8601 datetime when the change should be applied (e.g. '2025-06-01T14:00:00Z'). */
       scheduled_at: string;
       /** @nullable */
-      readonly executed_at: string | null;
+      executed_at?: string | null;
       /**
        * Return the safely formatted failure reason instead of raw data.
        * @nullable
@@ -23881,7 +24208,7 @@ export namespace Schemas {
       /** @nullable */
       readonly created_by: number | null;
       readonly status: string;
-      readonly source_type: SourceTypeEe8Enum;
+      readonly source_type: SourceTypeF0aEnum;
     }
 
     export type TableColumnsItem = {[key: string]: unknown};
@@ -24342,8 +24669,6 @@ export namespace Schemas {
       alternate_hash: string;
       baseline_hash: string;
       reason: string;
-      /** @nullable */
-      diff_percentage: number | null;
       created_at: string;
       /** @nullable */
       source_run_id: string | null;
@@ -24979,7 +25304,7 @@ export namespace Schemas {
       readonly id?: string;
       /** @maxLength 100 */
       name?: string;
-      analysis_level?: ClusteringJobAnalysisLevelEnum;
+      analysis_level?: AnalysisLevelEnum;
       event_filters?: unknown;
       enabled?: boolean;
       readonly created_at?: string;
@@ -26170,20 +26495,60 @@ export namespace Schemas {
       readonly incremental?: boolean;
       /** @nullable */
       readonly status?: string | null;
-      readonly sync_type?: SyncTypeEnum | null;
-      /** @nullable */
-      readonly incremental_field?: string | null;
-      /** @nullable */
-      readonly incremental_field_type?: string | null;
-      /** @nullable */
-      readonly sync_frequency?: string | null;
-      /** @nullable */
-      readonly sync_time_of_day?: string | null;
+      /** Sync strategy: incremental, full_refresh, append, or cdc.
+
+    * `full_refresh` - full_refresh
+    * `incremental` - incremental
+    * `append` - append
+    * `webhook` - webhook
+    * `cdc` - cdc */
+      sync_type?: SyncTypeEnum | NullEnum | null;
+      /**
+       * Column name used to track sync progress.
+       * @nullable
+       */
+      incremental_field?: string | null;
+      /** Data type of the incremental field.
+
+    * `integer` - integer
+    * `numeric` - numeric
+    * `datetime` - datetime
+    * `date` - date
+    * `timestamp` - timestamp
+    * `objectid` - objectid */
+      incremental_field_type?: IncrementalFieldTypeEnum | NullEnum | null;
+      /** How often to sync.
+
+    * `never` - never
+    * `1min` - 1min
+    * `5min` - 5min
+    * `15min` - 15min
+    * `30min` - 30min
+    * `1hour` - 1hour
+    * `6hour` - 6hour
+    * `12hour` - 12hour
+    * `24hour` - 24hour
+    * `7day` - 7day
+    * `30day` - 30day */
+      sync_frequency?: SyncFrequencyEnum | NullEnum | null;
+      /**
+       * UTC time of day to run the sync (HH:MM:SS).
+       * @nullable
+       */
+      sync_time_of_day?: string | null;
       /** @nullable */
       readonly description?: string | null;
-      /** @nullable */
-      readonly primary_key_columns?: readonly string[] | null;
-      readonly cdc_table_mode?: CdcTableModeEnum;
+      /**
+       * Column names for primary key deduplication.
+       * @nullable
+       */
+      primary_key_columns?: string[] | null;
+      /** For CDC syncs: consolidated, cdc_only, or both.
+
+    * `consolidated` - consolidated
+    * `cdc_only` - cdc_only
+    * `both` - both */
+      cdc_table_mode?: CdcTableModeEnum | NullEnum | null;
     }
 
     export interface PatchedExternalDataSourceBulkUpdateSchemas {
@@ -26204,7 +26569,7 @@ export namespace Schemas {
       readonly status?: string;
       client_secret?: string;
       account_id?: string;
-      readonly source_type?: SourceTypeEe8Enum;
+      readonly source_type?: SourceTypeF0aEnum;
       /** @nullable */
       readonly latest_error?: string | null;
       /**
@@ -26322,12 +26687,6 @@ export namespace Schemas {
       interval?: number;
       display?: GroupUsageMetricDisplayEnum;
       filters?: unknown;
-      math?: MathEnum;
-      /**
-       * @maxLength 255
-       * @nullable
-       */
-      math_property?: string | null;
     }
 
     export interface PatchedHealthIssue {
@@ -26637,36 +26996,16 @@ export namespace Schemas {
     }
 
     export interface PatchedInsightVariable {
-      /** UUID of the SQL variable. */
       readonly id?: string;
-      /**
-       * Human-readable name for the SQL variable.
-       * @maxLength 400
-       */
+      /** @maxLength 400 */
       name?: string;
-      /** Variable type. Controls how the value is rendered and substituted in HogQL.
-
-    * `String` - String
-    * `Number` - Number
-    * `Boolean` - Boolean
-    * `List` - List
-    * `Date` - Date */
       type?: InsightVariableTypeEnum;
-      /** Default value used when a query references this variable. */
       default_value?: unknown | null;
-      /**
-       * ID of the user who created the SQL variable.
-       * @nullable
-       */
+      /** @nullable */
       readonly created_by?: number | null;
-      /** Timestamp when the SQL variable was created. */
       readonly created_at?: string;
-      /**
-       * Generated code-safe name used in HogQL as {variables.code_name}. Derived from name.
-       * @nullable
-       */
+      /** @nullable */
       readonly code_name?: string | null;
-      /** Allowed values for List variables. Null for other variable types. */
       values?: unknown | null;
     }
 
@@ -26718,10 +27057,8 @@ export namespace Schemas {
     export type PatchedLLMSkillPublishMetadata = {[key: string]: unknown};
 
     export interface PatchedLLMSkillPublish {
-      /** Full skill body (SKILL.md instruction content) to publish as a new version. Mutually exclusive with edits. */
+      /** Full skill body (SKILL.md instruction content) to publish as a new version. */
       body?: string;
-      /** List of find/replace operations to apply to the current skill body. Each edit's 'old' text must match exactly once. Edits are applied sequentially. Mutually exclusive with body. */
-      edits?: LLMSkillEditOperation[];
       /**
        * Updated description for the new version.
        * @maxLength 4096
@@ -26741,10 +27078,8 @@ export namespace Schemas {
       allowed_tools?: string[];
       /** Arbitrary key-value metadata. */
       metadata?: PatchedLLMSkillPublishMetadata;
-      /** Bundled files to include with this version. Replaces all files from the previous version. Mutually exclusive with file_edits. */
+      /** Bundled files to include with this version. Replaces all files from the previous version. */
       files?: LLMSkillFileInput[];
-      /** Per-file find/replace updates. Each entry targets one existing file by path and applies sequential edits to its content. Non-targeted files carry forward unchanged. Cannot add, remove, or rename files — use 'files' for that. Mutually exclusive with files. */
-      file_edits?: LLMSkillFileEdit[];
       /**
        * Latest version you are editing from. Used for optimistic concurrency checks.
        * @minimum 1
@@ -26848,8 +27183,8 @@ export namespace Schemas {
        * @nullable
        */
       readonly last_error_message?: string | null;
-      /** Continuous state intervals over the last 24h, ordered oldest-first. Each interval covers a span during which (state, enabled) was constant. Derived from LogsAlertEvent rows walked in chronological order; consecutive identical intervals are collapsed. Drives the 'Last 24h' status bar on the alert list. */
-      readonly state_timeline?: readonly LogsAlertStateInterval[];
+      /** 24 hourly buckets of breached + errored check counts for the last 24h, ordered oldest-first. Drives the activity column on the alert list — empty sparkline = healthy alert. Ok checks are not included: retention caps OK rows at MAX_EVALUATION_PERIODS (~50min at 5-min cadence), so only events that survive the prune (breached + errored) are meaningful over a 24h window. */
+      readonly sparkline?: readonly LogsAlertSparklineBucket[];
       /** Notification destination types configured for this alert — e.g. 'slack', 'webhook'. Empty list means no notifications will fire. One or more destinations should be added after creating an alert. */
       readonly destination_types?: readonly DestinationTypesEnum[];
       /** When the alert was created. */
@@ -28193,7 +28528,7 @@ export namespace Schemas {
       /** ISO 8601 datetime when the change should be applied (e.g. '2025-06-01T14:00:00Z'). */
       scheduled_at?: string;
       /** @nullable */
-      readonly executed_at?: string | null;
+      executed_at?: string | null;
       /**
        * Return the safely formatted failure reason instead of raw data.
        * @nullable
@@ -29576,24 +29911,6 @@ export namespace Schemas {
       readonly cc_participants?: unknown;
       readonly person?: TicketPerson | null;
       tags?: unknown[];
-    }
-
-    /**
-     * * `approved` - approved
-    * `needs_approval` - needs_approval
-    * `do_not_use` - do_not_use
-     */
-    export type ToolApprovalUpdateApprovalStateEnum = typeof ToolApprovalUpdateApprovalStateEnum[keyof typeof ToolApprovalUpdateApprovalStateEnum];
-
-
-    export const ToolApprovalUpdateApprovalStateEnum = {
-      Approved: 'approved',
-      NeedsApproval: 'needs_approval',
-      DoNotUse: 'do_not_use',
-    } as const;
-
-    export interface PatchedToolApprovalUpdate {
-      approval_state?: ToolApprovalUpdateApprovalStateEnum;
     }
 
     export interface TraceReviewScoreWrite {
@@ -33986,25 +34303,13 @@ export namespace Schemas {
       results: SentimentBatchResponseResults;
     }
 
-    /**
-     * * `trace` - trace
-    * `generation` - generation
-     */
-    export type SentimentRequestAnalysisLevelEnum = typeof SentimentRequestAnalysisLevelEnum[keyof typeof SentimentRequestAnalysisLevelEnum];
-
-
-    export const SentimentRequestAnalysisLevelEnum = {
-      Trace: 'trace',
-      Generation: 'generation',
-    } as const;
-
     export interface SentimentRequest {
       /**
        * @minItems 1
        * @maxItems 5
        */
       ids: string[];
-      analysis_level?: SentimentRequestAnalysisLevelEnum;
+      analysis_level?: AnalysisLevelEnum;
       force_refresh?: boolean;
       /** @nullable */
       date_from?: string | null;
@@ -37451,10 +37756,6 @@ export namespace Schemas {
      * @minLength 1
      */
     repo: string;
-    /**
-     * Optional case-insensitive branch name search query.
-     */
-    search?: string;
     };
 
     export type EnvironmentsIntegrationsGithubReposRetrieveParams = {
@@ -38814,14 +39115,6 @@ export namespace Schemas {
     version?: number;
     };
 
-    export type LlmSkillsNameFilesDestroyParams = {
-    /**
-     * Latest version you are editing from. If provided, the request fails with 409 when another write has landed in the meantime.
-     * @minimum 1
-     */
-    base_version?: number;
-    };
-
     export type LlmSkillsResolveNameRetrieveParams = {
     /**
      * Return versions older than this version number. Mutually exclusive with offset.
@@ -38926,9 +39219,8 @@ export namespace Schemas {
      * @minLength 1
      */
     install_source?: McpServerInstallationsAuthorizeRetrieveInstallSource;
-    installation_id?: string;
     posthog_code_callback_url?: string;
-    template_id?: string;
+    server_id: string;
     };
 
     export type McpServerInstallationsAuthorizeRetrieveInstallSource = typeof McpServerInstallationsAuthorizeRetrieveInstallSource[keyof typeof McpServerInstallationsAuthorizeRetrieveInstallSource];
@@ -39909,8 +40201,6 @@ export namespace Schemas {
       SlackBotMention: 'slack_bot_mention',
       SlackChannelMessage: 'slack_channel_message',
       SlackEmojiReaction: 'slack_emoji_reaction',
-      TeamsBotMention: 'teams_bot_mention',
-      TeamsChannelMessage: 'teams_channel_message',
       WidgetApi: 'widget_api',
       WidgetEmbedded: 'widget_embedded',
     } as const;
@@ -39921,7 +40211,6 @@ export namespace Schemas {
     export const ConversationsTicketsListChannelSource = {
       Email: 'email',
       Slack: 'slack',
-      Teams: 'teams',
       Widget: 'widget',
     } as const;
 
@@ -41609,10 +41898,6 @@ export namespace Schemas {
      * @minLength 1
      */
     repo: string;
-    /**
-     * Optional case-insensitive branch name search query.
-     */
-    search?: string;
     };
 
     export type IntegrationsGithubReposRetrieveParams = {
