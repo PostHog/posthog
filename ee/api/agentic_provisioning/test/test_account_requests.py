@@ -297,6 +297,8 @@ class TestPKCEPartnerExistingUserConsent(StripeProvisioningTestBase):
             "scopes": ["query:read"],
             "client_id": "pkce-test-partner",
             "confirmation_secret": "cs_test",
+            "code_challenge": "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM",
+            "code_challenge_method": "S256",
             "expires_at": (timezone.now() + timedelta(minutes=10)).isoformat(),
             "orchestrator": {"type": "test", "account": "acct_123"},
         }
@@ -338,3 +340,14 @@ class TestPKCEPartnerExistingUserConsent(StripeProvisioningTestBase):
         data = res.json()
         assert data["type"] == "oauth"
         assert "code" in data["oauth"]
+
+    def test_pkce_partner_missing_code_challenge_returns_400(self):
+        User.objects.create_and_join(
+            organization=self.organization, email="existing@example.com", password="testpass", first_name="Existing"
+        )
+        payload = self._account_request_payload()
+        del payload["code_challenge"]
+        del payload["code_challenge_method"]
+        res = self._post_as_pkce_partner(payload)
+        assert res.status_code == 400
+        assert res.json()["error"]["code"] == "invalid_request"

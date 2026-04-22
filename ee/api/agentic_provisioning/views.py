@@ -399,10 +399,19 @@ def _handle_existing_user(
     code_challenge: str = "",
     code_challenge_method: str = "S256",
 ) -> Response:
-    # PKCE/public clients must go through the browser consent flow so the
-    # user actively approves the partner.  Trusted server-to-server partners
-    # (HMAC) keep the direct-code path.
-    if partner and partner.provisioning_auth_method == "pkce":
+    # Only server-to-server partners with shared secrets skip consent.
+    # Everything else (pkce, future methods) requires browser approval.
+    TRUSTED_AUTH_METHODS = ("hmac", "bearer")
+    if partner and partner.provisioning_auth_method not in TRUSTED_AUTH_METHODS:
+        if not code_challenge:
+            return Response(
+                {
+                    "id": request_id,
+                    "type": "error",
+                    "error": {"code": "invalid_request", "message": "code_challenge is required for public clients"},
+                },
+                status=400,
+            )
         return _require_user_consent(
             request_id, user, scopes, partner_account_id, region, partner, code_challenge, code_challenge_method
         )
@@ -467,7 +476,7 @@ def _require_user_consent(
         timeout=PENDING_AUTH_TTL_SECONDS,
     )
 
-    auth_url = _build_authorize_url(state, scopes)
+    auth_url = _build_authorize_url(state, scopes, region=region)
 
     _capture_provisioning_event("account_request", "requires_auth", region=region)
 
@@ -596,8 +605,8 @@ def _handle_new_user(
     return Response({"id": request_id, "type": "oauth", "oauth": {"code": code}})
 
 
-def _build_authorize_url(confirmation_secret: str, scopes: list[str]) -> str:
-    base = settings.SITE_URL.rstrip("/")
+def _build_authorize_url(confirmation_secret: str, scopes: list[str], region: str = "") -> str:
+    base = _region_to_host(region).rstrip("/") if region else settings.SITE_URL.rstrip("/")
     params = urlencode({"state": confirmation_secret, "scope": " ".join(scopes)})
     return f"{base}/api/agentic/authorize?{params}"
 
@@ -644,19 +653,20 @@ def agentic_authorize(request: Any) -> HttpResponseBase:
         non_demo_teams = [team]
         _capture_provisioning_event("authorize", "auto_created_project", team_id=team.id)
 
-    # PKCE partners always show the consent page so the user explicitly approves.
-    # HMAC partners (Stripe) can auto-redirect for single-org/team users since
-    # they're trusted server-to-server integrations.
+    # Only trusted server-to-server partners can auto-redirect.
+    # All other partners (pkce, future methods) must see the consent page.
+    # No partner_id = legacy Stripe HMAC path (trusted).
+    TRUSTED_AUTH_METHODS = ("hmac", "bearer")
     partner_id = pending.get("partner_id", "")
-    is_pkce_partner = False
+    is_trusted_partner = not partner_id
     if partner_id:
         try:
             partner_app = OAuthApplication.objects.get(id=partner_id)
-            is_pkce_partner = partner_app.provisioning_auth_method == "pkce"
+            is_trusted_partner = partner_app.provisioning_auth_method in TRUSTED_AUTH_METHODS
         except OAuthApplication.DoesNotExist:
             pass
 
-    if not is_pkce_partner and len(memberships) == 1 and len(non_demo_teams) == 1:
+    if is_trusted_partner and len(memberships) == 1 and len(non_demo_teams) == 1:
         cache.delete(pending_key)
 
         organization = memberships[0].organization
