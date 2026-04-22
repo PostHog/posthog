@@ -66,56 +66,26 @@ def test_non_event_removal_cannot_set_delete_all_events():
         request.clean()
 
 
-def test_hogql_predicate_valid_expression_passes(team):
+@pytest.mark.parametrize(
+    "predicate, error_match",
+    [
+        ("properties.$browser = 'Chrome'", None),
+        ("", None),
+        ("this is not hogql", "hogql_predicate"),
+        ("nonexistent_column = 1", "hogql_predicate"),
+        ("event IN (SELECT event FROM events)", "Subqueries"),
+    ],
+    ids=["valid", "blank", "invalid_syntax", "unknown_field", "subquery"],
+)
+def test_hogql_predicate_validation(team, predicate, error_match):
     request = DataDeletionRequest(
-        **_base_kwargs(
-            team_id=team.id,
-            events=["$pageview"],
-            hogql_predicate="properties.$browser = 'Chrome'",
-        )
+        **_base_kwargs(team_id=team.id, events=["$pageview"], hogql_predicate=predicate),
     )
-    request.clean()  # should not raise
-
-
-def test_hogql_predicate_invalid_syntax_raises(team):
-    request = DataDeletionRequest(
-        **_base_kwargs(
-            team_id=team.id,
-            events=["$pageview"],
-            hogql_predicate="this is not hogql",
-        )
-    )
-    with pytest.raises(ValidationError, match="hogql_predicate"):
+    if error_match is None:
         request.clean()
-
-
-def test_hogql_predicate_unknown_field_raises(team):
-    request = DataDeletionRequest(
-        **_base_kwargs(
-            team_id=team.id,
-            events=["$pageview"],
-            hogql_predicate="nonexistent_column = 1",
-        )
-    )
-    with pytest.raises(ValidationError, match="hogql_predicate"):
-        request.clean()
-
-
-def test_hogql_predicate_subquery_rejected(team):
-    request = DataDeletionRequest(
-        **_base_kwargs(
-            team_id=team.id,
-            events=["$pageview"],
-            hogql_predicate="event IN (SELECT event FROM events)",
-        )
-    )
-    with pytest.raises(ValidationError, match="Subqueries"):
-        request.clean()
-
-
-def test_hogql_predicate_blank_is_ignored(team):
-    request = DataDeletionRequest(**_base_kwargs(team_id=team.id, events=["$pageview"], hogql_predicate=""))
-    request.clean()  # should not raise
+    else:
+        with pytest.raises(ValidationError, match=error_match):
+            request.clean()
 
 
 def test_compile_hogql_predicate_returns_sql_and_values(team):
