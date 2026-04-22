@@ -60,6 +60,70 @@ If `autoresearch.config.json` exists in the current working directory, read its 
 
 Only fall back to the interactive Setup sequence below when the workspace is empty or partially initialized.
 
+## Adapter capabilities (what you can and cannot run)
+
+Campaign queries flow through the adapter configured in `adapter.json`. Every campaign script (`ch_capture_baseline.py`, `ch_run_candidate.py`, any ad-hoc probe) ultimately submits SQL through this adapter, and the adapter enforces what ClickHouse sees.
+
+When `adapter.json` has `type: "posthog_proxy"` (the automated-campaign case), the proxy enforces the following. Treat it as the authoritative surface for everything you do during experiments:
+
+**Allowed statement forms** (first keyword after whitespace/comments):
+
+- `SELECT …` — including arbitrary subqueries, CTEs, joins
+- `WITH … SELECT …`
+- `EXPLAIN …` — every variant ClickHouse supports is available. Use them aggressively to understand plans before proposing rewrites:
+  - `EXPLAIN SELECT …` (default: PLAN)
+  - `EXPLAIN AST SELECT …`
+  - `EXPLAIN SYNTAX SELECT …`
+  - `EXPLAIN QUERY TREE SELECT …` (post-analyzer logical tree; invaluable on modern ClickHouse)
+  - `EXPLAIN PIPELINE SELECT …` — processor-level pipeline, headers, expressions
+  - `EXPLAIN ESTIMATE SELECT …` — per-part row/mark estimates before execution
+  - `EXPLAIN PLAN indexes = 1, actions = 1, json = 1 SELECT …` — primary-key and skip-index use, JSON for machine parsing
+  - `EXPLAIN TABLE OVERRIDE …`
+- `SHOW …` — `SHOW CREATE TABLE events`, `SHOW COLUMNS FROM events`, `SHOW INDEX FROM events`, `SHOW SETTINGS ILIKE '%mark_cache%'`, etc.
+- `DESCRIBE` / `DESC …`
+
+**Disallowed**: anything whose first keyword isn't in the list above (no INSERT, ALTER, CREATE, OPTIMIZE, SYSTEM, TRUNCATE, DROP, ATTACH, DETACH, etc.). The server also runs with `readonly = 2`, so writes are blocked defence-in-depth.
+
+**Timeout**: every submission is wrapped with `SETTINGS max_execution_time = 60`. Keep ad-hoc probes short. If the target query itself routinely exceeds 60s, use range narrowing (see Setup step 6) and only then start the campaign.
+
+**Cluster scoping**:
+
+- The test cluster endpoint runs your SQL as-is.
+- The prod cluster endpoint additionally requires a literal `team_id = <N>` (or `team_id IN (<N>)`) predicate in the query — the proxy never rewrites. If your SELECT joins multiple team-scoped tables, each must carry the predicate or the request 400s.
+
+**Profiling ClickHouse's perspective**:
+
+After a run, the campaign scripts capture client-side `elapsed_ms`, `rows_read`, `bytes_read` from the proxy response. For deeper profiling (ProfileEvents, memory usage, per-step timing) query `system.query_log`:
+
+```sql
+SELECT
+    query_duration_ms,
+    read_rows,
+    read_bytes,
+    memory_usage,
+    ProfileEvents
+FROM clusterAllReplicas('posthog', system.query_log)
+WHERE type = 'QueryFinish' AND query_id = '<query_id from the run metrics>'
+ORDER BY event_time DESC
+LIMIT 1
+```
+
+`system.query_log` is readable under `readonly = 2`. Use it to compare ProfileEvents across iterations, not only wall-clock latency.
+
+**Schema inspection** before proposing rewrites is free and often decisive:
+
+```sql
+SHOW CREATE TABLE events
+DESCRIBE events
+SELECT name, type, default_expression, codec_expression, is_in_primary_key, is_in_partition_key
+FROM system.columns WHERE database = currentDatabase() AND table = 'events'
+SELECT name, expr, type FROM system.data_skipping_indices WHERE table = 'events'
+```
+
+Use these to check the primary key, partitioning, codecs, and existing skip-indexes before hypothesizing that "adding an index" would help.
+
+**What this means for hypothesis formation**: start every lane by running `EXPLAIN indexes = 1, actions = 1, json = 1 SELECT <original>` and inspecting the plan. Then propose rewrites that target concrete weaknesses (full table scan, skipped PREWHERE, missing primary-key usage, etc.). Do not guess.
+
 ## Setup sequence
 
 1. Confirm or infer the target query and query identifier.
@@ -99,16 +163,16 @@ bash ../../scripts/ch_capture_baseline.sh --workspace .clickhouse-autoresearch
 
 If the baseline times out, enter range narrowing (see `orchestration.md` § Timeout queries):
 
-1.  Copy `query/original.sql` to `query/narrowed.sql`
-2.  Halve the time range in `narrowed.sql`
-3.  Retry: `bash ../../scripts/ch_capture_baseline.sh --workspace .clickhouse-autoresearch` (after updating `query/original.sql` in the workspace to the narrowed version)
-4.  Repeat until the query completes in 1–10s
-5.  Record narrowing state in `state.json`: `{ "narrowed": true, "original_range": "...", "working_range": "..." }`
-6.  Keep `query/original.sql` in the repo root as the full-range reference
+1. Copy `query/original.sql` to `query/narrowed.sql`
+2. Halve the time range in `narrowed.sql`
+3. Retry: `bash ../../scripts/ch_capture_baseline.sh --workspace .clickhouse-autoresearch` (after updating `query/original.sql` in the workspace to the narrowed version)
+4. Repeat until the query completes in 1–10s
+5. Record narrowing state in `state.json`: `{ "narrowed": true, "original_range": "...", "working_range": "..." }`
+6. Keep `query/original.sql` in the repo root as the full-range reference
 
-7.  Read the baseline artifacts and seed the first lanes and hypotheses.
-8.  Initialize the autoresearch session against the configured primary metric.
-9.  Start the experiment loop using:
+7. Read the baseline artifacts and seed the first lanes and hypotheses.
+8. Initialize the autoresearch session against the configured primary metric.
+9. Start the experiment loop using:
 
 ```bash
 ./.clickhouse-autoresearch/autoresearch.sh
