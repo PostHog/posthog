@@ -306,16 +306,16 @@ QUERYSERVICE_VERIFY: bool = get_from_env("QUERYSERVICE_VERIFY", CLICKHOUSE_VERIF
 CLICKHOUSE_CONN_POOL_MIN: int = get_from_env("CLICKHOUSE_CONN_POOL_MIN", 20, type_cast=int)
 CLICKHOUSE_CONN_POOL_MAX: int = get_from_env("CLICKHOUSE_CONN_POOL_MAX", 1000, type_cast=int)
 
-# Query-performance autoresearch proxy endpoint: base URL of the ClickHouse
-# cluster a sandbox is allowed to reach. The cluster behind this URL must be
+# Query-performance autoresearch proxy endpoint: hostname of the ClickHouse
+# cluster a sandbox is allowed to reach. The cluster behind this host must be
 # team-scoped at the ClickHouse layer (row policies, or a dedicated test
 # cluster containing only data the caller is authorized to see). Required —
 # unset leaves the proxy endpoint disabled (503), which is the safe default:
 # a missing deploy-time env var should never silently fall back to the main
-# cluster. In local dev, set to http://{CLICKHOUSE_HOST}:8123 in .env.
-CLICKHOUSE_PERF_TEST_HTTP_URL: str = os.getenv(
-    "CLICKHOUSE_PERF_TEST_HTTP_URL",
-    f"http://{CLICKHOUSE_HOST}:8123" if DEBUG else "",
+# cluster. In local dev, set to {CLICKHOUSE_HOST} in .env.
+CLICKHOUSE_PERF_TEST_HOST: str = os.getenv(
+    "CLICKHOUSE_PERF_TEST_HOST",
+    CLICKHOUSE_HOST if DEBUG else "",
 )
 
 CLICKHOUSE_STABLE_HOST: str = get_from_env("CLICKHOUSE_STABLE_HOST", CLICKHOUSE_HOST)
