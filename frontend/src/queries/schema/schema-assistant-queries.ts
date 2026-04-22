@@ -1288,6 +1288,8 @@ export interface AssistantTraceQuery {
 
 export interface AssistantHogQLQuery {
     kind: NodeKind.HogQLQuery
+    /** Optional direct external data source id for running against a specific source */
+    connectionId?: string
     /** SQL SELECT statement to execute. Mostly standard ClickHouse SQL with PostHog-specific additions. */
     query: string
 }
