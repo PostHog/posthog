@@ -1,4 +1,3 @@
-import { createCdpProducerRegistry } from '~/cdp/outputs/producer-registry'
 import { IntegrationManagerService } from '~/cdp/services/managers/integration-manager.service'
 import { InternalCaptureService } from '~/common/services/internal-capture'
 import { InternalFetchService } from '~/common/services/internal-fetch'
@@ -54,7 +53,6 @@ export async function createHub(config: Partial<PluginsServerConfig> = {}): Prom
     logger.info('🤔', `Connecting to Kafka...`)
 
     const kafkaProducer = await KafkaProducerWrapper.create(serverConfig.KAFKA_CLIENT_RACK)
-    const cdpProducerRegistry = await createCdpProducerRegistry(serverConfig.KAFKA_CLIENT_RACK).build(serverConfig)
     logger.info('👍', `Kafka ready`)
 
     const postgres = new PostgresRouter(serverConfig, serverConfig.PLUGIN_SERVER_MODE ?? undefined)
@@ -133,7 +131,6 @@ export async function createHub(config: Partial<PluginsServerConfig> = {}): Prom
         posthogRedisPool,
         cookielessRedisPool,
         kafkaProducer,
-        cdpProducerRegistry,
         groupTypeManager,
         teamManager,
         groupRepository,

@@ -7,11 +7,7 @@ import { QuotaLimiting } from '~/common/services/quota-limiting.service'
 import { Element, PluginEvent, Properties } from '~/plugin-scaffold'
 
 import type { CdpConfig } from './cdp/config'
-import type {
-    CdpProducerName,
-    KafkaMskProducerEnvConfig,
-    KafkaWarpstreamIngestionProducerEnvConfig,
-} from './cdp/outputs/producers'
+import type { KafkaMskProducerEnvConfig, KafkaWarpstreamIngestionProducerEnvConfig } from './cdp/outputs/producers'
 import { IntegrationManagerService } from './cdp/services/managers/integration-manager.service'
 import { EncryptedFields } from './cdp/utils/encryption-utils'
 import type { CommonConfig } from './common/config'
@@ -20,7 +16,6 @@ import { InternalFetchService } from './common/services/internal-fetch'
 import type { IngestionConsumerConfig } from './ingestion/config'
 import type { CookielessManager } from './ingestion/cookieless/cookieless-manager'
 import type { ErrorTrackingConsumerConfig } from './ingestion/error-tracking/config'
-import { KafkaProducerRegistry } from './ingestion/outputs/kafka-producer-registry'
 import { KafkaProducerWrapper } from './kafka/producer'
 import type { LlmAnalyticsConfig } from './llm-analytics/config'
 import type { LogsIngestionConsumerConfig, TracesIngestionConsumerConfig } from './logs-ingestion/config'
@@ -139,7 +134,6 @@ export interface HubServices {
     posthogRedisPool: GenericPool<Redis>
     cookielessRedisPool: GenericPool<Redis>
     kafkaProducer: KafkaProducerWrapper
-    cdpProducerRegistry: KafkaProducerRegistry<CdpProducerName>
     teamManager: TeamManager
     groupTypeManager: GroupTypeManager
     groupRepository: GroupRepository
