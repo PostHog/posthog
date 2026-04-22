@@ -315,7 +315,11 @@ class Person(models.Model):
                 )
             # Dedupe while preserving order for deterministic logging.
             seen: set[str] = set()
-            distinct_ids_to_process = [did for did in distinct_ids_to_split if not (did in seen or seen.add(did))]
+            distinct_ids_to_process: list[str] = []
+            for did in distinct_ids_to_split:
+                if did not in seen:
+                    seen.add(did)
+                    distinct_ids_to_process.append(did)
         else:
             if not main_distinct_id:
                 self.properties = {}
