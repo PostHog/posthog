@@ -206,6 +206,58 @@ class TestErrorTracking(APIBaseTest):
         assert ErrorTrackingIssueFingerprintV2.objects.filter(issue_id=issue.id, fingerprint="fingerprint_one").exists()
         assert ErrorTrackingIssue.objects.count() == 2
 
+    def test_issues_exists_without_since(self):
+        response = self.client.get(f"/api/environments/{self.team.id}/error_tracking/issues/exists")
+        assert response.status_code == 200
+        assert response.json() == {"exists": False}
+
+        self.create_issue(fingerprints=["fingerprint"])
+
+        response = self.client.get(f"/api/environments/{self.team.id}/error_tracking/issues/exists")
+        assert response.status_code == 200
+        assert response.json() == {"exists": True}
+
+    def test_issues_exists_with_since_duration(self):
+        # Legacy issue with fingerprint seen far in the past - should NOT satisfy a 5m window
+        with freeze_time("2025-01-01T00:00:00Z"):
+            self.create_issue(fingerprints=["old_fingerprint"])
+
+        with freeze_time("2025-02-01T00:00:00Z"):
+            response = self.client.get(f"/api/environments/{self.team.id}/error_tracking/issues/exists?since=5m")
+            assert response.status_code == 200
+            assert response.json() == {"exists": False}
+
+        # New exception shows up within the window
+        with freeze_time("2025-02-01T00:04:00Z"):
+            self.create_issue(fingerprints=["fresh_fingerprint"])
+
+        with freeze_time("2025-02-01T00:04:30Z"):
+            response = self.client.get(f"/api/environments/{self.team.id}/error_tracking/issues/exists?since=5m")
+            assert response.status_code == 200
+            assert response.json() == {"exists": True}
+
+    def test_issues_exists_with_since_iso_timestamp(self):
+        with freeze_time("2025-01-01T00:00:00Z"):
+            self.create_issue(fingerprints=["fp"])
+
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/error_tracking/issues/exists?since=2025-01-02T00:00:00Z"
+        )
+        assert response.status_code == 200
+        assert response.json() == {"exists": False}
+
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/error_tracking/issues/exists?since=2024-12-31T00:00:00Z"
+        )
+        assert response.status_code == 200
+        assert response.json() == {"exists": True}
+
+    def test_issues_exists_with_invalid_since(self):
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/error_tracking/issues/exists?since=not-a-duration"
+        )
+        assert response.status_code == 400
+
     def test_issue_split_requires_fingerprint_on_each_entry(self):
         issue = self.create_issue(fingerprints=["fingerprint_one"])
 

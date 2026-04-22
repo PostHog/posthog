@@ -68,7 +68,9 @@ def get_issue(issue_id: UUID, team_id: int) -> ErrorTrackingIssue:
     return issue
 
 
-def issue_exists(team_id: int) -> bool:
+def issue_exists(team_id: int, since: datetime | None = None) -> bool:
+    if since is not None:
+        return ErrorTrackingIssueFingerprintV2.objects.filter(team_id=team_id, first_seen__gte=since).exists()
     return ErrorTrackingIssue.objects.filter(team_id=team_id).exists()
 
 

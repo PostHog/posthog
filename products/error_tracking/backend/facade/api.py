@@ -114,8 +114,8 @@ def get_issue(issue_id: UUID, team_id: int) -> contracts.ErrorTrackingIssue:
     return _to_issue(issue)
 
 
-def issue_exists(team_id: int) -> bool:
-    return logic.issue_exists(team_id=team_id)
+def issue_exists(team_id: int, since: datetime | None = None) -> bool:
+    return logic.issue_exists(team_id=team_id, since=since)
 
 
 def get_issue_id_for_fingerprint(team_id: int, fingerprint: str) -> UUID | None:

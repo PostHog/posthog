@@ -69,6 +69,19 @@ class TestErrorTrackingFacadeAPI(BaseTest):
 
         assert api.issue_exists(team_id=self.team.id) is True
 
+    def test_issue_exists_with_since_filters_by_first_seen(self):
+        issue = self._create_issue(team=self.team, name="Old issue")
+        fingerprint = issue.fingerprints.first()
+        assert fingerprint is not None
+        fingerprint.first_seen = now() - timedelta(days=2)
+        fingerprint.save(update_fields=["first_seen"])
+
+        assert api.issue_exists(team_id=self.team.id, since=now() - timedelta(minutes=5)) is False
+
+        self._create_issue(team=self.team, name="Fresh issue")
+
+        assert api.issue_exists(team_id=self.team.id, since=now() - timedelta(minutes=5)) is True
+
     def test_get_issue_id_for_fingerprint(self):
         issue = ErrorTrackingIssue.objects.create(team=self.team, name="Fingerprint lookup")
         fingerprint = "fingerprint-lookup"

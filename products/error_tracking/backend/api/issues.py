@@ -1,12 +1,15 @@
+import re
+from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
 from django.db import transaction
 from django.db.models.query import QuerySet
 from django.http import JsonResponse
+from django.utils import timezone
 
 import structlog
 import posthoganalytics
-from drf_spectacular.utils import OpenApiResponse
+from drf_spectacular.utils import OpenApiParameter, OpenApiResponse
 from loginas.utils import is_impersonated_session
 from rest_framework import request, serializers, status, viewsets
 from rest_framework.exceptions import NotFound, ValidationError
@@ -42,7 +45,32 @@ DEFAULT_EMBEDDING_MODEL_NAME = "text-embedding-3-large"
 DEFAULT_EMBEDDING_VERSION = 1
 DEFAULT_MIN_DISTANCE_THRESHOLD = 0.10
 
+_SINCE_DURATION_PATTERN = re.compile(r"^(\d+)\s*(s|m|h|d)$")
+_SINCE_UNIT_TO_KWARG = {"s": "seconds", "m": "minutes", "h": "hours", "d": "days"}
+_MAX_SINCE = timedelta(days=30)
+
 logger = structlog.get_logger(__name__)
+
+
+def _parse_since(value: str) -> datetime | None:
+    value = value.strip()
+    match = _SINCE_DURATION_PATTERN.match(value)
+    if match:
+        amount = int(match.group(1))
+        kwarg = _SINCE_UNIT_TO_KWARG[match.group(2)]
+        delta = timedelta(**{kwarg: amount})
+        if delta > _MAX_SINCE:
+            delta = _MAX_SINCE
+        return timezone.now() - delta
+
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=UTC)
+    return parsed
 
 
 class ErrorTrackingIssueAssigneeReadSerializer(serializers.Serializer):
@@ -219,9 +247,32 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
             .filter(team_id=self.team.id)
         )
 
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                name="since",
+                type=str,
+                required=False,
+                description=(
+                    "Restrict the check to exceptions first seen within the given window. Accepts a short "
+                    "relative duration like '5m', '1h', '30s', '1d' (capped at 30 days) or an ISO 8601 "
+                    "timestamp. When omitted, any historical exception counts."
+                ),
+            ),
+        ],
+    )
     @action(methods=["GET"], detail=False)
     def exists(self, request, **kwargs):
-        has_issues = ErrorTrackingIssue.objects.filter(team_id=self.team.id).exists()
+        since_param = request.GET.get("since")
+        since_dt: datetime | None = None
+        if since_param:
+            since_dt = _parse_since(since_param)
+            if since_dt is None:
+                raise ValidationError(
+                    "Invalid 'since' parameter. Use a relative duration like '5m', '1h', or an ISO 8601 timestamp."
+                )
+
+        has_issues = facade_api.issue_exists(team_id=self.team.id, since=since_dt)
         return Response({"exists": has_issues})
 
     def retrieve(self, request, *args, **kwargs):

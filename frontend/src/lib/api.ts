@@ -1238,8 +1238,9 @@ export class ApiRequest {
         return this.errorTracking(teamId).addPathComponent('issues')
     }
 
-    public errorTrackingIssuesExists(teamId?: TeamType['id']): ApiRequest {
-        return this.errorTrackingIssues(teamId).addPathComponent('exists')
+    public errorTrackingIssuesExists(teamId?: TeamType['id'], params?: { since?: string }): ApiRequest {
+        const request = this.errorTrackingIssues(teamId).addPathComponent('exists')
+        return params?.since ? request.withQueryString({ since: params.since }) : request
     }
 
     public errorTrackingIssue(id: ErrorTrackingIssue['id'], teamId?: TeamType['id']): ApiRequest {
