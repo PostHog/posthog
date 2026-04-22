@@ -34,6 +34,31 @@ def emit_agent_log(run_id: str, level: LogLevel, message: str) -> None:
         logger.exception("Failed to emit agent log", run_id=run_id)
 
 
+def emit_progress(
+    run_id: str,
+    step: str,
+    status: str,
+    label: str,
+    group: str,
+    detail: Optional[str] = None,
+) -> None:
+    """Emit a structured progress event consumed by the desktop client.
+
+    Events sharing a `group` coalesce into one collapsible card on the client;
+    pick a phase id (e.g. `"setup"`, `"pr_create"`) that matches how the work
+    should be presented.
+    """
+    from products.tasks.backend.models import TaskRun
+
+    try:
+        task_run = TaskRun.objects.get(id=run_id)
+        task_run.emit_progress_event(step, status, label, group, detail)
+    except TaskRun.DoesNotExist:
+        logger.warning("TaskRun not found for emit_progress", run_id=run_id)
+    except Exception:
+        logger.exception("Failed to emit progress", run_id=run_id)
+
+
 def get_bound_logger(**context: Any):
     return logger.bind(**context)
 

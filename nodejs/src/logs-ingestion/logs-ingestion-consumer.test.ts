@@ -14,6 +14,7 @@ import { KAFKA_APP_METRICS_2 } from '../config/kafka-topics'
 import { parseJSON } from '../utils/json-parse'
 import { LogRecord, encodeLogRecords } from './log-record-avro'
 import {
+    DEFAULT_LOGS_RETENTION_DAYS,
     LogsIngestionConsumer,
     logMessageDlqCounter,
     logMessageDroppedCounter,
@@ -357,7 +358,7 @@ describe('LogsIngestionConsumer', () => {
                 token: team.api_token,
                 team_id: team.id.toString(),
                 'json-parse': 'false',
-                'retention-days': '15',
+                'retention-days': DEFAULT_LOGS_RETENTION_DAYS.toString(),
             })
         })
 
@@ -379,7 +380,7 @@ describe('LogsIngestionConsumer', () => {
                 token: team.api_token,
                 team_id: team.id.toString(),
                 'json-parse': 'false',
-                'retention-days': '15',
+                'retention-days': DEFAULT_LOGS_RETENTION_DAYS.toString(),
             })
         })
 

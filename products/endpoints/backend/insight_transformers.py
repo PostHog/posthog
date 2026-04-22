@@ -6,6 +6,7 @@ This module transforms those flat rows back into the insight-specific response s
 that users expect (matching what the non-materialized path produces).
 """
 
+import re
 from collections import defaultdict
 from datetime import datetime
 from typing import TYPE_CHECKING, Any, Union, cast
@@ -89,6 +90,56 @@ def _strip_hogql_fields(result: dict) -> None:
         result.pop(field, None)
 
 
+_TEMPORAL_TYPE_RE = re.compile(r"\b(?:Date|DateTime|DateTime64|Date32)\b")
+
+
+def _is_temporal_type(type_str: str) -> bool:
+    """True for any Date/DateTime variant, including Nullable/Array/LowCardinality wrappings."""
+    return bool(_TEMPORAL_TYPE_RE.search(type_str))
+
+
+def _extract_type_str(entry: Any) -> str | None:
+    """Accept both `[[col_name, type_str], ...]` (real API) and `[type_str, ...]` (mocks)."""
+    if isinstance(entry, str):
+        return entry
+    if isinstance(entry, list | tuple) and len(entry) >= 2 and isinstance(entry[1], str):
+        return entry[1]
+    return None
+
+
+def _coerce_temporal_columns(rows: list, types: list | None) -> None:
+    """Parse ISO strings into ``datetime`` objects for every Date/DateTime column.
+
+    HogQL's response pipeline stringifies all Date/DateTime values regardless of name,
+    but the insight runners call .strftime() on them. We use the ``types`` metadata to
+    find temporal columns so this works for any column name (``date``, ``timestamp``,
+    custom aliases), not just ``date``. Rows can be tuples, so we replace the row in
+    the outer list.
+    """
+    if not types:
+        return
+    temporal_indices = [i for i, entry in enumerate(types) if (t := _extract_type_str(entry)) and _is_temporal_type(t)]
+    if not temporal_indices:
+        return
+    for i, row in enumerate(rows):
+        new_row: list | None = None
+        for col_idx in temporal_indices:
+            if col_idx >= len(row):
+                continue
+            value = row[col_idx]
+            if isinstance(value, list):
+                coerced: Any = [datetime.fromisoformat(item) if isinstance(item, str) else item for item in value]
+            elif isinstance(value, str):
+                coerced = datetime.fromisoformat(value)
+            else:
+                continue
+            if new_row is None:
+                new_row = list(row)
+            new_row[col_idx] = coerced
+        if new_row is not None:
+            rows[i] = new_row
+
+
 def _transform_trends(result: dict, original_query: dict, team: Team, now: datetime | None = None) -> None:
     runner = cast("TrendsQueryRunner", _make_runner(original_query, team, now))
 
@@ -100,35 +151,35 @@ def _transform_trends(result: dict, original_query: dict, team: Team, now: datet
         _strip_hogql_fields(result)
         return
 
-    # Group rows by __series_index (trends uses named column access in build_series_response)
+    _coerce_temporal_columns(rows, result.get("types"))
+
     series_index_col = columns.index("__series_index") if "__series_index" in columns else None
     groups: dict[int, list] = defaultdict(list)
     for row in rows:
         idx = row[series_index_col] if series_index_col is not None else 0
         groups[idx].append(row)
 
-    per_series_responses: list[HogQLQueryResponse] = []
-    for series_idx in sorted(groups.keys()):
-        per_series_responses.append(
-            HogQLQueryResponse(
-                results=groups[series_idx],
-                columns=columns,
-            )
-        )
+    expected_series_count = len(runner.series)
 
-    if len(per_series_responses) != len(runner.series):
+    # A row tagged with a series index the current query no longer defines is real drift:
+    # the table was built for a superset. Missing indices are NOT drift — filters or sparse
+    # UNION ALL branches can legitimately leave a series with zero rows at read time.
+    if groups and max(groups.keys()) >= expected_series_count:
         raise MaterializedSeriesMismatchError(
-            f"Materialized table has {len(per_series_responses)} series "
-            f"but current query defines {len(runner.series)}. "
+            f"Materialized table has series index {max(groups.keys())} "
+            f"but current query defines only {expected_series_count} series. "
             f"The endpoint query was likely edited after materialization."
         )
 
-    # Call build_series_response per series, then format_results for post-processing
+    # Build one response per expected series (not per non-empty bucket) so filtered-to-empty
+    # series keep their positional slot — build_series_response handles empty results cleanly.
+    per_series_responses: list[HogQLQueryResponse] = [
+        HogQLQueryResponse(results=groups.get(i, []), columns=columns) for i in range(expected_series_count)
+    ]
+
     returned_results: list[list[dict[str, Any]]] = []
-    series_count = len(per_series_responses)
     for i, response in enumerate(per_series_responses):
-        series_with_extra = runner.series[i]
-        returned_results.append(runner.build_series_response(response, series_with_extra, series_count))
+        returned_results.append(runner.build_series_response(response, runner.series[i], expected_series_count))
 
     final_result, has_more = runner.format_results(returned_results)
 
@@ -147,6 +198,8 @@ def _transform_lifecycle(result: dict, original_query: dict, team: Team, now: da
         result["results"] = []
         _strip_hogql_fields(result)
         return
+
+    _coerce_temporal_columns(rows, result.get("types"))
 
     response = HogQLQueryResponse(results=rows, columns=columns)
     result["results"] = runner.format_results(response)
