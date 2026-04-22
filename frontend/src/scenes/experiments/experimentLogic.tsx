@@ -95,7 +95,14 @@ import {
     legacyMinimumSampleSizePerVariant,
     legacyRecommendedExposureForCountData,
 } from './legacy/calculations/legacyExperimentCalculations'
-import { addExposureToMetric, compose, getExperimentRefreshMode, getInsight, getQuery } from './metricQueryUtils'
+import {
+    addExposureToMetric,
+    compose,
+    getExperimentExecutionMode,
+    getExperimentRefreshMode,
+    getInsight,
+    getQuery,
+} from './metricQueryUtils'
 import { getDefaultMetricTitle } from './MetricsView/shared/utils'
 import { modalsLogic } from './modalsLogic'
 import { SharedMetric } from './SharedMetrics/sharedMetricLogic'
@@ -424,6 +431,7 @@ const loadMetrics = async ({
                         is_retry: isRetry,
                         refresh_id: refreshId,
                         metric_kind: metricKind,
+                        execution_mode: getExperimentExecutionMode(featureFlags),
                     }
                 )
             } catch (error: any) {
@@ -1623,6 +1631,7 @@ export const experimentLogic = kea<experimentLogicType>([
                             : null,
                         experiment_status: values.experiment?.status ?? null,
                         total_metrics_count: primaryCount + secondaryCount,
+                        execution_mode: getExperimentExecutionMode(values.featureFlags),
                     }
                 )
 

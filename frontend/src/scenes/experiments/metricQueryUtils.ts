@@ -626,9 +626,12 @@ export const getInsight =
 
 // Gated by the experiments-sync-queries flag during rollout. Flag on → run experiment
 // queries synchronously in the web request; flag off → legacy Celery/async path.
-// Once the flag reaches 100%, inline the sync branch and delete this helper.
+// Once the flag reaches 100%, inline the sync branch and delete these helpers.
+export const getExperimentExecutionMode = (featureFlags: FeatureFlagsSet): 'sync' | 'async' =>
+    featureFlags[FEATURE_FLAGS.EXPERIMENTS_SYNC_QUERIES] ? 'sync' : 'async'
+
 export const getExperimentRefreshMode = (featureFlags: FeatureFlagsSet, forceRefresh: boolean): RefreshType => {
-    if (featureFlags[FEATURE_FLAGS.EXPERIMENTS_SYNC_QUERIES]) {
+    if (getExperimentExecutionMode(featureFlags) === 'sync') {
         return forceRefresh ? 'force_blocking' : 'blocking'
     }
     return forceRefresh ? 'force_async' : 'async'
