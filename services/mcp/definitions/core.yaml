@@ -74,22 +74,70 @@ tools:
     oauth-applications-list:
         operation: oauth_applications_list
         enabled: false
-    list-2:
+    projects-list:
         operation: list_2
         enabled: false
-    create-2:
+    projects-create:
         operation: create_2
         enabled: false
-    retrieve-2:
+    project-get:
         operation: retrieve_2
-        enabled: false
-    update-2:
+        enabled: true
+        scopes:
+            - project:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get project
+        description: >
+            Retrieve a project and its settings. Pass `@current` as the ID to fetch the caller's active project.
+        param_overrides:
+            id:
+                description: Project ID, or `@current` to fetch the caller's active project.
+        response:
+            exclude:
+                - secret_api_token
+                - secret_api_token_backup
+                - live_events_token
+                - default_modifiers
+    projects-update:
         operation: update_2
         enabled: false
-    partial-update-2:
+    project-settings-update:
         operation: partial_update_2
-        enabled: false
-    destroy-2:
+        enabled: true
+        scopes:
+            - project:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Update project settings
+        description: >
+            Update a project's settings using PATCH semantics — only the fields included in the request body are changed.
+            Use `project-get` first to inspect current settings. Always confirm changes with the user before applying.
+        param_overrides:
+            id:
+                description: Project ID, or `@current` to target the caller's active project.
+        exclude_params:
+            - uuid
+            - created_at
+            - updated_at
+            - api_token
+            - secret_api_token
+            - secret_api_token_backup
+            - ingested_event
+            - effective_membership_level
+            - has_group_types
+            - group_types
+            - live_events_token
+            - product_intents
+            - available_setup_task_ids
+            - default_modifiers
+            - person_on_events_querying_enabled
+            - organization
+    projects-destroy:
         operation: destroy_2
         enabled: false
     activity-retrieve:
@@ -452,10 +500,9 @@ tools:
         list: true
         title: List subscriptions
         description: >
-            List subscriptions for the project. Returns scheduled email, Slack, or webhook
-            deliveries of insight or dashboard snapshots. Each subscription includes its
-            schedule (frequency, interval, byweekday), next_delivery_date, and a
-            human-readable summary.
+            List subscriptions for the project. Returns scheduled email, Slack, or webhook deliveries of insight or
+            dashboard snapshots. Each subscription includes its schedule (frequency, interval, byweekday),
+            next_delivery_date, and a human-readable summary.
     subscriptions-create:
         operation: subscriptions_create
         enabled: true
@@ -467,12 +514,11 @@ tools:
             idempotent: false
         title: Create subscription
         description: >
-            Create a new subscription to receive scheduled deliveries of an insight or dashboard.
-            Requires either an insight ID or dashboard ID. Set target_type to email, slack, or
-            webhook and target_value to the recipient(s). For email: comma-separated addresses.
-            For slack: requires an integration_id for a connected Slack workspace plus a channel
-            name in target_value. For webhook: a URL. Set frequency (daily, weekly, monthly, yearly)
-            and optionally interval, byweekday, start_date, and until_date. Dashboard subscriptions
+            Create a new subscription to receive scheduled deliveries of an insight or dashboard. Requires either an
+            insight ID or dashboard ID. Set target_type to email, slack, or webhook and target_value to the
+            recipient(s). For email: comma-separated addresses. For slack: requires an integration_id for a connected
+            Slack workspace plus a channel name in target_value. For webhook: a URL. Set frequency (daily, weekly,
+            monthly, yearly) and optionally interval, byweekday, start_date, and until_date. Dashboard subscriptions
             also require dashboard_export_insights (list of insight IDs from that dashboard, max 6).
         exclude_params:
             - created_by
@@ -491,9 +537,8 @@ tools:
             idempotent: true
         title: Get subscription
         description: >
-            Get a specific subscription by ID. Returns the full subscription configuration
-            including target type and value, schedule details, next delivery date, and
-            associated insight or dashboard.
+            Get a specific subscription by ID. Returns the full subscription configuration including target type and
+            value, schedule details, next delivery date, and associated insight or dashboard.
     subscriptions-update:
         operation: subscriptions_update
         enabled: false
@@ -508,10 +553,9 @@ tools:
             idempotent: true
         title: Update subscription
         description: >
-            Update an existing subscription by ID. Can change target_type, target_value, frequency,
-            interval, byweekday, start_date, until_date, title, or deleted status. Set deleted to
-            true to deactivate a subscription (subscriptions are soft-deleted). Changing target_value
-            triggers notifications to new recipients.
+            Update an existing subscription by ID. Can change target_type, target_value, frequency, interval, byweekday,
+            start_date, until_date, title, or deleted status. Set deleted to true to deactivate a subscription
+            (subscriptions are soft-deleted). Changing target_value triggers notifications to new recipients.
         exclude_params:
             - created_by
             - next_delivery_date
@@ -524,15 +568,70 @@ tools:
     users-list:
         operation: users_list
         enabled: false
-    users-retrieve:
+    user-get:
         operation: users_retrieve
-        enabled: false
+        enabled: true
+        scopes:
+            - user:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get user
+        description: >
+            Retrieve a user's profile and settings. Pass `@me` as the UUID to fetch the authenticated user —
+            non-staff callers may only access their own account.
+        param_overrides:
+            uuid:
+                description: User UUID, or `@me` to target the authenticated user.
+        response:
+            exclude:
+                - is_impersonated
+                - is_impersonated_until
+                - is_impersonated_read_only
+                - sensitive_session_expires_at
     users-update:
         operation: users_update
         enabled: false
-    users-partial-update:
+    user-settings-update:
         operation: users_partial_update
-        enabled: false
+        enabled: true
+        scopes:
+            - user:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Update user settings
+        description: >
+            Update the authenticated user's profile and settings using PATCH semantics — only the fields included in the
+            request body are changed. Pass `@me` as the UUID; non-staff callers may only update their own account.
+            Use `user-get` first to inspect current settings. `notification_settings` merges key-by-key; changing `email`
+            triggers a verification flow; changing `password` also requires `current_password`. Always confirm changes
+            with the user before applying.
+        param_overrides:
+            uuid:
+                description: User UUID, or `@me` to target the authenticated user.
+        exclude_params:
+            - date_joined
+            - uuid
+            - distinct_id
+            - pending_email
+            - is_email_verified
+            - has_password
+            - id
+            - is_staff
+            - is_impersonated
+            - is_impersonated_until
+            - is_impersonated_read_only
+            - sensitive_session_expires_at
+            - team
+            - organization
+            - organizations
+            - has_social_auth
+            - has_sso_enforcement
+            - is_2fa_enabled
+            - scene_personalisation
     users-destroy:
         operation: users_destroy
         enabled: false
@@ -599,9 +698,6 @@ tools:
     project-secret-api-keys-roll-create:
         operation: project_secret_api_keys_roll_create
         enabled: false
-    dashboards-generate-metadata-create:
-        operation: dashboards_generate_metadata_create
-        enabled: false
     dashboards-bulk-update-tags-create:
         operation: dashboards_bulk_update_tags_create
         enabled: false
@@ -613,7 +709,21 @@ tools:
         enabled: false
     subscriptions-test-delivery-create:
         operation: subscriptions_test_delivery_create
-        enabled: false
+        enabled: true
+        scopes:
+            - subscription:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: false
+        title: Send test delivery
+        description: >
+            Trigger an immediate test delivery of a subscription to its configured target(s) (email, Slack, or webhook).
+            Runs the same pipeline as a scheduled delivery but with trigger_type=manual, producing a real delivery
+            record you can inspect via subscriptions-deliveries-list / subscriptions-deliveries-retrieve. Returns 202
+            Accepted once the delivery workflow is queued; poll subscriptions-deliveries-list (newest first) or
+            subscriptions-deliveries-retrieve for the outcome. Returns 409 if a test delivery for the same subscription
+            is already in flight.
     users-github-login-retrieve:
         operation: users_github_login_retrieve
         enabled: false
@@ -622,7 +732,53 @@ tools:
         enabled: false
     subscriptions-deliveries-list:
         operation: subscriptions_deliveries_list
-        enabled: false
+        enabled: true
+        scopes:
+            - subscription:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: List subscription deliveries
+        description: >
+            List delivery history for a subscription — one row per send attempt. Each entry includes status (starting,
+            completed, failed, skipped), trigger_type (scheduled, manual, target_change), and timestamps (created_at,
+            finished_at). Filter with status=failed to quickly surface failed deliveries. Results are cursor-paginated
+            newest first. content_snapshot, recipient_results, and error are excluded to match what the web UI exposes
+            and to avoid leaking recipient identifiers or upstream response bodies that may contain tokens / PII.
+        response:
+            exclude:
+                - content_snapshot
+                - recipient_results
+                - error
     subscriptions-deliveries-retrieve:
         operation: subscriptions_deliveries_retrieve
+        enabled: true
+        scopes:
+            - subscription:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get subscription delivery
+        description: >
+            Fetch a single subscription delivery attempt by id. Returns status, trigger_type, target_type, target_value,
+            timestamps, workflow/idempotency metadata, and exported_asset_ids. content_snapshot (the frozen
+            dashboard/insight state at send time) is not returned — use the insight/dashboard tools for current state.
+            recipient_results and error are also excluded to match what the web UI exposes and to avoid leaking
+            recipient identifiers or upstream response bodies that may contain tokens / PII.
+        response:
+            exclude:
+                - content_snapshot
+                - recipient_results
+                - error
+    legal-documents-list:
+        operation: legal_documents_list
+        enabled: false
+    legal-documents-create:
+        operation: legal_documents_create
+        enabled: false
+    legal-documents-retrieve:
+        operation: legal_documents_retrieve
         enabled: false

@@ -26,24 +26,28 @@ from posthog.temporal.llm_analytics.eval_reports.report_agent.schema import MAX_
 _UUID_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
 
 
-def _ch_ts(iso_str: str) -> str:
-    """Convert an ISO-8601 timestamp to a ClickHouse-compatible format.
+def _ch_ts(iso_str: str) -> datetime:
+    """Parse an ISO-8601 timestamp and return a UTC-aware datetime.
 
-    ClickHouse DateTime64 can't parse 'T' separator or '+00:00' timezone directly.
-    Converts '2026-03-12T10:05:48.034000+00:00' → '2026-03-12 10:05:48.034000'.
+    Returns a datetime (not a string) so HogQL's printer serializes it as
+    `toDateTime64(..., 6, <team_tz>)` with correct timezone alignment against
+    the events.timestamp column (DateTime64(6, <team_tz>)). Passing a bare
+    string here caused ClickHouse to coerce via the team's timezone, silently
+    shifting UTC moments by the team's offset so every period query returned
+    zero matches.
     """
     dt = datetime.fromisoformat(iso_str)
-    if dt.tzinfo is not None:
-        dt = dt.astimezone(UTC).replace(tzinfo=None)
-    return dt.strftime("%Y-%m-%d %H:%M:%S.%f")
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=UTC)
+    return dt.astimezone(UTC)
 
 
 _WIDENED_TS_START_SENTINEL = "2020-01-01T00:00:00+00:00"
 _WIDENED_TS_END_SENTINEL = "2099-01-01T00:00:00+00:00"
 
 
-def _widened_ts_window(state: dict) -> tuple[str, str]:
-    """Return (ts_start, ts_end) widened for generation-event lookups.
+def _widened_ts_window(state: dict) -> tuple[datetime, datetime]:
+    """Return (ts_start, ts_end) datetimes widened for generation-event lookups.
 
     Generations predate their evals, so widen the start by 7 days to catch the
     generating event. End is period_end + 1 day buffer for eval lag. Falls back
@@ -83,7 +87,9 @@ def _execute_hogql(team_id: int, query_str: str, placeholders: dict | None = Non
     return result.results or []
 
 
-def _fetch_period_counts(team_id: int, evaluation_id: str, ts_start: str, ts_end: str) -> tuple[int, int, int, int]:
+def _fetch_period_counts(
+    team_id: int, evaluation_id: str, ts_start: datetime, ts_end: datetime
+) -> tuple[int, int, int, int]:
     """Fetch pass/fail/NA/total counts for a single time window.
 
     Returns (pass_count, fail_count, na_count, total).

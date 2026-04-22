@@ -1,12 +1,12 @@
 from typing import Any
 
 import requests
-from dlt.sources.helpers.requests import Request, Response
-from dlt.sources.helpers.rest_client.paginators import BasePaginator
+from requests import Request, Response
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from posthog.temporal.data_imports.sources.clerk.settings import CLERK_ENDPOINTS
-from posthog.temporal.data_imports.sources.common.rest_source import RESTAPIConfig, rest_api_resources
+from posthog.temporal.data_imports.sources.common.rest_source import RESTAPIConfig, rest_api_resource
+from posthog.temporal.data_imports.sources.common.rest_source.paginators import BasePaginator
 from posthog.temporal.data_imports.sources.common.rest_source.typing import Endpoint, EndpointResource
 
 
@@ -29,7 +29,6 @@ def get_resource(name: str) -> EndpointResource:
     return {
         "name": config.name,
         "table_name": config.name,
-        "primary_key": "id",
         "write_disposition": "replace",
         "endpoint": endpoint_config,
         "table_format": "delta",
@@ -146,7 +145,6 @@ def clerk_source(
             "paginator": ClerkPaginator(limit=endpoint_config.page_size),
         },
         "resource_defaults": {
-            "primary_key": "id",
             "write_disposition": "replace",
             "endpoint": {
                 "params": {
@@ -157,9 +155,7 @@ def clerk_source(
         "resources": [get_resource(endpoint)],
     }
 
-    resources = rest_api_resources(config, team_id, job_id, None)
-    assert len(resources) == 1
-    resource = resources[0].add_map(_convert_timestamps)
+    resource = rest_api_resource(config, team_id, job_id, None).add_map(_convert_timestamps)
 
     return SourceResponse(
         name=endpoint,

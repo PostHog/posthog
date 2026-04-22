@@ -48,6 +48,7 @@ const alertGet = (): ToolBase<typeof AlertGetSchema, Schemas.Alert> => ({
                 checks_date_from: params.checks_date_from,
                 checks_date_to: params.checks_date_to,
                 checks_limit: params.checks_limit,
+                checks_offset: params.checks_offset,
             },
         })
         return result
@@ -97,6 +98,15 @@ const alertCreate = (): ToolBase<typeof AlertCreateSchema, Schemas.Alert> => ({
         }
         if (params.schedule_restriction !== undefined) {
             body['schedule_restriction'] = params.schedule_restriction
+        }
+        if (params.investigation_agent_enabled !== undefined) {
+            body['investigation_agent_enabled'] = params.investigation_agent_enabled
+        }
+        if (params.investigation_gates_notifications !== undefined) {
+            body['investigation_gates_notifications'] = params.investigation_gates_notifications
+        }
+        if (params.investigation_inconclusive_action !== undefined) {
+            body['investigation_inconclusive_action'] = params.investigation_inconclusive_action
         }
         const result = await context.api.request<Schemas.Alert>({
             method: 'POST',
@@ -150,6 +160,15 @@ const alertUpdate = (): ToolBase<typeof AlertUpdateSchema, Schemas.Alert> => ({
         }
         if (params.schedule_restriction !== undefined) {
             body['schedule_restriction'] = params.schedule_restriction
+        }
+        if (params.investigation_agent_enabled !== undefined) {
+            body['investigation_agent_enabled'] = params.investigation_agent_enabled
+        }
+        if (params.investigation_gates_notifications !== undefined) {
+            body['investigation_gates_notifications'] = params.investigation_gates_notifications
+        }
+        if (params.investigation_inconclusive_action !== undefined) {
+            body['investigation_inconclusive_action'] = params.investigation_inconclusive_action
         }
         const result = await context.api.request<Schemas.Alert>({
             method: 'PATCH',

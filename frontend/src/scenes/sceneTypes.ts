@@ -3,8 +3,6 @@ import { LogicWrapper } from 'kea'
 import type { FileSystemIconType, ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlResourceType, ActivityScope } from '~/types'
 
-import type { SettingSectionId } from '../scenes/settings/types'
-
 // The enum here has to match the first and only exported component of the scene.
 // If so, we can preload the scene's required chunks in parallel with the scene itself.
 
@@ -82,6 +80,8 @@ export enum Scene {
     IngestionWarnings = 'IngestionWarnings',
     InviteSignup = 'InviteSignup',
     LegacyPlugin = 'LegacyPlugin',
+    LegalDocuments = 'LegalDocuments',
+    LegalDocumentNew = 'LegalDocumentNew',
     Link = 'Link',
     Links = 'Links',
     LiveDebugger = 'LiveDebugger',
@@ -163,7 +163,6 @@ export enum Scene {
     VercelLinkError = 'VercelLinkError',
     VerifyEmail = 'VerifyEmail',
     WebAnalytics = 'WebAnalytics',
-    WebAnalyticsMarketing = 'WebAnalyticsMarketing',
     WebAnalyticsPageReports = 'WebAnalyticsPageReports',
     WebAnalyticsWebVitals = 'WebAnalyticsWebVitals',
     WebAnalyticsHealth = 'WebAnalyticsHealth',
@@ -189,6 +188,7 @@ export enum Scene {
     ManagedMigration = 'ManagedMigration',
     ManagedMigrationNew = 'ManagedMigrationNew',
     MarketingAnalytics = 'MarketingAnalytics',
+    MarketingAnalyticsSettings = 'MarketingAnalyticsSettings',
     MessagingLibraryTemplate = 'MessagingLibraryTemplate',
     NewAction = 'NewAction',
     TaskDetail = 'TaskDetail',
@@ -281,14 +281,12 @@ export interface SceneConfig {
     projectBased?: boolean
     /** Set the scope of the activity (affects activity and discussion panel) */
     activityScope?: ActivityScope | string
-    /** Settings section to surface in the context panel when this scene is active */
-    settingsSection?: SettingSectionId
+    /** Component import, used only in manifests */
+    import?: () => Promise<any>
     /** Custom icon for the tabs */
     iconType?: FileSystemIconType
     /** If true, uses canvas background (--color-bg-surface-primary) for the scene and its tab */
     canvasBackground?: boolean
-    /** Component import, used only in manifests */
-    import?: () => Promise<any>
 }
 
 // Map scenes to their access control resource types
@@ -323,7 +321,6 @@ export const sceneToAccessControlResourceType: Partial<Record<Scene, AccessContr
 
     // Web Analytics
     [Scene.WebAnalytics]: AccessControlResourceType.WebAnalytics,
-    [Scene.WebAnalyticsMarketing]: AccessControlResourceType.WebAnalytics,
     [Scene.WebAnalyticsPageReports]: AccessControlResourceType.WebAnalytics,
     [Scene.WebAnalyticsWebVitals]: AccessControlResourceType.WebAnalytics,
     [Scene.WebAnalyticsHealth]: AccessControlResourceType.WebAnalytics,
