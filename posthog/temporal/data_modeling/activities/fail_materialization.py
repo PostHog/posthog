@@ -52,7 +52,6 @@ def should_pause_schedule_for_timeout(saved_query_id: UUID, current_job_id: UUID
         if not job.error or ("Timeout exceeded" not in job.error and "exceeded timeout" not in job.error.lower()):
             return False
 
-
     return True
 
 
