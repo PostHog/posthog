@@ -18,9 +18,24 @@
     background-color: rgb(54 130 246 / 22%);
 }
 
-.active-subquery-underline-invalid {
-    text-decoration: underline wavy var(--warning) 1.5px;
-    text-underline-offset: 3px;
+.active-subquery-border-invalid {
+    width: 3px !important;
+    margin-left: 2px;
+    background-color: var(--warning);
+}
+
+.active-subquery-glyph-invalid {
+    &::before {
+        display: block;
+        width: 14px;
+        height: 14px;
+        margin: 3px auto 0;
+        content: '';
+        background-color: var(--warning);
+        mask-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><path d='M12 2L1 21h22L12 2zm0 4.5L19.5 19h-15L12 6.5zm-1 6.5v3h2v-3h-2zm0 4v2h2v-2h-2z'/></svg>");
+        mask-repeat: no-repeat;
+        mask-size: contain;
+    }
 }
 
 .active-query-highlight-flash {
