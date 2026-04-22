@@ -238,6 +238,7 @@ export const InsightVariablesCreateBody = /* @__PURE__ */ zod.object({
     name: zod.string().max(insightVariablesCreateBodyNameMax).describe('Human-readable name for the SQL variable.'),
     type: zod
         .enum(['String', 'Number', 'Boolean', 'List', 'Date'])
+        .describe('* `String` - String\n* `Number` - Number\n* `Boolean` - Boolean\n* `List` - List\n* `Date` - Date')
         .describe(
             'Variable type. Controls how the value is rendered and substituted in HogQL.\n\n* `String` - String\n* `Number` - Number\n* `Boolean` - Boolean\n* `List` - List\n* `Date` - Date'
         ),
@@ -264,6 +265,7 @@ export const InsightVariablesPartialUpdateBody = /* @__PURE__ */ zod.object({
         .describe('Human-readable name for the SQL variable.'),
     type: zod
         .enum(['String', 'Number', 'Boolean', 'List', 'Date'])
+        .describe('* `String` - String\n* `Number` - Number\n* `Boolean` - Boolean\n* `List` - List\n* `Date` - Date')
         .optional()
         .describe(
             'Variable type. Controls how the value is rendered and substituted in HogQL.\n\n* `String` - String\n* `Number` - Number\n* `Boolean` - Boolean\n* `List` - List\n* `Date` - Date'
