@@ -20,7 +20,7 @@ Use property filters to narrow results. Only include filters directly relevant t
 When using a property filter, you should:
 
 - **Prioritize properties directly related to the user's query.**
-- **Ensure the correct filter type.** Types: `person`, `session`, `event`, `recording`.
+- **Ensure the correct filter type.** Types: `person`, `session`, `event`, `recording`, `cohort`.
 - **Use `read-data-schema` to discover property names and values** before creating filters.
 
 ## Common properties
@@ -32,6 +32,8 @@ When using a property filter, you should:
 **Person** (type: `person`): `$geoip_country_code`, `$geoip_city_name`, `email`, and custom person properties.
 
 **Event** (type: `event`): `$current_url`, `$pathname`, `$browser`, `$os`, `$device_type`, `$screen_width`.
+
+**Cohort** (type: `cohort`): scope recordings to persons belonging to a cohort. `key` is always `"id"`, `value` is the cohort ID, operator is `in` (or `not_in` to exclude). Example: `{ "type": "cohort", "key": "id", "value": 42, "operator": "in" }`. Use `cohorts-list` to find cohort IDs.
 
 ## Operators
 
@@ -115,6 +117,16 @@ Each recording in results contains:
   "date_from": "-7d",
   "filter_test_accounts": true,
   "properties": [{ "key": "$device_type", "operator": "exact", "type": "event", "value": ["Mobile"] }]
+}
+```
+
+## Recordings from a cohort of users
+
+```json
+{
+  "date_from": "-7d",
+  "filter_test_accounts": true,
+  "properties": [{ "key": "id", "operator": "in", "type": "cohort", "value": 42 }]
 }
 ```
 

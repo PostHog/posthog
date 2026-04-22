@@ -9539,7 +9539,9 @@ class AssistantRecordingsQuery(BaseModel):
             " $entry_current_url).\n- `event`: Filter by properties of events in the"
             " session (e.g. $current_url, $browser).\n- `recording`: Filter by"
             " recording metrics (e.g. console_error_count, click_count,"
-            " activity_score)."
+            " activity_score).\n- `cohort`: Filter recordings to persons belonging to a"
+            ' cohort. Example: `{ type: "cohort", key: "id", value: 42, operator:'
+            ' "in" }`.'
         ),
     )
 
