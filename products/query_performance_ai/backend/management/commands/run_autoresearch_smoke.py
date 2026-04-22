@@ -30,12 +30,12 @@ from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.temporal.oauth import create_oauth_access_token_for_user
 
-from products.tasks.backend.services.sandbox import SandboxConfig, SandboxTemplate, get_sandbox_class_for_backend
-from products.tasks.backend.temporal.process_task.activities.run_autoresearch_campaign import (
+from products.query_performance_ai.backend.harvest import (
     LLM_GATEWAY_PRODUCT_SLUG,
     RunAutoresearchCampaignOutput,
-    _harvest_artifacts,
+    harvest_artifacts,
 )
+from products.tasks.backend.services.sandbox import SandboxConfig, SandboxTemplate, get_sandbox_class_for_backend
 from products.tasks.backend.temporal.process_task.utils import get_github_token
 
 _DEFAULT_POSTHOG_URL = "http://host.docker.internal:8000"
@@ -221,7 +221,7 @@ class Command(BaseCommand):
                 raise CommandError(f"run_campaign.py exited {result.exit_code}")
 
             write("Campaign finished — harvesting artifacts…")
-            output = _harvest_artifacts(
+            output = harvest_artifacts(
                 sandbox,
                 original_sql=sql,
                 query_id=query_id or "smoke",
