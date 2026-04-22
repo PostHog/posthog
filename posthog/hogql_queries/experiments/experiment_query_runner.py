@@ -1,4 +1,5 @@
 from datetime import UTC, datetime, timedelta
+from functools import cached_property
 from typing import Optional
 
 import structlog
@@ -222,6 +223,10 @@ class ExperimentQueryRunner(QueryRunner):
             placeholders=placeholders,
         )
 
+    @cached_property
+    def _team_experiments_config(self) -> TeamExperimentsConfig:
+        return get_or_create_team_extension(self.team, TeamExperimentsConfig)
+
     def _should_precompute(self) -> bool:
         """Resolve whether to use precomputation: query-level override > team-level default."""
         if self.query.precomputation_mode == PrecomputationMode.PRECOMPUTED:
@@ -229,8 +234,7 @@ class ExperimentQueryRunner(QueryRunner):
         if self.query.precomputation_mode == PrecomputationMode.DIRECT:
             return False
 
-        config = get_or_create_team_extension(self.team, TeamExperimentsConfig)
-        return config.experiment_precomputation_enabled
+        return self._team_experiments_config.experiment_precomputation_enabled
 
     def _resolve_funnel_steps_data_disabled(self) -> bool:
         """Resolve funnel_steps_data_disabled: experiment parameter > team config > False."""
@@ -238,7 +242,7 @@ class ExperimentQueryRunner(QueryRunner):
         if "funnel_steps_data_disabled" in parameters:
             return bool(parameters["funnel_steps_data_disabled"])
 
-        config = get_or_create_team_extension(self.team, TeamExperimentsConfig)
+        config = self._team_experiments_config
         if config.funnel_steps_data_disabled is not None:
             return config.funnel_steps_data_disabled
 
