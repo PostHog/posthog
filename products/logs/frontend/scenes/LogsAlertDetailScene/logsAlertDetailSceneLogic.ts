@@ -11,6 +11,7 @@ import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
+import { LogSeverityLevel } from '~/queries/schema/schema-general'
 import { Breadcrumb } from '~/types'
 
 import { logsAlertEventHistoryLogic } from 'products/logs/frontend/components/LogsAlerting/logsAlertEventHistoryLogic'
@@ -117,8 +118,9 @@ export const logsAlertDetailSceneLogic = kea<logsAlertDetailSceneLogicType>([
                     return api.logs.sparkline({
                         query: {
                             dateRange: { date_from: '-7d', date_to: null },
-                            severityLevels: filters.severityLevels as string[] | undefined,
-                            serviceNames: filters.serviceNames as string[] | undefined,
+                            severityLevels: ((filters.severityLevels as string[] | undefined) ??
+                                []) as LogSeverityLevel[],
+                            serviceNames: (filters.serviceNames as string[] | undefined) ?? [],
                             filterGroup: (filters.filterGroup as any) ?? { type: 'AND', values: [] },
                             sparklineBreakdownBy: 'severity',
                         },

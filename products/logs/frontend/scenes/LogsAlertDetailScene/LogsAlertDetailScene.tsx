@@ -11,7 +11,8 @@ import { SceneExport } from 'scenes/sceneTypes'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import { UniversalFiltersGroup } from '~/types'
+import { LogSeverityLevel } from '~/queries/schema/schema-general'
+import { FilterLogicalOperator, UniversalFiltersGroup } from '~/types'
 
 import { LogsAlertEventHistoryContent } from 'products/logs/frontend/components/LogsAlerting/LogsAlertEventHistory'
 import { LogsAlertForm } from 'products/logs/frontend/components/LogsAlerting/LogsAlertForm'
@@ -80,12 +81,12 @@ export function LogsAlertDetailScene(): JSX.Element {
                                 {
                                     key: 'history',
                                     label: 'History',
-                                    content: alert ? <LogsAlertEventHistoryContent alert={alert} /> : null,
+                                    content: alert ? <LogsAlertEventHistoryContent alert={alert} /> : <></>,
                                 },
                                 {
                                     key: 'logs',
                                     label: 'Observed logs',
-                                    content: alert ? <ObservedLogsTab alert={alert} /> : null,
+                                    content: alert ? <ObservedLogsTab alert={alert} /> : <></>,
                                 },
                             ]}
                         />
@@ -129,9 +130,10 @@ function AlertHeader(): JSX.Element {
             actions={
                 alert ? (
                     <div className="flex items-center gap-2">
-                        {isEnabled && alert.state !== LogsAlertConfigurationStateEnumApi.NotFiring && (
+                        {(!isEnabled || alert.state !== LogsAlertConfigurationStateEnumApi.NotFiring) && (
                             <LogsAlertStateIndicator
                                 state={alert.state}
+                                enabled={isEnabled}
                                 lastErrorMessage={alert.last_error_message}
                                 snoozeUntil={alert.snooze_until}
                             />
@@ -139,7 +141,7 @@ function AlertHeader(): JSX.Element {
                         <LemonButton
                             size="small"
                             type="secondary"
-                            status={isEnabled ? 'danger' : 'success'}
+                            status={isEnabled ? 'danger' : undefined}
                             onClick={toggleEnabled}
                             disabledReason={isBroken ? 'Reset this alert to re-enable checks' : undefined}
                         >
@@ -336,9 +338,12 @@ function NotificationsTab(): JSX.Element {
 function ObservedLogsTab({ alert }: { alert: LogsAlertConfigurationApi }): JSX.Element {
     const filters = (alert.filters ?? {}) as Record<string, unknown>
     const initialFilters = {
-        severityLevels: (filters.severityLevels as string[] | undefined) ?? [],
+        severityLevels: ((filters.severityLevels as string[] | undefined) ?? []) as LogSeverityLevel[],
         serviceNames: (filters.serviceNames as string[] | undefined) ?? [],
-        filterGroup: filters.filterGroup as UniversalFiltersGroup | undefined,
+        filterGroup: (filters.filterGroup as UniversalFiltersGroup | undefined) ?? {
+            type: FilterLogicalOperator.And,
+            values: [],
+        },
     }
 
     return (

@@ -10,7 +10,10 @@ import { urls } from 'scenes/urls'
 
 import { Breadcrumb } from '~/types'
 
-import { logsAlertFormLogic } from 'products/logs/frontend/components/LogsAlerting/logsAlertFormLogic'
+import {
+    logsAlertFormLogic,
+    LogsAlertFormType,
+} from 'products/logs/frontend/components/LogsAlerting/logsAlertFormLogic'
 import { buildAlertFilters, hasAnyFilter } from 'products/logs/frontend/components/LogsAlerting/logsAlertUtils'
 import { logsAlertsCreate } from 'products/logs/frontend/generated/api'
 import { LogsAlertConfigurationApi } from 'products/logs/frontend/generated/api.schemas'
