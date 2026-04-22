@@ -47,6 +47,7 @@ from posthog.models.utils import (
     generate_random_token_personal,
     mask_key_value,
 )
+from posthog.rbac.user_access_control import UserAccessControl
 from posthog.tasks.email import send_provisioning_welcome
 from posthog.utils import get_instance_region
 
@@ -1155,12 +1156,16 @@ def _resolve_or_create_project_team(
     user: User,
     configuration: dict,
     access_token: OAuthAccessToken,
-) -> tuple[Team, list[int]]:
+) -> tuple[Team | None, list[int]]:
     """Look up or create a team for the given project_id.
 
     Uses TeamProvisioningConfig (DB-backed with unique constraint) for the
     project_id → team_id mapping. This ensures idempotency even across cache
     evictions and handles race conditions via IntegrityError.
+
+    Returns (None, scoped_teams) when an existing team is resolved but the
+    authenticated user lacks team-level access (honors advanced permissions
+    / access controls on top of org membership).
     """
     from posthog.models.team.team_provisioning_config import TeamProvisioningConfig
 
@@ -1173,6 +1178,8 @@ def _resolve_or_create_project_team(
         .first()
     )
     if existing:
+        if not _user_can_access_team(user, existing.team):
+            return None, scoped_teams
         return _ensure_team_in_token_scopes(access_token, scoped_teams, existing.team)
 
     base_team = Team.objects.get(id=scoped_teams[0])
@@ -1199,6 +1206,8 @@ def _resolve_or_create_project_team(
             .first()
         )
         if race_winner:
+            if not _user_can_access_team(user, race_winner.team):
+                return None, scoped_teams
             return _ensure_team_in_token_scopes(access_token, scoped_teams, race_winner.team)
         raise _ProjectIdCollisionError(project_id)
 
@@ -1220,6 +1229,17 @@ def _ensure_team_in_token_scopes(
         return team, scoped_teams
     _add_team_to_token_scopes(access_token, team.id)
     return team, [*scoped_teams, team.id]
+
+
+def _user_can_access_team(user: User, team: Team) -> bool:
+    """Verify the user has at least member-level access to the team.
+
+    Org membership alone does not prove access for advanced-permissions
+    orgs that restrict individual teams. Without this check the agentic
+    provisioning resolve flow could grant scoped access to a private team
+    as long as the user had any team in the same org.
+    """
+    return UserAccessControl(user=user, team=team).check_access_level_for_object(team, required_level="member")
 
 
 def _add_team_to_token_scopes(access_token: OAuthAccessToken, team_id: int) -> None:
@@ -1307,6 +1327,9 @@ def provisioning_resources_create(request: Request) -> Response:
                 "Project ID already linked to another organization",
                 status=409,
             )
+        if team is None:
+            _capture_provisioning_event("resource_created", "error", error_code="forbidden", project_id=project_id)
+            return _error_response("forbidden", "Resource not accessible with this token", status=403)
     else:
         team_id = scoped_teams[0]
         try:
