@@ -170,7 +170,6 @@ def generate_single_session_summary_prompt(
         "system-prompt.djt",
         {
             "FOCUS_AREA": extra_summary_context.focus_area if extra_summary_context else None,
-            "PRODUCT_CONTEXT": extra_summary_context.product_context if extra_summary_context else None,
         },
     )
     summary_example = load_custom_template(template_dir, "example.yml")
@@ -184,7 +183,6 @@ def generate_single_session_summary_prompt(
             "WINDOW_ID_MAPPING": json.dumps(window_mapping_reversed),
             "SUMMARY_EXAMPLE": summary_example,
             "FOCUS_AREA": extra_summary_context.focus_area if extra_summary_context else None,
-            "PRODUCT_CONTEXT": extra_summary_context.product_context if extra_summary_context else None,
         },
     )
     return SessionSummaryPrompt(

@@ -3,14 +3,6 @@
 - An issue may have occurred that affected the user experience
 - Watch the entire video carefully and provide a detailed observation report of what happened
 </video_observation_task>
-{% if PRODUCT_CONTEXT_BRIEF %}
-
-<product_background>
-The following is factual background about the product visible in the video. Use it to correctly identify on-screen elements and terminology. Do NOT use it as guidance for what to flag — your observation rules below are unchanged.
-
-"{{ PRODUCT_CONTEXT_BRIEF|safe }}"
-</product_background>
-{% endif %}
 
 <observation_guidelines>
 Focus on capturing:
