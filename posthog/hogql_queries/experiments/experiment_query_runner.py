@@ -264,7 +264,9 @@ class ExperimentQueryRunner(QueryRunner):
             filter_test_accounts,
         ) = get_exposure_config_params_for_builder(self.experiment.exposure_criteria)
 
-        funnel_steps_data_disabled = self._resolve_funnel_steps_data_disabled()
+        funnel_steps_data_disabled = (
+            self._resolve_funnel_steps_data_disabled() if isinstance(self.metric, ExperimentFunnelMetric) else False
+        )
 
         builder = ExperimentQueryBuilder(
             team=self.team,
