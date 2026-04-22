@@ -1879,6 +1879,6 @@ class TestResolver(BaseTest):
             resolve_types(expr, self.context, dialect="clickhouse")
 
     def test_missing_field_on_aliased_subquery_raises_query_error(self):
-        expr = self._select("WITH v AS (SELECT 1 AS a) SELECT v.seedbox_package FROM v")
+        expr = self._select("SELECT v.seedbox_package FROM (SELECT 1 AS a) AS v")
         with self.assertRaisesRegex(QueryError, "Field 'seedbox_package' not found on 'v'"):
             resolve_types(expr, self.context, dialect="clickhouse")
