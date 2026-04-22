@@ -316,24 +316,6 @@ def tag_queries(**kwargs) -> None:
 
 
 def get_team_query_tags(team: "int | Team") -> dict[str, Any]:
-    """
-    Returns a dict of tags derived from the team — team_id, org_id, and
-    ai_data_processing_approved — for the caller to pass to tag_queries(). Use from
-    Celery/Temporal/Dagster entry points so their log_comment rows carry the same org
-    metadata as HTTP requests (where TeamAndOrgViewSetMixin.team tags these directly):
-
-        tag_queries(**get_team_query_tags(insight.team), insight_id=insight.pk, ...)
-
-    Accepts either a team_id (int) — which triggers one select_related'd Team fetch — or
-    a Team instance, which skips the fetch. If a Team is passed without its organization
-    prefetched, accessing .organization will lazy-load it (one extra query); prefetch with
-    `select_related("team__organization")` upstream to avoid that.
-
-    Returns only {"team_id": team_id} when:
-    - the id doesn't resolve to an existing team, or
-    - the team's organization FK is orphaned (Organization.DoesNotExist).
-    Both cases emit a structured warning so the gap is observable.
-    """
     from posthog.models.organization import Organization
     from posthog.models.team import Team
 
