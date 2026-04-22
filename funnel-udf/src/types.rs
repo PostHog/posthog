@@ -36,3 +36,21 @@ pub enum BreakdownShape {
     ArrayString,
     U64,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rstest::rstest;
+
+    #[rstest]
+    #[case(r#""hello""#, PropVal::String(Bytes(b"hello".to_vec())))]
+    #[case(r#"42"#, PropVal::Int(42))]
+    #[case(r#"4503599627370496"#, PropVal::Int(4503599627370496))] // 2^52 (NOT_IN_COHORT_ID)
+    #[case(r#"["a","b"]"#, PropVal::Vec(vec![Bytes(b"a".to_vec()), Bytes(b"b".to_vec())]))]
+    #[case(r#"[1, 2, 3]"#, PropVal::VecInt(vec![1, 2, 3]))]
+    #[case(r#"[4503599627370496]"#, PropVal::VecInt(vec![4503599627370496]))]
+    fn test_propval_deserialization(#[case] json: &str, #[case] expected: PropVal) {
+        let result: PropVal = serde_json::from_str(json).unwrap();
+        assert_eq!(result, expected);
+    }
+}
