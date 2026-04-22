@@ -247,9 +247,7 @@ class TestBingAdsSource:
         fake_redis.set.side_effect = lambda key, value, ex=None: store.__setitem__(key, value)
         fake_redis.get.side_effect = lambda key: store.get(key)
 
-        with mock.patch(
-            "posthog.temporal.data_imports.sources.common.resumable.get_client", return_value=fake_redis
-        ):
+        with mock.patch("posthog.temporal.data_imports.sources.common.resumable.get_client", return_value=fake_redis):
             original = BingAdsResumeConfig(next_start_date="2025-02-01", end_date="2025-06-30")
             manager.save_state(original)
             loaded = manager.load_state()
