@@ -73,6 +73,30 @@ class TestSurvey(APIBaseTest):
         ]
         assert response_data["created_by"]["id"] == self.user.id
 
+    def test_create_survey_uses_project_default_for_partial_responses(self):
+        self.team.survey_config = {"enable_partial_responses": True}
+        self.team.save()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "Defaulted survey",
+                "type": "popover",
+                "questions": [
+                    {
+                        "type": "open",
+                        "question": "How is it going?",
+                    }
+                ],
+            },
+            format="json",
+        )
+
+        response_data = response.json()
+        assert response.status_code == status.HTTP_201_CREATED, response_data
+        assert response_data["enable_partial_responses"] is True
+        assert Survey.objects.get(id=response_data["id"]).enable_partial_responses is True
+
     def test_can_create_survey_with_translations(self):
         response = self.client.post(
             f"/api/projects/{self.team.id}/surveys/",

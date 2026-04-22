@@ -1084,6 +1084,12 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
             validated_data.pop("remove_targeting_flag")
 
         validated_data["team_id"] = self.context["team_id"]
+        if "enable_partial_responses" not in validated_data:
+            team = Team.objects.get(id=self.context["team_id"])
+            survey_config = team.survey_config or {}
+            project_default = survey_config.get("enable_partial_responses")
+            if project_default is not None:
+                validated_data["enable_partial_responses"] = project_default
         if validated_data.get("targeting_flag_filters"):
             targeting_feature_flag = self._create_or_update_targeting_flag(
                 None, validated_data["targeting_flag_filters"], validated_data["name"]
