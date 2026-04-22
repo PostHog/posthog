@@ -11,7 +11,6 @@ from typing import Any, Optional
 
 import certifi
 from bson import Binary, DatetimeMS, ObjectId
-from bson.binary import UUID_SUBTYPE
 from bson.codec_options import DatetimeConversion
 from pymongo import MongoClient
 from pymongo.collection import Collection
@@ -37,13 +36,15 @@ SCHEMA_INFERENCE_TIMEOUT_MS = 45_000  # 45 seconds
 def _convert_binary(value: Binary) -> str:
     """Convert a bson.Binary to a safe string representation.
 
-    Subtype 4 (standard UUID) with 16 bytes decodes as canonical UUID string.
-    Legacy UUID subtypes (3) with 16 bytes also decode as UUID — byte ordering
-    may differ from the application's encoding, but a canonical string is still
-    preferable to a Python bytes repr which is ambiguous/unparseable in SQL.
-    Any other subtype falls back to base64 so the raw bytes round-trip safely.
+    Subtype 4 (standard UUID) is decoded to uuid.UUID by PyMongo's
+    uuidRepresentation=standard codec option before documents reach this helper,
+    so only legacy subtype 3 (16-byte UUIDs from older drivers) is handled here
+    as a UUID. Byte ordering may differ from the application's encoding but a
+    canonical string is preferable to a Python bytes repr, which is ambiguous
+    and unparseable in SQL. Any other subtype falls back to base64 so the raw
+    bytes round-trip safely.
     """
-    if len(value) == 16 and value.subtype in (UUID_SUBTYPE, 3):
+    if len(value) == 16 and value.subtype == 3:
         return str(uuid.UUID(bytes=bytes(value)))
     return base64.b64encode(bytes(value)).decode("ascii")
 

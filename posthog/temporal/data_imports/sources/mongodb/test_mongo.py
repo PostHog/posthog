@@ -1,4 +1,5 @@
 import uuid
+import base64
 import datetime
 
 from unittest.mock import MagicMock, patch
@@ -91,48 +92,43 @@ class TestSafeServerSelector(SimpleTestCase):
 
 
 class TestProcessNestedValue(SimpleTestCase):
+    CANONICAL_UUID_STR = "00000015-af12-f829-04fe-1f5e8f1a5230"
+    CANONICAL_UUID = uuid.UUID(CANONICAL_UUID_STR)
+    YEAR_ZERO_MS = -62167219200000  # 0000-01-01T00:00:00Z
+    FAR_FUTURE_MS = 253_402_300_800_000 * 10  # year > 9999
+
     def test_objectid_is_stringified(self):
         oid = ObjectId()
         assert _process_nested_value(oid) == str(oid)
 
     def test_uuid_is_stringified(self):
-        u = uuid.UUID("00000015-af12-f829-04fe-1f5e8f1a5230")
-        assert _process_nested_value(u) == "00000015-af12-f829-04fe-1f5e8f1a5230"
-
-    def test_binary_subtype_4_decodes_as_canonical_uuid(self):
-        expected_uuid = uuid.UUID("00000015-af12-f829-04fe-1f5e8f1a5230")
-        binary = Binary(expected_uuid.bytes, UUID_SUBTYPE)
-
-        assert _process_nested_value(binary) == str(expected_uuid)
+        assert _process_nested_value(self.CANONICAL_UUID) == self.CANONICAL_UUID_STR
 
     def test_binary_legacy_subtype_3_decodes_as_uuid(self):
-        expected_uuid = uuid.UUID("00000015-af12-f829-04fe-1f5e8f1a5230")
-        binary = Binary(expected_uuid.bytes, 3)
+        # Subtype 4 (standard UUID) is pre-decoded to uuid.UUID by PyMongo's
+        # codec and never reaches _convert_binary; only legacy subtype 3 exercises
+        # the Binary → UUID branch here.
+        binary = Binary(self.CANONICAL_UUID.bytes, 3)
+        assert _process_nested_value(binary) == self.CANONICAL_UUID_STR
 
-        assert _process_nested_value(binary) == str(expected_uuid)
-
-    def test_binary_non_uuid_subtype_falls_back_to_base64(self):
-        import base64
-
-        raw = b"\x00\x01\x02\x03payload"
-        binary = Binary(raw, 0)
-
+    @parameterized.expand(
+        [
+            ("generic_subtype", b"\x00\x01\x02\x03payload", 0),
+            # Subtype 4 Binary should not reach _convert_binary in production
+            # (codec decodes to uuid.UUID first), but if it does, the wrong-length
+            # guard falls back to base64 rather than crashing.
+            ("subtype_4_wrong_length", b"\x00\x01\x02", UUID_SUBTYPE),
+            ("subtype_4_full_length", b"\x00" * 16, UUID_SUBTYPE),
+        ]
+    )
+    def test_non_decodable_binary_falls_back_to_base64(self, _name: str, raw: bytes, subtype: int):
+        binary = Binary(raw, subtype)
         assert _process_nested_value(binary) == base64.b64encode(raw).decode("ascii")
 
-    def test_binary_uuid_subtype_with_wrong_length_falls_back_to_base64(self):
-        import base64
-
-        # Subtype 4 but not 16 bytes — can't be a UUID, must not crash.
-        raw = b"\x00\x01\x02"
-        binary = Binary(raw, UUID_SUBTYPE)
-
-        assert _process_nested_value(binary) == base64.b64encode(raw).decode("ascii")
-
-    def test_nested_dict_with_binary_uuid(self):
-        expected_uuid = uuid.UUID("00000015-af12-f829-04fe-1f5e8f1a5230")
+    def test_nested_dict_with_uuid(self):
         value = {
             "user": {
-                "_id": Binary(expected_uuid.bytes, UUID_SUBTYPE),
+                "_id": self.CANONICAL_UUID,
                 "name": "Alice",
             },
         }
@@ -141,30 +137,33 @@ class TestProcessNestedValue(SimpleTestCase):
 
         assert result == {
             "user": {
-                "_id": str(expected_uuid),
+                "_id": self.CANONICAL_UUID_STR,
                 "name": "Alice",
             }
         }
 
     def test_list_with_mixed_bson_types(self):
         oid = ObjectId()
-        u = uuid.UUID("00000015-af12-f829-04fe-1f5e8f1a5230")
-        value = [oid, Binary(u.bytes, UUID_SUBTYPE), "plain"]
+        value = [oid, self.CANONICAL_UUID, "plain"]
 
-        assert _process_nested_value(value) == [str(oid), str(u), "plain"]
+        assert _process_nested_value(value) == [str(oid), self.CANONICAL_UUID_STR, "plain"]
 
-    def test_plain_values_pass_through(self):
-        assert _process_nested_value(42) == 42
-        assert _process_nested_value("hello") == "hello"
-        assert _process_nested_value(None) is None
-        assert _process_nested_value(True) is True
+    @parameterized.expand(
+        [
+            ("int", 42),
+            ("string", "hello"),
+            ("none", None),
+            ("bool_true", True),
+            ("bool_false", False),
+            ("float", 3.14),
+        ]
+    )
+    def test_plain_values_pass_through(self, _name: str, value):
+        assert _process_nested_value(value) == value
 
     def test_never_produces_bytes_repr(self):
-        # Regression: Binary/UUID must never leak as b'\x...' repr downstream.
-        u = uuid.UUID("00000015-af12-f829-04fe-1f5e8f1a5230")
-        binary = Binary(u.bytes, UUID_SUBTYPE)
-
-        result = _process_nested_value(binary)
+        # Regression: UUID must never leak as b'\x...' repr downstream.
+        result = _process_nested_value(self.CANONICAL_UUID)
 
         assert isinstance(result, str)
         assert not result.startswith("b'")
@@ -176,31 +175,26 @@ class TestProcessNestedValue(SimpleTestCase):
         assert _process_nested_value(dt) is dt
 
     def test_datetime_ms_in_range_converted_to_datetime(self):
-        # DatetimeMS that lies within datetime range (pymongo could return this
-        # under DATETIME_MS; under DATETIME_AUTO it's only returned for out-of-range,
-        # but the helper must still handle the in-range case gracefully).
+        # DatetimeMS within the datetime representable range: as_datetime succeeds.
+        # Under DATETIME_AUTO this only arises for out-of-range values, but the
+        # helper must still handle in-range DatetimeMS gracefully if it appears.
         ms = 1_700_000_000_000  # 2023-11-14T22:13:20Z
         result = _process_nested_value(DatetimeMS(ms))
         assert isinstance(result, datetime.datetime)
 
-    def test_datetime_ms_year_zero_becomes_none(self):
-        # Customer's "year 0 is out of range" BSON value.
-        year_zero_ms = -62167219200000  # 0000-01-01T00:00:00Z
-        assert _process_nested_value(DatetimeMS(year_zero_ms)) is None
-
-    def test_datetime_ms_far_future_becomes_none(self):
-        # 32-bit overflow / year > 9999 ms value.
-        far_future_ms = 253_402_300_800_000 * 10
-        assert _process_nested_value(DatetimeMS(far_future_ms)) is None
-
-    def test_null_passes_through(self):
-        # BSON null → Python None, must survive all transformations untouched.
-        assert _process_nested_value(None) is None
+    @parameterized.expand(
+        [
+            ("year_zero", YEAR_ZERO_MS),
+            ("far_future", FAR_FUTURE_MS),
+        ]
+    )
+    def test_datetime_ms_out_of_range_becomes_none(self, _name: str, ms: int):
+        assert _process_nested_value(DatetimeMS(ms)) is None
 
     def test_nested_dict_with_out_of_range_datetime(self):
         value = {
             "user": {
-                "dateOfBirth": DatetimeMS(-62167219200000),
+                "dateOfBirth": DatetimeMS(self.YEAR_ZERO_MS),
                 "createdAt": datetime.datetime(2024, 1, 1),
             },
         }
