@@ -178,13 +178,13 @@ class TraceSpansQueryRunnerMixin(QueryRunner):
                 # Filter UI stores human labels for kind/status_code so the applied-filter
                 # chip reads naturally. Translate labels to the integer column values here.
                 if span_filter.key == "kind":
-                    values = span_filter.value if isinstance(span_filter.value, list) else [span_filter.value]
+                    values = span_filter.value if isinstance(span_filter.value, list) else [str(span_filter.value)]
                     span_filter.value = [
                         _SPAN_KIND_LABEL_TO_INT[str(v)] for v in values if str(v) in _SPAN_KIND_LABEL_TO_INT
                     ]
 
                 if span_filter.key == "status_code":
-                    values = span_filter.value if isinstance(span_filter.value, list) else [span_filter.value]
+                    values = span_filter.value if isinstance(span_filter.value, list) else [str(span_filter.value)]
                     expanded: list[int] = []
                     for v in values:
                         if str(v) in _STATUS_CODE_LABEL_TO_INTS:
