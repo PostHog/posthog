@@ -37,29 +37,11 @@ export function SignatureBlock(): JSX.Element {
                     <span>Signature</span>
                     <span className="border-b border-current">&nbsp;</span>
 
-                    <span>Representative Name</span>
-                    <span className="border-b border-current">
-                        <Placeholder
-                            value={legalDocument.representative_name}
-                            fallback="[REPRESENTATIVE NAME]"
-                            focusTargetId={FIELD_IDS.representative_name}
-                        />
-                    </span>
-
-                    <span>Title</span>
-                    <span className="border-b border-current">
-                        <Placeholder
-                            value={legalDocument.representative_title}
-                            fallback="[REPRESENTATIVE TITLE]"
-                            focusTargetId={FIELD_IDS.representative_title}
-                        />
-                    </span>
-
                     <span>Email</span>
                     <span className="border-b border-current">
                         <Placeholder
                             value={legalDocument.representative_email}
-                            fallback="[REPRESENTATIVE EMAIL]"
+                            fallback="[SIGNER EMAIL]"
                             focusTargetId={FIELD_IDS.representative_email}
                         />
                     </span>
@@ -73,10 +55,8 @@ export function SignatureBlock(): JSX.Element {
                 <div className="grid grid-cols-[minmax(100px,200px)_1fr] items-baseline gap-y-3">
                     <span>Signature</span>
                     <span className="border-b border-current">&nbsp;</span>
-                    <span>Representative Name</span>
-                    <span className="border-b border-current">Charles Cook</span>
-                    <span>Title</span>
-                    <span className="border-b border-current">VP Operations</span>
+                    <span>Representative</span>
+                    <span className="border-b border-current">Charles Cook, VP Operations</span>
                     <span>Date</span>
                     <span className="border-b border-current">{today}</span>
                 </div>

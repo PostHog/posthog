@@ -751,6 +751,100 @@ export interface PaginatedExternalDataSourceConnectionOptionListApi {
     results: ExternalDataSourceConnectionOptionApi[]
 }
 
+/**
+ * * `String` - String
+ * `Number` - Number
+ * `Boolean` - Boolean
+ * `List` - List
+ * `Date` - Date
+ */
+export type InsightVariableTypeEnumApi = (typeof InsightVariableTypeEnumApi)[keyof typeof InsightVariableTypeEnumApi]
+
+export const InsightVariableTypeEnumApi = {
+    String: 'String',
+    Number: 'Number',
+    Boolean: 'Boolean',
+    List: 'List',
+    Date: 'Date',
+} as const
+
+export interface InsightVariableApi {
+    /** UUID of the SQL variable. */
+    readonly id: string
+    /**
+     * Human-readable name for the SQL variable.
+     * @maxLength 400
+     */
+    name: string
+    /** Variable type. Controls how the value is rendered and substituted in HogQL.
+
+* `String` - String
+* `Number` - Number
+* `Boolean` - Boolean
+* `List` - List
+* `Date` - Date */
+    type: InsightVariableTypeEnumApi
+    /** Default value used when a query references this variable. */
+    default_value?: unknown | null
+    /**
+     * ID of the user who created the SQL variable.
+     * @nullable
+     */
+    readonly created_by: number | null
+    /** Timestamp when the SQL variable was created. */
+    readonly created_at: string
+    /**
+     * Generated code-safe name used in HogQL as {variables.code_name}. Derived from name.
+     * @nullable
+     */
+    readonly code_name: string | null
+    /** Allowed values for List variables. Null for other variable types. */
+    values?: unknown | null
+}
+
+export interface PaginatedInsightVariableListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: InsightVariableApi[]
+}
+
+export interface PatchedInsightVariableApi {
+    /** UUID of the SQL variable. */
+    readonly id?: string
+    /**
+     * Human-readable name for the SQL variable.
+     * @maxLength 400
+     */
+    name?: string
+    /** Variable type. Controls how the value is rendered and substituted in HogQL.
+
+* `String` - String
+* `Number` - Number
+* `Boolean` - Boolean
+* `List` - List
+* `Date` - Date */
+    type?: InsightVariableTypeEnumApi
+    /** Default value used when a query references this variable. */
+    default_value?: unknown | null
+    /**
+     * ID of the user who created the SQL variable.
+     * @nullable
+     */
+    readonly created_by?: number | null
+    /** Timestamp when the SQL variable was created. */
+    readonly created_at?: string
+    /**
+     * Generated code-safe name used in HogQL as {variables.code_name}. Derived from name.
+     * @nullable
+     */
+    readonly code_name?: string | null
+    /** Allowed values for List variables. Null for other variable types. */
+    values?: unknown | null
+}
+
 export interface QueryTabStateApi {
     readonly id: string
     /**
@@ -1343,6 +1437,13 @@ export type ExternalDataSourcesConnectionsListParams = {
      * A search term.
      */
     search?: string
+}
+
+export type InsightVariablesListParams = {
+    /**
+     * A page number within the paginated result set.
+     */
+    page?: number
 }
 
 export type QueryTabStateListParams = {

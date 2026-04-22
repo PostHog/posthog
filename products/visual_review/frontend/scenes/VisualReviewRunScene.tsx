@@ -1,9 +1,12 @@
 import { useActions, useValues } from 'kea'
-import React from 'react'
+import React, { useState } from 'react'
 
+import { IconChevronLeft, IconChevronRight } from '@posthog/icons'
 import { LemonButton, LemonSkeleton, Link } from '@posthog/lemon-ui'
 
+import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
+import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
@@ -25,10 +28,12 @@ export const scene: SceneExport = {
 function SnapshotThumbnail({
     snapshot,
     isSelected,
+    isQuarantined,
     onClick,
 }: {
     snapshot: SnapshotApi
     isSelected: boolean
+    isQuarantined: boolean
     onClick: () => void
 }): JSX.Element {
     const parts = snapshot.identifier.split('--')
@@ -36,7 +41,10 @@ function SnapshotThumbnail({
     const isTheme = theme === 'dark' || theme === 'light'
     const shortName = parts.length > 1 ? parts.slice(1, isTheme ? -1 : undefined).join(' · ') : snapshot.identifier
 
+    const [imageLoaded, setImageLoaded] = useState(false)
     const isReviewed = snapshot.review_state === 'approved' || snapshot.review_state === 'tolerated'
+    const showBadge = isReviewed || isQuarantined
+    const hasDiff = snapshot.diff_percentage != null && snapshot.diff_percentage > 0
 
     return (
         <button
@@ -51,44 +59,67 @@ function SnapshotThumbnail({
                 boxShadow: isSelected ? '0 3px 0 -1px var(--primary-3000-frame-bg)' : 'none',
             }}
         >
-            {isReviewed && (
+            {showBadge && (
                 <>
                     <span
                         className={`absolute top-0 right-0 w-7 h-7 z-10 ${
-                            snapshot.review_state === 'approved' ? 'bg-success' : 'bg-muted'
+                            isQuarantined
+                                ? 'bg-warning'
+                                : snapshot.review_state === 'approved'
+                                  ? 'bg-success'
+                                  : 'bg-muted'
                         }`}
                         // eslint-disable-next-line react/forbid-dom-props
                         style={{ clipPath: 'polygon(0 0, 100% 0, 100% 100%)' }}
                     />
                     <span className="absolute top-[3px] right-[3px] z-10 text-white text-[10px] leading-none font-bold">
-                        {snapshot.review_state === 'approved' ? '✓' : '~'}
+                        {isQuarantined ? 'Q' : snapshot.review_state === 'approved' ? '✓' : '~'}
                     </span>
                 </>
             )}
-            <div className="w-[104px] h-[72px] rounded-sm overflow-hidden bg-bg-3000">
+            <div className="w-[104px] h-[72px] rounded-sm overflow-hidden bg-bg-3000 relative">
                 {snapshot.current_artifact?.download_url ? (
-                    <img
-                        src={snapshot.current_artifact.download_url}
-                        alt=""
-                        width={104}
-                        height={72}
-                        loading="lazy"
-                        decoding="async"
-                        className="w-full h-full object-contain"
-                    />
+                    <>
+                        {!imageLoaded && <LemonSkeleton className="absolute inset-0" />}
+                        <img
+                            src={snapshot.current_artifact.download_url}
+                            alt=""
+                            width={104}
+                            height={72}
+                            loading="lazy"
+                            decoding="async"
+                            className={`w-full h-full object-contain transition-opacity duration-150 ${isQuarantined ? 'grayscale opacity-40' : imageLoaded ? 'opacity-100' : 'opacity-0'}`}
+                            onLoad={() => setImageLoaded(true)}
+                            onError={() => setImageLoaded(true)}
+                        />
+                    </>
                 ) : (
                     <div className="w-full h-full flex items-center justify-center">
                         <span className="text-[10px] text-muted">No image</span>
                     </div>
                 )}
+                {isQuarantined && (
+                    <span className="absolute inset-0 flex items-center justify-center z-10 text-[10px] font-semibold text-warning-dark bg-warning/20 uppercase tracking-wide">
+                        Quarantined
+                    </span>
+                )}
             </div>
-            <div className="flex items-center gap-1 max-w-[108px]">
-                <SnapshotStatusIndicator
-                    result={snapshot.result || 'unchanged'}
-                    reviewState=""
-                    classificationReason={snapshot.classification_reason}
-                    compact
-                />
+            <div className="flex items-center gap-1 max-w-[108px] w-full">
+                {hasDiff ? (
+                    <span className="shrink-0 bg-warning-highlight rounded-full px-1.5 py-0.5 text-[10px] font-mono tabular-nums text-warning-dark leading-none">
+                        {snapshot.diff_percentage! < 1
+                            ? snapshot.diff_percentage!.toFixed(1)
+                            : Math.round(snapshot.diff_percentage!)}
+                        %
+                    </span>
+                ) : (
+                    <SnapshotStatusIndicator
+                        result={snapshot.result || 'unchanged'}
+                        reviewState=""
+                        classificationReason={snapshot.classification_reason}
+                        size="small"
+                    />
+                )}
                 <span className={`text-[11px] truncate ${isSelected ? 'font-medium' : 'text-muted'}`}>{shortName}</span>
             </div>
         </button>
@@ -102,16 +133,25 @@ export function VisualReviewRunScene(): JSX.Element {
         snapshots,
         snapshotsLoading,
         selectedSnapshot,
-        changedSnapshots,
+        sortedChangedSnapshots,
         snapshotHistory,
         snapshotHistoryLoading,
         toleratedHashes,
         toleratedHashesLoading,
+        quarantinedIdentifiers,
+        quarantinedIdentifierSet,
         repoFullName,
         isApproving,
+        isApprovingSnapshot,
     } = useValues(visualReviewRunSceneLogic)
-    const { setSelectedSnapshotId, approveChanges, approveSnapshot, markAsTolerated } =
-        useActions(visualReviewRunSceneLogic)
+    const {
+        setSelectedSnapshotId,
+        approveChanges,
+        approveSnapshot,
+        markAsTolerated,
+        quarantineSnapshot,
+        unquarantineSnapshot,
+    } = useActions(visualReviewRunSceneLogic)
 
     if (runLoading || !run) {
         return (
@@ -130,9 +170,47 @@ export function VisualReviewRunScene(): JSX.Element {
         )
     }
 
+    if (run.status === 'pending' || run.status === 'processing') {
+        return (
+            <SceneContent>
+                <SceneTitleSection name={run.branch} resourceType={{ type: 'visual_review' }} />
+                <ProductIntroduction
+                    isEmpty
+                    productName="Visual review"
+                    thingName="snapshot"
+                    titleOverride={run.status === 'pending' ? 'Waiting for snapshots' : 'Processing diffs'}
+                    description={
+                        run.status === 'pending'
+                            ? 'This run is waiting for the CI job to upload snapshot artifacts. It will appear here once the upload completes.'
+                            : 'Snapshots are being compared against the baseline. This usually takes under a minute — refresh the page to check for results.'
+                    }
+                    customHog={
+                        run.status === 'processing'
+                            ? ({ className }: { className?: string }) => <Spinner className={className} />
+                            : undefined
+                    }
+                />
+            </SceneContent>
+        )
+    }
+
+    if (run.status === 'failed') {
+        return (
+            <SceneContent>
+                <SceneTitleSection name={run.branch} resourceType={{ type: 'visual_review' }} />
+                <LemonBanner type="error">
+                    This run failed to process.{run.error_message ? ` ${run.error_message}` : ''} Check the CI logs for
+                    details, or rerun the job to try again.
+                </LemonBanner>
+            </SceneContent>
+        )
+    }
+
     // Review summary (from loaded snapshots — paginated but covers actionable ones first)
+    // Quarantined snapshots don't need review — exclude from pending count
     const reviewPending = snapshots.filter(
-        (s: SnapshotApi) => s.result !== 'unchanged' && s.review_state === 'pending'
+        (s: SnapshotApi) =>
+            s.result !== 'unchanged' && s.review_state === 'pending' && !quarantinedIdentifierSet.has(s.identifier)
     ).length
     const reviewApproved = snapshots.filter((s: SnapshotApi) => s.review_state === 'approved').length
     const reviewTolerated = snapshots.filter((s: SnapshotApi) => s.review_state === 'tolerated').length
@@ -149,7 +227,7 @@ export function VisualReviewRunScene(): JSX.Element {
     const hasMore = totalActionable > loadedActionable
 
     // Navigation — use changed snapshots when there are changes, otherwise all snapshots
-    const navSnapshots = changedSnapshots.length > 0 ? changedSnapshots : snapshots
+    const navSnapshots = sortedChangedSnapshots.length > 0 ? sortedChangedSnapshots : snapshots
     const currentIndex = selectedSnapshot
         ? navSnapshots.findIndex((s: SnapshotApi) => s.id === selectedSnapshot.id)
         : -1
@@ -259,9 +337,37 @@ export function VisualReviewRunScene(): JSX.Element {
                                     key={snapshot.id}
                                     snapshot={snapshot}
                                     isSelected={selectedSnapshot?.id === snapshot.id}
+                                    isQuarantined={quarantinedIdentifierSet.has(snapshot.identifier)}
                                     onClick={() => setSelectedSnapshotId(snapshot.id)}
                                 />
                             ))}
+                        </div>
+                    )}
+
+                    {/* Pagination — below thumbnails, right-aligned */}
+                    {navSnapshots.length > 1 && (
+                        <div className="flex items-center justify-end gap-2 px-3 pb-2">
+                            <LemonButton
+                                size="xsmall"
+                                icon={<IconChevronLeft />}
+                                onClick={goToPrevious}
+                                disabledReason={!hasPrevious ? 'No previous snapshot' : undefined}
+                            >
+                                Previous
+                            </LemonButton>
+                            {currentIndex >= 0 && (
+                                <span className="text-xs text-muted">
+                                    {currentIndex + 1} of {navSnapshots.length}
+                                </span>
+                            )}
+                            <LemonButton
+                                size="xsmall"
+                                sideIcon={<IconChevronRight />}
+                                onClick={goToNext}
+                                disabledReason={!hasNext ? 'No next snapshot' : undefined}
+                            >
+                                Next
+                            </LemonButton>
                         </div>
                     )}
                 </div>
@@ -276,13 +382,20 @@ export function VisualReviewRunScene(): JSX.Element {
                             toleratedHashes={toleratedHashes}
                             toleratedHashesLoading={toleratedHashesLoading}
                             onApprove={handleApproveSnapshot}
+                            isApproving={isApprovingSnapshot}
                             onMarkTolerated={() => markAsTolerated(selectedSnapshot)}
-                            onPrevious={goToPrevious}
-                            onNext={goToNext}
-                            hasPrevious={hasPrevious}
-                            hasNext={hasNext}
-                            currentIndex={currentIndex >= 0 ? currentIndex : undefined}
-                            totalCount={navSnapshots.length}
+                            quarantineEntry={
+                                quarantinedIdentifiers.find(
+                                    (q) =>
+                                        q.identifier === selectedSnapshot.identifier &&
+                                        q.run_type === run.run_type &&
+                                        (!q.expires_at || new Date(q.expires_at) > new Date())
+                                ) ?? null
+                            }
+                            onQuarantine={(reason, identifiers, expiresAt) =>
+                                quarantineSnapshot(reason, identifiers, expiresAt)
+                            }
+                            onUnquarantine={() => unquarantineSnapshot(selectedSnapshot)}
                             commitSha={run.commit_sha}
                             prNumber={run.pr_number}
                             repoFullName={repoFullName}
@@ -293,7 +406,7 @@ export function VisualReviewRunScene(): JSX.Element {
                             <LemonSkeleton className="h-6 w-1/4" />
                             <LemonSkeleton className="h-48 w-full" />
                         </div>
-                    ) : changedSnapshots.length > 0 ? (
+                    ) : sortedChangedSnapshots.length > 0 ? (
                         <div className="text-center text-muted py-8">Select a snapshot to view details</div>
                     ) : (
                         <div className="text-center text-muted py-8">No visual changes in this run</div>

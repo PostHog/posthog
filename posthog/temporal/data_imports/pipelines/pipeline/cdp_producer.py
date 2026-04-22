@@ -13,7 +13,7 @@ from structlog.types import FilteringBoundLogger
 from posthog.hogql.database.database import get_data_warehouse_table_name
 
 from posthog.exceptions_capture import capture_exception
-from posthog.kafka_client.client import _AsyncKafkaProducer, get_async_warpstream_kafka_producer
+from posthog.kafka_client.routing import KafkaClusterProfile, async_producer_scope
 from posthog.kafka_client.topics import KAFKA_DWH_CDP_RAW_TABLE
 from posthog.models.hog_functions import HogFunction
 from posthog.sync import database_sync_to_async_pool
@@ -131,12 +131,6 @@ class CDPProducer:
             use_dictionary=True,
         )
 
-    def _get_kafka_producer(self) -> _AsyncKafkaProducer:
-        return get_async_warpstream_kafka_producer(
-            kafka_hosts=settings.KAFKA_CYCLOTRON_WARPSTREAM_HOSTS,
-            kafka_security_protocol=settings.KAFKA_CYCLOTRON_WARPSTREAM_PROTOCOL or "PLAINTEXT",
-        )
-
     async def produce_to_kafka_from_s3(self) -> None:
         fs = self._get_fs()
 
@@ -146,9 +140,7 @@ class CDPProducer:
 
         await self.logger.adebug(f"Found {len(files_to_produce)} files to produce to Kafka")
 
-        kafka_producer = self._get_kafka_producer()
-
-        try:
+        async with async_producer_scope(profile=KafkaClusterProfile.CYCLOTRON) as kafka_producer:
             for file_path in files_to_produce:
                 await self.logger.adebug(f"Producing file {file_path} to Kafka")
 
@@ -180,5 +172,3 @@ class CDPProducer:
                     await asyncio.to_thread(fs.delete_file, file_path)
 
             await self.logger.adebug("Finished producing all CDP data to Kafka")
-        finally:
-            await kafka_producer.close()

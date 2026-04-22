@@ -782,3 +782,6 @@ tools:
     legal-documents-retrieve:
         operation: legal_documents_retrieve
         enabled: false
+    dashboard-templates-copy-between-projects-create:
+        operation: dashboard_templates_copy_between_projects_create
+        enabled: false

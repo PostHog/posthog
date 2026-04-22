@@ -978,6 +978,10 @@ export class ApiRequest {
         return this.dashboardTemplates(teamId).addPathComponent(dashboardTemplateId)
     }
 
+    public dashboardTemplatesCopyBetweenProjects(teamId?: TeamType['id']): ApiRequest {
+        return this.dashboardTemplates(teamId).addPathComponent('copy_between_projects')
+    }
+
     public dashboardTemplateSchema(): ApiRequest {
         return this.dashboardTemplates().addPathComponent('json_schema')
     }
@@ -3311,8 +3315,11 @@ const api = {
             return await new ApiRequest().dashboardTemplates().withQueryString(toParams(params)).get()
         },
 
-        async get(dashboardTemplateId: DashboardTemplateType['id']): Promise<DashboardTemplateType> {
-            return await new ApiRequest().dashboardTemplatesDetail(dashboardTemplateId).get()
+        async get(
+            dashboardTemplateId: DashboardTemplateType['id'],
+            teamId?: TeamType['id']
+        ): Promise<DashboardTemplateType> {
+            return await new ApiRequest().dashboardTemplatesDetail(dashboardTemplateId, teamId).get()
         },
 
         async create(dashboardTemplateData: DashboardTemplateEditorType): Promise<DashboardTemplateType> {
@@ -3335,6 +3342,14 @@ const api = {
                     deleted: true,
                 },
             })
+        },
+        async copyBetweenProjects(
+            targetTeamId: TeamType['id'],
+            sourceTemplateId: DashboardTemplateType['id']
+        ): Promise<DashboardTemplateType> {
+            return await new ApiRequest()
+                .dashboardTemplatesCopyBetweenProjects(targetTeamId)
+                .create({ data: { source_template_id: sourceTemplateId } })
         },
         async getSchema(): Promise<Record<string, any>> {
             return await new ApiRequest().dashboardTemplateSchema().get()
