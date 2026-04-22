@@ -211,7 +211,9 @@ jobs:
             - uses: EndBug/add-and-commit@290ea2c423ad77ca9c62ae0f5b224379612c0321 # v10.0.0
               id: commit-pin
               with:
-                  add: '["pyproject.toml", "uv.lock"]'
+                  add: |
+                      pyproject.toml
+                      uv.lock
                   message: 'Use new hogql-parser version'
                   default_author: github_actions
                   github_token: ${{ steps.app-token.outputs.token }}
