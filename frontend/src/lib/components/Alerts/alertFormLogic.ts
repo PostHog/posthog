@@ -94,11 +94,18 @@ function hydrateAlertLogicFromSaveResponse(updatedAlert: AlertType, historyChart
         checks: savedChecks.length > 0 ? savedChecks : (previousAlert?.checks ?? []),
         checks_total: updatedAlert.checks_total ?? previousAlert?.checks_total,
     }
-    if (!wasMounted) {
-        logic.mount()
+
+    if (wasMounted) {
+        logic.actions.loadAlertSuccess(mergedAlert)
+        void logic.asyncActions.loadAlert()
+        return
     }
+
+    const unmount = logic.mount()
     logic.actions.loadAlertSuccess(mergedAlert)
-    void logic.asyncActions.loadAlert()
+    // On create, mounting triggers `afterMount`, which already loads the alert in the background.
+    // Avoid a duplicate refetch here and clean up the temporary mount immediately after dispatching.
+    unmount()
 }
 
 function formatSaveError(error: unknown): string {

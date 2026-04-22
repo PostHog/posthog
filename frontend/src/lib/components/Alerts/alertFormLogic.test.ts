@@ -220,4 +220,42 @@ describe('alertFormLogic', () => {
         expect(errorToastSpy).toHaveBeenCalledWith('Error saving alert: Network request failed')
         expect(successToastSpy).not.toHaveBeenCalled()
     })
+
+    it('shows the ApiError message when attr and detail are missing', async () => {
+        const apiError = new ApiError('Bad request', 400)
+        createSpy.mockRejectedValueOnce(apiError)
+
+        const logic = mountForm()
+
+        await expectLogic(logic, () => {
+            logic.actions.submitAlertForm()
+        }).toFinishAllListeners()
+
+        expect(errorToastSpy).toHaveBeenCalledWith('Error saving alert: Bad request')
+        expect(successToastSpy).not.toHaveBeenCalled()
+    })
+
+    it('shows success toast and no error toast when update succeeds', async () => {
+        const onEditSuccess = jest.fn()
+        const existingAlert = makeSavedAlert({ id: 'alert-existing-id' })
+        const logic = alertFormLogic({
+            alert: existingAlert,
+            insightId: 42,
+            onEditSuccess,
+            insightVizDataLogicProps: insightLogicProps,
+            insightInterval: 'day',
+            historyChartEnabled: false,
+        })
+        logic.mount()
+        logic.actions.setAlertFormValues(makeFormDefaults({ id: existingAlert.id }))
+
+        await expectLogic(logic, () => {
+            logic.actions.submitAlertForm()
+        }).toFinishAllListeners()
+
+        expect(updateSpy).toHaveBeenCalledTimes(1)
+        expect(errorToastSpy).not.toHaveBeenCalled()
+        expect(successToastSpy).toHaveBeenCalledWith('Alert saved.')
+        expect(onEditSuccess).toHaveBeenCalledWith(existingAlert.id)
+    })
 })
