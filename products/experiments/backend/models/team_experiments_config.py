@@ -46,12 +46,10 @@ class TeamExperimentsConfig(models.Model):
     )
 
     funnel_steps_data_disabled = models.BooleanField(
-        null=True,
-        blank=True,
+        default=False,
         help_text=(
             "Default for disabling per-step session/event sample data on funnel experiment metrics. "
-            "Overridden by the experiment-level `funnel_steps_data_disabled` parameter when set. "
-            "Leave unset to fall back to the built-in default (False)."
+            "Overridden by the experiment-level `funnel_steps_data_disabled` parameter when set."
         ),
     )
 

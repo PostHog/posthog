@@ -13,9 +13,8 @@ class Migration(migrations.Migration):
             model_name="teamexperimentsconfig",
             name="funnel_steps_data_disabled",
             field=models.BooleanField(
-                blank=True,
-                help_text="Default for disabling per-step session/event sample data on funnel experiment metrics. Overridden by the experiment-level `funnel_steps_data_disabled` parameter when set. Leave unset to fall back to the built-in default (False).",
-                null=True,
+                default=False,
+                help_text="Default for disabling per-step session/event sample data on funnel experiment metrics. Overridden by the experiment-level `funnel_steps_data_disabled` parameter when set.",
             ),
         ),
     ]

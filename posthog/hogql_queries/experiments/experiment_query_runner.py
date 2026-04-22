@@ -237,16 +237,12 @@ class ExperimentQueryRunner(QueryRunner):
         return self._team_experiments_config.experiment_precomputation_enabled
 
     def _resolve_funnel_steps_data_disabled(self) -> bool:
-        """Resolve funnel_steps_data_disabled: experiment parameter > team config > False."""
+        """Resolve funnel_steps_data_disabled: experiment parameter > team config."""
         parameters = self.experiment.parameters or {}
         if "funnel_steps_data_disabled" in parameters:
             return bool(parameters["funnel_steps_data_disabled"])
 
-        config = self._team_experiments_config
-        if config.funnel_steps_data_disabled is not None:
-            return config.funnel_steps_data_disabled
-
-        return False
+        return self._team_experiments_config.funnel_steps_data_disabled
 
     def _get_experiment_query(self) -> ast.SelectQuery:
         """
