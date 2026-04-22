@@ -35,7 +35,9 @@ pub trait RowBinaryRead: Read {
                 return Ok(acc);
             }
         }
-        panic!("varint exceeded {VARINT_MAX_BYTES} bytes (u64 max); wire corrupt");
+        Err(crate::codec::CodecError::CorruptWire(format!(
+            "varint exceeded {VARINT_MAX_BYTES} bytes (u64 max)"
+        )))
     }
 
     // ClickHouse `String` is byte-typed: user-data fields (breakdown keys, event
@@ -163,11 +165,14 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "varint exceeded")]
-    fn varint_overflow_panics() {
+    fn varint_overflow_errors() {
+        use crate::codec::CodecError;
         let buf = [0xff_u8; 11];
         let mut slice = buf.as_slice();
-        let _ = slice.read_varint();
+        match slice.read_varint() {
+            Err(CodecError::CorruptWire(msg)) => assert!(msg.contains("varint exceeded")),
+            other => panic!("expected CorruptWire, got {other:?}"),
+        }
     }
 
     #[test]

@@ -1,7 +1,7 @@
 use clickhouse_types::DataTypeNode;
 
 use crate::codec::rowbinary::{RowBinaryRead, RowBinaryWrite};
-use crate::codec::CodecResult;
+use crate::codec::{CodecError, CodecResult};
 use crate::io::column::{array_elem, read_bytes_col, read_int_col};
 use crate::types::{BreakdownShape, Bytes, PropVal};
 
@@ -56,9 +56,9 @@ pub fn write_propval<W: RowBinaryWrite + ?Sized>(
             w.write_array(v, |w, b| w.write_bytes(&b.0))
         }
         (BreakdownShape::U64, PropVal::Int(n)) => w.write_u64_le(*n),
-        (shape, p) => {
-            unreachable!("PropVal {p:?} does not match BreakdownShape {shape:?}")
-        }
+        (shape, p) => Err(CodecError::CorruptWire(format!(
+            "PropVal {p:?} does not match BreakdownShape {shape:?} (invariant violation)"
+        ))),
     }
 }
 

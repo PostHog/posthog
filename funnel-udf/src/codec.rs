@@ -11,6 +11,7 @@ pub enum CodecError {
     UnknownType(String),
     TypeMismatch(String),
     SchemaLen { got: usize, want: usize },
+    CorruptWire(String),
 }
 
 impl std::fmt::Display for CodecError {
@@ -23,6 +24,7 @@ impl std::fmt::Display for CodecError {
             Self::SchemaLen { got, want } => {
                 write!(f, "block header declares {got} columns, expected {want}")
             }
+            Self::CorruptWire(s) => write!(f, "corrupt wire: {s}"),
         }
     }
 }

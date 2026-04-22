@@ -85,14 +85,20 @@ pub fn run(args: &Args) -> Vec<Result> {
 }
 
 pub fn process_line(line: &str) -> Value {
-    let args = parse_args(line);
-    let result = run(&args);
-    json!({ "result": result })
+    match parse_args(line) {
+        Ok(args) => json!({ "result": run(&args) }),
+        Err(e) => {
+            eprintln!(
+                "funnels error: invalid JSON input while parsing steps Args: {e}. Input: {line}"
+            );
+            json!({ "error": format!("invalid JSON input: {e}") })
+        }
+    }
 }
 
 #[inline(always)]
-fn parse_args(line: &str) -> Args {
-    serde_json::from_str(line).expect("Invalid JSON input")
+fn parse_args(line: &str) -> std::result::Result<Args, serde_json::Error> {
+    serde_json::from_str(line)
 }
 
 impl AggregateFunnelRow {

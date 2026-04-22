@@ -45,7 +45,11 @@ where
         DataTypeNode::Nullable(inner) => match r.read_u8()? {
             0 => inner.remove_low_cardinality(),
             1 => return Ok(null_default),
-            b => panic!("invalid Nullable marker byte: {b} (wire corrupt)"),
+            b => {
+                return Err(CodecError::CorruptWire(format!(
+                    "invalid Nullable marker byte: {b}"
+                )))
+            }
         },
         other => other,
     };
