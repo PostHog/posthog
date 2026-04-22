@@ -68,20 +68,13 @@ describe('parseURLFilters', () => {
 })
 
 describe('shouldSharedDashboardAutoForceForStaleTime', () => {
-    it('returns false when last refresh is null', () => {
-        expect(shouldSharedDashboardAutoForceForStaleTime(null)).toBe(false)
-    })
-
-    it('returns false when last refresh is an invalid Dayjs', () => {
-        expect(shouldSharedDashboardAutoForceForStaleTime(dayjs(new Date(Number.NaN)))).toBe(false)
-    })
-
-    it('returns false when stalest tile is newer than the auto-force threshold', () => {
-        expect(shouldSharedDashboardAutoForceForStaleTime(dayjs().subtract(59, 'minute'))).toBe(false)
-    })
-
-    it('returns true when stalest tile is older than the auto-force threshold', () => {
-        expect(shouldSharedDashboardAutoForceForStaleTime(dayjs().subtract(61, 'minute'))).toBe(true)
+    it.each<[string, dayjs.Dayjs | null, boolean]>([
+        ['last refresh is null', null, false],
+        ['last refresh is an invalid Dayjs', dayjs(new Date(Number.NaN)), false],
+        ['stalest tile is newer than the auto-force threshold', dayjs().subtract(59, 'minute'), false],
+        ['stalest tile is older than the auto-force threshold', dayjs().subtract(61, 'minute'), true],
+    ])('when %s, returns expected result', (_, input, expected) => {
+        expect(shouldSharedDashboardAutoForceForStaleTime(input)).toBe(expected)
     })
 
     describe('with fixed clock', () => {
@@ -94,12 +87,11 @@ describe('shouldSharedDashboardAutoForceForStaleTime', () => {
             jest.useRealTimers()
         })
 
-        it('returns true at exactly the threshold age (60 minutes)', () => {
-            expect(shouldSharedDashboardAutoForceForStaleTime(dayjs('2026-06-15T11:00:00.000Z'))).toBe(true)
-        })
-
-        it('returns false just under the threshold', () => {
-            expect(shouldSharedDashboardAutoForceForStaleTime(dayjs('2026-06-15T11:01:00.000Z'))).toBe(false)
+        it.each<[string, string, boolean]>([
+            ['at exactly the threshold age (60 minutes)', '2026-06-15T11:00:00.000Z', true],
+            ['just under the threshold', '2026-06-15T11:01:00.000Z', false],
+        ])('when %s, returns expected result', (_, isoTime, expected) => {
+            expect(shouldSharedDashboardAutoForceForStaleTime(dayjs(isoTime))).toBe(expected)
         })
     })
 })

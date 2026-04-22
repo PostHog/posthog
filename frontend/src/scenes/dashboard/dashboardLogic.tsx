@@ -2172,7 +2172,13 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 }
             }
 
-            if (isInitialLoad && !forceRefresh && values.placement === DashboardPlacement.Public) {
+            if (
+                isInitialLoad &&
+                !forceRefresh &&
+                tilesErroredCount === 0 &&
+                tilesAbortedCount === 0 &&
+                values.placement === DashboardPlacement.Public
+            ) {
                 scheduleSharedDashboardStaleAutoForceIfEligible({
                     effectiveLastRefresh: values.effectiveLastRefresh,
                     triggerDashboardRefresh: () => {
