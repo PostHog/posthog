@@ -215,7 +215,9 @@ class TestProvisioningResources(StripeProvisioningTestBase):
             organization=other_org,
             name="Foreign project",
         )
-        TeamProvisioningConfig.objects.create(team=foreign_team, stripe_project_id="proj_shared")
+        TeamProvisioningConfig.objects.update_or_create(
+            team=foreign_team, defaults={"stripe_project_id": "proj_shared"}
+        )
 
         token = self._get_bearer_token()
         with patch.object(TeamProvisioningConfig.objects, "update_or_create", side_effect=IntegrityError):
@@ -239,7 +241,9 @@ class TestProvisioningResources(StripeProvisioningTestBase):
             organization=self.organization,
             name="Pre-existing project",
         )
-        TeamProvisioningConfig.objects.create(team=existing_team, stripe_project_id="proj_existing")
+        TeamProvisioningConfig.objects.update_or_create(
+            team=existing_team, defaults={"stripe_project_id": "proj_existing"}
+        )
 
         token = self._get_bearer_token()
         access_token = OAuthAccessToken.objects.get(token=token)
