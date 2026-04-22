@@ -9,6 +9,7 @@ from django.utils import timezone
 
 from rest_framework import status
 
+from posthog.api.oauth.test_dcr import generate_rsa_key
 from posthog.models.integration import (
     PRIVATE_CHANNEL_WITHOUT_ACCESS,
     EmailIntegration,
@@ -1024,7 +1025,11 @@ class TestStripeIntegration:
 
 class TestStripeIntegrationOAuthTokens:
     @pytest.fixture(autouse=True)
-    def setup(self, db):
+    def setup(self, db, settings):
+        settings.OAUTH2_PROVIDER = {
+            **settings.OAUTH2_PROVIDER,
+            "OIDC_RSA_PRIVATE_KEY": generate_rsa_key(),
+        }
         self.organization = Organization.objects.create(name="Test Org")
         self.team = Team.objects.create(organization=self.organization, name="Test Team")
         self.user = User.objects.create_and_join(self.organization, "test@posthog.com", "test")
