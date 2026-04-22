@@ -168,10 +168,7 @@ class SignalReportSerializer(serializers.ModelSerializer):
     source_products = serializers.SerializerMethodField(
         help_text="Distinct source products contributing signals to this report (from ClickHouse).",
     )
-    implementation_pr_url = serializers.CharField(
-        read_only=True,
-        default=None,
-        allow_null=True,
+    implementation_pr_url = serializers.SerializerMethodField(
         help_text="PR URL from the latest implementation task run, if available.",
     )
 
@@ -255,6 +252,13 @@ class SignalReportSerializer(serializers.ModelSerializer):
         if source_products_map is not None:
             return source_products_map.get(str(obj.id), [])
         return []
+
+    def get_implementation_pr_url(self, obj: SignalReport) -> str | None:
+        implementation_pr_url_map: dict[str, str] | None = self.context.get("implementation_pr_url_map")
+        if implementation_pr_url_map is not None:
+            return implementation_pr_url_map.get(str(obj.id))
+        value = getattr(obj, "implementation_pr_url", None)
+        return value if isinstance(value, str) else None
 
 
 class SignalReportArtefactSerializer(serializers.ModelSerializer):

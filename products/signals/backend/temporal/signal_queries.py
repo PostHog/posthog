@@ -546,22 +546,32 @@ def fetch_report_ids_for_source_products(team: Team, source_products: list[str])
 def fetch_source_products_for_reports(team: Team, report_ids: list[str]) -> dict[str, list[str]]:
     """Return a mapping of report_id -> distinct source_products for those reports.
 
-    Only includes non-deleted signals. Source products are returned as an unordered distinct set.
+    Only includes non-deleted signals. Source products are returned in sorted order.
     """
     if not report_ids:
         return {}
 
     ch_query = f"""
-        SELECT report_id, groupUniqArray(source_product) as source_products
+        SELECT report_id, arraySort(groupUniqArray(source_product)) as source_products
         FROM (
             SELECT
                 JSONExtractString(metadata, 'report_id') as report_id,
                 JSONExtractBool(metadata, 'deleted') as is_deleted,
                 JSONExtractString(metadata, 'source_product') as source_product
-            FROM ({_DEDUPED_SIGNALS_SUBQUERY})
+            FROM (
+                SELECT
+                    document_id,
+                    argMax(metadata, inserted_at) as metadata
+                FROM document_embeddings
+                WHERE model_name = {{model_name}}
+                  AND product = 'signals'
+                  AND document_type = 'signal'
+                  AND JSONExtractString(metadata, 'report_id') IN ({{report_ids}})
+                GROUP BY document_id
+            )
         )
         WHERE NOT is_deleted
-          AND report_id IN ({{report_ids}})
+          AND report_id != ''
           AND source_product != ''
         GROUP BY report_id
     """

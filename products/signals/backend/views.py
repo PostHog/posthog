@@ -88,6 +88,7 @@ from products.signals.backend.temporal.types import (
     SignalReportDeletionWorkflowInputs,
     SignalReportReingestionWorkflowInputs,
 )
+from products.tasks.backend.models import TaskRun
 
 logger = structlog.get_logger(__name__)
 
@@ -377,7 +378,8 @@ class SignalReportViewSet(
         qs = self._annotate_signal_report_priority(qs)
         qs = self._prefetch_signal_report_priority_artefacts(qs)
         qs = self._annotate_is_suggested_reviewer(qs)
-        qs = self._annotate_implementation_pr_url(qs)
+        if self.action != "list":
+            qs = self._annotate_implementation_pr_url(qs)
         return qs
 
     def _scope_signal_report_queryset(self, queryset):
@@ -571,8 +573,6 @@ class SignalReportViewSet(
         )
 
     def _annotate_implementation_pr_url(self, queryset):
-        from products.tasks.backend.models import TaskRun
-
         # Find the latest TaskRun output->pr_url for the implementation task linked to each report.
         # Path: SignalReportTask(relationship=implementation) -> Task -> TaskRun(latest) -> output->'pr_url'
         latest_impl_pr_url = Subquery(
@@ -583,18 +583,32 @@ class SignalReportViewSet(
             )
             .exclude(output__pr_url="")
             .order_by("-created_at")
-            .annotate(
-                _pr_url=Func(
-                    Cast(F("output"), output_field=JSONField()),
-                    Value("pr_url"),
-                    function="jsonb_extract_path_text",
-                    output_field=CharField(),
-                ),
-            )
-            .values("_pr_url")[:1],
+            .values("output__pr_url")[:1],
             output_field=CharField(),
         )
         return queryset.annotate(implementation_pr_url=latest_impl_pr_url)
+
+    def _fetch_implementation_pr_urls_for_reports(self, report_ids: list[str]) -> dict[str, str]:
+        if not report_ids:
+            return {}
+
+        latest_runs = (
+            TaskRun.objects.filter(
+                task__signal_report_tasks__report_id__in=report_ids,
+                task__signal_report_tasks__relationship=SignalReportTask.Relationship.IMPLEMENTATION,
+                output__pr_url__isnull=False,
+            )
+            .exclude(output__pr_url="")
+            .order_by("task__signal_report_tasks__report_id", "-created_at", "-id")
+            .values("task__signal_report_tasks__report_id", "output__pr_url")
+            .distinct("task__signal_report_tasks__report_id")
+        )
+
+        return {
+            str(row["task__signal_report_tasks__report_id"]): row["output__pr_url"]
+            for row in latest_runs
+            if row["task__signal_report_tasks__report_id"] and row["output__pr_url"]
+        }
 
     def filter_queryset(self, queryset):
         queryset = super().filter_queryset(queryset)
@@ -647,8 +661,13 @@ class SignalReportViewSet(
 
         report_ids = [str(r.id) for r in reports]
         source_products_map = fetch_source_products_for_reports(self.team, report_ids) if report_ids else {}
+        implementation_pr_url_map = self._fetch_implementation_pr_urls_for_reports(report_ids)
 
-        context = {**self.get_serializer_context(), "source_products_map": source_products_map}
+        context = {
+            **self.get_serializer_context(),
+            "source_products_map": source_products_map,
+            "implementation_pr_url_map": implementation_pr_url_map,
+        }
         serializer = self.get_serializer(reports, many=True, context=context)
 
         if page is not None:

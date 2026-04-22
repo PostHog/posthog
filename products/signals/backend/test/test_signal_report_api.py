@@ -13,6 +13,7 @@ from social_django.models import UserSocialAuth
 from posthog.models.team.team import Team
 
 from products.signals.backend.models import SignalReport, SignalReportArtefact, SignalReportTask
+from products.signals.backend.views import SignalReportViewSet
 from products.tasks.backend.models import Task, TaskRun
 
 
@@ -408,6 +409,14 @@ class TestSignalReportListAPI(APIBaseTest):
         row = next(r for r in response.json()["results"] if r["id"] == str(report.id))
         assert row["implementation_pr_url"] == "https://github.com/org/repo/pull/42"
 
+    def test_retrieve_implementation_pr_url_present_when_task_has_pr(self):
+        report = self._create_report()
+        self._create_implementation_task_with_run(report, pr_url="https://github.com/org/repo/pull/42")
+
+        response = self.client.get(f"/api/projects/{self.team.id}/signals/reports/{report.id}/")
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["implementation_pr_url"] == "https://github.com/org/repo/pull/42"
+
     def test_implementation_pr_url_null_when_no_implementation_task(self):
         report = self._create_report()
 
@@ -467,6 +476,20 @@ class TestSignalReportListAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         row = next(r for r in response.json()["results"] if r["id"] == str(report.id))
         assert row["implementation_pr_url"] == "https://github.com/org/repo/pull/99"
+
+    def test_fetches_implementation_pr_urls_for_current_report_page(self):
+        report_with_pr = self._create_report(title="Report with PR")
+        report_without_pr = self._create_report(title="Report without PR")
+        self._create_implementation_task_with_run(report_with_pr, pr_url="https://github.com/org/repo/pull/42")
+        self._create_implementation_task_with_run(report_without_pr, output={"commit_sha": "abc123"})
+
+        viewset = SignalReportViewSet()
+        viewset.team = self.team
+        result = viewset._fetch_implementation_pr_urls_for_reports([str(report_with_pr.id), str(report_without_pr.id)])
+
+        assert result == {
+            str(report_with_pr.id): "https://github.com/org/repo/pull/42",
+        }
 
     # --- source_products ---
 
