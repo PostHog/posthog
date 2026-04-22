@@ -56,7 +56,7 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
         [SIDE_PANEL_CONTEXT_KEY]: [
             () => [],
             (): SidePanelSceneContext => ({
-                access_control_resource: 'warehouse_view',
+                access_control_resource: 'warehouse_table',
             }),
         ],
     }),

@@ -158,7 +158,7 @@ export function QueryWindow({
                     />
                     {editingView ? (
                         <AccessControlAction
-                            resourceType={AccessControlResourceType.WarehouseView}
+                            resourceType={AccessControlResourceType.WarehouseTable}
                             minAccessLevel={AccessControlLevel.Editor}
                             userAccessLevel={editingView.user_access_level}
                         >

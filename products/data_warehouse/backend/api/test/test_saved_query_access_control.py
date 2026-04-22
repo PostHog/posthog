@@ -17,7 +17,10 @@ except ImportError:
 
 @pytest.mark.ee
 class TestDataWarehouseSavedQueryAccessControl(WarehouseAccessControlTestMixin):
-    resource = "warehouse_view"
+    # Resource-level AC uses warehouse_table (views inherit from tables).
+    # Object-level AC on a specific saved query still keys on "warehouse_view"
+    # because model_to_resource(DataWarehouseSavedQuery) == "warehouse_view".
+    resource = "warehouse_table"
 
     def setUp(self):
         super().setUp()
@@ -87,6 +90,7 @@ class TestDataWarehouseSavedQueryAccessControl(WarehouseAccessControlTestMixin):
             created_by=other_user,
         )
         membership = OrganizationMembership.objects.get(user=self.user, organization=self.organization)
+        # Object-level AC for saved queries uses "warehouse_view" (the model's own resource).
         AccessControl.objects.create(
             team=self.team,
             resource="warehouse_view",
@@ -113,8 +117,11 @@ class TestDataWarehouseSavedQueryAccessControl(WarehouseAccessControlTestMixin):
         self.assertEqual(self.client.get(self._list_url()).status_code, status.HTTP_200_OK)
 
     def test_object_level_access_blocks_specific_query(self):
+        # Grant viewer at resource level (warehouse_table), then deny object-level on this specific view.
         self._create_access_control(self.viewer_user, access_level="viewer")
-        self._create_access_control(self.viewer_user, resource_id=str(self.saved_query.id), access_level="none")
+        self._create_access_control(
+            self.viewer_user, resource="warehouse_view", resource_id=str(self.saved_query.id), access_level="none"
+        )
         self.client.force_login(self.viewer_user)
         self.assertEqual(self.client.get(self._detail_url()).status_code, status.HTTP_403_FORBIDDEN)
 
@@ -130,7 +137,7 @@ class TestDataWarehouseSavedQueryAccessControl(WarehouseAccessControlTestMixin):
         # Object-level access controls must still apply even though get_object() isn't called.
         self._create_access_control(self.editor_user, access_level="editor")  # resource-level editor
         self._create_access_control(
-            self.editor_user, resource_id=str(self.saved_query.id), access_level="none"
+            self.editor_user, resource="warehouse_view", resource_id=str(self.saved_query.id), access_level="none"
         )  # but object-level none for this specific view
         self.client.force_login(self.editor_user)
         response = self.client.post(
@@ -146,7 +153,9 @@ class TestDataWarehouseSavedQueryAccessControl(WarehouseAccessControlTestMixin):
 
 @pytest.mark.ee
 class TestDataWarehouseSavedQueryFolderAccessControl(WarehouseAccessControlTestMixin):
-    resource = "warehouse_view"
+    # Folder resource-level AC goes through warehouse_table via inheritance.
+    # Object-level AC on specific folders still keys on "warehouse_view".
+    resource = "warehouse_table"
 
     def setUp(self):
         super().setUp()
@@ -190,7 +199,9 @@ class TestDataWarehouseSavedQueryFolderAccessControl(WarehouseAccessControlTestM
 
     def test_folder_object_level_none_blocks_specific_folder(self):
         self._create_access_control(self.viewer_user, access_level="viewer")
-        self._create_access_control(self.viewer_user, resource_id=str(self.folder.id), access_level="none")
+        self._create_access_control(
+            self.viewer_user, resource="warehouse_view", resource_id=str(self.folder.id), access_level="none"
+        )
         self.client.force_login(self.viewer_user)
         self.assertEqual(self.client.get(self._detail_url()).status_code, status.HTTP_403_FORBIDDEN)
 
@@ -201,6 +212,7 @@ class TestDataWarehouseSavedQueryFolderAccessControl(WarehouseAccessControlTestM
         other_user = User.objects.create_and_join(self.organization, "otheruser@posthog.com", "testtest")
         other_folder = DataWarehouseSavedQueryFolder.objects.create(team=self.team, name="Other", created_by=other_user)
         membership = OrganizationMembership.objects.get(user=self.user, organization=self.organization)
+        # Object-level AC on folders uses "warehouse_view" (the model's own resource).
         AccessControl.objects.create(
             team=self.team,
             resource="warehouse_view",

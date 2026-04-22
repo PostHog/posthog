@@ -65,7 +65,6 @@ ACCESS_CONTROL_RESOURCES: tuple[APIScopeObject, ...] = (
     "session_recording",
     "survey",
     "warehouse_table",
-    "warehouse_view",
     "web_analytics",
     "activity_log",
     "error_tracking",
@@ -77,6 +76,7 @@ ACCESS_CONTROL_RESOURCES: tuple[APIScopeObject, ...] = (
 RESOURCE_INHERITANCE_MAP: dict[APIScopeObject, APIScopeObject] = {
     "session_recording_playlist": "session_recording",
     "external_data_schema": "external_data_source",
+    "warehouse_view": "warehouse_table",
     "evaluation": "llm_analytics",
     "dataset": "llm_analytics",
     "llm_provider_key": "llm_analytics",
@@ -125,6 +125,9 @@ def resource_to_display_name(resource: APIScopeObject) -> str:
         return "organization"  # singular
     if resource == "external_data_source":
         return "data warehouse sources"
+    if resource == "warehouse_table":
+        # Umbrella label for both tables and views, since warehouse_view inherits from warehouse_table
+        return "data warehouse"
 
     # Default: replace underscores and add 's' for plural
     return f"{resource.replace('_', ' ')}s"
@@ -730,6 +733,11 @@ class UserAccessControl:
         if not self._team:
             # If there is no team, then there can't be any access controls on this resource
             return False
+
+        # Resolve inheritance so child resources see their parent's AC rows.
+        parent_resource = RESOURCE_INHERITANCE_MAP.get(resource)
+        if parent_resource:
+            return self.has_access_levels_for_resource(parent_resource)
 
         filters = self._access_controls_filters_for_resource(resource)
         access_controls = self._get_access_controls(filters)

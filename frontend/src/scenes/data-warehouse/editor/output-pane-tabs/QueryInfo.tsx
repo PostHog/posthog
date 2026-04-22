@@ -196,7 +196,7 @@ export function QueryInfo({ tabId, view }: QueryInfoProps): JSX.Element {
                                 )}
                                 <div className="flex gap-4 mt-2">
                                     <AccessControlAction
-                                        resourceType={AccessControlResourceType.WarehouseView}
+                                        resourceType={AccessControlResourceType.WarehouseTable}
                                         minAccessLevel={AccessControlLevel.Editor}
                                         userAccessLevel={savedQuery?.user_access_level}
                                     >
@@ -252,7 +252,7 @@ export function QueryInfo({ tabId, view }: QueryInfoProps): JSX.Element {
                                     )}
                                     {targetView && (
                                         <AccessControlAction
-                                            resourceType={AccessControlResourceType.WarehouseView}
+                                            resourceType={AccessControlResourceType.WarehouseTable}
                                             minAccessLevel={AccessControlLevel.Editor}
                                             userAccessLevel={savedQuery?.user_access_level}
                                         >
@@ -299,7 +299,7 @@ export function QueryInfo({ tabId, view }: QueryInfoProps): JSX.Element {
                                     .
                                 </p>
                                 <AccessControlAction
-                                    resourceType={AccessControlResourceType.WarehouseView}
+                                    resourceType={AccessControlResourceType.WarehouseTable}
                                     minAccessLevel={AccessControlLevel.Editor}
                                     userAccessLevel={savedQuery?.user_access_level}
                                 >
