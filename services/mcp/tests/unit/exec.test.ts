@@ -1,7 +1,16 @@
+import guidelines from '@shared/guidelines.md'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { z } from 'zod'
 
+import { buildInstructionsV2 } from '@/lib/instructions'
+import { SessionManager } from '@/lib/SessionManager'
+import CLI_PROXY_COMMAND from '@/templates/cli-proxy-command.md'
+import CLI_PROXY_TOOL from '@/templates/cli-proxy-tool.md'
+import { getToolsFromContext } from '@/tools'
 import { createExecTool } from '@/tools/exec'
+import { getToolDefinition } from '@/tools/toolDefinitions'
 import { POSTHOG_META_KEY, type Context, type Tool, type ZodObjectAny } from '@/tools/types'
 
 function makeMockTool(overrides: Partial<Tool<ZodObjectAny>> = {}): Tool<ZodObjectAny> {
@@ -87,6 +96,77 @@ describe('exec tool', () => {
             })
             // Without the flag, output is TOON-formatted
             expect(result).toContain('tag:')
+        })
+    })
+
+    describe('schema snapshot', () => {
+        function createSnapshotContext(): Context {
+            return {
+                api: {} as any,
+                cache: {} as any,
+                env: {
+                    INKEEP_API_KEY: 'test-key',
+                    MCP_APPS_BASE_URL: undefined,
+                    POSTHOG_ANALYTICS_API_KEY: undefined,
+                    POSTHOG_ANALYTICS_HOST: undefined,
+                    POSTHOG_API_BASE_URL: undefined,
+                    POSTHOG_MCP_APPS_ANALYTICS_BASE_URL: undefined,
+                    POSTHOG_UI_APPS_TOKEN: undefined,
+                },
+                stateManager: {
+                    getApiKey: async () => ({ scopes: ['*'] }),
+                    getAiConsentGiven: async () => true,
+                } as any,
+                sessionManager: new SessionManager({} as any),
+            }
+        }
+
+        // Claude Code truncates tool descriptions after 2048 characters, so the
+        // exec tool's description must fit within that budget or clients will
+        // silently drop the tail of the instructions.
+        it('keeps the tool description within 2048 characters', async () => {
+            const context = createSnapshotContext()
+            const v2Tools = await getToolsFromContext(context, { version: 2 })
+            const toolInfos = v2Tools.map((t) => ({
+                name: t.name,
+                category: getToolDefinition(t.name, 2).category,
+            }))
+            const commandReference = buildInstructionsV2(CLI_PROXY_COMMAND, guidelines, undefined, undefined, toolInfos)
+            const execTool = createExecTool(v2Tools, context, CLI_PROXY_TOOL, commandReference)
+
+            expect(execTool.description.length).toBeLessThanOrEqual(2048)
+        })
+
+        // Snapshots the full exec tool definition built from the real v2 tool set:
+        // description (CLI_PROXY_TOOL), annotations, and input schema including the
+        // `command` field description — which embeds the generated `tool_domains`
+        // block. Because `buildToolDomainsBlock` relies on tool-name conventions
+        // (CRUD suffixes, prefix actions, plural collapsing), this snapshot is the
+        // canary for any drift in naming or in the domain-extraction logic.
+        it('matches the full exec tool schema', async () => {
+            const context = createSnapshotContext()
+            const v2Tools = [...(await getToolsFromContext(context, { version: 2 }))].sort((a, b) =>
+                a.name.localeCompare(b.name)
+            )
+            const toolInfos = v2Tools.map((t) => ({
+                name: t.name,
+                category: getToolDefinition(t.name, 2).category,
+            }))
+            const commandReference = buildInstructionsV2(CLI_PROXY_COMMAND, guidelines, undefined, undefined, toolInfos)
+            const execTool = createExecTool(v2Tools, context, CLI_PROXY_TOOL, commandReference)
+
+            const snapshot = {
+                name: execTool.name,
+                title: execTool.title,
+                description: execTool.description,
+                annotations: execTool.annotations,
+                scopes: execTool.scopes,
+                inputSchema: z.toJSONSchema(execTool.schema, { io: 'input', reused: 'inline' }),
+            }
+
+            const __dirname = path.dirname(fileURLToPath(import.meta.url))
+            const snapshotPath = path.resolve(__dirname, '__snapshots__', 'exec-tool.json')
+            await expect(`${JSON.stringify(snapshot, null, 4)}\n`).toMatchFileSnapshot(snapshotPath)
         })
     })
 })
