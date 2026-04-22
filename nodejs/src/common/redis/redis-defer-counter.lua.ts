@@ -31,6 +31,9 @@ end
 local pending = redis.call('zcard', key)
 
 if pending >= maxDeferred then
+  -- Refresh TTL on the rejection path too; a sustained cap-hit would otherwise let the
+  -- key expire and silently reset the backlog while prior deferrals are still pending.
+  redis.call('expire', key, ttl)
   return {0, 0}
 end
 
