@@ -1041,7 +1041,9 @@ class TestLogsAlertAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         sparkline = response.json()["sparkline"]
         assert len(sparkline) == 24
-        assert all(bucket["breached"] == 0 and bucket["errored"] == 0 for bucket in sparkline)
+        assert all(
+            bucket["breached"] == 0 and bucket["errored"] == 0 and bucket["resolved"] == 0 for bucket in sparkline
+        )
         # Buckets are ordered oldest-first, hourly-aligned.
         timestamps = [bucket["timestamp"] for bucket in sparkline]
         assert timestamps == sorted(timestamps)
@@ -1105,7 +1107,7 @@ class TestLogsAlertAPI(APIBaseTest):
         response = self.client.get(f"{self.base_url}{alert_id}/")
 
         sparkline = response.json()["sparkline"]
-        assert all(b["breached"] == 0 and b["errored"] == 0 for b in sparkline)
+        assert all(b["breached"] == 0 and b["errored"] == 0 and b["resolved"] == 0 for b in sparkline)
 
     @freeze_time("2025-12-16T10:30:00Z")
     def test_sparkline_excludes_events_older_than_24h(self):
@@ -1123,7 +1125,31 @@ class TestLogsAlertAPI(APIBaseTest):
         response = self.client.get(f"{self.base_url}{alert_id}/")
 
         sparkline = response.json()["sparkline"]
-        assert all(b["breached"] == 0 and b["errored"] == 0 for b in sparkline)
+        assert all(b["breached"] == 0 and b["errored"] == 0 and b["resolved"] == 0 for b in sparkline)
+
+    @parameterized.expand(
+        [
+            ("firing_to_not_firing", "firing"),
+            ("pending_resolve_to_not_firing", "pending_resolve"),
+        ]
+    )
+    @freeze_time("2025-12-16T10:30:00Z")
+    def test_sparkline_buckets_resolved_events(self, _name: str, state_before: str):
+        created = self._create_via_api()
+        alert_id = created["id"]
+        self._make_event_at(
+            alert_id,
+            datetime(2025, 12, 16, 9, 5, tzinfo=UTC),
+            threshold_breached=False,
+            state_before=state_before,
+            state_after="not_firing",
+        )
+
+        response = self.client.get(f"{self.base_url}{alert_id}/")
+
+        assert response.status_code == status.HTTP_200_OK
+        sparkline = response.json()["sparkline"]
+        assert sum(b["resolved"] for b in sparkline) == 1
 
     # --- Simulate ---
 

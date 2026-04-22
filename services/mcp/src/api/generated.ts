@@ -20219,6 +20219,8 @@ export namespace Schemas {
       breached: number;
       /** Count of errored checks in this hour. */
       errored: number;
+      /** Count of checks that transitioned the alert from firing to resolved in this hour. */
+      resolved: number;
     }
 
     export interface LogsAlertConfiguration {
