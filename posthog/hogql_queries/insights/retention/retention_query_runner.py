@@ -287,12 +287,11 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
     def breakdowns_in_query(self) -> bool:
         return has_breakdown_filter(self.query.breakdownFilter)
 
-    @cached_property
-    def events_timestamp_filter(self) -> ast.Expr:
+    def events_timestamp_filter(self, field: ast.Expr | None = None) -> ast.Expr:
         """
         Timestamp filter between date_from and date_to
         """
-        field_to_compare = ast.Field(chain=["events", "timestamp"])
+        field_to_compare = field or ast.Field(chain=["events", "timestamp"])
         return ast.And(
             exprs=[
                 ast.CompareOperation(
@@ -359,7 +358,7 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
 
         if not is_first_occurrence_matching_filters and not is_first_ever_occurrence:
             # when it's recurring, we only have to grab events for the period, rather than events for all time
-            events_where.append(self.events_timestamp_filter)
+            events_where.append(self.events_timestamp_filter())
 
         # Pre-filter by event name
         events = self.get_events_for_entity(self.start_event) + self.get_events_for_entity(self.return_event)
@@ -637,7 +636,7 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
             {
                 "start_of_interval_sql": start_of_interval_sql,
                 "start_entity_expr": self.start_entity_expr,
-                "filter_timestamp": self.events_timestamp_filter,
+                "filter_timestamp": self.events_timestamp_filter(),
             },
         )
 
@@ -664,7 +663,7 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
                     "start_of_interval_sql": start_of_interval_sql,
                     "aggregation_target": self.aggregation_target,
                     "start_entity_expr": self.start_entity_expr,
-                    "filter_timestamp": self.events_timestamp_filter,
+                    "filter_timestamp": self.events_timestamp_filter(),
                 },
             )
             return_event_data = self._get_return_event_timestamps_expr(
@@ -960,16 +959,20 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
                 ),
             )
         else:
-            entity = self.start_event
-            is_dwh = entity.kind == EntityType.DATA_WAREHOUSE
+            start_entity_is_dwh = self.start_event.kind == EntityType.DATA_WAREHOUSE
 
-            actor_column_name = entity.distinct_id_field if is_dwh else self.target_field
-            timestamp_column_name = entity.timestamp_field if is_dwh else "timestamp"
-            start_of_interval_sql = self.query_date_range.get_start_of_interval_hogql(
-                source=ast.Field(chain=[timestamp_column_name])
+            start_actor_column_name = self.start_event.distinct_id_field if start_entity_is_dwh else self.target_field
+            start_actor_field = ast.Field(chain=[start_actor_column_name])
+
+            start_timestamp_column_name = self.start_event.timestamp_field if start_entity_is_dwh else "timestamp"
+            start_timestamp_field = ast.Field(chain=[start_timestamp_column_name])
+
+            start_of_interval_sql = self.query_date_range.get_start_of_interval_hogql(source=start_timestamp_field)
+            start_entity_expr = (
+                property_to_expr(self.start_event.properties, self.team)
+                if start_entity_is_dwh
+                else self.start_entity_expr
             )
-            start_entity_expr = property_to_expr(entity.properties, self.team) if is_dwh else self.start_entity_expr
-
             start_event_timestamps = parse_expr(
                 """
                 arraySort(
@@ -983,33 +986,58 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
                 {
                     "start_of_interval_sql": start_of_interval_sql,
                     "start_entity_expr": start_entity_expr,
-                    "filter_timestamp": self.events_timestamp_filter,
+                    "filter_timestamp": self.events_timestamp_filter(field=start_timestamp_field),
                 },
             )
-            table_name = self.start_event.table_name if is_dwh else "events"
-            where_expr = None if is_dwh else ast.And(exprs=event_filters)
+
+            start_table_name = self.start_event.table_name if start_entity_is_dwh else "events"
+            start_where_expr = None if start_entity_is_dwh else ast.And(exprs=event_filters)
 
             start_event_query = ast.SelectQuery(
                 select=[
-                    ast.Alias(alias="actor_id", expr=ast.Field(chain=[actor_column_name])),
+                    ast.Alias(alias="actor_id", expr=start_actor_field),
                     ast.Alias(alias="start_event_timestamps", expr=start_event_timestamps),
                 ],
-                select_from=ast.JoinExpr(table=ast.Field(chain=[table_name])),
-                where=where_expr,
+                select_from=ast.JoinExpr(table=ast.Field(chain=[start_table_name])),
+                where=start_where_expr,
                 group_by=[ast.Field(chain=["actor_id"])],
             )
 
-            # self.return_event
+            return_entity_is_dwh = self.return_event.kind == EntityType.DATA_WAREHOUSE
 
-            # return_event_query=
-            # inner_query=
+            return_actor_column_name = self.start_event.distinct_id_field if start_entity_is_dwh else self.target_field
+            return_actor_field = ast.Field(chain=[start_actor_column_name])
 
-            select_fields: list[ast.Expr] = [
-                ast.Alias(alias="actor_id", expr=ast.Field(chain=["events", self.target_field])),
-                # start events between date_from and date_to (represented by start of interval)
-                # when TARGET_FIRST_TIME, also adds filter for start (target) event performed for first time
-                ast.Alias(alias="start_event_timestamps", expr=start_event_timestamps),
-            ]
+            # start_timestamp_column_name = self.start_event.timestamp_field if start_entity_is_dwh else "timestamp"
+            # start_timestamp_field = ast.Field(chain=[start_timestamp_column_name])
+
+            return_table_name = self.return_event.table_name if return_entity_is_dwh else "events"
+            return_where_expr = None if return_entity_is_dwh else ast.And(exprs=event_filters)
+
+            return_entity_expr = (
+                property_to_expr(self.return_event.properties, self.team)
+                if return_entity_is_dwh
+                else self.return_entity_expr
+            )
+            return_event_timestamps = self._get_return_event_timestamps_expr(
+                minimum_occurrences=minimum_occurrences,
+                start_of_interval_sql=start_of_interval_sql,
+                return_entity_expr=return_entity_expr,
+            )
+
+            return_event_query = ast.SelectQuery(
+                select=[
+                    ast.Alias(alias="actor_id", expr=return_actor_field),
+                    ast.Alias(alias="return_event_timestamps", expr=return_event_timestamps),
+                ],
+                select_from=ast.JoinExpr(table=ast.Field(chain=[return_table_name])),
+                where=return_where_expr,
+                group_by=[ast.Field(chain=["actor_id"])],
+            )
+
+
+            inner_query=
+
         return inner_query
 
     def _get_default_intervals_from_base_expr(
@@ -1739,7 +1767,7 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
                     "start_of_interval_timestamp": start_of_interval_sql,
                     "aggregation_target": self.aggregation_target,
                     "returning_entity_expr": return_entity_expr,
-                    "filter_timestamp": self.events_timestamp_filter,
+                    "filter_timestamp": self.events_timestamp_filter(),
                 },
             )
 
@@ -1770,7 +1798,7 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
             {
                 "start_of_interval_timestamp": start_of_interval_sql,
                 "returning_entity_expr": return_entity_expr,
-                "filter_timestamp": self.events_timestamp_filter,
+                "filter_timestamp": self.events_timestamp_filter(),
             },
         )
 
@@ -1798,7 +1826,7 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
                 {
                     "start_of_interval_timestamp": start_of_interval_sql,
                     "returning_entity_expr": return_entity_expr,
-                    "filter_timestamp": self.events_timestamp_filter,
+                    "filter_timestamp": self.events_timestamp_filter(),
                 },
             ),
         )
