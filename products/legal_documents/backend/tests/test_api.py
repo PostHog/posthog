@@ -275,8 +275,15 @@ class TestLegalDocumentPandaDocWebhook(APIBaseTest):
         ]
 
     def _post_raw(self, body: bytes, signature: str):
+        # DRF's test client types `data` as str even though it accepts bytes at
+        # runtime; decode so mypy doesn't complain while the wire payload stays
+        # the exact bytes we signed (UTF-8 round-trips cleanly).
         return self.client.generic(
-            "POST", self.url, data=body, content_type="application/json", HTTP_X_PANDADOC_SIGNATURE=signature
+            "POST",
+            self.url,
+            data=body.decode("utf-8", errors="surrogateescape"),
+            content_type="application/json",
+            HTTP_X_PANDADOC_SIGNATURE=signature,
         )
 
     def _sign(self, body: bytes) -> str:
@@ -401,7 +408,7 @@ class TestLegalDocumentsSelfHostedGate(APIBaseTest):
             response = self.client.generic(
                 "POST",
                 "/api/legal_documents/pandadoc",
-                data=body,
+                data=body.decode("utf-8"),
                 content_type="application/json",
                 HTTP_X_PANDADOC_SIGNATURE=signature,
             )
