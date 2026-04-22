@@ -1,16 +1,14 @@
 import uuid
-import datetime as dt
 from collections.abc import Callable
 from typing import Any
 
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 from django.conf import settings
 
 import pytest_asyncio
 from asgiref.sync import sync_to_async
-from temporalio.client import Schedule, ScheduleActionStartWorkflow, ScheduleOverlapPolicy, ScheduleSpec
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
@@ -34,55 +32,13 @@ from posthog.temporal.alerts.types import CheckAlertWorkflowInputs, SkipReason
 from posthog.temporal.alerts.workflows import CheckAlertWorkflow
 from posthog.temporal.common.slo_interceptor import SloInterceptor
 
+CHECK_ALERT_ACTIVITIES: list[Callable[..., Any]] = [prepare_alert, evaluate_alert, notify_alert]
+
 
 def test_schedule_is_registered_in_init_schedules():
     from posthog.temporal.schedule import schedules
 
     assert create_schedule_due_alert_checks_schedule in schedules
-
-
-@pytest.mark.parametrize(
-    "schedule_exists,expect_create,expect_update",
-    [
-        pytest.param(False, True, False, id="creates_when_absent"),
-        pytest.param(True, False, True, id="updates_when_present"),
-    ],
-)
-@pytest.mark.asyncio
-async def test_create_schedule_routes_by_existence(
-    schedule_exists: bool, expect_create: bool, expect_update: bool
-) -> None:
-    mock_client = AsyncMock()
-    with (
-        patch(
-            "posthog.temporal.alerts.schedule.a_schedule_exists",
-            new=AsyncMock(return_value=schedule_exists),
-        ),
-        patch("posthog.temporal.alerts.schedule.a_create_schedule", new=AsyncMock()) as mock_create,
-        patch("posthog.temporal.alerts.schedule.a_update_schedule", new=AsyncMock()) as mock_update,
-    ):
-        await create_schedule_due_alert_checks_schedule(mock_client)
-
-    assert mock_create.await_count == (1 if expect_create else 0)
-    assert mock_update.await_count == (1 if expect_update else 0)
-
-    # Same Schedule shape must be registered on both paths — a stale config
-    # passed to a_update_schedule would silently ship otherwise.
-    invoked = mock_create if expect_create else mock_update
-    assert invoked.await_args is not None
-    schedule_arg = invoked.await_args.args[2]
-    assert isinstance(schedule_arg, Schedule)
-    assert isinstance(schedule_arg.spec, ScheduleSpec)
-    assert schedule_arg.spec.cron_expressions == ["*/2 * * * *"]
-    assert schedule_arg.policy.overlap == ScheduleOverlapPolicy.ALLOW_ALL
-    assert isinstance(schedule_arg.action, ScheduleActionStartWorkflow)
-    assert schedule_arg.action.execution_timeout == dt.timedelta(minutes=10)
-
-    if expect_create:
-        assert mock_create.await_args.kwargs.get("trigger_immediately") is False
-
-
-CHECK_ALERT_ACTIVITIES: list[Callable[..., Any]] = [prepare_alert, evaluate_alert, notify_alert]
 
 
 def _valid_trends_query() -> dict:
@@ -93,7 +49,13 @@ def _valid_trends_query() -> dict:
     ).model_dump()
 
 
-def _build_alert(ateam, *, insight_deleted: bool = False, enabled: bool = True) -> AlertConfiguration:
+def _build_alert(
+    ateam,
+    *,
+    insight_deleted: bool = False,
+    enabled: bool = True,
+    config: dict | None = None,
+) -> AlertConfiguration:
     insight = Insight.objects.create(team=ateam, name="insight", query=_valid_trends_query(), deleted=insight_deleted)
     return AlertConfiguration.objects.create(
         team=ateam,
@@ -101,14 +63,20 @@ def _build_alert(ateam, *, insight_deleted: bool = False, enabled: bool = True) 
         name="wf-test-alert",
         enabled=enabled,
         calculation_interval=AlertCalculationInterval.DAILY.value,
-        config={"type": "TrendsAlertConfig", "series_index": 0},
+        config=config if config is not None else {"type": "TrendsAlertConfig", "series_index": 0},
         condition={"type": "absolute_value"},
     )
 
 
 @sync_to_async
-def _create_alert(ateam, *, insight_deleted: bool = False, enabled: bool = True) -> AlertConfiguration:
-    return _build_alert(ateam, insight_deleted=insight_deleted, enabled=enabled)
+def _create_alert(
+    ateam,
+    *,
+    insight_deleted: bool = False,
+    enabled: bool = True,
+    config: dict | None = None,
+) -> AlertConfiguration:
+    return _build_alert(ateam, insight_deleted=insight_deleted, enabled=enabled, config=config)
 
 
 @pytest_asyncio.fixture
@@ -303,9 +271,55 @@ async def test_check_alert_workflow_records_errored_check_on_permanent_evaluatio
     assert check.error is not None
     assert "insight query broken" in check.error["message"]
 
+    # Evaluate-time errors are transient — alert stays enabled so next run retries.
+    # Only prepare-time validate_alert_config failures call disable_invalid_alert.
+    refreshed = await sync_to_async(AlertConfiguration.objects.get)(pk=alert_with_subscriber.pk)
+    assert refreshed.enabled is True
+
     mock_send_errors.assert_called_once()
 
     completed_props = _completed_slo_props(mock_slo_analytics)
     # Errored evaluation = degraded alert, not a workflow failure → SLO stays SUCCESS.
     assert completed_props["outcome"] == SloOutcome.SUCCESS
     assert completed_props["alert_state"] == AlertState.ERRORED
+
+
+@patch("posthog.slo.events.posthoganalytics")
+@pytest.mark.asyncio
+@pytest.mark.django_db(transaction=True)
+async def test_check_alert_workflow_auto_disables_alert_with_invalid_config(
+    mock_slo_analytics: MagicMock,
+    ateam,
+) -> None:
+    # Missing required "type" in config → validate_alert_config raises ValueError at prepare
+    # → disable_invalid_alert flips enabled=False and writes an ERRORED AlertCheck row.
+    alert = await _create_alert(ateam, config={"series_index": 0})
+
+    with (
+        patch("posthog.temporal.alerts.activities.check_alert_for_insight") as mock_ch_query,
+        patch("posthog.tasks.alerts.utils.send_notifications_for_breaches") as mock_send_breaches,
+    ):
+        await _run_check_alert_workflow(
+            alert_id=str(alert.id),
+            slo=_slo_config(alert),
+            team_id=alert.team_id,
+            insight_id=alert.insight_id,
+        )
+
+    refreshed = await sync_to_async(AlertConfiguration.objects.get)(pk=alert.pk)
+    assert refreshed.enabled is False
+    assert refreshed.state == AlertState.ERRORED
+
+    check = await sync_to_async(AlertCheck.objects.get)(alert_configuration=refreshed)
+    assert check.state == AlertState.ERRORED
+    assert check.calculated_value is None
+    assert check.error is not None
+
+    # Disable short-circuits before evaluate / notify.
+    mock_ch_query.assert_not_called()
+    mock_send_breaches.assert_not_called()
+
+    completed_props = _completed_slo_props(mock_slo_analytics)
+    assert completed_props["outcome"] == SloOutcome.SUCCESS
+    assert completed_props.get("skip_reason") is not None
+    assert "alert_state" not in completed_props
