@@ -392,6 +392,8 @@ pub async fn start_test_router(replica_addr: SocketAddr) -> SocketAddr {
         None,
         4 * 1024 * 1024,
         4 * 1024 * 1024,
+        1,
+        None,
     )
     .unwrap();
     let router = PersonHogRouter::new(Arc::new(backend));
@@ -564,6 +566,8 @@ pub async fn start_test_router_with_leader(
         None,
         4 * 1024 * 1024,
         4 * 1024 * 1024,
+        1,
+        None,
     )
     .unwrap();
 

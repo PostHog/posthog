@@ -19,9 +19,13 @@ use personhog_proto::personhog::types::v1::{
     ListCohortMemberIdsResponse, PersonsByDistinctIdsInTeamResponse, PersonsByDistinctIdsResponse,
     PersonsResponse, UpsertHashKeyOverridesRequest, UpsertHashKeyOverridesResponse,
 };
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
 use std::time::Duration;
-use tonic::transport::Channel;
+use tokio::sync::RwLock;
+use tonic::transport::{Channel, Endpoint};
 use tonic::{Request, Status};
+use tracing::info;
 
 use personhog_common::grpc::current_client_name;
 
@@ -29,14 +33,61 @@ use super::retry::with_retry;
 use super::PersonHogBackend;
 use crate::config::RetryConfig;
 
-/// Backend implementation that forwards requests to a personhog-replica service.
+/// Backend implementation that forwards requests to a personhog-replica service
+/// using multiple gRPC channels with round-robin selection.
 pub struct ReplicaBackend {
-    client: PersonHogReplicaClient<Channel>,
+    clients: Arc<RwLock<Vec<PersonHogReplicaClient<Channel>>>>,
+    next_idx: AtomicUsize,
     retry_config: RetryConfig,
 }
 
+struct ChannelConfig {
+    url: String,
+    timeout: Duration,
+    keepalive_interval: Option<Duration>,
+    keepalive_timeout: Option<Duration>,
+    max_send_message_size: usize,
+    max_recv_message_size: usize,
+}
+
+fn build_endpoint(config: &ChannelConfig) -> Result<Endpoint, tonic::transport::Error> {
+    let mut endpoint = Channel::from_shared(config.url.clone())
+        .map_err(|e| {
+            // InvalidUri doesn't impl Into<tonic::transport::Error>, so we
+            // surface it via the endpoint builder by building a throwaway.
+            panic!("invalid replica URL '{}': {e}", config.url);
+        })
+        .unwrap()
+        .timeout(config.timeout)
+        .tcp_nodelay(true);
+    if let Some(interval) = config.keepalive_interval {
+        endpoint = endpoint
+            .http2_keep_alive_interval(interval)
+            .keep_alive_while_idle(true);
+    }
+    if let Some(timeout) = config.keepalive_timeout {
+        endpoint = endpoint.keep_alive_timeout(timeout);
+    }
+    Ok(endpoint)
+}
+
+fn create_clients(
+    config: &ChannelConfig,
+    num_channels: usize,
+) -> Vec<PersonHogReplicaClient<Channel>> {
+    (0..num_channels)
+        .map(|_| {
+            let endpoint = build_endpoint(config).expect("failed to build endpoint");
+            let channel = endpoint.connect_lazy();
+            PersonHogReplicaClient::new(channel)
+                .max_encoding_message_size(config.max_send_message_size)
+                .max_decoding_message_size(config.max_recv_message_size)
+        })
+        .collect()
+}
+
 impl ReplicaBackend {
-    /// Create a new replica backend with a lazy connection to the given URL.
+    /// Create a new replica backend with multiple lazy channels to the given URL.
     pub fn new(
         url: &str,
         timeout: Duration,
@@ -45,26 +96,56 @@ impl ReplicaBackend {
         keepalive_timeout: Option<Duration>,
         max_send_message_size: usize,
         max_recv_message_size: usize,
+        num_channels: usize,
+        recycle_interval: Option<Duration>,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
-        let mut endpoint = Channel::from_shared(url.to_string())?
-            .timeout(timeout)
-            .tcp_nodelay(true);
-        if let Some(interval) = keepalive_interval {
-            endpoint = endpoint
-                .http2_keep_alive_interval(interval)
-                .keep_alive_while_idle(true);
+        let num_channels = num_channels.max(1);
+
+        let config = ChannelConfig {
+            url: url.to_string(),
+            timeout,
+            keepalive_interval,
+            keepalive_timeout,
+            max_send_message_size,
+            max_recv_message_size,
+        };
+
+        let clients = create_clients(&config, num_channels);
+        info!(
+            num_channels = num_channels,
+            url = url,
+            "created replica backend channels"
+        );
+
+        let clients = Arc::new(RwLock::new(clients));
+
+        if let Some(interval) = recycle_interval {
+            let clients = Arc::clone(&clients);
+            tokio::spawn(async move {
+                loop {
+                    tokio::time::sleep(interval).await;
+                    let new_clients = create_clients(&config, num_channels);
+                    let mut guard = clients.write().await;
+                    *guard = new_clients;
+                    drop(guard);
+                    info!(
+                        num_channels = num_channels,
+                        "recycled replica backend channels"
+                    );
+                }
+            });
         }
-        if let Some(timeout) = keepalive_timeout {
-            endpoint = endpoint.keep_alive_timeout(timeout);
-        }
-        let channel = endpoint.connect_lazy();
 
         Ok(Self {
-            client: PersonHogReplicaClient::new(channel)
-                .max_encoding_message_size(max_send_message_size)
-                .max_decoding_message_size(max_recv_message_size),
+            clients,
+            next_idx: AtomicUsize::new(0),
             retry_config,
         })
+    }
+
+    fn next_client(&self, clients: &[PersonHogReplicaClient<Channel>]) -> PersonHogReplicaClient<Channel> {
+        let idx = self.next_idx.fetch_add(1, Ordering::Relaxed) % clients.len();
+        clients[idx].clone()
     }
 }
 
@@ -72,9 +153,12 @@ impl ReplicaBackend {
 /// Forwards the `x-client-name` header so the downstream service can
 /// attribute metrics to the originating client.
 macro_rules! retry_call {
-    ($self:expr, $method:ident, $request:expr) => {
+    ($self:expr, $method:ident, $request:expr) => {{
+        let clients = $self.clients.read().await;
+        let client = $self.next_client(&clients);
+        drop(clients);
         with_retry(&$self.retry_config, stringify!($method), || {
-            let mut client = $self.client.clone();
+            let mut client = client.clone();
             let req = $request.clone();
             let client_name = current_client_name();
             async move {
@@ -86,7 +170,7 @@ macro_rules! retry_call {
             }
         })
         .await
-    };
+    }};
 }
 
 #[async_trait]

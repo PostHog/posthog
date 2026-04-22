@@ -85,6 +85,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing::info!("Router mode: {}", config.router_mode);
     tracing::info!("gRPC address: {}", config.grpc_address);
     tracing::info!("Replica URL: {}", config.replica_url);
+    tracing::info!("Replica channels: {}", config.replica_channels);
+    tracing::info!(
+        "Channel recycle interval: {}s",
+        config.channel_recycle_interval_secs
+    );
     tracing::info!("Backend timeout: {}ms", config.backend_timeout_ms);
     tracing::info!("Metrics port: {}", config.metrics_port);
     tracing::info!(
@@ -167,7 +172,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .expect("Metrics server error");
     });
 
-    // Create backend connection to personhog-replica
+    // Create backend connection(s) to personhog-replica
     let replica_backend = ReplicaBackend::new(
         &config.replica_url,
         config.backend_timeout(),
@@ -176,6 +181,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         config.backend_keepalive_timeout(),
         config.grpc_max_send_message_size,
         config.grpc_max_recv_message_size,
+        config.replica_channels,
+        config.channel_recycle_interval(),
     )
     .expect("Failed to create replica backend");
 
