@@ -8,7 +8,7 @@ export const USER_AGENT = `posthog/mcp-server; version: ${packageJson.version}`
 
 export interface GetUserAgentOptions {
     clientUserAgent?: string | undefined
-    /** `x-posthog-mcp-consumer` — self-identifier of the wrapping app (e.g. `posthog_code`, `slack`). */
+    /** `x-posthog-mcp-consumer` — self-identifier of the wrapping app (e.g. `posthog-code`, `slack`). */
     mcpConsumer?: string | undefined
     /** MCP `clientInfo.name` — the wrapped client (e.g. `claude-code`). */
     mcpClientName?: string | undefined
