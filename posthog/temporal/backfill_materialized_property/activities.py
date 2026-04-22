@@ -64,7 +64,7 @@ def _generate_property_extraction_sql(property_type: str) -> str:
         return f"toFloat64OrNull({base_extract})"
 
     elif property_type == PropertyType.Boolean:
-        # Match HogQL's toBool(transform(toString(...), ["true", "false"], [1, 0], None))
+        # Match HogQL's accurateCastOrNull(transform(toString(...), ["true", "false"], [1, 0], None), 'Bool')
         # Need to use toString() wrapper to match HogQL behavior
         return f"transform(toString({base_extract}), ['true', 'false'], [1, 0], NULL)"
 

@@ -149,9 +149,26 @@ class TestPropertyTypes(BaseTest):
         )
         assert printed == self.snapshot
         assert (
-            "SELECT ifNull(equals(toBool(transform(toString(events__group_0.properties___group_boolean), hogvar, hogvar, NULL)), 1), 0), ifNull(equals(toBool(transform(toString(events__group_0.properties___group_boolean), hogvar, hogvar, NULL)), 0), 0), isNull(toBool(transform(toString(events__group_0.properties___group_boolean), hogvar, hogvar, NULL)))"
+            "SELECT ifNull(equals(accurateCastOrNull(transform(toString(events__group_0.properties___group_boolean), hogvar, hogvar, NULL), hogvar), 1), 0), ifNull(equals(accurateCastOrNull(transform(toString(events__group_0.properties___group_boolean), hogvar, hogvar, NULL), hogvar), 0), 0), isNull(accurateCastOrNull(transform(toString(events__group_0.properties___group_boolean), hogvar, hogvar, NULL), hogvar))"
             in re.sub(r"%\(hogql_val_\d+\)s", "hogvar", printed)
         )
+
+    @override_settings(PERSON_ON_EVENTS_OVERRIDE=False, PERSON_ON_EVENTS_V2_OVERRIDE=False)
+    def test_boolean_property_with_non_boolean_value_does_not_raise(self):
+        # A taxonomically-Boolean property may still hold a non-boolean value at
+        # runtime (e.g. a UUID string written under a misclassified property).
+        # The printer must emit a cast that tolerates such inputs; otherwise
+        # ClickHouse raises "Cannot parse boolean value here: '...'" and the
+        # query fails entirely.
+        printed = self._print_select(
+            """select
+            properties.bool = true,
+            properties.bool = false,
+            properties.bool is null
+            from events"""
+        )
+        assert "toBool(" not in printed
+        assert "accurateCastOrNull(transform(toString(" in printed
 
     @pytest.mark.usefixtures("unittest_snapshot")
     @override_settings(PERSON_ON_EVENTS_OVERRIDE=False, PERSON_ON_EVENTS_V2_OVERRIDE=False)

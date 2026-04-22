@@ -40,7 +40,10 @@ def get_survey_property_string_expr(property_name: SurveyEventProperties, table_
 def get_survey_property_bool_expr(property_name: SurveyEventProperties, table_alias: str | None = None) -> str:
     expression = get_survey_property_string_expr(property_name, table_alias)
     normalized_expression = f"toString(nullIf(nullIf({expression}, ''), 'null'))"
-    return f"toBool(transform({normalized_expression}, ['true', 'false'], [1, 0], NULL))"
+    # accurateCastOrNull(..., 'Bool') rather than toBool so a survey property that
+    # happens to store a non-boolean value at runtime (e.g. a UUID) yields NULL
+    # instead of raising "Cannot parse boolean value here: '...'".
+    return f"accurateCastOrNull(transform({normalized_expression}, ['true', 'false'], [1, 0], NULL), 'Bool')"
 
 
 def get_survey_response_clickhouse_query(

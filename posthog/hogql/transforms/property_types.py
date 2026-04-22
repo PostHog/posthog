@@ -499,8 +499,16 @@ class PropertySwapper(CloningVisitor):
         if field_type == "Float":
             return ast.Call(name="toFloat", args=[node])
         if field_type == "Boolean":
+            # A taxonomically-Boolean property may still hold non-boolean data at
+            # runtime (e.g. a UUID string written under a misclassified property).
+            # toBool around the transform result can cause ClickHouse to invoke
+            # parseBoolText on the raw field value and raise
+            # "Cannot parse boolean value here: '...'", failing the whole query.
+            # _toNullableBool compiles to accurateCastOrNull(..., 'Bool'), which
+            # returns NULL for any non-coercible input while preserving the
+            # Nullable(Bool) result type expected downstream.
             return ast.Call(
-                name="toBool",
+                name="_toNullableBool",
                 args=[
                     ast.Call(
                         name="transform",
@@ -510,7 +518,7 @@ class PropertySwapper(CloningVisitor):
                             ast.Constant(value=[1, 0]),
                             ast.Constant(value=None),
                         ],
-                    )
+                    ),
                 ],
             )
         return node

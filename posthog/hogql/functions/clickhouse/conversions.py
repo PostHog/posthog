@@ -86,6 +86,12 @@ TYPE_CONVERSION_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
         "accurateCastOrNull", 1, 1, suffix_args=[ast.Constant(value="Nullable(String)")]
     ),
     "toBool": HogQLFunctionMeta("toBool", 1, 1),
+    # Internal: safely coerce to Nullable(Bool), returning NULL on any non-coercible value.
+    # Used by the property-type transform so a taxonomically-Boolean property that holds
+    # non-boolean data at runtime does not raise in ClickHouse.
+    "_toNullableBool": HogQLFunctionMeta(
+        "accurateCastOrNull", 1, 1, suffix_args=[ast.Constant(value="Bool")]
+    ),
     "toJSONString": HogQLFunctionMeta("toJSONString", 1, 1),
     "parseDateTime": HogQLFunctionMeta("parseDateTimeOrNull", 2, 3, tz_aware=True),
     "parseDateTimeBestEffort": HogQLFunctionMeta("parseDateTime64BestEffortOrNull", 1, 2, tz_aware=True),
