@@ -173,7 +173,7 @@
 # ---
 # name: TestSurveysAPIList.test_list_surveys.12
   '''
-  SELECT "posthog_team"."id"
+  SELECT "posthog_team"."id" AS "id"
   FROM "posthog_team"
   WHERE ("posthog_team"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
          AND "posthog_team"."receive_org_level_activity_logs")
