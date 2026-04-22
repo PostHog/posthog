@@ -5217,3 +5217,29 @@ class TestDestroySourceCleansUpCompanionTables(APIBaseTest):
         # Unrelated table NOT deleted
         unrelated_table.refresh_from_db()
         assert unrelated_table.deleted is False
+
+
+class TestExternalDataSourceCreateSerializerValidation(APIBaseTest):
+    def test_create_rejects_missing_source_type(self):
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/",
+            {"payload": {"host": "localhost"}},
+            format="json",
+        )
+        assert response.status_code == 400
+
+    def test_create_rejects_missing_payload(self):
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/",
+            {"source_type": "Postgres"},
+            format="json",
+        )
+        assert response.status_code == 400
+
+    def test_create_rejects_invalid_source_type(self):
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/",
+            {"source_type": "InvalidType", "payload": {"host": "localhost"}},
+            format="json",
+        )
+        assert response.status_code == 400
