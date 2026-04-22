@@ -61,12 +61,12 @@ export function ActivityLogSubscribeMenu({
         <LemonButton
             size="small"
             type="secondary"
-            icon={<IconBell />}
+            icon={iconOnly ? undefined : <IconBell />}
             tooltip={tooltip ?? 'Subscribe'}
             disabledReason={disabledReason}
             data-attr={dataAttr}
         >
-            {iconOnly ? null : 'Subscribe'}
+            {iconOnly ? <IconBell /> : 'Subscribe'}
         </LemonButton>
     )
 
