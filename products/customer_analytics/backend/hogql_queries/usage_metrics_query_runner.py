@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta
+from functools import cached_property
 from zoneinfo import ZoneInfo
 
 from posthog.schema import CachedUsageMetricsQueryResponse, UsageMetric, UsageMetricsQuery, UsageMetricsQueryResponse
@@ -60,7 +61,7 @@ class UsageMetricsQueryRunner(AnalyticsQueryRunner[UsageMetricsQueryResponse]):
 
     def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
         metric_queries: list[ast.SelectQuery | ast.SelectSetQuery] = [
-            query for metric in self._get_usage_metrics() if (query := self._get_metric_query(metric)) is not None
+            query for metric in self._usage_metrics if (query := self._get_metric_query(metric)) is not None
         ]
 
         if not metric_queries:
@@ -69,7 +70,8 @@ class UsageMetricsQueryRunner(AnalyticsQueryRunner[UsageMetricsQueryResponse]):
 
         return ast.SelectSetQuery.create_from_queries(queries=metric_queries, set_operator="UNION ALL")
 
-    def _get_usage_metrics(self) -> list[GroupUsageMetric]:
+    @cached_property
+    def _usage_metrics(self) -> list[GroupUsageMetric]:
         """
         Fetch all metrics for the team, regardless of group_type_index.
         The model conception was too coupled to groups, we'll need to make it group-agnostic to support person-level
@@ -79,7 +81,7 @@ class UsageMetricsQueryRunner(AnalyticsQueryRunner[UsageMetricsQueryResponse]):
         with self.timings.measure("get_usage_metrics"):
             return list(
                 GroupUsageMetric.objects.filter(team=self.team).only(
-                    "id", "name", "format", "interval", "display", "filters"
+                    "id", "name", "format", "interval", "display", "filters", "math", "math_property"
                 )
             )
 
@@ -93,6 +95,10 @@ class UsageMetricsQueryRunner(AnalyticsQueryRunner[UsageMetricsQueryResponse]):
             date_to = datetime.now(tz=ZoneInfo("UTC"))
             date_from = date_to - timedelta(days=metric.interval)
             prev_date_from = date_to - 2 * timedelta(days=metric.interval)
+            agg_exprs = self._build_aggregation_exprs(metric, date_from, date_to, prev_date_from)
+            if agg_exprs is None:
+                return None
+            value_expr, previous_expr = agg_exprs
 
         return parse_select(
             """
@@ -106,8 +112,8 @@ class UsageMetricsQueryRunner(AnalyticsQueryRunner[UsageMetricsQueryResponse]):
                     {format} as format,
                     {display} as display,
                     {interval} as interval,
-                    countIf(timestamp >= {date_from} AND timestamp <= {date_to}) as value,
-                    countIf(timestamp >= {prev_date_from} AND timestamp < {date_from}) as previous
+                    {value_expr} as value,
+                    {previous_expr} as previous
                 FROM events
                 WHERE {where_expr}
             )
@@ -119,10 +125,65 @@ class UsageMetricsQueryRunner(AnalyticsQueryRunner[UsageMetricsQueryResponse]):
                 "display": ast.Constant(value=metric.display),
                 "interval": ast.Constant(value=metric.interval),
                 "where_expr": where_expr,
-                "date_from": ast.Constant(value=date_from),
-                "prev_date_from": ast.Constant(value=prev_date_from),
-                "date_to": ast.Constant(value=date_to),
+                "value_expr": value_expr,
+                "previous_expr": previous_expr,
             },
+        )
+
+    def _build_aggregation_exprs(
+        self,
+        metric: GroupUsageMetric,
+        date_from: datetime,
+        date_to: datetime,
+        prev_date_from: datetime,
+    ) -> tuple[ast.Expr, ast.Expr] | None:
+        current_condition = ast.And(
+            exprs=[
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.GtEq,
+                    left=ast.Field(chain=["timestamp"]),
+                    right=ast.Constant(value=date_from),
+                ),
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.LtEq,
+                    left=ast.Field(chain=["timestamp"]),
+                    right=ast.Constant(value=date_to),
+                ),
+            ]
+        )
+        previous_condition = ast.And(
+            exprs=[
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.GtEq,
+                    left=ast.Field(chain=["timestamp"]),
+                    right=ast.Constant(value=prev_date_from),
+                ),
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.Lt,
+                    left=ast.Field(chain=["timestamp"]),
+                    right=ast.Constant(value=date_from),
+                ),
+            ]
+        )
+
+        if metric.math == GroupUsageMetric.Math.SUM:
+            if not metric.math_property:
+                return None
+            prop_as_float = ast.Call(name="toFloat", args=[ast.Field(chain=["properties", metric.math_property])])
+            return (
+                ast.Call(
+                    name="ifNull",
+                    args=[ast.Call(name="sumIf", args=[prop_as_float, current_condition]), ast.Constant(value=0)],
+                ),
+                ast.Call(
+                    name="ifNull",
+                    args=[ast.Call(name="sumIf", args=[prop_as_float, previous_condition]), ast.Constant(value=0)],
+                ),
+            )
+
+        return (
+            ast.Call(name="toFloat", args=[ast.Call(name="countIf", args=[current_condition])]),
+            ast.Call(name="toFloat", args=[ast.Call(name="countIf", args=[previous_condition])]),
         )
 
     def _get_entity_filter(self) -> ast.CompareOperation:
@@ -158,10 +219,12 @@ class UsageMetricsQueryRunner(AnalyticsQueryRunner[UsageMetricsQueryResponse]):
 
     def get_cache_payload(self) -> dict:
         """
-        Override to include metric IDs in cache key.
-        This ensures cache is invalidated when metrics are created/deleted.
+        Override to include metric config in cache key.
+        This ensures cache is invalidated when metrics are created/deleted or their configuration changes.
         """
         payload = super().get_cache_payload()
-        metric_ids = sorted(str(metric.id) for metric in self._get_usage_metrics())
-        payload["usage_metric_ids"] = metric_ids
+        metric_keys = sorted(
+            f"{metric.id}:{metric.math}:{metric.math_property or ''}" for metric in self._usage_metrics
+        )
+        payload["usage_metric_keys"] = metric_keys
         return payload

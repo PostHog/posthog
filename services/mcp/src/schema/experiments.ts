@@ -52,6 +52,7 @@ export const ExperimentSchema = z.object({
                         key: z.string(),
                         name: z.string().nullish(),
                         rollout_percentage: z.number().nullish(),
+                        split_percent: z.number().nullish(),
                     })
                 )
                 .nullish(),
@@ -124,6 +125,7 @@ export interface ExperimentResultsSummary {
             key: string
             name?: string | null | undefined
             rollout_percentage?: number | null | undefined
+            split_percent?: number | null | undefined
         }>
     }
     exposures: ExperimentExposureQueryResponse

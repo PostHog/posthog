@@ -34,6 +34,7 @@ CONSUMER_GROUP_EVENTS_JSON_WS = "clickhouse_events_json_ws"
 CONSUMER_GROUP_GROUPS_WS = "clickhouse_groups_ws"
 CONSUMER_GROUP_PERSON_WS = "clickhouse_person_ws"
 CONSUMER_GROUP_PERSON_DISTINCT_ID2_WS = "clickhouse_person_distinct_id2_ws"
+CONSUMER_GROUP_PERSON_DISTINCT_ID_OVERRIDES_WS = "clickhouse_person_distinct_id_overrides_ws"
 CONSUMER_GROUP_AI_EVENTS_WS = "clickhouse_ai_events_ws"
 CONSUMER_GROUP_HEATMAPS_WS = "clickhouse_heatmaps_ws"
 CONSUMER_GROUP_INGESTION_WARNINGS_WS = "clickhouse_ingestion_warnings_ws"
@@ -94,7 +95,7 @@ def kafka_engine(
         )
 
     if kafka_host is None:
-        kafka_host = ",".join(settings.KAFKA_HOSTS_FOR_CLICKHOUSE)
+        raise ValueError("kafka_host is required when use_named_collection=False")
     return KAFKA_ENGINE.format(topic=topic, kafka_host=kafka_host, group=group, serialization=serialization)
 
 
