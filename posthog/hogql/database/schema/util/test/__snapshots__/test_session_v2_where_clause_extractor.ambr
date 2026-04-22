@@ -63,7 +63,6 @@
       WHERE
           and(equals(raw_sessions.team_id, <TEAM_ID>), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(%(hogql_val_0)s, toIntervalDay(3))))
       GROUP BY
-          raw_sessions.session_id_v7,
           raw_sessions.session_id_v7) AS sessions ON equals(events.`$session_id`, sessions.session_id)
   WHERE
       and(equals(events.team_id, <TEAM_ID>), greater(events.timestamp, toDateTime64(%(hogql_val_1)s, 6, %(hogql_val_2)s)))
@@ -90,7 +89,6 @@
           WHERE
               and(equals(raw_sessions.team_id, <TEAM_ID>), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(%(hogql_val_1)s, toIntervalDay(3))))
           GROUP BY
-              raw_sessions.session_id_v7,
               raw_sessions.session_id_v7) AS sessions
       WHERE
           ifNull(greaterOrEquals(sessions.`$start_timestamp`, %(hogql_val_2)s), 0)) AS subquery
@@ -113,7 +111,6 @@
       WHERE
           and(equals(raw_sessions.team_id, <TEAM_ID>), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(%(hogql_val_1)s, toIntervalDay(3))))
       GROUP BY
-          raw_sessions.session_id_v7,
           raw_sessions.session_id_v7) AS sessions
   WHERE
       ifNull(greater(sessions.`$start_timestamp`, %(hogql_val_2)s), 0)
@@ -148,7 +145,6 @@
       WHERE
           and(equals(raw_sessions.team_id, <TEAM_ID>), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(toStartOfDay(assumeNotNull(toDateTime(%(hogql_val_3)s, %(hogql_val_4)s))), toIntervalDay(3))), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(assumeNotNull(toDateTime(%(hogql_val_5)s, %(hogql_val_6)s)), toIntervalDay(3))))
       GROUP BY
-          raw_sessions.session_id_v7,
           raw_sessions.session_id_v7) AS e__session ON equals(e.`$session_id_uuid`, e__session.session_id_v7)
   WHERE
       and(equals(e.team_id, <TEAM_ID>), and(greaterOrEquals(toTimeZone(e.timestamp, %(hogql_val_19)s), toStartOfDay(assumeNotNull(toDateTime(%(hogql_val_20)s, %(hogql_val_21)s)))), lessOrEquals(toTimeZone(e.timestamp, %(hogql_val_22)s), assumeNotNull(toDateTime(%(hogql_val_23)s, %(hogql_val_24)s))), equals(e.event, %(hogql_val_25)s), in(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), (SELECT
@@ -178,7 +174,6 @@
       WHERE
           and(equals(raw_sessions.team_id, <TEAM_ID>), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(%(hogql_val_2)s, toIntervalDay(3))), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(now64(6, %(hogql_val_3)s), toIntervalDay(3))))
       GROUP BY
-          raw_sessions.session_id_v7,
           raw_sessions.session_id_v7) AS s__session ON equals(toUInt128(accurateCastOrNull(s.session_id, %(hogql_val_4)s)), s__session.session_id_v7)
   WHERE
       and(equals(s.team_id, <TEAM_ID>), ifNull(equals(s__session.`$entry_pathname`, %(hogql_val_6)s), 0), greaterOrEquals(s.min_first_timestamp, toDateTime64(%(hogql_val_7)s, 6, %(hogql_val_8)s)), less(s.min_first_timestamp, now64(6, %(hogql_val_9)s)))
@@ -205,7 +200,6 @@
       WHERE
           and(equals(raw_sessions.team_id, <TEAM_ID>), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(today(), toIntervalDay(3))))
       GROUP BY
-          raw_sessions.session_id_v7,
           raw_sessions.session_id_v7) AS events__session ON equals(events.`$session_id_uuid`, events__session.session_id_v7)
   WHERE
       and(equals(events.team_id, <TEAM_ID>), less(events.timestamp, today()))
@@ -229,7 +223,6 @@
       WHERE
           and(equals(raw_sessions.team_id, <TEAM_ID>), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(minus(now64(6, %(hogql_val_1)s), toIntervalDay(7)), toIntervalDay(3))))
       GROUP BY
-          raw_sessions.session_id_v7,
           raw_sessions.session_id_v7) AS sessions
   WHERE
       ifNull(greaterOrEquals(sessions.`$start_timestamp`, minus(now64(6, %(hogql_val_2)s), toIntervalDay(7))), 0)

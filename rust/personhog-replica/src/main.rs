@@ -150,6 +150,65 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // gRPC server
     let storage = create_storage(&config).await;
 
+    // Pre-warm DB connection pools before accepting traffic.
+    // connect_lazy() starts with zero connections; without this, the first
+    // burst of requests after K8s routes traffic all pay the cold-start cost
+    // (TCP + TLS + PgBouncer + SET statement_timeout). Warming here is safe
+    // because the gRPC server hasn't bound its port yet — the startup probe
+    // (TCP on 50051) can't pass until after this completes.
+    if config.min_pg_connections > 0 {
+        let warmup_count = config.min_pg_connections as usize;
+        tracing::info!(
+            count = warmup_count,
+            "Warming database connection pools before accepting traffic"
+        );
+        let separate_replica = config.replica_database_url() != config.primary_database_url;
+        let pools: Vec<(&sqlx::PgPool, &str)> = if separate_replica {
+            vec![
+                (&storage.primary_pool, "primary"),
+                (&storage.replica_pool, "replica"),
+            ]
+        } else {
+            vec![(&storage.primary_pool, "primary")]
+        };
+
+        for (pool, label) in &pools {
+            let pool_start = std::time::Instant::now();
+            let mut conns = Vec::with_capacity(warmup_count);
+            for _ in 0..warmup_count {
+                match pool.acquire().await {
+                    Ok(conn) => conns.push(conn),
+                    Err(e) => {
+                        tracing::warn!(pool = label, error = %e, "Failed to warm connection");
+                        break;
+                    }
+                }
+            }
+            // Run a query on each held connection to warm PgBouncer → PG.
+            // acquire() only establishes app → PgBouncer; in transaction pooling
+            // mode PgBouncer doesn't open a server connection until a query runs.
+            // Holding all N connections forces PgBouncer to assign N distinct
+            // server connections rather than reusing one.
+            let mut server_warmed = 0u32;
+            for conn in &mut conns {
+                match sqlx::query("SELECT 1").execute(&mut **conn).await {
+                    Ok(_) => server_warmed += 1,
+                    Err(e) => {
+                        tracing::warn!(pool = label, error = %e, "Failed to warm server-side connection");
+                    }
+                }
+            }
+            tracing::info!(
+                pool = label,
+                client_conns = conns.len(),
+                server_conns = server_warmed,
+                elapsed_ms = pool_start.elapsed().as_millis() as u64,
+                "Pool warmup complete"
+            );
+            // Connections drop here, returning to the pool as idle
+        }
+    }
+
     // Spawn background pool health monitor
     let mut pools = vec![MonitoredPool {
         pool: storage.primary_pool.clone(),

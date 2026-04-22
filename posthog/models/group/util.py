@@ -21,7 +21,6 @@ def raw_create_group_ch(
     properties: dict,
     created_at: datetime.datetime,
     timestamp: Optional[datetime.datetime] = None,
-    sync: bool = False,
 ):
     """Create ClickHouse-only Group record.
 
@@ -38,7 +37,7 @@ def raw_create_group_ch(
         "_timestamp": timestamp.strftime("%Y-%m-%d %H:%M:%S"),
     }
     p = ClickhouseProducer()
-    p.produce(topic=KAFKA_GROUPS, sql=INSERT_GROUP_SQL, data=data, sync=sync)
+    p.produce(topic=KAFKA_GROUPS, sql=INSERT_GROUP_SQL, data=data)
 
 
 def create_group(
@@ -47,7 +46,6 @@ def create_group(
     group_key: str,
     properties: Optional[dict] = None,
     timestamp: Optional[Union[datetime.datetime, str]] = None,
-    sync: bool = False,
 ) -> Group:
     """Create proper Group record (ClickHouse + Postgres)."""
     if not properties:
@@ -68,7 +66,6 @@ def create_group(
         properties,
         timestamp,
         timestamp=timestamp,
-        sync=sync,
     )
     group = Group.objects.create(
         team_id=team_id,
