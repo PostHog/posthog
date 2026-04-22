@@ -778,6 +778,28 @@ class TestProperty(BaseTest):
             clear_locations(elements_chain_match("(^|;)a(\\.|$|;|:)")),
         )
 
+    @parameterized.expand(
+        [
+            ("tag_name", "icontains"),
+            ("tag_name", "not_icontains"),
+            ("tag_name", "regex"),
+            ("selector", "icontains"),
+            ("selector", "regex"),
+        ]
+    )
+    def test_element_filter_unsupported_operator_raises_query_error(self, key: str, operator: str):
+        with self.assertRaises(QueryError) as ctx:
+            self._property_to_expr(
+                {
+                    "type": "element",
+                    "key": key,
+                    "value": "div",
+                    "operator": operator,
+                }
+            )
+        self.assertIn(key, str(ctx.exception))
+        self.assertIn(operator, str(ctx.exception))
+
     def test_selector_to_expr(self):
         self.assertEqual(
             self._selector_to_expr("div"),

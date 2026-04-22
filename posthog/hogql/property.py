@@ -1068,8 +1068,8 @@ def property_to_expr(
 
         if property.key == "selector" or property.key == "tag_name":
             if operator != PropertyOperator.EXACT and operator != PropertyOperator.IS_NOT:
-                raise NotImplementedError(
-                    f"property_to_expr for element {property.key} only supports exact and is_not operators, not {operator}"
+                raise QueryError(
+                    f"Element {property.key} filter only supports the 'exact' and 'is_not' operators, not '{operator.value}'"
                 )
             expr = selector_to_expr(str(value)) if property.key == "selector" else tag_name_to_expr(str(value))
             if operator == PropertyOperator.IS_NOT:
