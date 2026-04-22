@@ -162,8 +162,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             count = warmup_count,
             "Warming database connection pools before accepting traffic"
         );
-        let start = std::time::Instant::now();
-
         let separate_replica = config.replica_database_url() != config.primary_database_url;
         let pools: Vec<(&sqlx::PgPool, &str)> = if separate_replica {
             vec![
@@ -175,6 +173,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         };
 
         for (pool, label) in &pools {
+            let pool_start = std::time::Instant::now();
             let mut conns = Vec::with_capacity(warmup_count);
             for _ in 0..warmup_count {
                 match pool.acquire().await {
@@ -185,10 +184,25 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     }
                 }
             }
+            // Run a query on each held connection to warm PgBouncer → PG.
+            // acquire() only establishes app → PgBouncer; in transaction pooling
+            // mode PgBouncer doesn't open a server connection until a query runs.
+            // Holding all N connections forces PgBouncer to assign N distinct
+            // server connections rather than reusing one.
+            let mut server_warmed = 0u32;
+            for conn in &mut conns {
+                match sqlx::query("SELECT 1").execute(&mut **conn).await {
+                    Ok(_) => server_warmed += 1,
+                    Err(e) => {
+                        tracing::warn!(pool = label, error = %e, "Failed to warm server-side connection");
+                    }
+                }
+            }
             tracing::info!(
                 pool = label,
-                warmed = conns.len(),
-                elapsed_ms = start.elapsed().as_millis() as u64,
+                client_conns = conns.len(),
+                server_conns = server_warmed,
+                elapsed_ms = pool_start.elapsed().as_millis() as u64,
                 "Pool warmup complete"
             );
             // Connections drop here, returning to the pool as idle
