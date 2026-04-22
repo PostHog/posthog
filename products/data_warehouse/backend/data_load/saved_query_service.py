@@ -58,13 +58,13 @@ def get_saved_query_schedule(saved_query: "DataWarehouseSavedQuery") -> Schedule
             retry_policy=RetryPolicy(
                 initial_interval=timedelta(seconds=10),
                 maximum_interval=timedelta(seconds=60),
-                maximum_attempts=3,
+                maximum_attempts=2,
                 non_retryable_error_types=["NondeterminismError", "CancelledError"],
             ),
         ),
         spec=spec,
         state=ScheduleState(note=f"Schedule for saved query: {saved_query.pk}"),
-        policy=SchedulePolicy(overlap=ScheduleOverlapPolicy.SKIP),
+        policy=SchedulePolicy(overlap=ScheduleOverlapPolicy.CANCEL_OTHER),
     )
 
 
