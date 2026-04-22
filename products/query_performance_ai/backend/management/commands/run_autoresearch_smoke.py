@@ -18,6 +18,8 @@ Task mode will inject the token via the sandbox env instead.
 from __future__ import annotations
 
 import asyncio
+import subprocess
+import time
 import traceback
 
 from django.conf import settings
@@ -28,10 +30,20 @@ from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.temporal.oauth import create_oauth_access_token_for_user
 
-from products.tasks.backend.services.custom_prompt_runner import CustomPromptSandboxContext, run_prompt
+from products.tasks.backend.models import TaskRun
+from products.tasks.backend.services.custom_prompt_runner import (
+    CustomPromptSandboxContext,
+    _create_task_and_trigger,
+    _poll_for_turn,
+)
 from products.tasks.backend.temporal.process_task.activities.run_autoresearch_campaign import (
     LLM_GATEWAY_PRODUCT_SLUG,
 )
+
+# How long between "still waiting" ticks when the sandbox has gone quiet.
+# The underlying poller checks S3 every ~10s — shorter than that just echoes
+# the poll interval back at the user, longer misses real stalls.
+_IDLE_TICK_INTERVAL_S = 20.0
 
 
 _DEFAULT_POSTHOG_URL = "http://host.docker.internal:8010"
@@ -53,8 +65,12 @@ class Command(BaseCommand):
         )
         parser.add_argument(
             "--branch",
-            default="master",
-            help="Branch to check out (default: master). Use your feature branch to test local changes.",
+            default=None,
+            help=(
+                "Branch to check out in the sandbox. Defaults to the current local git branch, "
+                "which is almost always what you want while iterating. Falls back to 'master' if "
+                "detection fails."
+            ),
         )
         parser.add_argument(
             "--posthog-url",
@@ -78,13 +94,14 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):
         repository = options["repository"]
-        branch = options["branch"]
+        branch = options["branch"] or _detect_current_branch() or "master"
         posthog_url = options["posthog_url"]
         cluster = options["cluster"]
         verbose = options["verbose"]
 
         team, user = _resolve_team_and_user()
         _assert_github_integration(team)
+        _warn_if_branch_not_on_remote(branch, self.stdout.write)
 
         scope = f"clickhouse_perf:{cluster}_read"
         self.stdout.write(f"Minting OAuth token for user={user.id} team={team.id} scope={scope}")
@@ -107,18 +124,15 @@ class Command(BaseCommand):
         self.stdout.write(f"Repository: {repository} (branch: {branch})")
         self.stdout.write(f"Target cluster: {cluster}")
         self.stdout.write(f"Sandbox will reach PostHog at: {posthog_url}")
+        if not verbose:
+            self.stdout.write(
+                "Tip: pass --verbose to stream every sandbox log line (including run_campaign.py stdout)."
+            )
         self.stdout.write("")
 
         try:
-            last_message, _ = asyncio.run(
-                run_prompt(
-                    prompt=prompt,
-                    context=context,
-                    branch=branch,
-                    step_name="query_performance_smoke",
-                    verbose=verbose,
-                    output_fn=self.stdout.write,
-                )
+            last_message = asyncio.run(
+                self._run_with_progress(prompt, context, branch, verbose)
             )
         except Exception as e:
             self.stdout.write(self.style.ERROR(f"Sandbox run failed: {e}"))
@@ -128,6 +142,141 @@ class Command(BaseCommand):
         self.stdout.write("")
         self.stdout.write(self.style.SUCCESS("=" * 60))
         self.stdout.write(last_message)
+
+    async def _run_with_progress(
+        self,
+        prompt: str,
+        context: CustomPromptSandboxContext,
+        branch: str | None,
+        verbose: bool,
+    ) -> str:
+        """Drive the sandbox run with timestamped output and an idle ticker.
+
+        We split the two halves of ``run_prompt`` (task creation + polling)
+        so we can print the Task/Run/Workflow IDs before polling starts —
+        otherwise the user sees no output until the sandbox starts producing
+        logs, which can take a minute on a fresh provision.
+        """
+        start = time.monotonic()
+        last_activity = {"at": start}
+
+        def write(line: str) -> None:
+            elapsed = time.monotonic() - start
+            self.stdout.write(f"[+{elapsed:6.1f}s] {line}")
+            last_activity["at"] = time.monotonic()
+
+        task, task_run = await _create_task_and_trigger(
+            prompt,
+            context,
+            branch=branch,
+            step_name="query_performance_smoke",
+            origin_product="query_performance",
+        )
+        workflow_id = TaskRun.get_workflow_id(task.id, task_run.id)
+        namespace = getattr(settings, "TEMPORAL_NAMESPACE", "default")
+        write(f"Task created: id={task.id} run_id={task_run.id}")
+        write(f"Temporal workflow id: {workflow_id}  (namespace: {namespace})")
+        write(f"Temporal UI:  http://localhost:8233/namespaces/{namespace}/workflows/{workflow_id}")
+        write(f"Django admin: /admin/tasks/task/{task.id}/change/")
+        write("Polling S3 for sandbox logs (first lines can take ~60-90s while the sandbox provisions)...")
+
+        ticker_task = asyncio.create_task(self._idle_ticker(start, last_activity))
+        try:
+            last_message, _full_log, _, _ = await _poll_for_turn(
+                task_run,
+                verbose=verbose,
+                output_fn=write,
+            )
+        finally:
+            ticker_task.cancel()
+            try:
+                await ticker_task
+            except asyncio.CancelledError:
+                pass
+
+        return last_message
+
+    async def _idle_ticker(self, start: float, last_activity: dict) -> None:
+        """Emit a tick if no log line has arrived for ``_IDLE_TICK_INTERVAL_S``.
+
+        Runs until cancelled. The poll interval in custom_prompt_runner is
+        ~10s, so ticks at 20s+ idle genuinely mean nothing new has landed
+        in S3 — usually the sandbox is still provisioning or pi is
+        installing packages.
+        """
+        while True:
+            await asyncio.sleep(_IDLE_TICK_INTERVAL_S / 2)
+            idle = time.monotonic() - last_activity["at"]
+            if idle >= _IDLE_TICK_INTERVAL_S:
+                elapsed = time.monotonic() - start
+                self.stdout.write(
+                    f"[+{elapsed:6.1f}s] ... still waiting ({idle:.0f}s since last line)"
+                )
+                # Reset so we tick at the same cadence going forward rather than
+                # immediately on the next iteration.
+                last_activity["at"] = time.monotonic()
+
+
+def _detect_current_branch() -> str | None:
+    """Return the current git branch, or None if detection fails."""
+    try:
+        result = subprocess.run(  # noqa: S603
+            ["git", "branch", "--show-current"],
+            check=False,
+            text=True,
+            capture_output=True,
+            cwd=settings.BASE_DIR,
+            timeout=5,
+        )
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        return None
+    branch = (result.stdout or "").strip()
+    return branch or None
+
+
+def _warn_if_branch_not_on_remote(branch: str, log) -> None:
+    """Warn if the branch isn't on origin — the sandbox clones from remote.
+
+    If the user iterated locally without pushing, the sandbox will clone an
+    old snapshot of the branch (or 404 fetching it). Flagging this upfront
+    saves a 60-second round trip through Temporal just to find out.
+    """
+    try:
+        result = subprocess.run(  # noqa: S603
+            ["git", "ls-remote", "--heads", "origin", branch],
+            check=False,
+            text=True,
+            capture_output=True,
+            cwd=settings.BASE_DIR,
+            timeout=10,
+        )
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        return
+    if result.returncode == 0 and result.stdout.strip():
+        # Also check if local HEAD matches the remote — if not, warn that the
+        # sandbox will see stale code.
+        try:
+            local = subprocess.run(  # noqa: S603
+                ["git", "rev-parse", branch],
+                check=False,
+                text=True,
+                capture_output=True,
+                cwd=settings.BASE_DIR,
+                timeout=5,
+            )
+            remote_sha = result.stdout.split()[0]
+            if local.returncode == 0 and local.stdout.strip() != remote_sha:
+                log(
+                    f"warning: local '{branch}' is ahead/behind origin/{branch} — the sandbox "
+                    "will clone origin's snapshot. `git push` if you want your latest changes."
+                )
+        except Exception:
+            pass
+        return
+    log(
+        f"warning: branch '{branch}' does not exist on origin. The sandbox will fail to check "
+        f"it out. Run: git push -u origin {branch}"
+    )
 
 
 def _resolve_team_and_user() -> tuple[Team, "object"]:

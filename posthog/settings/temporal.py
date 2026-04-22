@@ -42,9 +42,12 @@ SANDBOX_API_URL: str | None = get_from_env("SANDBOX_API_URL", None, optional=Tru
 # (see bin/start-llm-gateway). That value is identical for every developer, so
 # hardcoding it beats requiring a per-dev env var. Prod/staging still require
 # an explicit override via $SANDBOX_LLM_GATEWAY_URL.
-_DEFAULT_SANDBOX_LLM_GATEWAY_URL = "http://host.docker.internal:3308" if DEBUG else None
-SANDBOX_LLM_GATEWAY_URL: str | None = get_from_env(
-    "SANDBOX_LLM_GATEWAY_URL", _DEFAULT_SANDBOX_LLM_GATEWAY_URL, optional=True
+#
+# We read os.getenv directly rather than get_from_env because the latter's
+# optional=True semantics discard the default when the env var is unset.
+_SANDBOX_LLM_GATEWAY_URL_ENV = os.getenv("SANDBOX_LLM_GATEWAY_URL")
+SANDBOX_LLM_GATEWAY_URL: str | None = _SANDBOX_LLM_GATEWAY_URL_ENV or (
+    "http://host.docker.internal:3308" if DEBUG else None
 )
 SANDBOX_MCP_URL: str | None = get_from_env("SANDBOX_MCP_URL", None, optional=True)
 
