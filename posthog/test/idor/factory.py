@@ -37,11 +37,23 @@ def build_minimal_instance(
 ) -> models.Model:
     """Create the simplest valid instance of `model_cls` for `team`.
 
-    Overrides always take precedence. M2M fields are skipped (they must be
-    attached after create via `.add()`). If a required FK has no default and
-    no override is provided, `UnfillableField` is raised — the caller is
-    expected to either skip or consult the fixture registry.
+    Resolution order:
+      1. Registered fixture in `posthog.test.idor.fixtures` (if present)
+      2. Auto-build via Django field introspection
+      3. `UnfillableField` is raised — the caller should skip the test.
+
+    Overrides always take precedence when auto-building. M2M fields are
+    skipped (they must be attached after create via `.add()`).
     """
+    # Fixture registry takes precedence when present — it handles the hard
+    # cases (required FKs, custom validators) where introspection can't cope.
+    if not overrides:
+        from posthog.test.idor.fixtures import get_fixture
+
+        fixture = get_fixture(model_cls)
+        if fixture is not None:
+            return fixture(team)
+
     kwargs: dict[str, Any] = {}
 
     for field in model_cls._meta.get_fields():

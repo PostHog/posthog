@@ -56,8 +56,23 @@ class TestAutomatedIDORCoverage(IDORTestMixin, APIBaseTest):
         else:
             self.skipTest(f"Unknown URL root: {case.url.root}")
 
-        if case.url.intermediate_parents:
-            self.skipTest(f"{case.name}: nested-parent detail endpoints require a fixture registry entry")
+        # For nested-parent URLs, derive each intermediate id from the instance's FK.
+        # E.g. parent_lookup_insight_id ⇒ instance.insight_id. Use attacker's pid/tid for
+        # root; the intermediate id is the VICTIM's — this is the correct IDOR shape:
+        # attacker's root, victim's nested ancestor, victim's leaf.
+        intermediate_ids: dict[str, int | str] = {}
+        for _, kwarg in case.url.intermediate_parents:
+            field_name = kwarg.removeprefix("parent_lookup_")
+            try:
+                intermediate_ids[kwarg] = getattr(instance, field_name)
+            except AttributeError:
+                self.skipTest(
+                    f"{case.name}: could not derive intermediate id {field_name!r} from {case.model_cls.__name__} instance"
+                )
 
-        url = case.url.build_url(root_id=root_id, pk=instance.pk)  # type: ignore[attr-defined]
+        url = case.url.build_url(  # type: ignore[attr-defined]
+            root_id=root_id,
+            pk=instance.pk,
+            intermediate_ids=intermediate_ids or None,
+        )
         self.assertCrossTeamDenied(url, method="get")
