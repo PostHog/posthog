@@ -26,7 +26,6 @@ export interface LegalDocument {
     id: string
     document_type: LegalDocumentType
     company_name: string
-    representative_name: string
     representative_email: string
     status: LegalDocumentStatus
     signed_document_url: string
@@ -38,8 +37,6 @@ export interface LegalDocumentFormValues {
     document_type: LegalDocumentType
     company_name: string
     company_address: string
-    representative_name: string
-    representative_title: string
     representative_email: string
     dpa_mode: DPAMode | ''
 }
@@ -53,8 +50,6 @@ function defaultsFor(documentType: LegalDocumentType): LegalDocumentFormValues {
         document_type: documentType,
         company_name: '',
         company_address: '',
-        representative_name: '',
-        representative_title: '',
         representative_email: '',
         dpa_mode: documentType === 'DPA' ? 'pretty' : '',
     }
@@ -90,34 +85,24 @@ export const legalDocumentsLogic = kea<legalDocumentsLogicType>([
                 document_type,
                 company_name,
                 company_address,
-                representative_name,
-                representative_title,
                 representative_email,
                 dpa_mode,
             }: LegalDocumentFormValues) => ({
                 company_name: !company_name ? 'Company name is required' : undefined,
-                representative_name: !representative_name ? 'Representative name is required' : undefined,
-                representative_title: !representative_title ? 'Representative title is required' : undefined,
+                company_address: !company_address ? 'Company address is required' : undefined,
                 representative_email: !representative_email
-                    ? 'Representative email is required'
+                    ? 'Signer email is required'
                     : !representative_email.includes('@')
                       ? 'Enter a valid email'
                       : undefined,
-                ...(document_type === 'DPA'
-                    ? {
-                          company_address: !company_address ? 'Company address is required' : undefined,
-                          dpa_mode: !DPA_SUBMITTABLE_MODES.has(dpa_mode as DPAMode)
-                              ? "Pick 'pretty' or 'lawyer' to submit"
-                              : undefined,
-                      }
+                ...(document_type === 'DPA' && !DPA_SUBMITTABLE_MODES.has(dpa_mode as DPAMode)
+                    ? { dpa_mode: "Pick 'pretty' or 'lawyer' to submit" }
                     : {}),
             }),
             submit: async (formValues: LegalDocumentFormValues) => {
-                const payload: Partial<LegalDocumentFormValues> = { ...formValues }
-                if (payload.document_type === 'BAA') {
-                    delete payload.company_address
-                    delete payload.dpa_mode
-                }
+                // dpa_mode is a preview-only toggle — the backend generates a
+                // single DPA variant, so we never send it on the wire.
+                const { dpa_mode: _dpaMode, ...payload } = formValues
                 try {
                     const legalDocument = await api.create<LegalDocument>(
                         `api/organizations/${values.currentOrganizationId}/legal_documents`,
