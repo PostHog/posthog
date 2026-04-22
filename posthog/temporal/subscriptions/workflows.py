@@ -257,8 +257,36 @@ class ProcessSubscriptionWorkflow(PostHogWorkflow):
                     f"{len(non_user_errors)} export(s) failed: {', '.join(distinct_classes)}",
                 )
 
-            # Phase 2.5: Generate LLM change summary (best-effort, skip if not enabled)
+            # Phase 2.5: Persist content_snapshot early so the summary activity can
+            # read the full per-insight query_results from the DB. The finally
+            # block also writes content_snapshot, but that runs after the summary
+            # activity — without this early write the summary would always see
+            # the create_delivery_record skeleton (id/short_id/name only).
             change_summary: str | None = None
+            if delivery_id is not None and delivery_content_snapshot:
+                try:
+                    await temporalio.workflow.execute_activity(
+                        update_delivery_record,
+                        UpdateDeliveryRecordInputs(
+                            delivery_id=delivery_id,
+                            status=DeliveryStatus.STARTING,
+                            exported_asset_ids=delivery_exported_asset_ids or None,
+                            content_snapshot=delivery_content_snapshot,
+                        ),
+                        start_to_close_timeout=dt.timedelta(minutes=1),
+                        retry_policy=temporalio.common.RetryPolicy(
+                            initial_interval=dt.timedelta(seconds=5),
+                            maximum_interval=dt.timedelta(seconds=30),
+                            maximum_attempts=3,
+                        ),
+                    )
+                except Exception:
+                    temporalio.workflow.logger.warning(
+                        "process_subscription.content_snapshot_persist_failed",
+                        extra={"subscription_id": inputs.subscription_id},
+                    )
+
+            # Phase 2.5: Generate LLM change summary (best-effort, skip if not enabled)
             if delivery_id is not None:
                 try:
                     snapshot_result = await temporalio.workflow.execute_activity(
@@ -267,6 +295,7 @@ class ProcessSubscriptionWorkflow(PostHogWorkflow):
                             subscription_id=inputs.subscription_id,
                             team_id=inputs.team_id,
                             delivery_id=str(delivery_id),
+                            exported_asset_ids=list(successful_asset_ids),
                         ),
                         start_to_close_timeout=dt.timedelta(minutes=2),
                         heartbeat_timeout=dt.timedelta(seconds=60),

@@ -40,5 +40,18 @@ class TeamExperimentsConfig(models.Model):
         help_text="Whether to precompute experiment exposure data for faster query execution.",
     )
 
+    default_only_count_matured_users = models.BooleanField(
+        default=False,
+        help_text="Default value for 'only count matured users' on new experiments in this environment.",
+    )
+
+    funnel_steps_data_disabled = models.BooleanField(
+        default=False,
+        help_text=(
+            "Default for disabling per-step session/event sample data on funnel experiment metrics. "
+            "Overridden by the experiment-level `funnel_steps_data_disabled` parameter when set."
+        ),
+    )
+
 
 register_team_extension_signal(TeamExperimentsConfig, logger=logger)

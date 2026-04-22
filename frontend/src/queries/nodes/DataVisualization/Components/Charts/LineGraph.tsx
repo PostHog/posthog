@@ -64,6 +64,10 @@ const getGraphType = (chartType: ChartDisplayType, settings: AxisSeriesSettings 
     return GraphType.Line
 }
 
+const isAreaSeries = (chartType: ChartDisplayType, settings: AxisSeriesSettings | undefined): boolean => {
+    return chartType === ChartDisplayType.ActionsAreaGraph || settings?.display?.displayType === 'area'
+}
+
 const getYAxisSettings = (
     chartSettings: ChartSettings,
     settings: YAxisSettings | undefined,
@@ -177,7 +181,8 @@ export const LineGraph = ({
 
         return ySeriesData.map(({ data: seriesData, settings, ...rest }, index) => {
             const seriesColor = settings?.display?.color ?? getSeriesColor(index)
-            let backgroundColor = isAreaChart ? hexToRGBA(seriesColor, 0.5) : seriesColor
+            const hasAreaFill = isAreaSeries(visualizationType, settings)
+            let backgroundColor = hasAreaFill ? hexToRGBA(seriesColor, 0.5) : seriesColor
 
             // Dim non-hovered bars in stacked bar charts when shift is pressed
             if (isHighlightBarMode && hoveredDatasetIndex !== null && index !== hoveredDatasetIndex) {
@@ -213,7 +218,7 @@ export const LineGraph = ({
                 hoverBorderWidth: graphType === GraphType.Bar ? 0 : 2,
                 hoverBorderRadius: graphType === GraphType.Bar ? 0 : 2,
                 type: graphType,
-                fill: isAreaChart ? 'origin' : false,
+                fill: hasAreaFill ? 'origin' : false,
                 yAxisID,
                 ...(settings?.display?.trendLine && xData && yData && xData.data.length > 0 && seriesData.length > 0
                     ? {
@@ -231,7 +236,6 @@ export const LineGraph = ({
         ySeriesData,
         xData,
         yData,
-        isAreaChart,
         isHighlightBarMode,
         hoveredDatasetIndex,
         visualizationType,

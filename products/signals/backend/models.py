@@ -49,6 +49,11 @@ class SignalSourceConfig(UUIDModel):
         if source_product == cls.SourceProduct.LLM_ANALYTICS:
             return True
 
+        # Session problem signals are emitted as part of session analysis,
+        # so they're gated by the pre-existing session_analysis_cluster config
+        if source_product == cls.SourceProduct.SESSION_REPLAY and source_type == "session_problem":
+            source_type = cls.SourceType.SESSION_ANALYSIS_CLUSTER
+
         return cls.objects.filter(
             team_id=team_id,
             source_product=source_product,

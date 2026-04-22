@@ -17,7 +17,6 @@ from posthog.session_recordings.session_recording_api import (
     SnapshotsSustainedRateThrottle,
     get_cached_org_tier,
     listing_rates,
-    org_tier_from_features,
     snapshot_rates,
 )
 
@@ -30,43 +29,6 @@ def _fake_personal_api_key_request():
 
 def _fake_session_auth_request():
     return type("FakeRequest", (), {"META": {}, "auth": None, "successful_authenticator": None})()
-
-
-class TestOrgTierFromFeatures(BaseTest):
-    @parameterized.expand(
-        [
-            ("none_features", None, "free"),
-            ("empty_features", [], "free"),
-            ("paid_with_zapier", [{"key": "zapier", "name": "Zapier"}], "paid"),
-            (
-                "paid_with_multiple_features",
-                [{"key": "zapier", "name": "Zapier"}, {"key": "group_analytics", "name": "Group Analytics"}],
-                "paid",
-            ),
-            (
-                "enterprise_with_saml",
-                [{"key": "saml", "name": "SAML"}, {"key": "zapier", "name": "Zapier"}],
-                "enterprise",
-            ),
-            (
-                "enterprise_with_scim",
-                [{"key": "scim", "name": "SCIM"}, {"key": "zapier", "name": "Zapier"}],
-                "enterprise",
-            ),
-            (
-                "enterprise_with_both",
-                [{"key": "saml", "name": "SAML"}, {"key": "scim", "name": "SCIM"}],
-                "enterprise",
-            ),
-            (
-                "ignores_falsy_entries",
-                [None, {"key": "zapier", "name": "Zapier"}, False, 0],
-                "paid",
-            ),
-        ]
-    )
-    def test_tier_detection(self, _name: str, features: list | None, expected_tier: str) -> None:
-        assert org_tier_from_features(features) == expected_tier
 
 
 class TestGetCachedOrgTier(BaseTest):
@@ -111,11 +73,11 @@ class TestGetCachedOrgTier(BaseTest):
 
         get_cached_org_tier(self.team.pk)
 
-        cached_value = cache.get(f"replay_org_tier_{self.team.pk}")
+        cached_value = cache.get(f"replay_org_tier_v2_{self.team.pk}")
         assert cached_value == "paid"
 
     def test_uses_cached_value_on_second_call(self) -> None:
-        cache.set(f"replay_org_tier_{self.team.pk}", "enterprise", REPLAY_TIER_CACHE_TTL_SECONDS)
+        cache.set(f"replay_org_tier_v2_{self.team.pk}", "enterprise", REPLAY_TIER_CACHE_TTL_SECONDS)
 
         self.organization.available_product_features = None
         self.organization.save()
