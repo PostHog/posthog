@@ -11,6 +11,7 @@ import {
 import { BarChart, LineChart } from '@stripe/ui-extension-sdk/ui/next'
 import { useEffect, useState } from 'react'
 
+import { DEFAULT_TIMEFRAME, getTimeframe } from '../constants'
 import { logger } from '../logger'
 import { PostHogClient } from '../posthog/client'
 import type { FunnelStepResult, PostHogFeatureFlag, WebOverviewItem } from '../posthog/types'
@@ -22,6 +23,7 @@ import PromoBanner, {
     PromoBannerText,
     PromoBannerTitle,
 } from './components/PromoBanner'
+import TimeframeSelector from './components/TimeframeSelector'
 import WebOverviewCards from './components/WebOverviewCards'
 import { flagBadgeType, flagStatusOf, type FlagStatus } from './utils'
 
@@ -96,6 +98,8 @@ async function loadJourneyFunnels(client: PostHogClient, projectId: string): Pro
 
 const OverviewTab = ({ client, projectId }: Props): JSX.Element => {
     const [state, setState] = useState<State>(INITIAL_STATE)
+    const [timeframeValue, setTimeframeValue] = useState<string>(DEFAULT_TIMEFRAME.value)
+    const timeframe = getTimeframe(timeframeValue)
     const {
         eventTrends,
         topEvents,
@@ -119,11 +123,11 @@ const OverviewTab = ({ client, projectId }: Props): JSX.Element => {
 
             try {
                 const [eventTrends, topEvents, featureFlags, journeys, webOverview] = await Promise.all([
-                    client.fetchEventTrends(projectId).catch((e: unknown) => {
+                    client.fetchEventTrends(projectId, timeframe.days).catch((e: unknown) => {
                         logger.warn('Event trends query failed:', e)
                         return null
                     }),
-                    client.fetchTopEvents(projectId).catch((e: unknown) => {
+                    client.fetchTopEvents(projectId, timeframe.days).catch((e: unknown) => {
                         logger.warn('Top events query failed:', e)
                         return null
                     }),
@@ -135,7 +139,7 @@ const OverviewTab = ({ client, projectId }: Props): JSX.Element => {
                         logger.warn('Customer journeys API failed:', e)
                         return null
                     }),
-                    client.fetchWebOverview(projectId).catch((e: unknown) => {
+                    client.fetchWebOverview(projectId, timeframe.value).catch((e: unknown) => {
                         logger.warn('Web overview API failed:', e)
                         return null
                     }),
@@ -167,7 +171,7 @@ const OverviewTab = ({ client, projectId }: Props): JSX.Element => {
         return () => {
             cancelled = true
         }
-    }, [client, projectId])
+    }, [client, projectId, timeframe.days, timeframe.value])
 
     if (error) {
         return <Banner type="critical" title="Couldn't load overview" description={error} />
@@ -219,7 +223,10 @@ const OverviewTab = ({ client, projectId }: Props): JSX.Element => {
     )
 
     const eventTrendsHeader = (
-        <OverviewPageModule title="Event trends" subtitle="Events tracked over the last 8 weeks" />
+        <OverviewPageModule
+            title="Event trends"
+            subtitle={`Events tracked over the ${timeframe.label.toLowerCase()}`}
+        />
     )
 
     const eventTrendsChart = (
@@ -314,7 +321,7 @@ const OverviewTab = ({ client, projectId }: Props): JSX.Element => {
             ]
 
     const topEventsModule = (
-        <OverviewPageModule title="Top events" subtitle="Last 8 weeks">
+        <OverviewPageModule title="Top events">
             <Box css={{ stack: 'y' }}>
                 {!topEvents || topEvents.length === 0 ? (
                     <Inline css={{ color: 'secondary', padding: 'small' }}>No events recorded yet.</Inline>
@@ -359,8 +366,13 @@ const OverviewTab = ({ client, projectId }: Props): JSX.Element => {
 
     const webOverviewModule =
         client && projectId ? (
-            <OverviewPageModule title="Web analytics" subtitle="Last 30 days">
-                <WebOverviewCards items={webOverview} loading={webOverviewLoading} />
+            <OverviewPageModule title="Web analytics">
+                <Box css={{ stack: 'y', rowGap: 'medium' }}>
+                    <Box css={{ stack: 'x', alignX: 'start' }}>
+                        <TimeframeSelector value={timeframeValue} onChange={setTimeframeValue} />
+                    </Box>
+                    <WebOverviewCards items={webOverview} loading={webOverviewLoading} />
+                </Box>
                 {seeInPostHog('/web')}
             </OverviewPageModule>
         ) : null

@@ -2,10 +2,11 @@ import {
     Banner,
     Box,
     DataTable,
+    Inline,
     Spinner,
+    TextField,
     type DataTableColumn,
     type DataTableItem,
-    type DataTableRowAction,
 } from '@stripe/ui-extension-sdk/ui'
 import { useEffect, useState } from 'react'
 
@@ -20,47 +21,57 @@ interface Props {
     projectId: string | null
 }
 
-const columns: DataTableColumn[] = [
-    { key: 'name', label: 'Name' },
-    {
-        key: 'status',
-        label: 'Status',
-        cell: {
-            type: 'status',
-            statusMap: { running: 'info', complete: 'positive', draft: 'neutral' },
-        },
-    },
-    { key: 'featureFlagKey', label: 'Feature flag', cell: { type: 'id' } },
-    { key: 'startDate', label: 'Started', cell: { type: 'date' } },
-]
-
 const ExperimentsTab = ({ client, projectId }: Props): JSX.Element => {
-    const [experiments, setExperiments] = useState<PostHogExperiment[] | null>(null)
+    const [experiments, setExperiments] = useState<PostHogExperiment[]>([])
+    const [loading, setLoading] = useState<boolean>(true)
     const [error, setError] = useState<string | null>(null)
+    const [filter, setFilter] = useState<string>('')
 
     useEffect(() => {
         if (!client || !projectId) {
             setExperiments([])
+            setLoading(false)
             return
         }
         let cancelled = false
+        setExperiments([])
+        setLoading(true)
+        setError(null)
         client
-            .fetchExperiments(projectId)
-            .then((data: PostHogExperiment[]) => {
+            .fetchAllExperiments(projectId, (page) => {
                 if (!cancelled) {
-                    setExperiments(data)
+                    setExperiments((prev) => [...prev, ...page])
+                }
+            })
+            .then(() => {
+                if (!cancelled) {
+                    setLoading(false)
                 }
             })
             .catch((e: unknown) => {
                 logger.error('ExperimentsTab failed:', e)
                 if (!cancelled) {
                     setError(String(e))
+                    setLoading(false)
                 }
             })
         return () => {
             cancelled = true
         }
     }, [client, projectId])
+
+    const filterHeader = (
+        <Box css={{ stack: 'x', alignX: 'start', paddingBottom: 'medium' }}>
+            <TextField
+                label="Search"
+                type="search"
+                size="small"
+                placeholder="Filter by name or feature flag"
+                value={filter}
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setFilter(e.target.value)}
+            />
+        </Box>
+    )
 
     if (!client || !projectId) {
         return (
@@ -71,55 +82,80 @@ const ExperimentsTab = ({ client, projectId }: Props): JSX.Element => {
             />
         )
     }
-    if (error) {
+    if (error && experiments.length === 0) {
         return <Banner type="critical" title="Couldn't load experiments" description={error} />
     }
-    if (!experiments) {
+    if (loading && experiments.length === 0) {
         return (
             <Box css={{ stack: 'x', alignX: 'center', padding: 'xlarge' }}>
                 <Spinner />
             </Box>
         )
     }
-    if (experiments.length === 0) {
+    if (!loading && experiments.length === 0) {
         return <Banner type="default" title="No experiments yet" description="Create one in PostHog to see it here." />
     }
 
     const posthogBase = `${client.baseUrl}/project/${projectId}`
+    const needle = filter.trim().toLowerCase()
+    const visibleExperiments = needle
+        ? experiments.filter(
+              (e: PostHogExperiment) =>
+                  e.name.toLowerCase().includes(needle) || (e.feature_flag_key ?? '').toLowerCase().includes(needle)
+          )
+        : experiments
 
-    const idToExperimentId = new Map<string, number>()
-    const items: DataTableItem[] = experiments.map((e: PostHogExperiment) => {
-        const id = `experiment:${e.id}`
-        idToExperimentId.set(id, e.id)
+    const linkMap: Record<string, string> = {}
+    const items: DataTableItem[] = visibleExperiments.map((e: PostHogExperiment) => {
+        const url = `${posthogBase}/experiments/${e.id}`
+        linkMap[url] = e.name
         return {
-            id,
-            name: e.name,
+            id: `experiment:${e.id}`,
+            name: url,
             status: experimentStatusOf(e),
             featureFlagKey: e.feature_flag_key,
             startDate: e.start_date ?? e.created_at,
         }
     })
 
-    const rowActions: DataTableRowAction[] = [
+    const columns: DataTableColumn[] = [
+        { key: 'name', label: 'Name', cell: { type: 'link', linkMap } },
         {
-            id: 'open-in-posthog',
-            label: 'Open in PostHog',
-            onPress: (item: DataTableItem) => {
-                const experimentId = idToExperimentId.get(item.id)
-                if (experimentId) {
-                    window.open(`${posthogBase}/experiments/${experimentId}`, '_blank')
-                }
+            key: 'status',
+            label: 'Status',
+            cell: {
+                type: 'status',
+                statusMap: { running: 'info', complete: 'positive', draft: 'neutral' },
             },
         },
+        { key: 'featureFlagKey', label: 'Feature flag', cell: { type: 'id' } },
+        { key: 'startDate', label: 'Started', cell: { type: 'date' } },
     ]
 
     return (
-        <Box css={{ width: 'fill', stack: 'y', rowGap: 'medium' }}>
-            <DataTable columns={columns} items={items} rowActions={rowActions} />
-            <Box css={{ paddingX: 'medium' }}>
-                <ExternalLink href={`${posthogBase}/experiments`}>View in PostHog</ExternalLink>
+        <>
+            {filterHeader}
+            <Box css={{ width: 'fill', stack: 'y', rowGap: 'medium' }}>
+                <DataTable columns={columns} items={items} emptyMessage="No matching experiments" />
+                {loading && (
+                    <Box
+                        css={{
+                            stack: 'x',
+                            alignX: 'center',
+                            alignY: 'center',
+                            columnGap: 'xsmall',
+                            paddingX: 'medium',
+                        }}
+                    >
+                        <Spinner />
+                        <Inline css={{ font: 'caption', color: 'secondary' }}>Loading more experiments…</Inline>
+                    </Box>
+                )}
+                <Box css={{ paddingX: 'medium' }}>
+                    <ExternalLink href={`${posthogBase}/experiments`}>View in PostHog</ExternalLink>
+                </Box>
             </Box>
-        </Box>
+        </>
     )
 }
 

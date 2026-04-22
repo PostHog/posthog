@@ -1,22 +1,11 @@
-import {
-    Banner,
-    Box,
-    DataTable,
-    Spinner,
-    type DataTableColumn,
-    type DataTableItem,
-    type DataTableRowAction,
-} from '@stripe/ui-extension-sdk/ui'
+import { Banner, Box, DataTable, Spinner, type DataTableColumn, type DataTableItem } from '@stripe/ui-extension-sdk/ui'
 import { useEffect, useState } from 'react'
 
+import { DEFAULT_TIMEFRAME, getTimeframe } from '../constants'
 import { logger } from '../logger'
 import type { PostHogClient } from '../posthog/client'
 import ExternalLink from './components/ExternalLink'
-
-const columns: DataTableColumn[] = [
-    { key: 'event', label: 'Event' },
-    { key: 'count', label: 'Count (8w)' },
-]
+import TimeframeSelector from './components/TimeframeSelector'
 
 interface Props {
     client: PostHogClient | null
@@ -26,6 +15,8 @@ interface Props {
 const EventsTab = ({ client, projectId }: Props): JSX.Element => {
     const [events, setEvents] = useState<{ event: string; count: number }[] | null>(null)
     const [error, setError] = useState<string | null>(null)
+    const [timeframeValue, setTimeframeValue] = useState<string>(DEFAULT_TIMEFRAME.value)
+    const timeframe = getTimeframe(timeframeValue)
 
     useEffect(() => {
         if (!client || !projectId) {
@@ -33,7 +24,7 @@ const EventsTab = ({ client, projectId }: Props): JSX.Element => {
         }
         let cancelled = false
         client
-            .fetchTopEvents(projectId, 25)
+            .fetchTopEvents(projectId, timeframe.days, 25)
             .then((data) => {
                 if (!cancelled) {
                     setEvents(data)
@@ -48,7 +39,13 @@ const EventsTab = ({ client, projectId }: Props): JSX.Element => {
         return () => {
             cancelled = true
         }
-    }, [client, projectId])
+    }, [client, projectId, timeframe.days])
+
+    const timeframeHeader = (
+        <Box css={{ stack: 'x', alignX: 'start', paddingBottom: 'medium' }}>
+            <TimeframeSelector value={timeframeValue} onChange={setTimeframeValue} />
+        </Box>
+    )
 
     if (!client || !projectId) {
         return (
@@ -60,64 +57,70 @@ const EventsTab = ({ client, projectId }: Props): JSX.Element => {
         )
     }
     if (error) {
-        return <Banner type="critical" title="Couldn't load events" description={error} />
+        return (
+            <>
+                {timeframeHeader}
+                <Banner type="critical" title="Couldn't load events" description={error} />
+            </>
+        )
     }
     if (!events) {
         return (
-            <Box css={{ stack: 'x', alignX: 'center', padding: 'xlarge' }}>
-                <Spinner />
-            </Box>
+            <>
+                {timeframeHeader}
+                <Box css={{ stack: 'x', alignX: 'center', padding: 'xlarge' }}>
+                    <Spinner />
+                </Box>
+            </>
         )
     }
     if (events.length === 0) {
         return (
-            <Banner
-                type="default"
-                title="No events yet"
-                description="Start sending events to PostHog to see them here."
-            />
+            <>
+                {timeframeHeader}
+                <Banner
+                    type="default"
+                    title="No events yet"
+                    description="Start sending events to PostHog to see them here."
+                />
+            </>
         )
     }
 
-    const eventNameById = new Map<string, string>()
+    const posthogBase = `${client.baseUrl}/project/${projectId}`
+
+    const linkMap: Record<string, string> = {}
     const items: DataTableItem[] = events.map((e) => {
-        const id = `event:${e.event}`
-        eventNameById.set(id, e.event)
+        const url = `${posthogBase}/activity/explore-events?q=${buildEventsQuery(e.event, timeframe.value)}`
+        linkMap[url] = e.event
         return {
-            id,
-            event: e.event,
+            id: `event:${e.event}`,
+            event: url,
             count: e.count.toLocaleString(),
         }
     })
 
-    const posthogBase = `${client.baseUrl}/project/${projectId}`
-
-    const rowActions: DataTableRowAction[] = [
-        {
-            id: 'open-in-posthog',
-            label: 'Open in activity',
-            onPress: (item: DataTableItem) => {
-                const eventName = eventNameById.get(item.id)
-                if (eventName) {
-                    window.open(`${posthogBase}/activity/explore-events?q=${buildEventsQuery(eventName)}`, '_blank')
-                }
-            },
-        },
+    const columns: DataTableColumn[] = [
+        { key: 'event', label: 'Event', cell: { type: 'link', linkMap } },
+        { key: 'count', label: `Count (${timeframe.label.toLowerCase()})` },
     ]
 
     return (
-        <Box css={{ width: 'fill', stack: 'y', rowGap: 'medium' }}>
-            <DataTable columns={columns} items={items} rowActions={rowActions} />
-            <Box css={{ paddingX: 'medium' }}>
-                <ExternalLink href={`${posthogBase}/activity`}>View in PostHog</ExternalLink>
+        <>
+            {timeframeHeader}
+            <Box css={{ width: 'fill', stack: 'y', rowGap: 'medium' }}>
+                <DataTable columns={columns} items={items} />
+                <Box css={{ paddingX: 'medium' }}>
+                    <ExternalLink href={`${posthogBase}/activity`}>View in PostHog</ExternalLink>
+                </Box>
             </Box>
-        </Box>
+        </>
     )
 }
 
 export default EventsTab
 
-function buildEventsQuery(eventName: string): string {
+function buildEventsQuery(eventName: string, dateFrom: string): string {
     const query = {
         kind: 'DataTableNode',
         full: true,
@@ -132,7 +135,7 @@ function buildEventsQuery(eventName: string): string {
                 'timestamp',
             ],
             orderBy: ['timestamp DESC'],
-            after: '-30d',
+            after: dateFrom,
             event: eventName,
         },
         propertiesViaUrl: true,

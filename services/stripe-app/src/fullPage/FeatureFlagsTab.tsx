@@ -2,10 +2,11 @@ import {
     Banner,
     Box,
     DataTable,
+    Inline,
     Spinner,
+    TextField,
     type DataTableColumn,
     type DataTableItem,
-    type DataTableRowAction,
 } from '@stripe/ui-extension-sdk/ui'
 import { useEffect, useState } from 'react'
 
@@ -20,49 +21,57 @@ interface Props {
     projectId: string | null
 }
 
-const columns: DataTableColumn[] = [
-    { key: 'key', label: 'Key', cell: { type: 'id' } },
-    { key: 'name', label: 'Name' },
-    {
-        key: 'status',
-        label: 'Status',
-        cell: {
-            type: 'status',
-            statusMap: { enabled: 'positive', beta: 'info', disabled: 'neutral' },
-        },
-    },
-    { key: 'conditions', label: 'Release conditions' },
-    { key: 'variants', label: 'Variants' },
-    { key: 'createdAt', label: 'Created', cell: { type: 'date' } },
-]
-
 const FeatureFlagsTab = ({ client, projectId }: Props): JSX.Element => {
-    const [flags, setFlags] = useState<PostHogFeatureFlag[] | null>(null)
+    const [flags, setFlags] = useState<PostHogFeatureFlag[]>([])
+    const [loading, setLoading] = useState<boolean>(true)
     const [error, setError] = useState<string | null>(null)
+    const [filter, setFilter] = useState<string>('')
 
     useEffect(() => {
         if (!client || !projectId) {
             setFlags([])
+            setLoading(false)
             return
         }
         let cancelled = false
+        setFlags([])
+        setLoading(true)
+        setError(null)
         client
-            .fetchFeatureFlags(projectId)
-            .then((data: PostHogFeatureFlag[]) => {
+            .fetchAllFeatureFlags(projectId, (page) => {
                 if (!cancelled) {
-                    setFlags(data)
+                    setFlags((prev) => [...prev, ...page])
+                }
+            })
+            .then(() => {
+                if (!cancelled) {
+                    setLoading(false)
                 }
             })
             .catch((e: unknown) => {
                 logger.error('FeatureFlagsTab failed:', e)
                 if (!cancelled) {
                     setError(String(e))
+                    setLoading(false)
                 }
             })
         return () => {
             cancelled = true
         }
     }, [client, projectId])
+
+    const filterHeader = (
+        <Box css={{ stack: 'x', alignX: 'start', paddingBottom: 'medium' }}>
+            <TextField
+                label="Search"
+                type="search"
+                size="small"
+                placeholder="Filter by key or name"
+                value={filter}
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setFilter(e.target.value)}
+            />
+        </Box>
+    )
 
     if (!client || !projectId) {
         return (
@@ -73,31 +82,38 @@ const FeatureFlagsTab = ({ client, projectId }: Props): JSX.Element => {
             />
         )
     }
-    if (error) {
+    if (error && flags.length === 0) {
         return <Banner type="critical" title="Couldn't load feature flags" description={error} />
     }
-    if (!flags) {
+    if (loading && flags.length === 0) {
         return (
             <Box css={{ stack: 'x', alignX: 'center', padding: 'xlarge' }}>
                 <Spinner />
             </Box>
         )
     }
-    if (flags.length === 0) {
+    if (!loading && flags.length === 0) {
         return (
             <Banner type="default" title="No feature flags yet" description="Create one in PostHog to see it here." />
         )
     }
 
     const posthogBase = `${client.baseUrl}/project/${projectId}`
+    const needle = filter.trim().toLowerCase()
+    const visibleFlags = needle
+        ? flags.filter(
+              (f: PostHogFeatureFlag) =>
+                  f.key.toLowerCase().includes(needle) || (f.name ?? '').toLowerCase().includes(needle)
+          )
+        : flags
 
-    const idToFlagId = new Map<string, number>()
-    const items: DataTableItem[] = flags.map((f: PostHogFeatureFlag) => {
-        const id = `flag:${f.id}`
-        idToFlagId.set(id, f.id)
+    const linkMap: Record<string, string> = {}
+    const items: DataTableItem[] = visibleFlags.map((f: PostHogFeatureFlag) => {
+        const url = `${posthogBase}/feature_flags/${f.id}`
+        linkMap[url] = f.key
         return {
-            id,
-            key: f.key,
+            id: `flag:${f.id}`,
+            key: url,
             name: f.name || f.key,
             status: flagStatusOf(f),
             conditions: formatGroups(f.filters?.groups ?? []),
@@ -106,26 +122,46 @@ const FeatureFlagsTab = ({ client, projectId }: Props): JSX.Element => {
         }
     })
 
-    const rowActions: DataTableRowAction[] = [
+    const columns: DataTableColumn[] = [
+        { key: 'key', label: 'Key', cell: { type: 'link', linkMap } },
+        { key: 'name', label: 'Name' },
         {
-            id: 'open-in-posthog',
-            label: 'Open in PostHog',
-            onPress: (item: DataTableItem) => {
-                const flagId = idToFlagId.get(item.id)
-                if (flagId) {
-                    window.open(`${posthogBase}/feature_flags/${flagId}`, '_blank')
-                }
+            key: 'status',
+            label: 'Status',
+            cell: {
+                type: 'status',
+                statusMap: { enabled: 'positive', beta: 'info', disabled: 'neutral' },
             },
         },
+        { key: 'conditions', label: 'Release conditions' },
+        { key: 'variants', label: 'Variants' },
+        { key: 'createdAt', label: 'Created', cell: { type: 'date' } },
     ]
 
     return (
-        <Box css={{ width: 'fill', stack: 'y', rowGap: 'medium' }}>
-            <DataTable columns={columns} items={items} rowActions={rowActions} />
-            <Box css={{ paddingX: 'medium' }}>
-                <ExternalLink href={`${posthogBase}/feature_flags`}>View in PostHog</ExternalLink>
+        <>
+            {filterHeader}
+            <Box css={{ width: 'fill', stack: 'y', rowGap: 'medium' }}>
+                <DataTable columns={columns} items={items} emptyMessage="No matching feature flags" />
+                {loading && (
+                    <Box
+                        css={{
+                            stack: 'x',
+                            alignX: 'center',
+                            alignY: 'center',
+                            columnGap: 'xsmall',
+                            paddingX: 'medium',
+                        }}
+                    >
+                        <Spinner />
+                        <Inline css={{ font: 'caption', color: 'secondary' }}>Loading more feature flags…</Inline>
+                    </Box>
+                )}
+                <Box css={{ paddingX: 'medium' }}>
+                    <ExternalLink href={`${posthogBase}/feature_flags`}>View in PostHog</ExternalLink>
+                </Box>
             </Box>
-        </Box>
+        </>
     )
 }
 
