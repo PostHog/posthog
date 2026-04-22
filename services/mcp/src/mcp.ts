@@ -16,6 +16,7 @@ import {
 } from '@/lib/analytics'
 import { buildToolResultPayload, isToolCallPayload } from '@/lib/build-tool-result'
 import { DurableObjectCache } from '@/lib/cache/DurableObjectCache'
+import { isCodingAgentClient } from '@/lib/client-detection'
 import {
     CUSTOM_API_BASE_URL,
     POSTHOG_EU_BASE_URL,
@@ -461,11 +462,16 @@ export class MCP extends McpAgent<Env> {
             await context.stateManager.setDefaultOrganizationAndProject()
         }
 
-        const [flagVersion, toolFeatureFlags, useSingleExec] = await Promise.all([
+        const [flagVersion, toolFeatureFlags, singleExecFlagOn] = await Promise.all([
             flagPromise,
             toolFlagsPromise,
             singleExecPromise,
         ])
+        // Restrict single-exec mode to coding agents only — Cursor and other clients that
+        // render `structuredContent` in their UI need the full per-tool roster, not the
+        // wrapped CLI. `resolveClientInfo()` ran inside `getContext()` above, so
+        // `_mcpClientName` is populated here.
+        const useSingleExec = singleExecFlagOn && isCodingAgentClient(this._mcpClientName)
         const version = useSingleExec ? 2 : (flagVersion ?? clientVersion ?? 1)
 
         // Fetch group types and metadata in parallel (cache is now seeded)
