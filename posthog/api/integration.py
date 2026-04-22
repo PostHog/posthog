@@ -13,6 +13,7 @@ from django.utils import timezone
 from drf_spectacular.utils import extend_schema
 from rest_framework import mixins, serializers, viewsets
 from rest_framework.exceptions import ValidationError
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 
@@ -46,8 +47,15 @@ from posthog.models.integration import (
     SlackIntegration,
     StripeIntegration,
     TwilioIntegration,
+    defer_repository_cache_fields,
 )
-from posthog.permissions import TeamMemberStrictManagementPermission
+from posthog.permissions import (
+    AccessControlPermission,
+    APIScopePermission,
+    TeamMemberAccessPermission,
+    TeamMemberLightManagementPermission,
+    TeamMemberStrictManagementPermission,
+)
 from posthog.rate_limit import GitHubRepositoryRefreshThrottle
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 
@@ -363,8 +371,19 @@ class IntegrationViewSet(
     ]
     scope_object_write_actions = ["create", "update", "partial_update", "patch", "destroy", "refresh_github_repos"]
     permission_classes = [TeamMemberStrictManagementPermission]
-    queryset = Integration.objects.all()
+    queryset = defer_repository_cache_fields(Integration.objects.all())
     serializer_class = IntegrationSerializer
+
+    def dangerously_get_permissions(self):
+        if self.action == "refresh_github_repos":
+            return [
+                IsAuthenticated(),
+                APIScopePermission(),
+                AccessControlPermission(),
+                TeamMemberAccessPermission(),
+                TeamMemberLightManagementPermission(),
+            ]
+        raise NotImplementedError()
 
     def get_throttles(self):
         if self.action == "refresh_github_repos":
@@ -385,7 +404,7 @@ class IntegrationViewSet(
         if isinstance(self.request.successful_authenticator, PersonalAPIKeyAuthentication) or isinstance(
             self.request.successful_authenticator, OAuthAccessTokenAuthentication
         ):
-            return queryset.filter(kind="github")
+            return defer_repository_cache_fields(queryset.filter(kind="github"))
         return queryset
 
     @action(methods=["GET"], detail=False)
