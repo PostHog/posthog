@@ -2779,7 +2779,7 @@
         "summary": "List log alerts",
         "title": "List log alerts",
         "required_scopes": ["logs:read"],
-        "new_mcp": false,
+        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -2811,7 +2811,7 @@
         "summary": "Get log alert",
         "title": "Get log alert",
         "required_scopes": ["logs:read"],
-        "new_mcp": false,
+        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
