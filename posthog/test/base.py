@@ -664,7 +664,7 @@ class PostHogTestCase(SimpleTestCase):
         if get_instance_setting("PERSON_ON_EVENTS_ENABLED"):
             from posthog.models.team import util
 
-            util.can_enable_actor_on_events = True
+            util.can_enable_actor_on_events = True  # ty: ignore[invalid-assignment]
 
         if not self.CLASS_DATA_LEVEL_SETUP:
             _setup_test_data(self)

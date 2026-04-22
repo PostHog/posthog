@@ -74,49 +74,183 @@ tools:
         enabled: false
     external-data-schemas-list:
         operation: external_data_schemas_list
-        enabled: false
+        enabled: true
+        scopes:
+            - external_data_source:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: List data import schemas
+        description: >
+            List all table schemas across all data warehouse sources. Each schema represents one table being synced from
+            an external source. Returns the schema name, sync status, sync frequency, incremental field configuration,
+            and latest error. Use this to see which tables are actively syncing and their health.
     external-data-schemas-create:
         operation: external_data_schemas_create
         enabled: false
     external-data-sources-list:
         operation: external_data_sources_list
-        enabled: false
+        enabled: true
+        scopes:
+            - external_data_source:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+
+        list: true
+        title: List data warehouse sources
+        description: >
+            List all configured data warehouse import sources in the project. Returns each source's type (Postgres,
+            Stripe, Hubspot, etc.), connection status, prefix, schemas, latest error, and last sync timestamp. Use this
+            to discover what external data sources are connected.
     external-data-sources-create:
         operation: external_data_sources_create
-        enabled: false
+        enabled: true
+        scopes:
+            - external_data_source:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+
+        title: Create data warehouse source
+        description: >
+            Create a new external data source connection. Before calling this, use 'external-data-sources-wizard' to
+            discover source types and 'external-data-sources-db-schema' to validate credentials and discover available
+            tables. Present the db-schema results to the user showing each table's available sync methods, incremental
+            fields, detected primary keys, and columns so they can configure before creation. The payload must include
+            a 'schemas' array where each entry has: name, should_sync (bool), sync_type (incremental/full_refresh/append),
+            and optionally incremental_field, incremental_field_type, and primary_key_columns from the db-schema response.
+        exclude_params:
+            - client_secret
+            - account_id
+            - job_inputs
+        param_overrides:
+            source_type:
+                input_schema: ExternalDataSourceTypeSchema
+            payload:
+                input_schema: ExternalDataSourcePayloadSchema
     external-data-sources-retrieve:
         operation: external_data_sources_retrieve
-        enabled: false
+        enabled: true
+        scopes:
+            - external_data_source:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+
+        title: Get data warehouse source
+        description: >
+            Get a single data warehouse source by ID. Returns full details including source type, connection status,
+            prefix, all table schemas with their sync statuses, latest error, and last sync timestamp.
     external-data-sources-update:
         operation: external_data_sources_update
         enabled: false
     external-data-sources-partial-update:
         operation: external_data_sources_partial_update
-        enabled: false
+        enabled: true
+        scopes:
+            - external_data_source:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+
+        title: Update data warehouse source
+        description: >
+            Update an existing data warehouse source. Can change the prefix (table name prefix in HogQL), description,
+            or connection credentials via job_inputs. Cannot change the source_type or access_method after creation.
     external-data-sources-destroy:
         operation: external_data_sources_destroy
-        enabled: false
-    external-data-sources-jobs-retrieve:
+        enabled: true
+        scopes:
+            - external_data_source:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: false
+        title: Delete data warehouse source
+        description: >
+            Delete a data warehouse source and all its table schemas, synced tables, and sync schedules. This is a soft
+            delete. Any running syncs are cancelled first. This cannot be undone — the source must be recreated to
+            resume syncing.
+    external-data-sources-jobs:
         operation: external_data_sources_jobs_retrieve
         enabled: false
-    external-data-sources-refresh-schemas-create:
+    external-data-sources-refresh-schemas:
         operation: external_data_sources_refresh_schemas_create
-        enabled: false
-    external-data-sources-reload-create:
+        enabled: true
+        scopes:
+            - external_data_source:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Refresh available schemas
+        description: >
+            Fetch the latest table list from the remote database and create schema entries for any new tables found.
+            Does not trigger a data sync. Use this after adding new tables to a source database to make them available
+            for syncing.
+        exclude_params:
+            - client_secret
+            - account_id
+            - prefix
+            - description
+            - job_inputs
+    external-data-sources-reload:
         operation: external_data_sources_reload_create
-        enabled: false
+        enabled: true
+        scopes:
+            - external_data_source:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Trigger sync for a source
+        description: >
+            Trigger a sync for all enabled table schemas in the source using each table's configured sync method. If
+            the source uses direct query mode, this refreshes the schema metadata instead.
+        exclude_params:
+            - client_secret
+            - account_id
+            - prefix
+            - description
+            - job_inputs
     external-data-sources-revenue-analytics-config-partial-update:
         operation: external_data_sources_revenue_analytics_config_partial_update
         enabled: false
-    external-data-sources-database-schema-create:
+    external-data-sources-db-schema:
         operation: external_data_sources_database_schema_create
         enabled: false
     external-data-sources-source-prefix-create:
         operation: external_data_sources_source_prefix_create
         enabled: false
-    external-data-sources-wizard-retrieve:
+    external-data-sources-wizard:
         operation: external_data_sources_wizard_retrieve
-        enabled: false
+        enabled: true
+        scopes:
+            - external_data_source:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get source type configurations
+        description: >
+            Return the configuration metadata for all supported data warehouse source types. Each entry describes the
+            required fields (host, port, database, credentials, etc.), field types, and OAuth flows. Use this to
+            discover what source types are available and what parameters are needed to create a new source.
+        response:
+            include:
+                - '*.name'
+                - '*.caption'
+                - '*.docsUrl'
+                - '*.featured'
+                - '*.unreleasedSource'
+                - '*.fields'
     query-tab-state-list:
         operation: query_tab_state_list
         enabled: false
@@ -430,3 +564,108 @@ tools:
     external-data-sources-bulk-update-schemas-partial-update:
         operation: external_data_sources_bulk_update_schemas_partial_update
         enabled: false
+    external-data-schemas-retrieve:
+        operation: external_data_schemas_retrieve
+        enabled: true
+        scopes:
+            - external_data_source:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get data import schema
+        description: >
+            Get a single table schema by ID. Returns full details including sync status, sync frequency,
+            incremental field, latest error, and the associated source and table metadata.
+    external-data-schemas-update:
+        operation: external_data_schemas_update
+        enabled: false
+    external-data-schemas-partial-update:
+        operation: external_data_schemas_partial_update
+        enabled: true
+        scopes:
+            - external_data_source:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Update data import schema
+        description: >
+            Update a table schema's sync configuration. Can change sync type, sync frequency, incremental
+            field, primary key columns, CDC table mode, and enable/disable the schema.
+        param_overrides:
+            sync_type:
+                input_schema: ExternalDataSchemaSyncTypeSchema
+            sync_frequency:
+                input_schema: ExternalDataSchemaSyncFrequencySchema
+            sync_time_of_day:
+                input_schema: ExternalDataSchemaSyncTimeOfDaySchema
+            incremental_field:
+                input_schema: ExternalDataSchemaIncrementalFieldSchema
+            incremental_field_type:
+                input_schema: ExternalDataSchemaIncrementalFieldTypeSchema
+            primary_key_columns:
+                input_schema: ExternalDataSchemaPrimaryKeyColumnsSchema
+            cdc_table_mode:
+                input_schema: ExternalDataSchemaCdcTableModeSchema
+    external-data-schemas-destroy:
+        operation: external_data_schemas_destroy
+        enabled: false
+    external-data-schemas-cancel:
+        operation: external_data_schemas_cancel_create
+        enabled: true
+        scopes:
+            - external_data_source:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Cancel running sync
+        description: >
+            Cancel a currently running sync job for a specific table schema. If no sync is running, returns
+            an error. Use 'external-data-schemas-list' to check which schemas have status 'Running' before
+            calling this.
+    external-data-schemas-delete-data:
+        operation: external_data_schemas_delete_data_destroy
+        enabled: true
+        scopes:
+            - external_data_source:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Delete synced table data
+        description: >
+            Delete the synced table data from PostHog but keep the schema entry. The schema remains visible
+            in the source and can be re-synced. Use this to clear stale or corrupt data before triggering
+            a fresh sync.
+    external-data-schemas-incremental-fields-create:
+        operation: external_data_schemas_incremental_fields_create
+        enabled: false
+    external-data-schemas-reload:
+        operation: external_data_schemas_reload_create
+        enabled: true
+        scopes:
+            - external_data_source:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Trigger sync for a table schema
+        description: >
+            Trigger a sync for a single table schema using its configured sync method (incremental, full refresh,
+            append, or CDC). Use this to manually sync a specific table without triggering all tables in the source.
+    external-data-schemas-resync:
+        operation: external_data_schemas_resync_create
+        enabled: true
+        scopes:
+            - external_data_source:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: false
+        title: Resync table schema from scratch
+        description: >
+            Trigger a full resync for a table schema, discarding all previously synced data and re-importing
+            from the source. This cancels any running sync first, then resets the pipeline state. Use this
+            when data is corrupt or out of sync.

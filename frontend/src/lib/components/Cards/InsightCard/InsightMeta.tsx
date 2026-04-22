@@ -125,13 +125,14 @@ export function InsightMeta({
     onDragHandleMouseDown,
 }: InsightMetaProps): JSX.Element {
     const { short_id, name, next_allowed_client_refresh: nextAllowedClientRefresh } = insight
+    const tileFiltersOverride = tile?.filters_overrides
     const insightLogicProps: InsightLogicProps = {
         dashboardItemId: insight.short_id,
         dashboardId,
         cachedInsight: insight,
         filtersOverride: filtersOverride ?? null,
         variablesOverride: variablesOverride ?? null,
-        tileFiltersOverride: tile?.filters_overrides ?? null,
+        tileFiltersOverride: tileFiltersOverride ?? null,
     }
     const { insightFeedback, canToggleDisplayLabelsForInsight, canToggleLegendForInsight } = useValues(
         insightLogic(insightLogicProps)
@@ -146,7 +147,7 @@ export function InsightMeta({
             deferInitialAlertsLoad: true,
         })
     )
-    const { samplingFactor } = useValues(insightVizDataLogic(insightLogicProps))
+    const { samplingFactor, hasDataWarehouseSeries } = useValues(insightVizDataLogic(insightLogicProps))
     const { nameSortedDashboards } = useValues(dashboardsModel)
     const { copyToDestinations } = useValues(
         dashboardWidgetMenusLogic({
@@ -174,7 +175,7 @@ export function InsightMeta({
     const topHeadingProps = {
         query: insight.query,
         lastRefresh: insight.last_refresh,
-        hasTileOverrides: Object.keys(tile?.filters_overrides ?? {}).length > 0,
+        hasTileOverrides: Object.keys(tileFiltersOverride ?? {}).length > 0,
         resolvedDateRange: insightData?.resolved_date_range,
     }
 
@@ -294,7 +295,14 @@ export function InsightMeta({
         ) : null
 
     const metaDetailsEl = showDetailsControls ? (
-        <InsightDetails query={insight.query} footerInfo={insight} variablesOverride={variablesOverride} />
+        <InsightDetails
+            query={insight.query}
+            footerInfo={insight}
+            variablesOverride={variablesOverride}
+            filtersOverride={filtersOverride}
+            tileFiltersOverride={tileFiltersOverride ?? null}
+            hasDataWarehouseSeries={hasDataWarehouseSeries}
+        />
     ) : null
 
     const onMetaSave = canEditInsight
@@ -328,7 +336,7 @@ export function InsightMeta({
                             dashboardId,
                             variablesOverride,
                             filtersOverride,
-                            tile?.filters_overrides
+                            tileFiltersOverride
                         )}
                         title={name}
                         fallbackTitle={summary}
@@ -368,7 +376,7 @@ export function InsightMeta({
                                     dashboardId,
                                     variablesOverride,
                                     filtersOverride,
-                                    tile?.filters_overrides
+                                    tileFiltersOverride
                                 )}
                                 fullWidth
                             >

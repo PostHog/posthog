@@ -310,14 +310,13 @@ def get_sandbox_for_repository(input: GetSandboxForRepositoryInput) -> GetSandbo
 
         credentials = sandbox.get_connect_credentials()
 
-        task_run = TaskRun.objects.get(id=ctx.run_id)
-        state = task_run.state or {}
-        state["sandbox_id"] = sandbox.id
-        state["sandbox_url"] = credentials.url
+        sandbox_state = {
+            "sandbox_id": sandbox.id,
+            "sandbox_url": credentials.url,
+        }
         if credentials.token:
-            state["sandbox_connect_token"] = credentials.token
-        task_run.state = state
-        task_run.save(update_fields=["state", "updated_at"])
+            sandbox_state["sandbox_connect_token"] = credentials.token
+        TaskRun.update_state_atomic(ctx.run_id, updates=sandbox_state)
 
         activity.logger.info(f"Created sandbox {sandbox.id} (used_snapshot={used_snapshot})")
 
