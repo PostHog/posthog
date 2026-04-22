@@ -33,10 +33,12 @@ from .activities.provision_sandbox import (
     CheckoutBranchInSandboxInput,
     CloneRepositoryInSandboxInput,
     CreateSandboxForRepositoryInput,
+    InjectFreshTokensOnResumeInput,
     PrepareSandboxForRepositoryInput,
     checkout_branch_in_sandbox,
     clone_repository_in_sandbox,
     create_sandbox_for_repository,
+    inject_fresh_tokens_on_resume,
     prepare_sandbox_for_repository,
 )
 from .activities.read_sandbox_logs import ReadSandboxLogsInput, read_sandbox_logs
@@ -92,7 +94,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         self._completion_status: str = "completed"
         self._completion_error: Optional[str] = None
         self._heartbeat_received: bool = False
-        self._pending_followup: Optional[str] = None
+        self._pending_followup: Optional[dict[str, Any]] = None
         self._ci_repetitions: int = 0
         self._last_active_time: Optional[datetime] = None
 
@@ -101,6 +103,10 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         if self._context is None:
             raise RuntimeError("context accessed before being set")
         return self._context
+
+    @staticmethod
+    def _should_skip_followup(message: str | None, artifact_ids: list[str]) -> bool:
+        return not message and not artifact_ids
 
     @staticmethod
     def parse_inputs(inputs: list[str]) -> ProcessTaskInput:
@@ -236,14 +242,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             relay_task = asyncio.ensure_future(self._relay_sandbox_events(agent_server_output, sandbox_id=sandbox_id))
 
             if self._should_forward_pending_user_message():
-                try:
-                    await self._forward_pending_user_message()
-                except Exception as e:
-                    workflow.logger.warning(
-                        "forward_pending_user_message_failed_non_fatal",
-                        run_id=self.context.run_id,
-                        error=str(e),
-                    )
+                await self._forward_pending_user_message()
 
             # Wait for completion signal or inactivity timeout.
             # Heartbeat signals reset the inactivity timer, keeping the workflow alive
@@ -261,16 +260,28 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                         self._ci_repetitions += 1
                         ci_message = self.context.ci_prompt or DEFAULT_CI_MESSAGE
                         self._last_active_time = workflow.now()  # Reset inactivity timer on CI follow-up
-                        await self._send_followup_to_sandbox(ci_message)
+                        await self._send_followup_to_sandbox(ci_message, [])
                     case TaskEvent.SIGNAL_RECEIVED:
                         if self._pending_followup is not None:
                             workflow.logger.info(
                                 "Pending follow-up message received, sending to sandbox", run_id=self.context.run_id
                             )
-                            message = self._pending_followup
+                            pending_followup = self._pending_followup
                             self._pending_followup = None
                             self._last_active_time = workflow.now()
-                            await self._send_followup_to_sandbox(message)
+                            message = pending_followup.get("message")
+                            artifact_ids = pending_followup.get("artifact_ids") or []
+                            if self._should_skip_followup(message, artifact_ids):
+                                workflow.logger.warning(
+                                    "empty_followup_skipped",
+                                    run_id=self.context.run_id,
+                                )
+                                continue
+
+                            await self._send_followup_to_sandbox(
+                                message=message,
+                                artifact_ids=artifact_ids,
+                            )
                             continue
 
                         if self._heartbeat_received and not self._task_completed:
@@ -380,6 +391,21 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             retry_policy=RetryPolicy(maximum_attempts=3),
         )
         self._sandbox_id_for_cleanup = created.sandbox_id
+
+        # Resuming from a filesystem snapshot carries the previous run's
+        # credentials baked into .git/config and any agentsh env file — refresh
+        # them before any sandbox command (diagnostics, fetch, checkout) runs.
+        if prepared.snapshot_external_id:
+            await workflow.execute_activity(
+                inject_fresh_tokens_on_resume,
+                InjectFreshTokensOnResumeInput(
+                    context=self.context,
+                    sandbox_id=created.sandbox_id,
+                    repository=prepared.repository,
+                ),
+                start_to_close_timeout=timedelta(minutes=2),
+                retry_policy=RetryPolicy(maximum_attempts=3),
+            )
 
         can_clone_without_integration = is_public_sandbox_repo(prepared.repository)
         has_clone_credentials = self.context.github_integration_id is not None or can_clone_without_integration
@@ -609,26 +635,36 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             self._last_active_time = workflow.now()
 
     @temporalio.workflow.signal
-    async def send_followup_message(self, message: str) -> None:
+    async def send_followup_message(self, message: str | None = None, artifact_ids: Optional[list[str]] = None) -> None:
         # Log signal arrival so we can correlate it with the adapter's "begin dispatch"
         # log below — gaps between the two point at workflow-loop backpressure.
         workflow.logger.info(
             "send_followup_signal_received",
             run_id=self.context.run_id,
-            message_length=len(message),
+            message_length=len(message or ""),
+            artifact_count=len(artifact_ids or []),
         )
-        self._pending_followup = message
+        self._pending_followup = {
+            "message": message,
+            "artifact_ids": artifact_ids or [],
+        }
 
-    async def _send_followup_to_sandbox(self, message: str) -> None:
+    async def _send_followup_to_sandbox(self, message: str | None, artifact_ids: list[str]) -> None:
         workflow.logger.info(
             "send_followup_dispatch_begin",
             run_id=self.context.run_id,
-            message_length=len(message),
+            message_length=len(message or ""),
+            artifact_count=len(artifact_ids),
         )
         try:
             await workflow.execute_activity(
                 send_followup_to_sandbox,
-                SendFollowupToSandboxInput(run_id=self.context.run_id, message=message),
+                SendFollowupToSandboxInput(
+                    run_id=self.context.run_id,
+                    message=message,
+                    posthog_mcp_scopes=self._posthog_mcp_scopes,
+                    artifact_ids=artifact_ids,
+                ),
                 start_to_close_timeout=timedelta(minutes=35),
                 retry_policy=RetryPolicy(maximum_attempts=1),
             )

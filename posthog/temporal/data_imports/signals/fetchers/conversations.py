@@ -11,6 +11,7 @@ from posthog.models import Team
 from posthog.models.comment import Comment
 from posthog.temporal.data_imports.signals.registry import SignalSourceTableConfig
 
+from products.conversations.backend.formatting import extract_images_from_rich_content
 from products.conversations.backend.models import Ticket
 from products.signals.backend.models import SignalEmissionRecord
 
@@ -60,6 +61,8 @@ def conversations_ticket_fetcher(
     # Fetch all comments for these tickets in one query.
     # Each message is a (author_type, content) tuple so the emitter can attribute them.
     comments_by_ticket: dict[str, list[tuple[str, str]]] = {}
+    # Image URLs from rich_content are attached per-ticket as image_attachments.
+    images_by_ticket: dict[str, list[dict[str, str]]] = {}
     comments_qs = (
         Comment.objects.filter(
             team=team,
@@ -70,15 +73,21 @@ def conversations_ticket_fetcher(
         # Exclude private notes and AI drafts (mirrors widget.py / suggest.py semantics)
         .filter(~Q(item_context__is_private=True) | Q(item_context__is_private__isnull=True))
         .order_by("created_at")
-        .values_list("item_id", "content", "item_context")
+        .values_list("item_id", "content", "item_context", "rich_content")
     )
-    for item_id, content, item_context in comments_qs:
+    for item_id, content, item_context, rich_content in comments_qs:
+        author_type = (item_context or {}).get("author_type", "customer")
         if content:
-            author_type = (item_context or {}).get("author_type", "customer")
             comments_by_ticket.setdefault(item_id, []).append((author_type, content))
-    # Attach messages to each ticket record
+        for image in extract_images_from_rich_content(rich_content):
+            src = image.get("url")
+            if src:
+                images_by_ticket.setdefault(item_id, []).append({"url": src, "author": author_type})
+    # Attach messages and image attachments to each ticket record
     for ticket in tickets:
-        ticket["messages"] = comments_by_ticket.get(str(ticket["id"]), [])
+        ticket_id = str(ticket["id"])
+        ticket["messages"] = comments_by_ticket.get(ticket_id, [])
+        ticket["image_attachments"] = images_by_ticket.get(ticket_id, [])
     # Record emission optimistically
     # TODO: Revisit if signal loss on transient pipeline failure becomes a concern
     SignalEmissionRecord.objects.bulk_create(

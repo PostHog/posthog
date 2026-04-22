@@ -10,13 +10,20 @@ import { SelectOption } from '~/queries/nodes/InsightViz/PropertyGroupFilters/An
 import { RestrictionScope, useRestrictedArea } from '../RestrictedArea'
 import { ingestionControlsLogic } from './ingestionControlsLogic'
 
-export function MatchTypeSelect(): JSX.Element {
+interface MatchTypeSelectProps {
+    lockedToAllReason?: string
+}
+
+export function MatchTypeSelect({ lockedToAllReason }: MatchTypeSelectProps = {}): JSX.Element {
     const { matchType } = useValues(ingestionControlsLogic)
     const { onChangeMatchType } = useActions(ingestionControlsLogic)
     const restrictedReason = useRestrictedArea({
         scope: RestrictionScope.Project,
         minimumAccessLevel: TeamMembershipLevel.Admin,
     })
+
+    const displayedValue = lockedToAllReason ? 'all' : matchType
+    const disabledReason = lockedToAllReason ?? restrictedReason
 
     return (
         <div className="flex flex-col gap-y-1">
@@ -35,7 +42,7 @@ export function MatchTypeSelect(): JSX.Element {
                                     title="All"
                                     description="Every trigger must match"
                                     value="all"
-                                    selectedValue={matchType}
+                                    selectedValue={displayedValue}
                                 />
                             ),
                         },
@@ -47,7 +54,7 @@ export function MatchTypeSelect(): JSX.Element {
                                     title="Any"
                                     description="One or more triggers must match"
                                     value="any"
-                                    selectedValue={matchType}
+                                    selectedValue={displayedValue}
                                 />
                             ),
                         },
@@ -55,8 +62,8 @@ export function MatchTypeSelect(): JSX.Element {
                     dropdownMatchSelectWidth={false}
                     data-attr="trigger-match-choice"
                     onChange={onChangeMatchType}
-                    value={matchType}
-                    disabledReason={restrictedReason}
+                    value={displayedValue}
+                    disabledReason={disabledReason}
                 />
 
                 <div>triggers below match</div>

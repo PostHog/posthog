@@ -8,6 +8,7 @@ import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconFeedback } from 'lib/lemon-ui/icons'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
+import { Settings } from 'scenes/settings/Settings'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
@@ -89,7 +90,6 @@ const LogsSceneTabbedContent = (): JSX.Element => {
     const { tabId, activeTab } = useValues(logsSceneLogic)
     const { setActiveTab } = useActions(logsSceneLogic)
     const { hasLogs, teamHasLogsCheckFailed } = useValues(logsIngestionLogic)
-
     const showServicesView = useFeatureFlag('LOGS_SERVICES_VIEW')
     const showAlerting = useFeatureFlag('LOGS_ALERTING')
 
@@ -97,6 +97,7 @@ const LogsSceneTabbedContent = (): JSX.Element => {
         { key: 'viewer', label: 'Viewer' },
         ...(showServicesView ? [{ key: 'services' as const, label: 'Services' }] : []),
         ...(showAlerting ? [{ key: 'alerts' as const, label: 'Alerts' }] : []),
+        { key: 'configuration', label: 'Configuration' },
     ]
 
     return (
@@ -121,8 +122,12 @@ const LogsSceneTabbedContent = (): JSX.Element => {
                     Unable to verify logs setup. If you haven't configured logging yet, check out our setup guide.
                 </LemonBanner>
             )}
-
-            <LemonTabs<LogsSceneActiveTab> activeKey={activeTab} onChange={setActiveTab} tabs={tabs} sceneInset />
+            <LemonTabs<LogsSceneActiveTab>
+                activeKey={activeTab}
+                onChange={(key) => setActiveTab(key)}
+                tabs={tabs}
+                sceneInset
+            />
             {activeTab === 'viewer' && (
                 <LogsSetupPrompt>
                     <div className="flex flex-col gap-2 py-2 flex-1 min-h-0">
@@ -137,6 +142,9 @@ const LogsSceneTabbedContent = (): JSX.Element => {
                 </>
             )}
             {activeTab === 'alerts' && showAlerting && <LogsAlertingSection />}
+            {activeTab === 'configuration' && (
+                <Settings logicKey={LOGS_LOGIC_KEY} sectionId="environment-logs" settingId="logs" handleLocally />
+            )}
         </>
     )
 }

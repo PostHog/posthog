@@ -1,9 +1,7 @@
-import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { pluralize } from 'lib/utils'
 import { SessionSummaryContent } from 'scenes/session-recordings/player/player-meta/types'
 
@@ -23,9 +21,6 @@ export const notebookNodePersonFeedLogic = kea<notebookNodePersonFeedLogicType>(
     props({} as NotebookNodePersonFeedLogicProps),
     path((key) => ['scenes', 'notebooks', 'Notebook', 'Nodes', 'notebookNodePersonFeedLogic', key]),
     key(({ personId }) => personId),
-    connect(() => ({
-        values: [featureFlagLogic, ['featureFlags']],
-    })),
 
     actions({
         summarizeSessions: true,
@@ -95,7 +90,7 @@ export const notebookNodePersonFeedLogic = kea<notebookNodePersonFeedLogicType>(
     })),
 
     selectors({
-        canSummarize: [(s) => [s.featureFlags], (featureFlags) => featureFlags[FEATURE_FLAGS.AI_SESSION_SUMMARY]],
+        canSummarize: [() => [], () => true],
         numSessionsWithRecording: [
             (s) => [s.sessionIdsWithRecording],
             (sessionIdsWithRecording) => sessionIdsWithRecording.length,

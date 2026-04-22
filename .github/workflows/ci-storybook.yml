@@ -40,6 +40,9 @@ jobs:
                         - 'package.json'
                         - '.github/workflows/ci-storybook.yml'
                         - 'playwright.config.ts'
+                        # Generated API types should not trigger Storybook/VR checks on their own
+                        - '!frontend/src/generated/**'
+                        - '!products/**/frontend/generated/**'
 
     build-storybook:
         name: Build Storybook (${{ matrix.runner }})

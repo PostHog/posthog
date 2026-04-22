@@ -189,7 +189,8 @@ def _mock_get_context_configurable(_input) -> TaskProcessingContext:
 
 @activity.defn(name="send_followup_to_sandbox")
 def _mock_send_followup_records(input: SendFollowupToSandboxInput) -> None:
-    _ci_followup_calls.append(input.message)
+    if input.message is not None:
+        _ci_followup_calls.append(input.message)
 
 
 def _make_worker(env, task_queue: str) -> Worker:
@@ -352,3 +353,18 @@ class TestCIFollowUpLoop:
             "heartbeat(agent_active=True) should have pushed the CI follow-up past the original 15m boundary"
         )
         assert _ci_followup_calls, "follow-up should still fire after the rescheduled deadline"
+
+
+class TestFollowupGuards:
+    @pytest.mark.parametrize(
+        "message,artifact_ids,expected",
+        [
+            (None, [], True),
+            ("", [], True),
+            (None, ["artifact-1"], False),
+            ("message", [], False),
+            ("message", ["artifact-1"], False),
+        ],
+    )
+    def test_should_skip_followup(self, message: str | None, artifact_ids: list[str], expected: bool):
+        assert ProcessTaskWorkflow._should_skip_followup(message, artifact_ids) is expected

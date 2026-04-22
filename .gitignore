@@ -54,6 +54,7 @@ ee/support_sidebar_max/.vscode/settings.json
 ee/support_sidebar_max/max-venv/
 frontend/storybook-static
 max-test-venv/
+mts_example_*.json
 node_modules/
 object_storage/
 playwright/e2e-vrt/**/*-darwin.png

@@ -36,11 +36,7 @@ export function SpikeDetectionSettings(): JSX.Element {
     return (
         <div className="space-y-8">
             <Form logic={spikeDetectionConfigLogic} formKey="configForm" enableFormOnSubmit className="space-y-4">
-                <LemonBanner
-                    type="info"
-                    action={{ children: 'Send feedback', id: 'spike-detection-feedback-button' }}
-                    className="mt-2"
-                >
+                <LemonBanner type="info" action={{ children: 'Send feedback', id: 'spike-detection-feedback-button' }}>
                     <p>
                         Spike detection is in early stage. We may make changes to the defaults or replace these settings
                         as we iterate. We'd love your feedback!
@@ -68,7 +64,11 @@ export function SpikeDetectionSettings(): JSX.Element {
                 </p>
 
                 <div className="grid grid-cols-3 gap-4">
-                    <LemonField name="snooze_duration_minutes" label="Snooze duration (minutes)">
+                    <LemonField
+                        name="snooze_duration_minutes"
+                        label="Snooze duration (minutes)"
+                        info="Time to wait before alerting again for the same issue after a spike is detected."
+                    >
                         <LemonInput
                             type="number"
                             min={1}
@@ -78,7 +78,11 @@ export function SpikeDetectionSettings(): JSX.Element {
                         />
                     </LemonField>
 
-                    <LemonField name="multiplier" label="Multiplier">
+                    <LemonField
+                        name="multiplier"
+                        label="Multiplier"
+                        info="The factor by which the current exception count must exceed the baseline to be considered a spike."
+                    >
                         <LemonInput
                             type="number"
                             min={1}
@@ -88,7 +92,11 @@ export function SpikeDetectionSettings(): JSX.Element {
                         />
                     </LemonField>
 
-                    <LemonField name="threshold" label="Minimum threshold">
+                    <LemonField
+                        name="threshold"
+                        label="Minimum threshold"
+                        info="The minimum number of exceptions required in a 5-minute window before a spike can be detected."
+                    >
                         <LemonInput
                             type="number"
                             min={1}
