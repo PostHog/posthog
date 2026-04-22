@@ -29,6 +29,7 @@ import { SyncMethodForm } from 'products/data_warehouse/frontend/shared/componen
 import { SourceEditorAction } from 'products/data_warehouse/frontend/shared/components/SourceEditorAction'
 import {
     StatusTagSetting,
+    SyncFrequencyLabelMap,
     defaultQuery,
     syncAnchorIntervalToHumanReadable,
 } from 'products/data_warehouse/frontend/utils'
@@ -369,18 +370,14 @@ function ScheduleSection({
 }): JSX.Element {
     const { loadSource } = useActions(sourceSettingsLogic({ id: sourceId }))
     const isCdc = schema.sync_type === 'cdc'
-    const cdcOnlyOptions: LemonSelectOption<DataWarehouseSyncInterval>[] = [{ value: '1min', label: '1 min' }]
-    const standardOptions: LemonSelectOption<DataWarehouseSyncInterval>[] = [
-        { value: '5min', label: '5 mins' },
-        { value: '15min', label: '15 mins' },
-        { value: '30min', label: '30 mins' },
-        { value: '1hour', label: '1 hour' },
-        { value: '6hour', label: '6 hours' },
-        { value: '12hour', label: '12 hours' },
-        { value: '24hour', label: 'Daily' },
-        { value: '7day', label: 'Weekly' },
-        { value: '30day', label: 'Monthly' },
-    ]
+    const makeOption = (value: DataWarehouseSyncInterval): LemonSelectOption<DataWarehouseSyncInterval> => ({
+        value,
+        label: SyncFrequencyLabelMap[value],
+    })
+    const cdcOnlyOptions: LemonSelectOption<DataWarehouseSyncInterval>[] = [makeOption('1min')]
+    const standardOptions: LemonSelectOption<DataWarehouseSyncInterval>[] = (
+        ['5min', '15min', '30min', '1hour', '6hour', '12hour', '24hour', '7day', '30day'] as const
+    ).map(makeOption)
 
     const [draftFrequency, setDraftFrequency] = useState<DataWarehouseSyncInterval>(
         schema.sync_frequency || (isCdc ? '5min' : '6hour')

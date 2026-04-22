@@ -167,6 +167,19 @@ export const SyncTypeLabelMap: Record<NonNullable<ExternalDataSourceSyncSchema['
     cdc: 'CDC',
 }
 
+export const SyncFrequencyLabelMap: Record<DataWarehouseSyncInterval, string> = {
+    '1min': '1 min',
+    '5min': '5 mins',
+    '15min': '15 mins',
+    '30min': '30 mins',
+    '1hour': '1 hour',
+    '6hour': '6 hours',
+    '12hour': '12 hours',
+    '24hour': 'Daily',
+    '7day': 'Weekly',
+    '30day': 'Monthly',
+}
+
 export const StatusTagSetting: Record<ExternalDataJobStatus | ExternalDataSchemaStatus, LemonTagType> = {
     [ExternalDataJobStatus.Running]: 'primary',
     [ExternalDataJobStatus.Completed]: 'success',

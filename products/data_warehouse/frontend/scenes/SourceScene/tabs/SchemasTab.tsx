@@ -30,7 +30,7 @@ import { ExternalDataSource, ExternalDataSourceSchema } from '~/types'
 import { DATA_WAREHOUSE_APP_SOURCE } from 'products/data_warehouse/frontend/shared/components/metrics/DataWarehouseMetrics'
 import { SourceEditorAction } from 'products/data_warehouse/frontend/shared/components/SourceEditorAction'
 import { sourceManagementLogic } from 'products/data_warehouse/frontend/shared/logics/sourceManagementLogic'
-import { StatusTagSetting, SyncTypeLabelMap } from 'products/data_warehouse/frontend/utils'
+import { StatusTagSetting, SyncFrequencyLabelMap, SyncTypeLabelMap } from 'products/data_warehouse/frontend/utils'
 
 import { DirectQuerySchemasTab } from './DirectQuerySchemasTab'
 import { sourceSettingsLogic } from './sourceSettingsLogic'
@@ -296,7 +296,7 @@ function ManagedSchemaTable({
                 {
                     title: 'Frequency',
                     key: 'sync_frequency',
-                    render: (_, schema) => schema.sync_frequency || '—',
+                    render: (_, schema) => (schema.sync_frequency ? SyncFrequencyLabelMap[schema.sync_frequency] : '—'),
                 },
                 {
                     title: 'Last synced',
