@@ -13577,18 +13577,6 @@ export namespace Schemas {
     }
 
     /**
-     * * `slack` - slack
-    * `webhook` - webhook
-     */
-    export type DestinationTypesEnum = typeof DestinationTypesEnum[keyof typeof DestinationTypesEnum];
-
-
-    export const DestinationTypesEnum = {
-      Slack: 'slack',
-      Webhook: 'webhook',
-    } as const;
-
-    /**
      * * `Desktop` - Desktop
     * `Mobile` - Mobile
     * `Tablet` - Tablet
@@ -14997,11 +14985,20 @@ export namespace Schemas {
     }
 
     export interface ErrorTrackingSpikeDetectionConfig {
-      /** @minimum 1 */
+      /**
+       * Time to wait before alerting again for the same issue after a spike is detected.
+       * @minimum 1
+       */
       snooze_duration_minutes: number;
-      /** @minimum 1 */
+      /**
+       * The factor by which the current exception count must exceed the baseline to be considered a spike.
+       * @minimum 1
+       */
       multiplier: number;
-      /** @minimum 1 */
+      /**
+       * The minimum number of exceptions required in a 5-minute window before a spike can be detected.
+       * @minimum 1
+       */
       threshold: number;
     }
 
@@ -15344,15 +15341,6 @@ export namespace Schemas {
        * Distinct ID of the event (optional, improves lookup performance).
        * @nullable
        */
-      distinct_id?: string | null;
-    }
-
-    export interface EvaluationRunRequest {
-      evaluation_id: string;
-      target_event_id: string;
-      timestamp: string;
-      event: string;
-      /** @nullable */
       distinct_id?: string | null;
     }
 
@@ -20372,6 +20360,18 @@ export namespace Schemas {
       resolved: number;
     }
 
+    /**
+     * * `slack` - slack
+    * `webhook` - webhook
+     */
+    export type NotificationDestinationTypeEnum = typeof NotificationDestinationTypeEnum[keyof typeof NotificationDestinationTypeEnum];
+
+
+    export const NotificationDestinationTypeEnum = {
+      Slack: 'slack',
+      Webhook: 'webhook',
+    } as const;
+
     export interface LogsAlertConfiguration {
       /** Unique identifier for this alert. */
       readonly id: string;
@@ -20454,7 +20454,7 @@ export namespace Schemas {
       /** 24 hourly buckets of breached + errored check counts for the last 24h, ordered oldest-first. Drives the activity column on the alert list — empty sparkline = healthy alert. Ok checks are not included: retention caps OK rows at MAX_EVALUATION_PERIODS (~50min at 5-min cadence), so only events that survive the prune (breached + errored) are meaningful over a 24h window. */
       readonly sparkline: readonly LogsAlertSparklineBucket[];
       /** Notification destination types configured for this alert — e.g. 'slack', 'webhook'. Empty list means no notifications will fire. One or more destinations should be added after creating an alert. */
-      readonly destination_types: readonly DestinationTypesEnum[];
+      readonly destination_types: readonly NotificationDestinationTypeEnum[];
       /** When the alert was created. */
       readonly created_at: string;
       readonly created_by: UserBasic;
@@ -20465,24 +20465,12 @@ export namespace Schemas {
       readonly updated_at: string | null;
     }
 
-    /**
-     * * `slack` - slack
-    * `webhook` - webhook
-     */
-    export type TypeC34Enum = typeof TypeC34Enum[keyof typeof TypeC34Enum];
-
-
-    export const TypeC34Enum = {
-      Slack: 'slack',
-      Webhook: 'webhook',
-    } as const;
-
     export interface LogsAlertCreateDestination {
       /** Destination type — slack or webhook.
 
     * `slack` - slack
     * `webhook` - webhook */
-      type: TypeC34Enum;
+      type: NotificationDestinationTypeEnum;
       /** Integration ID for the Slack workspace. Required when type=slack. */
       slack_workspace_id?: number;
       /** Slack channel ID. Required when type=slack. */
@@ -25819,11 +25807,20 @@ export namespace Schemas {
     }
 
     export interface PatchedErrorTrackingSpikeDetectionConfig {
-      /** @minimum 1 */
+      /**
+       * Time to wait before alerting again for the same issue after a spike is detected.
+       * @minimum 1
+       */
       snooze_duration_minutes?: number;
-      /** @minimum 1 */
+      /**
+       * The factor by which the current exception count must exceed the baseline to be considered a spike.
+       * @minimum 1
+       */
       multiplier?: number;
-      /** @minimum 1 */
+      /**
+       * The minimum number of exceptions required in a 5-minute window before a spike can be detected.
+       * @minimum 1
+       */
       threshold?: number;
     }
 
@@ -26837,7 +26834,7 @@ export namespace Schemas {
       /** 24 hourly buckets of breached + errored check counts for the last 24h, ordered oldest-first. Drives the activity column on the alert list — empty sparkline = healthy alert. Ok checks are not included: retention caps OK rows at MAX_EVALUATION_PERIODS (~50min at 5-min cadence), so only events that survive the prune (breached + errored) are meaningful over a 24h window. */
       readonly sparkline?: readonly LogsAlertSparklineBucket[];
       /** Notification destination types configured for this alert — e.g. 'slack', 'webhook'. Empty list means no notifications will fire. One or more destinations should be added after creating an alert. */
-      readonly destination_types?: readonly DestinationTypesEnum[];
+      readonly destination_types?: readonly NotificationDestinationTypeEnum[];
       /** When the alert was created. */
       readonly created_at?: string;
       readonly created_by?: UserBasic;
@@ -34633,10 +34630,10 @@ export namespace Schemas {
     * `tree_snapshot` - tree_snapshot
     * `user_attachment` - user_attachment
      */
-    export type TypeE8eEnum = typeof TypeE8eEnum[keyof typeof TypeE8eEnum];
+    export type TaskRunArtifactTypeEnum = typeof TaskRunArtifactTypeEnum[keyof typeof TaskRunArtifactTypeEnum];
 
 
-    export const TypeE8eEnum = {
+    export const TaskRunArtifactTypeEnum = {
       Plan: 'plan',
       Context: 'context',
       Reference: 'reference',
@@ -34663,7 +34660,7 @@ export namespace Schemas {
     * `artifact` - artifact
     * `tree_snapshot` - tree_snapshot
     * `user_attachment` - user_attachment */
-      type: TypeE8eEnum;
+      type: TaskRunArtifactTypeEnum;
       /**
        * Optional source label for the artifact, such as agent_output or user_attachment
        * @maxLength 64
@@ -34696,7 +34693,7 @@ export namespace Schemas {
     * `artifact` - artifact
     * `tree_snapshot` - tree_snapshot
     * `user_attachment` - user_attachment */
-      type: TypeE8eEnum;
+      type: TaskRunArtifactTypeEnum;
       /**
        * Optional source label for the artifact, such as agent_output or user_attachment
        * @maxLength 64
@@ -34766,7 +34763,7 @@ export namespace Schemas {
     * `artifact` - artifact
     * `tree_snapshot` - tree_snapshot
     * `user_attachment` - user_attachment */
-      type: TypeE8eEnum;
+      type: TaskRunArtifactTypeEnum;
       /**
        * Optional source label for the artifact, such as agent_output or user_attachment
        * @maxLength 64
@@ -34932,7 +34929,7 @@ export namespace Schemas {
     * `artifact` - artifact
     * `tree_snapshot` - tree_snapshot
     * `user_attachment` - user_attachment */
-      type: TypeE8eEnum;
+      type: TaskRunArtifactTypeEnum;
       /**
        * Optional source label for the artifact, such as agent_output or user_attachment
        * @maxLength 64
@@ -34965,7 +34962,7 @@ export namespace Schemas {
     * `artifact` - artifact
     * `tree_snapshot` - tree_snapshot
     * `user_attachment` - user_attachment */
-      type: TypeE8eEnum;
+      type: TaskRunArtifactTypeEnum;
       /**
        * Optional source label for the artifact, such as agent_output or user_attachment
        * @maxLength 64
