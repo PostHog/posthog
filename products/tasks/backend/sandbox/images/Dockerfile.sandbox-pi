@@ -12,10 +12,12 @@ RUN set -eux; \
     [ "$actual" = "$PI_AUTORESEARCH_SHA" ] || { echo "pi-autoresearch tag ${PI_AUTORESEARCH_TAG} moved: expected ${PI_AUTORESEARCH_SHA}, got ${actual}"; exit 1; }; \
     pi install "git:github.com/davebcn87/pi-autoresearch@${PI_AUTORESEARCH_TAG}"
 
-# CLICKHOUSE_SRC_TAG is asserted against .github/clickhouse-versions.json by the CI job before build.
-ARG CLICKHOUSE_SRC_TAG=v25.12.8.9-stable
-RUN git clone --depth 1 --branch "${CLICKHOUSE_SRC_TAG}" --single-branch \
-        https://github.com/ClickHouse/ClickHouse.git /opt/clickhouse && \
-    rm -rf /opt/clickhouse/.git
+# Source tag is read from the same file the CI workflows use as the single source of truth.
+COPY .github/clickhouse-versions.json /tmp/clickhouse-versions.json
+RUN set -eux; \
+    tag=$(jq -r '.source_tags.production_us' /tmp/clickhouse-versions.json); \
+    git clone --depth 1 --branch "$tag" --single-branch \
+        https://github.com/ClickHouse/ClickHouse.git /opt/clickhouse; \
+    rm -rf /opt/clickhouse/.git /tmp/clickhouse-versions.json
 
 CMD ["/bin/bash"]

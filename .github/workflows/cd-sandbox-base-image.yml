@@ -236,21 +236,6 @@ jobs:
               with:
                   fetch-depth: 1
 
-            - name: Assert CLICKHOUSE_SRC_TAG matches production server version
-              run: |
-                  set -euo pipefail
-                  prod_image=$(jq -r '.production_us' .github/clickhouse-versions.json)
-                  prod_version=${prod_image##*:}
-                  src_tag=$(awk -F= '/^ARG CLICKHOUSE_SRC_TAG=/ {print $2}' \
-                      products/tasks/backend/sandbox/images/Dockerfile.sandbox-pi)
-                  case "$src_tag" in
-                      v${prod_version}.*-stable) ;;
-                      *)
-                          echo "::error::CLICKHOUSE_SRC_TAG ($src_tag) does not match production ClickHouse $prod_version from .github/clickhouse-versions.json. Expected vX.Y.Z.W-stable where X.Y.Z matches."
-                          exit 1
-                          ;;
-                  esac
-
             - name: Set up Docker Buildx
               uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4.0.0
 

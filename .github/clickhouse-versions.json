@@ -1,6 +1,14 @@
 {
-    "production_eu": "clickhouse/clickhouse-server:25.12.8",
-    "production_us": "clickhouse/clickhouse-server:25.12.8",
-    "local": "clickhouse/clickhouse-server:26.3.9",
-    "oldest_supported": "clickhouse/clickhouse-server:25.12.8"
+    "versions": {
+        "production_eu": "clickhouse/clickhouse-server:25.12.8",
+        "production_us": "clickhouse/clickhouse-server:25.12.8",
+        "local": "clickhouse/clickhouse-server:26.3.9",
+        "oldest_supported": "clickhouse/clickhouse-server:25.12.8"
+    },
+    "source_tags": {
+        "production_eu": "v25.12.8.9-stable",
+        "production_us": "v25.12.8.9-stable",
+        "local": "v26.3.9.8-lts",
+        "oldest_supported": "v25.12.8.9-stable"
+    }
 }
