@@ -565,61 +565,41 @@ class TestBatchImportAPI(APIBaseTest):
         self.assertIsNone(batch_import.backoff_until)
         self.assertEqual(batch_import.status_message, "Resumed by user")
 
-    def test_patch_cannot_modify_import_config(self):
+    @parameterized.expand(
+        [
+            (
+                "patch_import_config",
+                "patch",
+                {"import_config": {"source": {"type": "date_range_export", "base_url": "https://attacker.example/"}}},
+                "import_config",
+            ),
+            (
+                "put_import_config",
+                "put",
+                {"import_config": {"source": {"type": "date_range_export", "base_url": "https://attacker.example/"}}},
+                "import_config",
+            ),
+            ("patch_status", "patch", {"status": BatchImport.Status.PAUSED}, "status"),
+            ("put_status", "put", {"status": BatchImport.Status.PAUSED}, "status"),
+        ]
+    )
+    def test_update_cannot_modify_read_only_fields(self, _name, method, payload, attr):
         original_config = {"source": {"type": "date_range_export", "base_url": "https://mixpanel.com/api"}}
         batch_import = BatchImport.objects.create(
             team=self.team,
             created_by_id=self.user.id,
             import_config=original_config,
             secrets={"api_key": "legit", "secret_key": "legit"},
-            status=BatchImport.Status.PAUSED,
-        )
-
-        response = self.client.patch(
-            f"/api/projects/{self.team.id}/managed_migrations/{batch_import.id}",
-            {"import_config": {"source": {"type": "date_range_export", "base_url": "https://attacker.example/"}}},
-            format="json",
-        )
-
-        self.assertEqual(response.status_code, 200)
-        batch_import.refresh_from_db()
-        self.assertEqual(batch_import.import_config, original_config)
-
-    def test_put_cannot_modify_import_config(self):
-        original_config = {"source": {"type": "date_range_export", "base_url": "https://mixpanel.com/api"}}
-        batch_import = BatchImport.objects.create(
-            team=self.team,
-            created_by_id=self.user.id,
-            import_config=original_config,
-            secrets={"api_key": "legit", "secret_key": "legit"},
-            status=BatchImport.Status.PAUSED,
-        )
-
-        response = self.client.put(
-            f"/api/projects/{self.team.id}/managed_migrations/{batch_import.id}",
-            {"import_config": {"source": {"type": "date_range_export", "base_url": "https://attacker.example/"}}},
-            format="json",
-        )
-
-        self.assertEqual(response.status_code, 200)
-        batch_import.refresh_from_db()
-        self.assertEqual(batch_import.import_config, original_config)
-
-    def test_patch_cannot_modify_status(self):
-        batch_import = BatchImport.objects.create(
-            team=self.team,
-            created_by_id=self.user.id,
-            import_config={"source": {"type": "s3"}},
-            secrets={"access_key": "test"},
             status=BatchImport.Status.RUNNING,
         )
+        expected = {"import_config": original_config, "status": BatchImport.Status.RUNNING}[attr]
 
-        response = self.client.patch(
+        response = getattr(self.client, method)(
             f"/api/projects/{self.team.id}/managed_migrations/{batch_import.id}",
-            {"status": BatchImport.Status.PAUSED},
+            payload,
             format="json",
         )
 
         self.assertEqual(response.status_code, 200)
         batch_import.refresh_from_db()
-        self.assertEqual(batch_import.status, BatchImport.Status.RUNNING)
+        self.assertEqual(getattr(batch_import, attr), expected)
