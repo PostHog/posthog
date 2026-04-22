@@ -442,6 +442,16 @@ SPECTACULAR_SETTINGS = {
         "TaskExecutionModeEnum": ["interactive", "background"],
         "HogFunctionTemplatingEnum": ["hog", "liquid"],
         "SourceMatchEnum": ["none", "auto", "mapped"],
+        "NotificationDestinationTypeEnum": ["slack", "webhook"],
+        "TaskRunArtifactTypeEnum": [
+            "plan",
+            "context",
+            "reference",
+            "output",
+            "artifact",
+            "tree_snapshot",
+            "user_attachment",
+        ],
         # Same-value collisions: identical choice sets appear on fields with different names.
         # href_matching, text_matching, url_matching on ActionStep all share the same choices.
         "ActionStepMatchingEnum": ["contains", "regex", "exact"],
