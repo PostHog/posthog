@@ -1,6 +1,7 @@
 import json
+from collections.abc import Iterable
 from datetime import date, datetime
-from typing import Any
+from typing import Any, cast
 
 import pytest
 from unittest.mock import MagicMock, patch
@@ -382,7 +383,8 @@ class TestRestEndpointResumeBehavior:
                 resumable_source_manager=manager,
                 should_use_incremental_field=False,
             )
-            list(response.items())
+            # SourceResponse.items is Iterable | AsyncIterable; the REST path is sync.
+            list(cast(Iterable[Any], response.items()))
             return mock_session, sent_params
 
     @pytest.mark.parametrize("endpoint", ["lists", "campaigns", "reports"])
