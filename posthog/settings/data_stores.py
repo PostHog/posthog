@@ -313,8 +313,8 @@ CLICKHOUSE_CONN_POOL_MAX: int = get_from_env("CLICKHOUSE_CONN_POOL_MAX", 1000, t
 # unset leaves the proxy endpoint disabled (503), which is the safe default:
 # a missing deploy-time env var should never silently fall back to the main
 # cluster. In local dev, set to {CLICKHOUSE_HOST} in .env.
-CLICKHOUSE_PERF_TEST_HOST: str = os.getenv(
-    "CLICKHOUSE_PERF_TEST_HOST",
+CLICKHOUSE_TEST_CLUSTER_HOST: str = os.getenv(
+    "CLICKHOUSE_TEST_CLUSTER_HOST",
     CLICKHOUSE_HOST if DEBUG else "",
 )
 
