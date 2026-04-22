@@ -87,6 +87,10 @@ export function advancedActivityFiltersToHogProperties(
         }
     }
 
+    if (filters.users && filters.users.length > 0) {
+        droppedFields.push('users')
+    }
+
     const hasCustomStart = !!filters.start_date && filters.start_date !== DEFAULT_START_DATE
     if (hasCustomStart || filters.end_date) {
         droppedFields.push('date range')
