@@ -101,6 +101,7 @@ See [.agents/security.md](.agents/security.md) for SQL, HogQL, and semgrep secur
 - Always filter querysets by `team_id` — in serializers, access the team via `self.context["get_team"]()`
 - **Do not add domain-specific fields to the `Team` model.** Use a Team Extension model instead — see `posthog/models/team/README.md` for the pattern and helpers
 - **PostHog event capture in Celery tasks:** Do not use `posthoganalytics.capture()` in Celery tasks — events are silently lost. Use `ph_scoped_capture` from `posthog.ph_client` instead (see its docstring for why and usage).
+- **Django admin `ForeignKey` fields need explicit widget config.** When adding a `ForeignKey`/`OneToOneField` to a model that's exposed in Django admin (including via inlines attached to a _related_ admin), list the new field in `autocomplete_fields`, `raw_id_fields`, or `readonly_fields` on **every** admin class that renders the model — otherwise the default `<select>` widget loads the entire target table per row on each change-page render. Prefer declaring the config on a shared base inline so per-parent variants (e.g., subclasses differentiated by `fk_name`) inherit it automatically.
 
 ## Code Style
 

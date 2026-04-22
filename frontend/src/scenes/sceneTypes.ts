@@ -80,6 +80,8 @@ export enum Scene {
     IngestionWarnings = 'IngestionWarnings',
     InviteSignup = 'InviteSignup',
     LegacyPlugin = 'LegacyPlugin',
+    LegalDocuments = 'LegalDocuments',
+    LegalDocumentNew = 'LegalDocumentNew',
     Link = 'Link',
     Links = 'Links',
     LiveDebugger = 'LiveDebugger',

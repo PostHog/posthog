@@ -315,7 +315,7 @@ class TestRunOperations:
             pr_number=None,
             snapshots=[],
         )
-        logic.mark_run_completed(run.id)
+        logic.finalize_run(run.id)
 
         with pytest.raises(ValueError, match="pending"):
             logic.add_snapshots_to_run(
@@ -371,7 +371,7 @@ class TestRunOperations:
             snapshots=[{"identifier": "btn", "content_hash": "h1"}],
             purpose="observe",
         )
-        logic.mark_run_completed(run.id)
+        logic.finalize_run(run.id)
 
         with pytest.raises(ValueError, match="Observational"):
             logic.approve_run(
@@ -418,7 +418,7 @@ class TestRunOperations:
 
         assert updated.status == RunStatus.PROCESSING
 
-    def test_mark_run_completed_success(self, repo, mocker):
+    def test_finalize_run_success(self, repo, mocker):
         run, _ = logic.create_run(
             repo_id=repo.id,
             team_id=repo.team_id,
@@ -442,8 +442,8 @@ class TestRunOperations:
         logic.complete_run(run.id)
 
         # complete_run leaves the run in PROCESSING when there are changes;
-        # mark_run_completed finalizes it
-        updated = logic.mark_run_completed(run.id)
+        # finalize_run finalizes it
+        updated = logic.finalize_run(run.id)
 
         assert updated.status == RunStatus.COMPLETED
         assert updated.completed_at is not None
@@ -451,7 +451,7 @@ class TestRunOperations:
         assert updated.new_count == 1
         assert updated.error_message == ""
 
-    def test_mark_run_completed_with_error(self, repo):
+    def test_finalize_run_with_error(self, repo):
         run, _ = logic.create_run(
             repo_id=repo.id,
             team_id=repo.team_id,
@@ -463,7 +463,7 @@ class TestRunOperations:
             baseline_hashes={},
         )
 
-        updated = logic.mark_run_completed(run.id, error_message="Something failed")
+        updated = logic.finalize_run(run.id, error_message="Something failed")
 
         assert updated.status == RunStatus.FAILED
         assert updated.error_message == "Something failed"
@@ -531,7 +531,7 @@ class TestApproveRun:
         )
         mocker.patch("products.visual_review.backend.tasks.tasks.process_run_diffs.delay")
         logic.complete_run(run.id)
-        logic.mark_run_completed(run.id)
+        logic.finalize_run(run.id)
 
         updated = logic.approve_run(
             run_id=run.id,
@@ -574,7 +574,7 @@ class TestApproveSnapshots:
         mocker.patch("products.visual_review.backend.logic._resolve_baselines", return_value={"Button": "old_hash"})
         mocker.patch("products.visual_review.backend.tasks.tasks.process_run_diffs.delay")
         logic.complete_run(run.id)
-        logic.mark_run_completed(run.id)
+        logic.finalize_run(run.id)
 
         updated = logic.approve_snapshots(
             run_id=run.id,
@@ -617,7 +617,7 @@ class TestToleratedHashes:
         )
         mocker.patch("products.visual_review.backend.tasks.tasks.process_run_diffs.delay")
         logic.complete_run(run.id)
-        logic.mark_run_completed(run.id)
+        logic.finalize_run(run.id)
         return run
 
     def test_mark_snapshot_as_tolerated(self, repo, user, mocker):
@@ -650,7 +650,7 @@ class TestToleratedHashes:
         mocker.patch("products.visual_review.backend.logic._resolve_baselines", return_value={"Button": "same"})
         mocker.patch("products.visual_review.backend.tasks.tasks.process_run_diffs.delay")
         logic.complete_run(run.id)
-        logic.mark_run_completed(run.id)
+        logic.finalize_run(run.id)
 
         snapshot = run.snapshots.first()
         assert snapshot is not None
@@ -838,7 +838,7 @@ class TestCommitStatusChecks:
         )
         mocker.patch("products.visual_review.backend.tasks.tasks.process_run_diffs.delay")
         logic.complete_run(run.id)
-        logic.mark_run_completed(run.id)
+        logic.finalize_run(run.id)
 
         statuses = mock_github_api.status_checks
         # VR is the gate — unapproved changes post failure
@@ -868,7 +868,7 @@ class TestCommitStatusChecks:
             snapshots=[{"identifier": "changed", "content_hash": "new_h"}],
             baseline_hashes={"changed": "old_h"},
         )
-        logic.mark_run_completed(run1.id)
+        logic.finalize_run(run1.id)
 
         run2, _ = logic.create_run(
             repo_id=github_repo.id,
@@ -880,7 +880,7 @@ class TestCommitStatusChecks:
             snapshots=[{"identifier": "changed", "content_hash": "newer_h"}],
             baseline_hashes={"changed": "old_h"},
         )
-        logic.mark_run_completed(run2.id)
+        logic.finalize_run(run2.id)
 
         created = [c for c in mock_github_api.issue_comments if c["action"] == "created"]
         updated = [c for c in mock_github_api.issue_comments if c["action"] == "updated"]
@@ -903,8 +903,8 @@ class TestCommitStatusChecks:
             baseline_hashes={"changed": "old_h"},
         )
 
-        logic.mark_run_completed(run.id)
-        logic.mark_run_completed(run.id)
+        logic.finalize_run(run.id)
+        logic.finalize_run(run.id)
 
         assert len(mock_github_api.issue_comments) == 1
 
@@ -959,7 +959,7 @@ class TestCommitStatusChecks:
             baseline_hashes={},
         )
 
-        logic.mark_run_completed(run.id, error_message="Diff processing failed")
+        logic.finalize_run(run.id, error_message="Diff processing failed")
 
         statuses = mock_github_api.status_checks
         assert statuses[-1]["state"] == "error"
@@ -1005,7 +1005,7 @@ class TestCommitStatusChecks:
             baseline_hashes={},
         )
 
-        logic.mark_run_completed(run.id)
+        logic.finalize_run(run.id)
 
     def test_no_status_without_repo_full_name(self, team, mock_github_integration, mock_github_api):
         """Status checks are silently skipped when repo has no repo_full_name."""
@@ -1026,7 +1026,7 @@ class TestCommitStatusChecks:
             baseline_hashes={},
         )
 
-        logic.mark_run_completed(run.id)
+        logic.finalize_run(run.id)
 
         assert len(mock_github_api.status_checks) == 0
 
@@ -1050,7 +1050,7 @@ class TestRunSupersession:
             snapshots=[{"identifier": "snap", "content_hash": commit_sha}],
             baseline_hashes={},
         )
-        logic.mark_run_completed(run.id)
+        logic.finalize_run(run.id)
         run.refresh_from_db()
         return run
 
@@ -1207,3 +1207,135 @@ class TestRunSupersession:
         assert len(stale) == 0
         clean_shas = {r.commit_sha for r in clean}
         assert "1st" in clean_shas
+
+
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+class TestQuarantineStamping:
+    @pytest.fixture
+    def repo(self, team):
+        return logic.create_repo(team_id=team.id, repo_external_id=99996, repo_full_name="org/test-quarantine")
+
+    def _create_completed_run(self, repo, mocker, identifiers_and_hashes, baseline=None):
+        """Create a run, classify against baseline, and finalize it.
+
+        identifiers_and_hashes: list of (identifier, content_hash)
+        baseline: dict of identifier -> baseline_hash (for _resolve_baselines mock)
+        """
+        snapshots = [{"identifier": ident, "content_hash": h} for ident, h in identifiers_and_hashes]
+        run, _ = logic.create_run(
+            repo_id=repo.id,
+            team_id=repo.team_id,
+            run_type=RunType.STORYBOOK,
+            commit_sha="abc",
+            branch="main",
+            pr_number=1,
+            snapshots=snapshots,
+        )
+
+        mocker.patch(
+            "products.visual_review.backend.logic._resolve_baselines",
+            return_value=baseline or {},
+        )
+        mocker.patch("products.visual_review.backend.tasks.tasks.process_run_diffs.delay")
+        logic.complete_run(run.id)
+        return run
+
+    def test_finalize_run_stamps_quarantined_snapshots(self, repo, team, mocker):
+        from products.visual_review.backend.models import QuarantinedIdentifier
+
+        run = self._create_completed_run(
+            repo,
+            mocker,
+            identifiers_and_hashes=[
+                ("Button-primary", "h1"),
+                ("Button-secondary", "h2"),
+                ("Card-default", "h3"),
+            ],
+            baseline={"Button-primary": "old1", "Button-secondary": "old2", "Card-default": "old3"},
+        )
+
+        # Quarantine one identifier
+        QuarantinedIdentifier.objects.create(
+            repo=repo,
+            team_id=team.id,
+            identifier="Button-primary",
+            run_type=RunType.STORYBOOK,
+            reason="flaky",
+        )
+
+        logic.finalize_run(run.id)
+
+        snapshots = {s.identifier: s for s in run.snapshots.all()}
+        assert snapshots["Button-primary"].is_quarantined is True
+        assert snapshots["Button-secondary"].is_quarantined is False
+        assert snapshots["Card-default"].is_quarantined is False
+
+    def test_unquarantine_clears_flag_on_approve(self, repo, team, user, mocker):
+        from products.visual_review.backend.models import QuarantinedIdentifier
+
+        # Create quarantine entry
+        QuarantinedIdentifier.objects.create(
+            repo=repo,
+            team_id=team.id,
+            identifier="Button-primary",
+            run_type=RunType.STORYBOOK,
+            reason="flaky",
+        )
+
+        logic.get_or_create_artifact(repo_id=repo.id, content_hash="h1", storage_path="p/h1")
+        run = self._create_completed_run(
+            repo,
+            mocker,
+            identifiers_and_hashes=[("Button-primary", "h1")],
+            baseline={"Button-primary": "old1"},
+        )
+
+        logic.finalize_run(run.id)
+        snapshot = run.snapshots.get(identifier="Button-primary")
+        assert snapshot.is_quarantined is True
+
+        # Unquarantine the identifier
+        logic.unquarantine_identifier(
+            repo_id=repo.id, identifier="Button-primary", run_type=RunType.STORYBOOK, team_id=team.id
+        )
+
+        # Approve the run — _stamp_quarantine re-evaluates
+        logic.approve_run(
+            run_id=run.id,
+            user_id=user.id,
+            approved_snapshots=[{"identifier": "Button-primary", "new_hash": "h1"}],
+            commit_to_github=False,
+        )
+
+        snapshot.refresh_from_db()
+        assert snapshot.is_quarantined is False
+
+    def test_quarantine_excludes_from_changed_count(self, repo, team, mocker):
+        from products.visual_review.backend.models import QuarantinedIdentifier
+
+        # Quarantine one identifier before finalization
+        QuarantinedIdentifier.objects.create(
+            repo=repo,
+            team_id=team.id,
+            identifier="Button-primary",
+            run_type=RunType.STORYBOOK,
+            reason="flaky",
+        )
+
+        run = self._create_completed_run(
+            repo,
+            mocker,
+            identifiers_and_hashes=[
+                ("Button-primary", "h1"),
+                ("Button-secondary", "h2"),
+                ("Card-new", "h3"),
+            ],
+            baseline={"Button-primary": "old1", "Button-secondary": "old2"},
+        )
+
+        finalized = logic.finalize_run(run.id)
+
+        # Button-primary is quarantined — should not count toward changed
+        # Button-secondary is changed (not quarantined), Card-new is new (not quarantined)
+        assert finalized.changed_count == 1  # only Button-secondary
+        assert finalized.new_count == 1  # only Card-new

@@ -50,6 +50,7 @@ APIScopeObject = Literal[
     "insight",
     "insight_variable",
     "integration",
+    "legal_document",
     "link",
     "live_debugger",
     "llm_analytics",
