@@ -4,6 +4,8 @@ import logging
 from django.conf import settings
 
 import boto3
+import dns.name
+import dns.resolver
 from botocore.exceptions import BotoCoreError, ClientError
 from rest_framework import exceptions
 
@@ -146,6 +148,18 @@ class SESProvider:
             }
         )
 
+        # DMARC — AWS SES has no method to check its presence, so we do a direct DNS
+        # lookup further below and include the result in the overall status.
+        dns_records.append(
+            {
+                "type": "dmarc",
+                "recordType": "TXT",
+                "recordHostname": f"_dmarc.{domain}",
+                "recordValue": "v=DMARC1; p=none;",
+                "status": "pending",
+            }
+        )
+
         # Current verification / DKIM statuses to compute overall status & per-record statuses ---
         try:
             id_attrs = self.ses_client.get_identity_verification_attributes(Identities=[domain])
@@ -169,10 +183,33 @@ class SESProvider:
         except ClientError:
             mail_from_status = "Unknown"
 
+        # DMARC: check via direct DNS lookup since AWS SES doesn't track it
+        dmarc_status = "Pending"
+        dmarc_record_value: str | None = None
+        try:
+            resolver = dns.resolver.Resolver()
+            resolver.lifetime = 5  # seconds — keep the request path responsive
+            answers = resolver.resolve(f"_dmarc.{domain}", "TXT")
+            for rdata in answers:
+                txt_value = "".join(s.decode("utf-8") if isinstance(s, bytes) else s for s in rdata.strings)
+                if txt_value.strip().lower().startswith("v=dmarc1"):
+                    dmarc_status = "Success"
+                    dmarc_record_value = txt_value.strip()
+                    break
+        except (dns.resolver.NXDOMAIN, dns.resolver.NoAnswer, dns.resolver.NoNameservers, dns.resolver.Timeout):
+            pass  # No DMARC record found — fall back to "Pending" status
+        except Exception:
+            logger.exception("Unexpected error during DMARC lookup for %s", domain)
+
         all_statuses = [verification_status, dkim_status, mail_from_status]
 
         # Normalize overall status
-        if verification_status == "Success" and dkim_status == "Success" and mail_from_status == "Success":
+        if (
+            verification_status == "Success"
+            and dkim_status == "Success"
+            and mail_from_status == "Success"
+            and dmarc_status == "Success"
+        ):
             overall = "success"
         elif "Failed" in all_statuses:
             overall = "failed"
@@ -190,10 +227,37 @@ class SESProvider:
             for r in dns_records:
                 if r["type"] == "dkim":
                     r["status"] = "success"
+        else:
+            # SES reports aggregate DKIM status, but individual CNAMEs may already
+            # be present.  Do per-record DNS lookups so the UI can show which
+            # specific records are still missing.
+            resolver = dns.resolver.Resolver()
+            resolver.lifetime = 5
+            for r in dns_records:
+                if r["type"] != "dkim":
+                    continue
+                try:
+                    answers = resolver.resolve(r["recordHostname"], "CNAME")
+                    expected = dns.name.from_text(r["recordValue"])
+                    for rdata in answers:
+                        # Use dnspython Name comparison, case-insensitive per RFC 1035
+                        if rdata.target == expected:
+                            r["status"] = "success"
+                            break
+                except (dns.resolver.NXDOMAIN, dns.resolver.NoAnswer, dns.resolver.NoNameservers, dns.resolver.Timeout):
+                    pass
+                except Exception:
+                    logger.exception("Unexpected error during DKIM CNAME lookup for %s", r["recordHostname"])
         if mail_from_status == "Success":
             for r in dns_records:
                 if r["type"] == "mail_from":
                     r["status"] = "success"
+        if dmarc_status == "Success":
+            for r in dns_records:
+                if r["type"] == "dmarc":
+                    r["status"] = "success"
+                    if dmarc_record_value:
+                        r["recordValue"] = dmarc_record_value
 
         return {
             "status": overall,

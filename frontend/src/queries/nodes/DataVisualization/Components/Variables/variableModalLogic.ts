@@ -97,7 +97,7 @@ export const variableModalLogic = kea<variableModalLogicType>([
         values: [teamLogic, ['currentTeamId']],
         actions: [
             variableDataLogic,
-            ['getVariables'],
+            ['loadVariables'],
             variablesLogic,
             ['addVariable', 'updateInternalSelectedVariable'],
         ],
@@ -108,6 +108,8 @@ export const variableModalLogic = kea<variableModalLogicType>([
         closeModal: true,
         updateVariable: (variable: Variable) => ({ variable }),
         save: true,
+        saveSuccess: true,
+        saveFailure: true,
         changeTypeExistingVariable: (variableType: VariableType) => ({ variableType }),
         setInsightsUsingVariable: (insights: QueryBasedInsightModel[]) => ({ insights }),
         setInsightsLoading: (loading: boolean) => ({ loading }),
@@ -174,6 +176,15 @@ export const variableModalLogic = kea<variableModalLogicType>([
                 closeModal: () => false,
             },
         ],
+        isSaving: [
+            false as boolean,
+            {
+                save: () => true,
+                saveSuccess: () => false,
+                saveFailure: () => false,
+                closeModal: () => false,
+            },
+        ],
     }),
     listeners(({ values, actions }) => ({
         openExistingVariableModal: async ({ variable }) => {
@@ -204,10 +215,12 @@ export const variableModalLogic = kea<variableModalLogicType>([
                         })
                     }
                 }
-                actions.getVariables()
+                actions.loadVariables()
+                actions.saveSuccess()
                 actions.closeModal()
             } catch (e: any) {
                 const error = e as ApiError
+                actions.saveFailure()
                 lemonToast.error(error.detail ?? error.message)
             }
         },

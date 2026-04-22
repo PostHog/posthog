@@ -2,6 +2,8 @@ package handlers
 
 import (
 	"encoding/json"
+	"fmt"
+	"log"
 	"net/http"
 	"strings"
 	"sync/atomic"
@@ -10,6 +12,7 @@ import (
 	"github.com/labstack/echo/v4"
 	"github.com/posthog/posthog/livestream/auth"
 	"github.com/posthog/posthog/livestream/events"
+	"github.com/redis/rueidis"
 )
 
 func Index(c echo.Context) error {
@@ -33,7 +36,7 @@ func ServedHandler(stats *events.Stats) func(c echo.Context) error {
 	}
 }
 
-func StatsHandler(stats *events.Stats, sessionStats *events.SessionStats) func(c echo.Context) error {
+func StatsHandler(stats *events.Stats, sessionStats *events.SessionStats, redisStore *events.StatsInRedis) func(c echo.Context) error {
 	return func(c echo.Context) error {
 
 		type resp struct {
@@ -47,6 +50,27 @@ func StatsHandler(stats *events.Stats, sessionStats *events.SessionStats) func(c
 			return c.JSON(http.StatusUnauthorized, resp{Error: "wrong token claims"})
 		}
 
+		if redisStore != nil {
+			ctx := c.Request().Context()
+			userCount, userErr := redisStore.GetUserCount(ctx, token)
+			sessionCount, sessionErr := redisStore.GetSessionCount(ctx, token)
+
+			if userErr == nil && sessionErr == nil {
+				if userCount == 0 && sessionCount == 0 {
+					return c.JSON(http.StatusOK, resp{Error: "no stats"})
+				}
+
+				siteStats := resp{}
+				siteStats.UsersOnProduct = int(userCount)
+				siteStats.ActiveRecordings = int(sessionCount)
+
+				return c.JSON(http.StatusOK, siteStats)
+			}
+
+			log.Printf("Redis read failed, falling back to local LRU: users_err=%v sessions_err=%v", userErr, sessionErr)
+		}
+
+		// Fallback to local LRU until V2 migration is complete
 		userStore := stats.GetExistingStoreForToken(token)
 		sessionCount := sessionStats.CountForToken(token)
 
@@ -67,7 +91,7 @@ func StatsHandler(stats *events.Stats, sessionStats *events.SessionStats) func(c
 
 var subID uint64 = 1
 
-func StreamEventsHandler(log echo.Logger, subChan chan events.Subscription, filter *events.Filter) func(c echo.Context) error {
+func StreamEventsHandler(log echo.Logger, subChan chan events.Subscription, unSubChan chan events.Subscription) func(c echo.Context) error {
 	return func(c echo.Context) error {
 		log.Debugf("SSE client connected, ip: %v", c.RealIP())
 
@@ -109,23 +133,26 @@ func StreamEventsHandler(log echo.Logger, subChan chan events.Subscription, filt
 			eventTypes = strings.Split(eventType, ",")
 		}
 
+		propertyFilters := parsePropertyFilters(c.QueryParams()["property"])
+
 		subscription := events.Subscription{
-			SubID:         atomic.AddUint64(&subID, 1),
-			TeamId:        teamID,
-			Token:         token,
-			DistinctId:    distinctId,
-			Geo:           geoOnly,
-			Columns:       columns,
-			EventTypes:    eventTypes,
-			EventChan:     make(chan interface{}, 100),
-			ShouldClose:   &atomic.Bool{},
-			DroppedEvents: &atomic.Uint64{},
+			SubID:           atomic.AddUint64(&subID, 1),
+			TeamId:          teamID,
+			Token:           token,
+			DistinctId:      distinctId,
+			Geo:             geoOnly,
+			Columns:         columns,
+			EventTypes:      eventTypes,
+			PropertyFilters: propertyFilters,
+			EventChan:       make(chan interface{}, 100),
+			ShouldClose:     &atomic.Bool{},
+			DroppedEvents:   &atomic.Uint64{},
 		}
 
 		subChan <- subscription
 		defer func() {
 			subscription.ShouldClose.Store(true)
-			filter.UnSubChan <- subscription
+			unSubChan <- subscription
 		}()
 
 		w := c.Response()
@@ -159,4 +186,128 @@ func StreamEventsHandler(log echo.Logger, subChan chan events.Subscription, filt
 			}
 		}
 	}
+}
+
+func parsePropertyFilters(raw []string) map[string][]string {
+	if len(raw) == 0 {
+		return nil
+	}
+	out := make(map[string][]string, len(raw))
+	for _, entry := range raw {
+		k, v, ok := strings.Cut(entry, "=")
+		if !ok || k == "" {
+			continue
+		}
+		out[k] = append(out[k], v)
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+func NotificationsHandler(redisClient rueidis.Client) func(c echo.Context) error {
+	return func(c echo.Context) error {
+		claims, err := auth.ParseAuthClaims(c.Request().Header)
+		if err != nil {
+			return echo.NewHTTPError(http.StatusUnauthorized, "invalid token")
+		}
+		if claims.OrganizationID == "" || claims.UserID == 0 {
+			// Old tokens without organization_id/user_id — no-op until all tokens refresh
+			return c.NoContent(http.StatusNoContent)
+		}
+
+		ctx := c.Request().Context()
+		channel := fmt.Sprintf("notifications:%s", claims.OrganizationID)
+
+		// Absorbs publish-rate bursts; drops on overflow to avoid blocking rueidis.
+		msgCh := make(chan string, 1000)
+		errCh := make(chan error, 1)
+
+		// Receive respects ctx cancellation — goroutine exits when handler returns.
+		go func() {
+			errCh <- redisClient.Receive(ctx, redisClient.B().Ssubscribe().Channel(channel).Build(), func(msg rueidis.PubSubMessage) {
+				select {
+				case msgCh <- msg.Message:
+				default:
+					log.Printf("Notification dropped for user %d: channel buffer full", claims.UserID)
+				}
+			})
+		}()
+
+		w := c.Response()
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.Header().Set("Cache-Control", "no-cache")
+		w.Header().Set("Connection", "keep-alive")
+
+		heartbeat := time.NewTicker(15 * time.Second)
+		defer heartbeat.Stop()
+		timeout := time.After(30 * time.Minute)
+
+		for {
+			select {
+			case <-timeout:
+				return nil
+			case <-ctx.Done():
+				return nil
+			case err := <-errCh:
+				if err != nil {
+					log.Printf("Redis subscription error: %v", err)
+				}
+				return nil
+			case msg := <-msgCh:
+				cleaned, ok := filterNotificationForUser(msg, claims.UserID)
+				if !ok {
+					continue
+				}
+				event := Event{Data: []byte(cleaned)}
+				if err := event.WriteTo(w); err != nil {
+					return err
+				}
+				w.Flush()
+			case <-heartbeat.C:
+				event := Event{Comment: []byte("heartbeat")}
+				if err := event.WriteTo(w); err != nil {
+					return err
+				}
+				w.Flush()
+			}
+		}
+	}
+}
+
+func filterNotificationForUser(payload string, userID int) (string, bool) {
+	var data map[string]interface{}
+	if err := json.Unmarshal([]byte(payload), &data); err != nil {
+		return "", false
+	}
+
+	resolvedIDs, ok := data["resolved_user_ids"]
+	if !ok {
+		return "", false
+	}
+
+	ids, ok := resolvedIDs.([]interface{})
+	if !ok {
+		return "", false
+	}
+
+	found := false
+	for _, id := range ids {
+		if num, ok := id.(float64); ok && int(num) == userID {
+			found = true
+			break
+		}
+	}
+
+	if !found {
+		return "", false
+	}
+
+	delete(data, "resolved_user_ids")
+	cleaned, err := json.Marshal(data)
+	if err != nil {
+		return "", false
+	}
+	return string(cleaned), true
 }

@@ -79,6 +79,22 @@ class Conversation(UUIDTModel):
         blank=True,
         help_text="Stores approval card metadata for dangerous operations (payload lives in checkpoint). Format: {proposal_id: {decision_status: 'pending' | 'approved' | 'rejected' | 'auto_rejected', tool_name: str, preview: str, ...}}",
     )
+    messages_json = models.JSONField(
+        null=True,
+        blank=True,
+        default=None,
+        help_text="Stored messages for non-LangGraph modes (e.g., sandbox).",
+    )
+    sandbox_task_id = models.UUIDField(
+        null=True,
+        blank=True,
+        help_text="Permanent link to Task for sandbox conversations.",
+    )
+    sandbox_run_id = models.UUIDField(
+        null=True,
+        blank=True,
+        help_text="Permanent link to current TaskRun for sandbox conversations.",
+    )
 
 
 class ConversationCheckpoint(UUIDTModel):
@@ -155,6 +171,7 @@ class ConversationCheckpointWrite(UUIDTModel):
 
 MAX_ONBOARDING_QUESTIONS = 3
 ONBOARDING_TIMEOUT_MINUTES = 10
+CORE_MEMORY_MAX_CHARACTERS = 10_000
 
 
 class CoreMemory(UUIDTModel):
@@ -213,16 +230,25 @@ class CoreMemory(UUIDTModel):
         await self.asave()
 
     async def aappend_core_memory(self, text: str):
-        if self.text == "":
-            self.text = text
-        else:
-            self.text = self.text + "\n" + text
+        new_text = text if self.text == "" else self.text + "\n" + text
+        if len(new_text) > CORE_MEMORY_MAX_CHARACTERS:
+            raise ValueError(
+                f"Memory is full ({len(self.text)}/{CORE_MEMORY_MAX_CHARACTERS} characters used)."
+                " Please free up space in Settings → PostHog AI before adding new memories."
+            )
+        self.text = new_text
         await self.asave()
 
     async def areplace_core_memory(self, original_fragment: str, new_fragment: str):
         if original_fragment not in self.text:
             raise ValueError(f"Original fragment {original_fragment} not found in core memory")
-        self.text = self.text.replace(original_fragment, new_fragment)
+        new_text = self.text.replace(original_fragment, new_fragment)
+        if len(new_text) > CORE_MEMORY_MAX_CHARACTERS:
+            raise ValueError(
+                f"Replacement would exceed memory limit ({CORE_MEMORY_MAX_CHARACTERS} characters)."
+                " Please free up space in Settings → PostHog AI first."
+            )
+        self.text = new_text
         await self.asave()
 
     @property

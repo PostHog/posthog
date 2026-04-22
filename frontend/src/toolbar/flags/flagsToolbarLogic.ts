@@ -1,13 +1,14 @@
-import Fuse from 'fuse.js'
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { encodeParams } from 'kea-router'
 import type { PostHog } from 'posthog-js'
 
+import { createFuse } from 'lib/utils/fuseSearch'
 import { permanentlyMount } from 'lib/utils/kea-logic-builders'
 
 import { toolbarConfigLogic, toolbarFetch } from '~/toolbar/toolbarConfigLogic'
-import { toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
+import { toolbarLogger } from '~/toolbar/toolbarLogger'
+import { captureToolbarException, toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
 import { CombinedFeatureFlagAndValueType } from '~/types'
 
 import type { flagsToolbarLogicType } from './flagsToolbarLogicType'
@@ -219,8 +220,7 @@ export const flagsToolbarLogic = kea<flagsToolbarLogicType>([
             (s) => [s.searchTerm, s.userFlagsWithOverrideInfo],
             (searchTerm, userFlagsWithOverrideInfo) => {
                 return searchTerm
-                    ? new Fuse(userFlagsWithOverrideInfo, {
-                          threshold: 0.3,
+                    ? createFuse(userFlagsWithOverrideInfo, {
                           keys: ['feature_flag.key', 'feature_flag.name'],
                       })
                           .search(searchTerm)
@@ -296,7 +296,8 @@ export const flagsToolbarLogic = kea<flagsToolbarLogicType>([
                     actions.setPayloadEditorOpen(flagKey, false)
                 } catch (e) {
                     actions.setPayloadError(flagKey, 'Invalid JSON')
-                    console.error('Invalid JSON:', e)
+                    toolbarLogger.error('flags', 'Invalid JSON payload', { flag_key: flagKey })
+                    captureToolbarException(e, 'flag_payload_parse', { flag_key: flagKey })
                 }
             },
             loadFlagsForDistinctId: async ({ distinctId }, breakpoint) => {

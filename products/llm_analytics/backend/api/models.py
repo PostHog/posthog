@@ -7,8 +7,10 @@ from posthog.api.monitoring import monitor
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.permissions import AccessControlPermission
 
-from ..models.model_configuration import POSTHOG_ALLOWED_MODELS, LLMModelConfiguration
+from ..llm import TRIAL_MODELS_BY_PROVIDER
+from ..models.model_configuration import LLMModelConfiguration
 from ..models.provider_keys import LLMProvider, LLMProviderKey
+from .metrics import llma_track_latency
 
 
 class LLMModelsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
@@ -17,6 +19,7 @@ class LLMModelsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     scope_object = "llm_provider_key"
     permission_classes = [IsAuthenticated, AccessControlPermission]
 
+    @llma_track_latency("llma_models_list")
     @monitor(feature=None, endpoint="llma_models_list", method="GET")
     def list(self, request: Request, **_kwargs) -> Response:
         provider = request.query_params.get("provider")
@@ -58,7 +61,7 @@ class LLMModelsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             team_id=self.team_id,
         )
         available = config.get_available_models()
-        posthog_allowed = POSTHOG_ALLOWED_MODELS.get(provider, [])
+        posthog_allowed = TRIAL_MODELS_BY_PROVIDER.get(provider, [])
 
         return Response(
             {"models": [{"id": model, "posthog_available": model in posthog_allowed} for model in available]}

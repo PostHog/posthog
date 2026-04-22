@@ -5,8 +5,8 @@ import { useActions, useValues } from 'kea'
 import { useEffect, useMemo, useRef } from 'react'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
-import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { PropertyValue } from 'lib/components/PropertyFilters/components/PropertyValue'
+import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { TaxonomicFilterGroupType, TaxonomicFilterValue } from 'lib/components/TaxonomicFilter/types'
 import { TaxonomicPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
@@ -25,9 +25,18 @@ import {
     CohortSelectorFieldProps,
     CohortTaxonomicFieldProps,
     CohortTextFieldProps,
+    FieldOptionsType,
 } from 'scenes/cohorts/CohortFilters/types'
 
-import { AnyPropertyFilter, PropertyFilterType, PropertyFilterValue, PropertyOperator } from '~/types'
+import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
+import {
+    AnyPropertyFilter,
+    PropertyDefinitionType,
+    PropertyFilterType,
+    PropertyFilterValue,
+    PropertyOperator,
+    PropertyType,
+} from '~/types'
 
 let uniqueMemoizedIndex = 0
 
@@ -102,6 +111,27 @@ export function CohortSelectorField({
     )
 }
 
+/**
+ * Wraps CohortSelectorField to show date-only or math-only operators based on
+ * the selected person property's type. Without this, DateTime properties like
+ * "date_of_birth" would show irrelevant operators like "contains" or "maximum".
+ *
+ * The operator auto-reset when switching between DateTime and non-DateTime
+ * properties is handled in cohortEditLogic's setCriteria listener.
+ */
+export function CohortMathOperatorField(props: CohortSelectorFieldProps): JSX.Element {
+    const { getPropertyDefinition } = useValues(propertyDefinitionsModel)
+    const propertyKey = props.criteria?.key
+    const propDef = propertyKey ? getPropertyDefinition(propertyKey, PropertyDefinitionType.Person) : null
+    const isDateTime = propDef?.property_type === PropertyType.DateTime
+
+    const fieldOptionGroupTypes = isDateTime
+        ? [FieldOptionsType.SingleFieldDateOperators]
+        : [FieldOptionsType.CohortMathOperators]
+
+    return <CohortSelectorField {...props} fieldOptionGroupTypes={fieldOptionGroupTypes} />
+}
+
 export function CohortTaxonomicField({
     fieldKey,
     groupTypeFieldKey = 'event_type',
@@ -120,7 +150,7 @@ export function CohortTaxonomicField({
 
     const { calculatedValue, calculatedValueLoading } = useValues(logic)
     const { onChange } = useActions(logic)
-    const groupType = criteria[groupTypeFieldKey] as TaxonomicFilterGroupType
+    const groupType = (criteria[groupTypeFieldKey] as TaxonomicFilterGroupType) ?? taxonomicGroupTypes[0]
 
     return (
         <TaxonomicPopover
@@ -167,11 +197,12 @@ export function CohortPersonPropertiesValuesField({
 
     return (
         <PropertyValue
+            key={`${propertyKey}_${operator}`}
             operator={operator || PropertyOperator.Exact}
             propertyKey={propertyKey as string}
             type={PropertyFilterType.Person}
             value={value as PropertyFilterValue}
-            onSet={(newValue: PropertyOperator) => {
+            onSet={(newValue: PropertyFilterValue) => {
                 onChange({ [fieldKey]: newValue })
             }}
             placeholder="Enter value..."
@@ -259,35 +290,43 @@ export function CohortRelativeAndExactTimeField({
     const { value } = useValues(logic)
     const { onChange } = useActions(logic)
 
+    const isRelativeDate = typeof value === 'string' && /^-\d+[hdwmqy]$/.test(value)
+    const prefix = isRelativeDate ? 'within' : 'after'
+
     return (
-        <DateFilter
-            dateFrom={String(value)}
-            onChange={(fromDate) => {
-                onChange({ [fieldKey]: fromDate })
-            }}
-            max={1000}
-            isFixedDateMode
-            allowedRollingDateOptions={['days', 'weeks', 'months', 'years']}
-            showCustom
-            dateOptions={[
-                {
-                    key: 'Last 7 days',
-                    values: ['-7d'],
-                    getFormattedDate: (date: dayjs.Dayjs): string => formatDate(date.subtract(7, 'd')),
-                    defaultInterval: 'day',
-                },
-                {
-                    key: 'Last 30 days',
-                    values: ['-30d'],
-                    getFormattedDate: (date: dayjs.Dayjs): string => formatDate(date.subtract(14, 'd')),
-                    defaultInterval: 'day',
-                },
-            ]}
-            size="medium"
-            makeLabel={(_, startOfRange) => (
-                <span className="hide-when-small">Matches all values after {startOfRange} if evaluated today.</span>
-            )}
-        />
+        <div className="flex items-center gap-2">
+            <span className={clsx('CohortField', 'CohortField__CohortTextField')}>{prefix}</span>
+            <DateFilter
+                dateFrom={String(value)}
+                onChange={(fromDate) => {
+                    onChange({ [fieldKey]: fromDate })
+                }}
+                max={1000}
+                isFixedDateMode
+                allowedRollingDateOptions={['days', 'weeks', 'months', 'years']}
+                showCustom
+                dateOptions={[
+                    {
+                        key: 'Last 7 days',
+                        values: ['-7d'],
+                        getFormattedDate: (date: dayjs.Dayjs): string => formatDate(date.subtract(7, 'd')),
+                        defaultInterval: 'day',
+                    },
+                    {
+                        key: 'Last 30 days',
+                        values: ['-30d'],
+                        getFormattedDate: (date: dayjs.Dayjs): string => formatDate(date.subtract(14, 'd')),
+                        defaultInterval: 'day',
+                    },
+                ]}
+                size="medium"
+                makeLabel={(_, startOfRange) => (
+                    <span className="hide-when-small">
+                        Matches all values {prefix} {startOfRange} if evaluated today.
+                    </span>
+                )}
+            />
+        </div>
     )
 }
 

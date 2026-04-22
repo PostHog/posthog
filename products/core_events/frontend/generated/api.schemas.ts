@@ -17,17 +17,17 @@
  * `churn` - Churn
  * `reactivation` - Reactivation
  */
-export type CategoryEnumApi = (typeof CategoryEnumApi)[keyof typeof CategoryEnumApi]
+export type CoreEventCategoryEnumApi = (typeof CoreEventCategoryEnumApi)[keyof typeof CoreEventCategoryEnumApi]
 
-export const CategoryEnumApi = {
-    acquisition: 'acquisition',
-    activation: 'activation',
-    monetization: 'monetization',
-    expansion: 'expansion',
-    referral: 'referral',
-    retention: 'retention',
-    churn: 'churn',
-    reactivation: 'reactivation',
+export const CoreEventCategoryEnumApi = {
+    Acquisition: 'acquisition',
+    Activation: 'activation',
+    Monetization: 'monetization',
+    Expansion: 'expansion',
+    Referral: 'referral',
+    Retention: 'retention',
+    Churn: 'churn',
+    Reactivation: 'reactivation',
 } as const
 
 export interface CoreEventApi {
@@ -49,7 +49,7 @@ export interface CoreEventApi {
 * `retention` - Retention
 * `churn` - Churn
 * `reactivation` - Reactivation */
-    category: CategoryEnumApi
+    category: CoreEventCategoryEnumApi
     /** Filter configuration - event, action, or data warehouse node */
     filter: unknown
     readonly created_at: string
@@ -84,7 +84,7 @@ export interface PatchedCoreEventApi {
 * `retention` - Retention
 * `churn` - Churn
 * `reactivation` - Reactivation */
-    category?: CategoryEnumApi
+    category?: CoreEventCategoryEnumApi
     /** Filter configuration - event, action, or data warehouse node */
     filter?: unknown
     readonly created_at?: string

@@ -4,10 +4,12 @@ from typing import Any
 
 import structlog
 
-from posthog.batch_exports.service import BatchExportServiceScheduleNotFound, batch_export_delete_schedule
 from posthog.cache_utils import cache_for
+from posthog.exceptions_capture import capture_exception
 from posthog.models.async_migration import is_async_migration_complete
 from posthog.temporal.common.client import sync_connect
+
+from products.batch_exports.backend.service import BatchExportServiceScheduleNotFound, batch_export_delete_schedule
 
 logger = structlog.get_logger(__name__)
 
@@ -16,6 +18,7 @@ actions_that_require_current_team = [
     "delete_secret_token_backup",
     "reset_token",
     "generate_conversations_public_token",
+    "default_release_conditions",
 ]
 
 
@@ -27,7 +30,7 @@ def delete_bulky_postgres_data(team_ids: list[int]):
     from posthog.models.group.group import Group
     from posthog.models.group_type_mapping import GroupTypeMapping
     from posthog.models.insight_caching_state import InsightCachingState
-    from posthog.models.person import Person, PersonDistinctId, PersonlessDistinctId
+    from posthog.models.person import PersonlessDistinctId
 
     from products.data_modeling.backend.models import Edge, Node
     from products.early_access_features.backend.models import EarlyAccessFeature
@@ -39,7 +42,6 @@ def delete_bulky_postgres_data(team_ids: list[int]):
     _raw_delete(Node.objects.filter(team_id__in=team_ids))
 
     _raw_delete(EarlyAccessFeature.objects.filter(team_id__in=team_ids))
-    _raw_delete_batch(PersonDistinctId.objects.filter(team_id__in=team_ids))
     _raw_delete_batch(PersonlessDistinctId.objects.filter(team_id__in=team_ids))
     _raw_delete(ErrorTrackingIssueFingerprintV2.objects.filter(team_id__in=team_ids))
 
@@ -51,8 +53,53 @@ def delete_bulky_postgres_data(team_ids: list[int]):
     _raw_delete(FeatureFlagHashKeyOverride.objects.filter(team_id__in=team_ids))
     _raw_delete(Group.objects.filter(team_id__in=team_ids))
     _raw_delete(GroupTypeMapping.objects.filter(team_id__in=team_ids))
-    _raw_delete_batch(Person.objects.filter(team_id__in=team_ids))
+
+    # Delete Person + PersonDistinctId via personhog RPC (handles both tables).
+    # Falls back to ORM batch deletion when personhog is not available.
+    _delete_persons_for_teams(team_ids)
+
     _raw_delete(InsightCachingState.objects.filter(team_id__in=team_ids))
+
+
+def _delete_persons_for_teams(team_ids: list[int]) -> None:
+    """Delete Person + PersonDistinctId rows for teams via personhog RPC.
+
+    Falls back to ORM batch deletion when personhog is not available.
+    The RPC handles PersonDistinctId deletion automatically.
+    Uses _personhog_routed per team for consistent gate/metrics/fallback.
+    """
+    from functools import partial
+
+    from posthog.models.person.util import _personhog_routed
+
+    for team_id in team_ids:
+        _personhog_routed(
+            "delete_persons_for_team",
+            partial(_delete_persons_for_team_via_personhog, team_id),
+            partial(_delete_persons_for_team_via_orm, team_id),
+            team_id=team_id,
+        )
+
+
+def _delete_persons_for_team_via_personhog(team_id: int) -> None:
+    from posthog.personhog_client.client import get_personhog_client
+    from posthog.personhog_client.proto import DeletePersonsBatchForTeamRequest
+
+    client = get_personhog_client()
+    if client is None:
+        raise RuntimeError("personhog client not configured")
+
+    while True:
+        resp = client.delete_persons_batch_for_team(DeletePersonsBatchForTeamRequest(team_id=team_id, batch_size=10000))
+        if resp.deleted_count == 0:
+            break
+
+
+def _delete_persons_for_team_via_orm(team_id: int) -> None:
+    from posthog.models.person import Person, PersonDistinctId
+
+    _raw_delete_batch(PersonDistinctId.objects.filter(team_id=team_id))
+    _raw_delete_batch(Person.objects.filter(team_id=team_id))
 
 
 def _raw_delete(queryset: Any):
@@ -128,6 +175,44 @@ def delete_batch_exports(team_ids: list[int]):
                 "Schedule not found during team deletion",
                 schedule_id=e.schedule_id,
             )
+
+
+def delete_data_modeling_schedules(team_ids: list[int]) -> None:
+    """Delete Temporal schedules for data modeling saved queries in deleted teams.
+
+    Django CASCADE deletes the DataWarehouseSavedQuery records but doesn't
+    call revert_materialization(), leaving orphaned Temporal schedules.
+    """
+    import temporalio.service
+
+    from posthog.temporal.common.schedule import delete_schedule
+
+    from products.data_warehouse.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+
+    saved_queries = list(
+        DataWarehouseSavedQuery.objects.filter(
+            team_id__in=team_ids,
+            sync_frequency_interval__isnull=False,
+        ).exclude(deleted=True)  # as it's nullable
+    )
+
+    if not saved_queries:
+        return
+
+    temporal = sync_connect()
+
+    for saved_query in saved_queries:
+        try:
+            delete_schedule(temporal, schedule_id=str(saved_query.id))
+        except temporalio.service.RPCError as e:
+            if e.status == temporalio.service.RPCStatusCode.NOT_FOUND:
+                logger.warning(
+                    "Data modeling schedule not found during team deletion",
+                    schedule_id=str(saved_query.id),
+                    team_id=saved_query.team_id,
+                )
+                continue
+            capture_exception(e)
 
 
 can_enable_actor_on_events = False

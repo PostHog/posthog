@@ -16,10 +16,31 @@ services:
             timeout: 5s
 
     redis:
-        image: redis:alpine
+        image: redis:7.2
         restart: always
         ports:
             - '127.0.0.1:6379:6379'
+        command: >
+            bash -c "
+            redis-server
+            --port 6379
+            --cluster-enabled yes
+            --cluster-config-file /data/nodes.conf
+            --cluster-node-timeout 5000
+            --cluster-announce-ip 127.0.0.1
+            --cluster-announce-port 6379
+            --appendonly yes &
+            sleep 1 &&
+            redis-cli -p 6379 cluster addslots $$(seq 0 16383) &&
+            tail -f /dev/null
+            "
+        volumes:
+            - redis-data:/data
+        healthcheck:
+            test: ['CMD', 'redis-cli', '-p', '6379', 'cluster', 'info']
+            interval: 2s
+            timeout: 3s
+            retries: 10
 
     redpanda:
         image: vectorized/redpanda:v23.2.17
@@ -60,3 +81,6 @@ services:
             - '127.0.0.1:8088:8088'
         depends_on:
             - redpanda
+
+volumes:
+    redis-data:

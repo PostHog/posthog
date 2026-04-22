@@ -13,10 +13,13 @@ import { v4 } from 'uuid'
 import { waitForExpect } from '~/tests/helpers/expectations'
 import { resetKafka } from '~/tests/helpers/kafka'
 
+import { createTestIngestionOutputs, createTestMonitoringOutputs } from '../../tests/helpers/ingestion-outputs'
 import { createUserTeamAndOrganization, fetchPostgresPersons, resetTestDatabase } from '../../tests/helpers/sql'
+import { createHogTransformerService } from '../cdp/hog-transformations/hog-transformer.service'
 import { Hub, PipelineEvent, PluginsServerConfig, ProjectId, Team } from '../types'
 import { closeHub, createHub } from '../utils/db/hub'
 import { UUIDT } from '../utils/utils'
+import { ClickhouseGroupRepository } from '../worker/ingestion/groups/repositories/clickhouse-group-repository'
 import { IngestionConsumer } from './ingestion-consumer'
 
 jest.mock('~/utils/token-bucket', () => {
@@ -42,7 +45,7 @@ const DEFAULT_TEAM: Team = {
     name: '2',
     anonymize_ips: true,
     api_token: 'api_token',
-    slack_incoming_webhook: 'slack_incoming_webhook',
+    secret_api_token: null,
     session_recording_opt_in: true,
     person_processing_opt_out: null,
     heatmaps_opt_in: null,
@@ -53,9 +56,11 @@ const DEFAULT_TEAM: Team = {
     timezone: 'UTC',
     available_features: [],
     drop_events_older_than_seconds: null,
+    extra_settings: null,
 }
 
 let offsetIncrementer = 0
+let currentToken: string
 
 class EventBuilder {
     private event: Partial<PipelineEvent> = {}
@@ -72,7 +77,6 @@ class EventBuilder {
         }
         this.event.distinct_id = distinctId
         this.event.team_id = team.id
-        this.event.token = team.api_token
     }
 
     withEvent(event: string) {
@@ -98,22 +102,28 @@ class EventBuilder {
 }
 
 const createKafkaMessage = (event: PipelineEvent, timestamp: number = DateTime.now().toMillis()): Message => {
+    const token = currentToken
     const captureEvent = {
         uuid: event.uuid,
         distinct_id: event.distinct_id,
         ip: event.ip,
         now: event.now,
-        token: event.token,
+        token,
         data: JSON.stringify(event),
     }
+    const headers: { [key: string]: Buffer }[] = [
+        { token: Buffer.from(token) },
+        { distinct_id: Buffer.from(event.distinct_id!) },
+    ]
     return {
-        key: `${event.token}:${event.distinct_id}`,
+        key: `${token}:${event.distinct_id}`,
         value: Buffer.from(JSON.stringify(captureEvent)),
         size: 1,
         topic: 'test',
         offset: offsetIncrementer++,
         timestamp: timestamp + offsetIncrementer,
         partition: 1,
+        headers,
     }
 }
 
@@ -165,7 +175,16 @@ const createTestWithTeamIngester = (baseConfig: Partial<PluginsServerConfig> = {
                 throw new Error(`Failed to fetch team ${newTeam.id} from database`)
             }
 
-            const ingester = new IngestionConsumer(hub)
+            const outputs = createTestIngestionOutputs(hub.kafkaProducer)
+            const ingester = new IngestionConsumer(hub, {
+                ...hub,
+                hogTransformer: createHogTransformerService(hub, {
+                    ...hub,
+                    monitoringOutputs: createTestMonitoringOutputs(hub.kafkaProducer),
+                }),
+                outputs,
+                clickhouseGroupRepository: new ClickhouseGroupRepository(outputs),
+            })
             ingester['kafkaConsumer'] = {
                 connect: jest.fn(),
                 disconnect: jest.fn(),
@@ -173,6 +192,7 @@ const createTestWithTeamIngester = (baseConfig: Partial<PluginsServerConfig> = {
             } as any
 
             await ingester.start()
+            currentToken = fetchedTeam.api_token
             await testFn(ingester, hub, fetchedTeam)
             await ingester.stop()
             await closeHub(hub)

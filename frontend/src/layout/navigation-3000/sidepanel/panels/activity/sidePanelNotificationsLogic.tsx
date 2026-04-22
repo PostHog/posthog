@@ -1,35 +1,36 @@
-import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, afterMount, beforeUnmount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { lazyLoaders } from 'kea-loaders'
 import posthog, { JsonRecord } from 'posthog-js'
+
+import { IconBug, IconCheckCircle, IconComment, IconNotification, IconPlug, IconWarning } from '@posthog/icons'
+import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { describerFor } from 'lib/components/ActivityLog/activityLogLogic'
 import { HumanizedActivityLogItem, humanize } from 'lib/components/ActivityLog/humanizeActivity'
+import { notificationsMenuLogic } from 'lib/components/NotificationsMenu/notificationsMenuLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { toParams } from 'lib/utils'
+import { liveEventsHostOrigin } from 'lib/utils/apiHost'
 import { projectLogic } from 'scenes/projectLogic'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { ChangesResponse } from '~/layout/navigation-3000/sidepanel/panels/activity/sidePanelActivityLogic'
+import { InAppNotification } from '~/types'
 
+import { sidePanelContextLogic } from '../../sidePanelContextLogic'
 import { sidePanelStateLogic } from '../../sidePanelStateLogic'
-import { sidePanelContextLogic } from '../sidePanelContextLogic'
 import type { sidePanelNotificationsLogicType } from './sidePanelNotificationsLogicType'
 
-const POLL_TIMEOUT = 5 * 60 * 1000
+const LEGACY_POLL_TIMEOUT = 5 * 60 * 1000
+const MAX_SSE_ERRORS = 3
 
 export interface ChangelogFlagPayload {
     notificationDate: dayjs.Dayjs
-
-    // Images can be embedded directly in the markdown using ![alt text](url) syntax.
-    // LemonMarkdown will render them.
-    // For optimal display, ensure images are reasonably sized (e.g., width < 800px)
-    // and optimized for web (e.g., < 500KB).
-    // We suggest you upload it to a CDN to reduce load times/server load.
-    // If you're a PostHog employee, check https://posthog.com/handbook/engineering/posthog-com/assets out
     markdown: string
-
-    // Optional fields used if you want to override this to a specific person rather than Joe
     name?: string
     email?: string
 }
@@ -37,8 +38,17 @@ export interface ChangelogFlagPayload {
 export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>([
     path(['layout', 'navigation-3000', 'sidepanel', 'panels', 'activity', 'sidePanelNotificationsLogic']),
     connect(() => ({
-        values: [sidePanelContextLogic, ['sceneSidePanelContext'], projectLogic, ['currentProjectId']],
-        actions: [sidePanelStateLogic, ['openSidePanel']],
+        values: [
+            sidePanelContextLogic,
+            ['sceneSidePanelContext'],
+            projectLogic,
+            ['currentProjectId'],
+            featureFlagLogic,
+            ['featureFlags'],
+            teamLogic,
+            ['currentTeam'],
+        ],
+        actions: [sidePanelStateLogic, ['openSidePanel'], teamLogic, ['loadCurrentTeamSuccess']],
     })),
     actions({
         togglePolling: (pageIsVisible: boolean) => ({ pageIsVisible }),
@@ -46,13 +56,86 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
         clearErrorCount: true,
         markAllAsRead: true,
         loadImportantChanges: (onlyUnread = true) => ({ onlyUnread }),
+        setInAppNotifications: (notifications: InAppNotification[], hasMore: boolean) => ({
+            notifications,
+            hasMore,
+        }),
+        appendInAppNotifications: (notifications: InAppNotification[], hasMore: boolean) => ({
+            notifications,
+            hasMore,
+        }),
+        setInAppUnreadCount: (count: number) => ({ count }),
+        notificationReceived: (notification: InAppNotification) => ({ notification }),
+        markAsRead: (id: string) => ({ id }),
+        toggleRead: (id: string) => ({ id }),
+        loadMoreNotifications: true,
+        initialLoadDone: true,
+        startSSE: true,
+        stopSSE: true,
     }),
     reducers({
+        isInitialLoadComplete: [
+            false,
+            {
+                initialLoadDone: () => true,
+            },
+        ],
         errorCounter: [
             0,
             {
-                incrementErrorCount: (state) => (state >= 5 ? 5 : state + 1),
+                incrementErrorCount: (state) => (state >= MAX_SSE_ERRORS ? MAX_SSE_ERRORS : state + 1),
                 clearErrorCount: () => 0,
+            },
+        ],
+        inAppNotifications: [
+            [] as InAppNotification[],
+            {
+                setInAppNotifications: (_, { notifications }) => notifications,
+                appendInAppNotifications: (state, { notifications }) => {
+                    const existingIds = new Set(state.map((n) => n.id))
+                    const newItems = notifications.filter((n) => !existingIds.has(n.id))
+                    return [...state, ...newItems]
+                },
+                notificationReceived: (state, { notification }) => [notification, ...state],
+                markAsRead: (state, { id }) =>
+                    state.map((n) => (n.id === id ? { ...n, read: true, read_at: new Date().toISOString() } : n)),
+                toggleRead: (state, { id }) =>
+                    state.map((n) =>
+                        n.id === id ? { ...n, read: !n.read, read_at: n.read ? null : new Date().toISOString() } : n
+                    ),
+                markAllAsRead: (state) =>
+                    state.map((n) => (n.read ? n : { ...n, read: true, read_at: new Date().toISOString() })),
+            },
+        ],
+        loadedFromApiCount: [
+            0,
+            {
+                setInAppNotifications: (_, { notifications }) => notifications.length,
+                appendInAppNotifications: (state, { notifications }) => state + notifications.length,
+            },
+        ],
+        hasMoreNotifications: [
+            false,
+            {
+                setInAppNotifications: (_, { hasMore }) => hasMore,
+                appendInAppNotifications: (_, { hasMore }) => hasMore,
+            },
+        ],
+        isLoadingMore: [
+            false,
+            {
+                loadMoreNotifications: () => true,
+                appendInAppNotifications: () => false,
+            },
+        ],
+        inAppUnreadCount: [
+            0,
+            {
+                setInAppUnreadCount: (_, { count }) => count,
+                notificationReceived: (state, { notification }) => (notification.read ? state : state + 1),
+                markAsRead: (state) => Math.max(0, state - 1),
+                toggleRead: (state) => state,
+                markAllAsRead: () => 0,
             },
         ],
     }),
@@ -69,18 +152,15 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
                                 toParams({ unread: onlyUnread })
                         )
 
-                        // we can't rely on automatic success action here because we swallow errors so always succeed
                         actions.clearErrorCount()
                         return response
                     } catch {
-                        // swallow errors as this isn't user initiated
-                        // increment a counter to backoff calling the API while errors persist
                         actions.incrementErrorCount()
                         return null
                     } finally {
                         const pollTimeoutMilliseconds = values.errorCounter
-                            ? POLL_TIMEOUT * values.errorCounter
-                            : POLL_TIMEOUT
+                            ? LEGACY_POLL_TIMEOUT * values.errorCounter
+                            : LEGACY_POLL_TIMEOUT
 
                         cache.disposables.add(() => {
                             const timerId = window.setTimeout(actions.loadImportantChanges, pollTimeoutMilliseconds)
@@ -89,20 +169,26 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
                     }
                 },
                 markAllAsRead: async () => {
+                    if (values.realTimeNotificationsEnabled) {
+                        await api.create(`api/environments/${values.currentProjectId}/notifications/mark_all_read/`, {})
+                        return values.importantChanges
+                    }
+
                     const current = values.importantChanges
                     if (!current) {
                         return null
                     }
 
-                    const latestNotification = values.notifications.reduce((a, b) =>
-                        a.created_at.isAfter(b.created_at) ? a : b
-                    )
+                    const legacyNotifications = values.legacyNotifications
+                    const hasUnread = legacyNotifications.some((ic) => ic.unread)
 
-                    const hasUnread = values.notifications.some((ic) => ic.unread)
-
-                    if (!hasUnread) {
+                    if (!hasUnread || legacyNotifications.length === 0) {
                         return current
                     }
+
+                    const latestNotification = legacyNotifications.reduce((a, b) =>
+                        a.created_at.isAfter(b.created_at) ? a : b
+                    )
 
                     await api.create(`api/projects/${values.currentProjectId}/my_notifications/bookmark`, {
                         bookmark: latestNotification.created_at.toISOString(),
@@ -117,17 +203,186 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
             },
         ],
     })),
-    listeners(({ actions, cache }) => ({
+    listeners(({ actions, values, cache }) => ({
         togglePolling: ({ pageIsVisible }) => {
+            if (values.realTimeNotificationsEnabled) {
+                return
+            }
             if (pageIsVisible) {
                 actions.loadImportantChanges()
             } else {
                 cache.disposables.dispose('pollTimeout')
             }
         },
+        startSSE: () => {
+            // TEMPORARY: lifecycle tracking for /notifications SSE connection.
+            // Remove together with livestream_401_debug once root cause is known.
+            posthog.capture('livestream_sse_startsse_called', {
+                flag_enabled: values.realTimeNotificationsEnabled,
+                has_token: !!values.currentTeam?.live_events_token,
+                has_host: !!liveEventsHostOrigin(),
+                had_prior_connection: !!cache.sseConnection,
+            })
+
+            if (!values.realTimeNotificationsEnabled) {
+                posthog.capture('livestream_sse_startsse_skipped', { reason: 'flag_disabled' })
+                return
+            }
+
+            const token = values.currentTeam?.live_events_token
+            if (!token) {
+                posthog.capture('livestream_sse_startsse_skipped', { reason: 'no_token' })
+                return
+            }
+
+            const host = liveEventsHostOrigin()
+            if (!host) {
+                posthog.capture('livestream_sse_startsse_skipped', { reason: 'no_host' })
+                return
+            }
+
+            const url = `${host}/notifications`
+
+            cache.sseConnection?.abort()
+            const abortController = new AbortController()
+            cache.sseConnection = abortController
+            cache.firstMessageLogged = false
+
+            posthog.capture('livestream_sse_connecting', { url })
+
+            void api
+                .stream(url, {
+                    headers: {
+                        Authorization: `Bearer ${token}`,
+                    },
+                    signal: abortController.signal,
+                    onMessage: (event) => {
+                        actions.clearErrorCount()
+                        if (!cache.firstMessageLogged) {
+                            cache.firstMessageLogged = true
+                            posthog.capture('livestream_sse_first_message', { url })
+                        }
+                        if (!values.isInitialLoadComplete) {
+                            return
+                        }
+                        try {
+                            const notification = JSON.parse(event.data) as InAppNotification
+                            actions.notificationReceived(notification)
+                            if (notification.priority === 'critical') {
+                                const iconMap: Record<string, JSX.Element> = {
+                                    comment_mention: <IconComment className="size-5 text-primary shrink-0" />,
+                                    alert_firing: <IconWarning className="size-5 text-warning shrink-0" />,
+                                    approval_requested: <IconCheckCircle className="size-5 text-success shrink-0" />,
+                                    approval_resolved: <IconCheckCircle className="size-5 text-success shrink-0" />,
+                                    pipeline_failure: <IconPlug className="size-5 text-danger shrink-0" />,
+                                    issue_assigned: <IconBug className="size-5 text-primary shrink-0" />,
+                                }
+                                const icon = iconMap[notification.notification_type] ?? (
+                                    <IconNotification className="size-5 text-secondary shrink-0" />
+                                )
+                                lemonToast.info(
+                                    <div className="flex items-start gap-2">
+                                        {icon}
+                                        <div className="min-w-0">
+                                            <div className="font-semibold text-xs">{notification.title}</div>
+                                            {notification.body && (
+                                                <div className="text-xs text-secondary mt-0.5 line-clamp-1">
+                                                    {notification.body}
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>,
+                                    {
+                                        icon: false,
+                                        autoClose: false,
+                                        toastId: `notification-${notification.id}`,
+                                        button: {
+                                            label: 'Open notifications',
+                                            action: () => notificationsMenuLogic.actions.openToUnread(),
+                                        },
+                                    }
+                                )
+                            }
+                        } catch {
+                            // Ignore malformed messages
+                        }
+                    },
+                    onError: (error) => {
+                        // TEMPORARY: livestream SSE lifecycle tracking.
+                        posthog.capture('livestream_sse_error', {
+                            url,
+                            error_name: (error as Error | undefined)?.name,
+                            error_message: (error as Error | undefined)?.message,
+                            error_count: values.errorCounter + 1,
+                        })
+                        actions.incrementErrorCount()
+                        if (values.errorCounter >= MAX_SSE_ERRORS) {
+                            posthog.capture('livestream_sse_max_errors', {
+                                url,
+                                max_errors: MAX_SSE_ERRORS,
+                            })
+                            abortController.abort()
+                            throw new Error(`SSE failed ${MAX_SSE_ERRORS} times, giving up`)
+                        }
+                    },
+                })
+                .catch(() => {})
+        },
+        stopSSE: () => {
+            // TEMPORARY: livestream SSE lifecycle tracking.
+            posthog.capture('livestream_sse_stopped', {
+                had_connection: !!cache.sseConnection,
+            })
+            cache.sseConnection?.abort()
+            cache.sseConnection = null
+        },
+        markAsRead: async ({ id }) => {
+            try {
+                await api.create(`api/environments/${values.currentProjectId}/notifications/${id}/mark_read/`, {})
+            } catch {
+                // Swallow
+            }
+        },
+        toggleRead: async ({ id }) => {
+            const notification = values.inAppNotifications.find((n) => n.id === id)
+            if (!notification) {
+                return
+            }
+            const endpoint = notification.read ? 'mark_read' : 'mark_unread'
+            try {
+                await api.create(`api/environments/${values.currentProjectId}/notifications/${id}/${endpoint}/`, {})
+            } catch {
+                // Swallow
+            }
+        },
+        loadCurrentTeamSuccess: () => {
+            if (values.realTimeNotificationsEnabled && !cache.sseConnection) {
+                actions.startSSE()
+            }
+        },
+        loadMoreNotifications: async () => {
+            if (!values.hasMoreNotifications) {
+                return
+            }
+            try {
+                const resp = await api.get<{
+                    results: InAppNotification[]
+                    next: string | null
+                }>(
+                    `api/environments/${values.currentProjectId}/notifications/?limit=20&offset=${values.loadedFromApiCount}`
+                )
+                actions.appendInAppNotifications(resp.results, !!resp.next)
+            } catch {
+                // Swallow
+            }
+        },
     })),
     selectors({
-        notifications: [
+        realTimeNotificationsEnabled: [
+            (s) => [s.featureFlags],
+            (featureFlags): boolean => !!featureFlags[FEATURE_FLAGS.REAL_TIME_NOTIFICATIONS],
+        ],
+        legacyNotifications: [
             (s) => [s.importantChanges],
             (importantChanges): HumanizedActivityLogItem[] => {
                 try {
@@ -164,8 +419,6 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
                             ),
                         ]
 
-                        // Sorting this inside the `if` case because there's no need to sort the changelog notifications
-                        // if there are no changelog notifications, since they come from the backend sorted already.
                         importantChangesHumanized.sort((a: HumanizedActivityLogItem, b: HumanizedActivityLogItem) => {
                             if (a.created_at.isBefore(b.created_at)) {
                                 return 1
@@ -179,27 +432,69 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
 
                     return importantChangesHumanized
                 } catch {
-                    // swallow errors as this isn't user initiated
                     return []
                 }
             },
         ],
-
-        hasNotifications: [(s) => [s.notifications], (notifications) => !!notifications.length],
-        unread: [
-            (s) => [s.notifications],
-            (notifications: HumanizedActivityLogItem[]) => notifications.filter((ic) => ic.unread),
+        notifications: [
+            (s) => [s.realTimeNotificationsEnabled, s.legacyNotifications, s.inAppNotifications],
+            (
+                realTimeEnabled,
+                legacyNotifications,
+                inAppNotifications
+            ): HumanizedActivityLogItem[] | InAppNotification[] => {
+                return realTimeEnabled ? inAppNotifications : legacyNotifications
+            },
         ],
-        unreadCount: [(s) => [s.unread], (unread) => (unread || []).length],
+        hasNotifications: [(s) => [s.notifications], (notifications) => !!notifications.length],
+        unreadCount: [
+            (s) => [s.realTimeNotificationsEnabled, s.legacyNotifications, s.inAppUnreadCount],
+            (realTimeEnabled, legacyNotifications, inAppUnreadCount): number => {
+                if (realTimeEnabled) {
+                    return inAppUnreadCount
+                }
+                return legacyNotifications.filter((ic) => ic.unread).length
+            },
+        ],
         hasUnread: [(s) => [s.unreadCount], (unreadCount) => unreadCount > 0],
     }),
-    afterMount(({ cache, actions }) => {
-        cache.disposables.add(() => {
-            const onVisibilityChange = (): void => {
-                actions.togglePolling(document.visibilityState === 'visible')
+    afterMount(({ cache, actions, values }) => {
+        if (values.realTimeNotificationsEnabled) {
+            void (async () => {
+                try {
+                    const resp = await api.get<{
+                        results: InAppNotification[]
+                        next: string | null
+                    }>(`api/environments/${values.currentProjectId}/notifications/?limit=20`)
+                    actions.setInAppNotifications(resp.results, !!resp.next)
+                } catch {
+                    // Swallow
+                }
+                try {
+                    const countResp = await api.get<{ count: number }>(
+                        `api/environments/${values.currentProjectId}/notifications/unread_count/`
+                    )
+                    actions.setInAppUnreadCount(countResp.count)
+                } catch {
+                    // Swallow
+                }
+                actions.initialLoadDone()
+            })()
+
+            if (values.currentTeam?.live_events_token) {
+                actions.startSSE()
             }
-            document.addEventListener('visibilitychange', onVisibilityChange)
-            return () => document.removeEventListener('visibilitychange', onVisibilityChange)
-        }, 'visibilityListener')
+        } else {
+            cache.disposables.add(() => {
+                const onVisibilityChange = (): void => {
+                    actions.togglePolling(document.visibilityState === 'visible')
+                }
+                document.addEventListener('visibilitychange', onVisibilityChange)
+                return () => document.removeEventListener('visibilitychange', onVisibilityChange)
+            }, 'visibilityListener')
+        }
+    }),
+    beforeUnmount(({ actions }) => {
+        actions.stopSSE()
     }),
 ])

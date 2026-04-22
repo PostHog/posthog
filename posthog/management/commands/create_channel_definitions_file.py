@@ -511,7 +511,9 @@ async def parallel_lookup_up_apple_apps(url_entries):
                 pass
         return app_ids, entry
 
-    async with aiohttp.ClientSession(read_timeout=60, conn_timeout=60) as session:
+    async with aiohttp.ClientSession(
+        trust_env=True, timeout=aiohttp.ClientTimeout(sock_read=60, sock_connect=60)
+    ) as session:
         return await asyncio.gather(*(f(url_entry, session) for url_entry in url_entries))
 
 
@@ -537,5 +539,7 @@ async def parallel_lookup_up_android_apps(url_entries):
                 app_ids.append(package_name)
         return app_ids, entry
 
-    async with aiohttp.ClientSession(read_timeout=60, conn_timeout=60) as session:
+    async with aiohttp.ClientSession(
+        trust_env=True, timeout=aiohttp.ClientTimeout(sock_read=60, sock_connect=60)
+    ) as session:
         return await asyncio.gather(*(f(url_entry, session) for url_entry in url_entries))

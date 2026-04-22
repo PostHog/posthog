@@ -9,8 +9,8 @@ import { LemonButton, LemonDivider, LemonInput } from '@posthog/lemon-ui'
 import { BridgePage } from 'lib/components/BridgePage/BridgePage'
 import PasswordStrength from 'lib/components/PasswordStrength'
 import SignupRoleSelect from 'lib/components/SignupRoleSelect'
-import { SSOEnforcedLoginButton, SocialLoginButtons } from 'lib/components/SocialLoginButton/SocialLoginButton'
 import passkeyLogo from 'lib/components/SocialLoginButton/passkey.svg'
+import { SSOEnforcedLoginButton, SocialLoginButtons } from 'lib/components/SocialLoginButton/SocialLoginButton'
 import { supportLogic } from 'lib/components/Support/supportLogic'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -24,9 +24,10 @@ import { userLogic } from 'scenes/userLogic'
 
 import { PrevalidatedInvite } from '~/types'
 
-import { SupportModalButton } from './SupportModalButton'
 import { ErrorCodes, inviteSignupLogic } from './inviteSignupLogic'
 import { loginLogic } from './loginLogic'
+import { TurnstileChallenge } from './signup/signupForm/TurnstileChallenge'
+import { SupportModalButton } from './SupportModalButton'
 
 export const scene: SceneExport = {
     component: InviteSignup,
@@ -205,8 +206,11 @@ function UnauthenticatedAcceptInvite({ invite }: { invite: PrevalidatedInvite })
         isPasskeyRegistering,
         passkeyError,
         passkeySignupEnabled,
+        challengeRequired,
+        turnstileSiteKey,
+        turnstileToken,
     } = useValues(inviteSignupLogic)
-    const { registerPasskey } = useActions(inviteSignupLogic)
+    const { registerPasskey, setTurnstileToken } = useActions(inviteSignupLogic)
     const { preflight } = useValues(preflightLogic)
     const { openSupportForm } = useActions(supportLogic)
 
@@ -350,20 +354,28 @@ function UnauthenticatedAcceptInvite({ invite }: { invite: PrevalidatedInvite })
                 )}
 
                 {/* Show regular login button if SSO is not enforced */}
-                {!precheckResponse.sso_enforcement && (
-                    <LemonButton
-                        type="primary"
-                        status="alt"
-                        htmlType="submit"
-                        data-attr="password-signup"
-                        fullWidth
-                        center
-                        loading={isSignupSubmitting || precheckResponseLoading}
-                        size="large"
-                    >
-                        Continue
-                    </LemonButton>
-                )}
+                {!precheckResponse.sso_enforcement &&
+                    (challengeRequired && turnstileSiteKey ? (
+                        <TurnstileChallenge
+                            siteKey={turnstileSiteKey}
+                            onSuccess={setTurnstileToken}
+                            tokenReceived={!!turnstileToken}
+                            email={invite.target_email}
+                        />
+                    ) : (
+                        <LemonButton
+                            type="primary"
+                            status="alt"
+                            htmlType="submit"
+                            data-attr="password-signup"
+                            fullWidth
+                            center
+                            loading={isSignupSubmitting || precheckResponseLoading}
+                            size="large"
+                        >
+                            Continue
+                        </LemonButton>
+                    ))}
 
                 {/* Show enforced SSO button if required */}
                 {precheckResponse.sso_enforcement && (

@@ -76,6 +76,10 @@ class HogFlow(UUIDTModel):
     # Contains only billable action types: 'function', 'function_email', 'function_sms', 'function_push'
     billable_action_types = models.JSONField(default=list, null=True, blank=True)
 
+    # Draft storage for active workflows: stores pending edits separately from live config
+    draft = models.JSONField(null=True, blank=True)
+    draft_updated_at = models.DateTimeField(null=True, blank=True)
+
     def __str__(self):
         return f"HogFlow {self.id}/{self.version}: {self.name}"
 

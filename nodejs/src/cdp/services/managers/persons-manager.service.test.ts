@@ -1,7 +1,7 @@
 import { DateTime } from 'luxon'
 
 import { createTeam, getFirstTeam, getTeam, resetTestDatabase } from '~/tests/helpers/sql'
-import { Hub, Person, PropertyOperator, Team } from '~/types'
+import { Hub, Person, Team } from '~/types'
 import { closeHub, createHub } from '~/utils/db/hub'
 import { UUIDT } from '~/utils/utils'
 import { PostgresPersonRepository } from '~/worker/ingestion/persons/repositories/postgres-person-repository'
@@ -16,63 +16,44 @@ describe('PersonsManager', () => {
     let team2: Team
     let persons: Person[] = []
 
-    beforeEach(async () => {
-        hub = await createHub()
-        personRepository = new PostgresPersonRepository(hub.postgres)
-        await resetTestDatabase()
-        manager = new PersonsManagerService(hub.personRepository)
-        team = await getFirstTeam(hub)
-        const team2Id = await createTeam(hub.postgres, team.organization_id)
-        team2 = (await getTeam(hub, team2Id))!
-
-        const TIMESTAMP = DateTime.fromISO('2000-10-14T11:42:06.502Z').toUTC()
+    const createPerson = async (
+        teamId: number,
+        properties: Record<string, any>,
+        distinctId: string,
+        extraDistinctIds?: string[]
+    ): Promise<Person> => {
         const result = await personRepository.createPerson(
-            TIMESTAMP,
-            { foo: '1' },
+            DateTime.fromISO('2000-10-14T11:42:06.502Z').toUTC(),
+            properties,
             {},
             {},
-            team.id,
+            teamId,
             null,
             true,
             new UUIDT().toString(),
-            { distinctId: 'distinct_id_A_1' },
-            [{ distinctId: 'distinct_id_A_2' }, { distinctId: 'distinct_id_A_3' }]
+            { distinctId },
+            extraDistinctIds?.map((id) => ({ distinctId: id }))
         )
         if (!result.success) {
             throw new Error('Failed to create person')
         }
-        const person1 = result.person
-        const result2 = await personRepository.createPerson(
-            TIMESTAMP,
-            { foo: '2' },
-            {},
-            {},
-            team.id,
-            null,
-            true,
-            new UUIDT().toString(),
-            { distinctId: 'distinct_id_B_1' }
-        )
-        if (!result2.success) {
-            throw new Error('Failed to create person')
-        }
-        const person2 = result2.person
-        const result3 = await personRepository.createPerson(
-            TIMESTAMP,
-            { foo: '3' },
-            {},
-            {},
-            team2.id,
-            null,
-            true,
-            new UUIDT().toString(),
-            { distinctId: 'distinct_id_A_1' }
-        )
-        if (!result3.success) {
-            throw new Error('Failed to create person')
-        }
-        const person3 = result3.person
-        persons = [person1, person2, person3]
+        return result.person
+    }
+
+    beforeEach(async () => {
+        hub = await createHub()
+        personRepository = new PostgresPersonRepository(hub.postgres)
+        await resetTestDatabase()
+        manager = new PersonsManagerService(hub.teamManager, hub.personRepository, 'http://localhost:8000')
+        team = await getFirstTeam(hub.postgres)
+        const team2Id = await createTeam(hub.postgres, team.organization_id)
+        team2 = (await getTeam(hub.postgres, team2Id))!
+
+        persons = [
+            await createPerson(team.id, { foo: '1' }, 'distinct_id_A_1', ['distinct_id_A_2', 'distinct_id_A_3']),
+            await createPerson(team.id, { foo: '2' }, 'distinct_id_B_1'),
+            await createPerson(team2.id, { foo: '3' }, 'distinct_id_A_1'),
+        ]
     })
 
     afterEach(async () => {
@@ -80,376 +61,142 @@ describe('PersonsManager', () => {
         jest.restoreAllMocks()
     })
 
-    it('returns the persons requested', async () => {
-        const res = await Promise.all([
-            manager.get({ teamId: team.id, distinctId: 'distinct_id_A_1' }),
-            manager.get({ teamId: team.id, distinctId: 'distinct_id_B_1' }),
-        ])
+    describe('getCyclotronPerson with distinct_id', () => {
+        it('returns the persons requested', async () => {
+            const res = await Promise.all([
+                manager.getCyclotronPerson(team.id, 'distinct_id_A_1', 'distinct_id'),
+                manager.getCyclotronPerson(team.id, 'distinct_id_B_1', 'distinct_id'),
+            ])
 
-        expect(res).toEqual([
-            {
-                distinct_id: 'distinct_id_A_1',
-                id: persons[0].uuid,
-                properties: {
-                    foo: '1',
-                },
-                team_id: team.id,
-            },
-            {
-                distinct_id: 'distinct_id_B_1',
-                id: persons[1].uuid,
-                properties: {
-                    foo: '2',
-                },
-                team_id: team.id,
-            },
-        ])
-    })
-
-    it('returns the persons requested when distinct IDs contain colons', async () => {
-        const TIMESTAMP = DateTime.fromISO('2000-10-14T11:42:06.502Z').toUTC()
-        const result1 = await personRepository.createPerson(
-            TIMESTAMP,
-            { foo: '1' },
-            {},
-            {},
-            team.id,
-            null,
-            true,
-            new UUIDT().toString(),
-            { distinctId: 'foo:distinct_id_A_1' }
-        )
-        if (!result1.success) {
-            throw new Error('Failed to create person')
-        }
-        const person1 = result1.person
-        const result2 = await personRepository.createPerson(
-            TIMESTAMP,
-            { foo: '2' },
-            {},
-            {},
-            team.id,
-            null,
-            true,
-            new UUIDT().toString(),
-            { distinctId: 'foo:bar:distinct_id_B_1' }
-        )
-        if (!result2.success) {
-            throw new Error('Failed to create person')
-        }
-        const person2 = result2.person
-
-        const res = await Promise.all([
-            manager.get({ teamId: team.id, distinctId: 'foo:distinct_id_A_1' }),
-            manager.get({ teamId: team.id, distinctId: 'foo:bar:distinct_id_B_1' }),
-        ])
-
-        expect(res).toEqual([
-            {
-                distinct_id: 'foo:distinct_id_A_1',
-                id: person1.uuid,
-                properties: {
-                    foo: '1',
-                },
-                team_id: team.id,
-            },
-            {
-                distinct_id: 'foo:bar:distinct_id_B_1',
-                id: person2.uuid,
-                properties: {
-                    foo: '2',
-                },
-                team_id: team.id,
-            },
-        ])
-    })
-
-    it('returns the different persons for different teams', async () => {
-        const res = await Promise.all([
-            manager.get({ teamId: team.id, distinctId: 'distinct_id_A_1' }),
-            manager.get({ teamId: team2.id, distinctId: 'distinct_id_A_1' }),
-        ])
-
-        expect(res).toEqual([
-            {
-                distinct_id: 'distinct_id_A_1',
-                id: persons[0].uuid,
-                properties: {
-                    foo: '1',
-                },
-                team_id: team.id,
-            },
-            {
-                distinct_id: 'distinct_id_A_1',
-                id: persons[2].uuid,
-                properties: {
-                    foo: '3',
-                },
-                team_id: team2.id,
-            },
-        ])
-    })
-
-    it('returns the same person for different distinct ids', async () => {
-        const res = await Promise.all([
-            manager.get({ teamId: team.id, distinctId: 'distinct_id_A_1' }),
-            manager.get({ teamId: team.id, distinctId: 'distinct_id_A_2' }),
-        ])
-
-        expect(res).toEqual([
-            {
-                distinct_id: 'distinct_id_A_1',
-                id: persons[0].uuid,
-                properties: {
-                    foo: '1',
-                },
-                team_id: team.id,
-            },
-            {
-                distinct_id: 'distinct_id_A_2',
-                id: persons[0].uuid,
-                properties: {
-                    foo: '1',
-                },
-                team_id: team.id,
-            },
-        ])
-    })
-
-    describe('streamMany', () => {
-        it('calls onPerson for each person fetched', async () => {
-            const TIMESTAMP = DateTime.fromISO('2000-10-14T11:42:06.502Z').toUTC()
-            const mockPersons = [
+            expect(res).toEqual([
                 {
-                    id: '1',
-                    uuid: 'person-1',
-                    distinct_id: 'distinct-1',
-                    team_id: team.id,
-                    properties: { name: 'Alice' },
-                    is_user_id: null,
-                    is_identified: true,
-                    properties_last_updated_at: {},
-                    properties_last_operation: {},
-                    created_at: TIMESTAMP,
-                    version: 0,
-                    last_seen_at: null,
+                    id: persons[0].uuid,
+                    properties: { foo: '1' },
+                    name: 'distinct_id_A_1',
+                    url: `http://localhost:8000/project/${team.id}/person/distinct_id_A_1`,
                 },
                 {
-                    id: '2',
-                    uuid: 'person-2',
-                    distinct_id: 'distinct-2',
-                    team_id: team.id,
-                    properties: { name: 'Bob' },
-                    is_user_id: null,
-                    is_identified: true,
-                    properties_last_updated_at: {},
-                    properties_last_operation: {},
-                    created_at: TIMESTAMP,
-                    version: 0,
-                    last_seen_at: null,
+                    id: persons[1].uuid,
+                    properties: { foo: '2' },
+                    name: 'distinct_id_B_1',
+                    url: `http://localhost:8000/project/${team.id}/person/distinct_id_B_1`,
                 },
-                {
-                    id: '3',
-                    uuid: 'person-3',
-                    distinct_id: 'distinct-3',
-                    team_id: team.id,
-                    properties: { name: 'Charlie' },
-                    is_user_id: null,
-                    is_identified: true,
-                    properties_last_updated_at: {},
-                    properties_last_operation: {},
-                    created_at: TIMESTAMP,
-                    version: 0,
-                    last_seen_at: null,
-                },
-            ]
-
-            jest.spyOn(hub.personRepository, 'fetchPersonsByProperties').mockResolvedValueOnce(mockPersons)
-
-            const onPersonBatch = jest.fn()
-            await manager.streamMany({
-                filters: {
-                    teamId: team.id,
-                    properties: [
-                        {
-                            type: 'person',
-                            key: 'name',
-                            operator: PropertyOperator.IsSet,
-                            value: 'true',
-                        },
-                    ],
-                },
-                onPersonBatch,
-            })
-
-            expect(onPersonBatch).toHaveBeenCalledTimes(1)
-            expect(onPersonBatch).toHaveBeenCalledWith([
-                { personId: 'person-1', distinctId: 'distinct-1' },
-                { personId: 'person-2', distinctId: 'distinct-2' },
-                { personId: 'person-3', distinctId: 'distinct-3' },
             ])
         })
 
-        it('handles pagination correctly with multiple batches', async () => {
-            jest.restoreAllMocks()
-            const TIMESTAMP = DateTime.fromISO('2000-10-14T11:42:06.502Z').toUTC()
-            const batch1 = Array.from({ length: 500 }, (_, i) => ({
-                id: `${i}`,
-                uuid: `person-${i}`,
-                distinct_id: `distinct-${i}`,
-                team_id: team.id,
-                properties: {},
-                is_user_id: null,
-                is_identified: true,
-                properties_last_updated_at: {},
-                properties_last_operation: {},
-                created_at: TIMESTAMP,
-                version: 0,
-                last_seen_at: null,
-            }))
-            const batch2 = Array.from({ length: 300 }, (_, i) => ({
-                id: `${i + 500}`,
-                uuid: `person-${i + 500}`,
-                distinct_id: `distinct-${i + 500}`,
-                team_id: team.id,
-                properties: {},
-                is_user_id: null,
-                is_identified: true,
-                properties_last_updated_at: {},
-                properties_last_operation: {},
-                created_at: TIMESTAMP,
-                version: 0,
-                last_seen_at: null,
-            }))
+        it('handles distinct IDs containing colons', async () => {
+            const person1 = await createPerson(team.id, { foo: '1' }, 'foo:distinct_id_A_1')
+            const person2 = await createPerson(team.id, { foo: '2' }, 'foo:bar:distinct_id_B_1')
 
-            let callCount = 0
-            const fetchSpy = jest
-                .spyOn(hub.personRepository, 'fetchPersonsByProperties')
-                // eslint-disable-next-line @typescript-eslint/require-await
-                .mockImplementation(async () => {
-                    callCount++
-                    return callCount === 1 ? batch1 : batch2
+            const res = await Promise.all([
+                manager.getCyclotronPerson(team.id, 'foo:distinct_id_A_1', 'distinct_id'),
+                manager.getCyclotronPerson(team.id, 'foo:bar:distinct_id_B_1', 'distinct_id'),
+            ])
+
+            expect(res).toEqual([
+                {
+                    id: person1.uuid,
+                    properties: { foo: '1' },
+                    name: 'foo:distinct_id_A_1',
+                    url: `http://localhost:8000/project/${team.id}/person/foo%3Adistinct_id_A_1`,
+                },
+                {
+                    id: person2.uuid,
+                    properties: { foo: '2' },
+                    name: 'foo:bar:distinct_id_B_1',
+                    url: `http://localhost:8000/project/${team.id}/person/foo%3Abar%3Adistinct_id_B_1`,
+                },
+            ])
+        })
+
+        it('returns different persons for different teams', async () => {
+            const res = await Promise.all([
+                manager.getCyclotronPerson(team.id, 'distinct_id_A_1', 'distinct_id'),
+                manager.getCyclotronPerson(team2.id, 'distinct_id_A_1', 'distinct_id'),
+            ])
+
+            expect(res).toEqual([
+                {
+                    id: persons[0].uuid,
+                    properties: { foo: '1' },
+                    name: 'distinct_id_A_1',
+                    url: `http://localhost:8000/project/${team.id}/person/distinct_id_A_1`,
+                },
+                {
+                    id: persons[2].uuid,
+                    properties: { foo: '3' },
+                    name: 'distinct_id_A_1',
+                    url: `http://localhost:8000/project/${team2.id}/person/distinct_id_A_1`,
+                },
+            ])
+        })
+
+        it('returns the same person for different distinct ids', async () => {
+            const res = await Promise.all([
+                manager.getCyclotronPerson(team.id, 'distinct_id_A_1', 'distinct_id'),
+                manager.getCyclotronPerson(team.id, 'distinct_id_A_2', 'distinct_id'),
+            ])
+
+            expect(res![0]!.id).toEqual(res![1]!.id)
+            expect(res![0]!.properties).toEqual(res![1]!.properties)
+        })
+
+        it('returns undefined when person does not exist', async () => {
+            const result = await manager.getCyclotronPerson(team.id, 'nonexistent', 'distinct_id')
+
+            expect(result).toBeNull()
+        })
+
+        it('returns undefined when team does not exist', async () => {
+            const result = await manager.getCyclotronPerson(99999, 'distinct_id_A_1', 'distinct_id')
+
+            expect(result).toBeNull()
+        })
+
+        it('encodes special characters in distinct_id for URL', async () => {
+            await createPerson(team.id, {}, 'user@example.com')
+            manager.clear()
+            const result = await manager.getCyclotronPerson(team.id, 'user@example.com', 'distinct_id')
+
+            expect(result).toBeDefined()
+            expect(result!.url).toBe(`http://localhost:8000/project/${team.id}/person/user%40example.com`)
+        })
+    })
+
+    describe('getCyclotronPerson with person_id', () => {
+        it('returns a person by their UUID', async () => {
+            const result = await manager.getCyclotronPerson(team.id, persons[0].uuid, 'person_id')
+
+            expect(result).toEqual(
+                expect.objectContaining({
+                    id: persons[0].uuid,
+                    properties: { foo: '1' },
                 })
-
-            const onPersonBatch = jest.fn()
-            await manager.streamMany({
-                filters: { teamId: team.id, properties: [] },
-                onPersonBatch,
-            })
-
-            expect(fetchSpy).toHaveBeenCalledTimes(2)
-            expect(fetchSpy.mock.calls[0][0]).toEqual({
-                teamId: team.id,
-                properties: [],
-                options: { limit: 500, cursor: undefined },
-            })
-            expect(fetchSpy.mock.calls[1][0]).toEqual({
-                teamId: team.id,
-                properties: [],
-                options: { limit: 500, cursor: '499' },
-            })
-            expect(onPersonBatch).toHaveBeenCalledTimes(2)
+            )
         })
 
-        it('stops paginating when batch is not full', async () => {
-            const TIMESTAMP = DateTime.fromISO('2000-10-14T11:42:06.502Z').toUTC()
-            const batch = Array.from({ length: 200 }, (_, i) => ({
-                id: `${i}`,
-                uuid: `person-${i}`,
-                distinct_id: `distinct-${i}`,
-                team_id: team.id,
-                properties: {},
-                is_user_id: null,
-                is_identified: true,
-                properties_last_updated_at: {},
-                properties_last_operation: {},
-                created_at: TIMESTAMP,
-                version: 0,
-                last_seen_at: null,
-            }))
+        it('returns undefined for a UUID that does not exist', async () => {
+            const result = await manager.getCyclotronPerson(team.id, new UUIDT().toString(), 'person_id')
 
-            const fetchSpy = jest.spyOn(hub.personRepository, 'fetchPersonsByProperties').mockResolvedValueOnce(batch)
-
-            const onPersonBatch = jest.fn()
-            await manager.streamMany({
-                filters: { teamId: team.id, properties: [] },
-                onPersonBatch,
-            })
-
-            expect(fetchSpy).toHaveBeenCalledTimes(1)
-            expect(onPersonBatch).toHaveBeenCalledTimes(1)
+            expect(result).toBeNull()
         })
 
-        it('handles empty results', async () => {
-            jest.spyOn(hub.personRepository, 'fetchPersonsByProperties').mockResolvedValueOnce([])
+        it('returns the correct person for each team when UUIDs differ', async () => {
+            const res = await Promise.all([
+                manager.getCyclotronPerson(team.id, persons[0].uuid, 'person_id'),
+                manager.getCyclotronPerson(team2.id, persons[2].uuid, 'person_id'),
+            ])
 
-            const onPersonBatch = jest.fn()
-            await manager.streamMany({
-                filters: { teamId: team.id, properties: [] },
-                onPersonBatch,
-            })
-
-            expect(onPersonBatch).not.toHaveBeenCalled()
+            expect(res).toEqual([
+                expect.objectContaining({ id: persons[0].uuid, properties: { foo: '1' } }),
+                expect.objectContaining({ id: persons[2].uuid, properties: { foo: '3' } }),
+            ])
         })
 
-        it('respects custom limit option', async () => {
-            const TIMESTAMP = DateTime.fromISO('2000-10-14T11:42:06.502Z').toUTC()
-            const batch1 = Array.from({ length: 100 }, (_, i) => ({
-                id: `${i}`,
-                uuid: `person-${i}`,
-                distinct_id: `distinct-${i}`,
-                team_id: team.id,
-                properties: {},
-                is_user_id: null,
-                is_identified: true,
-                properties_last_updated_at: {},
-                properties_last_operation: {},
-                created_at: TIMESTAMP,
-                version: 0,
-                last_seen_at: null,
-            }))
-            const batch2 = Array.from({ length: 50 }, (_, i) => ({
-                id: `${i + 100}`,
-                uuid: `person-${i + 100}`,
-                distinct_id: `distinct-${i + 100}`,
-                team_id: team.id,
-                properties: {},
-                is_user_id: null,
-                is_identified: true,
-                properties_last_updated_at: {},
-                properties_last_operation: {},
-                created_at: TIMESTAMP,
-                version: 0,
-                last_seen_at: null,
-            }))
+        it('returns undefined when queried under the wrong team', async () => {
+            const result = await manager.getCyclotronPerson(team2.id, persons[0].uuid, 'person_id')
 
-            let callCount = 0
-            const fetchSpy = jest
-                .spyOn(hub.personRepository, 'fetchPersonsByProperties')
-                // eslint-disable-next-line @typescript-eslint/require-await
-                .mockImplementation(async () => {
-                    callCount++
-                    return callCount === 1 ? batch1 : batch2
-                })
-
-            const onPersonBatch = jest.fn()
-            await manager.streamMany({
-                filters: { teamId: team.id, properties: [] },
-                options: { limit: 100 },
-                onPersonBatch,
-            })
-
-            expect(fetchSpy.mock.calls[0][0]).toEqual({
-                teamId: team.id,
-                properties: [],
-                options: { limit: 100, cursor: undefined },
-            })
-            expect(fetchSpy.mock.calls[1][0]).toEqual({
-                teamId: team.id,
-                properties: [],
-                options: { limit: 100, cursor: '99' },
-            })
-            expect(onPersonBatch).toHaveBeenCalledTimes(2)
+            expect(result).toBeNull()
         })
     })
 })

@@ -15,6 +15,7 @@ from posthog.hogql.errors import (
 
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.errors import (
+    CH_TRANSIENT_ERRORS,
     CHQueryErrorCannotParseUuid,
     CHQueryErrorIllegalAggregation,
     CHQueryErrorIllegalTypeOfArgument,
@@ -22,12 +23,11 @@ from posthog.errors import (
     CHQueryErrorNoCommonType,
     CHQueryErrorNotAnAggregate,
     CHQueryErrorNumberOfArgumentsDoesntMatch,
-    CHQueryErrorS3Error,
     CHQueryErrorTooManyBytes,
-    CHQueryErrorTooManySimultaneousQueries,
     CHQueryErrorTypeMismatch,
     CHQueryErrorUnknownFunction,
     CHQueryErrorUnknownIdentifier,
+    CHQueryErrorUnknownTable,
     CHQueryErrorUnsupportedMethod,
 )
 from posthog.exceptions import (
@@ -73,8 +73,7 @@ class ExcelColumnLimitExceeded(Exception):
 
 
 EXCEPTIONS_TO_RETRY = (
-    CHQueryErrorS3Error,
-    CHQueryErrorTooManySimultaneousQueries,
+    *CH_TRANSIENT_ERRORS,
     OperationalError,
     ProtocolError,
     ConcurrencyLimitExceeded,
@@ -104,6 +103,7 @@ USER_QUERY_ERRORS = (
     CHQueryErrorUnsupportedMethod,
     ResolutionError,
     CHQueryErrorInvalidJoinOnExpression,
+    CHQueryErrorUnknownTable,
     ExcelColumnLimitExceeded,
 )
 

@@ -13,8 +13,9 @@ from posthog.schema import ProductKey
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
-from posthog.models.link import Link
 from posthog.models.team.team import Team
+
+from products.links.backend.models import Link
 
 logger = structlog.get_logger(__name__)
 

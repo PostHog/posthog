@@ -4,7 +4,6 @@ import uuid
 from typing import Any, TypedDict
 
 import pytest
-from unittest.mock import patch
 
 from autoevals.llm import LLMClassifier
 from autoevals.partial import ScorerWithPartial
@@ -188,28 +187,27 @@ def _extract_feature_flag_result(state: AssistantState) -> dict[str, Any]:
 @pytest.fixture
 def call_agent_for_feature_flag(demo_org_team_user):
     """Run full agent graph in FLAGS mode with natural language feature flag requests."""
-    with patch("ee.hogai.chat_agent.mode_manager.has_flags_mode_feature_flag", return_value=True):
-        _, team, user = demo_org_team_user
+    _, team, user = demo_org_team_user
 
-        graph = (
-            AssistantGraph(team, user)
-            .add_edge(AssistantNodeName.START, AssistantNodeName.ROOT)
-            .add_root()
-            .compile(checkpointer=DjangoCheckpointer())
+    graph = (
+        AssistantGraph(team, user)
+        .add_edge(AssistantNodeName.START, AssistantNodeName.ROOT)
+        .add_root()
+        .compile(checkpointer=DjangoCheckpointer())
+    )
+
+    async def callable(input: EvalInput) -> dict:
+        conversation = await Conversation.objects.acreate(team=team, user=user)
+        initial_state = AssistantState(
+            messages=[HumanMessage(content=input["input"])],
+            agent_mode=AgentMode.FLAGS,
         )
+        config = RunnableConfig(configurable={"thread_id": conversation.id}, recursion_limit=48)
+        raw_state = await graph.ainvoke(initial_state, config)
+        state = AssistantState.model_validate(raw_state)
+        return _extract_feature_flag_result(state)
 
-        async def callable(input: EvalInput) -> dict:
-            conversation = await Conversation.objects.acreate(team=team, user=user)
-            initial_state = AssistantState(
-                messages=[HumanMessage(content=input["input"])],
-                agent_mode=AgentMode.FLAGS,
-            )
-            config = RunnableConfig(configurable={"thread_id": conversation.id}, recursion_limit=48)
-            raw_state = await graph.ainvoke(initial_state, config)
-            state = AssistantState.model_validate(raw_state)
-            return _extract_feature_flag_result(state)
-
-        yield callable
+    yield callable
 
 
 @pytest.mark.django_db

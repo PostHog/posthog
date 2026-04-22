@@ -2,12 +2,13 @@ import { mockProducerObserver } from '~/tests/helpers/mocks/producer.mock'
 
 import { DateTime } from 'luxon'
 
-import { PluginEvent } from '@posthog/plugin-scaffold'
+import { PluginEvent } from '~/plugin-scaffold'
 
 import { posthogFilterOutPlugin } from '../../../src/cdp/legacy-plugins/_transformations/posthog-filter-out-plugin/template'
 import { template as defaultTemplate } from '../../../src/cdp/templates/_transformations/default/default.template'
 import { template as geoipTemplate } from '../../../src/cdp/templates/_transformations/geoip/geoip.template'
 import { compileHog } from '../../../src/cdp/templates/compiler'
+import { createTestMonitoringOutputs } from '../../../tests/helpers/ingestion-outputs'
 import { forSnapshot } from '../../../tests/helpers/snapshots'
 import { getFirstTeam, resetTestDatabase } from '../../../tests/helpers/sql'
 import { Hub } from '../../types'
@@ -17,7 +18,7 @@ import { posthogPluginGeoip } from '../legacy-plugins/_transformations/posthog-p
 import { propertyFilterPlugin } from '../legacy-plugins/_transformations/property-filter-plugin/template'
 import { HogWatcherState } from '../services/monitoring/hog-watcher.service'
 import { HogFunctionTemplate } from '../types'
-import { HogTransformerService } from './hog-transformer.service'
+import { HogTransformerService, createHogTransformerService } from './hog-transformer.service'
 
 const createPluginEvent = (event: Partial<PluginEvent> = {}, teamId: number = 1): PluginEvent => {
     return {
@@ -47,10 +48,13 @@ describe('HogTransformer', () => {
         jest.spyOn(Date, 'now').mockReturnValue(fixedTime.toMillis())
 
         // Create a team first before inserting hog functions
-        const team = await getFirstTeam(hub)
+        const team = await getFirstTeam(hub.postgres)
         teamId = team.id
 
-        hogTransformer = new HogTransformerService(hub)
+        hogTransformer = createHogTransformerService(hub, {
+            ...hub,
+            monitoringOutputs: createTestMonitoringOutputs(hub.kafkaProducer),
+        })
     })
 
     afterEach(async () => {
@@ -134,6 +138,42 @@ describe('HogTransformer', () => {
                   ],
                 }
             `)
+        })
+
+        it('should expose elements_chain from $elements_chain property', async () => {
+            const fn = createHogFunction({
+                type: 'transformation',
+                name: 'Elements Chain Reader',
+                team_id: teamId,
+                enabled: true,
+                bytecode: [],
+                execution_order: 1,
+                id: 'd77e792e-0f35-431b-a983-097534aa4767',
+                hog: `
+                    let returnEvent := event
+                    if (event.elements_chain ilike '%button%') {
+                        returnEvent.event := 'button_click'
+                    }
+                    return returnEvent
+                `,
+            })
+            fn.bytecode = await compileHog(fn.hog)
+            await insertHogFunction(hub.postgres, teamId, fn)
+            hogTransformer['hogFunctionManager']['onHogFunctionsReloaded'](teamId, [fn.id])
+
+            const event: PluginEvent = createPluginEvent(
+                {
+                    event: '$autocapture',
+                    properties: {
+                        $current_url: 'https://example.com',
+                        $elements_chain: 'button.btn:attr__class="btn-primary"',
+                    },
+                },
+                teamId
+            )
+            const result = await hogTransformer.transformEventAndProduceMessages(event)
+
+            expect(result.event?.event).toBe('button_click')
         })
 
         it('only allow modifying certain properties', async () => {
@@ -1441,11 +1481,11 @@ describe('HogTransformer', () => {
 
     describe('HogWatcher integration', () => {
         beforeEach(() => {
-            hub.CDP_HOG_WATCHER_SAMPLE_RATE = 1
+            hogTransformer['config'].hogWatcherSampleRate = 1
         })
 
         it('should skip HogWatcher operations when sample rate is 0', async () => {
-            hub.CDP_HOG_WATCHER_SAMPLE_RATE = 0
+            hogTransformer['config'].hogWatcherSampleRate = 0
 
             const testTemplate: HogFunctionTemplate = {
                 free: true,
@@ -1488,7 +1528,7 @@ describe('HogTransformer', () => {
         })
 
         it('should add watcher promise when sample rate is 1', async () => {
-            hub.CDP_HOG_WATCHER_SAMPLE_RATE = 1
+            hogTransformer['config'].hogWatcherSampleRate = 1
 
             const testTemplate: HogFunctionTemplate = {
                 free: true,
@@ -1603,7 +1643,7 @@ describe('HogTransformer', () => {
 
         it('should skip transformation execution but continue when hogwatcher is enabled and function is disabled', async () => {
             // Set sample rate to 100% to ensure hogwatcher logic runs
-            hub.CDP_HOG_WATCHER_SAMPLE_RATE = 1
+            hogTransformer['config'].hogWatcherSampleRate = 1
 
             // Create test transformation function
             const testTemplate: HogFunctionTemplate = {
@@ -1661,7 +1701,7 @@ describe('HogTransformer', () => {
 
         it('should execute transformation when hogwatcher is enabled but function is in healthy state', async () => {
             // Set sample rate to 100% to ensure hogwatcher logic runs
-            hub.CDP_HOG_WATCHER_SAMPLE_RATE = 1
+            hogTransformer['config'].hogWatcherSampleRate = 1
 
             // Create test transformation function
             const testTemplate: HogFunctionTemplate = {
@@ -1720,7 +1760,7 @@ describe('HogTransformer', () => {
 
         it('should apply transformation when hogwatcher is disabled even if function state is disabled', async () => {
             // Set sample rate to 0% to ensure hogwatcher logic is skipped
-            hub.CDP_HOG_WATCHER_SAMPLE_RATE = 0
+            hogTransformer['config'].hogWatcherSampleRate = 0
 
             // Create test transformation function
             const testTemplate: HogFunctionTemplate = {

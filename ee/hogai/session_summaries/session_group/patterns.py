@@ -3,13 +3,11 @@ from enum import Enum
 from math import floor
 from typing import Any
 
-from django.db.models import Prefetch
-
 import structlog
 from pydantic import BaseModel, Field, ValidationError, field_serializer, field_validator
 from temporalio.exceptions import ApplicationError
 
-from posthog.models.person import Person, PersonDistinctId
+from posthog.models.person import Person
 from posthog.models.person.util import get_persons_by_distinct_ids
 
 from ee.hogai.session_summaries import SummaryValidationError
@@ -165,8 +163,7 @@ def load_patterns_from_llm_content(raw_content: str, sessions_identifier: str) -
         logger.error(msg, signals_type="session-summaries")
         raise SummaryValidationError(msg)
     try:
-        # Patterns aren't streamed, so the initial state is the final one
-        json_content = load_yaml_from_raw_llm_content(raw_content=raw_content, final_validation=True)
+        json_content = load_yaml_from_raw_llm_content(raw_content=raw_content)
         if not isinstance(json_content, dict):
             raise Exception(f"LLM output is not a dictionary: {raw_content}")
     except Exception as err:
@@ -192,8 +189,7 @@ def load_pattern_assignments_from_llm_content(
         logger.error(msg, signals_type="session-summaries")
         raise SummaryValidationError(msg)
     try:
-        # Patterns aren't streamed, so the initial state is the final one
-        json_content = load_yaml_from_raw_llm_content(raw_content=raw_content, final_validation=True)
+        json_content = load_yaml_from_raw_llm_content(raw_content=raw_content)
         if not isinstance(json_content, dict):
             raise Exception(f"LLM output is not a dictionary: {raw_content}")
     except Exception as err:
@@ -536,15 +532,8 @@ def get_persons_for_sessions_from_distinct_ids(
         return {}
     try:
         persons = get_persons_by_distinct_ids(team_id=team_id, distinct_ids=distinct_ids)
-        persons = persons.prefetch_related(
-            Prefetch(
-                "persondistinctid_set",
-                queryset=PersonDistinctId.objects.filter(team_id=team_id).order_by("id"),
-                to_attr="distinct_ids_cache",
-            )
-        )
         session_id_to_person_mapping: dict[str, Person | None] = {}
-        for person in persons.iterator(chunk_size=1000):
+        for person in persons:
             for distinct_id in person.distinct_ids:
                 person_session_ids = distinct_id_to_session_id_mapping.get(distinct_id)
                 if not person_session_ids:

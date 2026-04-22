@@ -6,10 +6,12 @@ These endpoints are public (authenticated via public token) and used by the post
 Security model:
 - `widget_session_id`: Random UUID generated client-side, stored in localStorage. Used for ACCESS CONTROL.
 - `distinct_id`: PostHog's user identifier. Used for PERSON LINKING only, not access control.
+- `identity_distinct_id` + `identity_hash`: HMAC-signed identity for verified users (opt-in).
 
-This prevents users from accessing others' chats by knowing their email.
+Anonymous users are controlled by widget_session_id. Verified users are controlled by distinct_id.
 """
 
+import uuid
 import logging
 
 from django.db.models import F, Q
@@ -22,6 +24,8 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from posthog.auth import WidgetAuthentication
+from posthog.event_usage import report_team_action
+from posthog.exceptions_capture import capture_exception
 from posthog.models import Team
 from posthog.models.comment import Comment
 from posthog.rate_limit import WidgetTeamThrottle, WidgetUserBurstThrottle
@@ -37,14 +41,43 @@ from products.conversations.backend.api.serializers import (
 from products.conversations.backend.cache import (
     get_cached_messages,
     get_cached_tickets,
+    get_person_distinct_ids,
+    invalidate_tickets_cache,
     invalidate_unread_count_cache,
     set_cached_messages,
     set_cached_tickets,
 )
 from products.conversations.backend.events import capture_ticket_created
 from products.conversations.backend.models import Ticket
+from products.conversations.backend.models.constants import ChannelDetail
+from products.conversations.backend.services.identity import verify_identity_hash
 
 logger = logging.getLogger(__name__)
+
+
+class IdentityVerificationFailed(Exception):
+    """Raised when identity fields are present but HMAC verification fails."""
+
+
+def _verify_identity(data: dict, team: Team) -> str | None:
+    """
+    Verify HMAC identity fields against team.secret_api_token.
+    Returns the verified distinct_id, or None if identity fields not present.
+    Raises IdentityVerificationFailed if identity was attempted but failed.
+    """
+    distinct_id = data.get("identity_distinct_id")
+    hash_value = data.get("identity_hash")
+    if not distinct_id or not hash_value:
+        return None
+
+    if not team.secret_api_token:
+        logger.warning("Identity verification attempted but team has no secret_api_token")
+        raise IdentityVerificationFailed("Team has no secret_api_token")
+
+    if not verify_identity_hash(distinct_id, hash_value, team.secret_api_token):
+        raise IdentityVerificationFailed("Invalid identity hash")
+
+    return distinct_id
 
 
 class WidgetMessageView(APIView):
@@ -62,7 +95,7 @@ class WidgetMessageView(APIView):
     def post(self, request: Request) -> Response:
         """Handle incoming message from widget."""
 
-        team: Team | None = request.auth  # type: ignore[assignment]
+        team: Team | None = request.auth  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
         if not team:
             return Response({"error": "Authentication required"}, status=status.HTTP_403_FORBIDDEN)
 
@@ -82,8 +115,21 @@ class WidgetMessageView(APIView):
                 {"error": "Invalid request data", "details": serializer.errors}, status=status.HTTP_400_BAD_REQUEST
             )
 
-        widget_session_id = str(serializer.validated_data["widget_session_id"])
-        distinct_id = serializer.validated_data["distinct_id"]
+        try:
+            verified_distinct_id = _verify_identity(serializer.validated_data, team)
+        except IdentityVerificationFailed:
+            return Response({"error": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
+
+        if verified_distinct_id is not None:
+            distinct_id = verified_distinct_id
+            # Deterministic widget_session_id from the HMAC (for DB storage)
+            widget_session_id = str(uuid.UUID(serializer.validated_data["identity_hash"][:32]))
+        elif "widget_session_id" in serializer.validated_data:
+            widget_session_id = str(serializer.validated_data["widget_session_id"])
+            distinct_id = serializer.validated_data["distinct_id"]
+        else:
+            return Response({"error": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
+
         message_content = serializer.validated_data["message"]
         traits = serializer.validated_data.get("traits", {})
         session_id = serializer.validated_data.get("session_id")
@@ -104,9 +150,14 @@ class WidgetMessageView(APIView):
             try:
                 ticket = Ticket.objects.get(id=ticket_id, team=team)
 
-                # CRITICAL: Verify ticket belongs to this widget_session_id (NOT distinct_id)
-                if ticket.widget_session_id != widget_session_id:
-                    return Response({"error": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
+                if verified_distinct_id is not None:
+                    allowed_ids = get_person_distinct_ids(team.id, verified_distinct_id)
+                    if ticket.distinct_id not in allowed_ids:
+                        return Response({"error": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
+                else:
+                    # CRITICAL: Verify ticket belongs to this widget_session_id (NOT distinct_id)
+                    if ticket.widget_session_id != widget_session_id:
+                        return Response({"error": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
 
                 # Update distinct_id if changed (anonymous → identified transition)
                 if ticket.distinct_id != distinct_id:
@@ -135,27 +186,40 @@ class WidgetMessageView(APIView):
                     ]
                 )
                 ticket.refresh_from_db()
-                # Invalidate unread count cache - customer message increases count
-                invalidate_unread_count_cache(team.id)
 
             except Ticket.DoesNotExist:
                 return Response({"error": "Ticket not found"}, status=status.HTTP_404_NOT_FOUND)
         else:
             # No ticket_id provided - always create a new ticket
+            conversations_settings = team.conversations_settings or {}
+            widget_channel_detail = (
+                ChannelDetail.WIDGET_EMBEDDED
+                if conversations_settings.get("widget_enabled")
+                else ChannelDetail.WIDGET_API
+            )
             ticket = Ticket.objects.create_with_number(
                 team=team,
                 widget_session_id=widget_session_id,
                 distinct_id=distinct_id,
                 channel_source="widget",
+                channel_detail=widget_channel_detail,
                 status="new",
                 anonymous_traits=traits,
                 unread_team_count=1,
                 session_id=session_id,
                 session_context=session_context,
             )
-            # Invalidate unread count cache - new ticket with unread message
-            invalidate_unread_count_cache(team.id)
-            capture_ticket_created(ticket)
+
+            try:
+                capture_ticket_created(ticket)
+            except Exception as e:
+                # Don't let analytics failures break the widget
+                capture_exception(e, {"ticket_id": str(ticket.id)})
+
+            try:
+                report_team_action(team, "support ticket created", {"channel_source": ticket.channel_source})
+            except Exception as e:
+                capture_exception(e, {"ticket_id": str(ticket.id)})
 
         # Create message
         comment = Comment.objects.create(
@@ -165,6 +229,11 @@ class WidgetMessageView(APIView):
             content=message_content,
             item_context={"author_type": "customer", "distinct_id": distinct_id, "is_private": False},
         )
+
+        # tickets + messages caches are invalidated by the post_save signal
+        # via transaction.on_commit (see signals.py). Only unread_count needs
+        # explicit invalidation here since the signal doesn't cover it.
+        invalidate_unread_count_cache(team.id)
 
         # Send email notification for new tickets
         if not ticket_id:
@@ -203,7 +272,7 @@ class WidgetMessagesView(APIView):
     def get(self, request: Request, ticket_id: str) -> Response:
         """Get messages for a ticket."""
 
-        team: Team | None = request.auth  # type: ignore[assignment]
+        team: Team | None = request.auth  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
         if not team:
             return Response({"error": "Authentication required"}, status=status.HTTP_403_FORBIDDEN)
 
@@ -221,7 +290,6 @@ class WidgetMessagesView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        widget_session_id = str(query_serializer.validated_data["widget_session_id"])
         after = query_serializer.validated_data.get("after")
         limit = query_serializer.validated_data["limit"]
 
@@ -231,8 +299,21 @@ class WidgetMessagesView(APIView):
         except Ticket.DoesNotExist:
             return Response({"error": "Ticket not found"}, status=status.HTTP_404_NOT_FOUND)
 
-        # CRITICAL: Verify the ticket belongs to this widget_session_id (NOT distinct_id)
-        if ticket.widget_session_id != widget_session_id:
+        # Verify ownership: identity mode uses distinct_id, legacy uses widget_session_id
+        try:
+            verified_distinct_id = _verify_identity(query_serializer.validated_data, team)
+        except IdentityVerificationFailed:
+            return Response({"error": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
+
+        if verified_distinct_id is not None:
+            allowed_ids = get_person_distinct_ids(team.id, verified_distinct_id)
+            if ticket.distinct_id not in allowed_ids:
+                return Response({"error": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
+        elif "widget_session_id" in query_serializer.validated_data:
+            widget_session_id = str(query_serializer.validated_data["widget_session_id"])
+            if ticket.widget_session_id != widget_session_id:
+                return Response({"error": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
+        else:
             return Response({"error": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
 
         # Check cache (after stays constant between polls until new message arrives)
@@ -321,7 +402,7 @@ class WidgetTicketsView(APIView):
     def get(self, request: Request) -> Response:
         """List tickets for a widget_session_id."""
 
-        team: Team | None = request.auth  # type: ignore[assignment]
+        team: Team | None = request.auth  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
         if not team:
             return Response({"error": "Authentication required"}, status=status.HTTP_403_FORBIDDEN)
 
@@ -333,19 +414,34 @@ class WidgetTicketsView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        widget_session_id = str(query_serializer.validated_data["widget_session_id"])
+        try:
+            verified_distinct_id = _verify_identity(query_serializer.validated_data, team)
+        except IdentityVerificationFailed:
+            return Response({"error": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
+
+        if verified_distinct_id is not None:
+            cache_key_id = f"iv:{verified_distinct_id}"
+        elif "widget_session_id" in query_serializer.validated_data:
+            cache_key_id = str(query_serializer.validated_data["widget_session_id"])
+        else:
+            return Response({"error": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
+
         status_filter = query_serializer.validated_data.get("status")
         limit = query_serializer.validated_data["limit"]
         offset = query_serializer.validated_data["offset"]
 
         # Check cache for first page (most common case for polling)
         if offset == 0:
-            cached = get_cached_tickets(team.id, widget_session_id, status_filter)
+            cached = get_cached_tickets(team.id, cache_key_id, status_filter)
             if cached is not None:
                 return Response(cached)
 
-        # Build query - filter by widget_session_id, not distinct_id
-        tickets_query = Ticket.objects.filter(team=team, widget_session_id=widget_session_id)
+        # Build query
+        if verified_distinct_id is not None:
+            all_ids = get_person_distinct_ids(team.id, verified_distinct_id)
+            tickets_query = Ticket.objects.filter(team=team, distinct_id__in=all_ids)
+        else:
+            tickets_query = Ticket.objects.filter(team=team, widget_session_id=cache_key_id)
 
         if status_filter:
             tickets_query = tickets_query.filter(status=status_filter)
@@ -362,6 +458,7 @@ class WidgetTicketsView(APIView):
             ticket_list.append(
                 {
                     "id": str(ticket.id),
+                    "ticket_number": ticket.ticket_number,
                     "status": ticket.status,
                     "unread_count": ticket.unread_customer_count,  # Unread messages for customer
                     "last_message": ticket.last_message_text,  # Now from denormalized field
@@ -373,9 +470,9 @@ class WidgetTicketsView(APIView):
 
         response_data = {"count": total_count, "results": ticket_list}
 
-        # Cache first page
-        if offset == 0:
-            set_cached_tickets(team.id, widget_session_id, response_data, status_filter)
+        # Cache first page (skip empty results to avoid stale cache after restore/migration)
+        if offset == 0 and total_count > 0:
+            set_cached_tickets(team.id, cache_key_id, response_data, status_filter)
 
         return Response(response_data)
 
@@ -395,7 +492,7 @@ class WidgetMarkReadView(APIView):
     def post(self, request: Request, ticket_id: str) -> Response:
         """Mark ticket messages as read by customer."""
 
-        team: Team | None = request.auth  # type: ignore[assignment]
+        team: Team | None = request.auth  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
         if not team:
             return Response({"error": "Authentication required"}, status=status.HTTP_403_FORBIDDEN)
 
@@ -412,21 +509,35 @@ class WidgetMarkReadView(APIView):
                 {"error": "Invalid request data", "details": body_serializer.errors}, status=status.HTTP_400_BAD_REQUEST
             )
 
-        widget_session_id = str(body_serializer.validated_data["widget_session_id"])
-
         # Get ticket
         try:
             ticket = Ticket.objects.get(id=ticket_id, team=team)
         except Ticket.DoesNotExist:
             return Response({"error": "Ticket not found"}, status=status.HTTP_404_NOT_FOUND)
 
-        # CRITICAL: Verify the ticket belongs to this widget_session_id
-        if ticket.widget_session_id != widget_session_id:
+        # Verify ownership: identity mode uses distinct_id, legacy uses widget_session_id
+        try:
+            verified_distinct_id = _verify_identity(body_serializer.validated_data, team)
+        except IdentityVerificationFailed:
+            return Response({"error": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
+
+        if verified_distinct_id is not None:
+            allowed_ids = get_person_distinct_ids(team.id, verified_distinct_id)
+            if ticket.distinct_id not in allowed_ids:
+                return Response({"error": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
+            cache_invalidation_key = f"iv:{verified_distinct_id}"
+        elif "widget_session_id" in body_serializer.validated_data:
+            widget_session_id = str(body_serializer.validated_data["widget_session_id"])
+            if ticket.widget_session_id != widget_session_id:
+                return Response({"error": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
+            cache_invalidation_key = widget_session_id
+        else:
             return Response({"error": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
 
         # Reset unread count for customer
         if ticket.unread_customer_count > 0:
             ticket.unread_customer_count = 0
             ticket.save(update_fields=["unread_customer_count", "updated_at"])
+            invalidate_tickets_cache(team.id, cache_invalidation_key)
 
         return Response({"success": True, "unread_count": 0})

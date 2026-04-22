@@ -5,8 +5,6 @@ import { LemonButton, LemonCollapse } from '@posthog/lemon-ui'
 
 import { featureFlagLogic } from './featureFlagLogic'
 
-export type ModifiedField = 'key' | 'flagType' | 'rollout' | 'conditions'
-
 const TEMPLATE_ICONS: Record<string, React.ReactNode> = {
     simple: <IconToggle className="text-2xl" />,
     targeted: <IconPeople className="text-2xl" />,

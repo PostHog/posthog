@@ -35,6 +35,7 @@ from posthog.renderers import SafeJSONRenderer, ServerSentEventRenderer
 from posthog.settings import SERVER_GATEWAY_INTERFACE
 from posthog.utils import relative_date_parse
 
+from products.notebooks.backend.collab import initialize_collab_session, submit_steps
 from products.notebooks.backend.kernel_runtime import build_notebook_sandbox_config, get_kernel_runtime
 from products.notebooks.backend.models import KernelRuntime, Notebook
 from products.notebooks.backend.python_analysis import analyze_python_globals, annotate_python_nodes
@@ -80,6 +81,14 @@ def log_notebook_activity(
     )
 
 
+_NOTEBOOK_FIELD_HELP_TEXTS = {
+    "id": {"help_text": "UUID of the notebook."},
+    "short_id": {"help_text": "Short alphanumeric identifier used in URLs and API lookups."},
+    "title": {"help_text": "Title of the notebook."},
+    "deleted": {"help_text": "Whether the notebook has been soft-deleted."},
+}
+
+
 class NotebookMinimalSerializer(serializers.ModelSerializer, UserAccessControlSerializerMixin):
     created_by = UserBasicSerializer(read_only=True)
     last_modified_by = UserBasicSerializer(read_only=True)
@@ -100,6 +109,7 @@ class NotebookMinimalSerializer(serializers.ModelSerializer, UserAccessControlSe
             "_create_in_folder",
         ]
         read_only_fields = fields
+        extra_kwargs = _NOTEBOOK_FIELD_HELP_TEXTS
 
 
 class NotebookSerializer(NotebookMinimalSerializer):
@@ -129,10 +139,27 @@ class NotebookSerializer(NotebookMinimalSerializer):
             "last_modified_by",
             "user_access_level",
         ]
+        extra_kwargs = {
+            **_NOTEBOOK_FIELD_HELP_TEXTS,
+            "content": {"help_text": "Notebook content as a ProseMirror JSON document structure."},
+            "text_content": {"help_text": "Plain text representation of the notebook content for search."},
+            "version": {
+                "help_text": "Version number for optimistic concurrency control. Must match the current version when updating content."
+            },
+        }
 
     def create(self, validated_data: dict, *args, **kwargs) -> Notebook:
         request = self.context["request"]
         team = self.context["get_team"]()
+
+        # short_id is read-only in the serializer but can be provided on create
+        short_id = request.data.get("short_id")
+        if short_id:
+            if not isinstance(short_id, str) or not short_id.isalnum() or len(short_id) > 12:
+                raise serializers.ValidationError(
+                    {"short_id": "short_id must be an alphanumeric string up to 12 characters."}
+                )
+            validated_data["short_id"] = short_id
 
         created_by = validated_data.pop("created_by", request.user)
         content = validated_data.get("content")
@@ -253,6 +280,18 @@ class NotebookKernelConfigSerializer(serializers.Serializer):
         if not attrs:
             raise serializers.ValidationError("Provide at least one kernel configuration option.")
         return attrs
+
+
+class NotebookCollabSaveSerializer(serializers.Serializer):
+    client_id = serializers.CharField(help_text="Unique identifier for the client session.")
+    version = serializers.IntegerField(help_text="The collab version the client's steps are based on.")
+    steps = serializers.ListField(
+        child=serializers.JSONField(),
+        help_text="List of ProseMirror step JSON objects to apply.",
+    )
+    content = serializers.JSONField(help_text="The resulting ProseMirror document after applying the steps locally.")
+    text_content = serializers.CharField(required=False, default="", help_text="Plain text for search indexing.")
+    title = serializers.CharField(required=False, help_text="Updated notebook title.")
 
 
 def _format_hogql_response_payload(response: Any) -> dict[str, Any]:
@@ -380,7 +419,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
                 queryset = queryset.filter(last_modified_at__gt=relative_date_parse(value, self.team.timezone_info))
             elif key == "date_to" and isinstance(value, str):
                 queryset = queryset.filter(last_modified_at__lt=relative_date_parse(value, self.team.timezone_info))
-            elif key == "search":
+            elif key == "search" and value:
                 queryset = queryset.filter(
                     # some notebooks have no text_content until next saved, so we need to check the title too
                     # TODO this can be removed once all/most notebooks have text_content
@@ -396,7 +435,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
                 for match_pair in match_pairs:
                     splat = match_pair.split(":")
                     target = depluralize(splat[0])
-                    match = splat[1] if len(splat) > 1 else None
+                    match_value: str | int | None = splat[1] if len(splat) > 1 else None
 
                     if target:
                         # the JSONB query requires a specific structure
@@ -408,31 +447,31 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
                         try:
                             # We try to parse the match as a number, as query params are always strings,
                             # but an id could be an integer and wouldn't match
-                            if isinstance(match, str):  # because mypy
-                                match = int(match)
+                            if isinstance(match_value, str):  # because mypy
+                                match_value = int(match_value)
                         except (ValueError, TypeError):
                             pass
 
-                        id_match_structure: basic_structure | nested_structure = [{"attrs": {"id": match}}]
+                        id_match_structure: basic_structure | nested_structure = [{"attrs": {"id": match_value}}]
                         if target == "replay-timestamp":
                             # replay timestamps are not at the top level, they're one-level down in a content array
                             presence_match_structure = [{"content": [{"type": f"ph-{target}"}]}]
-                            id_match_structure = [{"content": [{"attrs": {"sessionRecordingId": match}}]}]
+                            id_match_structure = [{"content": [{"attrs": {"sessionRecordingId": match_value}}]}]
                         elif target == "query":
                             id_match_structure = [
                                 {
                                     "attrs": {
                                         "query": {
                                             "kind": "SavedInsightNode",
-                                            "shortId": match,
+                                            "shortId": match_value,
                                         }
                                     }
                                 }
                             ]
 
-                        if match == "true" or match is None:
+                        if match_value == "true" or match_value is None:
                             queryset = queryset.filter(content__content__contains=presence_match_structure)
-                        elif match == "false":
+                        elif match_value == "false":
                             queryset = queryset.exclude(content__content__contains=presence_match_structure)
                         else:
                             queryset = queryset.filter(content__content__contains=presence_match_structure)
@@ -694,13 +733,61 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
 
         return Response(data)
 
+    @extend_schema(request=NotebookCollabSaveSerializer)
+    @action(methods=["POST"], url_path="collab/save", detail=True, required_scopes=["notebook:write"])
+    def collab_save(self, request: Request, **kwargs):
+        serializer = NotebookCollabSaveSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+
+        notebook = self.get_object()
+
+        initialize_collab_session(notebook.team_id, str(notebook.short_id), notebook.version)
+
+        result = submit_steps(
+            team_id=notebook.team_id,
+            notebook_id=str(notebook.short_id),
+            client_id=data["client_id"],
+            steps_json=data["steps"],
+            last_seen_version=data["version"],
+        )
+
+        if result.accepted:
+            content = data["content"]
+            Notebook.objects.filter(pk=notebook.pk).update(
+                content=annotate_python_nodes(content) if isinstance(content, dict) else content,
+                text_content=data.get("text_content", ""),
+                title=data.get("title", notebook.title),
+                version=result.version,
+                last_modified_at=now(),
+                last_modified_by=request.user,
+            )
+            notebook.refresh_from_db()
+            return Response(NotebookSerializer(notebook, context=self.get_serializer_context()).data)
+
+        if result.steps_since is None:
+            return Response(
+                {"code": "conflict_stale", "detail": "Reload the notebook."},
+                status=410,
+            )
+
+        return Response(
+            {
+                "code": "conflict",
+                "steps": [e.step for e in result.steps_since],
+                "client_ids": [e.client_id for e in result.steps_since],
+                "version": result.version,
+            },
+            status=409,
+        )
+
     @action(methods=["GET"], detail=False)
     def recording_comments(self, request: Request, **kwargs):
         recording_id = request.GET.get("recording_id")
         if not recording_id:
             return Response({"detail": "recording_id is required"}, status=400)
 
-        queryset = self.safely_get_queryset(self.queryset)
+        queryset = self.get_queryset()
         queryset = self._filter_list_request(request, queryset, {"contains": f"recording:{recording_id}"})
         notebooks = queryset.all()
         comments = []

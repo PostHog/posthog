@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconCode2 } from '@posthog/icons'
+import { IconEndpoints } from '@posthog/icons'
 import {
     LemonButton,
     LemonInput,
@@ -20,7 +20,7 @@ import { NodeKind } from '~/queries/schema/schema-general'
 import { endpointLogic } from 'products/endpoints/frontend/endpointLogic'
 import { endpointsLogic } from 'products/endpoints/frontend/endpointsLogic'
 
-import { multitabEditorLogic } from '../multitabEditorLogic'
+import { sqlEditorLogic } from '../sqlEditorLogic'
 
 interface EndpointProps {
     tabId: string
@@ -41,7 +41,7 @@ export function Endpoint({ tabId }: EndpointProps): JSX.Element {
     const { endpoints } = useValues(endpointsLogic({ tabId }))
 
     const { variablesForInsight } = useValues(variablesLogic)
-    const { queryInput } = useValues(multitabEditorLogic)
+    const { queryInput } = useValues(sqlEditorLogic)
 
     const handleSubmit = (): void => {
         const sqlQuery = queryInput || ''
@@ -162,7 +162,7 @@ export function Endpoint({ tabId }: EndpointProps): JSX.Element {
                     />
                 </LemonField.Pure>
 
-                <LemonButton type="primary" onClick={handleSubmit} icon={<IconCode2 />} size="medium">
+                <LemonButton type="primary" onClick={handleSubmit} icon={<IconEndpoints />} size="medium">
                     {isUpdateMode ? 'Update endpoint' : 'Create endpoint'}
                 </LemonButton>
             </div>

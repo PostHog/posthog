@@ -30,7 +30,7 @@ from posthog.schema import (
     QueryStatusResponse,
 )
 
-from posthog.event_usage import report_user_action
+from posthog.event_usage import EventSource, report_user_action
 from posthog.hogql_queries.ai.event_taxonomy_query_runner import EventTaxonomyQueryRunner
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.sync import database_sync_to_async
@@ -48,7 +48,7 @@ from ee.hogai.utils.types import AssistantState, PartialAssistantState
 from ee.hogai.utils.types.base import ArtifactRefMessage
 from ee.models.assistant import CoreMemory
 
-from .parsers import MemoryCollectionCompleted, compressed_memory_parser, raise_memory_updated
+from .parsers import check_memory_collection_completed, compressed_memory_parser
 from .prompts import (
     ENQUIRY_INITIAL_MESSAGE,
     INITIALIZE_CORE_MEMORY_SYSTEM_PROMPT,
@@ -105,7 +105,10 @@ class MemoryInitializerContextMixin(AssistantContextMixin):
             runner = EventTaxonomyQueryRunner(
                 team=self._team, query=EventTaxonomyQuery(event=event, properties=[property])
             )
-            return runner.run(ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS)
+            return runner.run(
+                ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS,
+                analytics_props={"source": EventSource.POSTHOG_AI},
+            )
 
         return await database_sync_to_async(run_query, thread_sensitive=False)()
 
@@ -411,17 +414,16 @@ class MemoryCollectorNode(MemoryOnboardingShouldRunMixin):
         prompt = ChatPromptTemplate.from_messages(
             [("system", MEMORY_COLLECTOR_PROMPT)], template_format="mustache"
         ) + await self._aconstruct_messages(state)
-        chain = prompt | self._model | raise_memory_updated
+        chain = prompt | self._model | check_memory_collection_completed
 
-        try:
-            response = await chain.ainvoke(
-                {
-                    "core_memory": await self._aget_core_memory_text(force_enabled=True),
-                    "date": timezone.now().strftime("%Y-%m-%d"),
-                },
-                config=config,
-            )
-        except MemoryCollectionCompleted:
+        response = await chain.ainvoke(
+            {
+                "core_memory": await self._aget_core_memory_text(force_enabled=True),
+                "date": timezone.now().strftime("%Y-%m-%d"),
+            },
+            config=config,
+        )
+        if response is None:
             return PartialAssistantState(memory_collection_messages=None)
         return PartialAssistantState(memory_collection_messages=[*node_messages, cast(LangchainAIMessage, response)])
 
@@ -524,8 +526,11 @@ class MemoryCollectorToolsNode(AssistantNode):
         new_messages: list[LangchainToolMessage] = []
         for tool_call, schema in zip(last_message.tool_calls, tool_calls):
             if isinstance(schema, core_memory_append):
-                await core_memory.aappend_core_memory(schema.memory_content)
-                new_messages.append(LangchainToolMessage(content="Memory appended.", tool_call_id=tool_call["id"]))
+                try:
+                    await core_memory.aappend_core_memory(schema.memory_content)
+                    new_messages.append(LangchainToolMessage(content="Memory appended.", tool_call_id=tool_call["id"]))
+                except ValueError as e:
+                    new_messages.append(LangchainToolMessage(content=str(e), tool_call_id=tool_call["id"]))
             if isinstance(schema, core_memory_replace):
                 try:
                     await core_memory.areplace_core_memory(schema.original_fragment, schema.new_fragment)

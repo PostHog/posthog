@@ -1,9 +1,9 @@
-import { Meta, StoryFn, StoryObj } from '@storybook/react'
+import type { Meta, StoryObj } from '@storybook/react'
 
 import { LemonRichContentEditor, LemonRichContentEditorProps } from './LemonRichContentEditor'
 
-type Story = StoryObj<typeof LemonRichContentEditor>
-const meta: Meta<typeof LemonRichContentEditor> = {
+type Story = StoryObj<LemonRichContentEditorProps>
+const meta: Meta<LemonRichContentEditorProps> = {
     title: 'Lemon UI/Lemon Rich Content Editor',
     component: LemonRichContentEditor,
     tags: ['autodocs'],
@@ -11,9 +11,6 @@ const meta: Meta<typeof LemonRichContentEditor> = {
 
 export default meta
 
-const Template: StoryFn<typeof LemonRichContentEditor> = (props: LemonRichContentEditorProps) => {
-    return <LemonRichContentEditor {...props} />
+export const EmptyLemonRichContentEditor: Story = {
+    args: { initialContent: undefined },
 }
-
-export const EmptyLemonRichContentEditor: Story = Template.bind({})
-EmptyLemonRichContentEditor.args = { initialContent: undefined }

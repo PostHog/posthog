@@ -236,17 +236,17 @@ export function useSyncedAttributes<T extends CustomNotebookNodeAttributes>(
     const parsedAttrs = useRef<NotebookNodeAttributes<T>>({} as NotebookNodeAttributes<T>)
 
     if (previousNodeAttrs.current !== props.node.attrs) {
-        const newParsedAttrs = {}
-
-        Object.keys(props.node.attrs).forEach((key) => {
-            if (previousNodeAttrs.current?.[key] !== props.node.attrs[key]) {
+        const newParsedAttrs = Object.keys(props.node.attrs).reduce<Record<string, any>>((acc, key) => {
+            const val = props.node.attrs[key]
+            if (previousNodeAttrs.current?.[key] !== val) {
                 // If changed, set it whilst trying to parse
-                newParsedAttrs[key] = tryJsonParse(props.node.attrs[key], props.node.attrs[key])
+                acc[key] = tryJsonParse(val, val)
             } else if (parsedAttrs.current) {
                 // Otherwise use the old value to preserve object equality
-                newParsedAttrs[key] = parsedAttrs.current[key]
+                acc[key] = parsedAttrs.current[key]
             }
-        })
+            return acc
+        }, {})
 
         parsedAttrs.current = newParsedAttrs as NotebookNodeAttributes<T>
         parsedAttrs.current.nodeId = nodeId

@@ -14,12 +14,7 @@ class TestLogValuesAttributesTimezones(ClickhouseTestMixin, APIBaseTest):
     @classmethod
     def setUpTestData(cls):
         super().setUpTestData()
-        with open(os.path.join(os.path.dirname(__file__), "test_logs_schema.sql")) as f:
-            schema_sql = f.read()
-        for sql in schema_sql.split(";"):
-            if not sql.strip():
-                continue
-            sync_execute(sql)
+
         with open(os.path.join(os.path.dirname(__file__), "test_logs.jsonnd")) as f:
             sql = ""
             for line in f:
@@ -53,7 +48,7 @@ class TestLogValuesAttributesTimezones(ClickhouseTestMixin, APIBaseTest):
 
             response = self.client.get(f"/api/projects/{self.team.id}/logs/values", query_params)
             self.assertEqual(response.status_code, status.HTTP_200_OK)
-            values_results_by_timezone[tz] = response.json()
+            values_results_by_timezone[tz] = response.json()["results"]
 
             response = self.client.get(f"/api/projects/{self.team.id}/logs/attributes", query_params)
             self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -89,7 +84,7 @@ class TestLogValuesAttributesTimezones(ClickhouseTestMixin, APIBaseTest):
         response = self.client.get(f"/api/projects/{self.team.pk}/logs/values", query_params)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
-        results = response.json()
+        results = response.json()["results"]
 
         for result in results:
             self.assertIn("or", result["name"].lower(), f"Value '{result['name']}' should contain 'or'")
@@ -112,7 +107,7 @@ class TestLogValuesAttributesTimezones(ClickhouseTestMixin, APIBaseTest):
         response = self.client.get(f"/api/projects/{self.team.pk}/logs/values", query_params)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
-        results = response.json()
+        results = response.json()["results"]
 
         for result in results:
             self.assertIn("de", result["name"].lower(), f"Value '{result['name']}' should contain 'de'")
@@ -131,7 +126,7 @@ class TestLogValuesAttributesTimezones(ClickhouseTestMixin, APIBaseTest):
         response = self.client.get(f"/api/projects/{self.team.pk}/logs/values", query_params)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
-        results = response.json()
+        results = response.json()["results"]
         self.assertEqual(len(results), 0, "Should return no results for non-existent value filter")
 
     def test_log_values_query_with_empty_value_filter(self):
@@ -146,7 +141,7 @@ class TestLogValuesAttributesTimezones(ClickhouseTestMixin, APIBaseTest):
 
         response_all = self.client.get(f"/api/projects/{self.team.pk}/logs/values", query_params_all)
         self.assertEqual(response_all.status_code, status.HTTP_200_OK)
-        all_results = response_all.json()
+        all_results = response_all.json()["results"]
 
         query_params_empty = {
             **query_params_all,
@@ -155,7 +150,7 @@ class TestLogValuesAttributesTimezones(ClickhouseTestMixin, APIBaseTest):
 
         response_empty = self.client.get(f"/api/projects/{self.team.pk}/logs/values", query_params_empty)
         self.assertEqual(response_empty.status_code, status.HTTP_200_OK)
-        empty_results = response_empty.json()
+        empty_results = response_empty.json()["results"]
 
         self.assertEqual(len(all_results), len(empty_results), "Empty value filter should return all values")
 
@@ -163,3 +158,30 @@ class TestLogValuesAttributesTimezones(ClickhouseTestMixin, APIBaseTest):
         empty_names = {r["name"] for r in empty_results}
         self.assertEqual(all_names, empty_names, "Empty value filter should return same values as no filter")
         self.assertEqual(set(all_names), {"info", "DEBUG", "PING", "more", "error"})
+
+    def test_log_attributes_search_trace_id_before_pid(self):
+        """Test that searching attributes for 'id' returns trace_id before pid"""
+
+        query_params = {
+            "dateRange": '{"date_from": "2025-12-16T09:00:00Z", "date_to": "2025-12-16T11:00:00Z"}',
+            "attribute_type": "log",
+            "search": "id",
+        }
+
+        response = self.client.get(f"/api/projects/{self.team.pk}/logs/attributes", query_params)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        results = response.json()["results"]
+        result_names = [r["name"] for r in results]
+
+        self.assertIn("trace_id", result_names, "trace_id should be in results when searching for 'id'")
+        self.assertIn("brokers.0.id", result_names, "brokers.0.id should be in results when searching for 'id'")
+        self.assertIn("pid", result_names, "pid should be in results when searching for 'id'")
+
+        trace_id_index = result_names.index("trace_id")
+        brokers_id_index = result_names.index("brokers.0.id")
+        pid_index = result_names.index("pid")
+        self.assertLess(
+            trace_id_index, brokers_id_index, "trace_id should appear before brokers.0.id when searching for 'id'"
+        )
+        self.assertLess(brokers_id_index, pid_index, "brokers.0.id should appear before pid when searching for 'id'")

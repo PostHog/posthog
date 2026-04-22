@@ -1,7 +1,5 @@
-use std::{
-    sync::atomic::{AtomicUsize, Ordering},
-    time::{Duration, Instant},
-};
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::time::{Duration, Instant};
 
 use axum::{
     body::Body,
@@ -11,10 +9,8 @@ use axum::{
     response::IntoResponse,
     routing::Router,
 };
+use common_metrics::normalize_unmatched_path;
 use metrics::gauge;
-
-// Re-exporting from health crate for backwards compatibility
-pub use health::{get_shutdown_status, set_shutdown_status, ShutdownStatus};
 
 // Global atomic counter for active connections
 static ACTIVE_CONNECTIONS: AtomicUsize = AtomicUsize::new(0);
@@ -27,11 +23,7 @@ impl Drop for ConnectionGuard {
         let connections = ACTIVE_CONNECTIONS
             .fetch_sub(1, Ordering::Relaxed)
             .saturating_sub(1);
-        gauge!(
-            METRIC_CAPTURE_ACTIVE_CONNECTIONS,
-            "shutdown_status" => get_shutdown_status().as_str()
-        )
-        .set(connections as f64);
+        gauge!(METRIC_CAPTURE_ACTIVE_CONNECTIONS).set(connections as f64);
     }
 }
 const METRIC_CAPTURE_ACTIVE_CONNECTIONS: &str = "capture_active_connections";
@@ -49,18 +41,13 @@ pub async fn track_metrics(req: Request<Body>, next: Next) -> impl IntoResponse 
     let path = if let Some(matched_path) = req.extensions().get::<MatchedPath>() {
         matched_path.as_str().to_owned()
     } else {
-        req.uri().path().to_owned()
+        normalize_unmatched_path(req.uri().path())
     };
 
     let method = req.method().clone();
 
-    // Track active connections with shutdown status label
     let connections = ACTIVE_CONNECTIONS.fetch_add(1, Ordering::Relaxed) + 1;
-    gauge!(
-        METRIC_CAPTURE_ACTIVE_CONNECTIONS,
-        "shutdown_status" => get_shutdown_status().as_str()
-    )
-    .set(connections as f64);
+    gauge!(METRIC_CAPTURE_ACTIVE_CONNECTIONS).set(connections as f64);
     let _guard = ConnectionGuard;
 
     // Run the rest of the request handling first, so we can measure it and get response
@@ -100,7 +87,11 @@ where
             move |req: axum::extract::Request, next: axum::middleware::Next| async move {
                 let start = std::time::Instant::now();
                 let method = req.method().to_string();
-                let path = req.uri().path().to_string();
+                let path = if let Some(matched) = req.extensions().get::<MatchedPath>() {
+                    matched.as_str().to_owned()
+                } else {
+                    normalize_unmatched_path(req.uri().path())
+                };
                 let client_ip = req
                     .headers()
                     .get("X-Forwarded-For")

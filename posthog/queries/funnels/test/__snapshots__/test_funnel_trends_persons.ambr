@@ -128,7 +128,7 @@
                             WHERE team_id = 99999
                               AND event IN ['step one', 'step three', 'step two']
                               AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-05-01 00:00:00', 'UTC')
-                              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC') )
+                              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC'))
                        GROUP BY distinct_id
                        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                     WHERE team_id = 99999
@@ -137,8 +137,8 @@
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC')
                       AND (step_0 = 1
                            OR step_1 = 1
-                           OR step_2 = 1) ))))
-        WHERE step_0 = 1 )
+                           OR step_2 = 1)))))
+        WHERE step_0 = 1)
      WHERE toDateTime(entrance_period_start) = '2021-05-01 00:00:00'
      GROUP BY aggregation_target,
               entrance_period_start)
@@ -152,12 +152,14 @@
 # name: TestFunnelTrendsPersons.test_funnel_trend_persons_returns_recordings.1
   '''
   
-  SELECT DISTINCT session_id
+  SELECT session_id
   FROM session_replay_events
   WHERE team_id = 99999
     and session_id in ['s1b']
     AND min_first_timestamp >= '2021-04-30 00:00:00'
     AND max_last_timestamp <= '2021-05-08 23:59:59'
+  GROUP BY session_id
+  HAVING max(is_deleted) = 0
   '''
 # ---
 # name: TestFunnelTrendsPersons.test_funnel_trend_persons_with_drop_off
@@ -289,7 +291,7 @@
                             WHERE team_id = 99999
                               AND event IN ['step one', 'step three', 'step two']
                               AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-05-01 00:00:00', 'UTC')
-                              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC') )
+                              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC'))
                        GROUP BY distinct_id
                        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                     WHERE team_id = 99999
@@ -298,8 +300,8 @@
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC')
                       AND (step_0 = 1
                            OR step_1 = 1
-                           OR step_2 = 1) ))))
-        WHERE step_0 = 1 )
+                           OR step_2 = 1)))))
+        WHERE step_0 = 1)
      WHERE toDateTime(entrance_period_start) = '2021-05-01 00:00:00'
      GROUP BY aggregation_target,
               entrance_period_start)
@@ -314,12 +316,14 @@
 # name: TestFunnelTrendsPersons.test_funnel_trend_persons_with_drop_off.1
   '''
   
-  SELECT DISTINCT session_id
+  SELECT session_id
   FROM session_replay_events
   WHERE team_id = 99999
     and session_id in ['s1a']
     AND min_first_timestamp >= '2021-04-30 00:00:00'
     AND max_last_timestamp <= '2021-05-08 23:59:59'
+  GROUP BY session_id
+  HAVING max(is_deleted) = 0
   '''
 # ---
 # name: TestFunnelTrendsPersons.test_funnel_trend_persons_with_no_to_step
@@ -451,7 +455,7 @@
                             WHERE team_id = 99999
                               AND event IN ['step one', 'step three', 'step two']
                               AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-05-01 00:00:00', 'UTC')
-                              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC') )
+                              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC'))
                        GROUP BY distinct_id
                        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                     WHERE team_id = 99999
@@ -460,8 +464,8 @@
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC')
                       AND (step_0 = 1
                            OR step_1 = 1
-                           OR step_2 = 1) ))))
-        WHERE step_0 = 1 )
+                           OR step_2 = 1)))))
+        WHERE step_0 = 1)
      WHERE toDateTime(entrance_period_start) = '2021-05-01 00:00:00'
      GROUP BY aggregation_target,
               entrance_period_start)
@@ -475,11 +479,13 @@
 # name: TestFunnelTrendsPersons.test_funnel_trend_persons_with_no_to_step.1
   '''
   
-  SELECT DISTINCT session_id
+  SELECT session_id
   FROM session_replay_events
   WHERE team_id = 99999
     and session_id in ['s1c']
     AND min_first_timestamp >= '2021-04-30 00:00:00'
     AND max_last_timestamp <= '2021-05-08 23:59:59'
+  GROUP BY session_id
+  HAVING max(is_deleted) = 0
   '''
 # ---

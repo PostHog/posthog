@@ -1,13 +1,13 @@
 import type { Meta } from '@storybook/react'
 
 import { ButtonPrimitive } from '../Button/ButtonPrimitives'
-import { WrappingLoadingSkeleton } from './WrappingLoadingSkeleton'
+import { WrappingLoadingSkeleton, WrappingLoadingSkeletonProps } from './WrappingLoadingSkeleton'
 
 const meta = {
     title: 'UI/WrappingLoadingSkeleton',
     component: WrappingLoadingSkeleton as any,
     tags: ['autodocs'],
-} satisfies Meta<typeof WrappingLoadingSkeleton>
+} satisfies Meta<WrappingLoadingSkeletonProps>
 
 export default meta
 

@@ -8,10 +8,11 @@ from contextlib import _GeneratorContextManager
 from typing import Any
 
 import pyarrow as pa
-from dlt.common.normalizers.naming.snake_case import NamingConvention
+import structlog
 from structlog.types import FilteringBoundLogger
 
 from posthog.exceptions_capture import capture_exception
+from posthog.temporal.data_imports.naming_convention import NamingConvention
 from posthog.temporal.data_imports.pipelines.helpers import incremental_type_to_initial_value
 from posthog.temporal.data_imports.pipelines.pipeline.consts import DEFAULT_CHUNK_SIZE, DEFAULT_TABLE_SIZE_BYTES
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
@@ -30,23 +31,25 @@ if typing.TYPE_CHECKING:
     from pymssql import Cursor
 
 
-def filter_mssql_incremental_fields(columns: list[tuple[str, str]]) -> list[tuple[str, IncrementalFieldType]]:
-    results: list[tuple[str, IncrementalFieldType]] = []
-    for column_name, type in columns:
+def filter_mssql_incremental_fields(
+    columns: list[tuple[str, str, bool]],
+) -> list[tuple[str, IncrementalFieldType, bool]]:
+    results: list[tuple[str, IncrementalFieldType, bool]] = []
+    for column_name, type, nullable in columns:
         type = type.lower()
         if type == "date":
-            results.append((column_name, IncrementalFieldType.Date))
+            results.append((column_name, IncrementalFieldType.Date, nullable))
         elif type == "datetime" or type == "datetime2" or type == "smalldatetime":
-            results.append((column_name, IncrementalFieldType.DateTime))
+            results.append((column_name, IncrementalFieldType.DateTime, nullable))
         elif type == "tinyint" or type == "smallint" or type == "int" or type == "bigint":
-            results.append((column_name, IncrementalFieldType.Integer))
+            results.append((column_name, IncrementalFieldType.Integer, nullable))
 
     return results
 
 
 def get_schemas(
-    host: str, user: str, password: str, database: str, schema: str, port: int
-) -> dict[str, list[tuple[str, str]]]:
+    host: str, user: str, password: str, database: str, schema: str, port: int, names: list[str] | None = None
+) -> dict[str, list[tuple[str, str, bool]]]:
     # Importing pymssql requires mssql drivers to be installed locally - see posthog/warehouse/README.md
     import pymssql
 
@@ -61,16 +64,25 @@ def get_schemas(
     )
 
     with connection.cursor(as_dict=False) as cursor:
+        params: dict = {"schema": schema}
+        names_filter = ""
+        if names:
+            params["names"] = tuple(names)
+            names_filter = "AND table_name IN %(names)s"
+
         cursor.execute(
-            "SELECT table_name, column_name, data_type FROM information_schema.columns WHERE table_schema = %(schema)s ORDER BY table_name ASC",
-            {"schema": schema},
+            "SELECT table_name, column_name, data_type, is_nullable"
+            " FROM information_schema.columns"
+            f" WHERE table_schema = %(schema)s {names_filter}"
+            " ORDER BY table_name ASC",
+            params,
         )
 
-        schema_list = collections.defaultdict(list)
+        schema_list: dict[str, list[tuple[str, str, bool]]] = collections.defaultdict(list)
 
         for row in cursor:
             if row:
-                schema_list[row[0]].append((row[1], row[2]))
+                schema_list[row[0]].append((row[1], row[2], row[3] == "YES"))
 
     connection.close()
 
@@ -108,6 +120,59 @@ def _build_query(
     return query, {
         "incremental_value": db_incremental_field_last_value,
     }
+
+
+def get_primary_keys_for_schemas(
+    host: str,
+    user: str,
+    password: str,
+    database: str,
+    schema: str,
+    port: int,
+    table_names: list[str],
+) -> dict[str, list[str] | None]:
+    """Detect primary keys for all tables in a single query."""
+    import pymssql
+
+    result: dict[str, list[str] | None] = dict.fromkeys(table_names)
+
+    try:
+        with pymssql.connect(
+            server=host,
+            port=str(port),
+            database=database,
+            user=user,
+            password=password,
+            login_timeout=5,
+        ) as connection:
+            with connection.cursor(as_dict=False) as cursor:
+                cursor.execute(
+                    """
+                    SELECT t.name AS table_name, c.name AS column_name
+                    FROM sys.indexes i
+                    JOIN sys.index_columns ic ON i.object_id = ic.object_id AND i.index_id = ic.index_id
+                    JOIN sys.columns c ON ic.object_id = c.object_id AND ic.column_id = c.column_id
+                    JOIN sys.tables t ON i.object_id = t.object_id
+                    JOIN sys.schemas s ON t.schema_id = s.schema_id
+                    WHERE i.is_primary_key = 1
+                    AND s.name = %(schema)s
+                    AND t.name IN %(names)s
+                    ORDER BY t.name, ic.key_ordinal
+                    """,
+                    {"schema": schema, "names": tuple(table_names)},
+                )
+                rows = cursor.fetchall()
+
+                pks: dict[str, list[str]] = collections.defaultdict(list)
+                for table_name, column_name in rows or []:
+                    pks[table_name].append(column_name)
+
+                for table_name, pk_cols in pks.items():
+                    result[table_name] = pk_cols
+    except Exception as e:
+        structlog.get_logger().warning("Failed to detect primary keys for MSSQL schemas", exc_info=e)
+
+    return result
 
 
 def _get_primary_keys(cursor: Cursor, schema: str, table_name: str) -> list[str] | None:
@@ -486,6 +551,7 @@ def mssql_source(
 
                 primary_keys = _get_primary_keys(cursor, schema, table_name)
                 table = _get_table(cursor, schema, table_name)
+                logger.debug(f"Source schema: {table.to_arrow_schema()}")
                 rows_to_sync = _get_rows_to_sync(cursor, inner_query, inner_query_args, logger)
                 chunk_size = _get_table_chunk_size(
                     cursor,
@@ -549,7 +615,7 @@ def mssql_source(
 
                         yield table_from_iterator((dict(zip(column_names, row)) for row in rows), arrow_schema)
 
-    name = NamingConvention().normalize_identifier(table_name)
+    name = NamingConvention.normalize_identifier(table_name)
 
     return SourceResponse(
         name=name,

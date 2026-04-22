@@ -7,7 +7,8 @@
     background: black;
 
     &--loading,
-    &--empty {
+    &--empty,
+    &--setup {
         display: flex;
         align-items: center;
         justify-content: center;

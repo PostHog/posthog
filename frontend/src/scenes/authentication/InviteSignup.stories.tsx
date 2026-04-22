@@ -1,4 +1,4 @@
-import { Meta } from '@storybook/react'
+import { Meta, StoryObj } from '@storybook/react'
 
 import { useDelayedOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
@@ -40,188 +40,213 @@ const meta: Meta = {
     ],
 }
 export default meta
-export const SelfHosted = (): JSX.Element => {
-    useStorybookMocks({
-        get: {
-            '/_preflight': {
-                ...preflightJson,
-                cloud: false,
-                realm: 'hosted-clickhouse',
-                available_social_auth_providers: { github: false, gitlab: false, 'google-oauth2': false, saml: false },
-            },
-        },
-    })
 
-    useDelayedOnMountEffect(() => {
-        inviteSignupLogic.actions.prevalidateInvite('1234')
-    })
+type Story = StoryObj<{}>
 
-    return <InviteSignup />
-}
-
-export const Cloud = (): JSX.Element => {
-    useStorybookMocks({
-        get: {
-            '/_preflight': {
-                ...preflightJson,
-                cloud: true,
-                realm: 'cloud',
-                can_create_org: true,
-                available_social_auth_providers: { github: true, gitlab: true, 'google-oauth2': true, saml: false },
-            },
-        },
-    })
-
-    useDelayedOnMountEffect(() => {
-        inviteSignupLogic.actions.prevalidateInvite('1234')
-    })
-
-    return <InviteSignup />
-}
-export const CloudEU = (): JSX.Element => {
-    useStorybookMocks({
-        get: {
-            '/_preflight': {
-                ...preflightJson,
-                cloud: true,
-                region: 'EU',
-                realm: 'cloud',
-                can_create_org: true,
-                available_social_auth_providers: { github: true, gitlab: true, 'google-oauth2': true, saml: false },
-            },
-        },
-    })
-
-    useDelayedOnMountEffect(() => {
-        inviteSignupLogic.actions.prevalidateInvite('1234')
-    })
-
-    return <InviteSignup />
-}
-
-export const InvalidLink = (): JSX.Element => {
-    useStorybookMocks({
-        get: {
-            '/_preflight': {
-                ...preflightJson,
-                cloud: true,
-                realm: 'cloud',
-                can_create_org: true,
-                available_social_auth_providers: { github: true, gitlab: true, 'google-oauth2': true, saml: false },
-            },
-        },
-    })
-
-    useDelayedOnMountEffect(() => {
-        inviteSignupLogic.actions.prevalidateInvite('not-found')
-    })
-
-    return <InviteSignup />
-}
-
-export const LoggedIn = (): JSX.Element => {
-    useStorybookMocks({
-        get: {
-            '/_preflight': {
-                ...preflightJson,
-                cloud: true,
-                realm: 'cloud',
-                can_create_org: true,
-                available_social_auth_providers: { github: true, gitlab: true, 'google-oauth2': true, saml: false },
-            },
-            '/api/users/@me': () => [
-                200,
-                {
-                    email: 'ben@posthog.com',
-                    first_name: 'Ben White',
-                    organization: {
-                        name: 'Other org',
+export const SelfHosted: Story = {
+    render: () => {
+        useStorybookMocks({
+            get: {
+                '/_preflight': {
+                    ...preflightJson,
+                    cloud: false,
+                    realm: 'hosted-clickhouse',
+                    available_social_auth_providers: {
+                        github: false,
+                        gitlab: false,
+                        'google-oauth2': false,
+                        saml: false,
                     },
                 },
-            ],
-        },
-    })
-
-    useDelayedOnMountEffect(() => {
-        inviteSignupLogic.actions.prevalidateInvite('1234')
-    })
-
-    return <InviteSignup />
-}
-
-export const LoggedInWrongUser = (): JSX.Element => {
-    useStorybookMocks({
-        get: {
-            '/_preflight': {
-                ...preflightJson,
-                cloud: true,
-                realm: 'cloud',
-                can_create_org: true,
-                available_social_auth_providers: { github: true, gitlab: true, 'google-oauth2': true, saml: false },
             },
-            '/api/users/@me': () => [
-                200,
-                {
-                    email: 'ben@posthog.com',
-                    first_name: 'Ben White',
-                    organization: {
-                        name: 'Other org',
+        })
+
+        useDelayedOnMountEffect(() => {
+            inviteSignupLogic.actions.prevalidateInvite('1234')
+        })
+
+        return <InviteSignup />
+    },
+}
+
+export const Cloud: Story = {
+    render: () => {
+        useStorybookMocks({
+            get: {
+                '/_preflight': {
+                    ...preflightJson,
+                    cloud: true,
+                    realm: 'cloud',
+                    can_create_org: true,
+                    available_social_auth_providers: { github: true, gitlab: true, 'google-oauth2': true, saml: false },
+                },
+            },
+        })
+
+        useDelayedOnMountEffect(() => {
+            inviteSignupLogic.actions.prevalidateInvite('1234')
+        })
+
+        return <InviteSignup />
+    },
+}
+
+export const CloudEU: Story = {
+    render: () => {
+        useStorybookMocks({
+            get: {
+                '/_preflight': {
+                    ...preflightJson,
+                    cloud: true,
+                    region: 'EU',
+                    realm: 'cloud',
+                    can_create_org: true,
+                    available_social_auth_providers: { github: true, gitlab: true, 'google-oauth2': true, saml: false },
+                },
+            },
+        })
+
+        useDelayedOnMountEffect(() => {
+            inviteSignupLogic.actions.prevalidateInvite('1234')
+        })
+
+        return <InviteSignup />
+    },
+}
+
+export const InvalidLink: Story = {
+    render: () => {
+        useStorybookMocks({
+            get: {
+                '/_preflight': {
+                    ...preflightJson,
+                    cloud: true,
+                    realm: 'cloud',
+                    can_create_org: true,
+                    available_social_auth_providers: { github: true, gitlab: true, 'google-oauth2': true, saml: false },
+                },
+            },
+        })
+
+        useDelayedOnMountEffect(() => {
+            inviteSignupLogic.actions.prevalidateInvite('not-found')
+        })
+
+        return <InviteSignup />
+    },
+}
+
+export const LoggedIn: Story = {
+    render: () => {
+        useStorybookMocks({
+            get: {
+                '/_preflight': {
+                    ...preflightJson,
+                    cloud: true,
+                    realm: 'cloud',
+                    can_create_org: true,
+                    available_social_auth_providers: { github: true, gitlab: true, 'google-oauth2': true, saml: false },
+                },
+                '/api/users/@me': () => [
+                    200,
+                    {
+                        email: 'ben@posthog.com',
+                        first_name: 'Ben White',
+                        organization: {
+                            name: 'Other org',
+                        },
                     },
-                },
-            ],
-            '/api/signup/1234/': () => [
-                400,
-                {
-                    code: 'invalid_recipient',
-                },
-            ],
-        },
-    })
+                ],
+            },
+        })
 
-    useDelayedOnMountEffect(() => {
-        inviteSignupLogic.actions.prevalidateInvite('1234')
-    })
+        useDelayedOnMountEffect(() => {
+            inviteSignupLogic.actions.prevalidateInvite('1234')
+        })
 
-    return (
-        <div>
-            <div className="border-b border-t p-4 font-bold">HEADER AREA</div>
-            <InviteSignup />
-        </div>
-    )
+        return <InviteSignup />
+    },
 }
 
-export const SSOEnforcedSaml = (): JSX.Element => {
-    useStorybookMocks({
-        post: {
-            '/api/login/precheck': { sso_enforcement: 'saml', saml_available: true },
-        },
-    })
+export const LoggedInWrongUser: Story = {
+    render: () => {
+        useStorybookMocks({
+            get: {
+                '/_preflight': {
+                    ...preflightJson,
+                    cloud: true,
+                    realm: 'cloud',
+                    can_create_org: true,
+                    available_social_auth_providers: { github: true, gitlab: true, 'google-oauth2': true, saml: false },
+                },
+                '/api/users/@me': () => [
+                    200,
+                    {
+                        email: 'ben@posthog.com',
+                        first_name: 'Ben White',
+                        organization: {
+                            name: 'Other org',
+                        },
+                    },
+                ],
+                '/api/signup/1234/': () => [
+                    400,
+                    {
+                        code: 'invalid_recipient',
+                    },
+                ],
+            },
+        })
 
-    useDelayedOnMountEffect(() => {
-        inviteSignupLogic.actions.prevalidateInvite('1234')
-    })
+        useDelayedOnMountEffect(() => {
+            inviteSignupLogic.actions.prevalidateInvite('1234')
+        })
 
-    return (
-        <div>
-            <div className="border-b border-t p-4 font-bold">HEADER AREA</div>
-            <InviteSignup />
-        </div>
-    )
+        return (
+            <div>
+                <div className="border-b border-t p-4 font-bold">HEADER AREA</div>
+                <InviteSignup />
+            </div>
+        )
+    },
 }
 
-export const SSOEnforcedGoogle = (): JSX.Element => {
-    useStorybookMocks({
-        post: { '/api/login/precheck': { sso_enforcement: 'google-oauth2', saml_available: false } },
-    })
+export const SSOEnforcedSaml: Story = {
+    render: () => {
+        useStorybookMocks({
+            post: {
+                '/api/login/precheck': { sso_enforcement: 'saml', saml_available: true },
+            },
+        })
 
-    useDelayedOnMountEffect(() => {
-        inviteSignupLogic.actions.prevalidateInvite('1234')
-    })
+        useDelayedOnMountEffect(() => {
+            inviteSignupLogic.actions.prevalidateInvite('1234')
+        })
 
-    return (
-        <div>
-            <div className="border-b border-t p-4 font-bold">HEADER AREA</div>
-            <InviteSignup />
-        </div>
-    )
+        return (
+            <div>
+                <div className="border-b border-t p-4 font-bold">HEADER AREA</div>
+                <InviteSignup />
+            </div>
+        )
+    },
+}
+
+export const SSOEnforcedGoogle: Story = {
+    render: () => {
+        useStorybookMocks({
+            post: { '/api/login/precheck': { sso_enforcement: 'google-oauth2', saml_available: false } },
+        })
+
+        useDelayedOnMountEffect(() => {
+            inviteSignupLogic.actions.prevalidateInvite('1234')
+        })
+
+        return (
+            <div>
+                <div className="border-b border-t p-4 font-bold">HEADER AREA</div>
+                <InviteSignup />
+            </div>
+        )
+    },
 }

@@ -1,0 +1,15 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "name": {
+            "description": "Unique prompt name using letters, numbers, hyphens, and underscores only.",
+            "maxLength": 255,
+            "type": "string"
+        },
+        "prompt": {
+            "description": "Prompt payload as JSON or string data."
+        }
+    },
+    "required": ["name", "prompt"],
+    "type": "object"
+}

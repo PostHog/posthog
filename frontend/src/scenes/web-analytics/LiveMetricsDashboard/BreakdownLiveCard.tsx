@@ -1,5 +1,5 @@
 import clsx from 'clsx'
-import { useMemo } from 'react'
+import React, { useMemo } from 'react'
 
 import { Spinner, Tooltip } from '@posthog/lemon-ui'
 
@@ -22,7 +22,7 @@ interface BreakdownLiveCardProps<T extends BreakdownItem> {
     isLoading?: boolean
 }
 
-export const BreakdownLiveCard = <T extends BreakdownItem>({
+const BreakdownLiveCardInner = <T extends BreakdownItem>({
     title,
     data,
     getKey,
@@ -66,7 +66,7 @@ export const BreakdownLiveCard = <T extends BreakdownItem>({
     const hasData = data.length > 0 && data.some((d) => d.count > 0)
 
     return (
-        <div className="bg-bg-light rounded-lg border border-border p-4 h-full flex flex-col">
+        <div className="bg-bg-light rounded-lg border border-border p-4 h-full min-h-[340px] flex flex-col">
             <div className="mb-4">
                 <h3 className="text-sm font-semibold text-default">{title}</h3>
             </div>
@@ -130,3 +130,5 @@ export const BreakdownLiveCard = <T extends BreakdownItem>({
         </div>
     )
 }
+
+export const BreakdownLiveCard = React.memo(BreakdownLiveCardInner) as typeof BreakdownLiveCardInner

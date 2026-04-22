@@ -1,9 +1,8 @@
 from datetime import datetime, timedelta
-from typing import Any, Optional
+from typing import Any, Optional, cast
 from uuid import UUID
 
 from django.conf import settings
-from django.core.cache import cache
 from django.utils.timezone import now
 
 import structlog
@@ -11,11 +10,14 @@ from prometheus_client import Counter, Gauge
 
 from posthog.api.services.query import process_query_dict
 from posthog.clickhouse.query_tagging import tag_queries
+from posthog.event_usage import EventSource
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.query_runner import ExecutionMode
-from posthog.models import Dashboard, Insight, InsightCachingState
+from posthog.models import Insight, InsightCachingState
 from posthog.schema_migrations.upgrade_manager import upgrade_query
 from posthog.tasks.tasks import update_cache_task
+
+from products.dashboards.backend.models.dashboard import Dashboard
 
 logger = structlog.get_logger(__name__)
 
@@ -40,6 +42,7 @@ CACHE_UPDATE_SHARED_GAUGE = Gauge(
 
 
 def update_cache(caching_state_id: UUID):
+    # nosemgrep: idor-lookup-without-team (Celery task, ID from internal scheduling)
     caching_state = InsightCachingState.objects.get(pk=caching_state_id)
 
     if caching_state.target_cache_age_seconds is None or (
@@ -72,9 +75,10 @@ def update_cache(caching_state_id: UUID):
         try:
             response = process_query_dict(
                 insight.team,
-                insight.query,
+                cast(dict[str, Any], insight.query),
                 dashboard_filters_json=dashboard.filters if dashboard is not None else None,
                 execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
+                analytics_props={"source": EventSource.CACHE_WARMING},
             )
             # TRICKY: `result` is null, because `process_query` already set the cache. `cache_type` also irrelevant
             cache_key, cache_type, result = getattr(response, "cache_key", None), None, None
@@ -110,6 +114,7 @@ def update_cache(caching_state_id: UUID):
         if caching_state.refresh_attempt < MAX_ATTEMPTS:
             update_cache_task.apply_async(args=[caching_state_id], countdown=timedelta(minutes=10).total_seconds())
 
+        # nosemgrep: idor-lookup-without-team (Celery task, ID from internal scheduling)
         InsightCachingState.objects.filter(pk=caching_state.pk).update(
             refresh_attempt=caching_state.refresh_attempt + 1,
             last_refresh_queued_at=now(),
@@ -124,7 +129,10 @@ def update_cached_state(
     ttl: Optional[int] = None,
 ):
     if result is not None:  # This is particularly the case for HogQL-based queries, which cache.set() on their own
-        cache.set(cache_key, result, ttl if ttl is not None else settings.CACHED_RESULTS_TTL)
+        from posthog.caching.query_cache_routing import get_query_cache
+
+        query_cache = get_query_cache()
+        query_cache.set(cache_key, result, ttl if ttl is not None else settings.CACHED_RESULTS_TTL)
         INSIGHT_CACHE_WRITE_COUNTER.inc()
 
     # :TRICKY: We update _all_ states with same cache_key to avoid needless re-calculations and

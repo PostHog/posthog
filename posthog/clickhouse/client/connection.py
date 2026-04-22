@@ -15,21 +15,9 @@ from clickhouse_connect.driver import (
 from clickhouse_driver import Client as SyncClient
 from clickhouse_pool import ChPool
 
+from posthog.clickhouse.workload import Workload
 from posthog.settings import data_stores
 from posthog.utils import patchable
-
-
-class Workload(StrEnum):
-    # Default workload
-    DEFAULT = "DEFAULT"
-    # Analytics queries, other 'lively' queries
-    ONLINE = "ONLINE"
-    # Historical exports, other long-running processes where latency is less critical
-    OFFLINE = "OFFLINE"
-    # Logs queries
-    LOGS = "LOGS"
-    # Endpoints (the product) queries
-    ENDPOINTS = "ENDPOINTS"
 
 
 class NodeRole(StrEnum):
@@ -44,6 +32,12 @@ class NodeRole(StrEnum):
     SHUFFLEHOG = "shufflehog"
     ENDPOINTS = "endpoints"
     LOGS = "logs"
+
+    # Below nodes are part of separate clusters.
+    AI_EVENTS = "ai_events"
+    AUX = "aux"
+    OPS = "ops"
+    SESSIONS = "sessions"
 
 
 _default_workload = Workload.ONLINE
@@ -69,6 +63,10 @@ class ClickHouseUser(StrEnum):
     MAX_AI = "max_ai"  # llm/a
     ENDPOINTS = "endpoints"
 
+    # Backups - used by Dagster backup jobs
+    BACKUPS = "backups"
+    # Part breaker - used by Dagster part breaking jobs
+    PART_BREAKER = "part_breaker"
     # Dev Operations - do not normally use
     OPS = "ops"
     # Only for migrations - do not normally use
@@ -136,6 +134,8 @@ class ProxyClient:
         columnar=False,
     ):
         if query_id:
+            if settings is None:
+                settings = {}
             settings["query_id"] = query_id
         result = self._client.query(query=query, parameters=params, settings=settings, column_oriented=columnar)
 

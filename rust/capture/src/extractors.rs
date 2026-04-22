@@ -65,7 +65,7 @@ pub async fn extract_body_with_timeout(
             }
             Some(Err(e)) => {
                 return Err(CaptureError::RequestDecodingError(format!(
-                    "Error reading request body: {e}"
+                    "Error reading request body: {e:#}"
                 )));
             }
             None => {

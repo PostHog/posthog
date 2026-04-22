@@ -2,8 +2,8 @@ import { LemonCollapse } from '@posthog/lemon-ui'
 
 import { BaseCurrency } from 'lib/components/BaseCurrency/BaseCurrency'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
-import { Scene } from 'scenes/sceneTypes'
 import { sceneConfigurations } from 'scenes/scenes'
+import { Scene } from 'scenes/sceneTypes'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
@@ -25,10 +25,10 @@ export function MarketingAnalyticsSettings({
         <SceneContent>
             {!hideTitle && (
                 <SceneTitleSection
-                    name={sceneConfigurations[Scene.WebAnalyticsMarketing].name}
-                    description={sceneConfigurations[Scene.WebAnalyticsMarketing].description}
+                    name={sceneConfigurations[Scene.MarketingAnalyticsSettings].name}
+                    description={sceneConfigurations[Scene.MarketingAnalyticsSettings].description}
                     resourceType={{
-                        type: sceneConfigurations[Scene.WebAnalyticsMarketing].iconType || 'default_icon_type',
+                        type: sceneConfigurations[Scene.MarketingAnalyticsSettings].iconType || 'default_icon_type',
                     }}
                 />
             )}

@@ -1,4 +1,18 @@
-import { BuiltLogic, actions, beforeUnmount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { sendableSteps } from '@tiptap/pm/collab'
+import {
+    BuiltLogic,
+    actions,
+    afterMount,
+    beforeUnmount,
+    connect,
+    kea,
+    key,
+    listeners,
+    path,
+    props,
+    reducers,
+    selectors,
+} from 'kea'
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
@@ -8,6 +22,8 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { EditorRange, JSONContent } from 'lib/components/RichContentEditor/types'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { base64Decode, base64Encode, downloadFile, slugify } from 'lib/utils'
 import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
 import { commentsLogic } from 'scenes/comments/commentsLogic'
@@ -15,7 +31,12 @@ import { urls } from 'scenes/urls'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
-import { SCRATCHPAD_NOTEBOOK, notebooksModel, openNotebook } from '~/models/notebooksModel'
+import {
+    SCRATCHPAD_NOTEBOOK,
+    drainPendingNotebookOperations,
+    notebooksModel,
+    openNotebook,
+} from '~/models/notebooksModel'
 import { NodeKind } from '~/queries/schema/schema-general'
 import { isHogQLQuery, isSavedInsightNode } from '~/queries/utils'
 import {
@@ -48,6 +69,7 @@ import {
 } from '../types'
 import { updateContentHeading } from '../utils'
 import { NOTEBOOKS_VERSION, migrate } from './migrations/migrate'
+import { notebookCollabLogic } from './notebookCollabLogic'
 import { notebookKernelInfoLogic } from './notebookKernelInfoLogic'
 import type { notebookLogicType } from './notebookLogicType'
 import { notebookSettingsLogic } from './notebookSettingsLogic'
@@ -64,22 +86,17 @@ export type NotebookLogicProps = {
     canvasFiltersOverride?: AnyPropertyFilter[]
 }
 
-async function runWhenEditorIsReady(waitForEditor: () => boolean, fn: () => any): Promise<any> {
-    // TRICKY: external code doesn't know how to wait for the editor to be ready
-    // so, we have to poll until it is, then run the function
-    // the use-case is that we have opened a notebook, mounted this logic,
-    // and then want to run commands against the editor
-    // but, we are racing against it being ready
-
-    // throw an error after 2 seconds
-    const timeout = setTimeout(() => {
-        throw new Error('Notebook editor not ready')
-    }, 2000)
+async function runWhenEditorIsReady(waitForEditor: () => boolean, fn: () => any): Promise<any | null> {
+    const maxWaitMs = 5000
+    const startTime = Date.now()
 
     while (!waitForEditor()) {
+        if (Date.now() - startTime > maxWaitMs) {
+            console.warn('Notebook editor not ready after timeout')
+            return null
+        }
         await new Promise((resolve) => setTimeout(resolve, 10))
     }
-    clearTimeout(timeout)
 
     return fn()
 }
@@ -91,6 +108,8 @@ export const notebookLogic = kea<notebookLogicType>([
 
     connect((props: NotebookLogicProps) => ({
         values: [
+            featureFlagLogic,
+            ['featureFlags'],
             notebooksModel,
             ['scratchpadNotebook', 'notebookTemplates'],
             commentsLogic({
@@ -102,6 +121,8 @@ export const notebookLogic = kea<notebookLogicType>([
             ['kernelInfo'],
             notebookSettingsLogic,
             ['showKernelInfo', 'showTableOfContents'],
+            notebookCollabLogic({ shortId: props.shortId }),
+            ['ttEditor'],
         ],
         actions: [
             notebooksModel,
@@ -113,6 +134,8 @@ export const notebookLogic = kea<notebookLogicType>([
                 item_id: props.shortId,
             }),
             ['setItemContext', 'maybeLoadComments'],
+            notebookCollabLogic({ shortId: props.shortId }),
+            ['rebaseFromSteps'],
         ],
     })),
     actions({
@@ -338,6 +361,57 @@ export const notebookLogic = kea<notebookLogicType>([
                         return values.notebook
                     }
 
+                    if (values.collabEnabled && values.ttEditor) {
+                        const sendable = sendableSteps(values.ttEditor.state)
+                        if (!sendable) {
+                            return values.notebook
+                        }
+                        const stepsJson = sendable.steps.map((s) => s.toJSON())
+
+                        try {
+                            const response = await api.create(
+                                `api/projects/@current/notebooks/${values.notebook.short_id}/collab/save/`,
+                                {
+                                    client_id: sendable.clientID,
+                                    version: sendable.version,
+                                    steps: stepsJson,
+                                    content: values.editor?.getJSON(),
+                                    text_content: values.editor?.getText() || '',
+                                    title: notebook.title,
+                                }
+                            )
+                            // Mark sent steps as acknowledged so version update
+                            actions.rebaseFromSteps(
+                                stepsJson,
+                                stepsJson.map(() => sendable.clientID)
+                            )
+                            if (notebook.content === values.localContent) {
+                                actions.clearLocalContent()
+                            }
+                            refreshTreeItem('notebook', String(values.notebook.short_id))
+                            return response
+                        } catch (error: any) {
+                            if (error.status === 409 && error.data?.steps) {
+                                actions.rebaseFromSteps(error.data.steps, error.data.client_ids)
+
+                                // Retry after rebase
+                                actions.saveNotebook({
+                                    content: values.editor?.getJSON() ?? notebook.content,
+                                    title: notebook.title,
+                                })
+                                return values.notebook
+                            }
+                            if (error.status === 410) {
+                                // Steps expired - gap too large to rebase, must reload
+                                actions.clearLocalContent()
+                                actions.loadNotebook()
+                                return values.notebook
+                            }
+                            throw error
+                        }
+                    }
+
+                    // Legacy path: full-doc PATCH
                     try {
                         const response = await api.notebooks.update(values.notebook.short_id, {
                             version: values.notebook.version,
@@ -352,9 +426,12 @@ export const notebookLogic = kea<notebookLogicType>([
                             values.localContent &&
                             notebook.content === values.localContent
                         ) {
-                            const currentPosition = values.editor.getCurrentPosition()
-                            values.editor.setContent(response.content)
-                            values.editor.setTextSelection(currentPosition)
+                            const currentEditorContent = values.editor.getJSON()
+                            if (JSON.stringify(response.content) !== JSON.stringify(currentEditorContent)) {
+                                const currentPosition = values.editor.getCurrentPosition()
+                                values.editor.setContent(response.content)
+                                values.editor.setTextSelection(currentPosition)
+                            }
                         }
 
                         // If the object is identical then no edits were made, so we can safely clear the local changes
@@ -365,6 +442,7 @@ export const notebookLogic = kea<notebookLogicType>([
                         return response
                     } catch (error: any) {
                         if (error.code === 'conflict') {
+                            actions.clearLocalContent()
                             actions.showConflictWarning()
                             return null
                         }
@@ -447,6 +525,11 @@ export const notebookLogic = kea<notebookLogicType>([
             (props, isTemplate): boolean => {
                 return props.shortId === 'scratchpad' || props.mode === 'canvas' || isTemplate
             },
+        ],
+        collabEnabled: [
+            (s) => [s.featureFlags, s.isLocalOnly],
+            (featureFlags: Record<string, string | boolean>, isLocalOnly: boolean): boolean =>
+                !!featureFlags[FEATURE_FLAGS.NOTEBOOKS_COLLABORATION] && !isLocalOnly,
         ],
         notebookMissing: [
             (s) => [s.notebook, s.notebookLoading, s.mode],
@@ -623,7 +706,7 @@ export const notebookLogic = kea<notebookLogicType>([
     listeners(({ values, actions, cache }) => ({
         insertAfterLastNode: async ({ content }) => {
             await runWhenEditorIsReady(
-                () => !!values.editor,
+                () => !!values.editor && (values.isLocalOnly || !!values.notebook),
                 () => {
                     let insertionPosition = 0
                     let nextNode = values.editor?.nextNode(insertionPosition)
@@ -638,7 +721,7 @@ export const notebookLogic = kea<notebookLogicType>([
         },
         pasteAfterLastNode: async ({ content }) => {
             await runWhenEditorIsReady(
-                () => !!values.editor,
+                () => !!values.editor && (values.isLocalOnly || !!values.notebook),
                 () => {
                     const endPosition = values.editor?.getEndPosition() || 0
                     values.editor?.pasteContent(endPosition, content)
@@ -647,7 +730,7 @@ export const notebookLogic = kea<notebookLogicType>([
         },
         insertAfterLastNodeOfType: async ({ content, nodeType, knownStartingPosition }) => {
             await runWhenEditorIsReady(
-                () => !!values.editor,
+                () => !!values.editor && (values.isLocalOnly || !!values.notebook),
                 () => {
                     let insertionPosition = knownStartingPosition
                     let nextNode = values.editor?.nextNode(insertionPosition)
@@ -671,12 +754,39 @@ export const notebookLogic = kea<notebookLogicType>([
                 },
             }
 
-            if (insertionPosition !== null) {
-                values.editor?.insertContentAt(insertionPosition, content)
-            } else {
-                actions.insertAfterLastNode(content)
+            let inserted = false
+
+            if (insertionPosition !== null && values.editor) {
+                try {
+                    values.editor.insertContentAt(insertionPosition, content)
+                    inserted = true
+                } catch (e) {
+                    console.warn('Failed to insert at position, appending to end instead', e)
+                }
             }
-            lemonToast.success('Insight added to notebook')
+
+            if (!inserted) {
+                const result = await runWhenEditorIsReady(
+                    () => !!values.editor && (values.isLocalOnly || !!values.notebook),
+                    () => {
+                        let pos = 0
+                        let nextNode = values.editor?.nextNode(pos)
+                        while (nextNode) {
+                            pos = nextNode.position
+                            nextNode = values.editor?.nextNode(pos)
+                        }
+                        values.editor?.insertContentAfterNode(pos, content)
+                        return true
+                    }
+                )
+                inserted = result === true
+            }
+
+            if (inserted) {
+                lemonToast.success('Insight added to notebook')
+            } else {
+                lemonToast.warning('Could not add insight to notebook')
+            }
         },
         setLocalContent: async ({ updateEditor, jsonContent, skipCapture }, breakpoint) => {
             if (
@@ -757,9 +867,7 @@ export const notebookLogic = kea<notebookLogicType>([
                 cache.throttledOnUpdateEditorTimeout = null
             }, 16) // ~60fps throttling
         },
-        setEditor: () => {
-            values.editor?.setContent(values.content)
-        },
+        setEditor: () => {},
 
         saveNotebookSuccess: actions.scheduleNotebookRefresh,
         loadNotebookSuccess: () => {
@@ -811,6 +919,12 @@ export const notebookLogic = kea<notebookLogicType>([
             if (values.mode !== 'notebook') {
                 return
             }
+
+            // When collab is enabled, SSE will handle real-time sync, no polling needed
+            if (values.collabEnabled) {
+                return
+            }
+
             // Remove any existing refresh timeout
             cache.disposables.dispose('refreshTimeout')
 
@@ -886,6 +1000,10 @@ export const notebookLogic = kea<notebookLogicType>([
             }
         },
     })),
+
+    afterMount(({ props }) => {
+        drainPendingNotebookOperations(props.shortId)
+    }),
 
     beforeUnmount(() => {
         const hashParams = router.values.currentLocation.hashParams

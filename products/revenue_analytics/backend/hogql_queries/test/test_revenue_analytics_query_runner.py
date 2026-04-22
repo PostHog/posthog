@@ -1,8 +1,13 @@
 from datetime import datetime, timedelta
 
+import pytest
 from posthog.test.base import APIBaseTest
+from unittest.mock import MagicMock
 
-from posthog.schema import IntervalType, RevenueAnalyticsGrossRevenueQuery
+from posthog.schema import DatabaseSchemaManagedViewTableKind, IntervalType, RevenueAnalyticsGrossRevenueQuery
+
+from posthog.hogql.database.models import SavedQuery, StringDatabaseField
+from posthog.hogql.database.s3_table import DataWarehouseTable as HogQLDataWarehouseTable
 
 from posthog.constants import AvailableFeature
 from posthog.rbac.user_access_control import UserAccessControlError
@@ -10,6 +15,14 @@ from posthog.rbac.user_access_control import UserAccessControlError
 from products.data_warehouse.backend.models import ExternalDataSchema, ExternalDataSource
 from products.data_warehouse.backend.types import ExternalDataSourceType
 from products.revenue_analytics.backend.hogql_queries.revenue_analytics_query_runner import RevenueAnalyticsQueryRunner
+from products.revenue_analytics.backend.views import (
+    RevenueAnalyticsChargeView,
+    RevenueAnalyticsCustomerView,
+    RevenueAnalyticsProductView,
+    RevenueAnalyticsRevenueItemView,
+    RevenueAnalyticsSubscriptionView,
+)
+from products.revenue_analytics.backend.views.schemas import SCHEMAS as VIEW_SCHEMAS
 
 try:
     from ee.models.rbac.access_control import AccessControl
@@ -334,3 +347,168 @@ class TestRevenueAnalyticsQueryRunner(APIBaseTest):
 
         runner = RevenueAnalyticsQueryRunnerImpl(team=self.team, query=self.query)
         self.assertRaises(UserAccessControlError, runner.validate_query_runner_access, self.user)
+
+
+DUMMY_FIELDS = {"id": StringDatabaseField(name="id")}
+
+
+def _make_saved_query(name: str, metadata: dict | None = None) -> SavedQuery:
+    return SavedQuery(
+        id="test-id",
+        name=name,
+        query="SELECT 1",
+        fields=DUMMY_FIELDS,
+        metadata={"managed_viewset_kind": "revenue_analytics"} if metadata is None else metadata,
+    )
+
+
+def _make_materialized_table(name: str) -> HogQLDataWarehouseTable:
+    return HogQLDataWarehouseTable(
+        name=name,
+        url="s3://bucket/path",
+        format="DeltaS3Wrapper",
+        fields=DUMMY_FIELDS,
+        table_id="test-table-id",
+    )
+
+
+VIEW_SUFFIX_TO_CLASS = [
+    ("charge_revenue_view", RevenueAnalyticsChargeView),
+    ("customer_revenue_view", RevenueAnalyticsCustomerView),
+    ("product_revenue_view", RevenueAnalyticsProductView),
+    ("revenue_item_revenue_view", RevenueAnalyticsRevenueItemView),
+    ("subscription_revenue_view", RevenueAnalyticsSubscriptionView),
+]
+
+
+class TestTableToRevenueAnalyticsBaseView:
+    @pytest.mark.parametrize(
+        "suffix,expected_class",
+        VIEW_SUFFIX_TO_CLASS,
+    )
+    @pytest.mark.parametrize(
+        "factory,expected_query,expected_id",
+        [
+            (_make_saved_query, "SELECT 1", "test-id"),
+            (_make_materialized_table, "", "test-table-id"),
+        ],
+        ids=["saved_query", "materialized_table"],
+    )
+    def test_resolves_correct_view_class(self, suffix, expected_class, factory, expected_query, expected_id):
+        table = factory(f"revenue_analytics.stripe.{suffix}")
+        result = RevenueAnalyticsQueryRunner.table_to_revenue_analytics_base_view(table)
+
+        assert isinstance(result, expected_class)
+        assert result.name == f"revenue_analytics.stripe.{suffix}"
+        assert result.query == expected_query
+        assert result.id == expected_id
+
+    def test_events_view_sets_event_name(self):
+        saved_query = _make_saved_query("revenue_analytics.events.purchase.charge_events_revenue_view")
+        result = RevenueAnalyticsQueryRunner.table_to_revenue_analytics_base_view(saved_query)
+        assert isinstance(result, RevenueAnalyticsChargeView)
+        assert result.event_name == "purchase"
+
+    def test_source_view_has_no_event_name(self):
+        saved_query = _make_saved_query("revenue_analytics.stripe.charge_revenue_view")
+        result = RevenueAnalyticsQueryRunner.table_to_revenue_analytics_base_view(saved_query)
+        assert result.event_name is None
+
+    def test_raises_for_unknown_suffix(self):
+        saved_query = _make_saved_query("revenue_analytics.stripe.unknown_view")
+        with pytest.raises(ValueError, match="not a revenue analytics view"):
+            RevenueAnalyticsQueryRunner.table_to_revenue_analytics_base_view(saved_query)
+
+
+class TestRevenueSubqueries:
+    def _mock_database(self, view_names: list[str], tables: dict[str, object]) -> MagicMock:
+        db = MagicMock()
+        db.get_view_names.return_value = view_names
+        db.get_table.side_effect = lambda name: tables[name]
+        return db
+
+    def test_yields_revenue_analytics_base_view_directly(self):
+        view = RevenueAnalyticsRevenueItemView(
+            id="old-view",
+            name="stripe.prefix.revenue_item_revenue_view",
+            query="SELECT 1",
+            fields=DUMMY_FIELDS,
+            prefix="stripe.prefix",
+        )
+        db = self._mock_database(
+            ["stripe.prefix.revenue_item_revenue_view"],
+            {"stripe.prefix.revenue_item_revenue_view": view},
+        )
+        schema = VIEW_SCHEMAS[DatabaseSchemaManagedViewTableKind.REVENUE_ANALYTICS_REVENUE_ITEM]
+        results = list(RevenueAnalyticsQueryRunner.revenue_subqueries(schema, db))
+
+        assert len(results) == 1
+        assert results[0] is view
+
+    def test_yields_view_from_saved_query(self):
+        saved_query = _make_saved_query("revenue_analytics.stripe.revenue_item_revenue_view")
+        db = self._mock_database(
+            ["revenue_analytics.stripe.revenue_item_revenue_view"],
+            {"revenue_analytics.stripe.revenue_item_revenue_view": saved_query},
+        )
+        schema = VIEW_SCHEMAS[DatabaseSchemaManagedViewTableKind.REVENUE_ANALYTICS_REVENUE_ITEM]
+        results = list(RevenueAnalyticsQueryRunner.revenue_subqueries(schema, db))
+
+        assert len(results) == 1
+        assert isinstance(results[0], RevenueAnalyticsRevenueItemView)
+
+    def test_yields_view_from_materialized_table(self):
+        table = _make_materialized_table("revenue_analytics.stripe.revenue_item_revenue_view")
+        db = self._mock_database(
+            ["revenue_analytics.stripe.revenue_item_revenue_view"],
+            {"revenue_analytics.stripe.revenue_item_revenue_view": table},
+        )
+        schema = VIEW_SCHEMAS[DatabaseSchemaManagedViewTableKind.REVENUE_ANALYTICS_REVENUE_ITEM]
+        results = list(RevenueAnalyticsQueryRunner.revenue_subqueries(schema, db))
+
+        assert len(results) == 1
+        assert isinstance(results[0], RevenueAnalyticsRevenueItemView)
+
+    def test_skips_saved_query_without_managed_viewset_metadata(self):
+        saved_query = _make_saved_query(
+            "revenue_analytics.stripe.revenue_item_revenue_view",
+            metadata={},
+        )
+        db = self._mock_database(
+            ["revenue_analytics.stripe.revenue_item_revenue_view"],
+            {"revenue_analytics.stripe.revenue_item_revenue_view": saved_query},
+        )
+        schema = VIEW_SCHEMAS[DatabaseSchemaManagedViewTableKind.REVENUE_ANALYTICS_REVENUE_ITEM]
+        results = list(RevenueAnalyticsQueryRunner.revenue_subqueries(schema, db))
+
+        assert len(results) == 0
+
+    def test_skips_views_with_non_matching_suffix(self):
+        saved_query = _make_saved_query("revenue_analytics.stripe.customer_revenue_view")
+        db = self._mock_database(
+            ["revenue_analytics.stripe.customer_revenue_view"],
+            {"revenue_analytics.stripe.customer_revenue_view": saved_query},
+        )
+        schema = VIEW_SCHEMAS[DatabaseSchemaManagedViewTableKind.REVENUE_ANALYTICS_REVENUE_ITEM]
+        results = list(RevenueAnalyticsQueryRunner.revenue_subqueries(schema, db))
+
+        assert len(results) == 0
+
+    def test_yields_multiple_views(self):
+        source_view = _make_saved_query("revenue_analytics.stripe_1.revenue_item_revenue_view")
+        materialized_view = _make_materialized_table("revenue_analytics.stripe_2.revenue_item_revenue_view")
+        db = self._mock_database(
+            [
+                "revenue_analytics.stripe_1.revenue_item_revenue_view",
+                "revenue_analytics.stripe_2.revenue_item_revenue_view",
+            ],
+            {
+                "revenue_analytics.stripe_1.revenue_item_revenue_view": source_view,
+                "revenue_analytics.stripe_2.revenue_item_revenue_view": materialized_view,
+            },
+        )
+        schema = VIEW_SCHEMAS[DatabaseSchemaManagedViewTableKind.REVENUE_ANALYTICS_REVENUE_ITEM]
+        results = list(RevenueAnalyticsQueryRunner.revenue_subqueries(schema, db))
+
+        assert len(results) == 2
+        assert all(isinstance(r, RevenueAnalyticsRevenueItemView) for r in results)

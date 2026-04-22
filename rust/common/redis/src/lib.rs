@@ -201,6 +201,9 @@ pub trait Client: Send + Sync {
         max: String,
     ) -> Result<Vec<String>, CustomRedisError>;
 
+    /// Add a single (member, score) pair to a sorted set.
+    async fn zadd(&self, k: String, member: String, score: i64) -> Result<(), CustomRedisError>;
+
     async fn hincrby(
         &self,
         k: String,
@@ -231,6 +234,13 @@ pub trait Client: Send + Sync {
         format: RedisValueFormat,
     ) -> Result<(), CustomRedisError>;
     async fn setex(&self, k: String, v: String, seconds: u64) -> Result<(), CustomRedisError>;
+    async fn setex_with_format(
+        &self,
+        k: String,
+        v: String,
+        seconds: u64,
+        format: RedisValueFormat,
+    ) -> Result<(), CustomRedisError>;
     async fn set_nx_ex(&self, k: String, v: String, seconds: u64)
         -> Result<bool, CustomRedisError>;
     async fn set_nx_ex_with_format(
@@ -266,8 +276,7 @@ pub trait Client: Send + Sync {
     ) -> Result<(), CustomRedisError>;
     async fn batch_set_nx_ex(
         &self,
-        items: Vec<(String, String)>,
-        ttl_seconds: usize,
+        items: Vec<(String, String, usize)>, // (key, value, ttl_seconds)
     ) -> Result<Vec<bool>, CustomRedisError>;
     async fn batch_del(&self, keys: Vec<String>) -> Result<(), CustomRedisError>;
     /// Execute a batch of pipeline commands in a single round-trip.

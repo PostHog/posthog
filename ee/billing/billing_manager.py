@@ -1,6 +1,8 @@
+import json
 from datetime import UTC, datetime, timedelta
 from enum import Enum
 from typing import Any, Optional, cast
+from uuid import UUID
 
 from django.conf import settings
 from django.db.models import F
@@ -28,6 +30,12 @@ logger = structlog.get_logger(__name__)
 
 class BillingAPIErrorCodes(Enum):
     OPEN_INVOICES_ERROR = "open_invoices_error"
+
+
+class BillingServiceOpenInvoicesError(Exception):
+    def __init__(self, message: str):
+        self.message = message
+        super().__init__(message)
 
 
 def _get_user_organization_role(user: User, organization: Organization) -> Optional[str]:
@@ -137,7 +145,8 @@ class BillingManager:
         # Get billing info from billing service
         billing_service_response = self._get_billing(organization, query_params)
 
-        if not billing_service_response.get("customer"):
+        customer = cast(dict[str, Any], billing_service_response).get("customer")
+        if not customer:
             return self._get_default_billing_response(organization)
 
         # Ensure the license and org are updated with the latest info
@@ -420,7 +429,7 @@ class BillingManager:
             organization.available_product_features = data["available_product_features"]
             org_modified = True
 
-        never_drop_data = data.get("never_drop_data", None)
+        never_drop_data = cast(bool | None, data.get("never_drop_data"))
         if never_drop_data != organization.never_drop_data:
             organization.never_drop_data = never_drop_data
             org_modified = True
@@ -439,7 +448,10 @@ class BillingManager:
                 org_customer_trust_scores[product_key_to_usage_key[product_key]] = customer_trust_scores[product_key]
 
         if org_customer_trust_scores != organization.customer_trust_scores:
-            organization.customer_trust_scores.update(org_customer_trust_scores)
+            organization.customer_trust_scores = {
+                **(organization.customer_trust_scores or {}),
+                **org_customer_trust_scores,
+            }
             org_modified = True
 
         if org_modified:
@@ -587,7 +599,15 @@ class BillingManager:
             timeout=30,
         )
 
-        handle_billing_service_error(res)
+        if res.status_code == 409:
+            try:
+                data = res.json()
+            except JSONDecodeError:
+                data = {}
+            if data.get("code") == BillingAPIErrorCodes.OPEN_INVOICES_ERROR.value:
+                raise BillingServiceOpenInvoicesError(data.get("error_message", "Open invoices must be resolved first"))
+
+        handle_billing_service_error(res, valid_codes=(200,))
 
         return res.json()
 
@@ -633,32 +653,77 @@ class BillingManager:
         return res.json()
 
     def get_usage_data(self, organization: Organization, params: dict[str, Any]) -> dict[str, Any]:
-        """
-        Get usage data from the billing service.
-        """
-        res = requests.get(
-            f"{BILLING_SERVICE_URL}/api/v2/usage/",
-            headers=self.get_auth_headers(organization),
-            params=params,
-        )
-
-        handle_billing_service_error(res)
-
-        return res.json()
+        return self._request_with_post_fallback(organization, "/api/v2/usage/", params)
 
     def get_spend_data(self, organization: Organization, params: dict[str, Any]) -> dict[str, Any]:
+        return self._request_with_post_fallback(organization, "/api/v2/spend/", params)
+
+    def _request_with_post_fallback(
+        self, organization: Organization, path: str, params: dict[str, Any]
+    ) -> dict[str, Any]:
         """
-        Get spend data from the billing service.
+        GET with automatic POST fallback for large payloads.
+
+        Tries GET first with query params. If the server responds with 414
+        (URI Too Long) or 431 (Request Header Fields Too Large), retries as
+        POST with a JSON body. This handles orgs with many teams whose
+        teams_map serialization exceeds URL/header limits.
         """
-        res = requests.get(
-            f"{BILLING_SERVICE_URL}/api/v2/spend/",
-            headers=self.get_auth_headers(organization),
-            params=params,
-        )
+        url = f"{BILLING_SERVICE_URL}{path}"
+        headers = self.get_auth_headers(organization)
+
+        res = requests.get(url, headers=headers, params=self._to_query_params(params))
+
+        if res.status_code in (414, 431):
+            logger.info(
+                "billing_get_to_post_fallback",
+                path=path,
+                status_code=res.status_code,
+                organization_id=str(organization.id),
+            )
+            res = requests.post(url, headers=headers, json=self._to_post_body(params))
 
         handle_billing_service_error(res)
-
         return res.json()
+
+    @staticmethod
+    def _to_query_params(params: dict[str, Any]) -> dict[str, Any]:
+        """Serialize complex types to JSON strings for GET query params."""
+        result = {}
+        for k, v in params.items():
+            if isinstance(v, (dict, list)):
+                result[k] = json.dumps(v)
+            elif isinstance(v, UUID):
+                result[k] = str(v)
+            else:
+                result[k] = v
+        return result
+
+    @staticmethod
+    def _to_post_body(params: dict[str, Any]) -> dict[str, Any]:
+        """Convert params to a JSON-safe POST body.
+
+        Handles two conversions: UUIDs are stringified, and string values
+        that contain JSON arrays or objects (from frontend query-param
+        encoding) are parsed back into native types so the billing service
+        receives structured data rather than escaped strings.
+        """
+        result: dict[str, Any] = {}
+        for k, v in params.items():
+            if isinstance(v, UUID):
+                result[k] = str(v)
+            elif isinstance(v, str):
+                try:
+                    parsed = json.loads(v)
+                    if isinstance(parsed, (list, dict)):
+                        result[k] = parsed
+                    else:
+                        result[k] = v
+                except (json.JSONDecodeError, ValueError):
+                    result[k] = v
+            else:
+                result[k] = v
+        return result
 
     def handle_billing_provider_webhook(
         self,

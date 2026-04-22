@@ -21,7 +21,9 @@ class CustomEnvironment extends PlaywrightEnvironment {
                 .last()
                 .screenshot({
                     path: `frontend/__snapshots__/__failures__/${parentName}--${specName}.png`,
+                    timeout: 5000,
                 })
+                .catch(() => undefined)
         }
         await super.handleTestEvent(event)
     }

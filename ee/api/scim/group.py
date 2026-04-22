@@ -1,6 +1,8 @@
+import logging
 from typing import Union
 
 from django.db import transaction
+from django.db.models import QuerySet
 
 from django_scim import constants
 from django_scim.adapters import SCIMGroup
@@ -10,6 +12,8 @@ from posthog.models import OrganizationMembership, User
 from posthog.models.organization_domain import OrganizationDomain
 
 from ee.models.rbac.role import Role, RoleMembership
+
+logger = logging.getLogger(__name__)
 
 
 class PostHogSCIMGroup(SCIMGroup):
@@ -129,10 +133,15 @@ class PostHogSCIMGroup(SCIMGroup):
                 ).first()
 
                 if org_membership:
+                    # nosemgrep: idor-lookup-without-org (SCIM bearer token auth, org gated by middleware)
                     RoleMembership.objects.get_or_create(
                         role=role, user=user, defaults={"organization_member": org_membership}
                     )
             except User.DoesNotExist:
+                continue
+            except ValueError:
+                # Skip non-user members (e.g., nested group references from IdPs)
+                logger.warning("scim_group_skip_invalid_member_id", extra={"member_value": user_id})
                 continue
 
         # Remove members no longer in the group
@@ -215,17 +224,22 @@ class PostHogSCIMGroup(SCIMGroup):
 
                     try:
                         user = User.objects.get(id=user_id)
-                        # Upsert organization membership
-                        org_membership, _ = OrganizationMembership.objects.get_or_create(
-                            user=user,
-                            organization=self._organization_domain.organization,
-                            defaults={"level": OrganizationMembership.Level.MEMBER},
-                        )
+                        org_membership = OrganizationMembership.objects.filter(
+                            user=user, organization=self._organization_domain.organization
+                        ).first()
 
+                        if not org_membership:
+                            continue  # cannot assign a role to a non-member
+
+                        # nosemgrep: idor-lookup-without-org (SCIM bearer token auth, org gated by middleware)
                         RoleMembership.objects.get_or_create(
                             role=self.obj, user=user, defaults={"organization_member": org_membership}
                         )
                     except User.DoesNotExist:
+                        continue
+                    except ValueError:
+                        # Skip non-user members (e.g., nested group references from IdPs)
+                        logger.warning("scim_group_skip_invalid_member_id", extra={"member_value": user_id})
                         continue
 
     def handle_remove(self, path: AttrPath, value: Union[str, list, dict], operation: dict) -> None:
@@ -247,14 +261,25 @@ class PostHogSCIMGroup(SCIMGroup):
                     user_id = path.params_by_attr_paths.get(("members", "value", None))
                     if user_id:
                         RoleMembership.objects.filter(role=self.obj, user__id=str(user_id)).delete()
+                elif isinstance(value, (list, dict)):
+                    # Simple path with value: remove only specified members
+                    # Entra ID uses this format: {"op": "Remove", "path": "members", "value": [{"value": "user-id"}]}
+                    members_to_remove = value if isinstance(value, list) else [value]
+                    user_ids = [
+                        str(m.get("value")) for m in members_to_remove if isinstance(m, dict) and m.get("value")
+                    ]
+                    if user_ids:
+                        RoleMembership.objects.filter(role=self.obj, user__id__in=user_ids).delete()
+                    else:
+                        logger.warning(
+                            "SCIM group remove: path='members' with value but no extractable user IDs, "
+                            "skipping removal. value=%s",
+                            value,
+                        )
                 else:
-                    # Simple path, remove all members
+                    # Bare simple path with no value: remove all members
                     RoleMembership.objects.filter(role=self.obj).delete()
 
     @classmethod
-    def get_for_organization(cls, organization_domain: OrganizationDomain) -> list["PostHogSCIMGroup"]:
-        """
-        Get all roles (groups) for a specific organization.
-        """
-        roles = Role.objects.filter(organization=organization_domain.organization)
-        return [cls(role, organization_domain) for role in roles]
+    def get_queryset_for_organization(cls, organization_domain: OrganizationDomain) -> QuerySet[Role]:
+        return Role.objects.filter(organization=organization_domain.organization).order_by("id")

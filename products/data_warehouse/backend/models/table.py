@@ -2,7 +2,7 @@ import csv
 import time
 from datetime import datetime
 from io import StringIO
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any, NotRequired, Optional, TypedDict
 from uuid import UUID
 
 from django.db import models
@@ -10,20 +10,23 @@ from django.db.models import Q
 
 import chdb
 import structlog
+from clickhouse_driver.errors import ServerException as ClickHouseServerException
 
 from posthog.schema import DatabaseSerializedFieldType, HogQLQueryModifiers
 
 from posthog.hogql import ast
+from posthog.hogql.constants import HogQLQuerySettings
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.models import FieldOrTable
+from posthog.hogql.database.direct_postgres_table import DirectPostgresTable
+from posthog.hogql.database.models import DatabaseField, FieldOrTable, StructDatabaseField
 from posthog.hogql.database.s3_table import (
     DataWarehouseTable as HogQLDataWarehouseTable,
     build_function_call,
 )
-from posthog.hogql.escape_sql import escape_clickhouse_identifier
+from posthog.hogql.escape_sql import escape_clickhouse_identifier, escape_param_clickhouse
 
 from posthog.clickhouse.client import sync_execute
-from posthog.clickhouse.query_tagging import Product, tag_queries
+from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.errors import CHQueryErrorTooManySimultaneousQueries, wrap_clickhouse_query_error
 from posthog.exceptions_capture import capture_exception
 from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UpdatedMetaFields, UUIDTModel, sane_repr
@@ -31,6 +34,11 @@ from posthog.settings import TEST
 from posthog.sync import database_sync_to_async
 from posthog.temporal.data_imports.pipelines.pipeline.consts import PARTITION_KEY
 
+from products.data_warehouse.backend.direct_postgres import (
+    DIRECT_POSTGRES_CATALOG_OPTION,
+    DIRECT_POSTGRES_SCHEMA_OPTION,
+    DIRECT_POSTGRES_TABLE_OPTION,
+)
 from products.data_warehouse.backend.models.external_data_schema import ExternalDataSchema
 from products.data_warehouse.backend.models.util import (
     CLICKHOUSE_HOGQL_MAPPING,
@@ -70,9 +78,20 @@ ExtractErrors = {
     "S3 exception: `NoSuchBucket`, message: 'The specified bucket does not exist.'": "The provided bucket doesn't exist",
     "Either the file is corrupted or this is not a parquet file": "The provided file is not in Parquet format",
     "Rows have different amount of values": "The provided file has rows with different amount of values",
+    "The operation is not valid for the object's storage class": "Some files in the bucket are archived (e.g. Glacier or S3 Intelligent-Tiering archive). Restore them to Standard storage or narrow the URL pattern to exclude archived files.",
 }
 
-type DataWarehouseTableColumns = dict[str, dict[str, str | bool]] | dict[str, str]
+type DataWarehouseTableColumn = str | dict[str, Any]
+type DataWarehouseTableColumns = dict[str, DataWarehouseTableColumn]
+
+
+class DataWarehouseTableIntrospectedColumn(TypedDict):
+    hogql: str
+    clickhouse: str
+    valid: NotRequired[bool]
+
+
+type DataWarehouseTableIntrospectedColumns = dict[str, DataWarehouseTableIntrospectedColumn]
 
 
 class DataWarehouseTableManager(models.Manager):
@@ -119,6 +138,8 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
         help_text="Dict of all columns with Clickhouse type (including Nullable())",
     )
 
+    options = models.JSONField(default=dict, blank=True)
+
     row_count = models.IntegerField(null=True, help_text="How many rows are currently synced in this table")
     size_in_s3_mib = models.FloatField(null=True, help_text="The object size in S3 for this table in MiB")
 
@@ -130,6 +151,10 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
     @property
     def name_chain(self) -> list[str]:
         return self.name.split(".")
+
+    @property
+    def csv_allow_double_quotes(self) -> bool | None:
+        return self.options.get("csv_allow_double_quotes")
 
     def soft_delete(self):
         from products.data_warehouse.backend.models.join import DataWarehouseJoin
@@ -153,7 +178,8 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
     def validate_column_type(self, column_key) -> bool:
         from posthog.hogql.query import execute_hogql_query
 
-        if column_key not in self.columns.keys():
+        columns = self.columns or {}
+        if column_key not in columns:
             raise Exception(f"Column {column_key} does not exist on table: {self.name}")
 
         try:
@@ -162,6 +188,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
                 select_from=ast.JoinExpr(table=ast.Field(chain=[self.name])),
             )
 
+            tag_queries(product=Product.WAREHOUSE, feature=Feature.QUERY)
             execute_hogql_query(
                 query,
                 self.team,
@@ -177,7 +204,8 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
     def get_columns(
         self,
         safe_expose_ch_error: bool = True,
-    ) -> DataWarehouseTableColumns:
+    ) -> DataWarehouseTableIntrospectedColumns:
+        result: list[tuple[str, ...]] | None = None
         placeholder_context = HogQLContext(team_id=self.team.pk)
         s3_table_func = build_function_call(
             url=self.url_pattern,
@@ -196,12 +224,16 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             if TEST:
                 raise Exception()
 
-            quoted_placeholders = {k: f"'{v}'" for k, v in placeholder_context.values.items()}
+            quoted_placeholders = {k: escape_param_clickhouse(v) for k, v in placeholder_context.values.items()}
             # chdb doesn't support parameterized queries
             chdb_query = f"DESCRIBE TABLE {s3_table_func}" % quoted_placeholders
 
             # TODO: upgrade chdb once https://github.com/chdb-io/chdb/issues/342 is actually resolved
             # See https://github.com/chdb-io/chdb/pull/374 for the fix
+            if self._is_csv_format() and self.csv_allow_double_quotes is not None:
+                chdb_query = (
+                    f"SET format_csv_allow_double_quotes = {1 if self.csv_allow_double_quotes else 0}; {chdb_query}"
+                )
             chdb_result = chdb.query(chdb_query, output_format="CSV")
             reader = csv.reader(StringIO(str(chdb_result)))
             result = [tuple(row) for row in reader]
@@ -217,6 +249,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
                 warehouse_query=True,
                 name="get_columns",
                 product=Product.WAREHOUSE,
+                feature=Feature.QUERY,
             )
 
             # The cluster is a little broken right now, and so this can intermittently fail.
@@ -224,9 +257,15 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             attempts = 5
             for i in range(attempts):
                 try:
+                    get_columns_settings: dict[str, int] = {}
+                    if self._is_csv_format() and self.csv_allow_double_quotes is not None:
+                        get_columns_settings["format_csv_allow_double_quotes"] = (
+                            1 if self.csv_allow_double_quotes else 0
+                        )
                     result = sync_execute(
                         f"""DESCRIBE TABLE {s3_table_func}""",
                         args=placeholder_context.values,
+                        settings=get_columns_settings,
                     )
                     break
                 except Exception as err:
@@ -240,17 +279,16 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
                     # Pause execution slightly to not overload clickhouse
                     time.sleep(2**i)
 
-        if result is None or isinstance(result, int):
+        if result is None:
             raise Exception("No columns types provided by clickhouse in get_columns")
 
-        columns = {
-            str(item[0]): {
-                "hogql": CLICKHOUSE_HOGQL_MAPPING[clean_type(str(item[1]))].__name__,
-                "clickhouse": item[1],
-                "valid": True,
-            }
-            for item in result
-        }
+        columns: DataWarehouseTableIntrospectedColumns = {}
+        for item in result:
+            columns[str(item[0])] = DataWarehouseTableIntrospectedColumn(
+                hogql=CLICKHOUSE_HOGQL_MAPPING[clean_type(str(item[1]))].__name__,
+                clickhouse=item[1],
+                valid=True,
+            )
 
         return columns
 
@@ -273,6 +311,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
                 warehouse_query=True,
                 name="get_max_value_for_column",
                 product=Product.WAREHOUSE,
+                feature=Feature.QUERY,
             )
             result = sync_execute(
                 f"SELECT max({escape_clickhouse_identifier(column)}) FROM {s3_table_func}",
@@ -280,6 +319,14 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             )
 
             return result[0][0]
+        except ClickHouseServerException as err:
+            # CANNOT_EXTRACT_TABLE_STRUCTURE (636) is expected when the provided S3 path
+            # has no non-empty/readable files for the configured format (e.g. before the
+            # first successful sync). The caller handles a None return by resetting and
+            # triggering a refresh.
+            if err.code != 636:
+                capture_exception(err)
+            return None
         except Exception as err:
             capture_exception(err)
             return None
@@ -300,7 +347,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             if TEST:
                 raise Exception()
 
-            quoted_placeholders = {k: f"'{v}'" for k, v in placeholder_context.values.items()}
+            quoted_placeholders = {k: escape_param_clickhouse(v) for k, v in placeholder_context.values.items()}
             # chdb doesn't support parameterized queries
             chdb_query = f"SELECT count() FROM {s3_table_func}" % quoted_placeholders
 
@@ -317,6 +364,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
                     warehouse_query=True,
                     name="get_count",
                     product=Product.WAREHOUSE,
+                    feature=Feature.QUERY,
                 )
 
                 result = sync_execute(
@@ -350,7 +398,49 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             raise
         return s3_table_func, placeholder_context
 
-    def hogql_definition(self, modifiers: Optional[HogQLQueryModifiers] = None) -> HogQLDataWarehouseTable:
+    def _get_hogql_field_for_column(
+        self,
+        column_name: str,
+        column_definition: dict[str, Any] | str,
+        clickhouse_type: str,
+        is_nullable: bool,
+    ) -> DatabaseField:
+        if isinstance(column_definition, dict) and column_definition.get("hogql") == "StructDatabaseField":
+            child_fields: dict[str, DatabaseField] = {}
+            nested_definitions = column_definition.get("fields")
+            if isinstance(nested_definitions, dict):
+                for nested_name, nested_definition in nested_definitions.items():
+                    if not isinstance(nested_definition, dict):
+                        continue
+
+                    nested_clickhouse_type = str(nested_definition.get("clickhouse", "String"))
+                    nested_is_nullable = False
+                    if nested_clickhouse_type.startswith("Nullable("):
+                        nested_clickhouse_type = nested_clickhouse_type.replace("Nullable(", "")[:-1]
+                        nested_is_nullable = True
+
+                    child_fields[nested_name] = self._get_hogql_field_for_column(
+                        nested_name,
+                        nested_definition,
+                        nested_clickhouse_type,
+                        nested_is_nullable,
+                    )
+
+            return StructDatabaseField(name=column_name, nullable=is_nullable, fields=child_fields)
+
+        # Support for 'old' style columns
+        if isinstance(column_definition, str):
+            hogql_type_str = clickhouse_type.partition("(")[0]
+            return CLICKHOUSE_HOGQL_MAPPING[hogql_type_str](name=column_name, nullable=is_nullable)
+
+        return STR_TO_HOGQL_MAPPING.get(
+            str(column_definition.get("hogql", "UnknownDatabaseField")),
+            STR_TO_HOGQL_MAPPING["UnknownDatabaseField"],
+        )(name=column_name, nullable=is_nullable)
+
+    def hogql_definition(
+        self, modifiers: Optional[HogQLQueryModifiers] = None
+    ) -> HogQLDataWarehouseTable | DirectPostgresTable:
         columns = self.columns or {}
 
         fields: dict[str, FieldOrTable] = {}
@@ -383,14 +473,33 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
                 else:
                     structure.append(f"`{column}` {clickhouse_type}")
 
-            # Support for 'old' style columns
-            if isinstance(type, str):
-                hogql_type_str = clickhouse_type.partition("(")[0]
-                hogql_type = CLICKHOUSE_HOGQL_MAPPING[hogql_type_str]
-            else:
-                hogql_type = STR_TO_HOGQL_MAPPING[type["hogql"]]
+            fields[column] = self._get_hogql_field_for_column(column, type, clickhouse_type, is_nullable)
 
-            fields[column] = hogql_type(name=column, nullable=is_nullable)
+        if self.external_data_source and self.external_data_source.is_direct_postgres:
+            postgres_catalog = (
+                self.options.get(DIRECT_POSTGRES_CATALOG_OPTION)
+                if isinstance(self.options.get(DIRECT_POSTGRES_CATALOG_OPTION), str)
+                else None
+            )
+            postgres_schema = (
+                self.options.get(DIRECT_POSTGRES_SCHEMA_OPTION)
+                if isinstance(self.options.get(DIRECT_POSTGRES_SCHEMA_OPTION), str)
+                else (self.external_data_source.job_inputs or {}).get("schema", "public")
+            )
+            postgres_table_name = (
+                self.options.get(DIRECT_POSTGRES_TABLE_OPTION)
+                if isinstance(self.options.get(DIRECT_POSTGRES_TABLE_OPTION), str)
+                else self.name
+            )
+            return DirectPostgresTable(
+                name=self.name,
+                fields=fields,
+                postgres_catalog=postgres_catalog,
+                postgres_schema=postgres_schema,
+                postgres_table_name=postgres_table_name,
+                external_data_source_id=str(self.external_data_source_id),
+                connection_metadata=self.external_data_source.connection_metadata,
+            )
 
         # Replace fields with any redefined fields if they exist
         external_table_fields = external_tables.get(self.table_name_without_prefix())
@@ -410,7 +519,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
                 del fields[PARTITION_KEY]
                 fields = {**fields, **default_fields}
 
-        return HogQLDataWarehouseTable(
+        table_def = HogQLDataWarehouseTable(
             name=self.name,
             url=self.url_pattern,
             queryable_folder=self.queryable_folder,
@@ -422,16 +531,78 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             table_id=str(self.id),
         )
 
-    def get_clickhouse_column_type(self, column_name: str) -> Optional[str]:
-        clickhouse_type = self.columns.get(column_name, None)
+        if self._is_csv_format():
+            effective = self.csv_allow_double_quotes if self.csv_allow_double_quotes is not None else False
+            table_def.top_level_settings = HogQLQuerySettings(
+                format_csv_allow_double_quotes=effective,
+            )
 
-        if isinstance(clickhouse_type, dict) and self.columns[column_name].get("clickhouse"):
-            clickhouse_type = self.columns[column_name].get("clickhouse")
+        return table_def
+
+    def get_clickhouse_column_type(self, column_name: str) -> Optional[str]:
+        columns = self.columns or {}
+        clickhouse_type = columns.get(column_name, None)
+
+        if isinstance(clickhouse_type, dict) and columns[column_name].get("clickhouse"):
+            clickhouse_type = columns[column_name].get("clickhouse")
 
             if clickhouse_type.startswith("Nullable("):
                 clickhouse_type = clickhouse_type.replace("Nullable(", "")[:-1]
 
         return clickhouse_type
+
+    def _is_csv_format(self) -> bool:
+        return self.format in (
+            DataWarehouseTable.TableFormat.CSV,
+            DataWarehouseTable.TableFormat.CSVWithNames,
+        )
+
+    # ClickHouse error codes from CSV double-quote parse mismatches.
+    # Wrong quoting causes ClickHouse to mis-split fields, producing
+    # type errors on the mangled values.
+    _CSV_PARSE_ERROR_CODES = frozenset(
+        {
+            27,  # CANNOT_PARSE_INPUT ("expected ',' at end of stream")
+            117,  # INCORRECT_DATA ("Expected end of line")
+            636,  # CANNOT_EXTRACT_TABLE_STRUCTURE (wraps inner parse errors like 117)
+        }
+    )
+
+    def _validate_csv_double_quotes_setting(self) -> None:
+        """Validate the user-chosen csv_allow_double_quotes setting by trying to parse data rows.
+        Raises Exception with a helpful message if parsing fails."""
+        setting = self.csv_allow_double_quotes
+        tag_queries(
+            team_id=self.team.pk,
+            table_id=self.id,
+            warehouse_query=True,
+            name="validate_csv_double_quotes",
+            product=Product.WAREHOUSE,
+            feature=Feature.QUERY,
+        )
+        try:
+            ctx = HogQLContext(team_id=self.team.pk)
+            func = build_function_call(
+                url=self.url_pattern,
+                queryable_folder=self.queryable_folder,
+                format=self.format,
+                access_key=self.credential.access_key if self.credential else None,
+                access_secret=self.credential.access_secret if self.credential else None,
+                context=ctx,
+                table_size_mib=0,
+            )
+            sync_execute(
+                f"SELECT 1 FROM {func} LIMIT 100",
+                args=ctx.values,
+                settings={"format_csv_allow_double_quotes": 1 if setting else 0},
+            )
+        except ClickHouseServerException as e:
+            if e.code in self._CSV_PARSE_ERROR_CODES:
+                other_label = "Literal quotes" if setting else "RFC 4180 double quotes"
+                raise Exception(
+                    f"CSV parsing failed with the selected quote setting. Try selecting '{other_label}' instead."
+                )
+            raise
 
     def _safe_expose_ch_error(self, err):
         err = wrap_clickhouse_query_error(err)

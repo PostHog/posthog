@@ -17,8 +17,8 @@ import {
     toUnixTimestamp,
     toUnixTimestampMilli,
 } from './date'
-import { printHogStringOutput } from './print'
 import { isIPAddressInRange } from './ip'
+import { printHogStringOutput } from './print'
 
 // TODO: this file should be generated from or mergred with posthog/hogql/compiler/javascript_stl.py
 
@@ -469,6 +469,24 @@ function JSONExtractStringFn(args: any[]): string | null {
     return val != null ? String(val) : null
 }
 
+function JSONExtractFn(args: any[]): any {
+    if (args.length < 2) {
+        return null
+    }
+    let obj = args[0]
+    try {
+        if (typeof obj === 'string') {
+            obj = JSON.parse(obj)
+        }
+    } catch {
+        return null
+    }
+    // Last argument is the return type (ClickHouse convention), which we ignore.
+    // Arguments between first and last are path components.
+    const path = args.length > 2 ? args.slice(1, -1) : []
+    return getNestedValue(obj, path, true) ?? null
+}
+
 export const STL: Record<string, STLFunction> = {
     concat: {
         fn: (args) => {
@@ -488,6 +506,22 @@ export const STL: Record<string, STLFunction> = {
         },
         description: 'Checks if a string matches a regex pattern',
         example: 'match($1, $2)',
+        minArgs: 2,
+        maxArgs: 2,
+    },
+    extractRegex: {
+        fn: (args, _name, options) => {
+            if (!options?.external?.regex?.extract) {
+                throw new Error('Set options.external.regex.extract for RegEx extract support')
+            }
+            if (args[0] == null || args[1] == null) {
+                return ''
+            }
+            // Hog: extractRegex(haystack, pattern) → External: extract(regex, value)
+            return options.external.regex.extract(String(args[1]), String(args[0]))
+        },
+        description: 'Extracts substring matching regex pattern (first capture group or whole match)',
+        example: 'extractRegex($1, $2)',
         minArgs: 2,
         maxArgs: 2,
     },
@@ -918,6 +952,19 @@ export const STL: Record<string, STLFunction> = {
         fn: (args) => decodeURIComponent(args[0]),
         description: 'URL-decodes a string',
         example: 'decodeURLComponent($1)',
+        minArgs: 1,
+        maxArgs: 1,
+    },
+    tryDecodeURLComponent: {
+        fn: (args) => {
+            try {
+                return decodeURIComponent(args[0])
+            } catch {
+                return null
+            }
+        },
+        description: 'Safely URL-decodes a string, returns null on error',
+        example: 'tryDecodeURLComponent($1)',
         minArgs: 1,
         maxArgs: 1,
     },
@@ -1398,6 +1445,12 @@ export const STL: Record<string, STLFunction> = {
         example: 'typeof($1)',
         minArgs: 1,
         maxArgs: 1,
+    },
+    JSONExtract: {
+        fn: JSONExtractFn,
+        description: 'Extracts a value from JSON by path with a return type hint',
+        example: 'JSONExtract($1, $2, $3)',
+        minArgs: 2,
     },
     JSONExtractArrayRaw: {
         fn: JSONExtractArrayRawFn,

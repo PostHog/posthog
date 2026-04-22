@@ -16,6 +16,7 @@ from posthog.hogql.database.schema.sessions_v2 import (
 )
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 
+from posthog.api.property_value_metrics import PROPERTY_VALUES_DURATION
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
@@ -34,7 +35,10 @@ class SessionViewSet(
 
     @action(methods=["GET"], detail=False)
     def values(self, request: request.Request, **kwargs) -> response.Response:
-        with tracer.start_as_current_span("session_api_property_values") as span:
+        with (
+            PROPERTY_VALUES_DURATION.labels(endpoint_type="session").time(),
+            tracer.start_as_current_span("session_api_property_values") as span,
+        ):
             team = self.team
 
             key = request.GET.get("key")
@@ -67,11 +71,18 @@ class SessionViewSet(
                     flattened.append(json.loads(value[0]))
                 except json.decoder.JSONDecodeError:
                     flattened.append(value[0])
-            return response.Response([{"name": convert_property_value(value)} for value in flatten(flattened)])
+
+            return response.Response(
+                {
+                    "results": [{"name": convert_property_value(value)} for value in flatten(flattened)],
+                    "refreshing": False,
+                }
+            )
 
     @action(methods=["GET"], detail=False)
     def property_definitions(self, request: request.Request, **kwargs) -> response.Response:
         search = request.GET.get("search")
+        is_numerical = request.GET.get("is_numerical")
 
         # unlike e.g. event properties, there's a very limited number of session properties,
         # so we can just return them all
@@ -83,6 +94,11 @@ class SessionViewSet(
             results = get_lazy_session_table_properties_v2(search)
         else:
             results = get_lazy_session_table_properties_v1(search)
+
+        if is_numerical is not None:
+            want_numerical = is_numerical.lower() == "true"
+            results = [r for r in results if r.get("is_numerical") == want_numerical]
+
         return response.Response(
             {
                 "count": len(results),

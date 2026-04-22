@@ -64,4 +64,5 @@ export interface PropertyFilterInternalProps {
     hideBehavioralCohorts?: boolean
     addFilterDocLink?: string
     endpointFilters?: Record<string, any>
+    hogQLGlobals?: Record<string, any>
 }

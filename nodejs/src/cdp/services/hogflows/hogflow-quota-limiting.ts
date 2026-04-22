@@ -51,9 +51,7 @@ export async function checkHogFlowQuotaLimits(
 }
 
 export interface HogFlowQuotaLimitingContext {
-    hub: {
-        quotaLimiting: QuotaLimiting
-    }
+    quotaLimiting: QuotaLimiting
     hogFunctionMonitoringService: HogFunctionMonitoringService
 }
 
@@ -65,7 +63,7 @@ export async function shouldBlockHogFlowDueToQuota(
     item: CyclotronJobInvocationHogFlow,
     context: HogFlowQuotaLimitingContext
 ): Promise<boolean> {
-    const quotaLimitResult = await checkHogFlowQuotaLimits(item.hogFlow, item.teamId, context.hub.quotaLimiting)
+    const quotaLimitResult = await checkHogFlowQuotaLimits(item.hogFlow, item.teamId, context.quotaLimiting)
 
     if (quotaLimitResult.isLimited) {
         counterHogFlowQuotaLimited.labels({ team_id: item.teamId }).inc()

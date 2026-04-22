@@ -5,23 +5,30 @@ import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { InsightLegend } from 'lib/components/InsightLegend/InsightLegend'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { Funnel } from 'scenes/funnels/Funnel'
 import { FunnelCanvasLabel } from 'scenes/funnels/FunnelCanvasLabel'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import {
+    BoxPlotMissingPropertyState,
+    FunnelDataWarehouseStepIncompleteState,
     FunnelSingleStepState,
     InsightEmptyState,
     InsightErrorState,
     InsightLoadingState,
+    InsightRefreshDataHint,
     InsightTimeoutState,
     InsightValidationError,
 } from 'scenes/insights/EmptyStates'
 import { InsightAIAnalysis } from 'scenes/insights/InsightAIAnalysis'
-import { insightNavLogic } from 'scenes/insights/InsightNav/insightNavLogic'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
+import { insightNavLogic } from 'scenes/insights/InsightNav/insightNavLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
+import { isBoxPlotMissingProperty } from 'scenes/insights/utils/queryUtils'
+import { BoxPlotLegend } from 'scenes/insights/views/BoxPlot/BoxPlotLegend'
+import { BoxPlotResultsTable } from 'scenes/insights/views/BoxPlot/BoxPlotResultsTable'
 import { FunnelCorrelation } from 'scenes/insights/views/Funnels/FunnelCorrelation'
 import { FunnelStepsTable } from 'scenes/insights/views/Funnels/FunnelStepsTable'
 import { InsightsTable } from 'scenes/insights/views/InsightsTable/InsightsTable'
@@ -33,14 +40,68 @@ import { TrendInsight } from 'scenes/trends/Trends'
 import { WebAnalyticsInsight } from 'scenes/web-analytics/WebAnalyticsInsight'
 
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
-import { InsightVizNode } from '~/queries/schema/schema-general'
+import { InsightVizNode, TrendsQuery } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 import { shouldQueryBeAsync } from '~/queries/utils'
-import { ChartDisplayType, ExporterFormat, FunnelVizType, InsightType } from '~/types'
+import { ChartDisplayType, ExporterFormat, FunnelVizType, InsightLogicProps, InsightType } from '~/types'
 
 import { InsightDisplayConfig } from './InsightDisplayConfig'
 import { InsightResultMetadata } from './InsightResultMetadata'
 import { ResultCustomizationsModal } from './ResultCustomizationsModal'
+
+/** When the dashboard is still streaming/refreshing tiles, prefer loading UX over "Chart data didn't load". */
+function DashboardInsightRefreshHintOrLoading({
+    dashboardId,
+    dashboardItemId,
+    insightProps,
+    queryId,
+    context,
+    onRetry,
+}: {
+    dashboardId: number
+    dashboardItemId: InsightLogicProps['dashboardItemId']
+    insightProps: InsightLogicProps
+    queryId: string | null
+    context?: QueryContext<InsightVizNode>
+    onRetry: () => void
+}): JSX.Element {
+    const { itemsLoading, isRefreshingQueued, isRefreshing } = useValues(dashboardLogic({ id: dashboardId }))
+    const shortId =
+        dashboardItemId && typeof dashboardItemId === 'string' && !dashboardItemId.startsWith('new')
+            ? dashboardItemId
+            : null
+    const tilePending = shortId !== null && (isRefreshingQueued(shortId) || isRefreshing(shortId))
+    if (itemsLoading || tilePending) {
+        return (
+            <InsightLoadingState
+                queryId={queryId}
+                key={queryId}
+                insightProps={insightProps}
+                renderEmptyStateAsSkeleton={context?.renderEmptyStateAsSkeleton}
+            />
+        )
+    }
+    return <InsightRefreshDataHint onRetry={onRetry} />
+}
+
+/** Dashboard tile: show refresh when merged `result` is still nullish (empty success is `[]`, not `null`). */
+export function shouldShowDashboardInsightRefreshHint({
+    isInDashboardContext,
+    doNotLoad,
+    activeView,
+    insightData,
+}: {
+    isInDashboardContext: boolean
+    doNotLoad?: boolean
+    activeView: InsightType
+    insightData: Record<string, any> | null | undefined
+}): boolean {
+    if (!isInDashboardContext || doNotLoad || activeView === InsightType.WEB_ANALYTICS) {
+        return false
+    }
+    const rawResult = insightData?.result
+    return rawResult === null || rawResult === undefined
+}
 
 export function InsightVizDisplay({
     disableHeader,
@@ -65,19 +126,18 @@ export function InsightVizDisplay({
     inSharedMode?: boolean
     editMode?: boolean
 }): JSX.Element | null {
-    const { insightProps, canEditInsight, isUsingPathsV1, isUsingPathsV2 } = useValues(insightLogic)
+    const { insightProps, canEditInsight, isUsingPathsV1, isUsingPathsV2, isInDashboardContext } =
+        useValues(insightLogic)
     const hasAIAnalysis = useFeatureFlag('PRODUCT_ANALYTICS_AI_INSIGHT_ANALYSIS')
 
     const { activeView } = useValues(insightNavLogic(insightProps))
 
-    const { isFunnelWithEnoughSteps, validationError, theme } = useValues(insightVizDataLogic(insightProps))
     const {
         isFunnels,
         isPaths,
         hasDetailedResultsTable,
         showLegend,
         hasFormula,
-        funnelsFilter,
         supportsDisplay,
         samplingFactor,
         insightDataLoading,
@@ -87,10 +147,18 @@ export function InsightVizDisplay({
         query,
         querySource,
         display,
+        series,
+        insightData,
+        validationError,
+        theme,
     } = useValues(insightVizDataLogic(insightProps))
     const { loadData } = useActions(insightVizDataLogic(insightProps))
     const { exportContext, queryId } = useValues(insightDataLogic(insightProps))
-    const { hasFunnelResults } = useValues(funnelDataLogic(insightProps))
+    const { funnelsFilter, hasFunnelResults, isFunnelWithEnoughSteps, isFunnelWithIncompleteDataWarehouseStep } =
+        useValues(funnelDataLogic(insightProps))
+
+    const isFlowViz = funnelsFilter?.funnelVizType === FunnelVizType.Flow
+    const actionable = !embedded && editMode
 
     // Empty states that completely replace the graph
     const BlockingEmptyState = (() => {
@@ -105,6 +173,24 @@ export function InsightVizDisplay({
             )
         }
 
+        // Insight specific empty states - note order is important here
+        if (
+            display === ChartDisplayType.BoxPlot &&
+            isBoxPlotMissingProperty(series as TrendsQuery['series'] | null | undefined)
+        ) {
+            return <BoxPlotMissingPropertyState />
+        }
+
+        if (activeView === InsightType.FUNNELS && !isFlowViz) {
+            if (isFunnelWithIncompleteDataWarehouseStep) {
+                return <FunnelDataWarehouseStepIncompleteState />
+            }
+
+            if (!isFunnelWithEnoughSteps) {
+                return <FunnelSingleStepState actionable={actionable} />
+            }
+        }
+
         if (validationError) {
             return (
                 <InsightValidationError
@@ -115,16 +201,6 @@ export function InsightVizDisplay({
                     }}
                 />
             )
-        }
-
-        // Insight specific empty states - note order is important here
-        if (activeView === InsightType.FUNNELS) {
-            if (!isFunnelWithEnoughSteps) {
-                return <FunnelSingleStepState actionable={!embedded && editMode} />
-            }
-            if (!hasFunnelResults && !erroredQueryId && !insightDataLoading) {
-                return <InsightEmptyState heading={context?.emptyStateHeading} detail={context?.emptyStateDetail} />
-            }
         }
 
         // Insight agnostic empty states
@@ -141,6 +217,40 @@ export function InsightVizDisplay({
         }
         if (timedOutQueryId) {
             return <InsightTimeoutState queryId={timedOutQueryId} />
+        }
+
+        // On a dashboard, users sometimes see an empty chart even though the insight is valid—often because
+        // they navigated away while numbers were still loading, or nothing was cached yet. Prompt them to
+        // refresh rather than staring at a blank tile. this is possible if the redis cache is a miss, and they dont have anything
+        // cached on their browser yet either.
+        if (
+            shouldShowDashboardInsightRefreshHint({
+                isInDashboardContext,
+                doNotLoad: insightProps.doNotLoad,
+                activeView,
+                insightData,
+            })
+        ) {
+            const onRetry = (): void => loadData(query && shouldQueryBeAsync(query) ? 'force_async' : 'force_blocking')
+            if (insightProps.dashboardId != null) {
+                return (
+                    <DashboardInsightRefreshHintOrLoading
+                        dashboardId={insightProps.dashboardId}
+                        dashboardItemId={insightProps.dashboardItemId}
+                        insightProps={insightProps}
+                        queryId={queryId}
+                        context={context}
+                        onRetry={onRetry}
+                    />
+                )
+            }
+            return <InsightRefreshDataHint onRetry={onRetry} />
+        }
+
+        if (activeView === InsightType.FUNNELS && !isFlowViz) {
+            if (!hasFunnelResults && !erroredQueryId && !insightDataLoading) {
+                return <InsightEmptyState heading={context?.emptyStateHeading} detail={context?.emptyStateDetail} />
+            }
         }
 
         return null
@@ -206,13 +316,26 @@ export function InsightVizDisplay({
             timedOutQueryId === null &&
             isFunnelWithEnoughSteps &&
             hasFunnelResults &&
-            funnelsFilter?.funnelVizType === FunnelVizType.Steps &&
+            (funnelsFilter?.funnelVizType === FunnelVizType.Steps ||
+                funnelsFilter?.funnelVizType === FunnelVizType.Flow) &&
             !disableTable
         ) {
             return (
-                <SceneSection title="Detailed results">
+                <SceneSection
+                    title={<span className="font-semibold text-lg m-0">Detailed results</span>}
+                    className="mt-4"
+                >
                     <FunnelStepsTable />
                 </SceneSection>
+            )
+        }
+
+        if (display === ChartDisplayType.BoxPlot && !disableTable) {
+            return (
+                <div className="mt-4">
+                    <h2 className="font-semibold text-lg m-0 mb-2">Detailed results</h2>
+                    <BoxPlotResultsTable />
+                </div>
             )
         }
 
@@ -243,6 +366,7 @@ export function InsightVizDisplay({
                     <InsightsTable
                         // Do not show ribbons for world map insight table. All ribbons are nuances of blue, and do not bring any UX value
                         isLegend={display !== ChartDisplayType.WorldMap}
+                        embedded={embedded}
                         editMode={editMode}
                         filterKey={keyForInsightLogicProps('new')(insightProps)}
                         canEditSeriesNameInline={!hasFormula && editMode}
@@ -332,8 +456,8 @@ export function InsightVizDisplay({
                             ) : supportsDisplay && showLegend ? (
                                 <>
                                     <div className="InsightVizDisplay__content__left">{renderActiveView()}</div>
-                                    <div className="InsightVizDisplay__content__right">
-                                        <InsightLegend />
+                                    <div className="InsightVizDisplay__content__right empty:hidden">
+                                        {display === ChartDisplayType.BoxPlot ? <BoxPlotLegend /> : <InsightLegend />}
                                     </div>
                                 </>
                             ) : (

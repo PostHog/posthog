@@ -1,4 +1,4 @@
-import { PluginEvent } from '@posthog/plugin-scaffold'
+import { PluginEvent } from '~/plugin-scaffold'
 
 import { LegacyTransformationPluginMeta } from '../../types'
 
@@ -8,7 +8,7 @@ function normalizeUrl(url: string): string {
         parsedUrl.pathname = parsedUrl.pathname.replace(/\/$/, '')
 
         return parsedUrl.toString()
-    } catch (err) {
+    } catch {
         throw new Error(`Unable to normalize invalid URL: "${url}"`)
     }
 }

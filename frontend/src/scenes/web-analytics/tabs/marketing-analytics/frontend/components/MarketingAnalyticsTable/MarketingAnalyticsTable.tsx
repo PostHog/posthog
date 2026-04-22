@@ -4,13 +4,17 @@ import { BuiltLogic, LogicWrapper, useActions, useValues } from 'kea'
 import { useMemo, useState } from 'react'
 
 import { IconGear, IconInfo } from '@posthog/icons'
-import { LemonButton, LemonInput, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonSelect, Tooltip } from '@posthog/lemon-ui'
 
-import { Query } from '~/queries/Query/Query'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+
 import { ColumnFeature } from '~/queries/nodes/DataTable/DataTable'
+import { Query } from '~/queries/Query/Query'
 import {
     DataTableNode,
-    MarketingAnalyticsColumnsSchemaNames,
+    MARKETING_ANALYTICS_DRILL_DOWN_CONFIG,
+    MarketingAnalyticsBaseColumns,
+    MarketingAnalyticsDrillDownLevel,
     MarketingAnalyticsTableQuery,
 } from '~/queries/schema/schema-general'
 import { QueryContext, QueryContextColumn } from '~/queries/types'
@@ -40,7 +44,10 @@ export const MarketingAnalyticsTable = ({
     attachTo,
 }: MarketingAnalyticsTableProps): JSX.Element => {
     const { setQuery } = useActions(marketingAnalyticsTableLogic)
-    const { showColumnConfigModal } = useActions(marketingAnalyticsLogic)
+    const { showColumnConfigModal, setDrillDownLevel } = useActions(marketingAnalyticsLogic)
+    const { drillDownLevel } = useValues(marketingAnalyticsLogic)
+    const hasDrillDown = useFeatureFlag('MARKETING_ANALYTICS_DRILL_DOWN')
+    const hasExtendedDrillDown = useFeatureFlag('MARKETING_ANALYTICS_EXTENDED_DRILL_DOWN')
     const { conversion_goals } = useValues(marketingAnalyticsSettingsLogic)
 
     const [searchTerm, setSearchTerm] = useState('')
@@ -58,27 +65,36 @@ export const MarketingAnalyticsTable = ({
                 }
                 return {}
             },
-            columns: (query.source as MarketingAnalyticsTableQuery).select?.reduce(
-                (acc, column) => {
-                    acc[column] = {
-                        title: column,
-                        render: (props) => (
-                            <MarketingAnalyticsCell
-                                {...props}
-                                style={{
-                                    maxWidth:
-                                        column.toLocaleLowerCase() ===
-                                        MarketingAnalyticsColumnsSchemaNames.Campaign.toLocaleLowerCase()
-                                            ? '200px'
-                                            : undefined,
-                                }}
-                            />
-                        ),
-                    }
-                    return acc
-                },
-                {} as Record<string, QueryContextColumn>
-            ),
+            columns: (() => {
+                const allGroupingAliases = Object.values(MARKETING_ANALYTICS_DRILL_DOWN_CONFIG).map(
+                    (c) => c.columnAlias
+                )
+                // Include every column the backend could ever return, not just the current select.
+                // When drill-down level changes, stale response data lingers briefly; without a
+                // render fn for those columns, cells fall through to the raw JSON viewer.
+                const allKnownColumns = new Set<string>([
+                    ...Object.values(MarketingAnalyticsBaseColumns),
+                    ...allGroupingAliases,
+                    ...((query.source as MarketingAnalyticsTableQuery).select ?? []),
+                ])
+                return Array.from(allKnownColumns).reduce(
+                    (acc, column) => {
+                        const isGroupingColumn = allGroupingAliases.includes(column)
+                        acc[column] = {
+                            render: (props) => (
+                                <MarketingAnalyticsCell
+                                    {...props}
+                                    style={{
+                                        maxWidth: isGroupingColumn ? '200px' : undefined,
+                                    }}
+                                />
+                            ),
+                        }
+                        return acc
+                    },
+                    {} as Record<string, QueryContextColumn>
+                )
+            })(),
         }),
         [insightProps, query.source, searchTerm]
     )
@@ -90,12 +106,59 @@ export const MarketingAnalyticsTable = ({
                     <div className="flex items-center gap-2">
                         <LemonInput
                             type="search"
-                            placeholder="Search campaigns..."
+                            placeholder="Search..."
                             value={searchTerm}
                             onChange={setSearchTerm}
                             className="w-64"
                             data-attr="marketing-analytics-search"
                         />
+                        {hasDrillDown && (
+                            <LemonSelect
+                                value={drillDownLevel}
+                                onChange={(value) => value && setDrillDownLevel(value)}
+                                options={[
+                                    {
+                                        title: 'Platform',
+                                        options: [
+                                            {
+                                                value: MarketingAnalyticsDrillDownLevel.Channel,
+                                                label: 'Channel',
+                                            },
+                                            {
+                                                value: MarketingAnalyticsDrillDownLevel.Source,
+                                                label: 'Source',
+                                            },
+                                            {
+                                                value: MarketingAnalyticsDrillDownLevel.Campaign,
+                                                label: 'Campaign',
+                                            },
+                                        ],
+                                    },
+                                    ...(hasExtendedDrillDown
+                                        ? [
+                                              {
+                                                  title: 'UTM',
+                                                  options: [
+                                                      {
+                                                          value: MarketingAnalyticsDrillDownLevel.Medium,
+                                                          label: 'Medium',
+                                                      },
+                                                      {
+                                                          value: MarketingAnalyticsDrillDownLevel.Content,
+                                                          label: 'Content',
+                                                      },
+                                                      {
+                                                          value: MarketingAnalyticsDrillDownLevel.Term,
+                                                          label: 'Term',
+                                                      },
+                                                  ],
+                                              },
+                                          ]
+                                        : []),
+                                ]}
+                                size="small"
+                            />
+                        )}
                         <Tooltip title="Filters the currently loaded results" delayMs={0}>
                             <IconInfo className="text-xl text-secondary" />
                         </Tooltip>

@@ -10,6 +10,9 @@ from .auth import generate_scim_token
 
 PII_FIELDS = {"userName", "displayName", "givenName", "familyName", "value", "display", "formatted"}
 
+REDACTED_HEADERS = {"cookie", "set-cookie"}
+MASKED_HEADERS = {"authorization"}
+
 
 def _looks_like_email(value: str) -> bool:
     return "@" in value and "." in value.rpartition("@")[2]
@@ -69,6 +72,19 @@ def mask_scim_payload(data: Any, depth: int = 0) -> Any:
             return [mask_scim_payload(item, depth + 1) for item in data]
         case _:
             return data
+
+
+def mask_headers(headers: dict[str, str]) -> dict[str, str]:
+    result = {}
+    for key, value in headers.items():
+        normalized = key.lower().strip()
+        if normalized in REDACTED_HEADERS:
+            continue
+        if normalized in MASKED_HEADERS:
+            result[key] = "***"
+        else:
+            result[key] = value
+    return result
 
 
 def enable_scim_for_domain(domain: OrganizationDomain) -> str:

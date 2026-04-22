@@ -1,7 +1,7 @@
 import * as d3 from 'd3'
-import * as Sankey from 'd3-sankey'
 import { Dispatch, RefObject, SetStateAction } from 'react'
 
+import sankey, { sankeyLeft, sankeyLinkHorizontal, SankeyLink, type SankeyLayout } from 'lib/d3/sankey'
 import { D3Selector } from 'lib/hooks/useD3'
 
 import { FunnelPathsFilter, PathsFilter } from '~/queries/schema/schema-general'
@@ -61,7 +61,7 @@ const createCanvas = (canvasRef: RefObject<HTMLDivElement>, width: number, heigh
         .style('height', `${height}px`)
 }
 
-const createSankeyGenerator = (width: number, height: number): Sankey.SankeyLayout<any, any, any> => {
+const createSankeyGenerator = (width: number, height: number): SankeyLayout<PathNodeData, {}> => {
     /** **Left canvas margin**
      * - Expanded by the border radius to make sure the nodes are not cut off.
      */
@@ -83,10 +83,9 @@ const createSankeyGenerator = (width: number, height: number): Sankey.SankeyLayo
     /** **Bottom canvas margin** */
     const marginBottom = CANVAS_PADDING_VERTICAL
 
-    // @ts-expect-error - d3 sankey typing things
-    return new Sankey.sankey()
-        .nodeId((d: PathNodeData) => d.name)
-        .nodeAlign(Sankey.sankeyLeft)
+    return sankey<PathNodeData, {}>()
+        .nodeId((d) => d.name)
+        .nodeAlign(sankeyLeft)
         .nodeSort(null)
         .nodeWidth(NODE_WIDTH)
         .nodePadding(NODE_PADDING)
@@ -98,7 +97,7 @@ const createSankeyGenerator = (width: number, height: number): Sankey.SankeyLayo
 }
 
 const appendNodes = (
-    svg: any,
+    svg: D3Selector,
     nodes: PathNodeData[],
     pathsFilter: PathsFilter,
     funnelPathsFilter: FunnelPathsFilter,
@@ -163,21 +162,21 @@ const appendNodes = (
         })
 }
 
-const appendLinks = (svg: any, links: PathNodeData[]): void => {
+const appendLinks = (svg: D3Selector, links: SankeyLink<PathNodeData, {}>[]): void => {
     svg.selectAll('path')
         .data(links)
         .join('path')
-        .attr('d', Sankey.sankeyLinkHorizontal())
-        .attr('id', (link: PathNodeData) => `link-${link.index}`)
+        .attr('d', sankeyLinkHorizontal())
+        .attr('id', (link) => `link-${link.index}`)
         .attr('fill', 'none')
         .attr('stroke', 'var(--paths-link)')
-        .attr('stroke-width', (link: PathNodeData) => Math.max(1, link.width))
+        .attr('stroke-width', (link) => Math.max(1, link.width))
         .attr('opacity', LINK_OPACITY)
-        .on('mouseover', (_event: MouseEvent, link: PathNodeData) => {
+        .on('mouseover', (_event: MouseEvent, link) => {
             // apply effect to hovered link
             svg.select(`#link-${link.index}`).attr('opacity', LINK_OPACITY_EMPHASIZED)
         })
-        .on('mouseleave', (_event: MouseEvent, link: PathNodeData) => {
+        .on('mouseleave', (_event: MouseEvent, link) => {
             // reset hovered link
             svg.select(`#link-${link.index}`).attr('opacity', LINK_OPACITY)
         })

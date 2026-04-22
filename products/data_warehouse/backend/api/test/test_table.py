@@ -4,14 +4,14 @@ from typing import Any
 from posthog.test.base import APIBaseTest
 from unittest.mock import ANY, MagicMock, patch
 
+from django.conf import settings
 from django.test import override_settings
 
 import boto3
 from clickhouse_driver.errors import ServerException
 from parameterized import parameterized
 
-from posthog.settings import settings
-
+from products.data_warehouse.backend.direct_postgres import DIRECT_POSTGRES_URL_PATTERN
 from products.data_warehouse.backend.models import DataWarehouseTable
 from products.data_warehouse.backend.models.external_data_source import ExternalDataSource
 
@@ -162,6 +162,8 @@ class TestTable(APIBaseTest):
         data: dict[str, Any] = response.json()
 
         table = DataWarehouseTable.objects.get(id=data["id"])
+        credential = table.credential
+        assert credential is not None
 
         assert table.name == "whatever"
         assert table.columns == {
@@ -169,8 +171,8 @@ class TestTable(APIBaseTest):
             "a_column": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField", "valid": True},
         }
 
-        assert table.credential.access_key, "_accesskey"
-        assert table.credential.access_secret, "_accesssecret"
+        assert credential.access_key, "_accesskey"
+        assert credential.access_secret, "_accesssecret"
 
     @patch(
         "products.data_warehouse.backend.models.table.DataWarehouseTable.get_columns",
@@ -201,6 +203,8 @@ class TestTable(APIBaseTest):
         data: dict[str, Any] = response.json()
 
         table = DataWarehouseTable.objects.get(id=data["id"])
+        credential = table.credential
+        assert credential is not None
 
         assert table.name == "whatever"
         assert table.columns == {
@@ -208,8 +212,8 @@ class TestTable(APIBaseTest):
             "a_column": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField", "valid": False},
         }
 
-        assert table.credential.access_key, "_accesskey"
-        assert table.credential.access_secret, "_accesssecret"
+        assert credential.access_key, "_accesskey"
+        assert credential.access_secret, "_accesssecret"
 
     @patch("products.data_warehouse.backend.models.table.DataWarehouseTable.get_columns")
     def test_credentialerror(self, patch_get_columns):
@@ -247,7 +251,9 @@ class TestTable(APIBaseTest):
         table.refresh_from_db()
 
         assert response.status_code == 200
-        assert table.columns["id"] == {"clickhouse": "Nullable(Float64)", "hogql": "FloatDatabaseField", "valid": True}
+        columns = table.columns
+        assert columns is not None
+        assert columns["id"] == {"clickhouse": "Nullable(Float64)", "hogql": "FloatDatabaseField", "valid": True}
 
     @patch(
         "products.data_warehouse.backend.models.table.DataWarehouseTable.validate_column_type",
@@ -268,7 +274,9 @@ class TestTable(APIBaseTest):
         table.refresh_from_db()
 
         assert response.status_code == 200
-        assert table.columns["id"] == {"clickhouse": "Nullable(Float64)", "hogql": "FloatDatabaseField", "valid": True}
+        columns = table.columns
+        assert columns is not None
+        assert columns["id"] == {"clickhouse": "Nullable(Float64)", "hogql": "FloatDatabaseField", "valid": True}
 
     def test_update_schema_200_no_updates(self):
         columns = {"id": {"clickhouse": "Nullable(Int64)", "hogql": "IntegerDatabaseField"}}
@@ -435,6 +443,56 @@ class TestTable(APIBaseTest):
         table.refresh_from_db()
 
         assert table.deleted is False
+
+    def test_refresh_schema_direct_postgres_table_not_exposed_via_warehouse_tables_api(self):
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            team_id=self.team.pk,
+            source_id="source-id",
+            connection_id="connection-id",
+            destination_id="destination-id",
+            source_type="Postgres",
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+        )
+        table = DataWarehouseTable.objects.create(
+            name="accounts",
+            format="Parquet",
+            team=self.team,
+            team_id=self.team.pk,
+            url_pattern="https://example.com/should-not-matter.parquet",
+            external_data_source_id=source.pk,
+            columns={"id": {"clickhouse": "Int32", "hogql": "integer", "valid": True}},
+        )
+
+        response = self.client.post(f"/api/projects/{self.team.pk}/warehouse_tables/{table.id}/refresh_schema")
+
+        assert response.status_code == 404
+
+    def test_list_tables_includes_warehouse_postgres_source_tables(self):
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            team_id=self.team.pk,
+            source_id="source-id",
+            connection_id="connection-id",
+            destination_id="destination-id",
+            source_type="Postgres",
+            access_method=ExternalDataSource.AccessMethod.WAREHOUSE,
+        )
+        table = DataWarehouseTable.objects.create(
+            name="accounts",
+            format="Parquet",
+            team=self.team,
+            team_id=self.team.pk,
+            url_pattern=DIRECT_POSTGRES_URL_PATTERN,
+            external_data_source_id=source.pk,
+            columns={"id": {"clickhouse": "Int32", "hogql": "integer", "valid": True}},
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.pk}/warehouse_tables/")
+
+        assert response.status_code == 200
+        assert response.json()["count"] == 1
+        assert response.json()["results"][0]["id"] == str(table.id)
 
     def test_create_table_with_internal_bucket_url(self):
         with override_settings(DATAWAREHOUSE_BUCKET_DOMAIN="somedomain.com"):
@@ -834,3 +892,145 @@ class TestTable(APIBaseTest):
         # TODO: DRY
         self._delete_all_from_s3(s3_client, test_bucket_name)
         s3_client.delete_bucket(Bucket=test_bucket_name)
+
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    @patch("boto3.client")
+    def test_file_upload_sanitizes_filename_for_s3_key(self, mock_boto3_client, mock_feature_enabled):
+        """Django strips path components via os.path.basename in UploadedFile._set_name.
+        Our regex further sanitizes special characters. Verify the S3 key uses the sanitized name."""
+        mock_s3 = MagicMock()
+        mock_boto3_client.return_value = mock_s3
+
+        from django.core.files.uploadedfile import SimpleUploadedFile
+
+        # Django will strip "../team_999/" leaving "evil file (1).csv"
+        # Our regex then converts spaces and parens to underscores
+        test_file = SimpleUploadedFile("evil file (1).csv", b"col1\nval1", content_type="text/csv")
+
+        with patch("products.data_warehouse.backend.models.table.DataWarehouseTable.get_columns") as mock_get_columns:
+            mock_get_columns.return_value = {
+                "col1": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField", "valid": True},
+            }
+            with self.settings(
+                DATAWAREHOUSE_BUCKET="test-warehouse-bucket",
+                DATAWAREHOUSE_BUCKET_DOMAIN="test-bucket.s3.amazonaws.com",
+            ):
+                response = self.client.post(
+                    f"/api/projects/{self.team.id}/warehouse_tables/file/",
+                    {"file": test_file, "name": "test_table", "format": "CSVWithNames"},
+                    format="multipart",
+                )
+
+        assert response.status_code == 201
+        # Verify special characters were replaced with underscores in S3 key and url_pattern
+        mock_s3.upload_fileobj.assert_called_once_with(
+            ANY, "test-warehouse-bucket", f"managed/team_{self.team.id}/evil_file__1_.csv"
+        )
+        table = DataWarehouseTable.objects.get(name="test_table")
+        assert (
+            table.url_pattern == f"https://test-bucket.s3.amazonaws.com/managed/team_{self.team.id}/evil_file__1_.csv"
+        )
+
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    @patch("boto3.client")
+    def test_file_upload_table_name_defaults_to_sanitized_filename(self, mock_boto3_client, mock_feature_enabled):
+        mock_s3 = MagicMock()
+        mock_boto3_client.return_value = mock_s3
+
+        from django.core.files.uploadedfile import SimpleUploadedFile
+
+        test_file = SimpleUploadedFile("my data (2).csv", b"col1\nval1", content_type="text/csv")
+
+        with patch("products.data_warehouse.backend.models.table.DataWarehouseTable.get_columns") as mock_get_columns:
+            mock_get_columns.return_value = {
+                "col1": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField", "valid": True},
+            }
+            with self.settings(
+                DATAWAREHOUSE_BUCKET="test-warehouse-bucket",
+                DATAWAREHOUSE_BUCKET_DOMAIN="test-bucket.s3.amazonaws.com",
+            ):
+                response = self.client.post(
+                    f"/api/projects/{self.team.id}/warehouse_tables/file/",
+                    {"file": test_file, "format": "CSVWithNames"},
+                    format="multipart",
+                )
+
+        # Sanitized filename "my_data__2_.csv" has dots, which the table name
+        # regex rejects — so the user must provide a valid name separately
+        assert response.status_code == 400
+        assert "Table names must start with a letter" in response.json()["message"]
+
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    @patch("boto3.client")
+    def test_file_upload_table_name_defaults_to_sanitized_filename_when_valid(
+        self, mock_boto3_client, mock_feature_enabled
+    ):
+        mock_s3 = MagicMock()
+        mock_boto3_client.return_value = mock_s3
+
+        from django.core.files.uploadedfile import SimpleUploadedFile
+
+        # Filename without extension or special chars → valid as table name
+        test_file = SimpleUploadedFile("my_data", b"col1\nval1", content_type="text/csv")
+
+        with patch("products.data_warehouse.backend.models.table.DataWarehouseTable.get_columns") as mock_get_columns:
+            mock_get_columns.return_value = {
+                "col1": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField", "valid": True},
+            }
+            with self.settings(
+                DATAWAREHOUSE_BUCKET="test-warehouse-bucket",
+                DATAWAREHOUSE_BUCKET_DOMAIN="test-bucket.s3.amazonaws.com",
+            ):
+                response = self.client.post(
+                    f"/api/projects/{self.team.id}/warehouse_tables/file/",
+                    {"file": test_file, "format": "CSVWithNames"},
+                    format="multipart",
+                )
+
+        assert response.status_code == 201
+        table = DataWarehouseTable.objects.get(name="my_data")
+        assert table is not None
+
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    @patch("boto3.client")
+    def test_file_upload_rejects_dot_filename(self, mock_boto3_client, mock_feature_enabled):
+        mock_boto3_client.return_value = MagicMock()
+
+        from django.core.files.uploadedfile import SimpleUploadedFile
+
+        test_file = SimpleUploadedFile(".hidden", b"col1\nval1", content_type="text/csv")
+
+        with self.settings(DATAWAREHOUSE_BUCKET="test-warehouse-bucket"):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/warehouse_tables/file/",
+                {"file": test_file, "name": "test_table", "format": "CSVWithNames"},
+                format="multipart",
+            )
+
+        assert response.status_code == 400
+        assert response.json()["message"] == "Invalid filename"
+
+    @parameterized.expand(
+        [
+            ("garbage", "InvalidFormat"),
+            ("injection", "'; DROP TABLE"),
+        ]
+    )
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    @patch("boto3.client")
+    def test_file_upload_invalid_format_rejected(self, _name, bad_format, mock_boto3_client, mock_feature_enabled):
+        mock_boto3_client.return_value = MagicMock()
+
+        from django.core.files.uploadedfile import SimpleUploadedFile
+
+        test_file = SimpleUploadedFile("safe_file.csv", b"col1\nval1", content_type="text/csv")
+
+        with self.settings(DATAWAREHOUSE_BUCKET="test-warehouse-bucket"):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/warehouse_tables/file/",
+                {"file": test_file, "name": "test_table", "format": bad_format},
+                format="multipart",
+            )
+
+        assert response.status_code == 400
+        assert "Invalid format" in response.json()["message"]

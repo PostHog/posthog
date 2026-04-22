@@ -5,7 +5,7 @@ use anyhow::{anyhow, Result};
 use crate::{
     api::{self, releases::ReleaseBuilder, symbol_sets::SymbolSetUpload},
     proguard::ProguardFile,
-    sourcemaps::args::ReleaseArgs,
+    sourcemaps::args::{pack_version, ReleaseArgs},
     utils::git::get_git_info,
 };
 
@@ -37,8 +37,9 @@ pub fn upload(args: &Args) -> Result<()> {
     } = args;
 
     let ReleaseArgs {
-        project,
+        name,
         version,
+        build,
         skip_release_on_fail,
     } = release;
 
@@ -53,11 +54,12 @@ pub fn upload(args: &Args) -> Result<()> {
         .map(ReleaseBuilder::init_from_git)
         .unwrap_or_default();
 
-    if let Some(project) = project {
-        release_builder.with_project(project);
+    if let Some(name) = name {
+        release_builder.with_name(name);
     }
-    if let Some(version) = version {
-        release_builder.with_version(version);
+    let full_version = pack_version(version, build);
+    if let Some(ref v) = full_version {
+        release_builder.with_version(v);
     }
 
     let mut file = ProguardFile::new(&path, map_id.clone())?;
@@ -71,7 +73,12 @@ pub fn upload(args: &Args) -> Result<()> {
 
     let to_upload: SymbolSetUpload = file.try_into()?;
 
-    api::symbol_sets::upload_with_retry(vec![to_upload], *batch_size, *skip_release_on_fail)?;
+    api::symbol_sets::upload_with_retry(
+        vec![to_upload],
+        *batch_size,
+        *skip_release_on_fail,
+        false,
+    )?;
 
     Ok(())
 }

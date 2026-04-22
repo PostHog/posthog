@@ -38,7 +38,7 @@ export const workflowTemplateLogic = kea<workflowTemplateLogicType>([
                 description: '',
                 image_url: null as string | null,
                 tags: [] as string[],
-                scope: 'team' as 'team' | 'global',
+                scope: 'team' as 'team' | 'global' | 'organization',
             },
             errors: ({ name }: { name: string }) => ({
                 name: !name ? 'Name is required' : undefined,
@@ -48,7 +48,7 @@ export const workflowTemplateLogic = kea<workflowTemplateLogicType>([
                 description: string
                 image_url: string | null
                 tags: string[]
-                scope: 'team' | 'global'
+                scope: 'team' | 'global' | 'organization'
             }) => {
                 const workflow = values.workflow
                 if (!workflow) {
@@ -79,9 +79,9 @@ export const workflowTemplateLogic = kea<workflowTemplateLogicType>([
                 }
 
                 // Otherwise, create a new template
-                let scope: 'team' | 'global' = 'team'
-                if (values.user?.is_staff) {
-                    scope = formValues.scope ?? 'team'
+                let scope: 'team' | 'global' | 'organization' = formValues.scope ?? 'team'
+                if (scope === 'global' && !values.user?.is_staff) {
+                    scope = 'team'
                 }
 
                 try {

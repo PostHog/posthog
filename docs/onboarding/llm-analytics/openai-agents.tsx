@@ -1,4 +1,5 @@
 import { OnboardingComponentsContext, createInstallation } from 'scenes/onboarding/OnboardingDocsContentWrapper'
+
 import { StepDefinition } from '../steps'
 
 export const getOpenAIAgentsSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
@@ -12,9 +13,7 @@ export const getOpenAIAgentsSteps = (ctx: OnboardingComponentsContext): StepDefi
             badge: 'required',
             content: (
                 <>
-                    <Markdown>
-                        Setting up analytics starts with installing the PostHog Python SDK.
-                    </Markdown>
+                    <Markdown>Setting up analytics starts with installing the PostHog Python SDK.</Markdown>
 
                     <CodeBlock
                         language="bash"
@@ -60,10 +59,10 @@ export const getOpenAIAgentsSteps = (ctx: OnboardingComponentsContext): StepDefi
             content: (
                 <>
                     <Markdown>
-                        Initialize PostHog with your project API key and host from [your project
+                        Initialize PostHog with your project token and host from [your project
                         settings](https://app.posthog.com/settings/project), then call `instrument()` to register
-                        PostHog tracing with the OpenAI Agents SDK. This automatically captures all agent traces,
-                        spans, and LLM generations.
+                        PostHog tracing with the OpenAI Agents SDK. This automatically captures all agent traces, spans,
+                        and LLM generations.
                     </Markdown>
 
                     <CodeBlock
@@ -73,7 +72,7 @@ export const getOpenAIAgentsSteps = (ctx: OnboardingComponentsContext): StepDefi
                             from posthog.ai.openai_agents import instrument
 
                             posthog = Posthog(
-                                "<ph_project_api_key>",
+                                "<ph_project_token>",
                                 host="<ph_client_api_host>"
                             )
 
@@ -103,8 +102,8 @@ export const getOpenAIAgentsSteps = (ctx: OnboardingComponentsContext): StepDefi
             content: (
                 <>
                     <Markdown>
-                        Run your OpenAI agents as normal. PostHog automatically captures `$ai_generation` events for
-                        LLM calls and `$ai_span` events for agent execution, tool calls, and handoffs.
+                        Run your OpenAI agents as normal. PostHog automatically captures `$ai_generation` events for LLM
+                        calls and `$ai_span` events for agent execution, tool calls, and handoffs.
                     </Markdown>
 
                     <CodeBlock

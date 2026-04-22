@@ -14,12 +14,17 @@ APIScopeObject = Literal[
     "activity_log",
     "alert",
     "annotation",
+    "approvals",
     "batch_export",
     "batch_import",
     "cohort",
+    "comment",
     "conversation",
+    "customer_analytics",
+    "customer_journey",
     "customer_profile_config",
     "dashboard",
+    "event_filter",
     "dashboard_template",
     "dataset",
     "desktop_recording",
@@ -27,6 +32,7 @@ APIScopeObject = Literal[
     "endpoint",
     "error_tracking",
     "evaluation",
+    "element",
     "event_definition",
     "experiment",
     "experiment_saved_metric",
@@ -37,16 +43,21 @@ APIScopeObject = Literal[
     "file_system",
     "file_system_shortcut",
     "group",
+    "health_issue",
+    "heatmap",
+    "hog_flow",
     "hog_function",
     "insight",
     "insight_variable",
     "integration",
+    "legal_document",
     "link",
     "live_debugger",
     "llm_analytics",
     "llm_gateway",
     "llm_prompt",
     "llm_provider_key",
+    "llm_skill",
     "logs",
     "notebook",
     "organization",
@@ -63,12 +74,16 @@ APIScopeObject = Literal[
     "session_recording",
     "session_recording_playlist",
     "sharing_configuration",
+    "streamlit_app",
     "subscription",
     "survey",
     "ticket",
     "task",
+    "tracing",
+    "uploaded_media",
     "user",
     "user_interview_DO_NOT_USE",  # This is a super alpha product, so only exposing here for internal personal API key access
+    "visual_review",
     "warehouse_table",
     "warehouse_view",
     "web_analytics",
@@ -87,6 +102,8 @@ APIScopeObjectOrNotSupported = Literal[
 
 API_SCOPE_OBJECTS: tuple[APIScopeObject, ...] = get_args(APIScopeObject)
 API_SCOPE_ACTIONS: tuple[APIScopeActions, ...] = get_args(APIScopeActions)
+
+PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION: list[tuple[APIScopeObject, APIScopeActions]] = [("endpoint", "read")]
 
 
 def get_scope_descriptions() -> dict[str, str]:

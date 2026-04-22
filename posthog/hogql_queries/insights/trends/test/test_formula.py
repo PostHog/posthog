@@ -15,6 +15,8 @@ from django.test import override_settings
 
 from posthog.schema import TrendsFilter, TrendsQuery
 
+from posthog.hogql.errors import ExposedHogQLError
+
 from posthog.constants import TRENDS_BOLD_NUMBER, TRENDS_CUMULATIVE, TRENDS_PIE
 from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
 from posthog.models import Cohort
@@ -833,3 +835,18 @@ class TestFormula(ClickhouseTestMixin, APIBaseTest):
         # The formula A + B should equal 0 + 1800 = 1800
         self.assertEqual(response[0]["aggregated_value"], 1800)
         self.assertEqual(response[0]["label"], "Formula (A + B)")
+
+    def test_formula_referencing_missing_series_returns_error(self):
+        with self.assertRaises(ExposedHogQLError):
+            self._run(
+                {
+                    "series": [
+                        {
+                            "event": "session start",
+                            "math": "sum",
+                            "math_property": "xyz",
+                        },
+                    ],
+                    "trendsFilter": {"formula": "A/B"},
+                }
+            )

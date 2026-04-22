@@ -7,9 +7,8 @@ import posthog from 'posthog-js'
 import React, { ReactNode, useEffect, useMemo, useRef, useState } from 'react'
 
 import { IconArrowRight, IconCheck, IconPencil, IconStopFilled, IconTrash, IconX } from '@posthog/icons'
-import { LemonButton, LemonSwitch, LemonTextArea } from '@posthog/lemon-ui'
+import { LemonButton, LemonSwitch, LemonTextArea, Spinner } from '@posthog/lemon-ui'
 
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
 import { userLogic } from 'scenes/userLogic'
 
@@ -103,7 +102,7 @@ function QueuedMessageItem({
 
     return (
         <div className="group flex items-center gap-2 py-1 px-2 rounded-md hover:bg-bg-light">
-            <p className="flex-1 text-sm text-secondary truncate">{message.content}</p>
+            <p className="flex-1 text-sm text-secondary truncate mb-0">{message.content}</p>
             <div className="flex gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
                 <LemonButton
                     size="xsmall"
@@ -159,12 +158,12 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
         threadMessageCount,
         queueingEnabled,
         queuedMessages,
+        queueSubmitting,
     } = useValues(maxThreadLogic)
     const { askMax, stopGeneration, completeThreadGeneration, setSupportOverrideEnabled, updateQueuedMessage } =
         useActions(maxThreadLogic)
     // Show info banner for conversations created during impersonation (marked as internal)
     const isImpersonatedInternalConversation = user?.is_impersonated && conversation?.is_internal
-    const isRemovingSidePanelFlag = useFeatureFlag('UX_REMOVE_SIDEPANEL')
 
     const [showAutocomplete, setShowAutocomplete] = useState(false)
     const [editingQueueId, setEditingQueueId] = useState<string | null>(null)
@@ -214,7 +213,7 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
             <div
                 className={clsx(
                     'flex flex-col items-center',
-                    isSticky && 'mb-2 border border-primary rounded-lg backdrop-blur-sm bg-glass-bg-3000'
+                    isSticky && 'border border-primary rounded-lg backdrop-blur-sm bg-glass-bg-3000'
                 )}
             >
                 {/* Have to increase z-index to overlay ToolsDisplay */}
@@ -225,9 +224,12 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                             Research mode is a free beta feature with lower daily limits
                         </div>
                     )}
-                    {queueingEnabled && queuedMessages.length > 0 && (
+                    {queueingEnabled && (queuedMessages.length > 0 || queueSubmitting) && (
                         <div className="px-3 py-2">
-                            <div className="text-xs text-muted mb-1.5">Up next</div>
+                            <div className="text-xs text-muted mb-1.5 flex items-center gap-1.5">
+                                Up next
+                                {queueSubmitting && <Spinner size="small" />}
+                            </div>
                             <div className="space-y-1.5">
                                 {displayQueuedMessages.map((message) => (
                                     <QueuedMessageItem
@@ -256,11 +258,8 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                             'border border-primary',
                             'bg-[var(--color-bg-fill-input)]',
                             isThreadVisible ? 'border-primary m-0.5 rounded-[7px]' : 'rounded-lg',
-                            // for flag, we change the ring size and color
-                            isRemovingSidePanelFlag && '[--input-ring-size:2px]',
-                            // when streaming, we make the ring default color, and when done streaming pop back to very this purple to let users know it's their turn to type
-                            // When we allow appending messages, this ux will likely not be useful
-                            isRemovingSidePanelFlag && !streamingActive && '[--input-ring-color:#b62ad9]'
+                            '[--input-ring-size:2px]',
+                            !streamingActive && '[--input-ring-color:var(--color-ai)]'
                         )}
                     >
                         <SlashCommandAutocomplete visible={showAutocomplete} onClose={() => setShowAutocomplete(false)}>
@@ -279,7 +278,7 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                                                 <>
                                                     Ask follow-up{' '}
                                                     <span className="text-tertiary opacity-80 contrast-more:opacity-100">
-                                                        / for commands
+                                                        or / for commands
                                                     </span>
                                                 </>
                                             )
@@ -287,7 +286,7 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                                             <>
                                                 Ask a question{' '}
                                                 <span className="text-tertiary opacity-80 contrast-more:opacity-100">
-                                                    / for commands
+                                                    or / for commands
                                                 </span>
                                             </>
                                         )}
@@ -296,6 +295,7 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                                 <LemonTextArea
                                     aria-describedby={!question ? 'textarea-hint' : undefined}
                                     id="question-input"
+                                    data-attr="max-chat-input"
                                     ref={textAreaRef}
                                     value={isSharedThread ? '' : question}
                                     onChange={(value) => setQuestion(value)}
@@ -340,10 +340,11 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                         </SlashCommandAutocomplete>
 
                         {!isSharedThread && (
-                            <div className="pb-2">
+                            <div className="pb-2 pr-12">
                                 {!isThreadVisible ? (
                                     <div className="flex items-start justify-between">
                                         <ContextDisplay size={contextDisplaySize} />
+
                                         <div className="flex items-start gap-1 h-full mt-1 mr-1">{topActions}</div>
                                     </div>
                                 ) : (
@@ -362,6 +363,7 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                         <AIConsentPopoverWrapper
                             placement="bottom-end"
                             showArrow
+                            ignoreDismissal
                             onApprove={() => askMax(pendingPrompt || question)}
                             onDismiss={() => completeThreadGeneration()}
                             middleware={[
@@ -372,6 +374,7 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                             hidden={!isAdmin || (!threadLoading && !pendingPrompt)}
                         >
                             <LemonButton
+                                data-attr={showStopButton ? 'max-stop-generation' : 'max-send-message'}
                                 type={(isThreadVisible && !hasQuestion) || showStopButton ? 'secondary' : 'primary'}
                                 onClick={() => {
                                     if (threadLoading) {
@@ -444,9 +447,6 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                     </div>
                 )}
             </div>
-            <p className="w-full flex text-xs text-muted mt-1">
-                <span className="mx-auto">PostHog AI can make mistakes. Please double-check responses.</span>
-            </p>
         </div>
     )
 })

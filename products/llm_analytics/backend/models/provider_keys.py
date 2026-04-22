@@ -11,6 +11,7 @@ class LLMProvider(models.TextChoices):
     ANTHROPIC = "anthropic"
     GEMINI = "gemini"
     OPENROUTER = "openrouter"
+    FIREWORKS = "fireworks"
 
 
 class LLMProviderKey(UUIDTModel):

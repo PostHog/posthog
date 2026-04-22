@@ -20,7 +20,7 @@ pub struct GroupTypeMapping {
     pub group_type_index: i32,
     pub name_singular: Option<String>,
     pub name_plural: Option<String>,
-    pub default_columns: Option<serde_json::Value>,
+    pub default_columns: Option<Vec<String>>,
     pub detail_dashboard_id: Option<i64>,
     pub created_at: Option<chrono::DateTime<chrono::Utc>>,
 }

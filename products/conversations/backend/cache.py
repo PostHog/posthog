@@ -9,12 +9,20 @@ from django.core.cache import cache
 
 import structlog
 
+from posthog.models.person.util import get_persons_by_distinct_ids
+
+from products.conversations.backend.models.constants import Status
+
 logger = structlog.get_logger(__name__)
 
 # Cache TTLs (seconds)
 MESSAGES_CACHE_TTL = 15  # Short TTL - messages need to appear quickly
 TICKETS_CACHE_TTL = 30  # Slightly longer - ticket list changes less frequently
 UNREAD_COUNT_CACHE_TTL = 30  # For dashboard polling - invalidated on changes
+SLACK_AVATAR_CACHE_TTL = 5 * 60  # 5 minutes for slack avatar lookup
+
+# All possible status filter values for tickets cache invalidation
+_TICKETS_STATUS_VARIANTS: list[str | None] = [None, *[s.value for s in Status]]
 
 
 def _make_cache_key(prefix: str, *args: str) -> str:
@@ -116,3 +124,103 @@ def invalidate_unread_count_cache(team_id: int) -> None:
         cache.delete(key)
     except Exception:
         logger.warning("conversations_cache_delete_error", key=key)
+
+
+def invalidate_messages_cache(team_id: int, ticket_id: str) -> None:
+    """Invalidate the initial-load messages cache entry for a ticket (after=None). Polling entries (after=<ts>) expire via TTL."""
+    key = get_messages_cache_key(team_id, ticket_id, None)
+    try:
+        cache.delete(key)
+    except Exception:
+        logger.warning("conversations_cache_delete_error", key=key)
+
+
+def invalidate_tickets_cache(team_id: int, widget_session_id: str) -> None:
+    """Delete all status-filtered ticket cache variants for a widget session."""
+    keys = [get_tickets_cache_key(team_id, widget_session_id, s) for s in _TICKETS_STATUS_VARIANTS]
+    try:
+        cache.delete_many(keys)
+    except Exception:
+        logger.warning("conversations_cache_invalidate_error", keys=keys)
+
+
+# Slack User Cache
+# Caches Slack user profile lookups (name, email, avatar) to reduce
+# Slack API calls. Keyed by slack_user_id — IDs are functionally unique
+# across workspaces. Short TTL keeps profiles reasonably fresh.
+
+SLACK_USER_CACHE_TTL = 5 * 60  # 5 minutes
+
+
+def get_cached_slack_user(slack_user_id: str) -> dict | None:
+    """Get cached Slack user profile."""
+    key = _make_cache_key("slack_user", slack_user_id)
+    try:
+        return cache.get(key)
+    except Exception:
+        logger.warning("conversations_cache_get_error", key=key)
+        return None
+
+
+PERSON_DISTINCT_IDS_CACHE_TTL = 30  # seconds
+
+
+def get_person_distinct_ids(team_id: int, distinct_id: str) -> list[str]:
+    """Resolve all distinct_ids linked to a person.
+
+    Returns all distinct_ids for the person, or a single-element list with
+    the input distinct_id if no person is found. Cached briefly to avoid
+    hitting the DB on every widget poll.
+    """
+
+    key = _make_cache_key("person_dids", str(team_id), distinct_id)
+    try:
+        cached = cache.get(key)
+        if cached is not None:
+            return cached
+    except Exception:
+        logger.warning("conversations_cache_get_error", key=key)
+
+    persons = get_persons_by_distinct_ids(team_id, [distinct_id])
+    all_ids = persons[0].distinct_ids if persons and persons[0].distinct_ids else [distinct_id]
+
+    try:
+        cache.set(key, all_ids, timeout=PERSON_DISTINCT_IDS_CACHE_TTL)
+    except Exception:
+        logger.warning("conversations_cache_set_error", key=key)
+
+    return all_ids
+
+
+def set_cached_slack_user(slack_user_id: str, user_info: dict) -> None:
+    """Cache a Slack user profile."""
+    key = _make_cache_key("slack_user", slack_user_id)
+    try:
+        cache.set(key, user_info, timeout=SLACK_USER_CACHE_TTL)
+    except Exception:
+        logger.warning("conversations_cache_set_error", key=key)
+
+
+# Slack Avatar-by-Email Cache
+# Caches the result of users.lookupByEmail so outbound replies can show
+# the replying user's Slack profile picture. Empty string = negative cache
+# (user not found in the Slack workspace for that email).
+
+
+def get_cached_slack_avatar(email: str) -> str | None:
+    """Get cached Slack avatar URL for an email. Returns None on cache miss, empty string for negative cache."""
+    key = _make_cache_key("slack_avatar", email.lower())
+    try:
+        return cache.get(key)
+    except Exception:
+        logger.warning("conversations_cache_get_error", key=key)
+        return None
+
+
+def set_cached_slack_avatar(email: str, avatar_url: str) -> None:
+    """Cache a Slack avatar URL (or empty string for negative cache)."""
+    key = _make_cache_key("slack_avatar", email.lower())
+    try:
+        cache.set(key, avatar_url, timeout=SLACK_AVATAR_CACHE_TTL)
+    except Exception:
+        logger.warning("conversations_cache_set_error", key=key)

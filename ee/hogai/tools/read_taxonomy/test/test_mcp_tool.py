@@ -1,6 +1,6 @@
 from posthog.test.base import NonAtomicBaseTest
 
-from ee.hogai.tools.read_taxonomy.core import ReadEventProperties, ReadTaxonomyToolArgs
+from ee.hogai.tools.read_taxonomy.core import ReadEventProperties, ReadEvents, ReadTaxonomyToolArgs
 from ee.hogai.tools.read_taxonomy.mcp_tool import ReadTaxonomyMCPTool
 
 
@@ -38,3 +38,16 @@ class TestReadTaxonomyMCPTool(NonAtomicBaseTest):
         self.assertEqual(validated.query.kind, "event_properties")
         assert isinstance(validated.query, ReadEventProperties)
         self.assertEqual(validated.query.event_name, "$pageview")
+
+    async def test_schema_validates_events_with_pagination(self):
+        validated = self.tool.args_schema.model_validate({"query": {"kind": "events", "limit": 100, "offset": 50}})
+        self.assertEqual(validated.query.kind, "events")
+        assert isinstance(validated.query, ReadEvents)
+        self.assertEqual(validated.query.limit, 100)
+        self.assertEqual(validated.query.offset, 50)
+
+    async def test_schema_validates_events_default_pagination(self):
+        validated = self.tool.args_schema.model_validate({"query": {"kind": "events"}})
+        assert isinstance(validated.query, ReadEvents)
+        self.assertEqual(validated.query.limit, 500)
+        self.assertEqual(validated.query.offset, 0)

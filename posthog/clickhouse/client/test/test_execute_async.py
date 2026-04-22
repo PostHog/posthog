@@ -8,7 +8,11 @@ from unittest.mock import MagicMock, patch
 from django.db import transaction
 from django.test import SimpleTestCase, TestCase
 
+from parameterized import parameterized
+
 from posthog.schema import ClickhouseQueryProgress, QueryStatus
+
+from posthog.hogql.constants import DEFAULT_POSTHOG_AI_RETURNED_ROWS
 
 from posthog.clickhouse.client import (
     execute_async as client,
@@ -153,6 +157,28 @@ class ClickhouseClientTestCase(TestCase, ClickhouseTestMixin):
         self.assertIsNotNone(result.end_time)
         assert result.results is not None
         self.assertEqual(result.results["results"], [[2]])
+
+    def test_async_query_posthog_ai_limit(self):
+        query = build_query("SELECT arrayJoin(range(1, 100001))")
+        query_id = client.enqueue_process_query_task(
+            self.team, self.user.id, query, _test_only_bypass_celery=True, is_posthog_ai=True
+        ).id
+        result = client.get_query_status(self.team.id, query_id)
+        self.assertFalse(result.error, result.error_message or "<no error message>")
+        self.assertTrue(result.complete)
+        assert result.results is not None
+        self.assertEqual(len(result.results["results"]), DEFAULT_POSTHOG_AI_RETURNED_ROWS)
+
+    def test_async_query_posthog_ai_limit_with_explicit_limit(self):
+        query = build_query("SELECT arrayJoin(range(1, 100001)) LIMIT 300")
+        query_id = client.enqueue_process_query_task(
+            self.team, self.user.id, query, _test_only_bypass_celery=True, is_posthog_ai=True
+        ).id
+        result = client.get_query_status(self.team.id, query_id)
+        self.assertFalse(result.error, result.error_message or "<no error message>")
+        self.assertTrue(result.complete)
+        assert result.results is not None
+        self.assertEqual(len(result.results["results"]), 300)
 
     def test_async_query_client_errors(self):
         query = build_query("SELECT WOW SUCH DATA FROM NOWHERE THIS WILL CERTAINLY WORK")
@@ -450,3 +476,76 @@ class ClickhouseClientTestCase(TestCase, ClickhouseTestMixin):
 
         # Both should execute (force bypasses deduplication)
         self.assertEqual(execute_process_query_mock.call_count, 2)
+
+    @parameterized.expand(
+        [
+            ("failed_task", True),
+            ("succeeded_task", False),
+        ]
+    )
+    @patch("posthog.clickhouse.client.execute_process_query")
+    def test_stale_mapping_from_completed_task_does_not_block_reenqueue(
+        self, _name, task_errored, execute_process_query_mock
+    ):
+        query = build_query("SELECT 1")
+        cache_key = "stale_mapping_cache_key"
+        old_query_id = "old_completed_query_id"
+
+        # Simulate a stale mapping: previous task completed but did not clean up
+        old_manager = QueryStatusManager(old_query_id, self.team.id)
+        old_manager.store_query_status(
+            QueryStatus(id=old_query_id, team_id=self.team.id, complete=True, error=task_errored)
+        )
+        old_manager.register_cache_key_mapping(cache_key)
+
+        new_status = client.enqueue_process_query_task(
+            self.team, self.user.id, query, cache_key=cache_key, _test_only_bypass_celery=True
+        )
+
+        # A new task was enqueued — not the old completed one returned
+        execute_process_query_mock.assert_called_once()
+        assert new_status.id != old_query_id
+        assert not new_status.complete
+        # The new task registered its own mapping, replacing the stale one
+        assert old_manager.get_running_query_by_cache_key(cache_key) == new_status.id
+
+    @patch("posthog.clickhouse.client.execute_process_query")
+    def test_in_progress_mapping_still_deduplicates(self, execute_process_query_mock):
+        query = build_query("SELECT 1")
+        cache_key = "in_progress_cache_key"
+        in_progress_query_id = "in_progress_query_id"
+
+        in_progress_manager = QueryStatusManager(in_progress_query_id, self.team.id)
+        in_progress_manager.store_query_status(
+            QueryStatus(id=in_progress_query_id, team_id=self.team.id, complete=False, error=False)
+        )
+        in_progress_manager.register_cache_key_mapping(cache_key)
+
+        second_status = client.enqueue_process_query_task(
+            self.team, self.user.id, query, cache_key=cache_key, _test_only_bypass_celery=True
+        )
+
+        # No new task should be enqueued
+        execute_process_query_mock.assert_not_called()
+        assert second_status.id == in_progress_query_id
+
+    @patch("posthog.clickhouse.client.execute_process_query")
+    def test_expired_query_status_with_stale_mapping_cleans_up_and_reenqueues(self, execute_process_query_mock):
+        query = build_query("SELECT 1")
+        cache_key = "expired_status_cache_key"
+        expired_query_id = "expired_query_id"
+
+        # Register a mapping for a query whose status has already expired in Redis (no store_query_status call)
+        expired_manager = QueryStatusManager(expired_query_id, self.team.id)
+        expired_manager.register_cache_key_mapping(cache_key)
+
+        new_status = client.enqueue_process_query_task(
+            self.team, self.user.id, query, cache_key=cache_key, _test_only_bypass_celery=True
+        )
+
+        # A new task was enqueued
+        execute_process_query_mock.assert_called_once()
+        assert new_status.id != expired_query_id
+        assert not new_status.complete
+        # Stale mapping was replaced with the new query's mapping
+        assert expired_manager.get_running_query_by_cache_key(cache_key) == new_status.id

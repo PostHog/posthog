@@ -8,19 +8,24 @@ use std::{
 use crate::billing_limiters::{FeatureFlagsLimiter, SessionReplayLimiter};
 use crate::database_pools::DatabasePools;
 use axum::{
+    error_handling::HandleErrorLayer,
     http::{Method, StatusCode},
     routing::{any, get},
     Router,
 };
+use common_cache::{NegativeCache, ReadThroughCacheWithMetrics};
 use common_cookieless::CookielessManager;
 use common_geoip::GeoIpClient;
 use common_hypercache::HyperCacheReader;
+use common_metrics::inc;
 use common_metrics::{setup_metrics_recorder, track_metrics};
 use common_redis::Client as RedisClient;
-use health::HealthRegistry;
+use health::{readiness_handler, HealthRegistry};
 use metrics::gauge;
 use sqlx::PgPool;
 use tower::limit::ConcurrencyLimitLayer;
+use tower::timeout::TimeoutLayer;
+use tower::ServiceBuilder;
 use tower_http::{
     cors::{AllowHeaders, AllowOrigin, CorsLayer},
     trace::TraceLayer,
@@ -32,12 +37,17 @@ use crate::{
         flag_definitions_rate_limiter::FlagDefinitionsRateLimiter,
         flags_rate_limiter::{FlagsRateLimiter, IpRateLimiter},
     },
-    cohorts::cohort_cache_manager::CohortCacheManager,
-    config::{Config, TeamIdCollection},
+    cohorts::{cohort_cache_manager::CohortCacheManager, membership::CohortMembershipProvider},
+    config::{Config, ServiceMode, TeamIdCollection},
+    flags::flag_group_type_mapping::GroupTypeCacheManager,
     metrics::{
-        consts::{FLAG_DEFINITIONS_RATE_LIMITED_COUNTER, FLAG_DEFINITIONS_REQUESTS_COUNTER},
+        consts::{
+            FLAG_DEFINITIONS_RATE_LIMITED_COUNTER, FLAG_DEFINITIONS_RATE_LIMIT_BYPASSED_COUNTER,
+            FLAG_DEFINITIONS_REQUESTS_COUNTER, FLAG_REQUEST_TIMEOUT_COUNTER,
+        },
         utils::team_id_label_filter,
     },
+    rayon_dispatcher::RayonDispatcher,
 };
 
 #[derive(Clone)]
@@ -51,6 +61,7 @@ pub struct State {
     pub dedicated_redis_client: Option<Arc<dyn RedisClient + Send + Sync>>,
     pub database_pools: Arc<DatabasePools>,
     pub cohort_cache_manager: Arc<CohortCacheManager>,
+    pub group_type_cache_manager: Arc<GroupTypeCacheManager>,
     pub geoip: Arc<GeoIpClient>,
     pub team_ids_to_track: TeamIdCollection,
     pub feature_flags_billing_limiter: FeatureFlagsLimiter,
@@ -73,6 +84,16 @@ pub struct State {
     /// Reads pre-computed config from Python's RemoteConfig.build_config()
     /// Uses token-based lookup (api_token)
     pub config_hypercache_reader: Arc<HyperCacheReader>,
+    /// Bounds concurrent large-batch dispatches to the Rayon pool
+    pub rayon_dispatcher: RayonDispatcher,
+    /// In-memory negative cache for invalid API tokens, preventing repeated
+    /// Redis/S3/PG lookups for tokens that don't correspond to any team
+    pub team_negative_cache: NegativeCache,
+    /// Read-through cache for auth tokens (secret + personal API keys).
+    /// Handles Redis-backed positive caching and loader ordering.
+    pub auth_token_cache: Arc<ReadThroughCacheWithMetrics>,
+    /// Provider for realtime/behavioral cohort membership lookups
+    pub cohort_membership_provider: Arc<dyn CohortMembershipProvider>,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -81,6 +102,7 @@ pub fn router(
     dedicated_redis_client: Option<Arc<dyn RedisClient + Send + Sync>>,
     database_pools: Arc<DatabasePools>,
     cohort_cache: Arc<CohortCacheManager>,
+    group_type_cache: Arc<GroupTypeCacheManager>,
     geoip: Arc<GeoIpClient>,
     liveness: HealthRegistry,
     feature_flags_billing_limiter: FeatureFlagsLimiter,
@@ -90,23 +112,38 @@ pub fn router(
     flags_with_cohorts_hypercache_reader: Arc<HyperCacheReader>,
     team_hypercache_reader: Arc<HyperCacheReader>,
     config_hypercache_reader: Arc<HyperCacheReader>,
+    rayon_dispatcher: RayonDispatcher,
+    team_negative_cache: NegativeCache,
+    auth_token_cache: Arc<ReadThroughCacheWithMetrics>,
+    cohort_membership_provider: Arc<dyn CohortMembershipProvider>,
     config: Config,
 ) -> Router {
     // Initialize flag definitions rate limiter with default and custom team rates
     let flag_definitions_limiter = FlagDefinitionsRateLimiter::new(
         config.flag_definitions_default_rate_per_minute,
         config.flag_definitions_rate_limits.0.clone(),
+        config.rate_limiting_allow_list_teams.0.clone(),
         FLAG_DEFINITIONS_REQUESTS_COUNTER,
         FLAG_DEFINITIONS_RATE_LIMITED_COUNTER,
+        FLAG_DEFINITIONS_RATE_LIMIT_BYPASSED_COUNTER,
     )
     .expect("Failed to initialize flag definitions rate limiter");
 
-    // Initialize token-based rate limiter with configuration
+    // Initialize token-based rate limiter.
+    // Both modes use the same thresholds (warn at ratio of enforce capacity).
+    // log_only=true sets warn_only, so requests are never blocked.
+    let (flags_warn_cap, flags_enforce_cap, flags_warn_only) = resolve_rate_limit_capacities(
+        config.flags_bucket_capacity,
+        config.flags_warn_capacity_ratio,
+        *config.flags_rate_limit_log_only,
+    );
     let flags_rate_limiter = FlagsRateLimiter::new(
         *config.flags_rate_limit_enabled,
-        *config.flags_rate_limit_log_only,
         config.flags_bucket_replenish_rate,
-        config.flags_bucket_capacity,
+        flags_warn_cap,
+        flags_enforce_cap,
+        flags_warn_only,
+        config.flags_token_rate_limit_overrides.0.clone(),
     )
     .unwrap_or_else(|e| {
         panic!(
@@ -115,12 +152,18 @@ pub fn router(
         )
     });
 
-    // Initialize IP-based rate limiter with configuration
+    // Initialize IP-based rate limiter with backwards-compatible configuration
+    let (ip_warn_cap, ip_enforce_cap, ip_warn_only) = resolve_rate_limit_capacities(
+        config.flags_ip_burst_size,
+        config.flags_warn_capacity_ratio,
+        *config.flags_ip_rate_limit_log_only,
+    );
     let ip_rate_limiter = IpRateLimiter::new(
         *config.flags_ip_rate_limit_enabled,
-        *config.flags_ip_rate_limit_log_only,
         config.flags_ip_replenish_rate,
-        config.flags_ip_burst_size,
+        ip_warn_cap,
+        ip_enforce_cap,
+        ip_warn_only,
     )
     .unwrap_or_else(|e| {
         panic!(
@@ -128,9 +171,6 @@ pub fn router(
              Check FLAGS_IP_REPLENISH_RATE (must be > 0) and FLAGS_IP_BURST_SIZE (must be > 0)"
         )
     });
-
-    // Clone database_pools for readiness check before moving into State
-    let db_pools_for_readiness = database_pools.clone();
 
     spawn_rate_limiter_cleanup_task(
         flags_rate_limiter.clone(),
@@ -144,6 +184,7 @@ pub fn router(
         dedicated_redis_client,
         database_pools,
         cohort_cache_manager: cohort_cache,
+        group_type_cache_manager: group_type_cache,
         geoip,
         team_ids_to_track: config.team_ids_to_track.clone(),
         feature_flags_billing_limiter,
@@ -157,6 +198,10 @@ pub fn router(
         flags_with_cohorts_hypercache_reader,
         team_hypercache_reader,
         config_hypercache_reader,
+        rayon_dispatcher,
+        team_negative_cache,
+        cohort_membership_provider,
+        auth_token_cache,
     };
 
     // Very permissive CORS policy, as old SDK versions
@@ -165,7 +210,10 @@ pub fn router(
         .allow_methods([Method::GET, Method::POST, Method::OPTIONS, Method::HEAD])
         .allow_headers(AllowHeaders::mirror_request())
         .allow_credentials(true)
-        .allow_origin(AllowOrigin::mirror_request());
+        .allow_origin(AllowOrigin::mirror_request())
+        .expose_headers([axum::http::HeaderName::from_static(
+            "x-posthog-rate-limit-warning",
+        )]);
 
     // Clone database_pools for the startup route
     let db_pools_for_startup = state.database_pools.clone();
@@ -173,10 +221,7 @@ pub fn router(
     // liveness/readiness/startup checks
     let status_router = Router::new()
         .route("/", get(index))
-        .route(
-            "/_readiness",
-            get(move || readiness(db_pools_for_readiness.clone())),
-        )
+        .route("/_readiness", get(readiness_handler))
         .route("/_liveness", get(move || ready(liveness.get_status())))
         .route(
             "/_startup",
@@ -185,20 +230,68 @@ pub fn router(
 
     // flags endpoint
     // IP rate limiting is now handled in the endpoint handler for better control and log-only mode support
-    let flags_router = Router::new()
-        .route("/flags", any(endpoint::flags))
-        .route("/flags/", any(endpoint::flags))
-        .route(
-            "/flags/definitions",
-            any(flag_definitions::flags_definitions),
-        )
-        .route(
-            "/flags/definitions/",
-            any(flag_definitions::flags_definitions),
-        )
-        .route("/decide", any(endpoint::flags))
-        .route("/decide/", any(endpoint::flags))
-        .layer(ConcurrencyLimitLayer::new(config.max_concurrency));
+    //
+    // Layer ordering (outermost to innermost, last .layer() call on Router is outermost):
+    // 1. HandleErrorLayer (outermost): converts timeout errors into 503 responses.
+    // 2. TimeoutLayer: cancels the entire request after request_timeout_ms,
+    //    ensuring zombie tasks don't hold connections after Envoy kills the downstream.
+    // 3. ConcurrencyLimitLayer (innermost): bounds in-flight requests.
+    let mut flags_router = Router::new();
+
+    if matches!(config.service_mode, ServiceMode::All | ServiceMode::Flags) {
+        flags_router = flags_router
+            .route("/flags", any(endpoint::flags))
+            .route("/flags/", any(endpoint::flags))
+            .route("/decide", any(endpoint::flags))
+            .route("/decide/", any(endpoint::flags));
+    }
+
+    if matches!(
+        config.service_mode,
+        ServiceMode::All | ServiceMode::Definitions
+    ) {
+        flags_router = flags_router
+            .route(
+                "/flags/definitions",
+                any(flag_definitions::flags_definitions),
+            )
+            .route(
+                "/flags/definitions/",
+                any(flag_definitions::flags_definitions),
+            )
+            // Alias for Django's local_evaluation endpoint — allows Contour to route
+            // traffic to Rust without path rewriting (same pattern as /decide → /flags)
+            .route(
+                "/api/feature_flag/local_evaluation",
+                any(flag_definitions::flags_definitions),
+            )
+            .route(
+                "/api/feature_flag/local_evaluation/",
+                any(flag_definitions::flags_definitions),
+            );
+    }
+
+    let flags_router = flags_router
+        .layer(ConcurrencyLimitLayer::new(config.max_concurrency))
+        .layer(
+            ServiceBuilder::new()
+                .layer(HandleErrorLayer::new(|err: tower::BoxError| async move {
+                    let is_timeout = err.is::<tower::timeout::error::Elapsed>();
+                    tracing::warn!(error = %err, timeout = is_timeout, "Request aborted by tower layer");
+                    if is_timeout {
+                        inc(FLAG_REQUEST_TIMEOUT_COUNTER, &[], 1);
+                    }
+                    let body = if is_timeout {
+                        "Request timed out"
+                    } else {
+                        "Service unavailable"
+                    };
+                    (StatusCode::SERVICE_UNAVAILABLE, body)
+                }))
+                .layer(TimeoutLayer::new(Duration::from_millis(
+                    config.request_timeout_ms,
+                ))),
+        );
 
     let router = Router::new()
         .merge(status_router)
@@ -218,6 +311,29 @@ pub fn router(
     } else {
         router
     }
+}
+
+/// Resolves warn/enforce capacities with backwards-compat logic for the old `log_only` flag.
+///
+/// Returns `(warn_capacity, enforce_capacity, warn_only)`:
+/// - Both modes use the same threshold calculation: warn at `warn_ratio` of enforce capacity.
+/// - `log_only == true`: Sets `warn_only = true` so requests are never blocked, only warned.
+///   Thresholds are identical to enforcing mode, giving operators visibility into what
+///   _would_ happen when they flip `log_only` to `false`.
+/// - `log_only == false`: Same thresholds, but enforce tier actually blocks with 429s.
+/// - Set `warn_ratio` to 0.0 to disable the warn tier entirely.
+fn resolve_rate_limit_capacities(
+    enforce_capacity: u32,
+    warn_ratio: f64,
+    log_only: bool,
+) -> (Option<u32>, u32, bool) {
+    let derived_warn = (enforce_capacity as f64 * warn_ratio.clamp(0.0, 1.0)) as u32;
+    let warn_capacity = if derived_warn > 0 {
+        Some(derived_warn)
+    } else {
+        None
+    };
+    (warn_capacity, enforce_capacity, log_only)
 }
 
 /// Spawns a background task to periodically clean up stale rate limiter entries.
@@ -283,25 +399,6 @@ async fn test_pool_connection(pool: &PgPool, name: &str, skip_query: bool) -> Re
     }
 
     Ok(())
-}
-
-pub async fn readiness(
-    database_pools: Arc<DatabasePools>,
-) -> Result<&'static str, (StatusCode, String)> {
-    let pools = [
-        ("non_persons_reader", &database_pools.non_persons_reader),
-        ("non_persons_writer", &database_pools.non_persons_writer),
-        ("persons_reader", &database_pools.persons_reader),
-        ("persons_writer", &database_pools.persons_writer),
-    ];
-
-    for (name, pool) in pools {
-        test_pool_connection(pool, name, database_pools.test_before_acquire)
-            .await
-            .map_err(|e| (StatusCode::SERVICE_UNAVAILABLE, e))?;
-    }
-
-    Ok("ready")
 }
 
 pub async fn index() -> &'static str {
@@ -391,7 +488,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_pool_connection_success() {
-        // This test requires a running database
         let database_url = std::env::var("DATABASE_URL")
             .unwrap_or("postgres://posthog:posthog@localhost:5432/test_database".to_string());
 
@@ -404,13 +500,9 @@ mod tests {
 
         // If database is available, connection test should succeed
         // If not, it will fail - both are acceptable in test environment
-        // This test primarily verifies the function doesn't panic
         match result {
-            Ok(()) => {
-                // Pool connection test succeeded
-            }
+            Ok(()) => {}
             Err(e) => {
-                // Expected when no database is running
                 assert!(e.contains("test_pool"));
             }
         }
@@ -418,7 +510,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_pool_connection_failure_includes_pool_name() {
-        // Create a pool with an invalid connection string
         let pool = sqlx::postgres::PgPoolOptions::new()
             .max_connections(1)
             .acquire_timeout(std::time::Duration::from_millis(100))
@@ -437,7 +528,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_startup_always_returns_started() {
-        // Create pools with invalid connection strings to simulate DB unavailability
         let invalid_pool = Arc::new(
             sqlx::postgres::PgPoolOptions::new()
                 .max_connections(1)
@@ -451,18 +541,16 @@ mod tests {
             non_persons_writer: invalid_pool.clone(),
             persons_reader: invalid_pool.clone(),
             persons_writer: invalid_pool,
+            behavioral_cohorts_reader: None,
             test_before_acquire: false,
         });
 
-        // Startup should always return "started" even if warmup fails
         let result = startup(database_pools).await;
         assert_eq!(result, "started");
     }
 
     #[tokio::test]
     async fn test_startup_with_aliased_pools() {
-        // Simulate the common case where persons pools are aliased to non-persons pools
-        // (when persons_db_routing is disabled)
         let shared_pool = Arc::new(
             sqlx::postgres::PgPoolOptions::new()
                 .max_connections(1)
@@ -471,17 +559,77 @@ mod tests {
                 .expect("Failed to create pool"),
         );
 
-        // Both persons pools point to the same Arc as non-persons pools
         let database_pools = Arc::new(DatabasePools {
             non_persons_reader: shared_pool.clone(),
             non_persons_writer: shared_pool.clone(),
-            persons_reader: shared_pool.clone(), // Aliased to non_persons_reader
-            persons_writer: shared_pool,         // Aliased to non_persons_writer
+            persons_reader: shared_pool.clone(),
+            persons_writer: shared_pool,
+            behavioral_cohorts_reader: None,
             test_before_acquire: false,
         });
 
-        // Startup should still return "started" and handle aliased pools gracefully
         let result = startup(database_pools).await;
         assert_eq!(result, "started");
+    }
+
+    #[test]
+    fn test_resolve_rate_limit_default_ratio() {
+        // 80% of 200 = 160
+        let (warn, enforce, warn_only) = resolve_rate_limit_capacities(200, 0.8, false);
+        assert_eq!(warn, Some(160));
+        assert_eq!(enforce, 200);
+        assert!(!warn_only);
+    }
+
+    #[test]
+    fn test_resolve_rate_limit_custom_ratio() {
+        // 40% of 500 = 200
+        let (warn, enforce, warn_only) = resolve_rate_limit_capacities(500, 0.4, false);
+        assert_eq!(warn, Some(200));
+        assert_eq!(enforce, 500);
+        assert!(!warn_only);
+    }
+
+    #[test]
+    fn test_resolve_rate_limit_zero_ratio_disables_warn() {
+        let (warn, enforce, warn_only) = resolve_rate_limit_capacities(500, 0.0, false);
+        assert_eq!(warn, None);
+        assert_eq!(enforce, 500);
+        assert!(!warn_only);
+    }
+
+    #[test]
+    fn test_resolve_rate_limit_ratio_clamped_to_1() {
+        // ratio > 1.0 is clamped to 1.0, so warn == enforce
+        let (warn, enforce, warn_only) = resolve_rate_limit_capacities(200, 1.5, false);
+        assert_eq!(warn, Some(200));
+        assert_eq!(enforce, 200);
+        assert!(!warn_only);
+    }
+
+    #[test]
+    fn test_resolve_rate_limit_log_only_uses_real_thresholds() {
+        // log_only uses the same thresholds as enforcing mode — only warn_only differs
+        let (warn, enforce, warn_only) = resolve_rate_limit_capacities(200, 0.8, true);
+        assert_eq!(warn, Some(160));
+        assert_eq!(enforce, 200);
+        assert!(warn_only);
+    }
+
+    #[test]
+    fn test_resolve_rate_limit_tiny_capacity_no_warn() {
+        // enforce=1 → 80% rounds to 0, too small for warn tier
+        let (warn, enforce, warn_only) = resolve_rate_limit_capacities(1, 0.8, false);
+        assert_eq!(warn, None);
+        assert_eq!(enforce, 1);
+        assert!(!warn_only);
+    }
+
+    #[test]
+    fn test_resolve_rate_limit_zero_capacity() {
+        let (warn, enforce, warn_only) = resolve_rate_limit_capacities(0, 0.8, false);
+        assert_eq!(warn, None);
+        assert_eq!(enforce, 0);
+        assert!(!warn_only);
     }
 }

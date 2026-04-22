@@ -6,7 +6,7 @@ import socket
 import hashlib
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import TYPE_CHECKING, Any, Literal, Optional
+from typing import TYPE_CHECKING, Any, Literal, Optional, cast
 from urllib.parse import urlencode
 
 from products.workflows.backend.providers import MAILDEV_MOCK_DNS_RECORDS
@@ -15,8 +15,10 @@ if TYPE_CHECKING:
     import aiohttp
 
 from django.conf import settings
+from django.core.cache import cache
 from django.db import models
 from django.http import HttpRequest
+from django.utils import timezone
 
 import jwt
 import requests
@@ -33,15 +35,20 @@ from rest_framework.request import Request
 from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
 from slack_sdk.web.async_client import AsyncWebClient
+from stripe import StripeClient
 
 from posthog.cache_utils import cache_for
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.encrypted_fields import EncryptedJSONField
 from posthog.models.instance_setting import get_instance_settings
+from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthRefreshToken
 from posthog.models.user import User
+from posthog.models.utils import generate_random_oauth_access_token, generate_random_oauth_refresh_token
 from posthog.plugins.plugin_server_api import reload_integrations_on_workers
+from posthog.rbac.decorators import field_access_control
 from posthog.security.url_validation import is_url_allowed
 from posthog.sync import database_sync_to_async
+from posthog.utils import get_instance_region
 
 from products.workflows.backend.providers import SESProvider, TwilioProvider
 
@@ -90,12 +97,14 @@ ERROR_TOKEN_REFRESH_FAILED = "TOKEN_REFRESH_FAILED"
 class Integration(models.Model):
     class IntegrationKind(models.TextChoices):
         SLACK = "slack"
+        SLACK_POSTHOG_CODE = "slack-posthog-code"
         SALESFORCE = "salesforce"
         HUBSPOT = "hubspot"
         GOOGLE_PUBSUB = "google-pubsub"
         GOOGLE_CLOUD_STORAGE = "google-cloud-storage"
         GOOGLE_ADS = "google-ads"
         GOOGLE_SHEETS = "google-sheets"
+        GOOGLE_CLOUD_SERVICE_ACCOUNT = "google-cloud-service-account"
         SNAPCHAT = "snapchat"
         LINKEDIN_ADS = "linkedin-ads"
         REDDIT_ADS = "reddit-ads"
@@ -114,19 +123,30 @@ class Integration(models.Model):
         AZURE_BLOB = "azure-blob"
         FIREBASE = "firebase"
         JIRA = "jira"
+        PINTEREST_ADS = "pinterest-ads"
+        STRIPE = "stripe"
+        CUSTOMERIO_APP = "customerio-app"
+        CUSTOMERIO_WEBHOOK = "customerio-webhook"
+        CUSTOMERIO_TRACK = "customerio-track"
 
     team = models.ForeignKey("Team", on_delete=models.CASCADE)
 
     # The integration type identifier
-    kind = models.CharField(max_length=20, choices=IntegrationKind.choices)
+    kind = field_access_control(models.CharField(max_length=32, choices=IntegrationKind.choices), "project", "admin")
     # The ID of the integration in the external system
-    integration_id = models.TextField(null=True, blank=True)
+    integration_id = field_access_control(models.TextField(null=True, blank=True), "project", "admin")
     # Any config that COULD be passed to the frontend
-    config = models.JSONField(default=dict)
-    sensitive_config = EncryptedJSONField(
-        default=dict,
-        ignore_decrypt_errors=True,  # allows us to load previously unencrypted data
+    config = field_access_control(models.JSONField(default=dict), "project", "admin")
+    sensitive_config = field_access_control(
+        EncryptedJSONField(
+            default=dict,
+            ignore_decrypt_errors=True,  # allows us to load previously unencrypted data
+        ),
+        "project",
+        "admin",
     )
+    repository_cache = models.JSONField(default=list, blank=True)
+    repository_cache_updated_at = models.DateTimeField(null=True, blank=True)
 
     errors = models.TextField()
 
@@ -168,6 +188,10 @@ class Integration(models.Model):
         return self.sensitive_config.get("refresh_token")
 
 
+def defer_repository_cache_fields(queryset: models.QuerySet[Integration]) -> models.QuerySet[Integration]:
+    return queryset.defer("repository_cache", "repository_cache_updated_at")
+
+
 @database_sync_to_async
 def aget_integration_by_id(integration_id: str, team_id: int) -> Integration | None:
     return Integration.objects.get(id=integration_id, team_id=team_id)
@@ -188,9 +212,36 @@ class OauthConfig:
     additional_authorize_params: dict[str, str] | None = None
 
 
+POSTHOG_SLACK_SCOPE = ",".join(
+    [
+        "channels:read",
+        "groups:read",
+        "chat:write",
+        "chat:write.customize",
+        *(
+            [  # New scopes that came with the update adding PostHog AI integration with Slack
+                "app_mentions:read",
+                "channels:history",
+                "groups:history",
+                "links:read",
+                "links:write",
+                "reactions:read",
+                "reactions:write",
+                "team:read",
+                "users:read",
+                "users:read.email",
+            ]
+            if settings.DEBUG or settings.CLOUD_DEPLOYMENT == "DEV"
+            else []
+        ),
+    ]
+)
+
+
 class OauthIntegration:
     supported_kinds = [
         "slack",
+        "slack-posthog-code",
         "salesforce",
         "hubspot",
         "google-ads",
@@ -205,6 +256,8 @@ class OauthIntegration:
         "linear",
         "clickup",
         "jira",
+        "pinterest-ads",
+        "stripe",
     ]
     integration: Integration
 
@@ -234,7 +287,20 @@ class OauthIntegration:
                 token_url="https://slack.com/api/oauth.v2.access",
                 client_id=from_settings["SLACK_APP_CLIENT_ID"],
                 client_secret=from_settings["SLACK_APP_CLIENT_SECRET"],
-                scope="channels:read,groups:read,chat:write,chat:write.customize",
+                scope=POSTHOG_SLACK_SCOPE,
+                id_path="team.id",
+                name_path="team.name",
+            )
+        elif kind == "slack-posthog-code":
+            if not settings.SLACK_POSTHOG_CODE_CLIENT_ID or not settings.SLACK_POSTHOG_CODE_CLIENT_SECRET:
+                raise NotImplementedError("PostHog Code Slack app not configured")
+
+            return OauthConfig(
+                authorize_url="https://slack.com/oauth/v2/authorize",
+                token_url="https://slack.com/api/oauth.v2.access",
+                client_id=settings.SLACK_POSTHOG_CODE_CLIENT_ID,
+                client_secret=settings.SLACK_POSTHOG_CODE_CLIENT_SECRET,
+                scope="app_mentions:read,channels:read,groups:read,channels:history,groups:history,chat:write,reactions:write,users:read,users:read.email",
                 id_path="team.id",
                 name_path="team.name",
             )
@@ -470,24 +536,65 @@ class OauthIntegration:
                 id_path="cloud_id",
                 name_path="site_name",
             )
+        elif kind == "pinterest-ads":
+            if not settings.PINTEREST_ADS_CLIENT_ID or not settings.PINTEREST_ADS_CLIENT_SECRET:
+                raise NotImplementedError("Pinterest Ads app not configured")
+
+            return OauthConfig(
+                authorize_url="https://www.pinterest.com/oauth/",
+                token_url="https://api.pinterest.com/v5/oauth/token",
+                token_info_url="https://api.pinterest.com/v5/user_account",
+                token_info_config_fields=["id", "username"],
+                client_id=settings.PINTEREST_ADS_CLIENT_ID,
+                client_secret=settings.PINTEREST_ADS_CLIENT_SECRET,
+                scope="ads:read user_accounts:read",
+                id_path="id",
+                name_path="username",
+            )
+        elif kind == "stripe":
+            if not settings.STRIPE_APP_CLIENT_ID or not settings.STRIPE_APP_SECRET_KEY:
+                raise NotImplementedError("Stripe app not configured")
+
+            authorize_url = (
+                settings.STRIPE_APP_OVERRIDE_AUTHORIZE_URL or "https://marketplace.stripe.com/oauth/v2/authorize"
+            )
+            return OauthConfig(
+                authorize_url=authorize_url,
+                token_url="https://connect.stripe.com/oauth/token",
+                client_id=settings.STRIPE_APP_CLIENT_ID,
+                client_secret=settings.STRIPE_APP_SECRET_KEY,
+                scope="",
+                id_path="stripe_user_id",
+                name_path="account_name",
+            )
 
         raise NotImplementedError(f"Oauth config for kind {kind} not implemented")
 
     @classmethod
     def redirect_uri(cls, kind: str) -> str:
         # The redirect uri is fixed but should always be https and include the "next" parameter for the frontend to redirect
-        return f"{settings.SITE_URL.replace('http://', 'https://')}/integrations/{kind}/callback"
+        # slack-posthog-code piggybacks on the approved /integrations/slack/callback redirect URI
+        # because the approved production Slack app is still under review for the new path.
+        # The real kind is carried in OAuth state so the callback still creates a slack-posthog-code integration.
+        path_kind = "slack" if kind == "slack-posthog-code" else kind
+        if settings.DEBUG and settings.NGROK_URL:
+            return f"{settings.NGROK_URL}/integrations/{path_kind}/callback"
+        return f"{settings.SITE_URL.replace('http://', 'https://')}/integrations/{path_kind}/callback"
 
     @classmethod
     def authorize_url(cls, kind: str, token: str, next="") -> str:
         oauth_config = cls.oauth_config_for_kind(kind)
+
+        state_payload: dict[str, str] = {"next": next, "token": token}
+        if kind == "slack-posthog-code":
+            state_payload["kind"] = kind
 
         if kind == "tiktok-ads":
             # TikTok uses different parameter names
             query_params = {
                 "app_id": oauth_config.client_id,
                 "redirect_uri": cls.redirect_uri(kind),
-                "state": urlencode({"next": next, "token": token}),
+                "state": urlencode(state_payload),
             }
         else:
             query_params = {
@@ -495,7 +602,7 @@ class OauthIntegration:
                 "scope": oauth_config.scope,
                 "redirect_uri": cls.redirect_uri(kind),
                 "response_type": "code",
-                "state": urlencode({"next": next, "token": token}),
+                "state": urlencode(state_payload),
                 **(oauth_config.additional_authorize_params or {}),
             }
 
@@ -518,6 +625,17 @@ class OauthIntegration:
                     "grant_type": "authorization_code",
                 },
                 headers={"User-Agent": "PostHog/1.0 by PostHogTeam"},
+            )
+        # Pinterest uses HTTP Basic Auth for token exchange (base64-encoded client_id:client_secret)
+        elif kind == "pinterest-ads":
+            res = requests.post(
+                oauth_config.token_url,
+                auth=HTTPBasicAuth(oauth_config.client_id, oauth_config.client_secret),
+                data={
+                    "code": params["code"],
+                    "redirect_uri": OauthIntegration.redirect_uri(kind),
+                    "grant_type": "authorization_code",
+                },
             )
         elif kind == "tiktok-ads":
             # TikTok Ads uses JSON request body instead of form data and maps 'code' to 'auth_code'
@@ -672,6 +790,21 @@ class OauthIntegration:
             except Exception:
                 logger.exception("Failed to decode LinkedIn JWT")
 
+        # Stripe OAuth returns stripe_user_id but no account name — fetch it from the Accounts API
+        if kind == "stripe" and integration_id:
+            try:
+                stripe_client = StripeClient(oauth_config.client_secret)
+                account = stripe_client.accounts.retrieve(str(integration_id))
+                business_profile = getattr(account, "business_profile", None)
+                business_name = getattr(business_profile, "name", None) if business_profile else None
+                company = getattr(account, "company", None)
+                company_name = getattr(company, "name", None) if company else None
+                account_name = business_name or company_name or getattr(account, "email", None) or str(integration_id)
+                config["account_name"] = f"{account_name} ({integration_id})"
+            except Exception:
+                logger.exception("Failed to fetch Stripe account name")
+                config["account_name"] = str(integration_id)
+
         if isinstance(integration_id, int):
             integration_id = str(integration_id)
         elif isinstance(integration_id, list) and len(integration_id) > 0:
@@ -761,6 +894,16 @@ class OauthIntegration:
                 # If I use a standard User-Agent, it will throw a 429 too many requests error
                 headers={"User-Agent": "PostHog/1.0 by PostHogTeam"},
             )
+        # Pinterest uses HTTP Basic Auth for token refresh
+        elif self.integration.kind == "pinterest-ads":
+            res = requests.post(
+                oauth_config.token_url,
+                auth=HTTPBasicAuth(oauth_config.client_id, oauth_config.client_secret),
+                data={
+                    "refresh_token": self.integration.sensitive_config["refresh_token"],
+                    "grant_type": "refresh_token",
+                },
+            )
         elif self.integration.kind == "tiktok-ads":
             res = requests.post(
                 "https://open.tiktokapis.com/v2/oauth/token/",
@@ -805,6 +948,13 @@ class OauthIntegration:
             logger.info(f"Refreshed access token for {self}")
             self.integration.sensitive_config["access_token"] = config["access_token"]
 
+            # Some providers (e.g. Atlassian/Jira) rotate refresh tokens — each
+            # refresh response includes a new refresh_token and the old one is
+            # invalidated.  Always store the latest one to avoid "invalid refresh
+            # token" errors on subsequent refreshes.
+            if config.get("refresh_token"):
+                self.integration.sensitive_config["refresh_token"] = config["refresh_token"]
+
             # Handle case where Salesforce doesn't provide expires_in in refresh response
             expires_in = config.get("expires_in")
             if not expires_in and self.integration.kind == "salesforce":
@@ -827,7 +977,7 @@ class SlackIntegration:
     integration: Integration
 
     def __init__(self, integration: Integration) -> None:
-        if integration.kind != "slack":
+        if integration.kind not in ("slack", "slack-posthog-code"):
             raise Exception("SlackIntegration init called with Integration with wrong 'kind'")
 
         self.integration = integration
@@ -908,36 +1058,8 @@ class SlackIntegration:
 
     @classmethod
     def validate_request(cls, request: HttpRequest | Request):
-        """
-        Based on https://api.slack.com/authentication/verifying-requests-from-slack
-        """
         slack_config = cls.slack_config()
-        slack_signature = request.headers.get("X-SLACK-SIGNATURE")
-        slack_time = request.headers.get("X-SLACK-REQUEST-TIMESTAMP")
-
-        if not slack_config["SLACK_APP_SIGNING_SECRET"] or not slack_signature or not slack_time:
-            raise SlackIntegrationError("Invalid")
-
-        # Check the token is not older than 5mins
-        try:
-            if time.time() - float(slack_time) > 300:
-                raise SlackIntegrationError("Expired")
-        except ValueError:
-            raise SlackIntegrationError("Invalid")
-
-        sig_basestring = f"v0:{slack_time}:{request.body.decode('utf-8')}"
-
-        my_signature = (
-            "v0="
-            + hmac.new(
-                slack_config["SLACK_APP_SIGNING_SECRET"].encode("utf-8"),
-                sig_basestring.encode("utf-8"),
-                digestmod=hashlib.sha256,
-            ).hexdigest()
-        )
-
-        if not hmac.compare_digest(my_signature, slack_signature):
-            raise SlackIntegrationError("Invalid")
+        validate_slack_request(request, slack_config["SLACK_APP_SIGNING_SECRET"])
 
     @classmethod
     @cache_for(timedelta(minutes=5))
@@ -951,6 +1073,46 @@ class SlackIntegration:
         )
 
         return config
+
+    @classmethod
+    def posthog_code_slack_config(cls) -> dict[str, str]:
+        return {
+            "SLACK_POSTHOG_CODE_CLIENT_ID": settings.SLACK_POSTHOG_CODE_CLIENT_ID,
+            "SLACK_POSTHOG_CODE_CLIENT_SECRET": settings.SLACK_POSTHOG_CODE_CLIENT_SECRET,
+            "SLACK_POSTHOG_CODE_SIGNING_SECRET": settings.SLACK_POSTHOG_CODE_SIGNING_SECRET,
+        }
+
+
+def validate_slack_request(request: HttpRequest | Request, signing_secret: str) -> None:
+    """
+    Validate a Slack request using HMAC-SHA256 signature verification.
+    Based on https://api.slack.com/authentication/verifying-requests-from-slack
+    """
+    slack_signature = request.headers.get("X-SLACK-SIGNATURE")
+    slack_time = request.headers.get("X-SLACK-REQUEST-TIMESTAMP")
+
+    if not signing_secret or not slack_signature or not slack_time:
+        raise SlackIntegrationError("Invalid")
+
+    try:
+        if time.time() - float(slack_time) > 300:
+            raise SlackIntegrationError("Expired")
+    except ValueError:
+        raise SlackIntegrationError("Invalid")
+
+    sig_basestring = f"v0:{slack_time}:{request.body.decode('utf-8')}"
+
+    my_signature = (
+        "v0="
+        + hmac.new(
+            signing_secret.encode("utf-8"),
+            sig_basestring.encode("utf-8"),
+            digestmod=hashlib.sha256,
+        ).hexdigest()
+    )
+
+    if not hmac.compare_digest(my_signature, slack_signature):
+        raise SlackIntegrationError("Invalid")
 
 
 class GoogleAdsIntegration:
@@ -970,7 +1132,9 @@ class GoogleAdsIntegration:
         response = requests.request(
             "POST",
             f"https://googleads.googleapis.com/v21/customers/{customer_id}/googleAds:searchStream",
-            json={"query": "SELECT conversion_action.id, conversion_action.name FROM conversion_action"},
+            json={
+                "query": "SELECT conversion_action.id, conversion_action.name FROM conversion_action WHERE conversion_action.status != 'REMOVED'"
+            },
             headers={
                 "Content-Type": "application/json",
                 "Authorization": f"Bearer {self.integration.sensitive_config['access_token']}",
@@ -979,11 +1143,30 @@ class GoogleAdsIntegration:
             },
         )
 
+        if response.status_code == 401:
+            logger.warning(
+                "GoogleAdsIntegration: Auth error listing conversion actions",
+                status_code=response.status_code,
+                integration_id=self.integration.id,
+            )
+            self.integration.errors = ERROR_TOKEN_REFRESH_FAILED
+            self.integration.save(update_fields=["errors"])
+            raise ValidationError(
+                "This integration's authentication is no longer valid. "
+                "Please reconnect or disconnect this integration and connect a different account."
+            )
+
+        if response.status_code == 403:
+            raise ValidationError(
+                "This integration does not have permission to access this resource. "
+                "Please check the account permissions on the provider side."
+            )
+
         if response.status_code != 200:
             capture_exception(
                 Exception(f"GoogleAdsIntegration: Failed to list ads conversion actions: {response.text}")
             )
-            raise Exception(f"There was an internal error")
+            raise Exception("There was an internal error")
 
         return response.json()
 
@@ -992,7 +1175,7 @@ class GoogleAdsIntegration:
     def list_google_ads_accessible_accounts(self) -> list[dict[str, str]]:
         response = requests.request(
             "GET",
-            f"https://googleads.googleapis.com/v21/customers:listAccessibleCustomers",
+            "https://googleads.googleapis.com/v21/customers:listAccessibleCustomers",
             headers={
                 "Content-Type": "application/json",
                 "Authorization": f"Bearer {self.integration.sensitive_config['access_token']}",
@@ -1000,9 +1183,28 @@ class GoogleAdsIntegration:
             },
         )
 
+        if response.status_code == 401:
+            logger.warning(
+                "GoogleAdsIntegration: Auth error listing accessible accounts",
+                status_code=response.status_code,
+                integration_id=self.integration.id,
+            )
+            self.integration.errors = ERROR_TOKEN_REFRESH_FAILED
+            self.integration.save(update_fields=["errors"])
+            raise ValidationError(
+                "This integration's authentication is no longer valid. "
+                "Please reconnect or disconnect this integration and connect a different account."
+            )
+
+        if response.status_code == 403:
+            raise ValidationError(
+                "This integration does not have permission to access this resource. "
+                "Please check the account permissions on the provider side."
+            )
+
         if response.status_code != 200:
             capture_exception(Exception(f"GoogleAdsIntegration: Failed to list accessible accounts: {response.text}"))
-            raise Exception(f"There was an internal error")
+            raise Exception("There was an internal error")
 
         accessible_accounts = response.json()
         all_accounts: list[dict[str, str]] = []
@@ -1065,6 +1267,114 @@ class GoogleAdsIntegration:
         return all_accounts
 
 
+def is_unique_service_account_by_organization_id(service_account_email: str, organization_id: str) -> bool:
+    """Check if the service account is only in one organization.
+
+    This is used as a security measure to block multiple organizations from
+    impersonating the same service account.
+
+    In the future we may lift this restriction, but initially we want to make sure about
+    service account ownership with this check. This complements other runtime checks in
+    batch exports; see `verify_impersonated_service_account_ownership` in
+    `bigquery_batch_export.py`.
+    """
+    same_service_account_integrations = (
+        Integration.objects.select_related("team__organization")
+        .filter(kind="google-cloud-service-account", config__service_account_email=service_account_email)
+        # If private key is present, then we are not impersonating
+        .exclude(sensitive_config__has_key="private_key")
+    )
+    for integration in same_service_account_integrations:
+        if str(integration.team.organization.id) != organization_id:
+            return False
+
+    return True
+
+
+class GoogleCloudServiceAccountIntegration:
+    integration: Integration
+
+    def __init__(self, integration: Integration) -> None:
+        self.integration = integration
+
+    @classmethod
+    def integration_from_service_account(
+        cls,
+        team_id: int,
+        organization_id: str,
+        service_account_email: str,
+        project_id: str,
+        private_key: str | None = None,
+        private_key_id: str | None = None,
+        token_uri: str | None = None,
+        created_by: User | None = None,
+    ) -> Integration:
+        if private_key is None:
+            if not is_unique_service_account_by_organization_id(service_account_email, organization_id):
+                raise ValidationError("Cannot create Google Cloud service account integration: Invalid service account")
+
+        sensitive_config = {}
+        is_impersonated = True
+        if isinstance(private_key, str) and isinstance(private_key_id, str) and isinstance(token_uri, str):
+            sensitive_config["private_key"] = private_key
+            sensitive_config["private_key_id"] = private_key_id
+            sensitive_config["token_uri"] = token_uri
+
+            is_impersonated = False
+
+        variant = "impersonated" if is_impersonated else "key-file"
+
+        integration, _ = Integration.objects.update_or_create(
+            team_id=team_id,
+            kind=Integration.IntegrationKind.GOOGLE_CLOUD_SERVICE_ACCOUNT.value,
+            # Including team_id to allow teams from the same organization to use the
+            # same service account. Otherwise different teams would overwrite each other.
+            integration_id=f"{service_account_email}-{team_id}-{variant}",
+            defaults={
+                "config": {
+                    "project_id": project_id,
+                    "service_account_email": service_account_email,
+                },
+                "sensitive_config": sensitive_config,
+                "created_by": created_by,
+            },
+        )
+
+        if integration.errors:
+            integration.errors = ""
+            integration.save()
+
+        return integration
+
+    def has_key(self) -> bool:
+        """Return if this integration has a key associated with a service account.
+
+        If not, then it is a service account we are meant to impersonate.
+        """
+        keys = ("private_key", "private_key_id")
+        return all(key in self.integration.sensitive_config for key in keys) and all(
+            self.integration.sensitive_config[key] for key in keys
+        )
+
+    @property
+    def project_id(self) -> str:
+        return self.integration.config["project_id"]
+
+    @property
+    def service_account_email(self) -> str:
+        return self.integration.config["service_account_email"]
+
+    @property
+    def service_account_info(self) -> dict[str, str]:
+        return {
+            "private_key": self.integration.sensitive_config["private_key"],
+            "private_key_id": self.integration.sensitive_config["private_key_id"],
+            "token_uri": self.integration.sensitive_config["token_uri"],
+            "client_email": self.service_account_email,
+            "project_id": self.project_id,
+        }
+
+
 class GoogleCloudIntegration:
     supported_kinds = ["google-pubsub", "google-cloud-storage"]
     integration: Integration
@@ -1097,9 +1407,11 @@ class GoogleCloudIntegration:
                 "config": {
                     "expires_in": credentials.expiry.timestamp() - int(time.time()),
                     "refreshed_at": int(time.time()),
+                },
+                "sensitive_config": {
+                    "key_info": key_info,
                     "access_token": credentials.token,
                 },
-                "sensitive_config": key_info,
                 "created_by": created_by,
             },
         )
@@ -1132,9 +1444,8 @@ class GoogleCloudIntegration:
         else:
             raise NotImplementedError(f"Google Cloud integration kind {self.integration.kind} not implemented")
 
-        credentials = service_account.Credentials.from_service_account_info(
-            self.integration.sensitive_config, scopes=[scope]
-        )
+        key_info = self.integration.sensitive_config.get("key_info", self.integration.sensitive_config)
+        credentials = service_account.Credentials.from_service_account_info(key_info, scopes=[scope])
 
         try:
             credentials.refresh(GoogleRequest())
@@ -1144,12 +1455,27 @@ class GoogleCloudIntegration:
         self.integration.config = {
             "expires_in": credentials.expiry.timestamp() - int(time.time()),
             "refreshed_at": int(time.time()),
-            "access_token": credentials.token,
         }
+        # Migrate pre-migration integrations where sensitive_config contains the
+        # keyfile directly (not nested under "key_info"). Without this, setting
+        # access_token pollutes the keyfile dict and breaks subsequent refreshes.
+        if "key_info" not in self.integration.sensitive_config:
+            self.integration.sensitive_config = {
+                "key_info": self.integration.sensitive_config,
+                "access_token": credentials.token,
+            }
+        else:
+            self.integration.sensitive_config["access_token"] = credentials.token
         self.integration.save()
         reload_integrations_on_workers(self.integration.team_id, [self.integration.id])
 
         logger.info(f"Refreshed access token for {self}")
+
+    def get_access_token(self) -> str:
+        if self.access_token_expired():
+            self.refresh_access_token()
+        # Fall back to config for pre-migration integrations
+        return self.integration.sensitive_config.get("access_token") or self.integration.config.get("access_token", "")
 
 
 class FirebaseIntegration:
@@ -1250,6 +1576,25 @@ class LinkedInAdsIntegration:
     def client(self) -> WebClient:
         return WebClient(self.integration.sensitive_config["access_token"])
 
+    def _check_auth_error(self, response: requests.Response, context: str) -> None:
+        if response.status_code == 401:
+            logger.warning(
+                f"LinkedInAdsIntegration: Auth error {context}",
+                status_code=response.status_code,
+                integration_id=self.integration.id,
+            )
+            self.integration.errors = ERROR_TOKEN_REFRESH_FAILED
+            self.integration.save(update_fields=["errors"])
+            raise ValidationError(
+                "This integration's authentication is no longer valid. "
+                "Please reconnect or disconnect this integration and connect a different account."
+            )
+        if response.status_code == 403:
+            raise ValidationError(
+                "This integration does not have permission to access this resource. "
+                "Please check the account permissions on the provider side."
+            )
+
     def list_linkedin_ads_conversion_rules(self, account_id):
         response = requests.request(
             "GET",
@@ -1261,6 +1606,7 @@ class LinkedInAdsIntegration:
             },
         )
 
+        self._check_auth_error(response, "listing conversion rules")
         return response.json()
 
     def list_linkedin_ads_accounts(self) -> dict:
@@ -1274,6 +1620,7 @@ class LinkedInAdsIntegration:
             },
         )
 
+        self._check_auth_error(response, "listing ad accounts")
         return response.json()
 
 
@@ -1286,6 +1633,25 @@ class ClickUpIntegration:
 
         self.integration = integration
 
+    def _check_auth_error(self, response: requests.Response, context: str) -> None:
+        if response.status_code == 401:
+            logger.warning(
+                f"ClickUpIntegration: Auth error {context}",
+                status_code=response.status_code,
+                integration_id=self.integration.id,
+            )
+            self.integration.errors = ERROR_TOKEN_REFRESH_FAILED
+            self.integration.save(update_fields=["errors"])
+            raise ValidationError(
+                "This integration's authentication is no longer valid. "
+                "Please reconnect or disconnect this integration and connect a different account."
+            )
+        if response.status_code == 403:
+            raise ValidationError(
+                "This integration does not have permission to access this resource. "
+                "Please check the account permissions on the provider side."
+            )
+
     def list_clickup_spaces(self, workspace_id):
         response = requests.request(
             "GET",
@@ -1296,9 +1662,10 @@ class ClickUpIntegration:
             },
         )
 
+        self._check_auth_error(response, "listing spaces")
         if response.status_code != 200:
             capture_exception(Exception(f"ClickUpIntegration: Failed to list spaces: {response.text}"))
-            raise Exception(f"There was an internal error")
+            raise Exception("There was an internal error")
 
         return response.json()
 
@@ -1312,9 +1679,10 @@ class ClickUpIntegration:
             },
         )
 
+        self._check_auth_error(response, "listing lists")
         if response.status_code != 200:
             capture_exception(Exception(f"ClickUpIntegration: Failed to list lists: {response.text}"))
-            raise Exception(f"There was an internal error")
+            raise Exception("There was an internal error")
 
         return response.json()
 
@@ -1328,9 +1696,10 @@ class ClickUpIntegration:
             },
         )
 
+        self._check_auth_error(response, "listing folders")
         if response.status_code != 200:
             capture_exception(Exception(f"ClickUpIntegration: Failed to list folders: {response.text}"))
-            raise Exception(f"There was an internal error")
+            raise Exception("There was an internal error")
 
         return response.json()
 
@@ -1341,9 +1710,10 @@ class ClickUpIntegration:
             headers={"Authorization": f"Bearer {self.integration.sensitive_config['access_token']}"},
         )
 
+        self._check_auth_error(response, "listing workspaces")
         if response.status_code != 200:
             capture_exception(Exception(f"ClickUpIntegration: Failed to list workspaces: {response.text}"))
-            raise Exception(f"There was an internal error")
+            raise Exception("There was an internal error")
 
         return response.json()
 
@@ -1635,6 +2005,39 @@ class JiraIntegration:
         return {"key": issue.get("key", ""), "id": issue.get("id", "")}
 
 
+@dataclass(frozen=True)
+class GitHubCommitAuthor:
+    login: str
+    name: str | None
+    commit_url: str
+
+
+# Default branches change rarely; a multi-hour TTL is plenty to avoid hitting
+# GitHub on every paginated branch request while keeping the window in which a
+# renamed default branch stays stale tolerably short.
+GITHUB_DEFAULT_BRANCH_CACHE_TTL_SECONDS = 60 * 60 * 6
+GITHUB_REPOSITORY_CACHE_TTL_SECONDS = 60 * 60
+GITHUB_REPOSITORY_REFRESH_COOLDOWN_SECONDS = 30
+GITHUB_BRANCH_CACHE_TTL_SECONDS = 60 * 10
+GITHUB_BRANCH_CACHE_TIMEOUT_SECONDS = 60 * 60 * 24
+
+
+@dataclass(frozen=True)
+class GitHubUserAuthorization:
+    """Outcome of a successful GitHub App user authorization code exchange."""
+
+    gh_id: int
+    gh_login: str
+    access_token: str
+    refresh_token: str | None
+    access_token_expires_in: int | None
+    refresh_token_expires_in: int | None
+
+
+class GitHubIntegrationError(Exception):
+    pass
+
+
 class GitHubIntegration:
     integration: Integration
 
@@ -1714,6 +2117,89 @@ class GitHubIntegration:
 
         return integration
 
+    @classmethod
+    def github_login_from_code(cls, code: str) -> str | None:
+        result = cls.github_user_from_code(code)
+        return result.gh_login if result else None
+
+    @classmethod
+    def github_user_from_code(cls, code: str) -> "GitHubUserAuthorization | None":
+        """Exchange an OAuth code from the GitHub App user authorization flow.
+
+        Returns a :class:`GitHubUserAuthorization` with the user's id/login plus the
+        user-to-server access/refresh tokens and their expirations, or ``None`` if
+        the exchange fails or the response lacks an id/login.
+        """
+        client_id = settings.GITHUB_APP_CLIENT_ID
+        client_secret = settings.GITHUB_APP_CLIENT_SECRET
+        if not client_id or not client_secret:
+            logger.warning("GitHubIntegration: GITHUB_APP_CLIENT_ID/SECRET not configured, cannot exchange code")
+            return None
+
+        try:
+            token_response = requests.post(
+                "https://github.com/login/oauth/access_token",
+                json={
+                    "client_id": client_id,
+                    "client_secret": client_secret,
+                    "code": code,
+                },
+                headers={"Accept": "application/json"},
+                timeout=10,
+            )
+            token_data = token_response.json()
+            access_token = token_data.get("access_token")
+            if not access_token:
+                logger.warning(
+                    "GitHubIntegration: code exchange returned no access_token",
+                    status_code=token_response.status_code,
+                    error=token_data.get("error"),
+                    error_description=token_data.get("error_description"),
+                    error_uri=token_data.get("error_uri"),
+                )
+                return None
+
+            user_response = requests.get(
+                "https://api.github.com/user",
+                headers={
+                    "Accept": "application/vnd.github+json",
+                    "Authorization": f"Bearer {access_token}",
+                    "X-GitHub-Api-Version": "2022-11-28",
+                },
+                timeout=10,
+            )
+            if user_response.status_code != 200:
+                logger.warning("GitHubIntegration: /user request failed", status_code=user_response.status_code)
+                return None
+
+            payload = user_response.json()
+            gh_id = payload.get("id")
+            gh_login = payload.get("login")
+            if gh_id is None or not gh_login:
+                return None
+            access_expires_in = token_data.get("expires_in")
+            refresh_expires_in = token_data.get("refresh_token_expires_in")
+            return GitHubUserAuthorization(
+                gh_id=int(gh_id),
+                gh_login=str(gh_login),
+                access_token=str(access_token),
+                refresh_token=token_data.get("refresh_token") or None,
+                access_token_expires_in=int(access_expires_in) if access_expires_in is not None else None,
+                refresh_token_expires_in=int(refresh_expires_in) if refresh_expires_in is not None else None,
+            )
+        except Exception:
+            logger.warning("GitHubIntegration: failed to exchange code for github user", exc_info=True)
+            return None
+
+    @classmethod
+    def first_for_team_repository(cls, team_id: int, repository: str) -> "GitHubIntegration | None":
+        """First GitHub integration for the team whose installation can access ``repository`` (``owner/name``)."""
+        for integration in Integration.objects.filter(team_id=team_id, kind="github").order_by("id"):
+            github = cls(integration)
+            if github.installation_can_access_repository(repository):
+                return github
+        return None
+
     def __init__(self, integration: Integration) -> None:
         if integration.kind != "github":
             raise Exception("GitHubIntegration init called with Integration with wrong 'kind'")
@@ -1757,8 +2243,8 @@ class GitHubIntegration:
     def organization(self) -> str:
         return dot_get(self.integration.config, "account.name")
 
-    def list_repositories(self, page: int = 1) -> list[str]:
-        # Proactively refresh token if it's close to expiring to avoid intermittent 401s
+    def _installation_authenticated_get(self, url: str, *, timeout: int = 10) -> requests.Response | None:
+        """GET with installation token; refreshes on expiry or 401."""
         try:
             if self.access_token_expired():
                 self.refresh_access_token()
@@ -1768,7 +2254,87 @@ class GitHubIntegration:
         def fetch() -> requests.Response:
             access_token = self.integration.sensitive_config.get("access_token")
             return requests.get(
-                f"https://api.github.com/installation/repositories?page={page}&per_page=100",
+                url,
+                headers={
+                    "Accept": "application/vnd.github+json",
+                    "Authorization": f"Bearer {access_token}",
+                    "X-GitHub-Api-Version": "2022-11-28",
+                },
+                timeout=timeout,
+            )
+
+        try:
+            response = fetch()
+            if response.status_code == 401:
+                try:
+                    self.refresh_access_token()
+                except Exception:
+                    logger.warning("GitHubIntegration: token refresh after 401 failed", exc_info=True)
+                    return None
+                response = fetch()
+            return response
+        except Exception:
+            logger.warning("GitHubIntegration: installation GET failed", url=url, exc_info=True)
+            return None
+
+    def installation_can_access_repository(self, repository: str) -> bool:
+        """Whether this installation token can access the repo (``GET /repos/{owner}/{repo}`` returns 200)."""
+        response = self._installation_authenticated_get(f"https://api.github.com/repos/{repository}")
+        if response is None:
+            return False
+        return response.status_code == 200
+
+    def get_commit_author_info(self, repository: str, sha: str) -> GitHubCommitAuthor | None:
+        """Resolve a commit SHA to author metadata via the GitHub API."""
+        response = self._installation_authenticated_get(f"https://api.github.com/repos/{repository}/commits/{sha}")
+        if response is None:
+            return None
+        if response.status_code != 200:
+            logger.info(
+                "GitHub API non-200 for commit lookup",
+                status_code=response.status_code,
+                sha_prefix=sha[:8],
+                repository=repository,
+            )
+            return None
+        try:
+            data = response.json()
+        except Exception:
+            logger.warning(
+                "GitHubIntegration: failed to parse commit JSON",
+                repository=repository,
+                sha_prefix=sha[:8],
+                exc_info=True,
+            )
+            return None
+        author = data.get("author")
+        if not author or not author.get("login"):
+            return None
+        git_author = data.get("commit", {}).get("author", {})
+        name = git_author.get("name") or author.get("login")
+        commit_url = data.get("html_url", f"https://github.com/{repository}/commit/{sha}")
+        return GitHubCommitAuthor(login=author["login"], name=name, commit_url=commit_url)
+
+    def list_repositories(self, *, limit: int = 100, offset: int = 0) -> tuple[list[dict], bool]:
+        """List installation repositories via the GitHub API.
+
+        Fetches only the GitHub pages needed to satisfy the requested
+        ``[offset, offset+limit)`` window. Returns a tuple of
+        ``(repositories, has_more)`` where *has_more* indicates whether
+        additional repositories exist beyond the returned window.
+        """
+        GITHUB_PER_PAGE = 100
+
+        try:
+            if self.access_token_expired():
+                self.refresh_access_token()
+        except Exception:
+            logger.warning("GitHubIntegration: token refresh pre-check failed", exc_info=True)
+
+        def fetch(page: int) -> requests.Response:
+            access_token = self.integration.sensitive_config.get("access_token")
+            return requests.get(
+                f"https://api.github.com/installation/repositories?page={page}&per_page={GITHUB_PER_PAGE}",
                 headers={
                     "Accept": "application/vnd.github+json",
                     "Authorization": f"Bearer {access_token}",
@@ -1776,39 +2342,384 @@ class GitHubIntegration:
                 },
             )
 
-        response = fetch()
+        def extract_repos(body: dict) -> list[dict]:
+            repositories = body.get("repositories")
+            if not isinstance(repositories, list):
+                logger.warning(
+                    "GitHubIntegration: list_repositories invalid payload",
+                    integration_id=self.integration.id,
+                    payload_keys=sorted(body.keys()),
+                )
+                raise GitHubIntegrationError("GitHubIntegration: list_repositories invalid payload")
+            return [
+                {
+                    "id": repo["id"],
+                    "name": repo["name"],
+                    "full_name": repo["full_name"],
+                }
+                for repo in repositories
+                if isinstance(repo, dict)
+                and isinstance(repo.get("id"), int)
+                and isinstance(repo.get("name"), str)
+                and isinstance(repo.get("full_name"), str)
+            ]
 
-        # If unauthorized, try a single refresh and retry
-        if response.status_code == 401:
+        def raise_repository_error(message: str, *, status_code: int | None = None, exc_info: bool = False) -> None:
+            logger.warning(
+                message,
+                integration_id=self.integration.id,
+                status_code=status_code,
+                exc_info=exc_info,
+            )
+            raise GitHubIntegrationError(message)
+
+        # Work out which GitHub pages cover the requested window.
+        first_page = offset // GITHUB_PER_PAGE + 1
+        skip = offset % GITHUB_PER_PAGE
+        needed = skip + limit
+
+        # Fetch the first required page with 401-retry and transient-error retry.
+        transient_status_codes = {502, 503, 504}
+        current_page = first_page
+
+        for attempt in range(2):
             try:
-                self.refresh_access_token()
-            except Exception:
-                logger.warning("GitHubIntegration: token refresh after 401 failed", exc_info=True)
-            else:
-                response = fetch()
+                response = fetch(current_page)
+            except requests.RequestException:
+                raise_repository_error("GitHubIntegration: list_repositories network error", exc_info=True)
 
+            if response.status_code == 401:
+                try:
+                    self.refresh_access_token()
+                except Exception:
+                    raise_repository_error("GitHubIntegration: token refresh after 401 failed", exc_info=True)
+                try:
+                    response = fetch(current_page)
+                except requests.RequestException:
+                    raise_repository_error("GitHubIntegration: list_repositories network error on retry", exc_info=True)
+
+            try:
+                body = response.json()
+            except Exception:
+                if response.status_code in transient_status_codes and attempt == 0:
+                    logger.info(
+                        "GitHubIntegration: list_repositories retrying transient non-JSON response",
+                        status_code=response.status_code,
+                    )
+                    continue
+                logger.warning(
+                    "GitHubIntegration: list_repositories non-JSON response",
+                    integration_id=self.integration.id,
+                    status_code=response.status_code,
+                )
+                raise GitHubIntegrationError("GitHubIntegration: list_repositories non-JSON response")
+
+            if response.status_code == 200 and isinstance(body, dict):
+                page_repos = extract_repos(body)
+                all_fetched = page_repos
+                has_next_page = len(page_repos) == GITHUB_PER_PAGE
+                break
+
+            if response.status_code in transient_status_codes and attempt == 0:
+                logger.info(
+                    "GitHubIntegration: list_repositories retrying transient error",
+                    status_code=response.status_code,
+                    error=body if isinstance(body, dict) else None,
+                )
+                continue
+
+            logger.warning(
+                "GitHubIntegration: failed to list repositories",
+                integration_id=self.integration.id,
+                status_code=response.status_code,
+                error=body if isinstance(body, dict) else None,
+            )
+            raise GitHubIntegrationError("GitHubIntegration: failed to list repositories")
+        else:
+            raise GitHubIntegrationError("GitHubIntegration: failed to list repositories after retries")
+
+        # Fetch subsequent pages until we have enough items.
+        while len(all_fetched) < needed and has_next_page:
+            current_page += 1
+            try:
+                response = fetch(current_page)
+            except requests.RequestException:
+                logger.warning(
+                    "GitHubIntegration: list_repositories network error on page",
+                    integration_id=self.integration.id,
+                    page=current_page,
+                    exc_info=True,
+                )
+                raise GitHubIntegrationError("GitHubIntegration: list_repositories network error on page")
+            try:
+                body = response.json()
+            except Exception:
+                logger.warning(
+                    "GitHubIntegration: list_repositories non-JSON response on page",
+                    integration_id=self.integration.id,
+                    page=current_page,
+                    status_code=response.status_code,
+                )
+                raise GitHubIntegrationError("GitHubIntegration: list_repositories non-JSON response on page")
+            if response.status_code != 200 or not isinstance(body, dict):
+                logger.warning(
+                    "GitHubIntegration: failed to list repositories on page",
+                    integration_id=self.integration.id,
+                    page=current_page,
+                    status_code=response.status_code,
+                    error=body if isinstance(body, dict) else None,
+                )
+                raise GitHubIntegrationError("GitHubIntegration: failed to list repositories on page")
+            page_repos = extract_repos(body)
+            all_fetched.extend(page_repos)
+            has_next_page = len(page_repos) == GITHUB_PER_PAGE
+
+        result = all_fetched[skip : skip + limit]
+        has_more = has_next_page or (skip + limit < len(all_fetched))
+
+        return result, has_more
+
+    def list_all_repositories(self) -> list[dict]:
+        """Fetch all accessible repositories, paginating through GitHub's API."""
+        all_repositories: list[dict] = []
+        offset = 0
+        page_size = 100
+
+        while True:
+            repositories, has_more = self.list_repositories(limit=page_size, offset=offset)
+            all_repositories.extend(repositories)
+
+            if not has_more or not repositories:
+                return all_repositories
+
+            offset += len(repositories)
+
+    def _get_repository_cache(self) -> list[dict] | None:
+        cached = self.integration.repository_cache
+        if not isinstance(cached, list):
+            return None
+
+        repositories: list[dict] = []
+        for repo in cached:
+            if (
+                isinstance(repo, dict)
+                and isinstance(repo.get("id"), int)
+                and isinstance(repo.get("name"), str)
+                and isinstance(repo.get("full_name"), str)
+            ):
+                repositories.append(
+                    {
+                        "id": repo["id"],
+                        "name": repo["name"],
+                        "full_name": repo["full_name"],
+                    }
+                )
+
+        return repositories
+
+    def repository_cache_is_stale(self) -> bool:
+        updated_at = self.integration.repository_cache_updated_at
+        if updated_at is None:
+            return True
+
+        return (timezone.now() - updated_at).total_seconds() >= GITHUB_REPOSITORY_CACHE_TTL_SECONDS
+
+    def sync_repository_cache(self, min_refresh_interval_seconds: int | None = None) -> list[dict]:
+        cached_repositories = self._get_repository_cache()
+        updated_at = self.integration.repository_cache_updated_at
+        if (
+            min_refresh_interval_seconds is not None
+            and cached_repositories is not None
+            and updated_at is not None
+            and (timezone.now() - updated_at).total_seconds() < min_refresh_interval_seconds
+        ):
+            return cached_repositories
+
+        repositories = self.list_all_repositories()
+        refreshed_at = timezone.now()
+        update_fields = ["repository_cache_updated_at"]
+        if repositories != cached_repositories:
+            self.integration.repository_cache = repositories
+            update_fields.insert(0, "repository_cache")
+        self.integration.repository_cache_updated_at = refreshed_at
+        self.integration.save(update_fields=update_fields)
+        return repositories
+
+    def list_cached_repositories(self, *, limit: int = 100, offset: int = 0) -> tuple[list[dict], bool]:
+        cached_repositories = self._get_repository_cache()
+        updated_at = self.integration.repository_cache_updated_at
+        has_cached_snapshot = updated_at is not None
+        cache_is_stale = self.repository_cache_is_stale()
+        should_refresh = cached_repositories is None or cache_is_stale
+
+        if should_refresh:
+            try:
+                cached_repositories = self.sync_repository_cache()
+            except Exception:
+                logger.warning(
+                    "GitHubIntegration: failed to refresh repository cache",
+                    integration_id=self.integration.id,
+                    exc_info=True,
+                )
+                if not has_cached_snapshot:
+                    raise
+
+        if cached_repositories is None:
+            cached_repositories = []
+
+        result = cached_repositories[offset : offset + limit]
+        has_more = offset + limit < len(cached_repositories)
+        return result, has_more
+
+    def list_all_cached_repositories(self, max_repos: int | None = None) -> list[dict]:
+        cached_repositories = self._get_repository_cache()
+        updated_at = self.integration.repository_cache_updated_at
+        has_cached_snapshot = updated_at is not None
+        cache_is_stale = self.repository_cache_is_stale()
+        should_refresh = cached_repositories is None or cache_is_stale
+
+        if should_refresh:
+            try:
+                cached_repositories = self.sync_repository_cache()
+            except Exception:
+                logger.warning(
+                    "GitHubIntegration: failed to refresh repository cache",
+                    integration_id=self.integration.id,
+                    exc_info=True,
+                )
+                if not has_cached_snapshot:
+                    raise
+
+        if cached_repositories is None:
+            cached_repositories = []
+
+        if max_repos is not None:
+            return cached_repositories[:max_repos]
+
+        return cached_repositories
+
+    @database_sync_to_async
+    def list_cached_repositories_async(self, *, limit: int = 100, offset: int = 0) -> tuple[list[dict], bool]:
+        return self.list_cached_repositories(limit=limit, offset=offset)
+
+    @database_sync_to_async
+    def list_all_cached_repositories_async(self, max_repos: int | None = None) -> list[dict]:
+        return self.list_all_cached_repositories(max_repos=max_repos)
+
+    def _get_branch_cache_key(self, repo: str) -> str:
+        return f"github_integration:branches:{self.integration.id}:{repo.lower()}"
+
+    def _get_branch_cache(self, repo: str) -> dict[str, Any] | None:
+        cached = cache.get(self._get_branch_cache_key(repo))
+        if not isinstance(cached, dict):
+            return None
+
+        branches = cached.get("branches")
+        default_branch = cached.get("default_branch")
+        updated_at = cached.get("updated_at")
+        if not isinstance(branches, list) or not all(isinstance(branch, str) for branch in branches):
+            return None
+        if default_branch is not None and not isinstance(default_branch, str):
+            return None
+        if not isinstance(updated_at, (int, float)):
+            return None
+
+        return {
+            "branches": branches,
+            "default_branch": default_branch,
+            "updated_at": updated_at,
+        }
+
+    def branch_cache_is_stale(self, repo: str) -> bool:
+        cached = self._get_branch_cache(repo)
+        if cached is None:
+            return True
+
+        return time.time() - float(cached["updated_at"]) >= GITHUB_BRANCH_CACHE_TTL_SECONDS
+
+    def list_all_branches(self, repo: str) -> list[str]:
+        """Fetch all branches for a repository, paginating through GitHub's API."""
+        all_branches: list[str] = []
+        offset = 0
+        page_size = 100
+
+        while True:
+            branches, has_more = self.list_branches(repo, limit=page_size, offset=offset)
+            all_branches.extend(branches)
+
+            if not has_more or not branches:
+                return all_branches
+
+            offset += len(branches)
+
+    def sync_branch_cache(self, repo: str) -> tuple[list[str], str | None]:
+        branches = self.list_all_branches(repo)
+        cached = self._get_branch_cache(repo)
+        cached_default_branch = None if cached is None else cast(str | None, cached["default_branch"])
+
+        default_branch: str | None
         try:
-            body = response.json()
+            default_branch = self.get_default_branch(repo)
         except Exception:
             logger.warning(
-                "GitHubIntegration: list_repositories non-JSON response",
-                status_code=response.status_code,
+                "GitHubIntegration: failed to refresh default branch",
+                integration_id=self.integration.id,
+                repo=repo,
+                exc_info=True,
             )
-            return []
+            default_branch = cached_default_branch if cached_default_branch in branches else None
 
-        repositories = body.get("repositories")
-        if response.status_code == 200 and isinstance(repositories, list):
-            names: list[str] = [
-                repo["name"] for repo in repositories if isinstance(repo, dict) and isinstance(repo.get("name"), str)
-            ]
-            return names
+        if default_branch and default_branch in branches:
+            branches = [branch for branch in branches if branch != default_branch]
+            branches.insert(0, default_branch)
 
-        logger.warning(
-            "GitHubIntegration: failed to list repositories",
-            status_code=response.status_code,
-            error=body if isinstance(body, dict) else None,
+        cache.set(
+            self._get_branch_cache_key(repo),
+            {
+                "branches": branches,
+                "default_branch": default_branch,
+                "updated_at": time.time(),
+            },
+            timeout=GITHUB_BRANCH_CACHE_TIMEOUT_SECONDS,
         )
-        return []
+
+        return branches, default_branch
+
+    def list_cached_branches(
+        self, repo: str, *, search: str = "", limit: int = 100, offset: int = 0
+    ) -> tuple[list[str], str | None, bool]:
+        cached = self._get_branch_cache(repo)
+        should_refresh = cached is None or self.branch_cache_is_stale(repo)
+
+        if should_refresh:
+            try:
+                branches, default_branch = self.sync_branch_cache(repo)
+                cached = {
+                    "branches": branches,
+                    "default_branch": default_branch,
+                }
+            except Exception:
+                logger.warning(
+                    "GitHubIntegration: failed to refresh branch cache",
+                    integration_id=self.integration.id,
+                    repo=repo,
+                    exc_info=True,
+                )
+                if cached is None:
+                    raise
+
+        assert cached is not None
+        branches = cast(list[str], cached["branches"])
+        default_branch = cast(str | None, cached["default_branch"])
+
+        normalized_search = search.strip().casefold()
+        filtered_branches = (
+            [branch for branch in branches if normalized_search in branch.casefold()] if normalized_search else branches
+        )
+
+        result = filtered_branches[offset : offset + limit]
+        has_more = offset + limit < len(filtered_branches)
+        return result, default_branch, has_more
 
     def get_top_starred_repository(self) -> str | None:
         """Get the repository with the most stars from the GitHub integration.
@@ -1865,6 +2776,116 @@ class GitHubIntegration:
 
         return None
 
+    def list_branches(self, repo: str, *, limit: int = 100, offset: int = 0) -> tuple[list[str], bool]:
+        """List branches for a given repository via the GitHub API.
+
+        Fetches only the GitHub pages needed to satisfy the requested
+        ``[offset, offset+limit)`` window. Returns a tuple of
+        ``(branch_names, has_more)`` where *has_more* indicates whether
+        additional branches exist beyond the returned window.
+        """
+        GITHUB_PER_PAGE = 100
+
+        try:
+            if self.access_token_expired():
+                self.refresh_access_token()
+        except Exception:
+            logger.warning("GitHubIntegration: token refresh pre-check failed", exc_info=True)
+
+        def fetch(page: int) -> requests.Response:
+            access_token = self.integration.sensitive_config.get("access_token")
+            return requests.get(
+                f"https://api.github.com/repos/{repo}/branches?per_page={GITHUB_PER_PAGE}&page={page}",
+                headers={
+                    "Accept": "application/vnd.github+json",
+                    "Authorization": f"Bearer {access_token}",
+                    "X-GitHub-Api-Version": "2022-11-28",
+                },
+                timeout=10,
+            )
+
+        def extract_names(data: list) -> list[str]:
+            return [
+                branch["name"] for branch in data if isinstance(branch, dict) and isinstance(branch.get("name"), str)
+            ]
+
+        # Work out which GitHub pages cover the requested window.
+        first_page = offset // GITHUB_PER_PAGE + 1
+        skip = offset % GITHUB_PER_PAGE
+        needed = skip + limit
+
+        # Fetch the first required page (with 401-retry logic).
+        current_page = first_page
+        try:
+            response = fetch(current_page)
+        except requests.RequestException:
+            logger.warning("GitHubIntegration: list_branches network error", repo=repo, exc_info=True)
+            return [], False
+
+        if response.status_code == 401:
+            try:
+                self.refresh_access_token()
+            except Exception:
+                logger.warning("GitHubIntegration: token refresh after 401 failed", exc_info=True)
+                return [], False
+            try:
+                response = fetch(current_page)
+            except requests.RequestException:
+                logger.warning("GitHubIntegration: list_branches network error on retry", repo=repo, exc_info=True)
+                return [], False
+
+        if response.status_code != 200:
+            logger.warning(
+                "GitHubIntegration: failed to list branches",
+                status_code=response.status_code,
+                repo=repo,
+            )
+            return [], False
+
+        try:
+            body = response.json()
+        except Exception:
+            logger.warning(
+                "GitHubIntegration: list_branches non-JSON response",
+                status_code=response.status_code,
+            )
+            return [], False
+
+        if not isinstance(body, list):
+            return [], False
+
+        all_fetched = extract_names(body)
+        has_next_page = 'rel="next"' in response.headers.get("Link", "")
+
+        # Fetch subsequent pages until we have enough items.
+        while len(all_fetched) < needed and has_next_page:
+            current_page += 1
+            try:
+                response = fetch(current_page)
+            except requests.RequestException:
+                break
+            if response.status_code != 200:
+                logger.warning(
+                    "GitHubIntegration.list_branches pagination stopped",
+                    status_code=response.status_code,
+                    page=current_page,
+                    repo=repo,
+                )
+                break
+            try:
+                body = response.json()
+            except Exception:
+                break
+            if not isinstance(body, list):
+                break
+            all_fetched.extend(extract_names(body))
+            has_next_page = 'rel="next"' in response.headers.get("Link", "")
+
+        result = all_fetched[skip : skip + limit]
+        has_more = has_next_page or (skip + limit < len(all_fetched))
+
+        return result, has_more
+
     def create_issue(self, config: dict[str, str]):
         title: str = config.pop("title")
         body: str = config.pop("body")
@@ -1889,23 +2910,34 @@ class GitHubIntegration:
 
     def get_default_branch(self, repository: str) -> str:
         """Get the default branch for a repository."""
-        org = self.organization()
-        access_token = self.integration.sensitive_config["access_token"]
+        repo_path = repository if "/" in repository else f"{self.organization()}/{repository}"
+        cache_key = f"github_integration:default_branch:{self.integration.id}:{repo_path}"
+
+        cached = cache.get(cache_key)
+        if isinstance(cached, str):
+            return cached
+
+        access_token = self.integration.sensitive_config.get("access_token")
+        if not access_token:
+            raise ValueError("GitHub access token not configured")
 
         response = requests.get(
-            f"https://api.github.com/repos/{org}/{repository}",
+            f"https://api.github.com/repos/{repo_path}",
             headers={
                 "Accept": "application/vnd.github+json",
                 "Authorization": f"Bearer {access_token}",
                 "X-GitHub-Api-Version": "2022-11-28",
             },
+            timeout=10,
         )
 
         if response.status_code == 200:
             repo_data = response.json()
-            return repo_data.get("default_branch", "main")
+            default_branch = repo_data.get("default_branch", "main")
+            cache.set(cache_key, default_branch, timeout=60 * 60 * 24)
+            return default_branch
         else:
-            return "main"
+            raise Exception(f"Failed to get default branch: HTTP {response.status_code}")
 
     def create_branch(self, repository: str, branch_name: str, base_branch: str | None = None) -> dict[str, Any]:
         """Create a new branch from a base branch."""
@@ -2180,8 +3212,8 @@ class GitLabIntegration:
         return response.json()
 
     @classmethod
-    def create_integration(self, hostname, project_id, project_access_token, team_id, user) -> Integration:
-        project = self.get(hostname, f"projects/{project_id}", project_access_token)
+    def create_integration(cls, hostname, project_id, project_access_token, team_id, user) -> Integration:
+        project = cls.get(hostname, f"projects/{project_id}", project_access_token)
 
         integration = Integration.objects.create(
             team_id=team_id,
@@ -2499,4 +3531,152 @@ class AzureBlobIntegration:
             part = part.strip()
             if part.startswith("AccountName="):
                 return part.split("=", 1)[1]
+        return None
+
+
+class StripeIntegration:
+    integration: Integration
+
+    # These are the scopes we'll give Stripe when creating a local OAuth App
+    # and sending them access
+    SCOPES = " ".join(
+        [
+            "customer_journey:read",
+            "query:read",
+            "conversation:read",
+            "conversation:write",
+            "experiment:read",
+            "feature_flag:read",
+            "insight:read",
+            "organization:read",
+            "person:read",
+            "project:read",
+            "ticket:read",
+            "ticket:write",
+            "user:read",
+            "hog_flow:read",
+            "hog_flow:write",
+        ]
+    )
+
+    def __init__(self, integration: Integration) -> None:
+        if integration.kind != "stripe":
+            raise ValueError(f"Expected stripe integration, got {integration.kind}")
+        self.integration = integration
+
+    def write_posthog_secrets(self, team_id: int, created_by: "User") -> None:
+        """Write PostHog OAuth tokens to Stripe's Secret Store so the Stripe App can call PostHog APIs."""
+
+        oauth_app = self._get_posthog_oauth_app()
+        if not oauth_app:
+            logger.warning("PostHog OAuth app not found, cannot write secrets to Stripe")
+            return
+
+        access_token_value = generate_random_oauth_access_token(None)
+        access_token = OAuthAccessToken.objects.create(
+            application=oauth_app,
+            token=access_token_value,
+            user=created_by,
+            expires=timezone.now() + timedelta(days=14),
+            scope=self.SCOPES,
+            scoped_teams=[team_id],
+        )
+
+        refresh_token_value = generate_random_oauth_refresh_token(None)
+        OAuthRefreshToken.objects.create(
+            application=oauth_app,
+            token=refresh_token_value,
+            user=created_by,
+            access_token=access_token,
+            scoped_teams=[team_id],
+        )
+
+        stripe_user_id = self.integration.integration_id
+        if not stripe_user_id:
+            raise ValueError("Missing stripe_user_id on integration")
+
+        region = get_instance_region() or "us"
+
+        secrets = {
+            "posthog_region": region.lower(),
+            "posthog_access_token": access_token_value,
+            "posthog_refresh_token": refresh_token_value,
+            "posthog_project_id": str(team_id),
+            "posthog_oauth_client_id": oauth_app.client_id,
+        }
+
+        client = StripeClient(settings.STRIPE_APP_SECRET_KEY)
+
+        for name, payload in secrets.items():
+            try:
+                client.apps.secrets.create(
+                    params={
+                        "scope": {"type": "account"},
+                        "name": name,
+                        "payload": payload,
+                    },
+                    options={"stripe_account": stripe_user_id},
+                )
+            except Exception as e:
+                capture_exception(e)
+                logger.warning(
+                    "Failed to write secret to Stripe",
+                    secret_name=name,
+                    stripe_user_id=stripe_user_id,
+                    error=str(e),
+                )
+
+    def clear_posthog_secrets(self) -> None:
+        """Best-effort clear of PostHog secrets from Stripe and revoke local OAuth tokens."""
+        stripe_user_id = self.integration.integration_id
+        if not stripe_user_id:
+            raise ValueError("Missing stripe_user_id on integration")
+
+        client = StripeClient(settings.STRIPE_APP_SECRET_KEY)
+
+        for name in (
+            "posthog_region",
+            "posthog_access_token",
+            "posthog_refresh_token",
+            "posthog_project_id",
+            "posthog_oauth_client_id",
+        ):
+            try:
+                client.apps.secrets.delete_where(
+                    params={
+                        "scope": {"type": "account"},
+                        "name": name,
+                    },
+                    options={"stripe_account": stripe_user_id},
+                )
+            except Exception as e:
+                capture_exception(e)
+                logger.warning(
+                    "Failed to clear secret from Stripe",
+                    secret_name=name,
+                    stripe_user_id=stripe_user_id,
+                    error=str(e),
+                )
+
+        self._destroy_posthog_oauth_tokens()
+
+    def _destroy_posthog_oauth_tokens(self) -> None:
+        """Delete the local OAuth access and refresh tokens created for this Stripe integration."""
+        oauth_app = self._get_posthog_oauth_app()
+        if not oauth_app:
+            return
+
+        team_id = self.integration.team_id
+        access_tokens = OAuthAccessToken.objects.filter(
+            application=oauth_app,
+            scoped_teams__contains=[team_id],
+        )
+        # Delete refresh tokens first since their FK to access_token is SET_NULL
+        OAuthRefreshToken.objects.filter(access_token__in=access_tokens).delete()
+        access_tokens.delete()
+
+    def _get_posthog_oauth_app(self):
+        if settings.STRIPE_POSTHOG_OAUTH_CLIENT_ID:
+            return OAuthApplication.objects.filter(client_id=settings.STRIPE_POSTHOG_OAUTH_CLIENT_ID).first()
+
         return None

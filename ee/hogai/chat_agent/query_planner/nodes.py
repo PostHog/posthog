@@ -194,9 +194,9 @@ class QueryPlannerNode(TaxonomyUpdateDispatcherNodeMixin, AssistantNode):
         and continuation with intermediate steps.
         """
         # Initial conversation setup
-        database = Database.create_for(team=self._team)
+        database = Database.create_for(team=self._team, user=self._user)
         serialized_database = database.serialize(
-            HogQLContext(team=self._team, enable_select_queries=True, database=database)
+            HogQLContext(team=self._team, user=self._user, database=database, enable_select_queries=True)
         )
         hogql_schema_description = "\n\n".join(
             (

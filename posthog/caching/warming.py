@@ -1,7 +1,7 @@
 import itertools
 from collections.abc import Generator
 from datetime import UTC, datetime, timedelta
-from typing import Optional
+from typing import Any, Optional, cast
 
 from django.db.models import Q
 
@@ -17,13 +17,16 @@ from posthog.api.services.query import process_query_dict
 from posthog.caching.utils import largest_teams
 from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.errors import CHQueryErrorTooManySimultaneousQueries
+from posthog.event_usage import EventSource
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.query_cache_base import QueryCacheManagerBase
 from posthog.hogql_queries.query_runner import ExecutionMode
-from posthog.models import DashboardTile, Insight, Team
+from posthog.models import Insight, Team
 from posthog.ph_client import ph_scoped_capture
 from posthog.schema_migrations.upgrade_manager import upgrade_query
 from posthog.tasks.utils import CeleryQueue
+
+from products.dashboards.backend.models.dashboard_tile import DashboardTile
 
 logger = structlog.get_logger(__name__)
 
@@ -139,6 +142,13 @@ def schedule_warming_for_teams_task():
     so even though we might pick all insights for a team to recalculate,
     only the stale ones (determined by `staleness_threshold_map`) get recalculated.
     """
+    from posthog.clickhouse.client.execute import KillSwitchLevel, get_kill_switch_level
+
+    kill_switch_level = get_kill_switch_level()
+    if kill_switch_level != KillSwitchLevel.OFF:
+        logger.info("kill_switch_on_skipping_cache_warming", level=kill_switch_level)
+        return
+
     team_ids = largest_teams(limit=10)
     threshold = datetime.now(UTC) - LAST_VIEWED_THRESHOLD
 
@@ -198,6 +208,7 @@ def schedule_warming_for_teams_task():
 )
 def warm_insight_cache_task(insight_id: int, dashboard_id: Optional[int]):
     try:
+        # nosemgrep: idor-lookup-without-team (Celery task, ID from internal scheduling)
         insight = Insight.objects.get(pk=insight_id)
     except Insight.DoesNotExist:
         logger.info(f"Warming insight cache failed 404 insight not found: {insight_id}")
@@ -216,7 +227,7 @@ def warm_insight_cache_task(insight_id: int, dashboard_id: Optional[int]):
         try:
             results = process_query_dict(
                 insight.team,
-                insight.query,
+                cast(dict[str, Any], insight.query),
                 dashboard_filters_json=dashboard.filters if dashboard is not None else None,
                 # We need an execution mode with recent cache:
                 # - in case someone refreshed after this task was triggered
@@ -225,6 +236,7 @@ def warm_insight_cache_task(insight_id: int, dashboard_id: Optional[int]):
                 execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
                 insight_id=insight_id,
                 dashboard_id=dashboard_id,
+                analytics_props={"source": EventSource.CACHE_WARMING},
             )
 
             is_cached = getattr(results, "is_cached", False)

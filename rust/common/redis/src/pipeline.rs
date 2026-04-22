@@ -27,13 +27,13 @@ use crate::{Client, CustomRedisError, RedisValueFormat};
 /// Each variant corresponds to the return type of a Redis command.
 #[derive(Debug, Clone, PartialEq)]
 pub enum PipelineResult {
-    /// Success with no return value (SET, DEL, HINCRBY, etc.)
+    /// Success — return value intentionally discarded (SET, DEL, HINCRBY, SADD, etc.)
     Ok,
     /// String value (GET)
     String(String),
     /// Raw bytes (GET raw bytes)
     Bytes(Vec<u8>),
-    /// Boolean result (SET NX EX)
+    /// Boolean result (SET NX EX, EXPIRE)
     Bool(bool),
     /// Count result (SCARD)
     Count(u64),
@@ -82,6 +82,14 @@ pub enum PipelineCommand {
     },
     Scard {
         key: String,
+    },
+    SAdd {
+        key: String,
+        member: String,
+    },
+    Expire {
+        key: String,
+        seconds: u64,
     },
     ZRangeByScore {
         key: String,
@@ -236,6 +244,24 @@ impl<C> Pipeline<C> {
         self
     }
 
+    /// Add an SADD command to the pipeline.
+    pub fn sadd(mut self, key: impl Into<String>, member: impl Into<String>) -> Self {
+        self.commands.push(PipelineCommand::SAdd {
+            key: key.into(),
+            member: member.into(),
+        });
+        self
+    }
+
+    /// Add an EXPIRE command to the pipeline.
+    pub fn expire(mut self, key: impl Into<String>, seconds: u64) -> Self {
+        self.commands.push(PipelineCommand::Expire {
+            key: key.into(),
+            seconds,
+        });
+        self
+    }
+
     /// Add a ZRANGEBYSCORE command to the pipeline.
     pub fn zrangebyscore(
         mut self,
@@ -345,9 +371,15 @@ mod tests {
             .hget("k11", "f11")
             .hincrby("k12", "f12", 5)
             .scard("k13")
-            .zrangebyscore("k14", "0", "100");
+            .sadd("k14", "m14")
+            .expire("k15", 300)
+            .zrangebyscore("k16", "0", "100");
 
-        assert_eq!(pipeline.len(), 14);
+        let (_, commands) = pipeline.into_commands();
+        assert_eq!(commands.len(), 16);
+        assert!(
+            matches!(&commands[14], PipelineCommand::Expire { key, seconds } if key == "k15" && *seconds == 300)
+        );
     }
 
     #[test]
@@ -461,19 +493,21 @@ mod integration_tests {
             .del("del_key")
             .set_nx_ex("nx_key", "value", 60)
             .scard("scard_key")
+            .sadd("sadd_key", "member1")
             .zrangebyscore("zset_key", "0", "100")
             .execute()
             .await
             .unwrap();
 
-        assert_eq!(results.len(), 6);
+        assert_eq!(results.len(), 7);
         assert!(matches!(&results[0], Ok(PipelineResult::String(s)) if s == "string_value"));
         assert!(matches!(results[1], Ok(PipelineResult::Ok)));
         assert!(matches!(results[2], Ok(PipelineResult::Ok)));
         assert!(matches!(results[3], Ok(PipelineResult::Bool(true))));
         assert!(matches!(results[4], Ok(PipelineResult::Count(42))));
+        assert!(matches!(results[5], Ok(PipelineResult::Count(_)))); // SADD
         assert!(
-            matches!(&results[5], Ok(PipelineResult::Strings(v)) if v == &vec!["a".to_string(), "b".to_string()])
+            matches!(&results[6], Ok(PipelineResult::Strings(v)) if v == &vec!["a".to_string(), "b".to_string()])
         );
     }
 }

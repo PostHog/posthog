@@ -49,6 +49,7 @@ class SCIMBearerTokenAuthentication(BaseAuthentication):
             raise exceptions.AuthenticationFailed("Invalid SCIM URL format")
 
         try:
+            # nosemgrep: idor-lookup-without-org (SCIM bearer token auth, domain_id is tenant identifier)
             domain = OrganizationDomain.objects.get(id=domain_id)
         except OrganizationDomain.DoesNotExist:
             raise exceptions.AuthenticationFailed("Invalid organization domain")

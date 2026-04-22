@@ -1,6 +1,7 @@
 import { createTestEventHeaders } from '../../../tests/helpers/event-headers'
 import { EventHeaders } from '../../types'
 import { EventIngestionRestrictionManager, Restriction } from '../../utils/event-ingestion-restrictions'
+import { OVERFLOW_OUTPUT } from '../common/outputs'
 import { dlq, drop, ok, redirect } from '../pipelines/results'
 import { RoutingConfig, createApplyEventRestrictionsStep } from './apply-event-restrictions'
 
@@ -15,7 +16,6 @@ describe('createApplyEventRestrictionsStep', () => {
         } as unknown as EventIngestionRestrictionManager
 
         routingConfig = {
-            overflowTopic: 'overflow-topic',
             preservePartitionLocality: true,
             overflowEnabled: true,
         }
@@ -177,7 +177,7 @@ describe('createApplyEventRestrictionsStep', () => {
             expect(result).toEqual(
                 redirect(
                     'Event redirected to overflow due to force overflow restrictions',
-                    'overflow-topic',
+                    OVERFLOW_OUTPUT,
                     true,
                     false
                 )
@@ -202,7 +202,7 @@ describe('createApplyEventRestrictionsStep', () => {
             expect(result).toEqual(
                 redirect(
                     'Event redirected to overflow due to force overflow restrictions',
-                    'overflow-topic',
+                    OVERFLOW_OUTPUT,
                     true,
                     false
                 )
@@ -236,7 +236,7 @@ describe('createApplyEventRestrictionsStep', () => {
             expect(result).toEqual(
                 redirect(
                     'Event redirected to overflow due to force overflow restrictions',
-                    'overflow-topic',
+                    OVERFLOW_OUTPUT,
                     true, // Always true when not skipping person, ignores config
                     false
                 )
@@ -261,7 +261,7 @@ describe('createApplyEventRestrictionsStep', () => {
             expect(result).toEqual(
                 redirect(
                     'Event redirected to overflow due to force overflow restrictions',
-                    'overflow-topic',
+                    OVERFLOW_OUTPUT,
                     true, // Uses config value
                     false
                 )
@@ -295,7 +295,7 @@ describe('createApplyEventRestrictionsStep', () => {
             expect(result).toEqual(
                 redirect(
                     'Event redirected to overflow due to force overflow restrictions',
-                    'overflow-topic',
+                    OVERFLOW_OUTPUT,
                     false, // Uses config value
                     false
                 )

@@ -1,5 +1,6 @@
 import uuid
 import asyncio
+import datetime as dt
 import dataclasses
 from typing import Any, Optional
 
@@ -11,7 +12,7 @@ from temporalio import activity
 
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.sync import database_sync_to_async_pool
-from posthog.temporal.common.heartbeat import Heartbeater
+from posthog.temporal.common.heartbeat import LivenessHeartbeater as Heartbeater
 from posthog.temporal.common.logger import get_logger
 from posthog.temporal.common.shutdown import ShutdownMonitor
 from posthog.temporal.data_imports.pipelines.common.extract import (
@@ -24,14 +25,17 @@ from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInput
 from posthog.temporal.data_imports.pipelines.pipeline_sync import PipelineInputs
 from posthog.temporal.data_imports.row_tracking import setup_row_tracking
 from posthog.temporal.data_imports.sources import SourceRegistry
-from posthog.temporal.data_imports.sources.common.base import ResumableSource
+from posthog.temporal.data_imports.sources.common.base import ResumableSource, SimpleSource
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from posthog.temporal.data_imports.sources.postgres.exceptions import CDCHandledExternally
 
 from products.data_warehouse.backend.models import DataWarehouseTable, ExternalDataJob, ExternalDataSource
 from products.data_warehouse.backend.models.external_data_schema import ExternalDataSchema, process_incremental_value
 from products.data_warehouse.backend.types import ExternalDataSourceType
 
 LOGGER = get_logger(__name__)
+
+WAREHOUSE_PIPELINES_V3_FLAG = "warehouse-pipelines-v3"
 
 
 @dataclasses.dataclass
@@ -133,6 +137,7 @@ async def import_data_activity_sync(inputs: ImportDataActivityInputs) -> Pipelin
             source_inputs = SourceInputs(
                 schema_name=schema.name,
                 schema_id=str(schema.id),
+                source_id=str(inputs.source_id),
                 team_id=inputs.team_id,
                 should_use_incremental_field=schema.should_use_incremental_field,
                 incremental_field=schema.incremental_field if schema.should_use_incremental_field else None,
@@ -145,19 +150,51 @@ async def import_data_activity_sync(inputs: ImportDataActivityInputs) -> Pipelin
                 else None,
                 logger=logger,
                 job_id=inputs.run_id,
+                reset_pipeline=reset_pipeline,
             )
+
             new_source = SourceRegistry.get_source(source_type)
             config = new_source.parse_config(model.pipeline.job_inputs)
 
             resumable_source_manager: ResumableSourceManager | None = None
-            if isinstance(new_source, ResumableSource):
-                resumable_source_manager = new_source.get_resumable_source_manager(source_inputs)
-                source_response = await database_sync_to_async_pool(new_source.source_for_pipeline)(
-                    config, resumable_source_manager, source_inputs
+            try:
+                if isinstance(new_source, ResumableSource):
+                    resumable_source_manager = new_source.get_resumable_source_manager(source_inputs)
+                    source_response = await database_sync_to_async_pool(new_source.source_for_pipeline)(
+                        config, resumable_source_manager, source_inputs
+                    )
+                elif isinstance(new_source, SimpleSource):
+                    source_response = await database_sync_to_async_pool(new_source.source_for_pipeline)(
+                        config, source_inputs
+                    )
+                else:
+                    raise TypeError(
+                        f"{new_source.__class__.__name__} does not implement either SimpleSource or ResumableSource"
+                    )
+            except CDCHandledExternally:
+                await logger.ainfo("Schema is in CDC streaming mode — handled by CDCExtractionWorkflow, skipping")
+                # Mark the job as non-billable so it doesn't clutter the Syncs tab
+                from products.data_warehouse.backend.models import ExternalDataJob
+
+                await database_sync_to_async_pool(ExternalDataJob.objects.filter(id=job_inputs.run_id).update)(
+                    billable=False, status=ExternalDataJob.Status.COMPLETED, finished_at=dt.datetime.now(dt.UTC)
                 )
-            else:
-                source_response = await database_sync_to_async_pool(new_source.source_for_pipeline)(
-                    config, source_inputs
+
+                # Pause the per-schema schedule — CDCExtractionWorkflow handles this
+                # schema now. The schedule is unpaused if the schema transitions back
+                # to snapshot mode (e.g., after a TRUNCATE or re-enable after grace period).
+                try:
+                    from products.data_warehouse.backend.data_load.service import pause_external_data_schedule
+
+                    await database_sync_to_async_pool(pause_external_data_schedule)(str(inputs.schema_id))
+                    await logger.ainfo("Paused per-schema schedule for CDC streaming schema")
+                except Exception:
+                    await logger.awarning("Failed to pause per-schema schedule for CDC streaming schema")
+
+                return PipelineResult(
+                    should_trigger_cdp_producer=False,
+                    consumer_manages_job_status=True,
+                    skip_post_import_activities=True,
                 )
 
             return await _run(
@@ -170,6 +207,19 @@ async def import_data_activity_sync(inputs: ImportDataActivityInputs) -> Pipelin
             )
         else:
             raise ValueError(f"Source type {model.pipeline.source_type} not supported")
+
+
+async def _is_pipeline_v3_enabled(team_id: int, source_type: str, logger: FilteringBoundLogger) -> bool:
+    from posthog.temporal.data_imports.workflow_activities.create_job_model import (
+        _is_pipeline_v3_enabled as _sync_check,
+    )
+
+    enabled = await database_sync_to_async_pool(_sync_check)(team_id, source_type)
+    if enabled:
+        logger.debug(
+            f"Feature flag '{WAREHOUSE_PIPELINES_V3_FLAG}' is enabled for team {team_id} source_type {source_type}"
+        )
+    return enabled
 
 
 @database_sync_to_async_pool
@@ -198,18 +248,39 @@ async def _run(
 ) -> PipelineResult:
     try:
         job, schema, source, table = await _get_models(job_inputs.run_id)
-        pipeline = PipelineNonDLT(
-            source_response,
-            logger,
-            job_inputs.run_id,
-            reset_pipeline,
-            shutdown_monitor,
-            job,
-            schema,
-            source,
-            table,
-            resumable_source_manager,
-        )
+
+        use_v3 = await _is_pipeline_v3_enabled(job_inputs.team_id, source.source_type, logger)
+
+        if use_v3:
+            from posthog.temporal.data_imports.pipelines.pipeline_v3 import PipelineV3
+
+            logger.info("Running V3 pipeline (feature flag enabled)")
+            pipeline: PipelineV3 | PipelineNonDLT = PipelineV3(
+                source_response,
+                logger,
+                job_inputs.run_id,
+                reset_pipeline,
+                shutdown_monitor,
+                job,
+                schema,
+                source,
+                table,
+                resumable_source_manager,
+            )
+        else:
+            pipeline = PipelineNonDLT(
+                source_response,
+                logger,
+                job_inputs.run_id,
+                reset_pipeline,
+                shutdown_monitor,
+                job,
+                schema,
+                source,
+                table,
+                resumable_source_manager,
+            )
+
         result = await pipeline.run()
         del pipeline
         await logger.adebug("Finished running pipeline")

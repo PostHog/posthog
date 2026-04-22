@@ -28,8 +28,9 @@ import {
     isMarketingAnalyticsTableQuery,
     isNonIntegratedConversionsTableQuery,
     isPersonsNode,
+    isSessionsQuery,
 } from '~/queries/utils'
-import { ExporterFormat } from '~/types'
+import { ExportContext, ExporterFormat } from '~/types'
 
 import { dataTableLogic } from './dataTableLogic'
 
@@ -57,7 +58,7 @@ export async function startDownload(
         exportSource = transformQuerySourceForExport(query.source, personDisplayNameProperties)
     }
 
-    const exportContext = isPersonsNode(query.source)
+    const exportContext: ExportContext = isPersonsNode(query.source)
         ? { path: getPersonsEndpoint(query.source) }
         : { source: exportSource }
 
@@ -67,7 +68,10 @@ export async function startDownload(
 
     if (onlySelectedColumns) {
         let columns = (
-            (isEventsQuery(query.source) || isActorsQuery(query.source) || isGroupsQuery(query.source)
+            (isEventsQuery(query.source) ||
+            isActorsQuery(query.source) ||
+            isGroupsQuery(query.source) ||
+            isSessionsQuery(query.source)
                 ? query.source.select
                 : null) ??
             query.columns ??

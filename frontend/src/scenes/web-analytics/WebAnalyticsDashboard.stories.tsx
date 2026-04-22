@@ -42,7 +42,7 @@ const meta: Meta = {
                 '/api/projects/:team_id/event_definitions': () => [200, { count: 5 }],
             },
             post: {
-                '/api/environments/:team_id/query': (req) => {
+                '/api/environments/:team_id/query/:kind': (req) => {
                     const query = (req.body as any).query
                     const queryKind = query.kind
 

@@ -24,7 +24,7 @@ const meta: Meta = {
                 },
             },
             post: {
-                '/api/environments/:team_id/query/': async (_, res, ctx) => {
+                '/api/environments/:team_id/query/:kind/': async (_, res, ctx) => {
                     // eslint-disable-next-line @typescript-eslint/no-var-requires
                     return res(ctx.json(require('./__mocks__/sessionAttributionQuery.json')))
                 },
@@ -34,5 +34,5 @@ const meta: Meta = {
 }
 export default meta
 
-type Story = StoryObj<typeof meta>
+type Story = StoryObj<{}>
 export const SessionAttributionExplorer: Story = {}

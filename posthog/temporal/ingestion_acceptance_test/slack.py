@@ -7,6 +7,7 @@ import structlog
 
 from .config import Config
 from .results import TestSuiteResult
+from .runner import RunningTestInfo
 
 logger = structlog.get_logger(__name__)
 
@@ -101,7 +102,7 @@ def _build_summary_block(result: TestSuiteResult) -> dict[str, Any]:
 def _build_context_block(config: Config, result: TestSuiteResult) -> dict[str, Any]:
     text = (
         f":globe_with_meridians: Env: {config.api_host} | "
-        f":file_folder: Project: {config.project_id} | "
+        f":file_folder: Team: {config.team_id} | "
         f":hourglass: Duration: {result.total_duration_seconds:.2f}s"
     )
     return {
@@ -113,6 +114,77 @@ def _build_context_block(config: Config, result: TestSuiteResult) -> dict[str, A
             },
         ],
     }
+
+
+def send_slack_timeout_notification(config: Config, running_tests: list[RunningTestInfo] | None = None) -> bool:
+    """Send a timeout notification to Slack via incoming webhook.
+
+    Args:
+        config: Configuration containing the Slack webhook URL.
+        running_tests: List of RunningTestInfo with test names and their pending
+            poll descriptions (what each test was waiting for in ClickHouse).
+
+    Returns:
+        True if notification was sent successfully or skipped, False on send failure.
+    """
+    if not config.slack_webhook_url:
+        logger.debug("Slack webhook URL not configured, skipping timeout notification")
+        return True
+
+    blocks: list[dict[str, Any]] = [
+        {
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": ":hourglass: *Ingestion Acceptance Tests Timed Out*",
+            },
+        },
+        {
+            "type": "context",
+            "elements": [
+                {
+                    "type": "mrkdwn",
+                    "text": (
+                        f":globe_with_meridians: Env: {config.api_host} | "
+                        f":file_folder: Team: {config.team_id} | "
+                        f":stopwatch: Timeout: {config.activity_timeout_seconds}s | "
+                        f":key: Token: `{config.project_api_key[:10]}...`"
+                    ),
+                },
+            ],
+        },
+    ]
+
+    if running_tests:
+        lines = []
+        for info in running_tests:
+            line = f"• {info.name}"
+            if info.pending_poll:
+                line += f" — waiting for: {info.pending_poll}"
+            lines.append(line)
+        test_list = "\n".join(lines)
+        blocks.append(
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": f":red_circle: *Still running ({len(running_tests)}):*\n{test_list}",
+                },
+            }
+        )
+
+    try:
+        response = requests.post(
+            config.slack_webhook_url,
+            json={"blocks": blocks},
+            timeout=10,
+        )
+        response.raise_for_status()
+        logger.info("Slack timeout notification sent successfully")
+        return True
+    except requests.RequestException as e:
+        logger.warning("Failed to send Slack timeout notification", error=str(e))
+        return False
 
 
 def _build_failed_tests_blocks(result: TestSuiteResult) -> list[dict[str, Any]]:

@@ -9,7 +9,9 @@ from posthog.management.migration_analysis.models import OperationRisk
 from posthog.management.migration_analysis.utils import VolatileFunctionDetector, check_drop_properly_staged
 
 # Base URL for migration safety documentation
-SAFE_MIGRATIONS_DOCS_URL = "https://github.com/PostHog/posthog/blob/master/docs/safe-django-migrations.md"
+SAFE_MIGRATIONS_DOCS_URL = (
+    "https://github.com/PostHog/posthog/blob/master/docs/published/handbook/engineering/safe-django-migrations.md"
+)
 
 
 def is_unmanaged_model(op, migration, unapplied_migrations=None) -> bool:
@@ -596,7 +598,8 @@ class RunSQLAnalyzer(OperationAnalyzer):
             # ALTER TABLE ... DROP COLUMN can contain both "TABLE" and "DROP" keywords
             # Use regex to verify it's actually ALTER TABLE ... DROP COLUMN (not just "COLUMN" in table name)
             column_match = re.search(
-                r"ALTER\s+TABLE\s+([a-zA-Z0-9_]+)\s+DROP\s+COLUMN\s+(?:IF\s+EXISTS\s+)?([a-zA-Z0-9_]+)", sql
+                r'ALTER\s+TABLE\s+"?([a-zA-Z0-9_]+)"?\s+DROP\s+COLUMN\s+(?:IF\s+EXISTS\s+)?"?([a-zA-Z0-9_]+)"?',
+                sql,
             )
 
             if column_match:
@@ -641,7 +644,7 @@ Safe pattern requires:
             # Special case: DROP TABLE IF EXISTS may be safe if following proper staging pattern
             if "TABLE" in sql and "IF EXISTS" in sql:
                 # Extract table name from the DROP statement
-                table_name_match = re.search(r"DROP\s+TABLE\s+IF\s+EXISTS\s+([a-zA-Z0-9_]+)", sql)
+                table_name_match = re.search(r'DROP\s+TABLE\s+IF\s+EXISTS\s+"?([a-zA-Z0-9_]+)"?', sql)
                 if table_name_match and migration and loader:
                     table_name = table_name_match.group(1).lower()
 

@@ -43,7 +43,7 @@ class CustomerIOSource(SimpleSource[CustomerIOSourceConfig]):
         raise NotImplementedError()
 
     def get_schemas(
-        self, config: CustomerIOSourceConfig, team_id: int, with_counts: bool = False
+        self, config: CustomerIOSourceConfig, team_id: int, with_counts: bool = False, names: list[str] | None = None
     ) -> list[SourceSchema]:
         raise NotImplementedError()
 

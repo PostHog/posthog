@@ -1,4 +1,5 @@
 import { memo } from 'react'
+
 import { useMDXComponents } from 'scenes/onboarding/OnboardingDocsContentWrapper'
 
 export const BooleanFlagSnippet = memo(({ language = 'javascript' }: { language?: string }): JSX.Element => {
@@ -90,5 +91,3 @@ export const BooleanFlagSnippet = memo(({ language = 'javascript' }: { language?
 
     return <CodeBlock language={langMap[language] || 'javascript'} code={snippets[language] || snippets.javascript} />
 })
-
-

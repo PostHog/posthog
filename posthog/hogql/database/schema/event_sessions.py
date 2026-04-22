@@ -12,7 +12,7 @@ from posthog.hogql.database.models import (
 )
 from posthog.hogql.parser import parse_select
 from posthog.hogql.resolver_utils import get_long_table_name, lookup_field_by_name
-from posthog.hogql.visitor import CloningVisitor, TraversingVisitor
+from posthog.hogql.visitor import CloningVisitor, GetFieldsTraverser, TraversingVisitor
 
 
 class EventsSessionSubTable(VirtualTable):
@@ -26,18 +26,6 @@ class EventsSessionSubTable(VirtualTable):
 
     def to_printed_hogql(self):
         return "events"
-
-
-class GetFieldsTraverser(TraversingVisitor):
-    fields: list[ast.Field]
-
-    def __init__(self, expr: ast.Expr):
-        super().__init__()
-        self.fields = []
-        super().visit(expr)
-
-    def visit_field(self, node: ast.Field):
-        self.fields.append(node)
 
 
 class CleanTableNameFromChain(CloningVisitor):

@@ -13,9 +13,9 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonTable, LemonTableColumns, LemonTableProps } from 'lib/lemon-ui/LemonTable'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { userPreferencesLogic } from 'lib/logic/userPreferencesLogic'
-import { isObject, isURL } from 'lib/utils'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { isObject, isURL, isKeyOf } from 'lib/utils'
 import { NewProperty } from 'scenes/persons/NewProperty'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { urls } from 'scenes/urls'
 
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
@@ -56,7 +56,20 @@ function EditTextValueComponent({
     initialValue: any
     onChange: (newValue: any) => void
 }): JSX.Element {
-    const [value, setValue] = useState(initialValue)
+    const isText =
+        typeof initialValue === 'string' || typeof initialValue === 'number' || typeof initialValue === 'bigint'
+    const [value, setValue] = useState(isText ? String(initialValue) : '')
+
+    const save = (raw: string): void => {
+        if (typeof initialValue === 'number' && raw.trim() !== '') {
+            const asNumber = Number(raw)
+            if (Number.isFinite(asNumber)) {
+                onChange(asNumber)
+                return
+            }
+        }
+        onChange(raw)
+    }
 
     return (
         <LemonInput
@@ -64,7 +77,7 @@ function EditTextValueComponent({
             value={value}
             onChange={setValue}
             onBlur={() => onChange(initialValue)}
-            onPressEnter={() => onChange(value)}
+            onPressEnter={() => save(value)}
             autoComplete="off"
             autoCapitalize="off"
             size="xsmall"
@@ -107,7 +120,7 @@ function ValueDisplay({
     const valueComponent = (
         <span
             className={clsx(
-                'relative inline-flex gap-1 items-center flex flex-row flex-nowrap w-fit break-all',
+                'relative gap-1 items-center flex flex-row flex-nowrap w-fit break-all',
                 canEdit ? 'editable ph-no-capture' : 'ph-no-capture'
             )}
             onClick={() => canEdit && textBasedTypes.includes(valueType) && setEditing(true)}
@@ -146,6 +159,10 @@ function ValueDisplay({
                                     label: 'null',
                                     onClick: () => handleValueChange(null),
                                     status: 'danger',
+                                },
+                                {
+                                    label: 'Type as text…',
+                                    onClick: () => setEditing(true),
                                 },
                             ]}
                         >
@@ -187,7 +204,7 @@ function ValueDisplay({
     )
 }
 
-interface PropertiesTableType extends BasePropertyType {
+export interface PropertiesTableProps extends BasePropertyType {
     properties?: Record<string, any> | Array<Record<string, any>>
     sortProperties?: boolean
     searchable?: boolean
@@ -224,7 +241,7 @@ export function PropertiesTable({
     highlightedKeys,
     type,
     parent,
-}: PropertiesTableType): JSX.Element {
+}: PropertiesTableProps): JSX.Element {
     const [searchTerm, setSearchTerm] = useState('')
     const { hidePostHogPropertiesInTable, hideNullValues } = useValues(userPreferencesLogic)
     const { setHidePostHogPropertiesInTable, setHideNullValues } = useActions(userPreferencesLogic)
@@ -253,6 +270,9 @@ export function PropertiesTable({
                     [PropertyDefinitionType.Log]: TaxonomicFilterGroupType.Logs,
                     [PropertyDefinitionType.LogAttribute]: TaxonomicFilterGroupType.LogAttributes,
                     [PropertyDefinitionType.LogResourceAttribute]: TaxonomicFilterGroupType.LogResourceAttributes,
+                    [PropertyDefinitionType.Span]: TaxonomicFilterGroupType.Spans,
+                    [PropertyDefinitionType.SpanAttribute]: TaxonomicFilterGroupType.SpanAttributes,
+                    [PropertyDefinitionType.SpanResourceAttribute]: TaxonomicFilterGroupType.SpanResourceAttributes,
                     [PropertyDefinitionType.FlagValue]: TaxonomicFilterGroupType.FeatureFlags,
                     [PropertyDefinitionType.WorkflowVariable]: TaxonomicFilterGroupType.WorkflowVariables,
                 }
@@ -406,7 +426,9 @@ export function PropertiesTable({
                                 type={
                                     rootKey && type === 'event' && ['$set', '$set_once'].includes(rootKey)
                                         ? TaxonomicFilterGroupType.PersonProperties
-                                        : PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE[type]
+                                        : isKeyOf(type, PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE)
+                                          ? PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE[type]
+                                          : undefined
                                 }
                             />
                         </div>
@@ -486,6 +508,7 @@ export function PropertiesTable({
                                 icon={<IconTrash />}
                                 status="danger"
                                 size="small"
+                                data-attr="delete-prop-button"
                                 onClick={() => onClickDelete(item[0])}
                             />
                         )

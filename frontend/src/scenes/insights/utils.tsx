@@ -17,11 +17,10 @@ import { removeUndefinedAndNull } from '~/lib/utils'
 import { FormatPropertyValueForDisplayFunction } from '~/models/propertyDefinitionsModel'
 import { examples } from '~/queries/examples'
 import {
-    ActionsNode,
+    AnyDataWarehouseNode,
+    AnyEntityNode,
     BreakdownFilter,
     DashboardFilter,
-    DataWarehouseNode,
-    EventsNode,
     FileSystemIconType,
     GroupNode,
     HogQLQuery,
@@ -34,11 +33,12 @@ import {
     ResultCustomizationBy,
     ResultCustomizationByPosition,
     ResultCustomizationByValue,
+    TileFilters,
 } from '~/queries/schema/schema-general'
 import {
     containsHogQLQuery,
     isDataTableNode,
-    isDataWarehouseNode,
+    isAnyDataWarehouseNode,
     isEventsNode,
     isGroupNode,
     isInsightVizNode,
@@ -100,10 +100,10 @@ export const getDisplayNameFromEntityFilter = (
 ): string | null => {
     // Make sure names aren't blank strings
     const customName = ensureStringIsNotBlank(filter?.custom_name)
+
     let name = ensureStringIsNotBlank(filter?.name)
-    if (name && name in CORE_FILTER_DEFINITIONS_BY_GROUP.events) {
-        name = CORE_FILTER_DEFINITIONS_BY_GROUP.events[name].label
-    }
+    name = formatEventName(name) ?? name
+
     if (isAllEventsEntityFilter(filter)) {
         name = 'All events'
     }
@@ -113,7 +113,7 @@ export const getDisplayNameFromEntityFilter = (
 }
 
 export const getDisplayNameFromEntityNode = (
-    node: EventsNode | ActionsNode | DataWarehouseNode | GroupNode,
+    node: AnyEntityNode<AnyDataWarehouseNode> | GroupNode,
     isCustom = true
 ): string | null => {
     // Make sure names aren't blank strings
@@ -135,7 +135,7 @@ export const getDisplayNameFromEntityNode = (
         name = 'All events'
     }
 
-    const id = isDataWarehouseNode(node)
+    const id = isAnyDataWarehouseNode(node)
         ? node.table_name
         : isEventsNode(node)
           ? node.event
@@ -323,6 +323,9 @@ function formatNumericBreakdownLabel(
     return String(breakdown_value)
 }
 
+// Keep in sync with NOT_IN_COHORT_ID in posthog/queries/breakdown_props.py
+export const NOT_IN_COHORT_ID = 2 ** 52
+
 export function getCohortNameFromId(
     cohortId: string | number | null | undefined,
     cohorts: CohortType[] | null | undefined
@@ -330,6 +333,10 @@ export function getCohortNameFromId(
     // :TRICKY: Different endpoints represent the all users cohort breakdown differently
     if (cohortId === 'all' || cohortId === 0) {
         return 'All Users'
+    }
+
+    if (Number(cohortId) === NOT_IN_COHORT_ID) {
+        return 'Not in cohort'
     }
 
     return cohorts?.filter((c) => c.id == cohortId)[0]?.name ?? (cohortId || '').toString()
@@ -380,6 +387,17 @@ export function formatBreakdownLabel(
         if (breakdown_value === 'all' || breakdown_value === 0) {
             return 'All Users'
         }
+        if (Number(breakdown_value) === NOT_IN_COHORT_ID) {
+            const selectedCohorts = Array.isArray(breakdownFilter?.breakdown) ? breakdownFilter.breakdown : []
+            const selectedCohortId = selectedCohorts.find((id) => id !== 'all' && Number(id) !== NOT_IN_COHORT_ID)
+            if (selectedCohortId != null && cohorts) {
+                const cohortName = cohorts.find((c) => c.id == selectedCohortId)?.name
+                if (cohortName) {
+                    return `Not in ${cohortName}`
+                }
+            }
+            return 'Not in cohort'
+        }
         if (cohorts == null || cohorts.length === 0) {
             if (itemLabel != null) {
                 return itemLabel
@@ -412,11 +430,17 @@ export function formatBreakdownLabel(
     }
 
     if (typeof breakdown_value == 'string') {
-        return isOtherBreakdown(breakdown_value) || breakdown_value === 'nan'
-            ? BREAKDOWN_OTHER_DISPLAY
-            : isNullBreakdown(breakdown_value) || breakdown_value === ''
-              ? BREAKDOWN_NULL_DISPLAY
-              : breakdown_value
+        const label =
+            isOtherBreakdown(breakdown_value) || breakdown_value === 'nan'
+                ? BREAKDOWN_OTHER_DISPLAY
+                : isNullBreakdown(breakdown_value) || breakdown_value === ''
+                  ? BREAKDOWN_NULL_DISPLAY
+                  : breakdown_value
+
+        if (label.length > 200) {
+            return label.slice(0, 200) + '…'
+        }
+        return label
     }
 
     return ''
@@ -802,4 +826,23 @@ export const getOverrideWarningPropsForButton = (
               tooltip: `This insight is being viewed with dashboard ${overrideType}. These will be discarded on edit.`,
           }
         : {}
+}
+
+/** Checks for breakdown features that are unsupported by trend insights with a
+ * data warehouse series. */
+export const hasUnsupportedBreakdownForDataWarehouseTrends = (
+    filtersOverride: DashboardFilter | TileFilters | null | undefined
+): boolean => {
+    const breakdownFilter = filtersOverride?.breakdown_filter
+
+    if (!breakdownFilter) {
+        return false
+    }
+
+    return !!(
+        breakdownFilter.breakdowns?.length ||
+        breakdownFilter.breakdown_type !== 'data_warehouse' ||
+        !breakdownFilter.breakdown ||
+        Array.isArray(breakdownFilter.breakdown)
+    )
 }

@@ -9,31 +9,25 @@ import { Logomark } from 'lib/brand/Logomark'
 
 import { SDK, SDKKey, SDKTag } from '~/types'
 
+import androidImage from './logos/android.svg'
+import angularImage from './logos/angular.svg'
 import { AnthropicLogo } from './logos/AnthropicLogo'
 import { AstroLogo } from './logos/AstroLogo'
 import { BubbleLogo } from './logos/BubbleLogo'
-import { FramerLogo } from './logos/FramerLogo'
-import { IOSLogo } from './logos/IOSLogo'
-import { LangChainLogo } from './logos/LangChainLogo'
-import { OpenAILogo } from './logos/OpenAILogo'
-import { RemixLogo } from './logos/RemixLogo'
-import { RetoolLogo } from './logos/RetoolLogo'
-import { RudderstackLogo } from './logos/RudderstackLogo'
-import { SentryLogo } from './logos/SentryLogo'
-import { WordpressLogo } from './logos/WordpressLogo'
-import androidImage from './logos/android.svg'
-import angularImage from './logos/angular.svg'
 import djangoImage from './logos/django.svg'
 import docusaurusImage from './logos/docusaurus.svg'
 import elixirImage from './logos/elixir.svg'
 import flutterImage from './logos/flutter.svg'
+import { FramerLogo } from './logos/FramerLogo'
 import gatsbyImage from './logos/gatsby.svg'
 import geminiImage from './logos/gemini.svg'
 import goImage from './logos/go.svg'
 import gtmImage from './logos/gtm.svg'
-import htmlImage from './logos/html.svg'
+import honoImage from './logos/hono.svg'
+import { IOSLogo } from './logos/IOSLogo'
 import javaImage from './logos/java.svg'
 import jsImage from './logos/javascript_web.svg'
+import { LangChainLogo } from './logos/LangChainLogo'
 import langfuseImage from './logos/langfuse.svg'
 import laravelImage from './logos/laravel.svg'
 import moengageImage from './logos/moengage.png'
@@ -41,14 +35,21 @@ import n8nImage from './logos/n8n.svg'
 import nextjsImage from './logos/nextjs.svg'
 import nodejsImage from './logos/nodejs.svg'
 import nuxtImage from './logos/nuxt.svg'
-import openrouterImage from './logos/openrouter.png'
+import { OpenAILogo } from './logos/OpenAILogo'
+import { OpenRouterLogo } from './logos/OpenRouterLogo'
 import phpImage from './logos/php.svg'
 import pythonImage from './logos/python.svg'
+import railsImage from './logos/rails.svg'
 import reactImage from './logos/react.svg'
 import reactNativeImage from './logos/react.svg'
+import { ReactRouterLogo } from './logos/ReactRouterLogo'
+import { RemixLogo } from './logos/RemixLogo'
+import { RetoolLogo } from './logos/RetoolLogo'
 import rubyImage from './logos/ruby.svg'
+import { RudderstackLogo } from './logos/RudderstackLogo'
 import rustImage from './logos/rust.svg'
 import segmentImage from './logos/segment.svg'
+import { SentryLogo } from './logos/SentryLogo'
 import shopifyImage from './logos/shopify.svg'
 import svelteImage from './logos/svelte.svg'
 import tanStackImage from './logos/tanstack.png'
@@ -56,6 +57,7 @@ import traceloopImage from './logos/traceloop.svg'
 import viteImage from './logos/vite.svg'
 import vueImage from './logos/vue.svg'
 import webflowImage from './logos/webflow.svg'
+import { WordpressLogo } from './logos/WordpressLogo'
 import zapierImage from './logos/zapier.svg'
 
 export const ALL_SDKS: SDK[] = [
@@ -69,15 +71,7 @@ export const ALL_SDKS: SDK[] = [
         docsLink: 'https://posthog.com/docs/libraries/next-js',
     },
     {
-        name: 'HTML snippet',
-        key: SDKKey.HTML_SNIPPET,
-        recommended: true,
-        tags: [SDKTag.POPULAR, SDKTag.WEB],
-        image: htmlImage,
-        docsLink: 'https://posthog.com/docs/libraries/js',
-    },
-    {
-        name: 'JavaScript web',
+        name: 'Web',
         key: SDKKey.JS_WEB,
         recommended: true,
         tags: [SDKTag.POPULAR, SDKTag.WEB],
@@ -182,6 +176,13 @@ export const ALL_SDKS: SDK[] = [
         docsLink: 'https://posthog.com/docs/libraries/go',
     },
     {
+        name: 'Hono',
+        key: SDKKey.HONO,
+        tags: [SDKTag.SERVER],
+        image: honoImage,
+        docsLink: 'https://posthog.com/docs/libraries/hono',
+    },
+    {
         name: 'OpenAI',
         key: SDKKey.OPENAI,
         tags: [SDKTag.MODEL_PROVIDER, SDKTag.FRAMEWORK],
@@ -234,8 +235,22 @@ export const ALL_SDKS: SDK[] = [
         name: 'OpenRouter',
         key: SDKKey.OPENROUTER,
         tags: [SDKTag.GATEWAY],
-        image: openrouterImage,
+        image: <OpenRouterLogo />,
         docsLink: 'https://posthog.com/docs/llm-analytics/installation/openrouter',
+    },
+    {
+        name: 'Cloudflare AI Gateway',
+        key: SDKKey.CLOUDFLARE_AI_GATEWAY,
+        tags: [SDKTag.GATEWAY],
+        image: 'https://res.cloudinary.com/dmukukwp6/image/upload/cloudflare_logo_6572a9f441.svg',
+        docsLink: 'https://posthog.com/docs/llm-analytics/installation/cloudflare-ai-gateway',
+    },
+    {
+        name: 'Dedalus Labs',
+        key: SDKKey.DEDALUS,
+        tags: [SDKTag.GATEWAY],
+        image: 'https://res.cloudinary.com/dmukukwp6/image/upload/dedalus_labs_logo_e03bb97137.svg',
+        docsLink: 'https://posthog.com/docs/llm-analytics/installation/dedalus',
     },
     {
         name: 'DeepSeek',
@@ -257,6 +272,13 @@ export const ALL_SDKS: SDK[] = [
         tags: [SDKTag.MODEL_PROVIDER],
         image: 'https://res.cloudinary.com/dmukukwp6/image/upload/ollama_ff56896a1f.svg',
         docsLink: 'https://posthog.com/docs/llm-analytics/installation/ollama',
+    },
+    {
+        name: 'AWS Bedrock',
+        key: SDKKey.AWS_BEDROCK,
+        tags: [SDKTag.MODEL_PROVIDER],
+        image: 'https://res.cloudinary.com/dmukukwp6/image/upload/bedrock_5c06698148.png',
+        docsLink: 'https://posthog.com/docs/llm-analytics/installation/aws-bedrock',
     },
     {
         name: 'Azure OpenAI',
@@ -392,6 +414,13 @@ export const ALL_SDKS: SDK[] = [
         docsLink: 'https://posthog.com/docs/llm-analytics/installation/mirascope',
     },
     {
+        name: 'Convex',
+        key: SDKKey.CONVEX,
+        tags: [SDKTag.FRAMEWORK],
+        image: 'https://res.cloudinary.com/dmukukwp6/image/upload/convex_d8dcddcd63.svg',
+        docsLink: 'https://posthog.com/docs/llm-analytics/installation/convex',
+    },
+    {
         name: 'Cerebras',
         key: SDKKey.CEREBRAS,
         tags: [SDKTag.MODEL_PROVIDER],
@@ -431,6 +460,13 @@ export const ALL_SDKS: SDK[] = [
         docsLink: 'https://posthog.com/docs/llm-analytics/manual-capture',
     },
     {
+        name: 'OpenTelemetry',
+        key: SDKKey.OPENTELEMETRY,
+        tags: [SDKTag.INTEGRATION],
+        image: 'https://res.cloudinary.com/dmukukwp6/image/upload/opentelemetry_afb29df5ab.svg',
+        docsLink: 'https://posthog.com/docs/llm-analytics/installation/opentelemetry',
+    },
+    {
         name: 'iOS',
         key: SDKKey.IOS,
         tags: [SDKTag.MOBILE],
@@ -467,8 +503,15 @@ export const ALL_SDKS: SDK[] = [
         docsLink: 'https://posthog.com/docs/libraries/node',
     },
     {
-        name: 'Nuxt.js',
+        name: 'Nuxt.js 3.7+',
         key: SDKKey.NUXT_JS,
+        tags: [SDKTag.WEB, SDKTag.SERVER],
+        image: nuxtImage,
+        docsLink: 'https://posthog.com/docs/libraries/nuxt-js',
+    },
+    {
+        name: 'Nuxt.js 3.6 and below',
+        key: SDKKey.NUXT_JS_36,
         tags: [SDKTag.WEB, SDKTag.SERVER],
         image: nuxtImage,
         docsLink: 'https://posthog.com/docs/libraries/nuxt-js',
@@ -489,6 +532,14 @@ export const ALL_SDKS: SDK[] = [
         docsLink: 'https://posthog.com/docs/libraries/python',
     },
     {
+        name: 'React Router',
+        key: SDKKey.REACT_ROUTER,
+        tags: [SDKTag.WEB],
+        searchTerms: ['remix'],
+        image: <ReactRouterLogo />,
+        docsLink: 'https://posthog.com/docs/libraries/react-router',
+    },
+    {
         name: 'Remix',
         key: SDKKey.REMIX,
         tags: [SDKTag.WEB],
@@ -501,6 +552,13 @@ export const ALL_SDKS: SDK[] = [
         tags: [SDKTag.SERVER],
         image: rubyImage,
         docsLink: 'https://posthog.com/docs/libraries/ruby',
+    },
+    {
+        name: 'Ruby on Rails',
+        key: SDKKey.RUBY_ON_RAILS,
+        tags: [SDKTag.SERVER],
+        image: railsImage,
+        docsLink: 'https://posthog.com/docs/libraries/rails',
     },
     {
         name: 'Rust',

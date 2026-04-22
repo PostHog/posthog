@@ -25,14 +25,16 @@ from posthog.hogql.parser import parse_expr
 from posthog.hogql.property import action_to_expr, property_to_expr
 
 from posthog.hogql_queries.experiments.hogql_aggregation_utils import (
+    aggregation_needs_numeric_input,
     build_aggregation_call,
     extract_aggregation_and_inner_expr,
 )
 from posthog.hogql_queries.insights.trends.aggregation_operations import ALLOWED_SESSION_MATH_PROPERTIES
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
-from posthog.models import Experiment
 from posthog.models.action.action import Action
 from posthog.models.team.team import Team
+
+from products.experiments.backend.models.experiment import Experiment
 
 
 def is_session_property_metric(source: Union[EventsNode, ActionsNode]) -> bool:
@@ -133,7 +135,7 @@ def get_source_value_expr(source: Union[EventsNode, ActionsNode, ExperimentDataW
             # Extract the inner expression from the HogQL expression
             math_hogql = source.math_hogql
             if math_hogql:
-                _, inner_expr, _ = extract_aggregation_and_inner_expr(math_hogql)
+                _, inner_expr, _, _ = extract_aggregation_and_inner_expr(math_hogql)
                 return inner_expr
     elif isinstance(source, ExperimentDataWarehouseNode):
         metric_property = getattr(source, "math_property", None)
@@ -348,11 +350,20 @@ def get_source_aggregation_expr(
         elif math_type == ExperimentMetricMathType.HOGQL:
             math_hogql = getattr(source, "math_hogql", None)
             if math_hogql is not None:
-                aggregation_function, _, params = extract_aggregation_and_inner_expr(math_hogql)
+                aggregation_function, _, params, distinct = extract_aggregation_and_inner_expr(math_hogql)
                 if aggregation_function:
-                    # Build the aggregation with params if it's a parametric function
-                    inner_value_expr = parse_expr(f"coalesce(toFloat({table_alias}.value), 0)")
-                    return build_aggregation_call(aggregation_function, inner_value_expr, params=params)
+                    inner_value_expr = parse_expr(f"{table_alias}.value")
+                    if aggregation_needs_numeric_input(aggregation_function):
+                        inner_value_expr = ast.Call(name="toFloat", args=[inner_value_expr])
+                    agg_call = build_aggregation_call(
+                        aggregation_function, inner_value_expr, params=params, distinct=distinct
+                    )
+                    # Non-numeric aggregations (count, uniq, etc.) return UInt64, which is
+                    # incompatible with Float64 in ClickHouse greatest/least functions used
+                    # by winsorization. Wrap with toFloat to ensure consistent Float64 type.
+                    if not aggregation_needs_numeric_input(aggregation_function):
+                        agg_call = ast.Call(name="toFloat", args=[agg_call])
+                    return ast.Call(name="coalesce", args=[agg_call, ast.Constant(value=0)])
             # Default to sum if no aggregation function is found
             return parse_expr(f"sum(coalesce(toFloat({table_alias}.value), 0))")
 
@@ -360,11 +371,25 @@ def get_source_aggregation_expr(
     return parse_expr(f"sum(coalesce(toFloat({table_alias}.value), 0))")
 
 
-def funnel_steps_to_filter(team: Team, funnel_steps: list[EventsNode | ActionsNode]) -> ast.Expr:
+def funnel_steps_to_filter(
+    team: Team, funnel_steps: list[EventsNode | ActionsNode | ExperimentDataWarehouseNode]
+) -> ast.Expr:
     """
     Returns the OR expression for a list of funnel steps. Will match if any of the funnel steps are true.
+
+    Note: This function filters out ExperimentDataWarehouseNode entries since they cannot be
+    evaluated as boolean filters (they require separate UNION ALL query pattern).
     """
-    return ast.Or(exprs=[event_or_action_to_filter(team, funnel_step) for funnel_step in funnel_steps])
+    # Filter out DW nodes - they require UNION ALL pattern, not boolean filters
+    event_and_action_steps = [step for step in funnel_steps if not isinstance(step, ExperimentDataWarehouseNode)]
+
+    # Guard against empty list (all DW nodes case)
+    if not event_and_action_steps:
+        # Return a constant false expression - this prevents empty ast.Or
+        # This case should be caught earlier by validation, but we guard defensively
+        return ast.Constant(value=False)
+
+    return ast.Or(exprs=[event_or_action_to_filter(team, funnel_step) for funnel_step in event_and_action_steps])
 
 
 def funnel_evaluation_expr(
@@ -430,7 +455,7 @@ def funnel_evaluation_expr(
                     toFloat({timestamp_field}),
                     {uuid_field},
                     array(''),
-                    arrayFilter(x -> x != 0, [{step_conditions_str}])
+                    arrayFilter(x -> x > 0, [{step_conditions_str}])
                 )))
             )
         )

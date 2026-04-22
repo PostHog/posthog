@@ -5,7 +5,7 @@ Handles injecting breakdown columns into various metric type queries (funnel, me
 Breakdown columns are used to segment experiment results by property values.
 """
 
-from typing import Union
+from typing import Union, cast
 
 from posthog.schema import (
     Breakdown,
@@ -14,10 +14,13 @@ from posthog.schema import (
     ExperimentMeanMetric,
     ExperimentRatioMetric,
     ExperimentRetentionMetric,
+    MultipleBreakdownType,
 )
 
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr
+
+from posthog.hogql_queries.insights.trends.utils import get_properties_chain
 
 # Constant for representing NULL breakdown values
 BREAKDOWN_NULL_STRING_LABEL = "$$_posthog_breakdown_null_$$"
@@ -64,11 +67,27 @@ class BreakdownInjector:
 
         result = []
         for i, breakdown in enumerate(self.breakdowns):
-            # Build the property chain - if table_alias is empty, just use properties.breakdown
-            if table_alias:
-                property_expr = ast.Field(chain=[table_alias, "properties", breakdown.property])
+            # Default to event type for backward compatibility
+            breakdown_type = breakdown.type or cast(MultipleBreakdownType, "event")
+
+            # Convert property to string (it can be str | int in schema)
+            breakdown_field = str(breakdown.property)
+
+            # Get the correct property chain based on type
+            properties_chain = get_properties_chain(
+                breakdown_type=breakdown_type,
+                breakdown_field=breakdown_field,
+                group_type_index=breakdown.group_type_index,
+            )
+
+            # For event properties, prepend table_alias if provided
+            # For person/group/session, use chain as-is (they reference other tables)
+            if table_alias and properties_chain[0] == "properties":
+                # Event property: prepend table alias
+                property_expr = ast.Field(chain=[table_alias, *properties_chain])
             else:
-                property_expr = ast.Field(chain=["properties", breakdown.property])
+                # Person/group/session property or no table alias: use chain directly
+                property_expr = ast.Field(chain=properties_chain)
 
             expr = parse_expr(
                 "coalesce(toString({property_expr}), {null_label})",
@@ -141,6 +160,61 @@ class BreakdownInjector:
                         entity_metrics_cte.expr.group_by = []
                     for alias in aliases:
                         entity_metrics_cte.expr.group_by.append(ast.Field(chain=["exposures", alias]))
+
+        # Inject into final SELECT - breakdown columns must come right after variant
+        for i, alias in enumerate(aliases):
+            query.select.insert(
+                1 + i,  # Position after variant column (index 0)
+                ast.Alias(alias=alias, expr=ast.Field(chain=["entity_metrics", alias])),
+            )
+
+        # Inject into final GROUP BY
+        if query.group_by is None:
+            query.group_by = []
+        for alias in aliases:
+            query.group_by.append(ast.Field(chain=["entity_metrics", alias]))
+
+    def inject_funnel_breakdown_columns_optimized(self, query: ast.SelectQuery) -> None:
+        """
+        Injects breakdown columns into the optimized 2-CTE funnel query AST.
+        The optimized query has base_events and entity_metrics CTEs (no exposures CTE).
+        Modifies query in-place.
+        """
+        if not self._has_breakdown():
+            return
+
+        aliases = self._get_breakdown_aliases()
+        breakdown_exprs = self.build_breakdown_exprs(table_alias="")
+
+        # Inject into base_events CTE SELECT
+        if query.ctes and "base_events" in query.ctes:
+            base_events_cte = query.ctes["base_events"]
+            if isinstance(base_events_cte, ast.CTE) and isinstance(base_events_cte.expr, ast.SelectQuery):
+                for alias, expr in breakdown_exprs:
+                    base_events_cte.expr.select.append(ast.Alias(alias=alias, expr=expr))
+
+        # Inject into entity_metrics CTE SELECT using argMinIf attribution from first exposure
+        if query.ctes and "entity_metrics" in query.ctes:
+            entity_metrics_cte = query.ctes["entity_metrics"]
+            if isinstance(entity_metrics_cte, ast.CTE) and isinstance(entity_metrics_cte.expr, ast.SelectQuery):
+                for alias in aliases:
+                    entity_metrics_cte.expr.select.append(
+                        ast.Alias(
+                            alias=alias,
+                            expr=ast.Call(
+                                name="argMinIf",
+                                args=[
+                                    ast.Field(chain=[alias]),
+                                    ast.Field(chain=["timestamp"]),
+                                    ast.CompareOperation(
+                                        op=ast.CompareOperationOp.Eq,
+                                        left=ast.Field(chain=["step_0"]),
+                                        right=ast.Constant(value=1),
+                                    ),
+                                ],
+                            ),
+                        )
+                    )
 
         # Inject into final SELECT - breakdown columns must come right after variant
         for i, alias in enumerate(aliases):

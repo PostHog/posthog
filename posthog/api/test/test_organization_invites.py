@@ -6,6 +6,7 @@ from unittest.mock import ANY, patch
 
 from django.core import mail
 
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.constants import AvailableFeature
@@ -13,7 +14,9 @@ from posthog.models import User
 from posthog.models.instance_setting import set_instance_setting
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.organization_invite import OrganizationInvite
+from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team.team import Team
+from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 from ee.models import Role, RoleMembership
 from ee.models.rbac.access_control import AccessControl
@@ -381,7 +384,47 @@ class TestOrganizationInvitesAPI(APIBaseTest):
             {
                 "type": "validation_error",
                 "code": "invalid_input",
-                "detail": "You cannot invite to a private project with a higher level than your own.",
+                "detail": "You cannot invite to a restricted project with a higher level than your own.",
+                "attr": "private_project_access",
+            },
+            response_data,
+        )
+        self.assertEqual(OrganizationInvite.objects.count(), count)
+
+    def test_invite_fails_if_inviter_level_is_lower_than_requested_level_on_member_restricted_project(self):
+        """
+        Regression test: when a project's default access_level is "member" (not "none"),
+        a standard member must still be prevented from requesting admin access.
+        """
+        email = "escalation@posthog.com"
+        count = OrganizationInvite.objects.count()
+        restricted_team = Team.objects.create(organization=self.organization, name="Member-Restricted Team")
+        organization_membership = OrganizationMembership.objects.get(user=self.user, organization=self.organization)
+        organization_membership.level = OrganizationMembership.Level.MEMBER
+        organization_membership.save()
+
+        # Restrict the project with default access level "member" (not "none")
+        AccessControl.objects.create(
+            team=restricted_team,
+            access_level="member",
+            resource="project",
+            resource_id=str(restricted_team.id),
+        )
+        response = self.client.post(
+            "/api/organizations/@current/invites/",
+            {
+                "target_email": email,
+                "level": OrganizationMembership.Level.MEMBER,
+                "private_project_access": [{"id": restricted_team.id, "level": "admin"}],
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        response_data = response.json()
+        self.assertDictEqual(
+            {
+                "type": "validation_error",
+                "code": "invalid_input",
+                "detail": "You cannot invite to a restricted project with a higher level than your own.",
                 "attr": "private_project_access",
             },
             response_data,
@@ -1087,6 +1130,7 @@ class TestOrganizationInvitesAPI(APIBaseTest):
 
         # Verify the invite was created with the correct private project access
         invite = OrganizationInvite.objects.get(target_email="test@posthog.com")
+        assert invite.private_project_access is not None
         self.assertEqual(len(invite.private_project_access), 1)
         self.assertEqual(invite.private_project_access[0]["id"], team.id)
         self.assertEqual(invite.private_project_access[0]["level"], "member")
@@ -1118,6 +1162,7 @@ class TestOrganizationInvitesAPI(APIBaseTest):
 
         # Verify the invite was created with the correct private project access
         invite = OrganizationInvite.objects.get(target_email="test@posthog.com")
+        assert invite.private_project_access is not None
         self.assertEqual(len(invite.private_project_access), 1)
         self.assertEqual(invite.private_project_access[0]["id"], team.id)
         self.assertEqual(invite.private_project_access[0]["level"], "member")
@@ -1194,6 +1239,7 @@ class TestOrganizationInvitesAPI(APIBaseTest):
 
         # Verify the invite was created with the correct private project access
         invite = OrganizationInvite.objects.get(target_email="test@posthog.com")
+        assert invite.private_project_access is not None
         self.assertEqual(len(invite.private_project_access), 1)
         self.assertEqual(invite.private_project_access[0]["id"], team.id)
         self.assertEqual(invite.private_project_access[0]["level"], "member")
@@ -1285,3 +1331,105 @@ class TestOrganizationInvitesAPI(APIBaseTest):
 
         # Check that the user was not assigned to any roles
         assert RoleMembership.objects.filter(user=new_user).count() == 0
+
+    def _create_api_key(self, scopes: list[str]) -> str:
+        key_value = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="Test Key",
+            user=self.user,
+            secure_value=hash_key_value(key_value),
+            scopes=scopes,
+        )
+        return key_value
+
+    @parameterized.expand(
+        [
+            (["organization_member:read"], "get", status.HTTP_200_OK, None),
+            (["organization_member:read"], "post", status.HTTP_403_FORBIDDEN, "organization_member:write"),
+            (["organization_member:write"], "post", status.HTTP_201_CREATED, None),
+        ]
+    )
+    @patch("posthog.api.organization_invite.send_invite")
+    def test_invite_api_key_scope_enforcement(self, scopes, http_method, expected_status, error_scope, _):
+        api_key = self._create_api_key(scopes)
+        self.client.logout()
+
+        url = f"/api/organizations/{self.organization.id}/invites/"
+        if http_method == "post":
+            response = self.client.post(
+                url,
+                {"target_email": "scope-test-invite@posthog.com"},
+                HTTP_AUTHORIZATION=f"Bearer {api_key}",
+            )
+        else:
+            response = self.client.get(url, HTTP_AUTHORIZATION=f"Bearer {api_key}")
+
+        assert response.status_code == expected_status
+        if error_scope:
+            assert error_scope in response.json()["detail"]
+
+    @patch("posthog.api.organization_invite.send_invite")
+    def test_invite_delete_api_key_scope_enforcement(self, _):
+        invite = OrganizationInvite.objects.create(target_email="todelete@posthog.com", organization=self.organization)
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        api_key = self._create_api_key(["organization_member:read"])
+        self.client.logout()
+
+        response = self.client.delete(
+            f"/api/organizations/{self.organization.id}/invites/{invite.id}/",
+            HTTP_AUTHORIZATION=f"Bearer {api_key}",
+        )
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert "organization_member:write" in response.json()["detail"]
+
+    @patch("posthog.api.organization_invite.send_invite")
+    def test_invite_bulk_api_key_scope_enforcement(self, _):
+        api_key = self._create_api_key(["organization_member:read"])
+        self.client.logout()
+
+        response = self.client.post(
+            f"/api/organizations/{self.organization.id}/invites/bulk/",
+            [{"target_email": "bulk@posthog.com"}],
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {api_key}",
+        )
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert "organization_member:write" in response.json()["detail"]
+
+    def test_cross_org_invite_permission_bypass(self):
+        """
+        Org A has members_can_invite=True and ORGANIZATION_INVITE_SETTINGS.
+        Org B has members_can_invite=False and ORGANIZATION_INVITE_SETTINGS.
+        User is member in both, active org = A.
+        POST invite to Org B → 403.
+        """
+        org_b = Organization.objects.create(name="Org B")
+        org_b.available_product_features = [
+            {"key": AvailableFeature.ORGANIZATION_INVITE_SETTINGS},
+            {"key": AvailableFeature.ADVANCED_PERMISSIONS},
+        ]
+        org_b.members_can_invite = False
+        org_b.save()
+        OrganizationMembership.objects.create(
+            user=self.user, organization=org_b, level=OrganizationMembership.Level.MEMBER
+        )
+
+        # Org A allows members to invite
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ORGANIZATION_INVITE_SETTINGS},
+            {"key": AvailableFeature.ADVANCED_PERMISSIONS},
+        ]
+        self.organization.members_can_invite = True
+        self.organization.save()
+
+        # Switch active org to A
+        self.user.current_organization = self.organization
+        self.user.save()
+
+        response = self.client.post(
+            f"/api/organizations/{org_b.id}/invites/",
+            {"target_email": "cross_org_test@posthog.com"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)

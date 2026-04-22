@@ -6,19 +6,26 @@ from posthog.schema import (
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
     SourceFieldOauthConfig,
+    SuggestedTable,
 )
 
 from posthog.exceptions_capture import capture_exception
 from posthog.models.integration import Integration
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
-from posthog.temporal.data_imports.sources.common.base import FieldType, SimpleSource
+from posthog.temporal.data_imports.sources.common.base import (
+    MARKETING_ANALYTICS_SUGGESTED_TABLE_TOOLTIP,
+    FieldType,
+    ResumableSource,
+)
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
+from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 from posthog.temporal.data_imports.sources.generated_configs import LinkedinAdsSourceConfig
 
 from products.data_warehouse.backend.types import ExternalDataSourceType
 
 from .linkedin_ads import (
+    LinkedInAdsResumeConfig,
     get_incremental_fields as get_linkedin_ads_incremental_fields,
     get_schemas as get_linkedin_ads_schemas,
     linkedin_ads_source,
@@ -26,7 +33,7 @@ from .linkedin_ads import (
 
 
 @SourceRegistry.register
-class LinkedInAdsSource(SimpleSource[LinkedinAdsSourceConfig]):
+class LinkedInAdsSource(ResumableSource[LinkedinAdsSourceConfig, LinkedInAdsResumeConfig]):
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.LINKEDINADS
@@ -64,6 +71,16 @@ class LinkedInAdsSource(SimpleSource[LinkedinAdsSourceConfig]):
                     ),
                 ],
             ),
+            suggestedTables=[
+                SuggestedTable(
+                    table="campaign_groups",
+                    tooltip=MARKETING_ANALYTICS_SUGGESTED_TABLE_TOOLTIP,
+                ),
+                SuggestedTable(
+                    table="campaign_group_stats",
+                    tooltip=MARKETING_ANALYTICS_SUGGESTED_TABLE_TOOLTIP,
+                ),
+            ],
         )
 
     def validate_credentials(
@@ -82,12 +99,16 @@ class LinkedInAdsSource(SimpleSource[LinkedinAdsSourceConfig]):
             return False, f"Failed to validate LinkedIn Ads credentials: {str(e)}"
 
     def get_schemas(
-        self, config: LinkedinAdsSourceConfig, team_id: int, with_counts: bool = False
+        self,
+        config: LinkedinAdsSourceConfig,
+        team_id: int,
+        with_counts: bool = False,
+        names: list[str] | None = None,
     ) -> list[SourceSchema]:
         linkedin_ads_schemas = get_linkedin_ads_schemas()
         ads_incremental_fields = get_linkedin_ads_incremental_fields()
 
-        return [
+        schemas = [
             SourceSchema(
                 name=endpoint,
                 supports_incremental=ads_incremental_fields.get(endpoint, None) is not None,
@@ -100,11 +121,27 @@ class LinkedInAdsSource(SimpleSource[LinkedinAdsSourceConfig]):
             for endpoint in linkedin_ads_schemas.keys()
         ]
 
-    def source_for_pipeline(self, config: LinkedinAdsSourceConfig, inputs: SourceInputs) -> SourceResponse:
+        if names is not None:
+            names_set = set(names)
+            schemas = [s for s in schemas if s.name in names_set]
+
+        return schemas
+
+    def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[LinkedInAdsResumeConfig]:
+        return ResumableSourceManager[LinkedInAdsResumeConfig](inputs, LinkedInAdsResumeConfig)
+
+    def source_for_pipeline(
+        self,
+        config: LinkedinAdsSourceConfig,
+        resumable_source_manager: ResumableSourceManager[LinkedInAdsResumeConfig],
+        inputs: SourceInputs,
+    ) -> SourceResponse:
         return linkedin_ads_source(
             config=config,
             resource_name=inputs.schema_name,
             team_id=inputs.team_id,
+            resumable_source_manager=resumable_source_manager,
+            logger=inputs.logger,
             should_use_incremental_field=inputs.should_use_incremental_field,
             incremental_field=inputs.incremental_field if inputs.should_use_incremental_field else None,
             incremental_field_type=inputs.incremental_field_type if inputs.should_use_incremental_field else None,

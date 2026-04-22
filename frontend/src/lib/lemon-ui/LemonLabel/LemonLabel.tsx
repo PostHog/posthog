@@ -11,11 +11,10 @@ import { AvailableFeature } from '~/types'
 import { Link, LinkProps } from '../Link'
 import { Tooltip } from '../Tooltip'
 
-export interface LemonLabelProps
-    extends Pick<
-        React.LabelHTMLAttributes<HTMLLabelElement>,
-        'id' | 'htmlFor' | 'form' | 'children' | 'className' | 'onClick'
-    > {
+export interface LemonLabelProps extends Pick<
+    React.LabelHTMLAttributes<HTMLLabelElement>,
+    'id' | 'htmlFor' | 'form' | 'children' | 'className' | 'onClick'
+> {
     info?: React.ReactNode
     infoLink?: LinkProps['to']
     showOptional?: boolean
@@ -48,7 +47,7 @@ export function LemonLabel({
             ) : null}
 
             {info ? (
-                <Tooltip title={info}>
+                <Tooltip title={info} interactive>
                     {infoLink ? (
                         <Link to={infoLink} target="_blank" className="inline-flex">
                             <IconInfo className="text-xl text-secondary shrink-0" />

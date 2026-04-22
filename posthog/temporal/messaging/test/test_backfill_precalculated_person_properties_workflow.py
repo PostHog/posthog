@@ -1,274 +1,374 @@
 import pytest
 from unittest.mock import Mock, patch
 
-from posthog.temporal.messaging.backfill_precalculated_person_properties_workflow import flush_kafka_batch
+import temporalio.exceptions
+from parameterized import parameterized
+
+from posthog.temporal.messaging.backfill_precalculated_person_properties_workflow import (
+    BackfillPrecalculatedPersonPropertiesInputs,
+    backfill_precalculated_person_properties_activity,
+    evaluate_combined_filters_sync,
+    flush_kafka_batch_async,
+)
+from posthog.temporal.messaging.filter_storage import combine_filter_bytecodes, store_filters
+from posthog.temporal.messaging.types import PersonPropertyFilter
+
+from common.hogvm.python.execute import execute_bytecode
+from common.hogvm.python.operation import Operation
 
 
-class TestFlushKafkaBatch:
-    """Tests for the flush_kafka_batch helper function."""
+class TestFlushKafkaBatchAsync:
+    """Tests for the flush_kafka_batch_async helper function."""
 
     @pytest.mark.asyncio
-    async def test_empty_messages_returns_zero(self):
-        """When pending_messages is empty, should return 0 without flushing."""
+    async def test_empty_futures_returns_zero(self):
+        """When kafka_results is empty, should return 0 without flushing."""
         kafka_producer = Mock()
-        heartbeater = Mock()
         logger = Mock()
 
-        result = await flush_kafka_batch(
+        result = await flush_kafka_batch_async(
+            kafka_results=[],
             kafka_producer=kafka_producer,
-            pending_messages=[],
             team_id=1,
-            cohort_id=123,
-            current_offset=0,
-            heartbeater=heartbeater,
             logger=logger,
         )
 
         assert result == 0
-        kafka_producer.flush.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_successful_batch_flush(self):
-        """Should flush messages and return batch size on success."""
+    async def test_successful_batch_flush_async(self):
+        """Should handle successful ProduceResult objects correctly."""
         kafka_producer = Mock()
-        kafka_producer.flush = Mock()
-
-        # Mock successful send results
-        mock_results = [Mock() for _ in range(100)]
-        for mock_result in mock_results:
-            mock_result.get = Mock(return_value=None)
-
-        heartbeater = Mock()
         logger = Mock()
+
+        # Create mock ProduceResult objects
+        produce_result_1 = Mock()
+        produce_result_2 = Mock()
+        kafka_results = [produce_result_1, produce_result_2]
 
         with patch(
             "posthog.temporal.messaging.backfill_precalculated_person_properties_workflow.asyncio.to_thread"
         ) as mock_thread:
             mock_thread.return_value = None
 
-            result = await flush_kafka_batch(
+            result = await flush_kafka_batch_async(
+                kafka_results=kafka_results,
                 kafka_producer=kafka_producer,
-                pending_messages=mock_results,
                 team_id=1,
-                cohort_id=123,
-                current_offset=1000,
-                heartbeater=heartbeater,
                 logger=logger,
             )
 
-        assert result == 100
+        assert result == 2
         mock_thread.assert_called_once_with(kafka_producer.flush)
-        logger.info.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_final_batch_includes_final_in_messages(self):
-        """When is_final=True, should include 'final' in heartbeat and log messages."""
+    async def test_batch_flush_with_multiple_results(self):
+        """Should handle multiple ProduceResult objects correctly."""
         kafka_producer = Mock()
-        mock_result = Mock()
-        mock_result.get = Mock(return_value=None)
-
-        heartbeater = Mock()
         logger = Mock()
 
-        with patch("posthog.temporal.messaging.backfill_precalculated_person_properties_workflow.asyncio.to_thread"):
-            await flush_kafka_batch(
+        # Create mock ProduceResult objects - all are successful since failures are handled earlier
+        produce_result_1 = Mock()
+        produce_result_2 = Mock()
+        produce_result_3 = Mock()
+        kafka_results = [produce_result_1, produce_result_2, produce_result_3]
+
+        with patch(
+            "posthog.temporal.messaging.backfill_precalculated_person_properties_workflow.asyncio.to_thread"
+        ) as mock_thread:
+            mock_thread.return_value = None
+
+            result = await flush_kafka_batch_async(
+                kafka_results=kafka_results,
                 kafka_producer=kafka_producer,
-                pending_messages=[mock_result],
                 team_id=1,
-                cohort_id=123,
-                current_offset=5000,
-                heartbeater=heartbeater,
                 logger=logger,
-                is_final=True,
             )
 
-        # Check heartbeat details includes "final"
-        assert heartbeater.details[0].startswith("Flushing final ")
-
-        # Check logger includes "final"
-        log_call_args = logger.info.call_args[0][0]
-        assert "final" in log_call_args.lower()
+        # Should return count of all ProduceResult objects (3)
+        assert result == 3
+        mock_thread.assert_called_once_with(kafka_producer.flush)
 
     @pytest.mark.asyncio
-    async def test_non_final_batch_excludes_final_from_messages(self):
-        """When is_final=False, should not include 'final' in messages."""
+    async def test_batch_flush_calls_kafka_flush(self):
+        """Should call Kafka flush operation asynchronously."""
         kafka_producer = Mock()
-        mock_result = Mock()
-        mock_result.get = Mock(return_value=None)
-
-        heartbeater = Mock()
         logger = Mock()
 
-        with patch("posthog.temporal.messaging.backfill_precalculated_person_properties_workflow.asyncio.to_thread"):
-            await flush_kafka_batch(
+        # Create mock ProduceResult objects
+        produce_results = [Mock(), Mock()]
+
+        with patch(
+            "posthog.temporal.messaging.backfill_precalculated_person_properties_workflow.asyncio.to_thread"
+        ) as mock_thread:
+            mock_thread.return_value = None
+
+            result = await flush_kafka_batch_async(
+                kafka_results=produce_results,
                 kafka_producer=kafka_producer,
-                pending_messages=[mock_result],
                 team_id=1,
-                cohort_id=123,
-                current_offset=2000,
-                heartbeater=heartbeater,
-                logger=logger,
-                is_final=False,
-            )
-
-        # Check heartbeat details does not include "final"
-        heartbeat_msg = heartbeater.details[0]
-        assert "final" not in heartbeat_msg.lower()
-
-        # Check logger does not include "final"
-        log_call_args = logger.info.call_args[0][0]
-        assert "final" not in log_call_args.lower()
-
-    @pytest.mark.asyncio
-    async def test_batch_flush_with_partial_failures(self):
-        """Should raise exception when some messages fail to send."""
-        kafka_producer = Mock()
-
-        # Create mix of successful and failed results
-        successful_result = Mock()
-        successful_result.get = Mock(return_value=None)
-
-        failed_result = Mock()
-        failed_result.get = Mock(side_effect=Exception("Send failed"))
-
-        mock_results = [successful_result, failed_result, successful_result]
-
-        heartbeater = Mock()
-        logger = Mock()
-
-        with patch("posthog.temporal.messaging.backfill_precalculated_person_properties_workflow.asyncio.to_thread"):
-            with pytest.raises(Exception, match="Failed to send 1/3 Kafka messages"):
-                await flush_kafka_batch(
-                    kafka_producer=kafka_producer,
-                    pending_messages=mock_results,
-                    team_id=1,
-                    cohort_id=123,
-                    current_offset=3000,
-                    heartbeater=heartbeater,
-                    logger=logger,
-                )
-
-        # Should log warnings for failed messages
-        assert logger.warning.call_count == 1
-        # Should log error summary
-        assert logger.error.call_count == 1
-
-    @pytest.mark.asyncio
-    async def test_batch_flush_with_all_failures(self):
-        """Should raise exception when all messages fail to send."""
-        kafka_producer = Mock()
-
-        # All results fail
-        mock_results = []
-        for _ in range(5):
-            failed_result = Mock()
-            failed_result.get = Mock(side_effect=Exception("Send failed"))
-            mock_results.append(failed_result)
-
-        heartbeater = Mock()
-        logger = Mock()
-
-        with patch("posthog.temporal.messaging.backfill_precalculated_person_properties_workflow.asyncio.to_thread"):
-            with pytest.raises(Exception, match="Failed to send 5/5 Kafka messages"):
-                await flush_kafka_batch(
-                    kafka_producer=kafka_producer,
-                    pending_messages=mock_results,
-                    team_id=1,
-                    cohort_id=123,
-                    current_offset=4000,
-                    heartbeater=heartbeater,
-                    logger=logger,
-                )
-
-        assert logger.warning.call_count == 5
-        assert logger.error.call_count == 1
-
-    @pytest.mark.asyncio
-    async def test_heartbeat_details_format(self):
-        """Should format heartbeat details with offset and cohort information."""
-        kafka_producer = Mock()
-        mock_result = Mock()
-        mock_result.get = Mock(return_value=None)
-
-        heartbeater = Mock()
-        logger = Mock()
-
-        with patch("posthog.temporal.messaging.backfill_precalculated_person_properties_workflow.asyncio.to_thread"):
-            await flush_kafka_batch(
-                kafka_producer=kafka_producer,
-                pending_messages=[mock_result] * 10000,
-                team_id=1,
-                cohort_id=456,
-                current_offset=50000,
-                heartbeater=heartbeater,
                 logger=logger,
             )
 
-        heartbeat_msg = heartbeater.details[0]
-        assert "10000 messages" in heartbeat_msg
-        assert "cohort 456" in heartbeat_msg
-        assert "offset 50000" in heartbeat_msg
+        # Should return count of ProduceResult objects and call flush
+        assert result == 2
+        mock_thread.assert_called_once_with(kafka_producer.flush)
+
+
+class TestBackfillPrecalculatedPersonPropertiesActivity:
+    """Tests for the main backfill activity function."""
 
     @pytest.mark.asyncio
-    async def test_logger_includes_metadata(self):
-        """Should include team_id, cohort_id, offset, and batch_size in logger metadata."""
-        kafka_producer = Mock()
-        mock_result = Mock()
-        mock_result.get = Mock(return_value=None)
+    async def test_missing_filter_storage_key_raises_non_retryable_error(self):
+        """Should raise non-retryable error when filter storage key doesn't exist."""
+        inputs = BackfillPrecalculatedPersonPropertiesInputs(
+            team_id=1,
+            filter_storage_key="nonexistent_key",
+            cohort_ids=[10],
+            batch_size=10,
+            start_person_id="00000000-0000-0000-0000-000000000000",
+            end_person_id="ffffffff-ffff-ffff-ffff-ffffffffffff",
+        )
 
-        heartbeater = Mock()
-        logger = Mock()
+        with pytest.raises(temporalio.exceptions.ApplicationError) as exc_info:
+            await backfill_precalculated_person_properties_activity(inputs)
 
-        with patch("posthog.temporal.messaging.backfill_precalculated_person_properties_workflow.asyncio.to_thread"):
-            await flush_kafka_batch(
-                kafka_producer=kafka_producer,
-                pending_messages=[mock_result] * 5000,
-                team_id=42,
-                cohort_id=789,
-                current_offset=25000,
-                heartbeater=heartbeater,
-                logger=logger,
-            )
-
-        # Check logger.info was called with metadata
-        logger.info.assert_called_once()
-        call_kwargs = logger.info.call_args[1]
-        assert call_kwargs["team_id"] == 42
-        assert call_kwargs["cohort_id"] == 789
-        assert call_kwargs["offset"] == 25000
-        assert call_kwargs["batch_size"] == 5000
-
-
-class TestBatchFlushingBehavior:
-    """Tests for batch flushing logic and integration."""
+        assert exc_info.value.non_retryable is True
+        assert "Filters not found" in str(exc_info.value)
 
     @pytest.mark.asyncio
-    async def test_multiple_batches_handled_correctly(self):
-        """Should handle multiple batch flushes correctly."""
-        kafka_producer = Mock()
+    async def test_no_filters_aborts_early(self):
+        """Should abort early and return zero results when no filters exist."""
+        storage_key = store_filters([], team_id=1)
 
-        # Simulate 3 batches: 10k, 10k, 5k
-        heartbeater = Mock()
-        logger = Mock()
+        inputs = BackfillPrecalculatedPersonPropertiesInputs(
+            team_id=1,
+            filter_storage_key=storage_key,
+            cohort_ids=[10],
+            batch_size=10,
+            start_person_id="00000000-0000-0000-0000-000000000000",
+            end_person_id="ffffffff-ffff-ffff-ffff-ffffffffffff",
+        )
 
-        mock_results_batch1 = [Mock() for _ in range(10000)]
-        mock_results_batch2 = [Mock() for _ in range(10000)]
-        mock_results_batch3 = [Mock() for _ in range(5000)]
+        result = await backfill_precalculated_person_properties_activity(inputs)
 
-        for result in mock_results_batch1 + mock_results_batch2 + mock_results_batch3:
-            result.get = Mock(return_value=None)
+        # Should return early with zero results
+        assert result.persons_processed == 0
+        assert result.events_produced == 0
+        assert result.events_flushed == 0
+        assert result.last_person_id is None
 
-        with patch("posthog.temporal.messaging.backfill_precalculated_person_properties_workflow.asyncio.to_thread"):
-            # Batch 1
-            result1 = await flush_kafka_batch(kafka_producer, mock_results_batch1, 1, 123, 0, heartbeater, logger)
-            # Batch 2
-            result2 = await flush_kafka_batch(kafka_producer, mock_results_batch2, 1, 123, 10000, heartbeater, logger)
-            # Batch 3 (final)
-            result3 = await flush_kafka_batch(
-                kafka_producer, mock_results_batch3, 1, 123, 20000, heartbeater, logger, is_final=True
+    @pytest.mark.asyncio
+    async def test_property_names_with_backticks_generate_safe_query(self):
+        """Should safely handle property names that contain backticks."""
+        # Create filters with a property name containing backticks
+        filters = [
+            PersonPropertyFilter(
+                condition_hash="backtick_condition",
+                bytecode=[],  # Empty bytecode for test
+                cohort_ids=[10],
+                property_key="weird`property",
+            ),
+        ]
+
+        storage_key = store_filters(filters, team_id=1)
+
+        # This should not crash when constructing query parameters
+        inputs = BackfillPrecalculatedPersonPropertiesInputs(
+            team_id=1,
+            filter_storage_key=storage_key,
+            cohort_ids=[10],
+            batch_size=10,
+            start_person_id="00000000-0000-0000-0000-000000000000",
+            end_person_id="ffffffff-ffff-ffff-ffff-ffffffffffff",
+        )
+
+        # Basic verification that the filter was stored correctly
+        assert inputs.filter_storage_key == storage_key
+
+
+class TestCombineFilterBytecodes:
+    """Tests for combine_filter_bytecodes."""
+
+    def test_single_filter(self):
+        filters = [
+            PersonPropertyFilter(
+                condition_hash="h1",
+                bytecode=["_H", 1, 31, 32, "$browser", 32, "properties", 32, "person", 1, 3, 12],
+                cohort_ids=[10],
+                property_key="$browser",
+            ),
+        ]
+        result = combine_filter_bytecodes(filters)
+        assert result[0] == "_H"
+        assert result[1] == 1
+        assert result[2] == Operation.STRING
+        assert result[3] == "h1"
+        # Body without header
+        assert result[4:-2] == [31, 32, "$browser", 32, "properties", 32, "person", 1, 3, 12]
+        # Trailing DICT
+        assert result[-2] == Operation.DICT
+        assert result[-1] == 1
+
+    def test_multiple_filters(self):
+        filters = [
+            PersonPropertyFilter(condition_hash="h1", bytecode=["_H", 1, 29], cohort_ids=[1], property_key=None),
+            PersonPropertyFilter(condition_hash="h2", bytecode=["_H", 1, 30], cohort_ids=[2], property_key=None),
+        ]
+        result = combine_filter_bytecodes(filters)
+        assert result == ["_H", 1, Operation.STRING, "h1", 29, Operation.STRING, "h2", 30, Operation.DICT, 2]
+
+    def test_skips_malformed_bytecodes(self):
+        filters = [
+            PersonPropertyFilter(condition_hash="bad", bytecode=["_H", 1], cohort_ids=[1], property_key=None),
+            PersonPropertyFilter(condition_hash="good", bytecode=["_H", 1, 29], cohort_ids=[2], property_key=None),
+        ]
+        result = combine_filter_bytecodes(filters)
+        assert result == ["_H", 1, Operation.STRING, "good", 29, Operation.DICT, 1]
+
+    def test_executes_and_returns_dict(self):
+        filters = [
+            PersonPropertyFilter(condition_hash="h1", bytecode=["_H", 1, 29], cohort_ids=[1], property_key=None),
+            PersonPropertyFilter(condition_hash="h2", bytecode=["_H", 1, 30], cohort_ids=[2], property_key=None),
+        ]
+        combined = combine_filter_bytecodes(filters)
+        result = execute_bytecode(combined, {})
+        assert result.result == {"h1": True, "h2": False}
+
+    @parameterized.expand(
+        [
+            ({"person": {"properties": {"$browser": "Chrome"}}}, {"browser_set": True}),
+            ({"person": {"properties": {}}}, {"browser_set": False}),
+        ]
+    )
+    def test_executes_with_person_properties(self, globals_input, expected_result):
+        # Bytecode for: person.properties.$browser != NULL (is_set check)
+        browser_bytecode = ["_H", 1, 31, 32, "$browser", 32, "properties", 32, "person", 1, 3, 12]
+        filters = [
+            PersonPropertyFilter(
+                condition_hash="browser_set",
+                bytecode=browser_bytecode,
+                cohort_ids=[10],
+                property_key="$browser",
+            ),
+        ]
+        combined = combine_filter_bytecodes(filters)
+
+        result = execute_bytecode(combined, globals_input)
+        assert result.result == expected_result
+
+    @parameterized.expand(
+        [
+            ({"person": {"properties": {"$browser": "Chrome"}}}, {"browser_set": True, "host_set": False}),
+            (
+                {"person": {"properties": {"$browser": "Chrome", "$host": "example.com"}}},
+                {"browser_set": True, "host_set": True},
+            ),
+        ]
+    )
+    def test_executes_multiple_property_filters(self, globals_input, expected_result):
+        browser_bytecode = ["_H", 1, 31, 32, "$browser", 32, "properties", 32, "person", 1, 3, 12]
+        host_bytecode = ["_H", 1, 31, 32, "$host", 32, "properties", 32, "person", 1, 3, 12]
+        filters = [
+            PersonPropertyFilter(
+                condition_hash="browser_set", bytecode=browser_bytecode, cohort_ids=[10], property_key="$browser"
+            ),
+            PersonPropertyFilter(
+                condition_hash="host_set", bytecode=host_bytecode, cohort_ids=[10], property_key="$host"
+            ),
+        ]
+        combined = combine_filter_bytecodes(filters)
+
+        result = execute_bytecode(combined, globals_input)
+        assert result.result == expected_result
+
+    @parameterized.expand(
+        [
+            (
+                "single_failing",
+                ["failing_condition"],
+                ["working_condition"],
+                {"working_condition": True},
+            ),
+            (
+                "multiple_failing",
+                ["fail1", "fail2"],
+                ["work"],
+                {"work": True},
+            ),
+        ]
+    )
+    def test_failing_filters_are_omitted_from_results(self, _, failing_hashes, working_hashes, expected):
+        """Failing filters should be omitted from results, not crash the entire execution."""
+        from posthog.temporal.messaging.backfill_precalculated_person_properties_workflow import (
+            evaluate_combined_filters_with_fallback_sync,
+        )
+
+        failing_bytecode = ["_H", 1, 31, 32, "nonexistent", 32, "properties", 32, "person", 1, 3, 32, "test", 13]
+        working_bytecode = ["_H", 1, 29]  # Always true
+
+        filters = [
+            PersonPropertyFilter(condition_hash=h, bytecode=failing_bytecode, cohort_ids=[i], property_key=None)
+            for i, h in enumerate(failing_hashes)
+        ] + [
+            PersonPropertyFilter(
+                condition_hash=h, bytecode=working_bytecode, cohort_ids=[len(failing_hashes) + i], property_key=None
             )
+            for i, h in enumerate(working_hashes)
+        ]
 
-        assert result1 == 10000
-        assert result2 == 10000
-        assert result3 == 5000
-        assert result1 + result2 + result3 == 25000
+        combined = combine_filter_bytecodes(filters)
+        result = evaluate_combined_filters_with_fallback_sync(
+            combined, filters, {"person": {"properties": {}}}, "test-person"
+        )
+
+        assert result == expected
+
+
+class TestEvaluateCombinedFiltersSync:
+    """Tests for evaluate_combined_filters_sync."""
+
+    def test_returns_dict_on_success(self):
+        combined = ["_H", 1, Operation.STRING, "h1", 29, Operation.DICT, 1]
+        result = evaluate_combined_filters_sync(combined, {}, "person-1")
+        assert result == {"h1": True}
+
+    def test_returns_empty_dict_on_error(self):
+        result = evaluate_combined_filters_sync(["_H", 1, 999], {}, "person-1")
+        assert result == {}
+
+    @parameterized.expand(
+        [
+            ("enabled_success", True, {"test_condition": True}, True, False),
+            ("disabled", False, {"test_condition": True}, False, False),
+            ("enabled_non_dict", True, {}, True, True),
+        ]
+    )
+    @patch("posthog.temporal.messaging.backfill_precalculated_person_properties_workflow.LOGGER")
+    def test_detailed_logging(self, _name, detailed, expected_result, expect_info, expect_warning, mock_logger):
+        if detailed and expect_warning:
+            combined = ["_H", 1, Operation.STRING, "not_a_dict"]
+        else:
+            combined = ["_H", 1, Operation.STRING, "test_condition", 29, Operation.DICT, 1]
+
+        hog_globals = {"person": {"properties": {"$browser": "Chrome"}}} if detailed and not expect_warning else {}
+
+        result = evaluate_combined_filters_sync(combined, hog_globals, "person-123", detailed_logging=detailed)
+
+        assert result == expected_result
+
+        if expect_info:
+            mock_logger.info.assert_called_once()
+            call_args = mock_logger.info.call_args
+            assert call_args[0][0] == "HogVM evaluation completed"
+            logged_kwargs = call_args[1]
+            assert logged_kwargs["person_id"] == "person-123"
+        else:
+            mock_logger.info.assert_not_called()
+
+        if expect_warning:
+            mock_logger.warning.assert_called_once()
+            call_args = mock_logger.warning.call_args
+            assert call_args[0][0] == "HogVM evaluation returned non-dict result"
+        else:
+            mock_logger.warning.assert_not_called()

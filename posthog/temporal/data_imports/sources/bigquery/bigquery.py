@@ -6,7 +6,7 @@ import collections.abc
 from datetime import date, datetime
 
 import pyarrow as pa
-from dlt.common.normalizers.naming.snake_case import NamingConvention
+import structlog
 from google.api_core.exceptions import Forbidden
 from google.cloud import bigquery, bigquery_storage
 from google.cloud.bigquery.job import QueryJobConfig
@@ -14,6 +14,7 @@ from google.oauth2 import service_account
 from structlog.types import FilteringBoundLogger
 
 from posthog.exceptions_capture import capture_exception
+from posthog.temporal.data_imports.naming_convention import NamingConvention
 from posthog.temporal.data_imports.pipelines.helpers import incremental_type_to_initial_value
 from posthog.temporal.data_imports.pipelines.pipeline.consts import DEFAULT_TABLE_SIZE_BYTES
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
@@ -26,8 +27,9 @@ from products.data_warehouse.backend.types import IncrementalFieldType, Partitio
 def get_schemas(
     config: BigQuerySourceConfig,
     logger: FilteringBoundLogger | None = None,
-) -> dict[str, list[tuple[str, str]]]:
-    schema_list = collections.defaultdict(list)
+    names: list[str] | None = None,
+) -> dict[str, list[tuple[str, str, bool]]]:
+    schema_list: dict[str, list[tuple[str, str, bool]]] = collections.defaultdict(list)
 
     region: str | None = None
     if (
@@ -47,7 +49,7 @@ def get_schemas(
         config.key_file.token_uri,
     ) as bq:
         query = bq.query(
-            f"SELECT table_name, column_name, data_type FROM `{config.dataset_id}.INFORMATION_SCHEMA.COLUMNS` ORDER BY table_name ASC",
+            f"SELECT table_name, column_name, data_type, is_nullable FROM `{config.dataset_id}.INFORMATION_SCHEMA.COLUMNS` ORDER BY table_name ASC",
             project=config.dataset_project.dataset_project_id
             if config.dataset_project and config.dataset_project.enabled
             else config.key_file.project_id,
@@ -63,7 +65,11 @@ def get_schemas(
             return {}
 
         for row in rows:
-            schema_list[row.table_name].append((row.column_name, row.data_type))
+            schema_list[row.table_name].append((row.column_name, row.data_type, row.is_nullable == "YES"))
+
+    if names is not None:
+        names_set = set(names)
+        schema_list = {k: v for k, v in schema_list.items() if k in names_set}
 
     return schema_list
 
@@ -137,16 +143,16 @@ def delete_all_temp_destination_tables(
             capture_exception(e)
 
 
-def filter_incremental_fields(columns: list[tuple[str, str]]) -> list[tuple[str, IncrementalFieldType]]:
-    results: list[tuple[str, IncrementalFieldType]] = []
-    for column_name, type in columns:
+def filter_incremental_fields(columns: list[tuple[str, str, bool]]) -> list[tuple[str, IncrementalFieldType, bool]]:
+    results: list[tuple[str, IncrementalFieldType, bool]] = []
+    for column_name, type, nullable in columns:
         type = type.upper()
         if type.startswith("TIMESTAMP"):
-            results.append((column_name, IncrementalFieldType.Timestamp))
-        elif type.startswith("DATE"):
-            results.append((column_name, IncrementalFieldType.Date))
+            results.append((column_name, IncrementalFieldType.Timestamp, nullable))
         elif type.startswith("DATETIME"):
-            results.append((column_name, IncrementalFieldType.DateTime))
+            results.append((column_name, IncrementalFieldType.DateTime, nullable))
+        elif type.startswith("DATE"):
+            results.append((column_name, IncrementalFieldType.Date, nullable))
         elif (
             type.startswith("INT64")
             or type.startswith("NUMERIC")
@@ -158,7 +164,7 @@ def filter_incremental_fields(columns: list[tuple[str, str]]) -> list[tuple[str,
             or type.startswith("TINYINT")
             or type.startswith("BYTEINT")
         ):
-            results.append((column_name, IncrementalFieldType.Integer))
+            results.append((column_name, IncrementalFieldType.Integer, nullable))
 
     return results
 
@@ -235,6 +241,72 @@ def get_partition_settings(
         return PartitionSettings(partition_count=1, partition_size=partition_size)
 
     return PartitionSettings(partition_count=partition_count, partition_size=partition_size)
+
+
+def get_primary_keys_for_schemas(
+    config: BigQuerySourceConfig,
+    schemas: dict[str, list[tuple[str, str, bool]]],
+) -> dict[str, list[str] | None]:
+    """Detect primary keys for all tables in a dataset.
+
+    Returns a dict mapping table_name -> list of PK columns (or None).
+    Uses the same logic as get_primary_keys but batched into a single query.
+    """
+    region: str | None = None
+    if (
+        config.use_custom_region
+        and config.use_custom_region.enabled
+        and config.use_custom_region.region is not None
+        and config.use_custom_region.region != ""
+    ):
+        region = config.use_custom_region.region
+
+    result: dict[str, list[str] | None] = {}
+
+    with bigquery_client(
+        config.key_file.project_id,
+        region,
+        config.key_file.private_key,
+        config.key_file.private_key_id,
+        config.key_file.client_email,
+        config.key_file.token_uri,
+    ) as bq:
+        project = (
+            config.dataset_project.dataset_project_id
+            if config.dataset_project and config.dataset_project.enabled
+            else config.key_file.project_id
+        )
+
+        query = f"""
+        SELECT tc.table_name, kcu.column_name
+        FROM `{config.dataset_id}`.INFORMATION_SCHEMA.TABLE_CONSTRAINTS tc
+        JOIN `{config.dataset_id}`.INFORMATION_SCHEMA.KEY_COLUMN_USAGE kcu
+        ON tc.constraint_name = kcu.constraint_name
+        WHERE tc.constraint_type = 'PRIMARY KEY'
+        """
+
+        constraint_pks: dict[str, list[str]] = collections.defaultdict(list)
+        try:
+            job = bq.query(query, job_config=QueryJobConfig(), project=project)
+            for row in job.result():
+                table_name = row["table_name"]
+                col_name = row["column_name"].removeprefix(f"{table_name}.")
+                constraint_pks[table_name].append(col_name)
+        except Exception as e:
+            structlog.get_logger().warning("Failed to detect primary keys for BigQuery schemas", exc_info=e)
+
+        for table_name, columns in schemas.items():
+            existing_fields = {col[0] for col in columns}
+
+            if table_name in constraint_pks:
+                pks = [pk for pk in constraint_pks[table_name] if pk in existing_fields]
+                result[table_name] = pks if pks else None
+            elif "id" in existing_fields:
+                result[table_name] = ["id"]
+            else:
+                result[table_name] = None
+
+    return result
 
 
 def get_primary_keys(table: bigquery.Table, client: bigquery.Client) -> list[str] | None:
@@ -398,7 +470,7 @@ def bigquery_source(
     """
 
     project_id_for_dataset = dataset_project_id or project_id
-    name = NamingConvention().normalize_identifier(table_name)
+    name = NamingConvention.normalize_identifier(table_name)
     fully_qualified_table_name = f"{project_id_for_dataset}.{dataset_id}.{table_name}"
 
     with bigquery_client(

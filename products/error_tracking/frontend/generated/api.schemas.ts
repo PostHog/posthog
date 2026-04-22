@@ -7,16 +7,27 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
+/**
+ * @nullable
+ */
+export type ErrorTrackingAssignmentRuleApiAssignee = {
+    readonly type?: 'user' | 'role'
+    readonly id?: number | string
+} | null | null
+
 export interface ErrorTrackingAssignmentRuleApi {
     readonly id: string
     filters: unknown
-    readonly assignee: string
+    /** @nullable */
+    readonly assignee: ErrorTrackingAssignmentRuleApiAssignee
     /**
      * @minimum -2147483648
      * @maximum 2147483647
      */
     order_key: number
     disabled_data?: unknown | null
+    readonly created_at: string
+    readonly updated_at: string
 }
 
 export interface PaginatedErrorTrackingAssignmentRuleListApi {
@@ -28,169 +39,543 @@ export interface PaginatedErrorTrackingAssignmentRuleListApi {
     results: ErrorTrackingAssignmentRuleApi[]
 }
 
+export type FilterLogicalOperatorApi = (typeof FilterLogicalOperatorApi)[keyof typeof FilterLogicalOperatorApi]
+
+export const FilterLogicalOperatorApi = {
+    And: 'AND',
+    Or: 'OR',
+} as const
+
+export type PropertyOperatorApi = (typeof PropertyOperatorApi)[keyof typeof PropertyOperatorApi]
+
+export const PropertyOperatorApi = {
+    Exact: 'exact',
+    IsNot: 'is_not',
+    Icontains: 'icontains',
+    NotIcontains: 'not_icontains',
+    Regex: 'regex',
+    NotRegex: 'not_regex',
+    Gt: 'gt',
+    Gte: 'gte',
+    Lt: 'lt',
+    Lte: 'lte',
+    IsSet: 'is_set',
+    IsNotSet: 'is_not_set',
+    IsDateExact: 'is_date_exact',
+    IsDateBefore: 'is_date_before',
+    IsDateAfter: 'is_date_after',
+    Between: 'between',
+    NotBetween: 'not_between',
+    Min: 'min',
+    Max: 'max',
+    In: 'in',
+    NotIn: 'not_in',
+    IsCleanedPathExact: 'is_cleaned_path_exact',
+    FlagEvaluatesTo: 'flag_evaluates_to',
+    SemverEq: 'semver_eq',
+    SemverNeq: 'semver_neq',
+    SemverGt: 'semver_gt',
+    SemverGte: 'semver_gte',
+    SemverLt: 'semver_lt',
+    SemverLte: 'semver_lte',
+    SemverTilde: 'semver_tilde',
+    SemverCaret: 'semver_caret',
+    SemverWildcard: 'semver_wildcard',
+    IcontainsMulti: 'icontains_multi',
+    NotIcontainsMulti: 'not_icontains_multi',
+} as const
+
+/**
+ * Event properties
+ */
+export type EventPropertyFilterApiType = (typeof EventPropertyFilterApiType)[keyof typeof EventPropertyFilterApiType]
+
+export const EventPropertyFilterApiType = {
+    Event: 'event',
+} as const
+
+export interface EventPropertyFilterApi {
+    key: string
+    /** @nullable */
+    label?: string | null
+    operator?: PropertyOperatorApi | null
+    /** Event properties */
+    type?: EventPropertyFilterApiType
+    value?: (string | number | boolean)[] | string | number | boolean | null
+}
+
+/**
+ * Person properties
+ */
+export type PersonPropertyFilterApiType = (typeof PersonPropertyFilterApiType)[keyof typeof PersonPropertyFilterApiType]
+
+export const PersonPropertyFilterApiType = {
+    Person: 'person',
+} as const
+
+export interface PersonPropertyFilterApi {
+    key: string
+    /** @nullable */
+    label?: string | null
+    operator: PropertyOperatorApi
+    /** Person properties */
+    type?: PersonPropertyFilterApiType
+    value?: (string | number | boolean)[] | string | number | boolean | null
+}
+
+export type Key10Api = (typeof Key10Api)[keyof typeof Key10Api]
+
+export const Key10Api = {
+    TagName: 'tag_name',
+    Text: 'text',
+    Href: 'href',
+    Selector: 'selector',
+} as const
+
+export type ElementPropertyFilterApiType =
+    (typeof ElementPropertyFilterApiType)[keyof typeof ElementPropertyFilterApiType]
+
+export const ElementPropertyFilterApiType = {
+    Element: 'element',
+} as const
+
+export interface ElementPropertyFilterApi {
+    key: Key10Api
+    /** @nullable */
+    label?: string | null
+    operator: PropertyOperatorApi
+    type?: ElementPropertyFilterApiType
+    value?: (string | number | boolean)[] | string | number | boolean | null
+}
+
+export type EventMetadataPropertyFilterApiType =
+    (typeof EventMetadataPropertyFilterApiType)[keyof typeof EventMetadataPropertyFilterApiType]
+
+export const EventMetadataPropertyFilterApiType = {
+    EventMetadata: 'event_metadata',
+} as const
+
+export interface EventMetadataPropertyFilterApi {
+    key: string
+    /** @nullable */
+    label?: string | null
+    operator: PropertyOperatorApi
+    type?: EventMetadataPropertyFilterApiType
+    value?: (string | number | boolean)[] | string | number | boolean | null
+}
+
+export type SessionPropertyFilterApiType =
+    (typeof SessionPropertyFilterApiType)[keyof typeof SessionPropertyFilterApiType]
+
+export const SessionPropertyFilterApiType = {
+    Session: 'session',
+} as const
+
+export interface SessionPropertyFilterApi {
+    key: string
+    /** @nullable */
+    label?: string | null
+    operator: PropertyOperatorApi
+    type?: SessionPropertyFilterApiType
+    value?: (string | number | boolean)[] | string | number | boolean | null
+}
+
+export type CohortPropertyFilterApiKey = (typeof CohortPropertyFilterApiKey)[keyof typeof CohortPropertyFilterApiKey]
+
+export const CohortPropertyFilterApiKey = {
+    Id: 'id',
+} as const
+
+export type CohortPropertyFilterApiType = (typeof CohortPropertyFilterApiType)[keyof typeof CohortPropertyFilterApiType]
+
+export const CohortPropertyFilterApiType = {
+    Cohort: 'cohort',
+} as const
+
+export interface CohortPropertyFilterApi {
+    /** @nullable */
+    cohort_name?: string | null
+    key?: CohortPropertyFilterApiKey
+    /** @nullable */
+    label?: string | null
+    operator?: PropertyOperatorApi | null
+    type?: CohortPropertyFilterApiType
+    value: number
+}
+
+export type DurationTypeApi = (typeof DurationTypeApi)[keyof typeof DurationTypeApi]
+
+export const DurationTypeApi = {
+    Duration: 'duration',
+    ActiveSeconds: 'active_seconds',
+    InactiveSeconds: 'inactive_seconds',
+} as const
+
+export type RecordingPropertyFilterApiType =
+    (typeof RecordingPropertyFilterApiType)[keyof typeof RecordingPropertyFilterApiType]
+
+export const RecordingPropertyFilterApiType = {
+    Recording: 'recording',
+} as const
+
+export interface RecordingPropertyFilterApi {
+    key: DurationTypeApi | string
+    /** @nullable */
+    label?: string | null
+    operator: PropertyOperatorApi
+    type?: RecordingPropertyFilterApiType
+    value?: (string | number | boolean)[] | string | number | boolean | null
+}
+
+export type LogEntryPropertyFilterApiType =
+    (typeof LogEntryPropertyFilterApiType)[keyof typeof LogEntryPropertyFilterApiType]
+
+export const LogEntryPropertyFilterApiType = {
+    LogEntry: 'log_entry',
+} as const
+
+export interface LogEntryPropertyFilterApi {
+    key: string
+    /** @nullable */
+    label?: string | null
+    operator: PropertyOperatorApi
+    type?: LogEntryPropertyFilterApiType
+    value?: (string | number | boolean)[] | string | number | boolean | null
+}
+
+export type GroupPropertyFilterApiType = (typeof GroupPropertyFilterApiType)[keyof typeof GroupPropertyFilterApiType]
+
+export const GroupPropertyFilterApiType = {
+    Group: 'group',
+} as const
+
+/**
+ * @nullable
+ */
+export type GroupPropertyFilterApiGroupKeyNames = { [key: string]: string } | null | null
+
+export interface GroupPropertyFilterApi {
+    /** @nullable */
+    group_key_names?: GroupPropertyFilterApiGroupKeyNames
+    /** @nullable */
+    group_type_index?: number | null
+    key: string
+    /** @nullable */
+    label?: string | null
+    operator: PropertyOperatorApi
+    type?: GroupPropertyFilterApiType
+    value?: (string | number | boolean)[] | string | number | boolean | null
+}
+
+/**
+ * Event property with "$feature/" prepended
+ */
+export type FeaturePropertyFilterApiType =
+    (typeof FeaturePropertyFilterApiType)[keyof typeof FeaturePropertyFilterApiType]
+
+export const FeaturePropertyFilterApiType = {
+    Feature: 'feature',
+} as const
+
+export interface FeaturePropertyFilterApi {
+    key: string
+    /** @nullable */
+    label?: string | null
+    operator: PropertyOperatorApi
+    /** Event property with "$feature/" prepended */
+    type?: FeaturePropertyFilterApiType
+    value?: (string | number | boolean)[] | string | number | boolean | null
+}
+
+/**
+ * Only flag_evaluates_to operator is allowed for flag dependencies
+ */
+export type FlagPropertyFilterApiOperator =
+    (typeof FlagPropertyFilterApiOperator)[keyof typeof FlagPropertyFilterApiOperator]
+
+export const FlagPropertyFilterApiOperator = {
+    FlagEvaluatesTo: 'flag_evaluates_to',
+} as const
+
+/**
+ * Feature flag dependency
+ */
+export type FlagPropertyFilterApiType = (typeof FlagPropertyFilterApiType)[keyof typeof FlagPropertyFilterApiType]
+
+export const FlagPropertyFilterApiType = {
+    Flag: 'flag',
+} as const
+
+export interface FlagPropertyFilterApi {
+    /** The key should be the flag ID */
+    key: string
+    /** @nullable */
+    label?: string | null
+    /** Only flag_evaluates_to operator is allowed for flag dependencies */
+    operator?: FlagPropertyFilterApiOperator
+    /** Feature flag dependency */
+    type?: FlagPropertyFilterApiType
+    /** The value can be true, false, or a variant name */
+    value: boolean | string
+}
+
+export type HogQLPropertyFilterApiType = (typeof HogQLPropertyFilterApiType)[keyof typeof HogQLPropertyFilterApiType]
+
+export const HogQLPropertyFilterApiType = {
+    Hogql: 'hogql',
+} as const
+
+export interface HogQLPropertyFilterApi {
+    key: string
+    /** @nullable */
+    label?: string | null
+    type?: HogQLPropertyFilterApiType
+    value?: (string | number | boolean)[] | string | number | boolean | null
+}
+
+export type EmptyPropertyFilterApiType = (typeof EmptyPropertyFilterApiType)[keyof typeof EmptyPropertyFilterApiType]
+
+export const EmptyPropertyFilterApiType = {
+    Empty: 'empty',
+} as const
+
+export interface EmptyPropertyFilterApi {
+    type?: EmptyPropertyFilterApiType
+}
+
+export type DataWarehousePropertyFilterApiType =
+    (typeof DataWarehousePropertyFilterApiType)[keyof typeof DataWarehousePropertyFilterApiType]
+
+export const DataWarehousePropertyFilterApiType = {
+    DataWarehouse: 'data_warehouse',
+} as const
+
+export interface DataWarehousePropertyFilterApi {
+    key: string
+    /** @nullable */
+    label?: string | null
+    operator: PropertyOperatorApi
+    type?: DataWarehousePropertyFilterApiType
+    value?: (string | number | boolean)[] | string | number | boolean | null
+}
+
+export type DataWarehousePersonPropertyFilterApiType =
+    (typeof DataWarehousePersonPropertyFilterApiType)[keyof typeof DataWarehousePersonPropertyFilterApiType]
+
+export const DataWarehousePersonPropertyFilterApiType = {
+    DataWarehousePersonProperty: 'data_warehouse_person_property',
+} as const
+
+export interface DataWarehousePersonPropertyFilterApi {
+    key: string
+    /** @nullable */
+    label?: string | null
+    operator: PropertyOperatorApi
+    type?: DataWarehousePersonPropertyFilterApiType
+    value?: (string | number | boolean)[] | string | number | boolean | null
+}
+
+export type ErrorTrackingIssueFilterApiType =
+    (typeof ErrorTrackingIssueFilterApiType)[keyof typeof ErrorTrackingIssueFilterApiType]
+
+export const ErrorTrackingIssueFilterApiType = {
+    ErrorTrackingIssue: 'error_tracking_issue',
+} as const
+
+export interface ErrorTrackingIssueFilterApi {
+    key: string
+    /** @nullable */
+    label?: string | null
+    operator: PropertyOperatorApi
+    type?: ErrorTrackingIssueFilterApiType
+    value?: (string | number | boolean)[] | string | number | boolean | null
+}
+
+export type LogPropertyFilterTypeApi = (typeof LogPropertyFilterTypeApi)[keyof typeof LogPropertyFilterTypeApi]
+
+export const LogPropertyFilterTypeApi = {
+    Log: 'log',
+    LogAttribute: 'log_attribute',
+    LogResourceAttribute: 'log_resource_attribute',
+} as const
+
+export interface LogPropertyFilterApi {
+    key: string
+    /** @nullable */
+    label?: string | null
+    operator: PropertyOperatorApi
+    type: LogPropertyFilterTypeApi
+    value?: (string | number | boolean)[] | string | number | boolean | null
+}
+
+export type SpanPropertyFilterTypeApi = (typeof SpanPropertyFilterTypeApi)[keyof typeof SpanPropertyFilterTypeApi]
+
+export const SpanPropertyFilterTypeApi = {
+    Span: 'span',
+    SpanAttribute: 'span_attribute',
+    SpanResourceAttribute: 'span_resource_attribute',
+} as const
+
+export interface SpanPropertyFilterApi {
+    key: string
+    /** @nullable */
+    label?: string | null
+    operator: PropertyOperatorApi
+    type: SpanPropertyFilterTypeApi
+    value?: (string | number | boolean)[] | string | number | boolean | null
+}
+
+export type RevenueAnalyticsPropertyFilterApiType =
+    (typeof RevenueAnalyticsPropertyFilterApiType)[keyof typeof RevenueAnalyticsPropertyFilterApiType]
+
+export const RevenueAnalyticsPropertyFilterApiType = {
+    RevenueAnalytics: 'revenue_analytics',
+} as const
+
+export interface RevenueAnalyticsPropertyFilterApi {
+    key: string
+    /** @nullable */
+    label?: string | null
+    operator: PropertyOperatorApi
+    type?: RevenueAnalyticsPropertyFilterApiType
+    value?: (string | number | boolean)[] | string | number | boolean | null
+}
+
+export type WorkflowVariablePropertyFilterApiType =
+    (typeof WorkflowVariablePropertyFilterApiType)[keyof typeof WorkflowVariablePropertyFilterApiType]
+
+export const WorkflowVariablePropertyFilterApiType = {
+    WorkflowVariable: 'workflow_variable',
+} as const
+
+export interface WorkflowVariablePropertyFilterApi {
+    key: string
+    /** @nullable */
+    label?: string | null
+    operator: PropertyOperatorApi
+    type?: WorkflowVariablePropertyFilterApiType
+    value?: (string | number | boolean)[] | string | number | boolean | null
+}
+
+export interface PropertyGroupFilterValueApi {
+    type: FilterLogicalOperatorApi
+    values: (
+        | PropertyGroupFilterValueApi
+        | EventPropertyFilterApi
+        | PersonPropertyFilterApi
+        | ElementPropertyFilterApi
+        | EventMetadataPropertyFilterApi
+        | SessionPropertyFilterApi
+        | CohortPropertyFilterApi
+        | RecordingPropertyFilterApi
+        | LogEntryPropertyFilterApi
+        | GroupPropertyFilterApi
+        | FeaturePropertyFilterApi
+        | FlagPropertyFilterApi
+        | HogQLPropertyFilterApi
+        | EmptyPropertyFilterApi
+        | DataWarehousePropertyFilterApi
+        | DataWarehousePersonPropertyFilterApi
+        | ErrorTrackingIssueFilterApi
+        | LogPropertyFilterApi
+        | SpanPropertyFilterApi
+        | RevenueAnalyticsPropertyFilterApi
+        | WorkflowVariablePropertyFilterApi
+    )[]
+}
+
+/**
+ * * `user` - user
+ * `role` - role
+ */
+export type TypeDe9EnumApi = (typeof TypeDe9EnumApi)[keyof typeof TypeDe9EnumApi]
+
+export const TypeDe9EnumApi = {
+    User: 'user',
+    Role: 'role',
+} as const
+
+export interface ErrorTrackingAssignmentRuleAssigneeRequestApi {
+    /** Assignee type. Use `user` for a user ID or `role` for a role UUID.
+
+* `user` - user
+* `role` - role */
+    type: TypeDe9EnumApi
+    /** User ID when `type` is `user`, or role UUID when `type` is `role`. */
+    id: number | string
+}
+
+export interface ErrorTrackingAssignmentRuleCreateRequestApi {
+    /** Property-group filters that define when this rule matches incoming error events. */
+    filters: PropertyGroupFilterValueApi
+    /** User or role to assign matching issues to. */
+    assignee: ErrorTrackingAssignmentRuleAssigneeRequestApi
+}
+
+export interface ErrorTrackingAssignmentRuleUpdateRequestApi {
+    /** Property-group filters that define when this rule matches incoming error events. */
+    filters?: PropertyGroupFilterValueApi | null
+    /** User or role to assign matching issues to. */
+    assignee?: ErrorTrackingAssignmentRuleAssigneeRequestApi | null
+}
+
+export interface PatchedErrorTrackingAssignmentRuleUpdateRequestApi {
+    /** Property-group filters that define when this rule matches incoming error events. */
+    filters?: PropertyGroupFilterValueApi | null
+    /** User or role to assign matching issues to. */
+    assignee?: ErrorTrackingAssignmentRuleAssigneeRequestApi | null
+}
+
+/**
+ * @nullable
+ */
+export type PatchedErrorTrackingAssignmentRuleApiAssignee = {
+    readonly type?: 'user' | 'role'
+    readonly id?: number | string
+} | null | null
+
 export interface PatchedErrorTrackingAssignmentRuleApi {
     readonly id?: string
     filters?: unknown
-    readonly assignee?: string
+    /** @nullable */
+    readonly assignee?: PatchedErrorTrackingAssignmentRuleApiAssignee
     /**
      * @minimum -2147483648
      * @maximum 2147483647
      */
     order_key?: number
     disabled_data?: unknown | null
+    readonly created_at?: string
+    readonly updated_at?: string
 }
 
-/**
- * * `web` - Web
- */
-export type LibraryEnumApi = (typeof LibraryEnumApi)[keyof typeof LibraryEnumApi]
-
-export const LibraryEnumApi = {
-    web: 'web',
-} as const
-
-/**
- * * `all` - All
- * `any` - Any
- */
-export type MatchTypeEnumApi = (typeof MatchTypeEnumApi)[keyof typeof MatchTypeEnumApi]
-
-export const MatchTypeEnumApi = {
-    all: 'all',
-    any: 'any',
-} as const
-
-export interface ErrorTrackingAutoCaptureControlsApi {
-    readonly id: string
-    readonly library: LibraryEnumApi
-    match_type?: MatchTypeEnumApi
-    /** @pattern ^-?\d{0,1}(?:\.\d{0,2})?$ */
-    sample_rate?: string
-    linked_feature_flag?: unknown | null
-    /** @nullable */
-    event_triggers?: (string | null)[] | null
-    /** @nullable */
-    url_triggers?: (unknown | null)[] | null
-    /** @nullable */
-    url_blocklist?: (unknown | null)[] | null
-}
-
-export interface PaginatedErrorTrackingAutoCaptureControlsListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: ErrorTrackingAutoCaptureControlsApi[]
-}
-
-export interface PatchedErrorTrackingAutoCaptureControlsApi {
-    readonly id?: string
-    readonly library?: LibraryEnumApi
-    match_type?: MatchTypeEnumApi
-    /** @pattern ^-?\d{0,1}(?:\.\d{0,2})?$ */
-    sample_rate?: string
-    linked_feature_flag?: unknown | null
-    /** @nullable */
-    event_triggers?: (string | null)[] | null
-    /** @nullable */
-    url_triggers?: (unknown | null)[] | null
-    /** @nullable */
-    url_blocklist?: (unknown | null)[] | null
-}
-
-/**
- * * `slack` - Slack
- * `salesforce` - Salesforce
- * `hubspot` - Hubspot
- * `google-pubsub` - Google Pubsub
- * `google-cloud-storage` - Google Cloud Storage
- * `google-ads` - Google Ads
- * `google-sheets` - Google Sheets
- * `snapchat` - Snapchat
- * `linkedin-ads` - Linkedin Ads
- * `reddit-ads` - Reddit Ads
- * `tiktok-ads` - Tiktok Ads
- * `bing-ads` - Bing Ads
- * `intercom` - Intercom
- * `email` - Email
- * `linear` - Linear
- * `github` - Github
- * `gitlab` - Gitlab
- * `meta-ads` - Meta Ads
- * `twilio` - Twilio
- * `clickup` - Clickup
- * `vercel` - Vercel
- * `databricks` - Databricks
- * `azure-blob` - Azure Blob
- * `firebase` - Firebase
- * `jira` - Jira
- */
-export type KindCf2EnumApi = (typeof KindCf2EnumApi)[keyof typeof KindCf2EnumApi]
-
-export const KindCf2EnumApi = {
-    slack: 'slack',
-    salesforce: 'salesforce',
-    hubspot: 'hubspot',
-    'google-pubsub': 'google-pubsub',
-    'google-cloud-storage': 'google-cloud-storage',
-    'google-ads': 'google-ads',
-    'google-sheets': 'google-sheets',
-    snapchat: 'snapchat',
-    'linkedin-ads': 'linkedin-ads',
-    'reddit-ads': 'reddit-ads',
-    'tiktok-ads': 'tiktok-ads',
-    'bing-ads': 'bing-ads',
-    intercom: 'intercom',
-    email: 'email',
-    linear: 'linear',
-    github: 'github',
-    gitlab: 'gitlab',
-    'meta-ads': 'meta-ads',
-    twilio: 'twilio',
-    clickup: 'clickup',
-    vercel: 'vercel',
-    databricks: 'databricks',
-    'azure-blob': 'azure-blob',
-    firebase: 'firebase',
-    jira: 'jira',
-} as const
-
-export interface ErrorTrackingExternalReferenceIntegrationApi {
+export interface ErrorTrackingExternalReferenceIntegrationResultApi {
     readonly id: number
-    readonly kind: KindCf2EnumApi
+    readonly kind: string
     readonly display_name: string
 }
 
-export interface ErrorTrackingExternalReferenceApi {
+export interface ErrorTrackingExternalReferenceResultApi {
     readonly id: string
-    readonly integration: ErrorTrackingExternalReferenceIntegrationApi
+    readonly integration: ErrorTrackingExternalReferenceIntegrationResultApi
     integration_id: number
     config: unknown
     issue: string
     readonly external_url: string
 }
 
-export interface PaginatedErrorTrackingExternalReferenceListApi {
+export interface PaginatedErrorTrackingExternalReferenceResultListApi {
     count: number
     /** @nullable */
     next?: string | null
     /** @nullable */
     previous?: string | null
-    results: ErrorTrackingExternalReferenceApi[]
-}
-
-export interface PatchedErrorTrackingExternalReferenceApi {
-    readonly id?: string
-    readonly integration?: ErrorTrackingExternalReferenceIntegrationApi
-    integration_id?: number
-    config?: unknown
-    issue?: string
-    readonly external_url?: string
+    results: ErrorTrackingExternalReferenceResultApi[]
 }
 
 export interface ErrorTrackingFingerprintApi {
-    fingerprint: string
+    readonly id: string
+    readonly fingerprint: string
     readonly issue_id: string
     readonly created_at: string
 }
@@ -204,37 +589,111 @@ export interface PaginatedErrorTrackingFingerprintListApi {
     results: ErrorTrackingFingerprintApi[]
 }
 
+export interface GitProviderFileLinkResolveResponseApi {
+    /** Whether a matching file URL was found. */
+    found: boolean
+    /** Resolved URL for the matching file. */
+    url?: string
+    /** Error message when input parameters are invalid. */
+    error?: string
+}
+
+/**
+ * @nullable
+ */
+export type ErrorTrackingGroupingRuleApiAssignee = {
+    readonly type?: 'user' | 'role'
+    readonly id?: number | string
+} | null | null
+
+/**
+ * Issue linked to this rule
+ * @nullable
+ */
+export type ErrorTrackingGroupingRuleApiIssue = { [key: string]: string } | null | null
+
 export interface ErrorTrackingGroupingRuleApi {
     readonly id: string
     filters: unknown
-    readonly assignee: string
+    /** @nullable */
+    readonly assignee: ErrorTrackingGroupingRuleApiAssignee
+    /** @nullable */
+    description?: string | null
+    /**
+     * Issue linked to this rule
+     * @nullable
+     */
+    readonly issue: ErrorTrackingGroupingRuleApiIssue
     /**
      * @minimum -2147483648
      * @maximum 2147483647
      */
     order_key: number
     disabled_data?: unknown | null
+    readonly created_at: string
+    readonly updated_at: string
 }
 
-export interface PaginatedErrorTrackingGroupingRuleListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
+export interface ErrorTrackingGroupingRuleListResponseApi {
     results: ErrorTrackingGroupingRuleApi[]
 }
+
+export interface ErrorTrackingGroupingRuleAssigneeRequestApi {
+    /** Assignee type. Use `user` for a user ID or `role` for a role UUID.
+
+* `user` - user
+* `role` - role */
+    type: TypeDe9EnumApi
+    /** User ID when `type` is `user`, or role UUID when `type` is `role`. */
+    id: number | string
+}
+
+export interface ErrorTrackingGroupingRuleCreateRequestApi {
+    /** Property-group filters that define which exceptions should be grouped into the same issue. */
+    filters: PropertyGroupFilterValueApi
+    /** Optional user or role to assign to issues created by this grouping rule. */
+    assignee?: ErrorTrackingGroupingRuleAssigneeRequestApi | null
+    /**
+     * Optional human-readable description of what this grouping rule is for.
+     * @nullable
+     */
+    description?: string | null
+}
+
+/**
+ * @nullable
+ */
+export type PatchedErrorTrackingGroupingRuleApiAssignee = {
+    readonly type?: 'user' | 'role'
+    readonly id?: number | string
+} | null | null
+
+/**
+ * Issue linked to this rule
+ * @nullable
+ */
+export type PatchedErrorTrackingGroupingRuleApiIssue = { [key: string]: string } | null | null
 
 export interface PatchedErrorTrackingGroupingRuleApi {
     readonly id?: string
     filters?: unknown
-    readonly assignee?: string
+    /** @nullable */
+    readonly assignee?: PatchedErrorTrackingGroupingRuleApiAssignee
+    /** @nullable */
+    description?: string | null
+    /**
+     * Issue linked to this rule
+     * @nullable
+     */
+    readonly issue?: PatchedErrorTrackingGroupingRuleApiIssue
     /**
      * @minimum -2147483648
      * @maximum 2147483647
      */
     order_key?: number
     disabled_data?: unknown | null
+    readonly created_at?: string
+    readonly updated_at?: string
 }
 
 /**
@@ -248,17 +707,25 @@ export type ErrorTrackingIssueFullStatusEnumApi =
     (typeof ErrorTrackingIssueFullStatusEnumApi)[keyof typeof ErrorTrackingIssueFullStatusEnumApi]
 
 export const ErrorTrackingIssueFullStatusEnumApi = {
-    archived: 'archived',
-    active: 'active',
-    resolved: 'resolved',
-    pending_release: 'pending_release',
-    suppressed: 'suppressed',
+    Archived: 'archived',
+    Active: 'active',
+    Resolved: 'resolved',
+    PendingRelease: 'pending_release',
+    Suppressed: 'suppressed',
 } as const
 
 export interface ErrorTrackingIssueAssignmentApi {
-    readonly id: string
+    readonly id: number | string | null
     readonly type: string
 }
+
+/**
+ * @nullable
+ */
+export type ErrorTrackingIssueFullApiCohort = {
+    readonly id?: number
+    readonly name?: string
+} | null | null
 
 export interface ErrorTrackingIssueFullApi {
     readonly id: string
@@ -269,8 +736,9 @@ export interface ErrorTrackingIssueFullApi {
     description?: string | null
     first_seen: string
     assignee: ErrorTrackingIssueAssignmentApi
-    external_issues: ErrorTrackingExternalReferenceApi[]
-    readonly cohort: string
+    external_issues: ErrorTrackingExternalReferenceResultApi[]
+    /** @nullable */
+    readonly cohort: ErrorTrackingIssueFullApiCohort
 }
 
 export interface PaginatedErrorTrackingIssueFullListApi {
@@ -282,6 +750,14 @@ export interface PaginatedErrorTrackingIssueFullListApi {
     results: ErrorTrackingIssueFullApi[]
 }
 
+/**
+ * @nullable
+ */
+export type PatchedErrorTrackingIssueFullApiCohort = {
+    readonly id?: number
+    readonly name?: string
+} | null | null
+
 export interface PatchedErrorTrackingIssueFullApi {
     readonly id?: string
     status?: ErrorTrackingIssueFullStatusEnumApi
@@ -291,8 +767,63 @@ export interface PatchedErrorTrackingIssueFullApi {
     description?: string | null
     first_seen?: string
     assignee?: ErrorTrackingIssueAssignmentApi
-    external_issues?: ErrorTrackingExternalReferenceApi[]
-    readonly cohort?: string
+    external_issues?: ErrorTrackingExternalReferenceResultApi[]
+    /** @nullable */
+    readonly cohort?: PatchedErrorTrackingIssueFullApiCohort
+}
+
+export interface ErrorTrackingIssueMergeRequestApi {
+    /** IDs of the issues to merge into the current issue. */
+    ids: string[]
+}
+
+export interface ErrorTrackingIssueMergeResponseApi {
+    /** Whether the merge completed successfully. */
+    success: boolean
+}
+
+export interface ErrorTrackingIssueSplitFingerprintApi {
+    /** Fingerprint to split into a new issue. */
+    fingerprint: string
+    /** Optional name for the new issue created from this fingerprint. */
+    name?: string
+    /** Optional description for the new issue created from this fingerprint. */
+    description?: string
+}
+
+export interface ErrorTrackingIssueSplitRequestApi {
+    /** Fingerprints to split into new issues. Each fingerprint becomes its own new issue. */
+    fingerprints?: ErrorTrackingIssueSplitFingerprintApi[]
+}
+
+export interface ErrorTrackingIssueSplitResponseApi {
+    /** Whether the split completed successfully. */
+    success: boolean
+    /** IDs of the new issues created by the split. */
+    new_issue_ids: string[]
+}
+
+export interface ErrorTrackingRecommendationApi {
+    readonly id: string
+    readonly type: string
+    readonly meta: unknown
+    /** @nullable */
+    readonly computed_at: string | null
+    /** @nullable */
+    readonly dismissed_at: string | null
+    /** @nullable */
+    readonly next_refresh_at: string | null
+    readonly created_at: string
+    readonly updated_at: string
+}
+
+export interface PaginatedErrorTrackingRecommendationListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: ErrorTrackingRecommendationApi[]
 }
 
 export interface ErrorTrackingReleaseApi {
@@ -324,8 +855,34 @@ export interface PatchedErrorTrackingReleaseApi {
     project?: string
 }
 
+export interface ErrorTrackingSpikeEventIssueApi {
+    readonly id: string
+    /** @nullable */
+    readonly name: string | null
+    /** @nullable */
+    readonly description: string | null
+}
+
+export interface ErrorTrackingSpikeEventApi {
+    readonly id: string
+    readonly issue: ErrorTrackingSpikeEventIssueApi
+    readonly detected_at: string
+    readonly computed_baseline: number
+    readonly current_bucket_value: number
+}
+
+export interface PaginatedErrorTrackingSpikeEventListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: ErrorTrackingSpikeEventApi[]
+}
+
 export interface ErrorTrackingStackFrameApi {
     readonly id: string
+    /** Raw frame ID in 'hash/part' format */
     readonly raw_id: string
     readonly created_at: string
     contents: unknown
@@ -352,6 +909,10 @@ export interface ErrorTrackingSuppressionRuleApi {
      * @maximum 2147483647
      */
     order_key: number
+    disabled_data?: unknown | null
+    sampling_rate?: number
+    readonly created_at: string
+    readonly updated_at: string
 }
 
 export interface PaginatedErrorTrackingSuppressionRuleListApi {
@@ -363,6 +924,17 @@ export interface PaginatedErrorTrackingSuppressionRuleListApi {
     results: ErrorTrackingSuppressionRuleApi[]
 }
 
+export interface ErrorTrackingSuppressionRuleCreateRequestApi {
+    /** Optional property-group filters that define which incoming error events should be suppressed. Omit this field or provide an empty `values` array to create a match-all suppression rule. */
+    filters?: PropertyGroupFilterValueApi
+    /**
+     * Fraction of matching events to suppress. Use `1.0` to suppress all matching events.
+     * @minimum 0
+     * @maximum 1
+     */
+    sampling_rate?: number
+}
+
 export interface PatchedErrorTrackingSuppressionRuleApi {
     readonly id?: string
     filters?: unknown
@@ -371,7 +943,17 @@ export interface PatchedErrorTrackingSuppressionRuleApi {
      * @maximum 2147483647
      */
     order_key?: number
+    disabled_data?: unknown | null
+    sampling_rate?: number
+    readonly created_at?: string
+    readonly updated_at?: string
 }
+
+/**
+ * Release associated with this symbol set
+ * @nullable
+ */
+export type ErrorTrackingSymbolSetApiRelease = { [key: string]: unknown } | null | null
 
 export interface ErrorTrackingSymbolSetApi {
     readonly id: string
@@ -384,7 +966,11 @@ export interface ErrorTrackingSymbolSetApi {
     storage_ptr?: string | null
     /** @nullable */
     failure_reason?: string | null
-    readonly release: string
+    /**
+     * Release associated with this symbol set
+     * @nullable
+     */
+    readonly release: ErrorTrackingSymbolSetApiRelease
 }
 
 export interface PaginatedErrorTrackingSymbolSetListApi {
@@ -395,6 +981,12 @@ export interface PaginatedErrorTrackingSymbolSetListApi {
     previous?: string | null
     results: ErrorTrackingSymbolSetApi[]
 }
+
+/**
+ * Release associated with this symbol set
+ * @nullable
+ */
+export type PatchedErrorTrackingSymbolSetApiRelease = { [key: string]: unknown } | null | null
 
 export interface PatchedErrorTrackingSymbolSetApi {
     readonly id?: string
@@ -407,21 +999,14 @@ export interface PatchedErrorTrackingSymbolSetApi {
     storage_ptr?: string | null
     /** @nullable */
     failure_reason?: string | null
-    readonly release?: string
+    /**
+     * Release associated with this symbol set
+     * @nullable
+     */
+    readonly release?: PatchedErrorTrackingSymbolSetApiRelease
 }
 
 export type ErrorTrackingAssignmentRulesListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
-}
-
-export type ErrorTrackingAutocaptureControlsListParams = {
     /**
      * Number of results to return per page.
      */
@@ -454,15 +1039,50 @@ export type ErrorTrackingFingerprintsListParams = {
     offset?: number
 }
 
-export type ErrorTrackingGroupingRulesListParams = {
+export type ErrorTrackingGitProviderFileLinksResolveGithubRetrieveParams = {
     /**
-     * Number of results to return per page.
+     * Code snippet to search for in repository files.
+     * @minLength 1
      */
-    limit?: number
+    code_sample: string
     /**
-     * The initial index from which to return the results.
+     * File name to match in search results.
+     * @minLength 1
      */
-    offset?: number
+    file_name: string
+    /**
+     * Repository owner or namespace.
+     * @minLength 1
+     */
+    owner: string
+    /**
+     * Repository name.
+     * @minLength 1
+     */
+    repository: string
+}
+
+export type ErrorTrackingGitProviderFileLinksResolveGitlabRetrieveParams = {
+    /**
+     * Code snippet to search for in repository files.
+     * @minLength 1
+     */
+    code_sample: string
+    /**
+     * File name to match in search results.
+     * @minLength 1
+     */
+    file_name: string
+    /**
+     * Repository owner or namespace.
+     * @minLength 1
+     */
+    owner: string
+    /**
+     * Repository name.
+     * @minLength 1
+     */
+    repository: string
 }
 
 export type ErrorTrackingIssuesListParams = {
@@ -476,7 +1096,29 @@ export type ErrorTrackingIssuesListParams = {
     offset?: number
 }
 
+export type ErrorTrackingRecommendationsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
 export type ErrorTrackingReleasesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type ErrorTrackingSpikeEventsListParams = {
     /**
      * Number of results to return per page.
      */

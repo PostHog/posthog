@@ -569,3 +569,111 @@ fn test_parse_jsonl_with_empty_resource_logs() {
     // Both lines have empty resourceLogs, so merged result is also empty
     assert_eq!(request.resource_logs.len(), 0);
 }
+#[test]
+fn test_otel_log_row_overridden_timestamp_tracking() {
+    use capture_logs::log_record::KafkaLogRow;
+    use chrono::{TimeDelta, Utc};
+    use opentelemetry_proto::tonic::{
+        common::v1::{any_value, AnyValue},
+        logs::v1::LogRecord,
+    };
+
+    // Test with a timestamp far in the past (should be overridden)
+    let far_past_nanos = (Utc::now() - TimeDelta::hours(48))
+        .timestamp_nanos_opt()
+        .unwrap();
+    let log_record_overridden = LogRecord {
+        time_unix_nano: far_past_nanos as u64,
+        severity_text: "INFO".to_string(),
+        severity_number: 9,
+        body: Some(AnyValue {
+            value: Some(any_value::Value::StringValue("Test".to_string())),
+        }),
+        ..Default::default()
+    };
+
+    let (row_overridden, was_overridden) =
+        KafkaLogRow::new(log_record_overridden, None, None).unwrap();
+    assert!(was_overridden);
+    assert!(row_overridden.attributes.contains_key("$originalTimestamp"));
+
+    // Test with a timestamp far in the future (should be overridden)
+    let far_future_nanos = (Utc::now() + TimeDelta::hours(25))
+        .timestamp_nanos_opt()
+        .unwrap();
+    let log_record_overridden = LogRecord {
+        time_unix_nano: far_future_nanos as u64,
+        severity_text: "INFO".to_string(),
+        severity_number: 9,
+        body: Some(AnyValue {
+            value: Some(any_value::Value::StringValue("Test".to_string())),
+        }),
+        ..Default::default()
+    };
+
+    let (row_overridden, was_overridden) =
+        KafkaLogRow::new(log_record_overridden, None, None).unwrap();
+    assert!(was_overridden);
+    assert!(row_overridden.attributes.contains_key("$originalTimestamp"));
+
+    // Test with a recent timestamp (should not be overridden)
+    let recent_nanos = (Utc::now() - TimeDelta::hours(1))
+        .timestamp_nanos_opt()
+        .unwrap();
+    let log_record_recent = LogRecord {
+        time_unix_nano: recent_nanos as u64,
+        severity_text: "INFO".to_string(),
+        severity_number: 9,
+        body: Some(AnyValue {
+            value: Some(any_value::Value::StringValue("Test".to_string())),
+        }),
+        ..Default::default()
+    };
+
+    let (row_recent, was_not_overridden) = KafkaLogRow::new(log_record_recent, None, None).unwrap();
+    assert!(!was_not_overridden);
+    assert!(!row_recent.attributes.contains_key("$originalTimestamp"));
+}
+
+#[tokio::test]
+async fn middleware_decompresses_gzip_js_query_param() {
+    use axum::{body::Body, http::Request, routing::post, Router};
+    use bytes::Bytes;
+    use capture_logs::middleware::translate_compression_query_param;
+    use flate2::{write::GzEncoder, Compression};
+    use std::io::Write;
+    use tower::ServiceExt;
+    use tower_http::decompression::RequestDecompressionLayer;
+
+    async fn echo(body: Bytes) -> Bytes {
+        body
+    }
+
+    let app = Router::new()
+        .route("/i/v1/logs", post(echo))
+        .layer(RequestDecompressionLayer::new())
+        .layer(axum::middleware::from_fn(translate_compression_query_param));
+
+    let payload = br#"{"resourceLogs":[]}"#.to_vec();
+    let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
+    encoder.write_all(&payload).unwrap();
+    let gzipped = encoder.finish().unwrap();
+
+    let req = Request::builder()
+        .method("POST")
+        .uri("/i/v1/logs?token=phc_test&compression=gzip-js")
+        .header("content-type", "text/plain")
+        .body(Body::from(gzipped))
+        .unwrap();
+
+    let resp = app.oneshot(req).await.unwrap();
+    assert!(
+        resp.status().is_success(),
+        "expected 2xx, got {}",
+        resp.status()
+    );
+    let bytes = axum::body::to_bytes(resp.into_body(), 1 << 20)
+        .await
+        .unwrap();
+    assert_eq!(&bytes[..], payload.as_slice());
+}

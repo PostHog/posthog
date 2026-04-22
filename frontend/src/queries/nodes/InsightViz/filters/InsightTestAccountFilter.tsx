@@ -28,7 +28,6 @@ export function InsightTestAccountFilter({
                 setLocalDefault(checked)
             }}
             disabledReason={disabledReason}
-            fullWidth
         />
     )
 }

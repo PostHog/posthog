@@ -6,23 +6,36 @@ from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDModel
 
 from products.data_warehouse.backend.models import DataWarehouseSavedQuery
 
+from .dag import DAG
+
 
 class NodeType(models.TextChoices):
     TABLE = "table"
     VIEW = "view"
     MAT_VIEW = "matview"
+    ENDPOINT = "endpoint"
 
 
 class Node(UUIDModel, CreatedMetaFields, UpdatedMetaFields):
     team = models.ForeignKey(Team, on_delete=models.CASCADE)
+    team_id: int
+
     # models.PROTECT prevents deleting a saved query if its referenced by a Node
     saved_query = models.ForeignKey(DataWarehouseSavedQuery, on_delete=models.PROTECT, null=True, blank=True)
-    dag_id = models.TextField(max_length=256, default="posthog", db_index=True)
+    saved_query_id: int | None
+
+    dag = models.ForeignKey(DAG, on_delete=models.CASCADE, db_column="dag_fk_id")
+    dag_id: int
+
     # name of the source table, view, matview, etc.
     # for nodes with a saved_query, this is automatically synced from saved_query.name
     name = models.TextField(max_length=2048, db_index=True)
     # type of the node (source table, view, or mat view)
     type = models.TextField(max_length=16, choices=NodeType.choices, default=NodeType.TABLE)
+    description = models.TextField(max_length=1024, default="", blank=True)
+    source_control_path = models.TextField(
+        blank=True, default="", help_text="File path in the source control repository for synced nodes"
+    )
     properties = models.JSONField(default=dict)
 
     def save(self, *args, **kwargs):
@@ -43,11 +56,11 @@ class Node(UUIDModel, CreatedMetaFields, UpdatedMetaFields):
             models.UniqueConstraint(
                 condition=models.Q(saved_query__isnull=False),
                 name="saved_query_unique_within_team_dag",
-                fields=["team", "dag_id", "saved_query"],
+                fields=["team", "dag", "saved_query"],
             ),
             models.UniqueConstraint(
                 condition=models.Q(saved_query__isnull=True),
                 name="name_unique_within_team_dag_for_tables",
-                fields=["team", "dag_id", "name"],
+                fields=["team", "dag", "name"],
             ),
         ]

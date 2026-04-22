@@ -3,6 +3,7 @@
 import json
 from datetime import timedelta
 
+import temporalio.exceptions
 from temporalio import workflow
 
 from posthog.temporal.common.base import PostHogWorkflow
@@ -11,7 +12,12 @@ from posthog.temporal.llm_analytics.trace_clustering.activities import (
     generate_cluster_labels_activity,
     perform_clustering_compute_activity,
 )
+from posthog.temporal.llm_analytics.trace_clustering.aggregates import compute_cluster_aggregates_activity
 from posthog.temporal.llm_analytics.trace_clustering.constants import (
+    AGGREGATES_ACTIVITY_RETRY_POLICY,
+    AGGREGATES_ACTIVITY_TIMEOUT,
+    AGGREGATES_HEARTBEAT_TIMEOUT,
+    AGGREGATES_SCHEDULE_TO_CLOSE_TIMEOUT,
     COMPUTE_ACTIVITY_RETRY_POLICY,
     COMPUTE_ACTIVITY_TIMEOUT,
     COMPUTE_HEARTBEAT_TIMEOUT,
@@ -27,12 +33,19 @@ from posthog.temporal.llm_analytics.trace_clustering.constants import (
     NOISE_CLUSTER_ID,
     WORKFLOW_NAME,
 )
+from posthog.temporal.llm_analytics.trace_clustering.metrics import (
+    record_clusters_generated,
+    record_items_analyzed,
+    record_noise_points,
+)
 from posthog.temporal.llm_analytics.trace_clustering.models import (
+    ClusterAggregateMetrics,
     ClusteringActivityInputs,
     ClusteringComputeResult,
     ClusteringParams,
     ClusteringResult,
     ClusteringWorkflowInputs,
+    ComputeAggregatesActivityInputs,
     EmitEventsActivityInputs,
     GenerateLabelsActivityInputs,
     TraceLabelingMetadata,
@@ -115,10 +128,11 @@ class DailyTraceClusteringWorkflow(PostHogWorkflow):
     """
     Daily workflow to cluster LLM traces based on their embeddings.
 
-    This workflow orchestrates 3 activities:
+    This workflow orchestrates 4 activities:
     1. Compute: Fetch embeddings, perform k-means clustering, compute distances
     2. Label: Generate LLM-based cluster labels (long timeout for API call)
-    3. Emit: Write clustering results to ClickHouse
+    3. Aggregates: Compute per-cluster metrics and sentiment (best-effort, non-blocking)
+    4. Emit: Write clustering results to ClickHouse
 
     The workflow calculates window_start/window_end from lookback_days and
     passes them to activities. Embeddings (~30+ MB) stay within Activity 1,
@@ -144,6 +158,7 @@ class DailyTraceClusteringWorkflow(PostHogWorkflow):
         Returns:
             ClusteringResult with clustering metrics and cluster info
         """
+        analysis_level = inputs.analysis_level
 
         # Calculate window from workflow time (deterministic for replays)
         now = workflow.now()
@@ -169,7 +184,9 @@ class DailyTraceClusteringWorkflow(PostHogWorkflow):
                     clustering_method=inputs.clustering_method,
                     clustering_method_params=inputs.clustering_method_params,
                     visualization_method=inputs.visualization_method,
-                    trace_filters=inputs.trace_filters,
+                    event_filters=inputs.event_filters,
+                    job_id=inputs.job_id,
+                    job_name=inputs.job_name,
                 )
             ],
             start_to_close_timeout=COMPUTE_ACTIVITY_TIMEOUT,
@@ -177,6 +194,9 @@ class DailyTraceClusteringWorkflow(PostHogWorkflow):
             heartbeat_timeout=COMPUTE_HEARTBEAT_TIMEOUT,
             retry_policy=COMPUTE_ACTIVITY_RETRY_POLICY,
         )
+
+        record_items_analyzed(len(compute_result.items), analysis_level)
+        record_noise_points(compute_result.num_noise_points, analysis_level)
 
         # Compute per-item metadata for labeling (O(n) instead of O(n × k))
         item_metadata = _compute_item_labeling_metadata(compute_result)
@@ -203,7 +223,32 @@ class DailyTraceClusteringWorkflow(PostHogWorkflow):
             retry_policy=LLM_ACTIVITY_RETRY_POLICY,
         )
 
-        # Activity 3: Emit events to ClickHouse
+        # Activity 3: Compute aggregate metrics + sentiment (best-effort, non-blocking on failure)
+        cluster_metrics: dict[int, ClusterAggregateMetrics] = {}
+        try:
+            cluster_metrics = await workflow.execute_activity(
+                compute_cluster_aggregates_activity,
+                args=[
+                    ComputeAggregatesActivityInputs(
+                        team_id=inputs.team_id,
+                        window_start=window_start,
+                        window_end=window_end,
+                        items=compute_result.items,
+                        labels=compute_result.labels,
+                        analysis_level=compute_result.analysis_level,
+                    )
+                ],
+                start_to_close_timeout=AGGREGATES_ACTIVITY_TIMEOUT,
+                schedule_to_close_timeout=AGGREGATES_SCHEDULE_TO_CLOSE_TIMEOUT,
+                heartbeat_timeout=AGGREGATES_HEARTBEAT_TIMEOUT,
+                retry_policy=AGGREGATES_ACTIVITY_RETRY_POLICY,
+            )
+        except temporalio.exceptions.ActivityError as e:
+            if isinstance(e.cause, temporalio.exceptions.CancelledError):
+                raise
+            workflow.logger.warning("Aggregate metrics activity failed, continuing without metrics")
+
+        # Activity 4: Emit events to ClickHouse
         result = await workflow.execute_activity(
             emit_cluster_events_activity,
             args=[
@@ -230,6 +275,9 @@ class DailyTraceClusteringWorkflow(PostHogWorkflow):
                         visualization_method=inputs.visualization_method,
                         max_samples=inputs.max_samples,
                     ),
+                    job_id=inputs.job_id,
+                    job_name=inputs.job_name,
+                    cluster_metrics=cluster_metrics,
                 )
             ],
             start_to_close_timeout=EMIT_ACTIVITY_TIMEOUT,
@@ -238,4 +286,5 @@ class DailyTraceClusteringWorkflow(PostHogWorkflow):
             retry_policy=EMIT_ACTIVITY_RETRY_POLICY,
         )
 
+        record_clusters_generated(result.metrics.num_clusters, analysis_level)
         return result

@@ -1,8 +1,9 @@
 import { DateTime } from 'luxon'
-import { Message } from 'node-rdkafka'
-import { v4 } from 'uuid'
 
-import { EventHeaders, PipelineEvent, ProjectId, Team } from '../../types'
+import { createTestEventHeaders } from '../../../tests/helpers/event-headers'
+import { createTestPipelineEvent } from '../../../tests/helpers/pipeline-event'
+import { createTestTeam } from '../../../tests/helpers/team'
+import { EventHeaders, PipelineEvent, Team } from '../../types'
 import { PipelineResultType, isDropResult } from '../pipelines/results'
 import { DropOldEventsInput, createDropOldEventsStep } from './drop-old-events-step'
 
@@ -34,7 +35,7 @@ describe('createDropOldEventsStep', () => {
         expect(result.warnings[0]).toMatchObject({
             type: 'event_dropped_too_old',
             details: {
-                eventUuid: input.eventWithTeam.event.uuid,
+                eventUuid: input.event.uuid,
                 event: '$pageview',
                 distinctId: 'user-1',
                 dropThresholdSeconds: 3600,
@@ -166,78 +167,22 @@ function createTestInput(options: {
 
     const resolvedHeaders = headersExplicitlyNull
         ? (options.headers as unknown as Pick<EventHeaders, 'timestamp' | 'now'>)
-        : createTestHeaders({
+        : createTestEventHeaders({
               timestamp: eventTimestamp.toMillis().toString(),
               now: now.toJSDate(),
               ...options.headers,
           })
 
     return {
-        eventWithTeam: {
-            message: createTestMessage(),
-            event: createTestEvent(event),
-            team: createTestTeam({ drop_events_older_than_seconds: dropThreshold, ...team }),
-            headers: createTestHeaders(),
-        },
+        event: createTestPipelineEvent({
+            event: '$pageview',
+            distinct_id: 'user-1',
+            ip: null,
+            site_url: 'https://test.posthog.com',
+            now: DateTime.utc().toISO()!,
+            ...event,
+        }),
+        team: createTestTeam({ drop_events_older_than_seconds: dropThreshold, ...team }),
         headers: resolvedHeaders,
-    }
-}
-
-function createTestTeam(overrides: Partial<Team> = {}): Team {
-    return {
-        id: 1,
-        project_id: 1 as ProjectId,
-        uuid: v4(),
-        organization_id: v4(),
-        name: 'Test Team',
-        anonymize_ips: false,
-        api_token: 'test-token',
-        slack_incoming_webhook: null,
-        session_recording_opt_in: false,
-        person_processing_opt_out: null,
-        heatmaps_opt_in: null,
-        ingested_event: true,
-        person_display_name_properties: null,
-        test_account_filters: null,
-        cookieless_server_hash_mode: null,
-        timezone: 'UTC',
-        available_features: [],
-        drop_events_older_than_seconds: null,
-        ...overrides,
-    }
-}
-
-function createTestEvent(overrides: Partial<PipelineEvent> = {}): PipelineEvent {
-    return {
-        uuid: v4(),
-        event: '$pageview',
-        distinct_id: 'user-1',
-        ip: null,
-        site_url: 'https://test.posthog.com',
-        now: DateTime.utc().toISO()!,
-        properties: {},
-        ...overrides,
-    }
-}
-
-function createTestMessage(overrides: Partial<Message> = {}): Message {
-    return {
-        value: Buffer.from('{}'),
-        size: 2,
-        topic: 'test-topic',
-        offset: 0,
-        partition: 0,
-        ...overrides,
-    }
-}
-
-function createTestHeaders(overrides: Partial<EventHeaders> = {}): EventHeaders {
-    const now = DateTime.utc()
-    return {
-        timestamp: now.toMillis().toString(),
-        now: now.toJSDate(),
-        force_disable_person_processing: false,
-        historical_migration: false,
-        ...overrides,
     }
 }

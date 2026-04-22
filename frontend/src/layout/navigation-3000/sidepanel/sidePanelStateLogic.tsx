@@ -3,18 +3,12 @@ import { actionToUrl, router, urlToAction } from 'kea-router'
 import { windowValues } from 'kea-window-values'
 import posthog from 'posthog-js'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-
 import { SidePanelTab } from '~/types'
 
 import type { sidePanelStateLogicType } from './sidePanelStateLogicType'
 
 // The side panel imports a lot of other components so this allows us to avoid circular dependencies
 
-/**
- * @deprecated Sidepanel is soft-deprecated as only notebooks will be kept in sidepanel in future releases.
- */
 export const sidePanelStateLogic = kea<sidePanelStateLogicType>([
     path(['scenes', 'navigation', 'sidepanel', 'sidePanelStateLogic']),
     actions({
@@ -58,7 +52,7 @@ export const sidePanelStateLogic = kea<sidePanelStateLogicType>([
         ],
     })),
     windowValues(() => ({
-        modalMode: (window: Window) => window.innerWidth < 992, // Sync width threshold with Sass variable $lg!
+        modalMode: (window: Window) => window?.innerWidth < 992, // Sync width threshold with Sass variable $lg!
     })),
     listeners(({ actions, values, cache }) => ({
         // NOTE: We explicitly reference the actions instead of connecting so that people don't accidentally
@@ -78,11 +72,6 @@ export const sidePanelStateLogic = kea<sidePanelStateLogicType>([
             }
         },
         onSceneTabChanged: ({ previousTabId, newTabId }) => {
-            const featureFlags = featureFlagLogic.findMounted()?.values.featureFlags
-            if (!featureFlags?.[FEATURE_FLAGS.UX_REMOVE_SIDEPANEL]) {
-                return
-            }
-
             // Skip if we already processed this exact transition (activateTab fires early, setScene fires later)
             const transitionKey = `${previousTabId}->${newTabId}`
             if (cache.lastProcessedTransition === transitionKey) {

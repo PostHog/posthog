@@ -1,5 +1,5 @@
 import { taxonomicPropertyFilterLogic } from 'lib/components/PropertyFilters/components/taxonomicPropertyFilterLogic'
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { TaxonomicFilterGroup, TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -181,5 +181,87 @@ describe('taxonomicPropertyFilterLogic', () => {
             logic.actions.selectItem(group, undefined)
             expect(setFilterSpy).not.toHaveBeenCalled()
         })
+    })
+
+    it('restores a complete property filter from a recent filter item', async () => {
+        const setFilter = jest.fn()
+        const recentLogic = taxonomicPropertyFilterLogic({
+            filters: [],
+            setFilter,
+            taxonomicGroupTypes: [TaxonomicFilterGroupType.EventProperties],
+            filterIndex: 0,
+            pageKey: 'testRecent',
+        })
+        recentLogic.mount()
+
+        const recentGroup = {
+            type: TaxonomicFilterGroupType.RecentFilters,
+            name: 'Recent',
+            searchPlaceholder: 'recent filters',
+        } as TaxonomicFilterGroup
+
+        const recentItem = {
+            name: '$browser',
+            _recentContext: {
+                sourceGroupType: TaxonomicFilterGroupType.EventProperties,
+                sourceGroupName: 'Event properties',
+                propertyFilter: {
+                    key: '$browser',
+                    value: 'Chrome',
+                    operator: PropertyOperator.Exact,
+                    type: PropertyFilterType.Event,
+                },
+            },
+        }
+
+        recentLogic.actions.selectItem(recentGroup, '$browser', undefined, recentItem)
+
+        expect(setFilter).toHaveBeenCalledWith(0, {
+            key: '$browser',
+            value: 'Chrome',
+            operator: PropertyOperator.Exact,
+            type: PropertyFilterType.Event,
+        })
+
+        recentLogic.unmount()
+    })
+
+    it('creates a complete property filter from a QuickFilterItem', async () => {
+        const setFilter = jest.fn()
+        const quickLogic = taxonomicPropertyFilterLogic({
+            filters: [],
+            setFilter,
+            taxonomicGroupTypes: [TaxonomicFilterGroupType.EventProperties],
+            filterIndex: 0,
+            pageKey: 'testQuick',
+        })
+        quickLogic.mount()
+
+        const quickFiltersGroup = {
+            type: TaxonomicFilterGroupType.SuggestedFilters,
+            name: 'Suggested filters',
+            searchPlaceholder: 'suggested filters',
+        } as TaxonomicFilterGroup
+
+        const quickFilterItem = {
+            _type: 'quick_filter' as const,
+            name: 'Current URL containing "blog"',
+            filterValue: 'blog',
+            operator: PropertyOperator.IContains,
+            propertyKey: '$current_url',
+            propertyFilterType: PropertyFilterType.Event,
+            eventName: '$pageview',
+        }
+
+        quickLogic.actions.selectItem(quickFiltersGroup, undefined, undefined, quickFilterItem)
+
+        expect(setFilter).toHaveBeenCalledWith(0, {
+            key: '$current_url',
+            value: 'blog',
+            operator: PropertyOperator.IContains,
+            type: PropertyFilterType.Event,
+        })
+
+        quickLogic.unmount()
     })
 })

@@ -2,7 +2,7 @@
 # name: TestResponsesCount.test_responses_count
   '''
   /* user_id:0 request:_snapshot_ */
-  SELECT JSONExtractString(properties, '$survey_id') as survey_id,
+  SELECT replaceRegexpAll(JSONExtractRaw(properties, '$survey_id'), '^"|"$', '') as survey_id,
          count()
   FROM events
   WHERE team_id = 99999
@@ -14,10 +14,10 @@
        WHERE team_id = 99999
          AND timestamp >= '2024-01-21 14:40:09'
          AND event = 'survey sent'
-       GROUP BY JSONExtractString(properties, '$survey_id'),
+       GROUP BY replaceRegexpAll(JSONExtractRaw(properties, '$survey_id'), '^"|"$', ''),
                 CASE
-                    WHEN COALESCE(JSONExtractString(properties, '$survey_submission_id'), '') = '' THEN toString(uuid)
-                    ELSE JSONExtractString(properties, '$survey_submission_id')
+                    WHEN COALESCE(replaceRegexpAll(JSONExtractRaw(properties, '$survey_submission_id'), '^"|"$', ''), '') = '' THEN toString(uuid)
+                    ELSE replaceRegexpAll(JSONExtractRaw(properties, '$survey_submission_id'), '^"|"$', '')
                 END)
   GROUP BY survey_id
   '''
@@ -25,7 +25,7 @@
 # name: TestResponsesCount.test_responses_count_only_after_first_survey_started
   '''
   /* user_id:0 request:_snapshot_ */
-  SELECT JSONExtractString(properties, '$survey_id') as survey_id,
+  SELECT replaceRegexpAll(JSONExtractRaw(properties, '$survey_id'), '^"|"$', '') as survey_id,
          count()
   FROM events
   WHERE team_id = 99999
@@ -37,10 +37,10 @@
        WHERE team_id = 99999
          AND timestamp >= '2024-04-25 14:40:09'
          AND event = 'survey sent'
-       GROUP BY JSONExtractString(properties, '$survey_id'),
+       GROUP BY replaceRegexpAll(JSONExtractRaw(properties, '$survey_id'), '^"|"$', ''),
                 CASE
-                    WHEN COALESCE(JSONExtractString(properties, '$survey_submission_id'), '') = '' THEN toString(uuid)
-                    ELSE JSONExtractString(properties, '$survey_submission_id')
+                    WHEN COALESCE(replaceRegexpAll(JSONExtractRaw(properties, '$survey_submission_id'), '^"|"$', ''), '') = '' THEN toString(uuid)
+                    ELSE replaceRegexpAll(JSONExtractRaw(properties, '$survey_submission_id'), '^"|"$', '')
                 END)
   GROUP BY survey_id
   '''
@@ -48,7 +48,7 @@
 # name: TestResponsesCount.test_responses_count_with_partial_responses
   '''
   /* user_id:0 request:_snapshot_ */
-  SELECT JSONExtractString(properties, '$survey_id') as survey_id,
+  SELECT replaceRegexpAll(JSONExtractRaw(properties, '$survey_id'), '^"|"$', '') as survey_id,
          count()
   FROM events
   WHERE team_id = 99999
@@ -60,10 +60,10 @@
        WHERE team_id = 99999
          AND timestamp >= '2024-06-10 11:00:00'
          AND event = 'survey sent'
-       GROUP BY JSONExtractString(properties, '$survey_id'),
+       GROUP BY replaceRegexpAll(JSONExtractRaw(properties, '$survey_id'), '^"|"$', ''),
                 CASE
-                    WHEN COALESCE(JSONExtractString(properties, '$survey_submission_id'), '') = '' THEN toString(uuid)
-                    ELSE JSONExtractString(properties, '$survey_submission_id')
+                    WHEN COALESCE(replaceRegexpAll(JSONExtractRaw(properties, '$survey_submission_id'), '^"|"$', ''), '') = '' THEN toString(uuid)
+                    ELSE replaceRegexpAll(JSONExtractRaw(properties, '$survey_submission_id'), '^"|"$', '')
                 END)
   GROUP BY survey_id
   '''
@@ -143,9 +143,9 @@
          "posthog_team"."session_recording_url_blocklist_config",
          "posthog_team"."session_recording_event_trigger_config",
          "posthog_team"."session_recording_trigger_match_type_config",
+         "posthog_team"."session_recording_trigger_groups",
          "posthog_team"."session_replay_config",
          "posthog_team"."session_recording_retention_period",
-         "posthog_team"."session_recording_encryption",
          "posthog_team"."conversations_enabled",
          "posthog_team"."conversations_settings",
          "posthog_team"."proactive_tasks_enabled",
@@ -247,11 +247,12 @@
          "posthog_survey"."headline_summary",
          "posthog_survey"."headline_response_count",
          "posthog_survey"."question_summaries",
+         "posthog_survey"."form_content",
+         "posthog_survey"."translations",
          "posthog_featureflag"."id",
          "posthog_featureflag"."key",
          "posthog_featureflag"."name",
          "posthog_featureflag"."filters",
-         "posthog_featureflag"."rollout_percentage",
          "posthog_featureflag"."team_id",
          "posthog_featureflag"."created_by_id",
          "posthog_featureflag"."created_at",
@@ -274,7 +275,6 @@
          T5."key",
          T5."name",
          T5."filters",
-         T5."rollout_percentage",
          T5."team_id",
          T5."created_by_id",
          T5."created_at",
@@ -297,7 +297,6 @@
          T6."key",
          T6."name",
          T6."filters",
-         T6."rollout_percentage",
          T6."team_id",
          T6."created_by_id",
          T6."created_at",
@@ -486,7 +485,6 @@
          "posthog_user"."current_team_id",
          "posthog_user"."email",
          "posthog_user"."pending_email",
-         "posthog_user"."temporary_token",
          "posthog_user"."distinct_id",
          "posthog_user"."is_email_verified",
          "posthog_user"."requested_2fa_reset_at",

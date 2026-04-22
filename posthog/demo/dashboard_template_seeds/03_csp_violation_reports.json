@@ -1,0 +1,213 @@
+{
+    "template_name": "CSP Violation Reports",
+    "dashboard_description": "Monitor pages violating your Content Security Policy: volume trends, directives, URLs, and recent raw events.",
+    "dashboard_filters": {
+        "date_to": null,
+        "date_from": null,
+        "properties": [],
+        "breakdown_filter": null
+    },
+    "tags": [],
+    "tiles": [
+        {
+            "name": "Violations (DAU)",
+            "type": "INSIGHT",
+            "color": null,
+            "query": {
+                "kind": "InsightVizNode",
+                "source": {
+                    "kind": "TrendsQuery",
+                    "series": [
+                        {
+                            "kind": "EventsNode",
+                            "math": "dau",
+                            "name": "$csp_violation",
+                            "event": "$csp_violation"
+                        }
+                    ],
+                    "interval": "day",
+                    "properties": [],
+                    "trendsFilter": {
+                        "display": "BoldNumber",
+                        "showLegend": false,
+                        "yAxisScaleType": "linear",
+                        "showValuesOnSeries": false,
+                        "smoothingIntervals": 1,
+                        "showPercentStackView": false,
+                        "aggregationAxisFormat": "numeric",
+                        "showAlertThresholdLines": false
+                    },
+                    "filterTestAccounts": false
+                }
+            },
+            "layouts": {
+                "sm": {
+                    "h": 3,
+                    "i": "csp-1",
+                    "w": 4,
+                    "x": 0,
+                    "y": 0,
+                    "minH": 1,
+                    "minW": 1
+                },
+                "xs": {
+                    "h": 5,
+                    "i": "csp-1",
+                    "w": 1,
+                    "x": 0,
+                    "y": 0,
+                    "minH": 1,
+                    "minW": 1
+                }
+            },
+            "description": ""
+        },
+        {
+            "name": "Violations over time",
+            "type": "INSIGHT",
+            "color": null,
+            "query": {
+                "kind": "InsightVizNode",
+                "source": {
+                    "kind": "TrendsQuery",
+                    "series": [
+                        {
+                            "kind": "EventsNode",
+                            "math": "total",
+                            "name": "$csp_violation",
+                            "event": "$csp_violation"
+                        }
+                    ],
+                    "interval": "day",
+                    "properties": [],
+                    "trendsFilter": {
+                        "display": "ActionsLineGraph",
+                        "showLegend": false,
+                        "yAxisScaleType": "linear",
+                        "showValuesOnSeries": false,
+                        "smoothingIntervals": 1,
+                        "showPercentStackView": false,
+                        "aggregationAxisFormat": "numeric",
+                        "showAlertThresholdLines": false
+                    },
+                    "filterTestAccounts": false
+                }
+            },
+            "layouts": {
+                "sm": {
+                    "h": 3,
+                    "i": "csp-2",
+                    "w": 8,
+                    "x": 4,
+                    "y": 0,
+                    "minH": 1,
+                    "minW": 1
+                },
+                "xs": {
+                    "h": 5,
+                    "i": "csp-2",
+                    "w": 1,
+                    "x": 0,
+                    "y": 5,
+                    "minH": 1,
+                    "minW": 1
+                }
+            },
+            "description": ""
+        },
+        {
+            "name": "By violated directive",
+            "type": "INSIGHT",
+            "color": null,
+            "query": {
+                "kind": "InsightVizNode",
+                "source": {
+                    "kind": "TrendsQuery",
+                    "series": [
+                        {
+                            "kind": "EventsNode",
+                            "math": "total",
+                            "name": "$csp_violation",
+                            "event": "$csp_violation"
+                        }
+                    ],
+                    "interval": "day",
+                    "properties": [],
+                    "trendsFilter": {
+                        "display": "ActionsPie",
+                        "showLegend": true,
+                        "yAxisScaleType": "linear",
+                        "showValuesOnSeries": true,
+                        "smoothingIntervals": 1,
+                        "showPercentStackView": true,
+                        "aggregationAxisFormat": "numeric",
+                        "showAlertThresholdLines": false
+                    },
+                    "breakdownFilter": {
+                        "breakdown": "$csp_violated_directive",
+                        "breakdown_type": "event"
+                    },
+                    "filterTestAccounts": false
+                }
+            },
+            "layouts": {
+                "sm": {
+                    "h": 5,
+                    "i": "csp-3",
+                    "w": 6,
+                    "x": 0,
+                    "y": 3,
+                    "minH": 1,
+                    "minW": 1
+                },
+                "xs": {
+                    "h": 5,
+                    "i": "csp-3",
+                    "w": 1,
+                    "x": 0,
+                    "y": 10,
+                    "minH": 1,
+                    "minW": 1
+                }
+            },
+            "description": ""
+        },
+        {
+            "name": "Recent violations",
+            "type": "INSIGHT",
+            "color": null,
+            "query": {
+                "kind": "DataVisualizationNode",
+                "source": {
+                    "kind": "HogQLQuery",
+                    "query": "SELECT timestamp,\n       properties.$csp_violated_directive,\n       properties.$current_url\n  FROM events\n WHERE timestamp >= now() - interval 7 day\n   AND event = '$csp_violation'\n ORDER BY timestamp DESC\n LIMIT 100"
+                },
+                "display": "ActionsTable"
+            },
+            "layouts": {
+                "sm": {
+                    "h": 5,
+                    "i": "csp-4",
+                    "w": 6,
+                    "x": 6,
+                    "y": 3,
+                    "minH": 1,
+                    "minW": 1
+                },
+                "xs": {
+                    "h": 5,
+                    "i": "csp-4",
+                    "w": 1,
+                    "x": 0,
+                    "y": 15,
+                    "minH": 1,
+                    "minW": 1
+                }
+            },
+            "description": ""
+        }
+    ],
+    "variables": [],
+    "image_url": "https://res.cloudinary.com/dmukukwp6/image/upload/Group_9520_67a2ff6557.png",
+    "scope": "global"
+}

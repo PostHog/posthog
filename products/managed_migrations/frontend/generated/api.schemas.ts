@@ -16,11 +16,16 @@
 export type BatchImportStatusEnumApi = (typeof BatchImportStatusEnumApi)[keyof typeof BatchImportStatusEnumApi]
 
 export const BatchImportStatusEnumApi = {
-    completed: 'completed',
-    failed: 'failed',
-    paused: 'paused',
-    running: 'running',
+    Completed: 'completed',
+    Failed: 'failed',
+    Paused: 'paused',
+    Running: 'running',
 } as const
+
+/**
+ * @nullable
+ */
+export type BatchImportApiCreatedBy = { [key: string]: unknown } | null | null
 
 /**
  * Serializer for BatchImport model
@@ -31,7 +36,8 @@ export interface BatchImportApi {
     readonly created_at: string
     readonly updated_at: string
     readonly state: unknown | null
-    readonly created_by: string
+    /** @nullable */
+    readonly created_by: BatchImportApiCreatedBy
     status?: BatchImportStatusEnumApi
     /** @nullable */
     readonly display_status_message: string | null
@@ -48,6 +54,11 @@ export interface PaginatedBatchImportListApi {
 }
 
 /**
+ * @nullable
+ */
+export type PatchedBatchImportApiCreatedBy = { [key: string]: unknown } | null | null
+
+/**
  * Serializer for BatchImport model
  */
 export interface PatchedBatchImportApi {
@@ -56,7 +67,8 @@ export interface PatchedBatchImportApi {
     readonly created_at?: string
     readonly updated_at?: string
     readonly state?: unknown | null
-    readonly created_by?: string
+    /** @nullable */
+    readonly created_by?: PatchedBatchImportApiCreatedBy
     status?: BatchImportStatusEnumApi
     /** @nullable */
     readonly display_status_message?: string | null
@@ -92,8 +104,8 @@ export type ManagedMigrationsListParams = {
 export type ManagedMigrationsListStatus = (typeof ManagedMigrationsListStatus)[keyof typeof ManagedMigrationsListStatus]
 
 export const ManagedMigrationsListStatus = {
-    completed: 'completed',
-    failed: 'failed',
-    paused: 'paused',
-    running: 'running',
+    Completed: 'completed',
+    Failed: 'failed',
+    Paused: 'paused',
+    Running: 'running',
 } as const

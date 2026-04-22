@@ -102,7 +102,7 @@ class LabelQuery(models.Lookup):
     def as_sql(self, compiler, connection):
         lhs, lhs_params = self.process_lhs(compiler, connection)
         rhs, rhs_params = self.process_rhs(compiler, connection)
-        params = lhs_params + rhs_params
+        params = [*lhs_params, *rhs_params]
         return "%s ~ %s" % (lhs, rhs), params  # noqa: UP031
 
 
@@ -118,7 +118,7 @@ class LabelQueryArray(models.Lookup):
     def as_sql(self, compiler, connection):
         lhs, lhs_params = self.process_lhs(compiler, connection)
         rhs, rhs_params = self.process_rhs(compiler, connection)
-        params = lhs_params + rhs_params
+        params = [*lhs_params, *rhs_params]
         return "%s ? %s" % (lhs, rhs), params  # noqa: UP031
 
 
@@ -165,10 +165,26 @@ def get_parents_from_model_query(team: Team, model_name: str, model_query: str) 
     else:
         queries = [prepared_ast]
 
+    # collect CTE definitions so we can resolve through them to find real tables
+    ctes: dict[str, ast.CTE] = {}
+    for q in queries:
+        if q.ctes:
+            ctes.update(q.ctes)
+
     parents: set[str] = set()
+
+    # track by object id so that a recursive CTE (same object) is only
+    # expanded once, while an inner CTE that shadows an outer name (different
+    # object) is still expanded
+    expanded_ctes: set[int] = set()
 
     while queries:
         query = queries.pop()
+
+        # collect CTEs from each query as it's processed so that nested CTEs
+        # (inner WITH clauses resolved through from outer CTEs) are available
+        if query.ctes:
+            ctes.update(query.ctes)
 
         join = query.select_from
 
@@ -187,7 +203,11 @@ def get_parents_from_model_query(team: Team, model_name: str, model_query: str) 
                 queries.extend(list(extract_select_queries(join.table)))
                 break
 
-            if isinstance(join.table, ast.Placeholder):
+            if join.table_args is not None:
+                # Table functions like numbers(), s3(), etc. are not real parents
+                join = join.next_join
+                continue
+            elif isinstance(join.table, ast.Placeholder):
                 parent_name = join.table.field
             elif isinstance(join.table, ast.Field):
                 parent_name = ".".join(str(s) for s in join.table.chain)
@@ -195,7 +215,15 @@ def get_parents_from_model_query(team: Team, model_name: str, model_query: str) 
                 raise ValueError(f"No handler for {join.table.__class__.__name__} in get_parents_from_model_query")
 
             if isinstance(parent_name, str):
-                parents.add(parent_name)
+                if parent_name in ctes and id(ctes[parent_name]) not in expanded_ctes:
+                    expanded_ctes.add(id(ctes[parent_name]))
+                    cte_expr = ctes[parent_name].expr
+                    if isinstance(cte_expr, ast.SelectSetQuery):
+                        queries.extend(list(extract_select_queries(cte_expr)))
+                    elif isinstance(cte_expr, ast.SelectQuery):
+                        queries.append(cte_expr)
+                elif parent_name not in ctes:
+                    parents.add(parent_name)
 
             join = join.next_join
 
@@ -332,10 +360,13 @@ class DataWarehouseModelPathManager(models.Manager["DataWarehouseModelPath"]):
         Raises:
             ValueError: If no paths exists for the provided `DataWarehouseSavedQuery`.
         """
+        model_query_value = saved_query.query.get("query") if isinstance(saved_query.query, dict) else None
+        model_query = model_query_value if isinstance(model_query_value, str) else ""
+
         return self.create_leaf_paths_from_query(
             team=saved_query.team,
             model_name=saved_query.name,
-            model_query=saved_query.query["query"],
+            model_query=model_query,
             saved_query_id=saved_query.id,
             created_by=saved_query.created_by,
             label=saved_query.id.hex,
@@ -487,10 +518,13 @@ class DataWarehouseModelPathManager(models.Manager["DataWarehouseModelPath"]):
         if not self.filter(team=saved_query.team, saved_query=saved_query).exists():
             raise ValueError("Provided saved query contains no paths to update.")
 
+        model_query_value = saved_query.query.get("query") if isinstance(saved_query.query, dict) else None
+        model_query = model_query_value if isinstance(model_query_value, str) else ""
+
         self.update_paths_from_query(
             team=saved_query.team,
             model_name=saved_query.name,
-            model_query=saved_query.query["query"],
+            model_query=model_query,
             label=saved_query.id.hex,
             saved_query_id=saved_query.id,
         )
@@ -562,7 +596,8 @@ class DataWarehouseModelPathManager(models.Manager["DataWarehouseModelPath"]):
                             parent_id = parent_query.id.hex
 
                     cursor.execute(CYCLE_CHECK_QUERY, params={"team_id": team.pk, "child": label, "parent": parent_id})
-                    if cursor.fetchone()[0]:
+                    cycle_exists_row = cursor.fetchone()
+                    if cycle_exists_row is not None and cycle_exists_row[0]:
                         raise ModelPathCycleError(child=label, parent=parent_id)
 
                     cursor.execute(UPDATE_PATHS_QUERY, params={**{"child": label, "parent": parent_id}, **base_params})

@@ -32,7 +32,7 @@ operations = [
     # add event_names column to distributed table
     run_sql_with_exceptions(
         ADD_EVENT_NAMES.format(table_name=DISTRIBUTED_RAW_SESSIONS_TABLE_V3()),
-        node_roles=[NodeRole.DATA, NodeRole.COORDINATOR],
+        node_roles=[NodeRole.DATA],
         sharded=False,
         is_alter_on_replicated_table=False,
     ),
@@ -60,7 +60,7 @@ operations = [
     # add flag_keys column to distributed table
     run_sql_with_exceptions(
         ADD_FLAG_KEYS.format(table_name=DISTRIBUTED_RAW_SESSIONS_TABLE_V3()),
-        node_roles=[NodeRole.DATA, NodeRole.COORDINATOR],
+        node_roles=[NodeRole.DATA],
         sharded=False,
         is_alter_on_replicated_table=False,
     ),
@@ -102,14 +102,14 @@ operations = [
     # drop urls column from distributed table
     run_sql_with_exceptions(
         DROP_URLS.format(table_name=DISTRIBUTED_RAW_SESSIONS_TABLE_V3()),
-        node_roles=[NodeRole.DATA, NodeRole.COORDINATOR],
+        node_roles=[NodeRole.DATA],
         sharded=False,
         is_alter_on_replicated_table=False,
     ),
     # add urls column back to distributed table with correct position
     run_sql_with_exceptions(
         ADD_URLS.format(table_name=DISTRIBUTED_RAW_SESSIONS_TABLE_V3()),
-        node_roles=[NodeRole.DATA, NodeRole.COORDINATOR],
+        node_roles=[NodeRole.DATA],
         sharded=False,
         is_alter_on_replicated_table=False,
     ),

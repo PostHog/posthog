@@ -1,14 +1,12 @@
 import './LemonMarkdown.scss'
 
 import clsx from 'clsx'
-import { props } from 'kea'
 import React, { memo, useMemo } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 
-import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
+import { CodeSnippet, getLanguage, Language } from 'lib/components/CodeSnippet'
 import { RichContentMention } from 'lib/components/RichContentEditor/RichContentNodeMention'
-import { RichContentNodeType } from 'lib/components/RichContentEditor/types'
 import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
 
 import { Link } from '../Link'
@@ -31,6 +29,36 @@ export interface LemonMarkdownProps {
     disableDocsRedirect?: boolean
     className?: string
     wrapCode?: boolean
+    /** Whether to generate id attributes on heading elements for anchor linking. */
+    generateHeadingIds?: boolean
+}
+
+const HEADING_TAGS = ['h1', 'h2', 'h3', 'h4', 'h5', 'h6'] as const
+
+/** Generate a URL-safe slug from heading text content. */
+export function slugifyHeading(text: string): string {
+    return text
+        .toLowerCase()
+        .replace(/[^\w\s-]/g, '')
+        .replace(/\s+/g, '-')
+        .replace(/-+/g, '-')
+        .replace(/^-|-$/g, '')
+}
+
+export function extractTextFromChildren(children: React.ReactNode): string {
+    if (typeof children === 'string') {
+        return children
+    }
+    if (typeof children === 'number') {
+        return String(children)
+    }
+    if (Array.isArray(children)) {
+        return children.map(extractTextFromChildren).join('')
+    }
+    if (children && typeof children === 'object' && 'props' in children) {
+        return extractTextFromChildren((children as React.ReactElement).props.children)
+    }
+    return ''
 }
 
 const LemonMarkdownRenderer = memo(function LemonMarkdownRenderer({
@@ -38,49 +66,93 @@ const LemonMarkdownRenderer = memo(function LemonMarkdownRenderer({
     lowKeyHeadings = false,
     disableDocsRedirect = false,
     wrapCode = false,
+    generateHeadingIds = false,
 }: LemonMarkdownProps): JSX.Element {
-    const renderers = useMemo<{ [nodeType: string]: React.ElementType }>(
+    const components = useMemo(
         () => ({
-            link: ({ href, children }: any): JSX.Element => (
+            a: ({ href, children }: any): JSX.Element => (
                 <Link to={href} target="_blank" targetBlankIcon disableDocsPanel={disableDocsRedirect}>
                     {children}
                 </Link>
             ),
-            code: ({ language, value }: any): JSX.Element => (
-                <CodeSnippet language={language || Language.Text} wrap={wrapCode} compact>
-                    {value}
-                </CodeSnippet>
-            ),
-            [RichContentNodeType.Mention]: ({ id }): JSX.Element => <RichContentMention id={id} />,
-            listItem: ({ checked, children }: any): JSX.Element => {
-                // Handle task list items with LemonCheckbox
-                if (checked != null) {
+            code: ({ className, children, node, ...rest }: any): JSX.Element => {
+                const languageMatch = /language-(\w+)/.exec(className || '')
+                const isBlock = node?.position?.start?.line !== node?.position?.end?.line || languageMatch
+                if (isBlock) {
+                    const language = languageMatch ? getLanguage(languageMatch[1]) : Language.Text
+                    const value = String(children).replace(/\n$/, '')
+                    return (
+                        <CodeSnippet language={language} wrap={wrapCode} compact>
+                            {value}
+                        </CodeSnippet>
+                    )
+                }
+                return (
+                    <code className={className} {...rest}>
+                        {children}
+                    </code>
+                )
+            },
+            pre: ({ children }: any): JSX.Element => {
+                // In v9, block code renders as <pre><code>. We handle rendering
+                // in the code component, so just pass children through.
+                return <>{children}</>
+            },
+            span: ({ className, ...props }: any): JSX.Element => {
+                if (className === 'ph-mention') {
+                    return <RichContentMention id={Number(props['data-mention-id'])} />
+                }
+                return <span className={className} {...props} />
+            },
+            li: ({ children, node }: any): JSX.Element => {
+                const isTaskItem = node?.properties?.className?.includes('task-list-item')
+                if (isTaskItem) {
+                    // remark-gfm v4 renders task list items with an <input> checkbox child.
+                    // We replace it with our LemonCheckbox.
+                    const inputChild = node?.children?.find(
+                        (child: any) => child.tagName === 'input' && child.properties?.type === 'checkbox'
+                    )
+                    const checked = inputChild?.properties?.checked ?? false
+                    // Filter out the default checkbox input from rendered children
+                    const filteredChildren = React.Children.toArray(children).filter(
+                        (child: any) => !(child?.type === 'input' && child?.props?.type === 'checkbox')
+                    )
                     return (
                         <li className="LemonMarkdown__task">
                             <LemonCheckbox checked={checked} disabledReason="Read-only for display" size="small" />
-                            <span className="LemonMarkdown__task-content">{children}</span>
+                            <span className="LemonMarkdown__task-content">{filteredChildren}</span>
                         </li>
                     )
                 }
-                // Regular list item
-                return <li {...props}>{children}</li>
+                return <li>{children}</li>
             },
             ...(lowKeyHeadings
-                ? {
-                      heading: 'strong',
-                  }
-                : {}),
+                ? Object.fromEntries(
+                      HEADING_TAGS.map((tag) => [
+                          tag,
+                          ({ children }: any): JSX.Element => (
+                              <strong className="LemonMarkdown__low-key-heading">{children}</strong>
+                          ),
+                      ])
+                  )
+                : generateHeadingIds
+                  ? Object.fromEntries(
+                        HEADING_TAGS.map((tag) => [
+                            tag,
+                            ({ children }: any): JSX.Element => {
+                                const id = slugifyHeading(extractTextFromChildren(children))
+                                return React.createElement(tag, { id }, children)
+                            },
+                        ])
+                    )
+                  : {}),
         }),
-        [disableDocsRedirect, lowKeyHeadings, wrapCode]
+        [disableDocsRedirect, lowKeyHeadings, wrapCode, generateHeadingIds]
     )
 
     return (
         /* eslint-disable-next-line react/forbid-elements */
-        <ReactMarkdown
-            renderers={renderers}
-            disallowedTypes={['html']} // Don't want to deal with the security considerations of HTML
-            plugins={[remarkGfm, remarkMentions]}
-        >
+        <ReactMarkdown components={components} remarkPlugins={[remarkGfm, remarkMentions]} skipHtml>
             {children}
         </ReactMarkdown>
     )
@@ -92,6 +164,7 @@ function LemonMarkdownComponent({
     lowKeyHeadings = false,
     disableDocsRedirect = false,
     wrapCode = false,
+    generateHeadingIds = false,
     className,
 }: LemonMarkdownProps): JSX.Element {
     return (
@@ -100,6 +173,7 @@ function LemonMarkdownComponent({
                 lowKeyHeadings={lowKeyHeadings}
                 disableDocsRedirect={disableDocsRedirect}
                 wrapCode={wrapCode}
+                generateHeadingIds={generateHeadingIds}
             >
                 {children}
             </LemonMarkdownRenderer>

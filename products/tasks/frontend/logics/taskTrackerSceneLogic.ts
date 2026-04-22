@@ -11,8 +11,8 @@ import { userLogic } from 'scenes/userLogic'
 
 import type { RepositoryConfig } from '../components/RepositorySelector'
 import { OriginProduct, Task, TaskRunStatus, TaskUpsertProps } from '../types'
-import type { taskTrackerSceneLogicType } from './taskTrackerSceneLogicType'
 import { tasksLogic } from './tasksLogic'
+import type { taskTrackerSceneLogicType } from './taskTrackerSceneLogicType'
 
 const DEFAULT_SEARCH_QUERY = ''
 const DEFAULT_REPOSITORY = 'all'
@@ -43,9 +43,6 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
         submitNewTask: true,
         submitNewTaskSuccess: true,
         submitNewTaskFailure: (error: string) => ({ error }),
-        devOnlyInferTasks: true,
-        devOnlyInferTasksSuccess: (message: string) => ({ message }),
-        devOnlyInferTasksFailure: (error: string) => ({ error }),
     }),
 
     reducers({
@@ -92,7 +89,6 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
                 description: '',
                 repositoryConfig: {
                     integrationId: undefined,
-                    organization: undefined,
                     repository: undefined,
                 },
             } as TaskCreateForm,
@@ -102,7 +98,6 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
                     description: '',
                     repositoryConfig: {
                         integrationId: undefined,
-                        organization: undefined,
                         repository: undefined,
                     },
                 }),
@@ -114,14 +109,6 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
                 submitNewTask: () => true,
                 submitNewTaskSuccess: () => false,
                 submitNewTaskFailure: () => false,
-            },
-        ],
-        devOnlyIsRunningClustering: [
-            false,
-            {
-                devOnlyInferTasks: () => true,
-                devOnlyInferTasksSuccess: () => false,
-                devOnlyInferTasksFailure: () => false,
             },
         ],
     }),
@@ -172,7 +159,7 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
                 actions.submitNewTaskFailure('Description is required')
                 return
             }
-            if (!repositoryConfig.integrationId || !repositoryConfig.organization || !repositoryConfig.repository) {
+            if (!repositoryConfig.integrationId || !repositoryConfig.repository) {
                 lemonToast.error('Repository is required')
                 actions.submitNewTaskFailure('Repository is required')
                 return
@@ -183,7 +170,7 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
                     title: '',
                     description,
                     origin_product: OriginProduct.USER_CREATED,
-                    repository: `${repositoryConfig.organization}/${repositoryConfig.repository}`,
+                    repository: repositoryConfig.repository,
                     github_integration: repositoryConfig.integrationId ?? null,
                 }
 
@@ -203,22 +190,6 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
                 lemonToast.error('Failed to create task')
                 actions.submitNewTaskFailure(error instanceof Error ? error.message : 'Unknown error')
             }
-        },
-        devOnlyInferTasks: async () => {
-            try {
-                const response = await api.tasks.clusterVideoSegments()
-                lemonToast.success(response.message || 'Clustering completed')
-                actions.devOnlyInferTasksSuccess(response.message)
-            } catch (error: any) {
-                const errorMessage = error?.detail || error?.message || 'Failed to start clustering workflow'
-                lemonToast.error(errorMessage)
-                actions.devOnlyInferTasksFailure(errorMessage)
-            }
-        },
-        devOnlyInferTasksSuccess: () => {
-            // Clear user filter and reload tasks to show newly created clustered tasks
-            actions.setCreatedBy(null)
-            actions.loadTasks()
         },
     })),
 

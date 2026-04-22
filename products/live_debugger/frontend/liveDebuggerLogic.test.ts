@@ -1,3 +1,5 @@
+import { MOCK_TEAM_ID } from 'lib/api.mock'
+
 import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
@@ -107,7 +109,7 @@ describe('liveDebuggerLogic', () => {
             await expectLogic(logic).toDispatchActions(['loadBreakpointsSuccess', 'loadBreakpointInstancesSuccess'])
 
             expect(api.get).toHaveBeenCalledWith(
-                'api/projects/@current/live_debugger_breakpoints/?repository=PostHog%2Fposthog&filename=test.py'
+                `api/projects/${MOCK_TEAM_ID}/live_debugger_breakpoints/?repository=PostHog%2Fposthog&filename=test.py`
             )
         })
 
@@ -118,18 +120,13 @@ describe('liveDebuggerLogic', () => {
             logic = liveDebuggerLogic()
             logic.mount()
 
-            // Wait for polling to start
             await expectLogic(logic).toDispatchActions(['loadBreakpoints'])
 
-            const intervalId = logic.values.breakpointPollingInterval
-            expect(intervalId).not.toBeNull()
-
-            // Stop polling (this is what beforeUnmount does)
             await expectLogic(logic, () => {
                 logic.actions.stopPollingBreakpoints()
             }).toDispatchActions(['stopPollingBreakpoints'])
 
-            expect(clearIntervalSpy).toHaveBeenCalledWith(intervalId)
+            expect(clearIntervalSpy).toHaveBeenCalled()
         })
     })
 
@@ -220,7 +217,7 @@ describe('liveDebuggerLogic', () => {
                 logic.actions.toggleBreakpoint('test.py', 50, 'PostHog/posthog')
             }).toDispatchActions(['toggleBreakpoint', 'loadBreakpoints', 'loadBreakpointInstances'])
 
-            expect(api.create).toHaveBeenCalledWith('api/projects/@current/live_debugger_breakpoints/', {
+            expect(api.create).toHaveBeenCalledWith(`api/projects/${MOCK_TEAM_ID}/live_debugger_breakpoints/`, {
                 repository: 'PostHog/posthog',
                 filename: 'test.py',
                 line_number: 50,
@@ -247,7 +244,7 @@ describe('liveDebuggerLogic', () => {
                 logic.actions.toggleBreakpoint('capture_event.py', 100, 'PostHog/posthog')
             }).toDispatchActions(['toggleBreakpoint'])
 
-            expect(api.delete).toHaveBeenCalledWith('api/projects/@current/live_debugger_breakpoints/bp-1/')
+            expect(api.delete).toHaveBeenCalledWith(`api/projects/${MOCK_TEAM_ID}/live_debugger_breakpoints/bp-1/`)
         })
 
         it('only deletes breakpoint with matching repository', async () => {
@@ -272,7 +269,7 @@ describe('liveDebuggerLogic', () => {
             }).toDispatchActions(['toggleBreakpoint'])
 
             expect(api.delete).not.toHaveBeenCalled()
-            expect(api.create).toHaveBeenCalledWith('api/projects/@current/live_debugger_breakpoints/', {
+            expect(api.create).toHaveBeenCalledWith(`api/projects/${MOCK_TEAM_ID}/live_debugger_breakpoints/`, {
                 repository: 'PostHog/backend',
                 filename: 'capture_event.py',
                 line_number: 100,
@@ -295,7 +292,7 @@ describe('liveDebuggerLogic', () => {
                 logic.actions.toggleBreakpointForFile('test.py', 50, 'PostHog/posthog')
             }).toDispatchActions(['toggleBreakpointForFile', 'loadBreakpoints', 'loadBreakpointInstances'])
 
-            expect(api.create).toHaveBeenCalledWith('api/projects/@current/live_debugger_breakpoints/', {
+            expect(api.create).toHaveBeenCalledWith(`api/projects/${MOCK_TEAM_ID}/live_debugger_breakpoints/`, {
                 repository: 'PostHog/posthog',
                 filename: 'test.py',
                 line_number: 50,
@@ -325,9 +322,9 @@ describe('liveDebuggerLogic', () => {
             }).toDispatchActions(['clearAllBreakpoints', 'loadBreakpoints', 'loadBreakpointInstances'])
 
             expect(api.delete).toHaveBeenCalledTimes(3)
-            expect(api.delete).toHaveBeenCalledWith('api/projects/@current/live_debugger_breakpoints/bp-1/')
-            expect(api.delete).toHaveBeenCalledWith('api/projects/@current/live_debugger_breakpoints/bp-2/')
-            expect(api.delete).toHaveBeenCalledWith('api/projects/@current/live_debugger_breakpoints/bp-3/')
+            expect(api.delete).toHaveBeenCalledWith(`api/projects/${MOCK_TEAM_ID}/live_debugger_breakpoints/bp-1/`)
+            expect(api.delete).toHaveBeenCalledWith(`api/projects/${MOCK_TEAM_ID}/live_debugger_breakpoints/bp-2/`)
+            expect(api.delete).toHaveBeenCalledWith(`api/projects/${MOCK_TEAM_ID}/live_debugger_breakpoints/bp-3/`)
         })
 
         it('handles empty breakpoints array gracefully', async () => {
@@ -364,7 +361,6 @@ describe('liveDebuggerLogic', () => {
             ])
 
             expect(setIntervalSpy).toHaveBeenCalledWith(expect.any(Function), 15000)
-            expect(logic.values.breakpointPollingInterval).toBeTruthy()
         })
 
         it('polling interval loads data every 15 seconds', async () => {
@@ -401,11 +397,9 @@ describe('liveDebuggerLogic', () => {
 
             await expectLogic(logic).toDispatchActions(['loadBreakpoints'])
 
-            const intervalId = logic.values.breakpointPollingInterval
-
             logic.actions.stopPollingBreakpoints()
 
-            expect(clearIntervalSpy).toHaveBeenCalledWith(intervalId)
+            expect(clearIntervalSpy).toHaveBeenCalled()
         })
     })
 
@@ -522,14 +516,6 @@ describe('liveDebuggerLogic', () => {
             logic.actions.showHitsForLine(null)
 
             expect(logic.values.selectedLineForHits).toBe(null)
-        })
-
-        it('savePollingInterval updates interval ID', () => {
-            const intervalId = 12345 as unknown as number
-
-            logic.actions.savePollingInterval(intervalId)
-
-            expect(logic.values.breakpointPollingInterval).toBe(intervalId)
         })
     })
 
@@ -760,7 +746,7 @@ describe('liveDebuggerLogic', () => {
                 logic.actions.toggleBreakpoint('capture_event.py', 100, 'PostHog/posthog')
             }).toDispatchActions(['toggleBreakpoint'])
 
-            expect(api.delete).toHaveBeenCalledWith('api/projects/@current/live_debugger_breakpoints/bp-1/')
+            expect(api.delete).toHaveBeenCalledWith(`api/projects/${MOCK_TEAM_ID}/live_debugger_breakpoints/bp-1/`)
         })
     })
 

@@ -61,6 +61,8 @@ class Command(BaseCommand):
             verify_ssl_cert=CLICKHOUSE_VERIFY,
             autocreate=False,
             randomize_replica_paths=True,
+            # don't use the egress proxy, clickhouse is internal
+            trust_env=False,
         )
         if database.db_exists:
             print(  # noqa: T201
@@ -75,7 +77,7 @@ class Command(BaseCommand):
         create_clickhouse_schema_in_parallel(CREATE_MV_TABLE_QUERIES)
         create_clickhouse_schema_in_parallel(CREATE_VIEW_QUERIES)
         create_clickhouse_schema_in_parallel(CREATE_DICTIONARY_QUERIES)
-        create_clickhouse_schema_in_parallel(CREATE_DATA_QUERIES)
+        create_clickhouse_schema_in_parallel(CREATE_DATA_QUERIES())
 
 
 def create_clickhouse_schema_in_parallel(queries):

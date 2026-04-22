@@ -239,7 +239,7 @@ def reduce_dimensions_pca(
     embeddings: np.ndarray,
     n_components: int = 100,
     random_state: int = 42,
-) -> tuple[np.ndarray, PCA]:
+) -> tuple[np.ndarray, PCA | None]:
     """
     Reduce high-dimensional embeddings using PCA for clustering.
 
@@ -273,7 +273,7 @@ def reduce_dimensions_pca(
 
 def perform_hdbscan_clustering(
     embeddings: np.ndarray,
-    min_cluster_size_fraction: float = 0.05,
+    min_cluster_size_fraction: float = 0.02,
     min_samples: int = 5,
 ) -> HDBSCANResult:
     """

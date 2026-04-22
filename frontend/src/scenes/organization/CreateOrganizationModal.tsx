@@ -1,4 +1,4 @@
-import { useActions } from 'kea'
+import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
 import { LemonButton, LemonInput, LemonModal, Link } from '@posthog/lemon-ui'
@@ -16,6 +16,7 @@ export function CreateOrganizationModal({
     inline?: boolean
 }): JSX.Element {
     const { createOrganization } = useActions(organizationLogic)
+    const { currentOrganizationLoading } = useValues(organizationLogic)
     const [name, setName] = useState<string>('')
 
     const closeModal: () => void = () => {
@@ -28,7 +29,6 @@ export function CreateOrganizationModal({
     }
     const handleSubmit = (): void => {
         createOrganization(name)
-        closeModal()
     }
 
     return (
@@ -55,6 +55,7 @@ export function CreateOrganizationModal({
                         type="primary"
                         onClick={() => handleSubmit()}
                         disabledReason={!name ? 'Think of a name!' : null}
+                        loading={currentOrganizationLoading}
                         data-attr="create-organization-ok"
                     >
                         Create organization
@@ -73,7 +74,7 @@ export function CreateOrganizationModal({
                     value={name}
                     onChange={(value) => setName(value)}
                     onKeyDown={(e) => {
-                        if (e.key === 'Enter') {
+                        if (e.key === 'Enter' && !currentOrganizationLoading) {
                             handleSubmit()
                         }
                     }}

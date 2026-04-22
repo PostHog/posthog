@@ -1,75 +1,57 @@
 import { useActions, useValues } from 'kea'
-import { useState } from 'react'
 
-import { LemonBanner, LemonButton, LemonInput, LemonModal, LemonSwitch } from '@posthog/lemon-ui'
+import { LemonDialog, LemonSegmentedButton, LemonSegmentedButtonOption, LemonSwitch } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
+import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
+import { TeamMembershipLevel } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
-const MIN_POSTHOG_JS_VERSION = '1.329.0'
+const VALID_RETENTION_DAYS = [14, 30, 90] as const
+type LogsRetentionDays = (typeof VALID_RETENTION_DAYS)[number]
 
 export function LogsCaptureSettings(): JSX.Element {
     const { updateCurrentTeam } = useActions(teamLogic)
     const { currentTeam, currentTeamLoading } = useValues(teamLogic)
+    const restrictedReason = useRestrictedArea({
+        scope: RestrictionScope.Project,
+        minimumAccessLevel: TeamMembershipLevel.Admin,
+    })
 
     return (
-        <div>
-            <h3>Browser console logs capture</h3>
-            <LemonBanner
-                type="info"
-                className="mb-4"
-                action={{
-                    children: 'View SDK docs',
-                    to: 'https://posthog.com/docs/libraries/js',
-                    targetBlank: true,
+        <AccessControlAction resourceType={AccessControlResourceType.Logs} minAccessLevel={AccessControlLevel.Editor}>
+            <LemonSwitch
+                data-attr="opt-in-logs-capture-console-log-switch"
+                onChange={(checked) => {
+                    updateCurrentTeam({
+                        logs_settings: { ...currentTeam?.logs_settings, capture_console_logs: checked },
+                    })
                 }}
-            >
-                This feature requires <code>posthog-js</code> version {MIN_POSTHOG_JS_VERSION} or higher.
-            </LemonBanner>
-            <p>
-                Automatically capture browser session logs from your application and send them to the Logs product for
-                analysis and debugging.
-            </p>
-            <p>
-                This is separate from session replay console log capture and specifically sends logs to PostHog's
-                dedicated Logs product.
-            </p>
-            <AccessControlAction
-                resourceType={AccessControlResourceType.Logs}
-                minAccessLevel={AccessControlLevel.Editor}
-            >
-                <LemonSwitch
-                    data-attr="opt-in-logs-capture-console-log-switch"
-                    onChange={(checked) => {
-                        updateCurrentTeam({
-                            logs_settings: { ...currentTeam?.logs_settings, capture_console_logs: checked },
-                        })
-                    }}
-                    label="Capture console logs to Logs product"
-                    bordered
-                    checked={!!currentTeam?.logs_settings?.capture_console_logs}
-                    loading={currentTeamLoading}
-                />
-            </AccessControlAction>
-        </div>
+                label="Capture console logs to Logs product"
+                bordered
+                checked={!!currentTeam?.logs_settings?.capture_console_logs}
+                loading={currentTeamLoading}
+                disabledReason={restrictedReason}
+            />
+        </AccessControlAction>
     )
 }
 
 export function LogsJsonParseSettings(): JSX.Element {
     const { updateCurrentTeam } = useActions(teamLogic)
     const { currentTeam, currentTeamLoading } = useValues(teamLogic)
+    const restrictedReason = useRestrictedArea({
+        scope: RestrictionScope.Project,
+        minimumAccessLevel: TeamMembershipLevel.Admin,
+    })
 
-    const isJsonParseLogs = currentTeam?.logs_settings?.json_parse_logs ?? true
+    const isJsonParseLogs = currentTeam?.logs_settings?.json_parse_logs ?? false
 
     return (
         <>
-            <p>
-                This will parse any log lines which are valid JSON and add those JSON fields as log attributes that can
-                be used in filters
-            </p>
             <AccessControlAction
                 resourceType={AccessControlResourceType.Logs}
                 minAccessLevel={AccessControlLevel.Editor}
@@ -85,8 +67,47 @@ export function LogsJsonParseSettings(): JSX.Element {
                     bordered
                     checked={isJsonParseLogs}
                     loading={currentTeamLoading}
+                    disabledReason={restrictedReason}
                 />
             </AccessControlAction>
+        </>
+    )
+}
+
+export function LogsPiiScrubSettings(): JSX.Element {
+    const { updateCurrentTeam } = useActions(teamLogic)
+    const { currentTeam, currentTeamLoading } = useValues(teamLogic)
+    const restrictedReason = useRestrictedArea({
+        scope: RestrictionScope.Project,
+        minimumAccessLevel: TeamMembershipLevel.Admin,
+    })
+
+    return (
+        <>
+            <AccessControlAction
+                resourceType={AccessControlResourceType.Logs}
+                minAccessLevel={AccessControlLevel.Editor}
+            >
+                <LemonSwitch
+                    data-attr="logs-pii-scrub-switch"
+                    onChange={(checked) => {
+                        updateCurrentTeam({
+                            logs_settings: { ...currentTeam?.logs_settings, pii_scrub_logs: checked },
+                        })
+                    }}
+                    label="Scrub PII in logs at ingestion"
+                    bordered
+                    checked={!!currentTeam?.logs_settings?.pii_scrub_logs}
+                    loading={currentTeamLoading}
+                    disabledReason={restrictedReason}
+                />
+            </AccessControlAction>
+            <p className="text-secondary text-sm max-w-200 mt-2">
+                When enabled, we scrub common sensitive patterns from the log message body before storage: email
+                addresses, Bearer-style authorization tokens, and Stripe secret key shapes. Other fields (for example
+                attributes) are not scrubbed. This is best-effort: values that do not match these patterns, or bank card
+                numbers, may still appear. Redaction is permanent and one-way, not encryption.
+            </p>
         </>
     )
 }
@@ -94,114 +115,86 @@ export function LogsJsonParseSettings(): JSX.Element {
 export function LogsRetentionSettings(): JSX.Element {
     const { updateCurrentTeam } = useActions(teamLogic)
     const { currentTeam, currentTeamLoading } = useValues(teamLogic)
+    const restrictedReason = useRestrictedArea({
+        scope: RestrictionScope.Project,
+        minimumAccessLevel: TeamMembershipLevel.Admin,
+    })
 
-    const savedRetentionDays = currentTeam?.logs_settings?.retention_days ?? 15
+    const storedRetentionDays = currentTeam?.logs_settings?.retention_days ?? 14
+    const currentRetention: LogsRetentionDays = VALID_RETENTION_DAYS.includes(storedRetentionDays as LogsRetentionDays)
+        ? (storedRetentionDays as LogsRetentionDays)
+        : 14
     const retentionLastUpdated = currentTeam?.logs_settings?.retention_last_updated
 
-    const [retentionDays, setRetentionDays] = useState(savedRetentionDays)
-    const [showConfirmModal, setShowConfirmModal] = useState(false)
-
-    const hasChanges = retentionDays !== savedRetentionDays
-    const isReducingRetention = retentionDays < savedRetentionDays
-
-    const getUpdateStatus = (): { canUpdate: boolean; hoursRemaining: number } => {
+    const getThrottleReason = (): string | undefined => {
         if (!retentionLastUpdated) {
-            return { canUpdate: true, hoursRemaining: 0 }
+            return undefined
         }
-        const lastUpdated = dayjs(retentionLastUpdated)
-        const hoursSinceUpdate = dayjs().diff(lastUpdated, 'hours')
-        const hoursRemaining = Math.max(0, 24 - hoursSinceUpdate)
-        return { canUpdate: hoursSinceUpdate >= 24, hoursRemaining }
-    }
-
-    const { canUpdate, hoursRemaining } = getUpdateStatus()
-
-    const performSave = (): void => {
-        updateCurrentTeam({
-            logs_settings: {
-                ...currentTeam?.logs_settings,
-                retention_days: retentionDays,
-            },
-        })
-        setShowConfirmModal(false)
-    }
-
-    const handleSave = (): void => {
-        if (isReducingRetention) {
-            setShowConfirmModal(true)
-        } else {
-            performSave()
-        }
-    }
-
-    const getDisabledReason = (): string | undefined => {
-        if (!hasChanges) {
-            return 'No change to save'
-        }
-        if (!canUpdate) {
+        const hoursSinceUpdate = dayjs().diff(dayjs(retentionLastUpdated), 'hours')
+        if (hoursSinceUpdate < 24) {
+            const hoursRemaining = Math.max(1, 24 - hoursSinceUpdate)
             return `You can update retention again in ${hoursRemaining} hour${hoursRemaining !== 1 ? 's' : ''}`
         }
         return undefined
     }
 
+    const throttleReason = getThrottleReason()
+
+    const renderOptions = (): LemonSegmentedButtonOption<LogsRetentionDays>[] => {
+        const disabledReason = currentTeamLoading ? 'Loading...' : (restrictedReason ?? throttleReason ?? undefined)
+        return [
+            {
+                value: 14,
+                label: '14 days (default)',
+                disabledReason,
+                'data-attr': 'logs-retention-button-14d',
+            },
+            {
+                value: 30,
+                label: '30 days',
+                disabledReason,
+                'data-attr': 'logs-retention-button-30d',
+            },
+            {
+                value: 90,
+                label: '90 days',
+                disabledReason,
+                'data-attr': 'logs-retention-button-90d',
+            },
+        ]
+    }
+
+    const handleRetentionChange = (retentionDays: LogsRetentionDays): void => {
+        if (retentionDays === currentRetention) {
+            return
+        }
+        const label = renderOptions().find((o) => o.value === retentionDays)?.label ?? `${retentionDays} days`
+        LemonDialog.open({
+            title: 'Change logs retention period?',
+            description:
+                'Changing retention only affects logs from this point forwards. Existing logs will keep their original retention period.',
+            primaryButton: {
+                children: `Change retention to ${label}`,
+                onClick: () =>
+                    updateCurrentTeam({
+                        logs_settings: {
+                            ...currentTeam?.logs_settings,
+                            retention_days: retentionDays,
+                        },
+                    }),
+            },
+            secondaryButton: { children: 'Cancel' },
+        })
+    }
+
     return (
         <AccessControlAction resourceType={AccessControlResourceType.Logs} minAccessLevel={AccessControlLevel.Editor}>
-            <div className="space-y-2">
-                <label className="font-semibold">Retention (days)</label>
-                <p className="text-muted">
-                    How long to retain logs before they are automatically deleted. You can only change this setting at
-                    most once per 24 hours
-                </p>
-                <LemonInput
-                    data-attr="logs-retention-input"
-                    type="number"
-                    value={retentionDays}
-                    onChange={(value) => {
-                        setRetentionDays(value || NaN)
-                    }}
-                    min={2}
-                    max={90}
-                    suffix={<>days</>}
-                />
-                {retentionDays < 15 && (
-                    <LemonBanner type="info">
-                        15 days is free. There's no discount for less than 15 days retention.
-                    </LemonBanner>
-                )}
-                {hasChanges && canUpdate && (
-                    <LemonBanner type="warning">You can only update retention settings once per 24 hours.</LemonBanner>
-                )}
-                <LemonButton
-                    type="primary"
-                    onClick={handleSave}
-                    loading={currentTeamLoading}
-                    disabledReason={getDisabledReason()}
-                    data-attr="logs-retention-save"
-                >
-                    Save retention settings
-                </LemonButton>
-
-                <LemonModal
-                    isOpen={showConfirmModal}
-                    onClose={() => setShowConfirmModal(false)}
-                    title="Confirm retention reduction"
-                    footer={
-                        <>
-                            <LemonButton type="secondary" onClick={() => setShowConfirmModal(false)}>
-                                Cancel
-                            </LemonButton>
-                            <LemonButton type="primary" status="danger" onClick={performSave}>
-                                Reduce retention
-                            </LemonButton>
-                        </>
-                    }
-                >
-                    <p>
-                        Are you sure you want to reduce retention? Up to {savedRetentionDays - retentionDays} days of
-                        logs will be <strong>permanently deleted</strong>.
-                    </p>
-                </LemonModal>
-            </div>
+            <LemonSegmentedButton
+                value={currentRetention}
+                onChange={(val) => handleRetentionChange(val)}
+                options={renderOptions()}
+                disabledReason={restrictedReason ?? undefined}
+            />
         </AccessControlAction>
     )
 }

@@ -3,41 +3,27 @@
  * To make this easier this class is designed to abstract the queue as much as possible from
  * the underlying implementation.
  */
-import { Message, KafkaConsumer as RdKafkaConsumer } from 'node-rdkafka'
-import { hostname } from 'os'
-import { Counter, Histogram } from 'prom-client'
+import { Message } from 'node-rdkafka'
 import { compress, uncompress } from 'snappy'
 
-import { getKafkaConfigFromEnv } from '../../../kafka/config'
 import { KafkaConsumer } from '../../../kafka/consumer'
 import { KafkaProducerWrapper } from '../../../kafka/producer'
-import { HealthCheckResult, HealthCheckResultError, PluginsServerConfig } from '../../../types'
+import { HealthCheckResult, HealthCheckResultError } from '../../../types'
 import { parseJSON } from '../../../utils/json-parse'
 import { logger } from '../../../utils/logger'
+import { CdpConfig } from '../../config'
 import { CyclotronJobInvocation, CyclotronJobInvocationResult, CyclotronJobQueueKind } from '../../types'
-import { cdpJobSizeKb } from './shared'
-
-export const cdpSeekLatencyMs = new Histogram({
-    name: 'cdp_seek_latency_ms',
-    help: 'Latency in ms of seeking back to a specific offset to re-read a message',
-    buckets: [1, 5, 10, 25, 50, 100, 150, 200, 250, 500, 1000, 2500, 5000, 10000],
-})
-
-export const cdpSeekResult = new Counter({
-    name: 'cdp_seek_result_total',
-    help: 'Count of seek test results by outcome',
-    labelNames: ['result'],
-})
+import { cdpJobSizeCompressedKb, cdpJobSizeKb } from './shared'
 
 export class CyclotronJobQueueKafka {
     private kafkaConsumer?: KafkaConsumer
     private kafkaProducer?: KafkaProducerWrapper
-    private seekTestConsumer?: RdKafkaConsumer
+    private queue?: CyclotronJobQueueKind
+    private consumeBatch?: (invocations: CyclotronJobInvocation[]) => Promise<{ backgroundTask: Promise<any> }>
 
     constructor(
-        private config: PluginsServerConfig,
-        private queue: CyclotronJobQueueKind,
-        private consumeBatch: (invocations: CyclotronJobInvocation[]) => Promise<{ backgroundTask: Promise<any> }>
+        private kafkaClientRack: string | undefined,
+        private config: Pick<CdpConfig, 'CDP_CYCLOTRON_COMPRESS_KAFKA_DATA'>
     ) {}
 
     /**
@@ -45,10 +31,16 @@ export class CyclotronJobQueueKafka {
      */
     public async startAsProducer() {
         // NOTE: For producing we use different values dedicated for Cyclotron as this is typically using its own Kafka cluster
-        this.kafkaProducer = await KafkaProducerWrapper.create(this.config.KAFKA_CLIENT_RACK, 'CDP_PRODUCER')
+        this.kafkaProducer = await KafkaProducerWrapper.create(this.kafkaClientRack, 'CDP_PRODUCER')
     }
 
-    public async startAsConsumer() {
+    public async startAsConsumer(
+        queue: CyclotronJobQueueKind,
+        consumeBatch: (invocations: CyclotronJobInvocation[]) => Promise<{ backgroundTask: Promise<any> }>
+    ) {
+        this.queue = queue
+        this.consumeBatch = consumeBatch
+
         const groupId = `cdp-cyclotron-${this.queue}-consumer`
         const topic = `cdp_cyclotron_${this.queue}`
 
@@ -60,50 +52,10 @@ export class CyclotronJobQueueKafka {
             const { backgroundTask } = await this.consumeKafkaBatch(messages)
             return { backgroundTask }
         })
-
-        // Initialize seek test consumer if enabled
-        if (this.config.CDP_CYCLOTRON_TEST_SEEK_LATENCY) {
-            try {
-                this.seekTestConsumer = new RdKafkaConsumer(
-                    {
-                        'client.id': `${hostname()}-seek-test`,
-                        'metadata.broker.list': this.config.KAFKA_HOSTS,
-                        ...getKafkaConfigFromEnv('CONSUMER'),
-                        // Static group.id is safe here: we only use assign() (not subscribe()),
-                        // so no group coordination or rebalancing occurs across consumers.
-                        'group.id': 'cdp-seek-test',
-                        'enable.auto.commit': false,
-                        'enable.auto.offset.store': false,
-                    },
-                    { 'auto.offset.reset': 'earliest' }
-                )
-                this.seekTestConsumer.setDefaultConsumeTimeout(5000)
-                await new Promise((resolve, reject) =>
-                    this.seekTestConsumer!.connect({}, (error, data) => (error ? reject(error) : resolve(data)))
-                )
-                logger.info('🔄', 'Seek test consumer connected')
-            } catch (error) {
-                logger.warn('🔄', 'Failed to initialize seek test consumer, seek tests will be skipped', {
-                    error: String(error),
-                })
-                this.seekTestConsumer = undefined
-            }
-        }
     }
 
     public async stopConsumer() {
         await this.kafkaConsumer?.disconnect()
-
-        if (this.seekTestConsumer) {
-            await new Promise<void>((resolve) => {
-                this.seekTestConsumer!.disconnect((error) => {
-                    if (error) {
-                        logger.warn('Failed to disconnect seek test consumer', { error })
-                    }
-                    resolve()
-                })
-            })
-        }
     }
 
     public async stopProducer() {
@@ -124,40 +76,48 @@ export class CyclotronJobQueueKafka {
 
         const producer = this.getKafkaProducer()
 
+        // Pre-serialize all messages eagerly so the produce closures below only
+        // capture lightweight strings instead of full invocation objects (globals, vmState, etc.)
+        const messages = invocations.map((x) => {
+            const jsonString = JSON.stringify(serializeInvocation(x))
+            cdpJobSizeKb.labels('kafka').observe(jsonString.length / 1024)
+
+            return {
+                jsonString,
+                queue: x.queue,
+                id: x.id,
+                functionId: x.functionId,
+                teamId: x.teamId,
+            }
+        })
+
         await Promise.all(
-            invocations.map(async (x) => {
-                const serialized = serializeInvocation(x)
-
+            messages.map(async (msg) => {
                 const value = this.config.CDP_CYCLOTRON_COMPRESS_KAFKA_DATA
-                    ? await compress(JSON.stringify(serialized))
-                    : JSON.stringify(serialized)
+                    ? await compress(msg.jsonString)
+                    : msg.jsonString
 
-                cdpJobSizeKb.observe(value.length / 1024)
+                cdpJobSizeCompressedKb.labels('kafka').observe(value.length / 1024)
 
                 const headers: Record<string, string> = {
                     // NOTE: Later we should remove hogFunctionId as it is no longer used
-                    hogFunctionId: x.functionId,
-                    functionId: x.functionId,
-                    teamId: x.teamId.toString(),
-                }
-
-                if (x.queueScheduledAt && x.state?.returnTopic) {
-                    headers.queueScheduledAt = x.queueScheduledAt.toString()
-                    headers.returnTopic = `cdp_cyclotron_${x.state.returnTopic}`
+                    hogFunctionId: msg.functionId,
+                    functionId: msg.functionId,
+                    teamId: msg.teamId.toString(),
                 }
 
                 await producer
                     .produce({
                         value: Buffer.from(value),
-                        key: Buffer.from(x.id),
-                        topic: `cdp_cyclotron_${x.queue}`,
+                        key: Buffer.from(msg.id),
+                        topic: `cdp_cyclotron_${msg.queue}`,
                         headers,
                     })
                     .catch((e) => {
                         logger.error('🔄', 'Error producing kafka message', {
                             error: String(e),
-                            teamId: x.teamId,
-                            functionId: x.functionId,
+                            teamId: msg.teamId,
+                            functionId: msg.functionId,
                             payloadSizeKb: value.length / 1024,
                         })
 
@@ -169,13 +129,12 @@ export class CyclotronJobQueueKafka {
 
     public async queueInvocationResults(invocationResults: CyclotronJobInvocationResult[]) {
         // With kafka we are essentially re-queuing the work to the target topic if it isn't finished
-        const invocations = invocationResults.reduce((acc, res) => {
-            if (res.finished) {
-                return acc
+        const invocations: CyclotronJobInvocation[] = []
+        for (const res of invocationResults) {
+            if (!res.finished) {
+                invocations.push(res.invocation)
             }
-
-            return [...acc, res.invocation]
-        }, [] as CyclotronJobInvocation[])
+        }
 
         await this.queueInvocations(invocations)
     }
@@ -189,7 +148,7 @@ export class CyclotronJobQueueKafka {
 
     private async consumeKafkaBatch(messages: Message[]): Promise<{ backgroundTask: Promise<any> }> {
         if (messages.length === 0) {
-            return await this.consumeBatch([])
+            return await this.consumeBatch!([])
         }
 
         const invocations: CyclotronJobInvocation[] = []
@@ -210,75 +169,7 @@ export class CyclotronJobQueueKafka {
             invocations.push(invocation)
         }
 
-        const result = await this.consumeBatch(invocations)
-
-        // Seek-back latency test: for a sample of messages, seek to a random older offset
-        // on the same partition and measure how long the read takes (for WarpStream evaluation).
-        // Runs as background task so it doesn't block batch processing.
-        if (this.seekTestConsumer) {
-            const seekTestMessages = messages.filter(
-                () => Math.random() < this.config.CDP_CYCLOTRON_TEST_SEEK_SAMPLE_RATE
-            )
-
-            if (seekTestMessages.length > 0) {
-                const seekTestTask = (async () => {
-                    for (const message of seekTestMessages) {
-                        await this.testSeekLatency(message)
-                    }
-                })()
-
-                return {
-                    backgroundTask: Promise.all([result.backgroundTask, seekTestTask]),
-                }
-            }
-        }
-
-        return result
-    }
-
-    private async testSeekLatency(message: Message): Promise<void> {
-        if (!this.seekTestConsumer) {
-            return
-        }
-
-        const { topic, partition, offset } = message
-        const maxSeekBack = Math.min(this.config.CDP_CYCLOTRON_TEST_SEEK_MAX_OFFSET, offset)
-        if (maxSeekBack <= 0) {
-            return
-        }
-
-        const seekBack = Math.floor(Math.random() * maxSeekBack) + 1
-        const targetOffset = offset - seekBack
-
-        try {
-            this.seekTestConsumer.assign([{ topic, partition, offset: targetOffset }])
-
-            const start = performance.now()
-
-            const consumed = await new Promise<Message[]>((resolve, reject) => {
-                this.seekTestConsumer!.consume(1, (error, messages) => (error ? reject(error) : resolve(messages)))
-            })
-
-            const latencyMs = performance.now() - start
-            cdpSeekLatencyMs.observe(latencyMs)
-
-            if (consumed.length > 0) {
-                cdpSeekResult.labels({ result: 'success' }).inc()
-                logger.info('seek_test', {
-                    latencyMs: Math.round(latencyMs * 100) / 100,
-                    partition,
-                    currentOffset: offset,
-                    targetOffset,
-                    seekBack,
-                    sizeBytes: consumed[0].value?.length,
-                })
-            } else {
-                cdpSeekResult.labels({ result: 'empty' }).inc()
-            }
-        } catch (error) {
-            cdpSeekResult.labels({ result: 'error' }).inc()
-            logger.warn('seek_test_error', { error: String(error), topic, partition })
-        }
+        return await this.consumeBatch!(invocations)
     }
 }
 

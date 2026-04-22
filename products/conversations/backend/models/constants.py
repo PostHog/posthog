@@ -7,6 +7,16 @@ class Channel(models.TextChoices):
     SLACK = "slack", "Slack"
 
 
+class ChannelDetail(models.TextChoices):
+    # Slack sub-types
+    SLACK_CHANNEL_MESSAGE = "slack_channel_message", "Channel message"
+    SLACK_BOT_MENTION = "slack_bot_mention", "Bot mention"
+    SLACK_EMOJI_REACTION = "slack_emoji_reaction", "Emoji reaction"
+    # Widget sub-types
+    WIDGET_EMBEDDED = "widget_embedded", "Widget"
+    WIDGET_API = "widget_api", "API"
+
+
 class Status(models.TextChoices):
     NEW = "new", "New"
     OPEN = "open", "Open"

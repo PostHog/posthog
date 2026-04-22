@@ -1,6 +1,6 @@
 """Data models for batch trace summarization."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Literal
 
 from pydantic import BaseModel
@@ -47,6 +47,15 @@ class BatchSummarizationInputs:
     # Optional explicit window (if not provided, uses window_minutes from now)
     window_start: str | None = None  # RFC3339 format
     window_end: str | None = None  # RFC3339 format
+    # Optional property filters to scope which traces/generations are sampled.
+    # Uses PostHog's standard property filter format (same as clustering event_filters).
+    event_filters: list[dict[str, Any]] = field(default_factory=list)
+    job_id: str = ""  # empty = no job (legacy/manual run without a job)
+    job_name: str = ""
+
+    @property
+    def properties_to_log(self) -> dict[str, Any]:
+        return {"team_id": self.team_id, "job_id": self.job_id, "job_name": self.job_name}
 
 
 @dataclass
@@ -108,6 +117,10 @@ class FetchAndFormatInput:
     max_length: int | None = None
     generation_id: str | None = None  # None = trace-level, set = generation-level
 
+    @property
+    def properties_to_log(self) -> dict[str, Any]:
+        return {"team_id": self.team_id}
+
 
 @dataclass
 class FetchAndFormatResult:
@@ -143,6 +156,12 @@ class SummarizeAndSaveInput:
     generation_id: str | None = None
     event_count: int = 0
     text_repr_length: int = 0
+    job_id: str = ""  # empty = no job (legacy/manual run without a job)
+    job_name: str = ""
+
+    @property
+    def properties_to_log(self) -> dict[str, Any]:
+        return {"team_id": self.team_id, "job_id": self.job_id, "job_name": self.job_name}
 
 
 class TextReprExpiredError(Exception):

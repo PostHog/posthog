@@ -1,18 +1,23 @@
 use async_trait::async_trait;
 use personhog_proto::personhog::types::v1::{
-    CheckCohortMembershipRequest, CohortMembershipResponse, DeleteHashKeyOverridesByTeamsRequest,
-    DeleteHashKeyOverridesByTeamsResponse, GetDistinctIdsForPersonRequest,
-    GetDistinctIdsForPersonResponse, GetDistinctIdsForPersonsRequest,
-    GetDistinctIdsForPersonsResponse, GetGroupRequest, GetGroupResponse,
-    GetGroupTypeMappingsByProjectIdRequest, GetGroupTypeMappingsByProjectIdsRequest,
-    GetGroupTypeMappingsByTeamIdRequest, GetGroupTypeMappingsByTeamIdsRequest,
-    GetGroupsBatchRequest, GetGroupsBatchResponse, GetGroupsRequest,
-    GetHashKeyOverrideContextRequest, GetHashKeyOverrideContextResponse,
+    CheckCohortMembershipRequest, CohortMembershipResponse, CountCohortMembersRequest,
+    CountCohortMembersResponse, DeleteCohortMemberRequest, DeleteCohortMemberResponse,
+    DeleteCohortMembersBulkRequest, DeleteCohortMembersBulkResponse,
+    DeleteHashKeyOverridesByTeamsRequest, DeleteHashKeyOverridesByTeamsResponse,
+    DeletePersonsBatchForTeamRequest, DeletePersonsBatchForTeamResponse, DeletePersonsRequest,
+    DeletePersonsResponse, GetDistinctIdsForPersonRequest, GetDistinctIdsForPersonResponse,
+    GetDistinctIdsForPersonsRequest, GetDistinctIdsForPersonsResponse, GetGroupRequest,
+    GetGroupResponse, GetGroupTypeMappingsByProjectIdRequest,
+    GetGroupTypeMappingsByProjectIdsRequest, GetGroupTypeMappingsByTeamIdRequest,
+    GetGroupTypeMappingsByTeamIdsRequest, GetGroupsBatchRequest, GetGroupsBatchResponse,
+    GetGroupsRequest, GetHashKeyOverrideContextRequest, GetHashKeyOverrideContextResponse,
     GetPersonByDistinctIdRequest, GetPersonByUuidRequest, GetPersonRequest, GetPersonResponse,
     GetPersonsByDistinctIdsInTeamRequest, GetPersonsByDistinctIdsRequest, GetPersonsByUuidsRequest,
     GetPersonsRequest, GroupTypeMappingsBatchResponse, GroupTypeMappingsResponse, GroupsResponse,
-    Person, PersonsByDistinctIdsInTeamResponse, PersonsByDistinctIdsResponse, PersonsResponse,
-    UpsertHashKeyOverridesRequest, UpsertHashKeyOverridesResponse,
+    InsertCohortMembersRequest, InsertCohortMembersResponse, ListCohortMemberIdsRequest,
+    ListCohortMemberIdsResponse, Person, PersonsByDistinctIdsInTeamResponse,
+    PersonsByDistinctIdsResponse, PersonsResponse, UpsertHashKeyOverridesRequest,
+    UpsertHashKeyOverridesResponse,
 };
 use std::sync::Mutex;
 use tonic::Status;
@@ -157,6 +162,22 @@ impl PersonHogBackend for MockBackend {
         Ok(DeleteHashKeyOverridesByTeamsResponse { deleted_count: 0 })
     }
 
+    async fn delete_persons(
+        &self,
+        _request: DeletePersonsRequest,
+    ) -> Result<DeletePersonsResponse, Status> {
+        self.check_error()?;
+        Ok(DeletePersonsResponse { deleted_count: 0 })
+    }
+
+    async fn delete_persons_batch_for_team(
+        &self,
+        _request: DeletePersonsBatchForTeamRequest,
+    ) -> Result<DeletePersonsBatchForTeamResponse, Status> {
+        self.check_error()?;
+        Ok(DeletePersonsBatchForTeamResponse { deleted_count: 0 })
+    }
+
     async fn check_cohort_membership(
         &self,
         _request: CheckCohortMembershipRequest,
@@ -164,6 +185,49 @@ impl PersonHogBackend for MockBackend {
         self.check_error()?;
         Ok(CohortMembershipResponse {
             memberships: vec![],
+        })
+    }
+
+    async fn count_cohort_members(
+        &self,
+        _request: CountCohortMembersRequest,
+    ) -> Result<CountCohortMembersResponse, Status> {
+        self.check_error()?;
+        Ok(CountCohortMembersResponse { count: 0 })
+    }
+
+    async fn delete_cohort_member(
+        &self,
+        _request: DeleteCohortMemberRequest,
+    ) -> Result<DeleteCohortMemberResponse, Status> {
+        self.check_error()?;
+        Ok(DeleteCohortMemberResponse { deleted: false })
+    }
+
+    async fn delete_cohort_members_bulk(
+        &self,
+        _request: DeleteCohortMembersBulkRequest,
+    ) -> Result<DeleteCohortMembersBulkResponse, Status> {
+        self.check_error()?;
+        Ok(DeleteCohortMembersBulkResponse { deleted_count: 0 })
+    }
+
+    async fn insert_cohort_members(
+        &self,
+        _request: InsertCohortMembersRequest,
+    ) -> Result<InsertCohortMembersResponse, Status> {
+        self.check_error()?;
+        Ok(InsertCohortMembersResponse { inserted_count: 0 })
+    }
+
+    async fn list_cohort_member_ids(
+        &self,
+        _request: ListCohortMemberIdsRequest,
+    ) -> Result<ListCohortMemberIdsResponse, Status> {
+        self.check_error()?;
+        Ok(ListCohortMemberIdsResponse {
+            person_ids: vec![],
+            next_cursor: 0,
         })
     }
 

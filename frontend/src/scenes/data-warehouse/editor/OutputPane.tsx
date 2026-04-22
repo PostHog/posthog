@@ -7,9 +7,7 @@ import { useCallback, useMemo, useState } from 'react'
 import DataGrid, { DataGridProps, RenderHeaderCellProps, SortColumn } from 'react-data-grid'
 
 import {
-    IconBolt,
     IconCode,
-    IconCode2,
     IconCopy,
     IconDownload,
     IconExpand45,
@@ -23,11 +21,9 @@ import { LemonButton, LemonDivider, LemonMenu, LemonModal, LemonTable, Tooltip }
 
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { JSONViewer } from 'lib/components/JSONViewer'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
-import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
+import { TZLabel } from 'lib/components/TZLabel'
 import { IconTableChart } from 'lib/lemon-ui/icons'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { transformDataTableToDataTableRows } from 'lib/utils/dataTableTransformations'
 import { InsightErrorState, StatelessInsightLoadingState } from 'scenes/insights/EmptyStates'
@@ -35,17 +31,18 @@ import { HogQLBoldNumber } from 'scenes/insights/views/BoldNumber/BoldNumber'
 
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
+import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { DateRange } from '~/queries/nodes/DataNode/DateRange'
 import { ElapsedTime } from '~/queries/nodes/DataNode/ElapsedTime'
 import { LoadPreviewText } from '~/queries/nodes/DataNode/LoadNext'
 import { QueryExecutionDetails } from '~/queries/nodes/DataNode/QueryExecutionDetails'
-import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { LineGraph } from '~/queries/nodes/DataVisualization/Components/Charts/LineGraph'
+import { PieChart } from '~/queries/nodes/DataVisualization/Components/Charts/PieChart'
 import { TwoDimensionalHeatmap } from '~/queries/nodes/DataVisualization/Components/Heatmap/TwoDimensionalHeatmap'
+import { seriesBreakdownLogic } from '~/queries/nodes/DataVisualization/Components/seriesBreakdownLogic'
 import { SideBar } from '~/queries/nodes/DataVisualization/Components/SideBar'
 import { Table } from '~/queries/nodes/DataVisualization/Components/Table'
 import { TableDisplay } from '~/queries/nodes/DataVisualization/Components/TableDisplay'
-import { seriesBreakdownLogic } from '~/queries/nodes/DataVisualization/Components/seriesBreakdownLogic'
 import { DataTableVisualizationProps } from '~/queries/nodes/DataVisualization/DataVisualization'
 import { dataVisualizationLogic } from '~/queries/nodes/DataVisualization/dataVisualizationLogic'
 import { displayLogic } from '~/queries/nodes/DataVisualization/displayLogic'
@@ -54,13 +51,16 @@ import { type DataTableNode, NodeKind } from '~/queries/schema/schema-general'
 import { HogQLQueryResponse } from '~/queries/schema/schema-general'
 import { ChartDisplayType, ExporterFormat } from '~/types'
 
-import { copyTableToCsv, copyTableToExcel, copyTableToJson } from '../../../queries/nodes/DataTable/clipboardUtils'
-import TabScroller from './TabScroller'
+import {
+    copyTableToCsv,
+    copyTableToExcel,
+    copyTableToJson,
+    copyTableToMarkdown,
+} from '../../../queries/nodes/DataTable/clipboardUtils'
 import { FixErrorButton } from './components/FixErrorButton'
-import { multitabEditorLogic } from './multitabEditorLogic'
-import { Endpoint } from './output-pane-tabs/Endpoint'
-import { QueryInfo } from './output-pane-tabs/QueryInfo'
 import { OutputTab, outputPaneLogic } from './outputPaneLogic'
+import { sqlEditorLogic } from './sqlEditorLogic'
+import TabScroller from './TabScroller'
 
 interface RowDetailsModalProps {
     isOpen: boolean
@@ -112,6 +112,10 @@ const copyMap = {
         label: 'Excel',
         copyFn: copyTableToExcel,
     },
+    [ExporterFormat.MARKDOWN]: {
+        label: 'Markdown',
+        copyFn: copyTableToMarkdown,
+    },
 }
 
 const createDataTableQuery = (): DataTableNode => ({
@@ -154,6 +158,11 @@ const cleanClickhouseType = (type: string | undefined): string | undefined => {
     }
 
     return type.replace(/\(.+\)+/, '')
+}
+
+const isDateTimeType = (type: string | undefined): boolean => {
+    const cleanedType = cleanClickhouseType(type)
+    return cleanedType === 'DateTime' || cleanedType === 'DateTime32' || cleanedType === 'DateTime64'
 }
 
 function RowDetailsModal({ isOpen, onClose, row, columns, columnKeys }: RowDetailsModalProps): JSX.Element {
@@ -287,14 +296,13 @@ function RowDetailsModal({ isOpen, onClose, row, columns, columnKeys }: RowDetai
     )
 }
 
-export function OutputPane({ tabId }: { tabId: string }): JSX.Element {
+export function OutputPane(): JSX.Element {
     const { activeTab } = useValues(outputPaneLogic)
     const { setActiveTab } = useActions(outputPaneLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
 
-    const { sourceQuery, exportContext, editingInsight, updateInsightButtonEnabled, showLegacyFilters, queryInput } =
-        useValues(multitabEditorLogic)
-    const { saveAsInsight, updateInsight, setSourceQuery, runQuery, shareTab } = useActions(multitabEditorLogic)
+    const { sourceQuery, exportContext, insightLoading, showLegacyFilters, hasQueryInput, isEmbeddedMode } =
+        useValues(sqlEditorLogic)
+    const { setSourceQuery, runQuery, shareTab } = useActions(sqlEditorLogic)
     const { isDarkModeOn } = useValues(themeLogic)
     const {
         response: dataNodeResponse,
@@ -342,6 +350,7 @@ export function OutputPane({ tabId }: { tabId: string }): JSX.Element {
             },
             ...(response?.columns?.map((column: string, index: number) => {
                 const type = types?.[index]?.[1]
+                const isDateTimeColumn = isDateTimeType(type)
 
                 const maxContentLength = Math.max(
                     column.length,
@@ -422,6 +431,11 @@ export function OutputPane({ tabId }: { tabId: string }): JSX.Element {
                                 return <span className="text-red">Error parsing value</span>
                             }
                         }
+
+                        if (isDateTimeColumn && typeof value === 'string' && value) {
+                            return <TZLabel time={value} timestampStyle="absolute" />
+                        }
+
                         return value
                     },
                 }
@@ -457,50 +471,51 @@ export function OutputPane({ tabId }: { tabId: string }): JSX.Element {
 
     return (
         <div className="OutputPane flex flex-col w-full flex-1 bg-white dark:bg-black">
-            <div className="flex flex-row justify-between align-center w-full min-h-[50px] overflow-y-auto">
-                <div className="flex min-h-[50px] gap-2 ml-4">
-                    {[
-                        {
-                            key: OutputTab.Results,
-                            label: 'Results',
-                            icon: <IconTableChart />,
-                        },
-                        {
-                            key: OutputTab.Visualization,
-                            label: 'Visualization',
-                            icon: <IconGraph />,
-                        },
-                        {
-                            key: OutputTab.Materialization,
-                            label: 'Materialization',
-                            icon: <IconBolt />,
-                        },
-                        {
-                            key: OutputTab.Endpoint,
-                            label: 'Endpoint',
-                            icon: <IconCode2 />,
-                            flag: FEATURE_FLAGS.ENDPOINTS,
-                        },
-                    ]
-                        .filter((tab) => !tab.flag || featureFlags[tab.flag])
-                        .map((tab) => (
-                            <div
-                                key={tab.key}
-                                className={clsx(
-                                    'flex-1 flex-row flex items-center bold content-center px-2 pt-[3px] cursor-pointer border-b-[medium] whitespace-nowrap',
-                                    {
-                                        'font-semibold !border-brand-yellow': tab.key === activeTab,
-                                        'border-transparent': tab.key !== activeTab,
-                                    }
-                                )}
-                                onClick={() => setActiveTab(tab.key)}
-                            >
-                                <span className="mr-1">{tab.icon}</span>
-                                {tab.label}
-                            </div>
-                        ))}
+            <div className="flex flex-row justify-between align-center w-full min-h-[41px] overflow-y-auto">
+                <div className="flex min-h-[41px] gap-2 ml-4">
+                    {(!isEmbeddedMode
+                        ? [
+                              {
+                                  key: OutputTab.Results,
+                                  label: 'Results',
+                                  icon: <IconTableChart />,
+                              },
+                              {
+                                  key: OutputTab.Visualization,
+                                  label: 'Visualization',
+                                  icon: <IconGraph />,
+                              },
+                          ]
+                        : [
+                              {
+                                  key: OutputTab.Results,
+                                  label: 'Results',
+                                  icon: <IconTableChart />,
+                              },
+                              {
+                                  key: OutputTab.Visualization,
+                                  label: 'Visualization',
+                                  icon: <IconGraph />,
+                              },
+                          ]
+                    ).map((tab) => (
+                        <div
+                            key={tab.key}
+                            className={clsx(
+                                'flex-1 flex-row flex items-center bold content-center px-2 pt-[3px] cursor-pointer border-b-[medium] whitespace-nowrap',
+                                {
+                                    'font-semibold !border-brand-yellow': tab.key === activeTab,
+                                    'border-transparent': tab.key !== activeTab,
+                                }
+                            )}
+                            onClick={() => setActiveTab(tab.key)}
+                        >
+                            <span className="mr-1">{tab.icon}</span>
+                            {tab.label}
+                        </div>
+                    ))}
                 </div>
-                <div className="flex gap-2 py-2 px-4 flex-shrink-0">
+                <div className="flex gap-2 py-1 px-4 flex-shrink-0">
                     {showLegacyFilters && (
                         <DateRange
                             key="date-range"
@@ -528,59 +543,14 @@ export function OutputPane({ tabId }: { tabId: string }): JSX.Element {
                                             disabledReason={!hasColumns ? 'No results to visualize' : undefined}
                                             type="secondary"
                                             icon={<IconGear />}
+                                            size="small"
                                             onClick={() => toggleChartSettingsPanel()}
                                             tooltip="Visualization settings"
                                         />
-                                        {editingInsight && (
-                                            <LemonButton
-                                                disabledReason={!updateInsightButtonEnabled && 'No updates to save'}
-                                                type="primary"
-                                                onClick={() => updateInsight()}
-                                                id="sql-editor-update-insight"
-                                                sideAction={{
-                                                    dropdown: {
-                                                        placement: 'bottom-end',
-                                                        overlay: (
-                                                            <LemonMenuOverlay
-                                                                items={[
-                                                                    {
-                                                                        label: 'Save as...',
-                                                                        onClick: () => saveAsInsight(),
-                                                                    },
-                                                                ]}
-                                                            />
-                                                        ),
-                                                    },
-                                                }}
-                                            >
-                                                Save insight
-                                            </LemonButton>
-                                        )}
-                                        {!editingInsight && (
-                                            <LemonButton
-                                                disabledReason={!hasColumns ? 'No results to save' : undefined}
-                                                type="primary"
-                                                onClick={() => saveAsInsight()}
-                                                id="sql-editor-save-insight"
-                                            >
-                                                Save insight
-                                            </LemonButton>
-                                        )}
                                     </div>
                                 </div>
                             </div>
                         </>
-                    )}
-                    {activeTab === OutputTab.Results && (
-                        <LemonButton
-                            disabledReason={!hasColumns && !editingInsight ? 'No results to visualize' : undefined}
-                            type="secondary"
-                            onClick={() => setActiveTab(OutputTab.Visualization)}
-                            id={`sql-editor-${editingInsight ? 'view' : 'create'}-insight`}
-                            icon={<IconGraph />}
-                        >
-                            {editingInsight ? 'View insight' : 'Create insight'}
-                        </LemonButton>
                     )}
                     {activeTab === OutputTab.Results && (
                         <LemonMenu
@@ -600,6 +570,7 @@ export function OutputPane({ tabId }: { tabId: string }): JSX.Element {
                                 id="sql-editor-copy-dropdown"
                                 disabledReason={!response?.columns || !rows.length ? 'No results to copy' : undefined}
                                 type="secondary"
+                                size="small"
                                 icon={<IconCopy />}
                             />
                         </LemonMenu>
@@ -613,6 +584,7 @@ export function OutputPane({ tabId }: { tabId: string }): JSX.Element {
                                 icon={<IconDownload />}
                                 sideIcon={null}
                                 buttonCopy=""
+                                size="small"
                                 items={[
                                     {
                                         export_format: ExporterFormat.CSV,
@@ -626,12 +598,13 @@ export function OutputPane({ tabId }: { tabId: string }): JSX.Element {
                             />
                         </Tooltip>
                     )}
-                    {activeTab === OutputTab.Results && (
+                    {!isEmbeddedMode && activeTab === OutputTab.Results && (
                         <Tooltip title="Share your current query">
                             <LemonButton
                                 id="sql-editor-share"
-                                disabledReason={!queryInput && 'No query to share'}
+                                disabledReason={!hasQueryInput && 'No query to share'}
                                 type="secondary"
+                                size="small"
                                 icon={<IconShare />}
                                 onClick={() => shareTab()}
                             />
@@ -645,6 +618,7 @@ export function OutputPane({ tabId }: { tabId: string }): JSX.Element {
                     responseError={responseError}
                     responseLoading={responseLoading}
                     response={response}
+                    insightLoading={insightLoading}
                     sourceQuery={sourceQuery}
                     queryCancelled={queryCancelled}
                     columns={columns}
@@ -653,10 +627,8 @@ export function OutputPane({ tabId }: { tabId: string }): JSX.Element {
                     vizKey={vizKey}
                     setSourceQuery={setSourceQuery}
                     exportContext={exportContext}
-                    saveAsInsight={saveAsInsight}
                     queryId={queryId}
                     pollResponse={pollResponse}
-                    tabId={tabId}
                     setProgress={setProgress}
                     progress={queryId ? progressCache[queryId] : undefined}
                 />
@@ -679,13 +651,10 @@ export function OutputPane({ tabId }: { tabId: string }): JSX.Element {
     )
 }
 
-function InternalDataTableVisualization(
-    props: DataTableVisualizationProps & { onSaveInsight: () => void }
-): JSX.Element | null {
+function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX.Element | null {
     const {
         query,
-        visualizationType,
-        showEditingUI,
+        effectiveVisualizationType,
         response,
         responseLoading,
         isChartSettingsPanelOpen,
@@ -703,13 +672,13 @@ function InternalDataTableVisualization(
     let component: JSX.Element | null = null
 
     // TODO(@Gilbert09): Better loading support for all components - e.g. using the `loading` param of `Table`
-    if (!showEditingUI && (!response || responseLoading)) {
+    if (!response || responseLoading) {
         component = (
             <div className="flex flex-col flex-1 justify-center items-center bg-surface-primary h-full">
                 <LoadingBar />
             </div>
         )
-    } else if (visualizationType === ChartDisplayType.ActionsTable) {
+    } else if (effectiveVisualizationType === ChartDisplayType.ActionsTable) {
         component = (
             <Table
                 uniqueKey={props.uniqueKey}
@@ -720,10 +689,10 @@ function InternalDataTableVisualization(
             />
         )
     } else if (
-        visualizationType === ChartDisplayType.ActionsLineGraph ||
-        visualizationType === ChartDisplayType.ActionsBar ||
-        visualizationType === ChartDisplayType.ActionsAreaGraph ||
-        visualizationType === ChartDisplayType.ActionsStackedBar
+        effectiveVisualizationType === ChartDisplayType.ActionsLineGraph ||
+        effectiveVisualizationType === ChartDisplayType.ActionsBar ||
+        effectiveVisualizationType === ChartDisplayType.ActionsAreaGraph ||
+        effectiveVisualizationType === ChartDisplayType.ActionsStackedBar
     ) {
         const _xData = seriesBreakdownData.xData.data.length ? seriesBreakdownData.xData : xData
         const _yData = seriesBreakdownData.xData.data.length ? seriesBreakdownData.seriesData : yData
@@ -732,16 +701,30 @@ function InternalDataTableVisualization(
                 className="p-2"
                 xData={_xData}
                 yData={_yData}
-                visualizationType={visualizationType}
+                visualizationType={effectiveVisualizationType}
                 chartSettings={chartSettings}
                 dashboardId={dashboardId}
                 goalLines={goalLines}
                 presetChartHeight={presetChartHeight}
             />
         )
-    } else if (visualizationType === ChartDisplayType.TwoDimensionalHeatmap) {
+    } else if (effectiveVisualizationType === ChartDisplayType.ActionsPie) {
+        const _xData = seriesBreakdownData.xData.data.length ? seriesBreakdownData.xData : xData
+        const _yData = seriesBreakdownData.seriesData.length ? seriesBreakdownData.seriesData : yData
+
+        component = (
+            <PieChart
+                className="p-2"
+                uniqueKey={props.uniqueKey?.toString() ?? dataVisualizationProps.key}
+                xData={_xData}
+                yData={_yData}
+                chartSettings={chartSettings}
+                presetChartHeight={presetChartHeight}
+            />
+        )
+    } else if (effectiveVisualizationType === ChartDisplayType.TwoDimensionalHeatmap) {
         component = <TwoDimensionalHeatmap />
-    } else if (visualizationType === ChartDisplayType.BoldNumber) {
+    } else if (effectiveVisualizationType === ChartDisplayType.BoldNumber) {
         component = <HogQLBoldNumber />
     }
 
@@ -774,7 +757,11 @@ const ErrorState = ({ responseError, sourceQuery, queryCancelled, response }: an
             <InsightErrorState
                 query={sourceQuery}
                 excludeDetail
-                title={error}
+                title={
+                    <pre className="text-xs bg-danger-highlight p-2 rounded overflow-auto max-h-40 max-w-[80%] mx-auto text-left whitespace-pre-wrap break-words">
+                        {error}
+                    </pre>
+                }
                 excludeActions={queryCancelled} // Don't display fix/debugger buttons if the query was cancelled
                 fixWithAIComponent={
                     <FixErrorButton contentOverride="Fix error with AI" type="primary" source="query-error" />
@@ -795,17 +782,15 @@ const Content = ({
     rows,
     isDarkModeOn,
     vizKey,
-    tabId,
     setSourceQuery,
     exportContext,
-    saveAsInsight,
     queryId,
     pollResponse,
     setProgress,
     progress,
+    insightLoading,
 }: any): JSX.Element | null => {
     const [sortColumns, setSortColumns] = useState<SortColumn[]>([])
-    const { featureFlags } = useValues(featureFlagLogic)
 
     const sortedRows = useMemo(() => {
         if (!sortColumns.length) {
@@ -833,27 +818,50 @@ const Content = ({
             return 0
         })
     }, [rows, sortColumns])
-    if (activeTab === OutputTab.Materialization) {
+    const hasError = queryCancelled || !!responseError || !!(response && 'error' in response && !!response.error)
+
+    if (hasError) {
         return (
-            <TabScroller>
-                <div className="px-6 py-4 border-t">
-                    <QueryInfo tabId={tabId} />
-                </div>
-            </TabScroller>
+            <ErrorState
+                responseError={responseError}
+                sourceQuery={sourceQuery}
+                queryCancelled={queryCancelled}
+                response={response}
+            />
         )
     }
 
-    if (featureFlags[FEATURE_FLAGS.ENDPOINTS] && activeTab === OutputTab.Endpoint) {
-        return (
-            <TabScroller>
-                <div className="px-6 py-4 border-t">
-                    <Endpoint tabId={tabId} />
+    if (activeTab === OutputTab.Visualization) {
+        if (!response && !responseLoading && !insightLoading) {
+            return (
+                <div
+                    className="flex flex-1 justify-center items-center border-t"
+                    data-attr="sql-editor-output-pane-empty-state"
+                >
+                    <span className="text-secondary mt-3">
+                        Query results will be visualized here. Press <KeyboardShortcut command enter /> to run the
+                        query.
+                    </span>
                 </div>
-            </TabScroller>
+            )
+        }
+
+        return (
+            <div className="flex-1 absolute inset-0 hide-scrollbar border-t">
+                <InternalDataTableVisualization
+                    uniqueKey={vizKey}
+                    query={sourceQuery}
+                    setQuery={setSourceQuery}
+                    context={{}}
+                    cachedResults={undefined}
+                    exportContext={exportContext}
+                    editMode
+                />
+            </div>
         )
     }
 
-    if (responseLoading) {
+    if (responseLoading || insightLoading) {
         return (
             <div className="flex flex-1 p-2 w-full justify-center items-center border-t">
                 <StatelessInsightLoadingState
@@ -866,17 +874,6 @@ const Content = ({
         )
     }
 
-    if (responseError) {
-        return (
-            <ErrorState
-                responseError={responseError}
-                sourceQuery={sourceQuery}
-                queryCancelled={queryCancelled}
-                response={response}
-            />
-        )
-    }
-
     if (!response) {
         const msg =
             activeTab === OutputTab.Results
@@ -884,11 +881,12 @@ const Content = ({
                 : 'Query results will be visualized here.'
         return (
             <div
-                className="flex flex-1 justify-center items-center border-t"
+                className="flex flex-1 justify-center items-center border-t px-4 text-center"
                 data-attr="sql-editor-output-pane-empty-state"
             >
                 <span className="text-secondary mt-3">
-                    {msg} Press <KeyboardShortcut command enter /> to run the query.
+                    {msg} Press <KeyboardShortcut command enter /> to run the query at your cursor. Separate multiple
+                    statements with <code>;</code> to run them independently.
                 </span>
             </div>
         )
@@ -898,30 +896,13 @@ const Content = ({
         return (
             <TabScroller data-attr="sql-editor-output-pane-results">
                 <DataGrid
-                    className={isDarkModeOn ? 'rdg-dark h-full' : 'rdg-light h-full'}
+                    className={clsx(isDarkModeOn ? 'rdg-dark h-full' : 'rdg-light h-full', 'ph-no-capture')}
                     columns={columns}
                     rows={sortedRows}
                     sortColumns={sortColumns}
                     onSortColumnsChange={setSortColumns}
                 />
             </TabScroller>
-        )
-    }
-
-    if (activeTab === OutputTab.Visualization) {
-        return (
-            <div className="flex-1 absolute inset-0 hide-scrollbar border-t">
-                <InternalDataTableVisualization
-                    uniqueKey={vizKey}
-                    query={sourceQuery}
-                    setQuery={setSourceQuery}
-                    context={{}}
-                    cachedResults={undefined}
-                    exportContext={exportContext}
-                    onSaveInsight={saveAsInsight}
-                    editMode
-                />
-            </div>
         )
     }
     return null

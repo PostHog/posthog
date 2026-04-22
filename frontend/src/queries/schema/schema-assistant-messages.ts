@@ -3,22 +3,29 @@ import type { MaxUIContext } from 'scenes/max/maxTypes'
 
 import type { Category, InsightShortId, NotebookInfo } from '~/types'
 
+// eslint-disable-next-line import/no-cycle
 import { DocumentBlock } from './schema-assistant-artifacts'
 import type {
     AssistantFunnelsQuery,
     AssistantHogQLQuery,
+    AssistantLifecycleQuery,
+    AssistantPathsQuery,
     AssistantRetentionQuery,
+    AssistantStickinessQuery,
     AssistantTrendsQuery,
 } from './schema-assistant-queries'
 import type {
     FunnelsQuery,
     HogQLQuery,
+    LifecycleQuery,
+    PathsQuery,
     QuerySchema,
     RetentionQuery,
     RevenueAnalyticsGrossRevenueQuery,
     RevenueAnalyticsMRRQuery,
     RevenueAnalyticsMetricsQuery,
     RevenueAnalyticsTopCustomersQuery,
+    StickinessQuery,
     TrendsQuery,
 } from './schema-general'
 
@@ -109,6 +116,33 @@ export interface MultiQuestionFormQuestionOption {
     description?: string
 }
 
+/** Question types: select/multi_select for standalone, multi_field for composite */
+export type MultiQuestionFormQuestionType = 'select' | 'multi_select' | 'multi_field'
+
+/** Field types allowed inside a multi_field composite question */
+export type MultiQuestionFormFieldType = 'text' | 'number' | 'slider' | 'dropdown' | 'toggle'
+
+export interface MultiQuestionFormField {
+    /** Unique identifier for this field, used as the answer key */
+    id: string
+    /** Field type (required, no default) */
+    type: MultiQuestionFormFieldType
+    /** Label displayed above/beside the field */
+    label: string
+    /** Available answer options (required for dropdown) */
+    options?: MultiQuestionFormQuestionOption[]
+    /** Minimum value (for number and slider types) */
+    min?: number
+    /** Maximum value (for number and slider types) */
+    max?: number
+    /** Step size (for number and slider types) */
+    step?: number
+    /** Placeholder text (for text and number types) */
+    placeholder?: string
+    /** Whether this field can be left empty (default: false) */
+    optional?: boolean
+}
+
 export interface MultiQuestionFormQuestion {
     /** Unique identifier for this question */
     id: string
@@ -116,14 +150,21 @@ export interface MultiQuestionFormQuestion {
     title: string
     /** The question text to display */
     question: string
-    /** Available answer options */
-    options: MultiQuestionFormQuestionOption[]
-    /** Whether to show a "Type your answer" option (default: true) */
+    /**
+     * Question type. Use 'multi_field' with fields array for composite questions.
+     * @default select
+     */
+    type?: MultiQuestionFormQuestionType
+    /** Available answer options (required for select and multi_select) */
+    options?: MultiQuestionFormQuestionOption[]
+    /** Whether to show a "Type your answer" option (default: true). Used for select and multi_select types. */
     allow_custom_answer?: boolean
+    /** Fields for multi_field type questions, grouped with a shared submit button */
+    fields?: MultiQuestionFormField[]
 }
 
 export interface MultiQuestionFormAnswers {
-    [questionId: string]: string
+    [questionId: string]: string | string[]
 }
 
 export interface MultiQuestionForm {
@@ -143,7 +184,11 @@ export interface FormResumePayload {
     form_answers: MultiQuestionFormAnswers
 }
 
-export type ResumePayload = ApprovalResumePayload | FormResumePayload
+export interface FormDismissPayload {
+    action: 'dismiss_form'
+}
+
+export type ResumePayload = ApprovalResumePayload | FormResumePayload | FormDismissPayload
 
 export interface AssistantMessageMetadata {
     form?: AssistantForm
@@ -198,6 +243,9 @@ export type AnyAssistantGeneratedQuery =
     | AssistantTrendsQuery
     | AssistantFunnelsQuery
     | AssistantRetentionQuery
+    | AssistantStickinessQuery
+    | AssistantPathsQuery
+    | AssistantLifecycleQuery
     | AssistantHogQLQuery
 
 export interface VisualizationItem {
@@ -209,6 +257,9 @@ export interface VisualizationItem {
         | TrendsQuery
         | FunnelsQuery
         | RetentionQuery
+        | StickinessQuery
+        | PathsQuery
+        | LifecycleQuery
         | HogQLQuery
         | RevenueAnalyticsGrossRevenueQuery
         | RevenueAnalyticsMetricsQuery
@@ -307,6 +358,8 @@ export interface NotebookArtifactContent {
     blocks: DocumentBlock[]
     /** Title for the notebook */
     title?: string | null
+    /** Whether this notebook has been saved to the database (not stored, set during enrichment) */
+    is_saved?: boolean
 }
 
 export type ArtifactContent = VisualizationArtifactContent | NotebookArtifactContent
@@ -342,6 +395,7 @@ export enum AssistantEventType {
     Notebook = 'notebook',
     Update = 'update',
     Approval = 'approval',
+    Sandbox = 'sandbox',
 }
 
 export interface AssistantUpdateEvent {
@@ -435,7 +489,11 @@ export type AssistantTool =
     | 'manage_memories'
     | 'create_notebook'
     | 'list_data'
+    | 'upsert_alert'
     | 'finalize_plan'
+    | 'call_mcp_server'
+    | 'search_llm_traces'
+    | 'run_hog_eval_test'
 
 export enum AgentMode {
     ProductAnalytics = 'product_analytics',
@@ -447,6 +505,8 @@ export enum AgentMode {
     Survey = 'survey',
     Research = 'research',
     Flags = 'flags',
+    LLMAnalytics = 'llm_analytics',
+    Sandbox = 'sandbox',
 }
 
 export enum SlashCommandName {
@@ -497,7 +557,6 @@ export enum AssistantNavigateUrl {
     Settings = 'settings',
     SqlEditor = 'sqlEditor',
     Surveys = 'surveys',
-    SurveyTemplates = 'surveyTemplates',
     ToolbarLaunch = 'toolbarLaunch',
     WebAnalytics = 'webAnalytics',
     WebAnalyticsWebVitals = 'webAnalyticsWebVitals',

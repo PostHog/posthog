@@ -1,15 +1,15 @@
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 
-export function openDeletePromptDialog(onDelete: () => void): void {
+export function openArchivePromptDialog(onArchive: () => void): void {
     LemonDialog.open({
-        title: 'Delete prompt?',
+        title: 'Archive prompt?',
         description:
-            'This action cannot be undone. If you have any code currently fetching this prompt, it will no longer be able to retrieve it.',
+            'This archives every active version of the prompt. Any code fetching it by name will stop resolving it.',
         primaryButton: {
-            children: 'Delete',
+            children: 'Archive',
             type: 'primary',
             status: 'danger',
-            onClick: onDelete,
+            onClick: onArchive,
         },
         secondaryButton: {
             children: 'Cancel',

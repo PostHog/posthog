@@ -12,6 +12,8 @@ class ReadEvents(BaseModel):
     """Returns the list of available events. Events are sorted by their popularity where the most popular events are at the top."""
 
     kind: Literal["events"] = "events"
+    limit: int = Field(default=500, ge=1, le=500, description="Number of events to return per page.")
+    offset: int = Field(default=0, ge=0, description="Number of events to skip for pagination.")
 
 
 class ReadEventProperties(BaseModel):
@@ -76,6 +78,22 @@ class ReadTaxonomyToolArgs(BaseModel):
     query: ReadTaxonomyQuery = Field(..., discriminator="kind")
 
 
+DYNAMIC_PERSON_PROPERTIES_HINT = """
+NOTE: Some person properties follow dynamic naming patterns and will NOT appear in the list above.
+If the user's question involves surveys, feature flags, early access features, or product tours, construct the property name using these patterns:
+- $survey_dismissed/{survey_id}, $survey_responded/{survey_id} — Boolean, survey dismiss/response tracking
+- $feature_enrollment/{flag_key} — Boolean, early access feature enrollment
+- $feature_interaction/{feature_key} — Boolean, feature interaction tracking
+- $product_tour_dismissed/{tour_id}, $product_tour_shown/{tour_id}, $product_tour_completed/{tour_id} — Boolean, product tour lifecycle
+""".strip()
+
+DYNAMIC_EVENT_PROPERTIES_HINT = """
+NOTE: Some event properties follow dynamic naming patterns and will NOT appear in the list above.
+If the user's question involves feature flags, construct the property name using this pattern:
+- $feature/{flag_key} — the feature flag value for a specific flag
+""".strip()
+
+
 def execute_taxonomy_query(query: ReadTaxonomyQuery, toolkit: TaxonomyAgentToolkit, team: Team) -> str:
     """
     Execute a taxonomy query and return the result.
@@ -84,17 +102,22 @@ def execute_taxonomy_query(query: ReadTaxonomyQuery, toolkit: TaxonomyAgentToolk
     """
     match query:
         case ReadEvents():
-            return format_events_yaml([], team)
+            return format_events_yaml([], team, limit=query.limit, offset=query.offset)
         case ReadEventProperties():
-            return toolkit.retrieve_event_or_action_properties(query.event_name)
+            result = toolkit.retrieve_event_or_action_properties(query.event_name)
+            return f"{result}\n\n{DYNAMIC_EVENT_PROPERTIES_HINT}"
         case ReadEventSamplePropertyValues():
             return toolkit.retrieve_event_or_action_property_values(query.event_name, query.property_name)
         case ReadActionProperties():
-            return toolkit.retrieve_event_or_action_properties(query.action_id)
+            result = toolkit.retrieve_event_or_action_properties(query.action_id)
+            return f"{result}\n\n{DYNAMIC_EVENT_PROPERTIES_HINT}"
         case ReadActionSamplePropertyValues():
             return toolkit.retrieve_event_or_action_property_values(query.action_id, query.property_name)
         case ReadEntityProperties():
-            return toolkit.retrieve_entity_properties(query.entity)
+            result = toolkit.retrieve_entity_properties(query.entity)
+            if query.entity == "person":
+                return f"{result}\n\n{DYNAMIC_PERSON_PROPERTIES_HINT}"
+            return result
         case ReadEntitySamplePropertyValues():
             return toolkit.retrieve_entity_property_values(query.entity, query.property_name)
         case _:

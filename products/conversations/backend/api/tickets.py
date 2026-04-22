@@ -1,23 +1,45 @@
+from __future__ import annotations
+
+import json
+import uuid
 from collections.abc import Sequence
+from datetime import timedelta
 
 from django.db import transaction
-from django.db.models import Prefetch, Q, QuerySet, Sum
+from django.db.models import CharField, Exists, OuterRef, Q, QuerySet, Sum
+from django.db.models.functions import Cast
+from django.http import Http404
+from django.utils import timezone
 
 import structlog
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
 from loginas.utils import is_impersonated_session
-from rest_framework import pagination, serializers, viewsets
+from rest_framework import (
+    pagination,
+    serializers,
+    status as drf_status,
+    viewsets,
+)
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from posthog.api.person import get_person_name
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
+from posthog.event_usage import report_user_action
+from posthog.exceptions_capture import capture_exception
 from posthog.models import OrganizationMembership
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
-from posthog.models.person.person import READ_DB_FOR_PERSONS, Person, PersonDistinctId
-from posthog.permissions import APIScopePermission
+from posthog.models.comment import Comment
+from posthog.models.person.person import Person
+from posthog.models.person.util import get_persons_by_distinct_ids
+from posthog.permissions import APIScopePermission, PostHogFeatureFlagPermission
+from posthog.rate_limit import AIBurstRateThrottle, AISustainedRateThrottle
 from posthog.utils import relative_date_parse
 
+from products.conversations.backend.ai.suggest import NoMessagesError, suggest_reply
 from products.conversations.backend.api.serializers import TicketAssignmentSerializer
 from products.conversations.backend.cache import (
     get_cached_unread_count,
@@ -30,11 +52,20 @@ from products.conversations.backend.events import (
     capture_ticket_status_changed,
 )
 from products.conversations.backend.models import Ticket, TicketAssignment
-from products.conversations.backend.models.constants import Channel, Priority, Status
+from products.conversations.backend.models.constants import Channel, ChannelDetail, Priority, Status
 
 from ee.models.rbac.role import Role
 
 logger = structlog.get_logger(__name__)
+
+
+class SuggestReplyResponseSerializer(serializers.Serializer):
+    suggestion = serializers.CharField()
+
+
+class SuggestReplyErrorSerializer(serializers.Serializer):
+    detail = serializers.CharField()
+    error_type = serializers.CharField(required=False)
 
 
 class TicketPagination(pagination.LimitOffsetPagination):
@@ -59,9 +90,10 @@ class TicketPersonSerializer(serializers.Serializer):
         return get_person_name(team, person)
 
 
-class TicketSerializer(serializers.ModelSerializer):
+class TicketSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer):
     assignee = TicketAssignmentSerializer(source="assignment", read_only=True)
     person = TicketPersonSerializer(read_only=True, allow_null=True)
+    email_to = serializers.SerializerMethodField()
 
     class Meta:
         model = Ticket
@@ -69,6 +101,7 @@ class TicketSerializer(serializers.ModelSerializer):
             "id",
             "ticket_number",
             "channel_source",
+            "channel_detail",
             "distinct_id",
             "status",
             "priority",
@@ -82,38 +115,73 @@ class TicketSerializer(serializers.ModelSerializer):
             "last_message_at",
             "last_message_text",
             "unread_team_count",
+            "unread_customer_count",
             "session_id",
             "session_context",
+            "sla_due_at",
+            "snoozed_until",
+            "slack_channel_id",
+            "slack_thread_ts",
+            "slack_team_id",
+            "email_subject",
+            "email_from",
+            "email_to",
+            "cc_participants",
             "person",
+            "tags",
         ]
         read_only_fields = [
             "id",
             "ticket_number",
             "channel_source",
+            "channel_detail",
             "distinct_id",
             "created_at",
             "message_count",
             "last_message_at",
             "last_message_text",
             "unread_team_count",
+            "unread_customer_count",
             "assignee",
             "session_id",
             "session_context",
+            "slack_channel_id",
+            "slack_thread_ts",
+            "slack_team_id",
+            "email_subject",
+            "email_from",
+            "email_to",
+            "cc_participants",
             "person",
         ]
+        extra_kwargs = {
+            "status": {"help_text": "Ticket status: new, open, pending, on_hold, or resolved"},
+            "priority": {"help_text": "Ticket priority: low, medium, or high. Null if unset."},
+            "sla_due_at": {"help_text": "SLA deadline set via workflows. Null means no SLA."},
+            "anonymous_traits": {"help_text": "Customer-provided traits such as name and email"},
+        }
+
+    def get_email_to(self, obj: Ticket) -> str | None:
+        config = getattr(obj, "email_config", None)
+        if config is not None:
+            return config.from_email
+        return None
 
 
-class TicketViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
+class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "ticket"
     queryset = Ticket.objects.all()
     serializer_class = TicketSerializer
-    permission_classes = [IsAuthenticated, APIScopePermission]
+    permission_classes = [IsAuthenticated, APIScopePermission, PostHogFeatureFlagPermission]
     pagination_class = TicketPagination
+    posthog_feature_flag = {
+        "product-support-ai-suggestion": ["suggest_reply"],
+    }
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
         """Filter tickets by team."""
         queryset = queryset.filter(team_id=self.team_id)
-        queryset = queryset.select_related("assignment", "assignment__user", "assignment__role")
+        queryset = queryset.select_related("assignment", "assignment__user", "assignment__role", "email_config")
 
         status_param = self.request.query_params.get("status")
         if status_param:
@@ -136,6 +204,10 @@ class TicketViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         channel_source = self.request.query_params.get("channel_source")
         if channel_source and channel_source in [c.value for c in Channel]:
             queryset = queryset.filter(channel_source=channel_source)
+
+        channel_detail = self.request.query_params.get("channel_detail")
+        if channel_detail and channel_detail in [d.value for d in ChannelDetail]:
+            queryset = queryset.filter(channel_detail=channel_detail)
 
         assignee = self.request.query_params.get("assignee")
         if assignee:
@@ -163,20 +235,111 @@ class TicketViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             if parsed:
                 queryset = queryset.filter(updated_at__lte=parsed)
 
-        distinct_id = self.request.query_params.get("distinct_id")
-        if distinct_id and len(distinct_id) <= 200:
-            queryset = queryset.filter(distinct_id__icontains=distinct_id)
+        distinct_ids_param = self.request.query_params.get("distinct_ids")
+        if distinct_ids_param:
+            ids = [id.strip() for id in distinct_ids_param.split(",") if id.strip()][:100]
+            if ids:
+                queryset = queryset.filter(distinct_id__in=ids)
 
         search = self.request.query_params.get("search")
         if search and len(search) <= 200:
             if search.isdigit():
                 queryset = queryset.filter(ticket_number=int(search))
             else:
+                # EXISTS subquery: matches any comment in the ticket's conversation.
+                # Uses the (team_id, scope, item_id) composite index on Comment to
+                # narrow to per-ticket comments; EXISTS short-circuits on first match.
+                # If this becomes slow at scale (10k+ candidate tickets with broad
+                # filters), consider adding a GIN trigram index on Comment.content:
+                #   GinIndex(name="comment_content_trigram", fields=["content"],
+                #            opclasses=["gin_trgm_ops"])
+                comment_match = Comment.objects.filter(
+                    team_id=OuterRef("team_id"),
+                    scope="conversations_ticket",
+                    item_id=Cast(OuterRef("id"), output_field=CharField()),
+                    content__icontains=search,
+                    deleted=False,
+                )
                 queryset = queryset.filter(
-                    Q(anonymous_traits__name__icontains=search) | Q(anonymous_traits__email__icontains=search)
+                    Q(anonymous_traits__name__icontains=search)
+                    | Q(anonymous_traits__email__icontains=search)
+                    | Q(email_subject__icontains=search)
+                    | Exists(comment_match)
                 )
 
-        return queryset.order_by("-updated_at")
+        sla_param = self.request.query_params.get("sla")
+        if sla_param:
+            now = timezone.now()
+            if sla_param == "breached":
+                queryset = queryset.filter(sla_due_at__lt=now)
+            elif sla_param == "at-risk":
+                queryset = queryset.filter(sla_due_at__gte=now, sla_due_at__lte=now + timedelta(hours=1))
+            elif sla_param == "on-track":
+                queryset = queryset.filter(sla_due_at__gt=now + timedelta(hours=1))
+
+        snoozed_param = self.request.query_params.get("snoozed")
+        if snoozed_param is not None:
+            if snoozed_param.lower() == "true":
+                queryset = queryset.filter(snoozed_until__isnull=False)
+            elif snoozed_param.lower() == "false":
+                queryset = queryset.filter(snoozed_until__isnull=True)
+
+        tags_param = self.request.query_params.get("tags")
+        if tags_param:
+            try:
+                tags_list = json.loads(tags_param)
+                if isinstance(tags_list, list) and tags_list:
+                    queryset = queryset.filter(tagged_items__tag__name__in=tags_list).distinct()
+            except json.JSONDecodeError:
+                pass
+
+        allowed_orderings = {
+            "updated_at",
+            "-updated_at",
+            "sla_due_at",
+            "-sla_due_at",
+            "snoozed_until",
+            "-snoozed_until",
+            "created_at",
+            "-created_at",
+            "ticket_number",
+            "-ticket_number",
+        }
+        order_by = self.request.query_params.get("order_by", "-updated_at")
+        if order_by not in allowed_orderings:
+            order_by = "-updated_at"
+
+        return queryset.order_by(order_by)
+
+    def safely_get_object(self, queryset):
+        """
+        Support looking up tickets by either UUID or ticket_number.
+        This allows URLs like /tickets/123/ (ticket_number) alongside /tickets/<uuid>/ for backward compatibility.
+        """
+        lookup_value: str | None = self.kwargs.get("pk")
+
+        if not lookup_value:
+            raise Http404("Ticket not found")
+
+        # Try to parse as UUID first
+        try:
+            uuid.UUID(lookup_value)
+            # It's a valid UUID - look up by id
+            try:
+                return queryset.get(id=lookup_value)
+            except Ticket.DoesNotExist:
+                raise Http404("Ticket not found")
+        except (ValueError, AttributeError):
+            # Not a UUID - try as ticket_number (integer)
+            try:
+                ticket_num = int(lookup_value)
+                try:
+                    return queryset.get(ticket_number=ticket_num)
+                except Ticket.DoesNotExist:
+                    raise Http404("Ticket not found")
+            except (ValueError, TypeError):
+                # Neither UUID nor integer
+                raise Http404("Ticket not found")
 
     def get_serializer_context(self):
         context = super().get_serializer_context()
@@ -189,43 +352,127 @@ class TicketViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if not distinct_ids:
             return
 
-        # Query PersonDistinctId to get Person objects in a single batch
-        person_distinct_ids = (
-            PersonDistinctId.objects.db_manager(READ_DB_FOR_PERSONS)
-            .filter(distinct_id__in=distinct_ids, team_id=self.team_id)
-            .prefetch_related(
-                Prefetch(
-                    "person",
-                    queryset=Person.objects.db_manager(READ_DB_FOR_PERSONS).filter(team_id=self.team_id),
-                )
-            )
-        )
+        persons = get_persons_by_distinct_ids(self.team_id, distinct_ids)
 
-        # Build distinct_id -> person mapping
         distinct_id_to_person: dict[str, Person] = {}
-        person_ids: set[int] = set()
-        for pdi in person_distinct_ids:
-            if pdi.person:
-                distinct_id_to_person[pdi.distinct_id] = pdi.person
-                person_ids.add(pdi.person.id)
-
-        # Batch-load all distinct_ids for all persons
-        if person_ids:
-            all_pdis = PersonDistinctId.objects.db_manager(READ_DB_FOR_PERSONS).filter(
-                person_id__in=person_ids, team_id=self.team_id
-            )
-            person_to_distinct_ids: dict[int, list[str]] = {}
-            for pdi in all_pdis:
-                person_to_distinct_ids.setdefault(pdi.person_id, []).append(pdi.distinct_id)
-
-            for person in distinct_id_to_person.values():
-                person._distinct_ids = person_to_distinct_ids.get(person.id, [])
+        distinct_ids_set = set(distinct_ids)
+        for person in persons:
+            for did in person.distinct_ids:
+                if did in distinct_ids_set:
+                    distinct_id_to_person[did] = person
 
         # Attach person to each ticket (dynamic attribute for serialization)
         for ticket in tickets:
             if ticket.distinct_id:
                 ticket.person = distinct_id_to_person.get(ticket.distinct_id)
 
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                "status",
+                OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                description=(
+                    "Filter by status. Accepts a single value or a comma-separated list "
+                    "(e.g. `new,open,pending`). Valid values: `new`, `open`, `pending`, `on_hold`, `resolved`."
+                ),
+            ),
+            OpenApiParameter(
+                "priority",
+                OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                description=(
+                    "Filter by priority. Accepts a single value or a comma-separated list "
+                    "(e.g. `medium,high`). Valid values: `low`, `medium`, `high`."
+                ),
+            ),
+            OpenApiParameter(
+                "channel_source",
+                OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                enum=[c.value for c in Channel],
+                description="Filter by the channel the ticket originated from.",
+            ),
+            OpenApiParameter(
+                "channel_detail",
+                OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                enum=[d.value for d in ChannelDetail],
+                description="Filter by the channel sub-type (e.g. `widget_embedded`, `slack_bot_mention`).",
+            ),
+            OpenApiParameter(
+                "assignee",
+                OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                description=(
+                    "Filter by assignee. Use `unassigned` for tickets with no assignee, "
+                    "`user:<user_id>` for a specific user, or `role:<role_uuid>` for a role."
+                ),
+            ),
+            OpenApiParameter(
+                "date_from",
+                OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                description=(
+                    "Only include tickets updated on or after this date. Accepts absolute dates (`2026-01-01`) "
+                    "or relative ones (`-7d`, `-1mStart`). Pass `all` to disable the filter."
+                ),
+            ),
+            OpenApiParameter(
+                "date_to",
+                OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                description="Only include tickets updated on or before this date. Same format as `date_from`.",
+            ),
+            OpenApiParameter(
+                "distinct_ids",
+                OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                description="Comma-separated list of person `distinct_id`s to filter by (max 100).",
+            ),
+            OpenApiParameter(
+                "search",
+                OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                description=(
+                    "Free-text search. A numeric value matches a ticket number exactly; otherwise matches "
+                    "against the customer's name or email (case-insensitive, partial match)."
+                ),
+            ),
+            OpenApiParameter(
+                "sla",
+                OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                enum=["breached", "at-risk", "on-track"],
+                description=(
+                    "Filter by SLA state. `breached` = past `sla_due_at`, `at-risk` = due within the next hour, "
+                    "`on-track` = more than an hour remaining."
+                ),
+            ),
+            OpenApiParameter(
+                "tags",
+                OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                description='JSON-encoded array of tag names to filter by, e.g. `["billing","urgent"]`.',
+            ),
+            OpenApiParameter(
+                "order_by",
+                OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                enum=[
+                    "updated_at",
+                    "-updated_at",
+                    "sla_due_at",
+                    "-sla_due_at",
+                    "created_at",
+                    "-created_at",
+                    "ticket_number",
+                    "-ticket_number",
+                ],
+                description="Sort order. Prefix with `-` for descending. Defaults to `-updated_at`.",
+            ),
+        ],
+    )
     def list(self, request, *args, **kwargs):
         """List tickets with person data attached."""
         queryset = self.filter_queryset(self.get_queryset())
@@ -253,6 +500,22 @@ class TicketViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         # Attach person data
         self._attach_persons_to_tickets([instance])
 
+        # Track internal analytics
+        try:
+            report_user_action(
+                request.user,
+                "support ticket viewed",
+                {
+                    "channel_source": instance.channel_source,
+                    "ticket_status": instance.status,
+                    "is_assigned": getattr(instance, "assignment", None) is not None,
+                },
+                team=self.team,
+                request=request,
+            )
+        except Exception as e:
+            capture_exception(e, {"ticket_id": str(instance.id)})
+
         serializer = self.get_serializer(instance)
         return Response(serializer.data)
 
@@ -262,14 +525,31 @@ class TicketViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         instance = self.get_object()
         old_status = instance.status
         old_priority = instance.priority
+        old_sla_due_at = instance.sla_due_at
+        old_snoozed_until = instance.snoozed_until
 
-        # Handle assignee separately since it's not a direct model field
-        assignee = request.data.pop("assignee", None) if "assignee" in request.data else ...
+        # Extract assignee without mutating request.data
+        assignee = request.data.get("assignee", ...) if "assignee" in request.data else ...
+        data = {k: v for k, v in request.data.items() if k != "assignee"}
 
         # Update other fields normally
-        serializer = self.get_serializer(instance, data=request.data, partial=partial)
+        serializer = self.get_serializer(instance, data=data, partial=partial)
         serializer.is_valid(raise_exception=True)
-        self.perform_update(serializer)
+
+        explicit_status = "status" in data
+        with transaction.atomic():
+            self.perform_update(serializer)
+
+            # Auto-status on snooze transitions (only when user didn't explicitly set status)
+            new_snoozed_until = instance.snoozed_until
+            snooze_changed = old_snoozed_until != new_snoozed_until
+            if snooze_changed and not explicit_status:
+                if old_snoozed_until is None and new_snoozed_until is not None:
+                    instance.status = Status.ON_HOLD
+                    instance.save(update_fields=["status"])
+                elif old_snoozed_until is not None and new_snoozed_until is None:
+                    instance.status = Status.OPEN
+                    instance.save(update_fields=["status"])
 
         # Handle assignee update if provided (not ... sentinel)
         if assignee is not ...:
@@ -290,16 +570,154 @@ class TicketViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             invalidate_unread_count_cache(self.team_id)
 
         # Emit analytics events for workflow triggers
-        if old_status != new_status:
-            capture_ticket_status_changed(instance, old_status, new_status)
-
         new_priority = instance.priority
-        if old_priority != new_priority:
-            capture_ticket_priority_changed(instance, old_priority, new_priority)
+        new_sla_due_at = instance.sla_due_at
+        status_changed = old_status != new_status
+        priority_changed = old_priority != new_priority
+        sla_changed = old_sla_due_at != new_sla_due_at
+        assignee_changed = assignee is not ...
+
+        try:
+            if status_changed:
+                capture_ticket_status_changed(instance, old_status, new_status)
+
+            if priority_changed:
+                capture_ticket_priority_changed(instance, old_priority, new_priority)
+        except Exception as e:
+            capture_exception(e, {"ticket_id": str(instance.id)})
+
+        # Log all field changes to activity log
+        changes: list[Change] = []
+        if status_changed:
+            changes.append(
+                Change(
+                    type="Ticket",
+                    field="status",
+                    before=old_status,
+                    after=new_status,
+                    action="changed",
+                )
+            )
+        if priority_changed:
+            changes.append(
+                Change(
+                    type="Ticket",
+                    field="priority",
+                    before=old_priority,
+                    after=new_priority,
+                    action="changed",
+                )
+            )
+        if sla_changed:
+            changes.append(
+                Change(
+                    type="Ticket",
+                    field="sla_due_at",
+                    before=old_sla_due_at.isoformat() if old_sla_due_at else None,
+                    after=new_sla_due_at.isoformat() if new_sla_due_at else None,
+                    action="changed",
+                )
+            )
+        if snooze_changed:
+            changes.append(
+                Change(
+                    type="Ticket",
+                    field="snoozed_until",
+                    before=old_snoozed_until.isoformat() if old_snoozed_until else None,
+                    after=new_snoozed_until.isoformat() if new_snoozed_until else None,
+                    action="changed",
+                )
+            )
+
+        if changes:
+            try:
+                log_activity(
+                    organization_id=self.organization.id,
+                    team_id=self.team_id,
+                    user=request.user,
+                    was_impersonated=is_impersonated_session(request),
+                    item_id=str(instance.id),
+                    scope="Ticket",
+                    activity="updated",
+                    detail=Detail(
+                        name=f"Ticket #{instance.ticket_number}",
+                        changes=changes,
+                    ),
+                )
+            except Exception as e:
+                capture_exception(e, {"ticket_id": str(instance.id)})
+
+        # Track internal analytics
+        if status_changed or priority_changed or assignee_changed or sla_changed or snooze_changed:
+            try:
+                report_user_action(
+                    request.user,
+                    "support ticket updated",
+                    {
+                        "channel_source": instance.channel_source,
+                        "ticket_status": instance.status,
+                        "is_assigned": getattr(instance, "assignment", None) is not None,
+                    },
+                    team=self.team,
+                    request=request,
+                )
+            except Exception as e:
+                capture_exception(e, {"ticket_id": str(instance.id)})
 
         # Re-serialize to include updated assignee
         serializer = self.get_serializer(instance)
         return Response(serializer.data)
+
+    @extend_schema(
+        request=None,
+        responses={
+            200: OpenApiResponse(response=SuggestReplyResponseSerializer),
+            400: OpenApiResponse(response=SuggestReplyErrorSerializer),
+            403: OpenApiResponse(response=SuggestReplyErrorSerializer),
+            500: OpenApiResponse(response=SuggestReplyErrorSerializer),
+        },
+    )
+    @action(
+        detail=True,
+        methods=["POST"],
+        url_path="suggest_reply",
+        throttle_classes=[AIBurstRateThrottle, AISustainedRateThrottle],
+    )
+    def suggest_reply_action(self, request, *args, **kwargs):
+        if not self.organization.is_ai_data_processing_approved:
+            return Response(
+                {"detail": "AI data processing is not approved for this organization"},
+                status=drf_status.HTTP_403_FORBIDDEN,
+            )
+
+        ticket = self.get_object()
+
+        try:
+            reply_text = suggest_reply(ticket, self.team, request.user)
+            return Response({"suggestion": reply_text})
+        except NoMessagesError:
+            return Response(
+                {"detail": "No messages in this ticket"},
+                status=drf_status.HTTP_400_BAD_REQUEST,
+            )
+        except ValueError:
+            logger.warning("AI suggest_reply validation error", extra={"ticket_id": str(ticket.id)})
+            return Response(
+                {
+                    "detail": "Failed to generate suggestion. Please try again.",
+                    "error_type": "validation_error",
+                },
+                status=drf_status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+        except Exception as e:
+            logger.exception(
+                "AI suggest_reply failed", extra={"ticket_id": str(ticket.id), "error_type": type(e).__name__}
+            )
+            capture_exception(e, {"ticket_id": str(ticket.id)})
+            return Response(
+                {"detail": "Failed to generate suggestion. Please try again.", "error_type": "unknown_error"},
+                status=drf_status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
 
     @action(detail=False, methods=["get"])
     def unread_count(self, request, *args, **kwargs):
@@ -346,6 +764,15 @@ def validate_assignee(assignee) -> None:
     if assignee["type"] not in ("user", "role"):
         raise serializers.ValidationError({"assignee": "type must be 'user' or 'role'"})
 
+    if assignee["type"] == "user":
+        if not isinstance(assignee["id"], int):
+            raise serializers.ValidationError({"assignee": "user id must be an integer"})
+    elif assignee["type"] == "role":
+        try:
+            uuid.UUID(str(assignee["id"]))
+        except (ValueError, AttributeError):
+            raise serializers.ValidationError({"assignee": "role id must be a valid UUID"})
+
 
 def validate_assignee_membership(assignee, organization) -> None:
     """Validate that the assignee belongs to the organization."""
@@ -377,7 +804,7 @@ def assign_ticket(ticket: Ticket, assignee, organization, user, team_id, was_imp
 
     with transaction.atomic():
         # Lock the ticket to prevent concurrent modifications
-        Ticket.objects.select_for_update().get(id=ticket.id)
+        Ticket.objects.select_for_update().get(id=ticket.id, team_id=team_id)
         assignment_before = TicketAssignment.objects.filter(ticket_id=ticket.id).first()
         serialized_assignment_before = TicketAssignmentSerializer(assignment_before).data if assignment_before else None
 
@@ -418,10 +845,13 @@ def assign_ticket(ticket: Ticket, assignee, organization, user, team_id, was_imp
         )
 
         # Emit analytics event for workflow triggers
-        if assignee:
-            assignee_type = assignee["type"]
-            assignee_id = str(assignee["id"])
-        else:
-            assignee_type = None
-            assignee_id = None
-        capture_ticket_assigned(ticket, assignee_type, assignee_id)
+        try:
+            if assignee:
+                assignee_type = assignee["type"]
+                assignee_id = str(assignee["id"])
+            else:
+                assignee_type = None
+                assignee_id = None
+            capture_ticket_assigned(ticket, assignee_type, assignee_id)
+        except Exception as e:
+            capture_exception(e, {"ticket_id": str(ticket.id)})

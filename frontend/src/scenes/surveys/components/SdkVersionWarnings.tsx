@@ -2,8 +2,8 @@ import { useValues } from 'kea'
 
 import { LemonBanner, Link } from '@posthog/lemon-ui'
 
-import { SurveyFeatureWarning } from 'scenes/surveys/surveyVersionRequirements'
 import { surveysSdkLogic } from 'scenes/surveys/surveysSdkLogic'
+import { SurveyFeatureWarning } from 'scenes/surveys/surveyVersionRequirements'
 
 export function SdkVersionWarnings({ warnings }: { warnings: SurveyFeatureWarning[] }): JSX.Element | null {
     const { teamSdkVersions } = useValues(surveysSdkLogic)

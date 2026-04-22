@@ -1,7 +1,4 @@
-import uuid
 from typing import TYPE_CHECKING
-
-from django.utils import timezone
 
 import structlog
 
@@ -10,9 +7,8 @@ from posthog.hogql.database.models import SavedQuery as HogQLSavedQuery
 from posthog.hogql.database.s3_table import DataWarehouseTable as HogQLDataWarehouseTable
 from posthog.hogql.errors import QueryError
 
-from posthog.exceptions_capture import capture_exception
-
-from products.data_modeling.backend.models.edge import CycleDetectionError, Edge
+from products.data_modeling.backend.models.dag import DAG
+from products.data_modeling.backend.models.edge import Edge
 from products.data_modeling.backend.models.node import Node, NodeType
 from products.data_warehouse.backend.models.modeling import UnknownParentError, get_parents_from_model_query
 from products.data_warehouse.backend.models.table import DataWarehouseTable
@@ -30,16 +26,11 @@ def get_dag_id(team_id: int) -> str:
     return f"posthog_{team_id}"
 
 
-def get_conflict_dag_id(team_id: int) -> str:
-    """Return a unique conflict dag_id for DLQ edges or nodes."""
-    return f"conflict_{uuid.uuid4().hex[:8]}_{get_dag_id(team_id)}"
-
-
 def resolve_dependency_to_node(
     dependency_name: str,
     team: "Team",
-    dag_id: str,
     database: Database,
+    dag: DAG | None = None,
 ) -> Node:
     """
     Resolve a dependency name to a Node following HogQL's resolution priority.
@@ -64,7 +55,7 @@ def resolve_dependency_to_node(
     # ephemeral view
     if isinstance(table, HogQLSavedQuery):
         saved_query = DataWarehouseSavedQuery.objects.get(team=team, name=dependency_name, deleted=False)
-        return Node.objects.get(team=team, dag_id=dag_id, saved_query=saved_query, name=dependency_name)
+        return Node.objects.get(team=team, dag=dag, saved_query=saved_query, name=dependency_name)
 
     # table in s3
     if isinstance(table, HogQLDataWarehouseTable):
@@ -74,7 +65,7 @@ def resolve_dependency_to_node(
             )
             # matview
             if matview_saved_query is not None:
-                return Node.objects.get(team=team, dag_id=dag_id, saved_query=matview_saved_query, name=dependency_name)
+                return Node.objects.get(team=team, dag=dag, saved_query=matview_saved_query, name=dependency_name)
             # warehouse table
             warehouse_table = (
                 DataWarehouseTable.objects.filter(team=team, id=table.table_id).exclude(deleted=True).first()
@@ -87,16 +78,18 @@ def resolve_dependency_to_node(
             raise UnknownParentError(dependency_name, "")
         node, _ = Node.objects.get_or_create(
             team=team,
-            dag_id=dag_id,
+            dag=dag,
             name=dependency_name,
             type=NodeType.TABLE,
-            defaults={"properties": {"origin": "warehouse", "warehouse_table_id": str(warehouse_table.id)}},
+            defaults={
+                "properties": {"origin": "warehouse", "warehouse_table_id": str(warehouse_table.id)},
+            },
         )
         return node
     # system table
     node, _ = Node.objects.get_or_create(
         team=team,
-        dag_id=dag_id,
+        dag=dag,
         name=dependency_name,
         type=NodeType.TABLE,
         defaults={"properties": {"origin": "posthog"}},
@@ -107,6 +100,7 @@ def resolve_dependency_to_node(
 def sync_saved_query_to_dag(
     saved_query: "DataWarehouseSavedQuery",
     extra_properties: dict | None = None,  # TODO(andrew): remove this after backfill
+    dag: DAG | None = None,
 ) -> Node | None:
     """
     Create or update Node and Edges for a SavedQuery.
@@ -115,27 +109,38 @@ def sync_saved_query_to_dag(
     2. Get or create the Node for this SavedQuery
     3. Resolve each dependency to a Node (creating TABLE nodes for sources)
     4. Delete existing incoming edges (dependencies may have changed)
-    5. Create new edges, catching cycle errors and creating conflict edges
+    5. Create new edges for each dependency
 
     Args:
         saved_query: The SavedQuery to sync to the DAG
         extra_properties: Optional dict of properties to merge into created nodes and edges
+        dag: Optional DAG to use. If not provided, uses the default team DAG.
 
     Returns the Node for the SavedQuery, or None if query parsing fails.
+    Raises QueryError or CycleDetectionError if the query would create an invalid DAG.
     """
+    from products.data_warehouse.backend.models import DataWarehouseSavedQuery
+
     extra_properties = extra_properties or {}
     team = saved_query.team
-    dag_id = get_dag_id(team.id)
+    if dag is None:
+        dag = DAG.get_or_create_default(team)
     model_query = saved_query.query.get("query") if saved_query.query else None
     if not model_query:
         raise ValueError(f"DataWarehouseSavedQuery has no query: saved_query_id={saved_query.id}")
 
-    # determine node type based on materialization status (fk to datawarehouse table)
-    node_type = NodeType.MAT_VIEW if saved_query.table else NodeType.VIEW
+    # determine node type
+    if saved_query.origin == DataWarehouseSavedQuery.Origin.ENDPOINT:
+        node_type = NodeType.ENDPOINT
+    elif saved_query.table:
+        node_type = NodeType.MAT_VIEW
+    else:
+        node_type = NodeType.VIEW
+
     target, _ = Node.objects.get_or_create(
         team=team,
         saved_query=saved_query,
-        dag_id=dag_id,
+        dag=dag,
         defaults={"name": saved_query.name, "type": node_type, "properties": extra_properties},
     )
     # update type (name is automatically synced from saved_query in Node.save())
@@ -145,105 +150,23 @@ def sync_saved_query_to_dag(
     # clear previous incoming edges, dependencies may have changed
     Edge.objects.filter(team=team, target=target).delete()
 
-    # parse query to extract dependencies
+    # parse query to extract dependencies and create edges
     try:
         model_name = saved_query.name
         dependencies = get_parents_from_model_query(team, model_name, model_query)
-    except QueryError as e:
-        error_message = str(e)
-        # handle circular dependency as a conflict edge
-        if "circular dependency detected" in error_message.lower():
-            logger.warning(
-                "Cycle detected when parsing query",
-                saved_query_id=saved_query.id,
-                saved_query=saved_query.name,
-                error=error_message,
-            )
-            conflict_dag_id = get_conflict_dag_id(team.id)
-            # update the node to use conflict dag_id and store error info
-            target.dag_id = conflict_dag_id
-            target.properties = {
-                **target.properties,
-                **extra_properties,
-                "error_type": "cycle",
-                "error_message": error_message,
-                "original_dag_id": dag_id,
-                "detected_at": timezone.now().isoformat(),
-            }
-            target.save()
-            # create conflict edge
-            Edge(
+        for dependency_name in dependencies:
+            source = resolve_dependency_to_node(dependency_name, team, database, dag)
+            Edge.objects.create(
                 team=team,
-                dag_id=conflict_dag_id,
-                source=target,
+                dag=dag,
+                source=source,
                 target=target,
-                properties={
-                    **extra_properties,
-                    "error_type": "cycle",
-                    "error_message": error_message,
-                    "original_dag_id": dag_id,
-                    "detected_at": timezone.now().isoformat(),
-                },
-            ).save(skip_validation=True)
-            return target
-        # other query errors should surface to the user
+                properties=extra_properties,
+            )
+    except Exception:
         target.delete()
         raise
-    except Exception as e:
-        target.delete()
-        logger.warning("Failed to parse query for dependencies", saved_query_id=str(saved_query.id), error=str(e))
-        capture_exception(e)
-        return None
 
-    unresolved = []
-    for dependency_name in dependencies:
-        try:
-            source = resolve_dependency_to_node(dependency_name, team, dag_id, database)
-            try:
-                Edge.objects.create(
-                    team=team,
-                    dag_id=dag_id,
-                    source=source,
-                    target=target,
-                    properties=extra_properties,
-                )
-            # dag mismatch error can't happen because we control the only dag id for now
-            except CycleDetectionError as e:
-                logger.warning(
-                    "Cycle detected when creating edge",
-                    source=dependency_name,
-                    target=saved_query.name,
-                    error=str(e),
-                )
-                # creates the edge without validation for DLQ purposes
-                Edge(
-                    team=team,
-                    dag_id=get_conflict_dag_id(team.id),
-                    source=source,
-                    target=target,
-                    properties={
-                        **extra_properties,
-                        "error_type": "cycle",
-                        "error_message": str(e),
-                        "original_dag_id": dag_id,
-                        "detected_at": timezone.now().isoformat(),
-                    },
-                ).save(skip_validation=True)
-        except UnknownParentError:
-            # source doesn't exist - this should fail at query parse time but just in case we save it on the props
-            logger.warning(
-                "Unknown parent for saved query",
-                parent=dependency_name,
-                saved_query=saved_query.name,
-            )
-            unresolved.append(
-                {
-                    "name": dependency_name,
-                    "detected_at": timezone.now().isoformat(),
-                }
-            )
-    # already includes extra properties from above
-    target.properties = {**target.properties, "unresolved_dependencies": unresolved}
     # name is included in update_fields because Node.save() auto-syncs it from saved_query
     target.save(update_fields=["name", "type", "properties"])
     return target

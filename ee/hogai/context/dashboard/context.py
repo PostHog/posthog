@@ -7,6 +7,7 @@ from pydantic import BaseModel
 from posthog.models import Team
 
 from ee.hogai.context.insight.context import InsightContext
+from ee.hogai.utils.helpers import build_dashboard_url
 from ee.hogai.utils.prompt import format_prompt_string
 from ee.hogai.utils.types.base import AnyPydanticModelQuery
 
@@ -60,6 +61,7 @@ class DashboardContext:
         self.name = name
         self.description = description
         self.dashboard_id = dashboard_id
+        self.dashboard_url = build_dashboard_url(team, int(dashboard_id)) if dashboard_id else None
         self.dashboard_filters = dashboard_filters
         self._semaphore = asyncio.Semaphore(max_concurrent_queries)
 
@@ -87,6 +89,7 @@ class DashboardContext:
                 prompt_template,
                 dashboard_name=self.name or "Dashboard",
                 dashboard_id=self.dashboard_id,
+                dashboard_url=self.dashboard_url,
                 description=self.description,
                 insights="",
             )
@@ -99,6 +102,7 @@ class DashboardContext:
             prompt_template,
             dashboard_name=self.name or "Dashboard",
             dashboard_id=self.dashboard_id,
+            dashboard_url=self.dashboard_url,
             description=self.description,
             insights="\n\n".join(insight_results),
         )
@@ -110,6 +114,7 @@ class DashboardContext:
                 prompt_template,
                 dashboard_name=self.name or "Dashboard",
                 dashboard_id=self.dashboard_id,
+                dashboard_url=self.dashboard_url,
                 description=self.description,
             )
 
@@ -125,6 +130,7 @@ class DashboardContext:
             name=self.name or "Dashboard",
             dashboard_name=self.name or "Dashboard",
             dashboard_id=self.dashboard_id,
+            dashboard_url=self.dashboard_url,
             description=self.description,
             insights=insights_text,
         )

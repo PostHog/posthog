@@ -4,6 +4,8 @@ import { IconExternal } from '@posthog/icons'
 import { LemonButton, Spinner } from '@posthog/lemon-ui'
 
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
+import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
+import { TeamMembershipLevel } from 'lib/constants'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
@@ -34,6 +36,10 @@ export const ErrorTrackingSetupPrompt = ({
 
 const IngestionStatusCheck = ({ className }: { className?: string }): JSX.Element | null => {
     const { addProductIntent, updateCurrentTeam } = useActions(teamLogic)
+    const restrictionReason = useRestrictedArea({
+        minimumAccessLevel: TeamMembershipLevel.Admin,
+        scope: RestrictionScope.Project,
+    })
 
     return (
         <ProductIntroduction
@@ -48,6 +54,7 @@ const IngestionStatusCheck = ({ className }: { className?: string }): JSX.Elemen
                 <>
                     <LemonButton
                         type="primary"
+                        disabledReason={restrictionReason}
                         onClick={() => {
                             addProductIntent({
                                 product_type: ProductKey.ERROR_TRACKING,

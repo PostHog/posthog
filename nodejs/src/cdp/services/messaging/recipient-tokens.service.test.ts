@@ -6,7 +6,7 @@ describe('RecipientTokensService', () => {
     let service: RecipientTokensService
     let fixedTime: DateTime
     beforeEach(() => {
-        service = new RecipientTokensService({ ENCRYPTION_SALT_KEYS: 'test-secret', SITE_URL: 'https://test.com' })
+        service = new RecipientTokensService('test-secret', 'https://test.com')
         fixedTime = DateTime.fromObject({ year: 2025, month: 1, day: 1 }, { zone: 'UTC' })
         jest.spyOn(Date, 'now').mockReturnValue(fixedTime.toMillis())
     })

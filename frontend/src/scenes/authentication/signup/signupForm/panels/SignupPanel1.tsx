@@ -8,9 +8,10 @@ import PasswordStrength from 'lib/components/PasswordStrength'
 import { SocialLoginButtons } from 'lib/components/SocialLoginButton/SocialLoginButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { Link } from 'lib/lemon-ui/Link'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import RegionSelect from 'scenes/authentication/RegionSelect'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
+import { JoinExistingOrgLink } from '../JoinExistingOrgLink'
 import { signupLogic } from '../signupLogic'
 
 export function SignupPanel1(): JSX.Element | null {
@@ -93,6 +94,7 @@ export function SignupPanel1(): JSX.Element | null {
                     </Link>
                 </div>
             )}
+            {!preflight?.demo && <JoinExistingOrgLink />}
         </div>
     )
 }

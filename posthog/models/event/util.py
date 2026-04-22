@@ -7,6 +7,7 @@ from zoneinfo import ZoneInfo
 from django.utils import timezone
 
 from dateutil.parser import isoparse
+from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
 from posthog.clickhouse.client import sync_execute
@@ -173,11 +174,12 @@ def bulk_create_events(
         #  use person properties mapping to populate person properties in given event
         team_id = event.get("team_id") or event["team"].pk
         person_mode = event.get("person_mode", "full")
+        person_created_at: Any
         if person_mapping and person_mapping.get(event["distinct_id"]):
             person = person_mapping[event["distinct_id"]]
             person_properties = person.properties
             person_id = person.uuid
-            person_created_at = person.created_at
+            person_created_at = person.created_at or datetime64_default_timestamp
         else:
             try:
                 person = Person.objects.get(
@@ -186,7 +188,7 @@ def bulk_create_events(
                 )
                 person_properties = person.properties
                 person_id = person.uuid
-                person_created_at = person.created_at
+                person_created_at = person.created_at or datetime64_default_timestamp
             except Person.DoesNotExist:
                 person_properties = {}
                 person_id = event.get("person_id", uuid.uuid4())
@@ -316,22 +318,28 @@ class ClickhouseEventSerializer(serializers.Serializer):
     elements = serializers.SerializerMethodField()
     elements_chain = serializers.SerializerMethodField()
 
+    @extend_schema_field(serializers.CharField())
     def get_id(self, event):
         return str(event["uuid"])
 
+    @extend_schema_field(serializers.CharField())
     def get_distinct_id(self, event):
         return event["distinct_id"]
 
+    @extend_schema_field(serializers.DictField())
     def get_properties(self, event):
         return parse_properties(event["properties"])
 
+    @extend_schema_field(serializers.CharField())
     def get_event(self, event):
         return event["event"]
 
+    @extend_schema_field(serializers.DateTimeField())
     def get_timestamp(self, event):
         dt = event["timestamp"].replace(tzinfo=UTC)
         return dt.astimezone().isoformat()
 
+    @extend_schema_field(serializers.DictField(allow_null=True))
     def get_person(self, event):
         if not self.context.get("people") or event["distinct_id"] not in self.context["people"]:
             return None
@@ -345,11 +353,13 @@ class ClickhouseEventSerializer(serializers.Serializer):
             },
         }
 
+    @extend_schema_field(ElementSerializer(many=True))
     def get_elements(self, event):
         if not event["elements_chain"]:
             return []
         return ElementSerializer(chain_to_elements(event["elements_chain"]), many=True).data
 
+    @extend_schema_field(serializers.CharField())
     def get_elements_chain(self, event):
         return event["elements_chain"]
 

@@ -56,6 +56,10 @@ jobs:
         name: Hog tests
         runs-on: ubuntu-24.04
         if: needs.changes.outputs.hog == 'true'
+        outputs:
+            committed-version: ${{ steps.check-package-version.outputs.committed-version }}
+            published-version: ${{ steps.check-package-version.outputs.published-version }}
+            is-new-version: ${{ steps.check-package-version.outputs.is-new-version }}
 
         steps:
             - uses: actions/checkout@v6
@@ -63,7 +67,7 @@ jobs:
                   fetch-depth: 1
 
             - name: Set up Python
-              uses: actions/setup-python@83679a892e2d95755f2dac6acb0bfd1e9ac5d548 # v6.1.0
+              uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
               with:
                   python-version-file: 'pyproject.toml'
 
@@ -71,9 +75,10 @@ jobs:
               id: setup-uv
               uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b # v7.3.0
               with:
+                  version: '0.10.2' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
                   enable-cache: true
+                  cache-dependency-glob: uv.lock
                   save-cache: ${{ github.ref == 'refs/heads/master' }}
-                  version: 0.9.9
 
             - name: Install SAML (python3-saml) dependencies
               if: steps.setup-uv.outputs.cache-hit != 'true'
@@ -92,9 +97,9 @@ jobs:
               run: chmod +x ~/setup-pnpm/node_modules/.pnpm/pnpm@*/node_modules/pnpm/dist/node_modules/node-gyp/gyp/gyp_main.py
 
             - name: Set up Node.js
-              uses: actions/setup-node@395ad3262231945c25e8478fd5baf05154b1d79f # v6.1.0
+              uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
               with:
-                  node-version: 18
+                  node-version-file: .nvmrc
                   cache: 'pnpm'
 
             - name: Check if ANTLR definitions are up to date
@@ -103,7 +108,7 @@ jobs:
                   sudo apt-get update && sudo apt-get install default-jre
                   mkdir antlr
                   cd antlr
-                  curl -o antlr.jar https://www.antlr.org/download/antlr-$ANTLR_VERSION-complete.jar
+                  curl --fail --location https://www.antlr.org/download/antlr-${ANTLR_VERSION}-complete.jar --output antlr.jar || curl --fail --location https://repo.maven.apache.org/maven2/org/antlr/antlr4/${ANTLR_VERSION}/antlr4-${ANTLR_VERSION}-complete.jar --output antlr.jar
                   export PWD=`pwd`
                   echo '#!/bin/bash' > antlr
                   echo "java -jar $PWD/antlr.jar \$*" >> antlr
@@ -145,18 +150,6 @@ jobs:
               env:
                   TEST: 1
 
-    check-package-version:
-        name: Check HogVM TypeScript package version and detect an update
-        needs: hog-tests
-        if: needs.hog-tests.result == 'success' && needs.changes.outputs.hog == 'true'
-        runs-on: ubuntu-24.04
-        outputs:
-            committed-version: ${{ steps.check-package-version.outputs.committed-version }}
-            published-version: ${{ steps.check-package-version.outputs.published-version }}
-            is-new-version: ${{ steps.check-package-version.outputs.is-new-version }}
-        steps:
-            - name: Checkout the repository
-              uses: actions/checkout@v6
             - name: Check package version and detect an update
               id: check-package-version
               uses: PostHog/check-package-version@138438a8fed9213fa112f841b1c89f9bd68f5cca # v2.1.0
@@ -166,30 +159,32 @@ jobs:
     release-hogvm:
         name: Release new HogVM TypeScript version
         runs-on: ubuntu-24.04
-        needs: check-package-version
-        if: needs.changes.outputs.hog == 'true' && needs.check-package-version.outputs.is-new-version == 'true'
+        timeout-minutes: 5
+        needs: hog-tests
+        if: needs.hog-tests.outputs.is-new-version == 'true'
         permissions:
             contents: read
             id-token: write
         env:
-            COMMITTED_VERSION: ${{ needs.check-package-version.outputs.committed-version }}
-            PUBLISHED_VERSION: ${{ needs.check-package-version.outputs.published-version }}
+            COMMITTED_VERSION: ${{ needs.hog-tests.outputs.committed-version }}
+            PUBLISHED_VERSION: ${{ needs.hog-tests.outputs.published-version }}
         steps:
             - name: Checkout the repository
               uses: actions/checkout@v6
               with:
                   fetch-depth: 1
             - name: Set up Python
-              uses: actions/setup-python@83679a892e2d95755f2dac6acb0bfd1e9ac5d548 # v6.1.0
+              uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
               with:
                   python-version-file: 'pyproject.toml'
             - name: Install uv
               id: setup-uv-hogql-python
               uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b # v7.3.0
               with:
+                  version: '0.10.2' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
                   enable-cache: true
+                  cache-dependency-glob: uv.lock
                   save-cache: ${{ github.ref == 'refs/heads/master' }}
-                  version: 0.9.9
             - name: Install SAML (python3-saml) dependencies
               if: steps.setup-uv-hogql-python.outputs.cache-hit != 'true'
               run: |
@@ -202,10 +197,10 @@ jobs:
               uses: pnpm/action-setup@41ff72655975bd51cab0327fa583b6e92b6d3061 # v4.2.0
             - name: Fix node-gyp permissions
               run: chmod +x ~/setup-pnpm/node_modules/.pnpm/pnpm@*/node_modules/pnpm/dist/node_modules/node-gyp/gyp/gyp_main.py
-            - name: Set up Node 24
-              uses: actions/setup-node@395ad3262231945c25e8478fd5baf05154b1d79f # v6.1.0
+            - name: Set up Node.js
+              uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
               with:
-                  node-version: 24
+                  node-version-file: .nvmrc
                   cache: 'pnpm'
                   registry-url: https://registry.npmjs.org
             - name: Install package.json dependencies

@@ -624,6 +624,28 @@ class TestDiscussionMentionInternalEvents(APIBaseTest, QueryMatchingTest):
 
     @mock.patch("posthog.models.comment.utils.produce_internal_event")
     @mock.patch("posthog.tasks.email.send_discussions_mentioned.delay")
+    def test_cross_organization_mentions_are_filtered_out(
+        self, mock_send_email: mock.MagicMock, mock_produce_event: mock.MagicMock
+    ) -> None:
+        from posthog.models import Organization, User
+
+        other_org = Organization.objects.create(name="Other Org")
+        other_user = User.objects.create_and_join(other_org, "outsider@other.com", None, first_name="Outsider")
+
+        self.client.post(
+            f"/api/projects/{self.team.id}/comments",
+            {
+                "content": "Mentioning external user",
+                "scope": "Notebook",
+                "mentions": [other_user.id],
+            },
+        )
+
+        mock_send_email.assert_not_called()
+        mock_produce_event.assert_not_called()
+
+    @mock.patch("posthog.models.comment.utils.produce_internal_event")
+    @mock.patch("posthog.tasks.email.send_discussions_mentioned.delay")
     def test_self_mentions_do_not_produce_events(
         self, mock_send_email: mock.MagicMock, mock_produce_event: mock.MagicMock
     ) -> None:

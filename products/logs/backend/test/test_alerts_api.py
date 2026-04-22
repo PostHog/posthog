@@ -1,0 +1,1356 @@
+from datetime import UTC, datetime, timedelta
+
+from freezegun import freeze_time
+from posthog.test.base import APIBaseTest
+from unittest.mock import patch
+
+from parameterized import parameterized
+from rest_framework import status
+from rest_framework.test import APIClient
+
+from posthog.models.team.team import Team
+
+from products.logs.backend.alert_check_query import BucketedCount
+from products.logs.backend.alerts_api import ALLOWED_WINDOW_MINUTES, MAX_ALERTS_PER_TEAM
+from products.logs.backend.models import LogsAlertConfiguration, LogsAlertEvent
+
+
+class TestLogsAlertAPI(APIBaseTest):
+    base_url: str
+
+    def setUp(self):
+        super().setUp()
+        self.base_url = f"/api/projects/{self.team.pk}/logs/alerts/"
+        self._ff_patcher = patch("posthoganalytics.feature_enabled", return_value=True)
+        self._ff_patcher.start()
+        self.addCleanup(self._ff_patcher.stop)
+
+    def _valid_payload(self, **overrides) -> dict:
+        defaults = {
+            "name": "High error rate",
+            "threshold_count": 10,
+            "filters": {"severityLevels": ["error"]},
+        }
+        defaults.update(overrides)
+        return defaults
+
+    def _create_via_api(self, **overrides) -> dict:
+        response = self.client.post(self.base_url, self._valid_payload(**overrides), format="json")
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        return response.json()
+
+    # --- CRUD ---
+
+    @patch("products.logs.backend.alerts_api.report_user_action")
+    def test_create(self, mock_report):
+        data = self._create_via_api()
+        assert data["name"] == "High error rate"
+        assert data["threshold_count"] == 10
+        assert data["state"] == "not_firing"
+        assert data["enabled"] is True
+        assert data["created_by"]["id"] == self.user.pk
+        assert data["filters"] == {"severityLevels": ["error"]}
+
+        mock_report.assert_called_once()
+        assert mock_report.call_args[0][1] == "logs alert created"
+        assert mock_report.call_args[0][2]["name"] == "High error rate"
+        assert mock_report.call_args[0][2]["threshold_count"] == 10
+
+    def test_list(self):
+        self._create_via_api(name="Alert 1")
+        self._create_via_api(name="Alert 2")
+
+        response = self.client.get(self.base_url)
+        assert response.status_code == status.HTTP_200_OK
+        results = response.json()["results"]
+        assert len(results) == 2
+        assert results[0]["name"] == "Alert 2"
+        assert results[1]["name"] == "Alert 1"
+
+    def test_retrieve(self):
+        created = self._create_via_api()
+
+        response = self.client.get(f"{self.base_url}{created['id']}/")
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["id"] == created["id"]
+
+    def test_last_error_message_null_when_no_errored_check(self):
+        created = self._create_via_api()
+        alert = LogsAlertConfiguration.objects.get(pk=created["id"])
+        LogsAlertEvent.objects.create(
+            alert=alert, threshold_breached=False, state_before="not_firing", state_after="not_firing"
+        )
+
+        response = self.client.get(f"{self.base_url}{created['id']}/")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["last_error_message"] is None
+
+    def test_last_error_message_returns_most_recent_errored_check(self):
+        created = self._create_via_api()
+        alert = LogsAlertConfiguration.objects.get(pk=created["id"])
+        LogsAlertEvent.objects.create(
+            alert=alert,
+            threshold_breached=False,
+            state_before="not_firing",
+            state_after="errored",
+            error_message="Earlier timeout",
+        )
+        LogsAlertEvent.objects.create(
+            alert=alert,
+            threshold_breached=False,
+            state_before="not_firing",
+            state_after="errored",
+            error_message="Latest ClickHouse timeout",
+        )
+        LogsAlertEvent.objects.create(
+            alert=alert, threshold_breached=False, state_before="errored", state_after="not_firing"
+        )
+
+        response = self.client.get(f"{self.base_url}{created['id']}/")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["last_error_message"] == "Latest ClickHouse timeout"
+
+    @parameterized.expand([(k.value, k) for k in LogsAlertEvent.Kind if k != LogsAlertEvent.Kind.CHECK])
+    def test_last_error_message_excludes_non_check_kinds(self, _name, non_check_kind):
+        # A control-plane row that happens to carry an error_message (e.g. a failed reset
+        # audit row in a hypothetical future shape) must not bleed into the user-facing
+        # last_error_message field — only worker CHECK rows should source it.
+        created = self._create_via_api()
+        alert = LogsAlertConfiguration.objects.get(pk=created["id"])
+        LogsAlertEvent.objects.create(
+            alert=alert,
+            kind=LogsAlertEvent.Kind.CHECK,
+            threshold_breached=False,
+            state_before="not_firing",
+            state_after="errored",
+            error_message="Real CH timeout",
+        )
+        LogsAlertEvent.objects.create(
+            alert=alert,
+            kind=non_check_kind,
+            threshold_breached=False,
+            state_before="not_firing",
+            state_after="not_firing",
+            error_message="This should not surface",
+        )
+
+        response = self.client.get(f"{self.base_url}{created['id']}/")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["last_error_message"] == "Real CH timeout"
+
+    def test_update(self):
+        created = self._create_via_api()
+
+        response = self.client.put(
+            f"{self.base_url}{created['id']}/",
+            {**self._valid_payload(), "name": "Renamed"},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["name"] == "Renamed"
+
+    @patch("products.logs.backend.alerts_api.report_user_action")
+    def test_partial_update(self, mock_report):
+        created = self._create_via_api()
+        mock_report.reset_mock()
+
+        response = self.client.patch(
+            f"{self.base_url}{created['id']}/",
+            {"name": "Patched"},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["name"] == "Patched"
+
+        mock_report.assert_called_once()
+        assert mock_report.call_args[0][1] == "logs alert updated"
+        assert mock_report.call_args[0][2]["name"] == "Patched"
+
+    @patch("products.logs.backend.alerts_api.report_user_action")
+    def test_delete(self, mock_report):
+        created = self._create_via_api()
+        mock_report.reset_mock()
+
+        response = self.client.delete(f"{self.base_url}{created['id']}/")
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        assert not LogsAlertConfiguration.objects.filter(pk=created["id"]).exists()
+
+        mock_report.assert_called_once()
+        assert mock_report.call_args[0][1] == "logs alert deleted"
+        assert mock_report.call_args[0][2]["name"] == "High error rate"
+
+    # --- Team isolation ---
+
+    def test_list_only_own_team(self):
+        team2 = Team.objects.create(organization=self.organization, name="Team 2")
+        LogsAlertConfiguration.objects.create(
+            team=team2,
+            name="Other team alert",
+            threshold_count=5,
+            created_by=self.user,
+            filters={"severityLevels": ["warn"]},
+        )
+        self._create_via_api(name="My alert")
+
+        response = self.client.get(self.base_url)
+        results = response.json()["results"]
+        assert len(results) == 1
+        assert results[0]["name"] == "My alert"
+
+    def test_cannot_retrieve_other_teams_alert(self):
+        team2 = Team.objects.create(organization=self.organization, name="Team 2")
+        other_alert = LogsAlertConfiguration.objects.create(
+            team=team2,
+            name="Other",
+            threshold_count=5,
+            created_by=self.user,
+            filters={"severityLevels": ["error"]},
+        )
+
+        response = self.client.get(f"{self.base_url}{other_alert.id}/")
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_cannot_delete_other_teams_alert(self):
+        team2 = Team.objects.create(organization=self.organization, name="Team 2")
+        other_alert = LogsAlertConfiguration.objects.create(
+            team=team2,
+            name="Other",
+            threshold_count=5,
+            created_by=self.user,
+            filters={"severityLevels": ["error"]},
+        )
+
+        response = self.client.delete(f"{self.base_url}{other_alert.id}/")
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+        assert LogsAlertConfiguration.objects.filter(pk=other_alert.id).exists()
+
+    def test_unauthorized_access(self):
+        client = APIClient()
+        response = client.get(self.base_url)
+        assert response.status_code == status.HTTP_401_UNAUTHORIZED
+
+    # --- Validation: filters ---
+
+    def test_create_rejects_empty_filters(self):
+        response = self.client.post(
+            self.base_url,
+            self._valid_payload(filters={}),
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["attr"] == "filters"
+
+    @parameterized.expand(
+        [
+            ("list", []),
+            ("string", "error"),
+            ("number", 42),
+            ("null", None),
+        ]
+    )
+    def test_create_rejects_non_dict_filters(self, _name, filters):
+        response = self.client.post(
+            self.base_url,
+            self._valid_payload(filters=filters),
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["attr"] == "filters"
+
+    @parameterized.expand(
+        [
+            ("severity_levels", {"severityLevels": ["error"]}),
+            ("service_names", {"serviceNames": ["my-service"]}),
+            ("filter_group", {"filterGroup": {"type": "AND", "values": []}}),
+        ]
+    )
+    def test_create_accepts_valid_filter(self, _name, filters):
+        response = self.client.post(
+            self.base_url,
+            self._valid_payload(filters=filters),
+            format="json",
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+
+    # --- Validation: window ---
+
+    @parameterized.expand([(w,) for w in sorted(ALLOWED_WINDOW_MINUTES)])
+    def test_create_accepts_valid_window(self, window):
+        response = self.client.post(
+            self.base_url,
+            self._valid_payload(window_minutes=window),
+            format="json",
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+
+    @parameterized.expand([(1,), (2,), (7,), (45,), (120,)])
+    def test_create_rejects_invalid_window(self, window):
+        response = self.client.post(
+            self.base_url,
+            self._valid_payload(window_minutes=window),
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["attr"] == "window_minutes"
+
+    # --- Validation: N-of-M ---
+
+    def test_create_rejects_n_greater_than_m(self):
+        response = self.client.post(
+            self.base_url,
+            self._valid_payload(datapoints_to_alarm=3, evaluation_periods=2),
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["attr"] == "datapoints_to_alarm"
+
+    def test_create_accepts_valid_n_of_m(self):
+        response = self.client.post(
+            self.base_url,
+            self._valid_payload(datapoints_to_alarm=2, evaluation_periods=3),
+            format="json",
+        )
+        assert response.status_code == status.HTTP_201_CREATED
+
+    # --- Per-team limit ---
+
+    def test_per_team_limit(self):
+        for i in range(MAX_ALERTS_PER_TEAM):
+            LogsAlertConfiguration.objects.create(
+                team=self.team,
+                name=f"Alert {i}",
+                threshold_count=1,
+                created_by=self.user,
+                filters={"severityLevels": ["error"]},
+            )
+
+        response = self.client.post(
+            self.base_url,
+            self._valid_payload(name="One too many"),
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "Maximum" in str(response.json())
+
+    # --- Read-only fields ---
+
+    def test_state_ignored_on_create(self):
+        data = self._create_via_api(state="firing")
+        assert data["state"] == "not_firing"
+
+    def test_state_ignored_on_update(self):
+        created = self._create_via_api()
+        response = self.client.patch(
+            f"{self.base_url}{created['id']}/",
+            {"state": "firing"},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["state"] == "not_firing"
+
+    # --- Defaults ---
+
+    def test_create_with_minimal_fields(self):
+        data = self._create_via_api()
+        assert data["enabled"] is True
+        assert data["threshold_operator"] == "above"
+        assert data["window_minutes"] == 5
+        assert data["check_interval_minutes"] == 5
+        assert data["evaluation_periods"] == 1
+        assert data["datapoints_to_alarm"] == 1
+        assert data["cooldown_minutes"] == 0
+        assert data["consecutive_failures"] == 0
+
+    # --- Partial update preserves existing filters ---
+
+    def test_partial_update_non_filter_field(self):
+        created = self._create_via_api(filters={"severityLevels": ["error"]})
+
+        response = self.client.patch(
+            f"{self.base_url}{created['id']}/",
+            {"name": "Just rename"},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["name"] == "Just rename"
+        assert response.json()["filters"] == {"severityLevels": ["error"]}
+
+    # --- Environments URL ---
+
+    def test_environments_url(self):
+        created = self._create_via_api()
+        env_url = f"/api/environments/{self.team.pk}/logs/alerts/"
+
+        response = self.client.get(env_url)
+        assert response.status_code == status.HTTP_200_OK
+        assert len(response.json()["results"]) == 1
+
+        response = self.client.get(f"{env_url}{created['id']}/")
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["id"] == created["id"]
+
+    # --- Disable resets state ---
+
+    def test_disable_resets_firing_state(self):
+        created = self._create_via_api()
+        LogsAlertConfiguration.objects.filter(pk=created["id"]).update(state="firing")
+
+        response = self.client.patch(
+            f"{self.base_url}{created['id']}/",
+            {"enabled": False},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["state"] == "not_firing"
+        assert response.json()["enabled"] is False
+
+    # --- Edit behavior: recheck and state reset ---
+
+    def test_threshold_change_resets_state_and_clears_next_check(self):
+        created = self._create_via_api()
+        LogsAlertConfiguration.objects.filter(pk=created["id"]).update(
+            state="firing",
+            next_check_at=datetime(2026, 3, 19, 12, 0, tzinfo=UTC),
+        )
+
+        response = self.client.patch(
+            f"{self.base_url}{created['id']}/",
+            {"threshold_count": 50},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["state"] == "not_firing"
+        assert response.json()["next_check_at"] is None
+
+    def test_filter_change_resets_state(self):
+        created = self._create_via_api()
+        LogsAlertConfiguration.objects.filter(pk=created["id"]).update(state="firing")
+
+        response = self.client.patch(
+            f"{self.base_url}{created['id']}/",
+            {"filters": {"severityLevels": ["warn"]}},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["state"] == "not_firing"
+
+    def test_window_change_preserves_state_and_clears_next_check(self):
+        created = self._create_via_api()
+        LogsAlertConfiguration.objects.filter(pk=created["id"]).update(
+            state="firing",
+            next_check_at=datetime(2026, 3, 19, 12, 0, tzinfo=UTC),
+        )
+
+        response = self.client.patch(
+            f"{self.base_url}{created['id']}/",
+            {"window_minutes": 10},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["state"] == "firing"
+        assert response.json()["next_check_at"] is None
+
+    def test_name_change_preserves_state_and_next_check(self):
+        next_check = datetime(2026, 3, 19, 12, 0, tzinfo=UTC)
+        created = self._create_via_api()
+        LogsAlertConfiguration.objects.filter(pk=created["id"]).update(
+            state="firing",
+            next_check_at=next_check,
+        )
+
+        response = self.client.patch(
+            f"{self.base_url}{created['id']}/",
+            {"name": "Renamed"},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["state"] == "firing"
+        assert response.json()["next_check_at"] is not None
+
+    # --- Snooze ---
+
+    def test_snooze_sets_snoozed_state(self):
+        created = self._create_via_api()
+        snooze_time = (datetime.now(UTC) + timedelta(hours=1)).isoformat()
+
+        response = self.client.patch(
+            f"{self.base_url}{created['id']}/",
+            {"snooze_until": snooze_time},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["state"] == "snoozed"
+        assert response.json()["snooze_until"] is not None
+
+    def test_unsnooze_sets_not_firing_state(self):
+        created = self._create_via_api()
+        LogsAlertConfiguration.objects.filter(pk=created["id"]).update(
+            state="snoozed",
+            snooze_until=datetime.now(UTC) + timedelta(hours=1),
+        )
+
+        response = self.client.patch(
+            f"{self.base_url}{created['id']}/",
+            {"snooze_until": None},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["state"] == "not_firing"
+        assert response.json()["snooze_until"] is None
+
+    def test_snooze_rejects_past_datetime(self):
+        created = self._create_via_api()
+        past_time = (datetime.now(UTC) - timedelta(hours=1)).isoformat()
+
+        response = self.client.patch(
+            f"{self.base_url}{created['id']}/",
+            {"snooze_until": past_time},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_snooze_with_threshold_change_preserves_snoozed_state(self):
+        created = self._create_via_api()
+        snooze_time = (datetime.now(UTC) + timedelta(hours=1)).isoformat()
+
+        response = self.client.patch(
+            f"{self.base_url}{created['id']}/",
+            {"snooze_until": snooze_time, "threshold_count": 100},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert data["state"] == "snoozed"
+        assert data["snooze_until"] is not None
+        assert data["threshold_count"] == 100
+
+    def test_already_snoozed_threshold_change_preserves_snooze(self):
+        created = self._create_via_api()
+        snooze_time = datetime.now(UTC) + timedelta(hours=1)
+
+        # First snooze the alert
+        response = self.client.patch(
+            f"{self.base_url}{created['id']}/",
+            {"snooze_until": snooze_time.isoformat()},
+            format="json",
+        )
+        assert response.json()["state"] == "snoozed"
+
+        # Now change threshold without touching snooze_until
+        response = self.client.patch(
+            f"{self.base_url}{created['id']}/",
+            {"threshold_count": 200},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert data["state"] == "snoozed"
+        assert data["snooze_until"] is not None
+        assert data["threshold_count"] == 200
+
+    # --- Destinations ---
+
+    def _destinations_url(self, alert_id: str) -> str:
+        return f"{self.base_url}{alert_id}/destinations/"
+
+    def _destinations_delete_url(self, alert_id: str) -> str:
+        return f"{self.base_url}{alert_id}/destinations/delete/"
+
+    def _sync_destination_templates(self) -> None:
+        # Destination creation goes through the full HogFunctionSerializer pipeline,
+        # which looks up a HogFunctionTemplate by template_id. Seed Slack + webhook.
+        from posthog.cdp.templates.hog_function_template import sync_template_to_db
+        from posthog.cdp.templates.slack.template_slack import template as template_slack
+        from posthog.models.hog_function_template import HogFunctionTemplate
+
+        sync_template_to_db(template_slack)
+        HogFunctionTemplate.objects.get_or_create(
+            template_id="template-webhook",
+            defaults={
+                "sha": "1.0.0",
+                "name": "Webhook",
+                "description": "Generic webhook template",
+                "code": "return event",
+                "code_language": "hog",
+                "inputs_schema": [{"key": "url", "type": "string"}, {"key": "body", "type": "json"}],
+                "type": "destination",
+                "status": "stable",
+                "category": ["Integrations"],
+                "free": True,
+            },
+        )
+
+    @patch("products.logs.backend.alerts_api.report_user_action")
+    def test_create_slack_destination_creates_one_hog_function_per_event_kind(self, mock_report):
+        self._sync_destination_templates()
+        from posthog.models.hog_functions.hog_function import HogFunction
+
+        created = self._create_via_api()
+        response = self.client.post(
+            self._destinations_url(created["id"]),
+            {
+                "type": "slack",
+                "slack_workspace_id": 42,
+                "slack_channel_id": "C123",
+                "slack_channel_name": "alerts",
+            },
+            format="json",
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        ids = response.json()["hog_function_ids"]
+        assert len(ids) == 4  # firing + resolved + broken + errored
+
+        hog_functions = HogFunction.objects.filter(id__in=ids).order_by("name")
+        event_ids = sorted([(hf.filters or {})["events"][0]["id"] for hf in hog_functions])
+        assert event_ids == [
+            "$logs_alert_auto_disabled",
+            "$logs_alert_errored",
+            "$logs_alert_firing",
+            "$logs_alert_resolved",
+        ]
+        for hf in hog_functions:
+            assert hf.template_id == "template-slack"
+            inputs = hf.inputs or {}
+            assert inputs["channel"]["value"] == "C123"
+            assert inputs["slack_workspace"]["value"] == 42
+            text_value = inputs["text"]["value"]
+            assert "{if(" not in text_value
+            alert_id_filter = (hf.filters or {})["properties"][0]
+            assert alert_id_filter == {
+                "key": "alert_id",
+                "value": created["id"],
+                "operator": "exact",
+                "type": "event",
+            }
+
+        reset_calls = [c for c in mock_report.call_args_list if c.args[1] == "logs alert destination created"]
+        assert len(reset_calls) == 1
+
+    def test_create_webhook_destination_creates_one_hog_function_per_event_kind(self):
+        from posthog.models.hog_functions.hog_function import HogFunction
+
+        self._sync_destination_templates()
+        created = self._create_via_api()
+        response = self.client.post(
+            self._destinations_url(created["id"]),
+            {"type": "webhook", "webhook_url": "https://example.com/hook"},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        ids = response.json()["hog_function_ids"]
+        assert len(ids) == 4  # firing + resolved + broken + errored
+
+        hog_functions = HogFunction.objects.filter(id__in=ids)
+        for hf in hog_functions:
+            assert hf.template_id == "template-webhook"
+            inputs = hf.inputs or {}
+            assert inputs["url"]["value"] == "https://example.com/hook"
+            body = inputs["body"]["value"]
+            assert body["type"] in (
+                "logs_alert.firing",
+                "logs_alert.resolved",
+                "logs_alert.auto_disabled",
+                "logs_alert.errored",
+            )
+
+    @parameterized.expand(
+        [
+            ("slack_missing_workspace", {"type": "slack", "slack_channel_id": "C1"}),
+            ("slack_missing_channel", {"type": "slack", "slack_workspace_id": 1}),
+            ("webhook_missing_url", {"type": "webhook"}),
+            ("webhook_invalid_url", {"type": "webhook", "webhook_url": "not-a-url"}),
+        ]
+    )
+    def test_create_destination_rejects_invalid_payloads(self, _name: str, payload: dict) -> None:
+        created = self._create_via_api()
+        response = self.client.post(self._destinations_url(created["id"]), payload, format="json")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_create_destination_on_other_teams_alert_returns_404(self):
+        other_team = Team.objects.create(organization=self.organization, name="Other")
+        other_alert = LogsAlertConfiguration.objects.create(
+            team=other_team, name="Other", threshold_count=10, filters={"severityLevels": ["error"]}
+        )
+        response = self.client.post(
+            self._destinations_url(str(other_alert.id)),
+            {"type": "webhook", "webhook_url": "https://example.com/hook"},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_delete_destination_removes_hog_functions(self):
+        from posthog.models.hog_functions.hog_function import HogFunction
+
+        self._sync_destination_templates()
+        created = self._create_via_api()
+        create_response = self.client.post(
+            self._destinations_url(created["id"]),
+            {"type": "webhook", "webhook_url": "https://example.com/hook"},
+            format="json",
+        )
+        ids = create_response.json()["hog_function_ids"]
+
+        delete_response = self.client.post(
+            self._destinations_delete_url(created["id"]),
+            {"hog_function_ids": ids},
+            format="json",
+        )
+        assert delete_response.status_code == status.HTTP_204_NO_CONTENT
+        assert HogFunction.objects.filter(id__in=ids, deleted=False).count() == 0
+
+    def test_delete_destination_rejects_foreign_hog_function_ids(self):
+        self._sync_destination_templates()
+        created_a = self._create_via_api()
+        created_b = self._create_via_api(name="Another alert")
+
+        a_ids = self.client.post(
+            self._destinations_url(created_a["id"]),
+            {"type": "webhook", "webhook_url": "https://example.com/a"},
+            format="json",
+        ).json()["hog_function_ids"]
+        b_ids = self.client.post(
+            self._destinations_url(created_b["id"]),
+            {"type": "webhook", "webhook_url": "https://example.com/b"},
+            format="json",
+        ).json()["hog_function_ids"]
+
+        # Trying to delete alert A's HogFunctions via alert B's endpoint should fail.
+        response = self.client.post(
+            self._destinations_delete_url(created_b["id"]),
+            {"hog_function_ids": a_ids + b_ids},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    # --- Reset ---
+
+    def _reset_url(self, alert_id: str) -> str:
+        return f"{self.base_url}{alert_id}/reset/"
+
+    @patch("products.logs.backend.alerts_api.report_user_action")
+    def test_reset_broken_alert(self, mock_report):
+        created = self._create_via_api()
+        LogsAlertConfiguration.objects.filter(pk=created["id"]).update(
+            state=LogsAlertConfiguration.State.BROKEN,
+            consecutive_failures=5,
+            next_check_at=datetime.now(UTC) + timedelta(minutes=10),
+        )
+
+        response = self.client.post(self._reset_url(created["id"]))
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        data = response.json()
+        assert data["state"] == "not_firing"
+        assert data["consecutive_failures"] == 0
+        assert data["next_check_at"] is None
+        reset_calls = [c for c in mock_report.call_args_list if c.args[1] == "logs alert reset"]
+        assert len(reset_calls) == 1
+
+    @parameterized.expand(
+        [
+            ("not_firing", LogsAlertConfiguration.State.NOT_FIRING),
+            ("firing", LogsAlertConfiguration.State.FIRING),
+            ("errored", LogsAlertConfiguration.State.ERRORED),
+            ("snoozed", LogsAlertConfiguration.State.SNOOZED),
+            ("pending_resolve", LogsAlertConfiguration.State.PENDING_RESOLVE),
+        ]
+    )
+    def test_reset_rejects_non_broken_alert(self, _name: str, state: str) -> None:
+        created = self._create_via_api()
+        LogsAlertConfiguration.objects.filter(pk=created["id"]).update(state=state)
+
+        response = self.client.post(self._reset_url(created["id"]))
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "Only broken alerts can be reset." in str(response.json())
+
+    def test_reset_other_teams_alert_returns_404(self):
+        other_team = Team.objects.create(organization=self.organization, name="Other")
+        other_alert = LogsAlertConfiguration.objects.create(
+            team=other_team,
+            name="Other team alert",
+            threshold_count=10,
+            filters={"severityLevels": ["error"]},
+            state=LogsAlertConfiguration.State.BROKEN,
+            consecutive_failures=5,
+        )
+
+        response = self.client.post(self._reset_url(str(other_alert.id)))
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_reset_writes_activity_log(self):
+        from posthog.models.activity_logging.activity_log import ActivityLog
+
+        created = self._create_via_api()
+        LogsAlertConfiguration.objects.filter(pk=created["id"]).update(
+            state=LogsAlertConfiguration.State.BROKEN,
+            consecutive_failures=5,
+        )
+        ActivityLog.objects.filter(item_id=str(created["id"])).delete()
+
+        response = self.client.post(self._reset_url(created["id"]))
+        assert response.status_code == status.HTTP_200_OK
+
+        entries = list(ActivityLog.objects.filter(item_id=str(created["id"])))
+        assert len(entries) >= 1, [e.activity for e in ActivityLog.objects.all()]
+        changed_fields = {c["field"] for entry in entries for c in (entry.detail or {}).get("changes", [])}
+        assert "state" in changed_fields
+        assert "consecutive_failures" in changed_fields
+
+    # --- Control-plane event rows ---
+
+    def _assert_single_event_row(
+        self,
+        alert_id: str,
+        *,
+        kind: str,
+        state_before: str,
+        state_after: str,
+    ) -> None:
+        events = list(LogsAlertEvent.objects.filter(alert_id=alert_id).order_by("created_at"))
+        assert len(events) == 1, [(e.kind, e.state_before, e.state_after) for e in events]
+        event = events[0]
+        assert event.kind == kind
+        assert event.state_before == state_before
+        assert event.state_after == state_after
+        assert event.error_message is None
+        assert event.result_count is None
+
+    def test_reset_writes_reset_event_row(self):
+        created = self._create_via_api()
+        LogsAlertConfiguration.objects.filter(pk=created["id"]).update(
+            state=LogsAlertConfiguration.State.BROKEN,
+            consecutive_failures=5,
+        )
+
+        response = self.client.post(self._reset_url(created["id"]))
+        assert response.status_code == status.HTTP_200_OK
+
+        self._assert_single_event_row(
+            created["id"],
+            kind=LogsAlertEvent.Kind.RESET,
+            state_before=LogsAlertConfiguration.State.BROKEN.value,
+            state_after=LogsAlertConfiguration.State.NOT_FIRING.value,
+        )
+
+    @parameterized.expand(
+        [
+            (
+                "enable",
+                {"enabled": False, "state": LogsAlertConfiguration.State.NOT_FIRING},
+                {"enabled": True},
+                LogsAlertEvent.Kind.ENABLE,
+                LogsAlertConfiguration.State.NOT_FIRING.value,
+                LogsAlertConfiguration.State.NOT_FIRING.value,
+            ),
+            (
+                "disable",
+                {"enabled": True, "state": LogsAlertConfiguration.State.NOT_FIRING},
+                {"enabled": False},
+                LogsAlertEvent.Kind.DISABLE,
+                LogsAlertConfiguration.State.NOT_FIRING.value,
+                LogsAlertConfiguration.State.NOT_FIRING.value,
+            ),
+            (
+                "snooze",
+                {"state": LogsAlertConfiguration.State.NOT_FIRING},
+                {"snooze_until": (datetime.now(UTC) + timedelta(hours=1)).isoformat()},
+                LogsAlertEvent.Kind.SNOOZE,
+                LogsAlertConfiguration.State.NOT_FIRING.value,
+                LogsAlertConfiguration.State.SNOOZED.value,
+            ),
+            (
+                "unsnooze",
+                # snooze_until goes through .update() (ORM) here, not the API; hence the raw datetime.
+                {
+                    "state": LogsAlertConfiguration.State.SNOOZED,
+                    "snooze_until": datetime.now(UTC) + timedelta(hours=1),
+                },
+                {"snooze_until": None},
+                LogsAlertEvent.Kind.UNSNOOZE,
+                LogsAlertConfiguration.State.SNOOZED.value,
+                LogsAlertConfiguration.State.NOT_FIRING.value,
+            ),
+            (
+                "threshold_change",
+                {"state": LogsAlertConfiguration.State.NOT_FIRING, "threshold_count": 10},
+                {"threshold_count": 50},
+                LogsAlertEvent.Kind.THRESHOLD_CHANGE,
+                LogsAlertConfiguration.State.NOT_FIRING.value,
+                LogsAlertConfiguration.State.NOT_FIRING.value,
+            ),
+        ]
+    )
+    def test_update_writes_control_plane_event_row(
+        self,
+        _name: str,
+        initial_db_state: dict,
+        patch_payload: dict,
+        expected_kind: str,
+        expected_state_before: str,
+        expected_state_after: str,
+    ) -> None:
+        created = self._create_via_api()
+        LogsAlertConfiguration.objects.filter(pk=created["id"]).update(**initial_db_state)
+
+        response = self.client.patch(f"{self.base_url}{created['id']}/", patch_payload, format="json")
+        assert response.status_code == status.HTTP_200_OK, response.json()
+
+        self._assert_single_event_row(
+            created["id"],
+            kind=expected_kind,
+            state_before=expected_state_before,
+            state_after=expected_state_after,
+        )
+
+    def test_update_without_control_plane_change_does_not_write_event_row(self):
+        created = self._create_via_api()
+
+        response = self.client.patch(f"{self.base_url}{created['id']}/", {"name": "Renamed"}, format="json")
+        assert response.status_code == status.HTTP_200_OK
+
+        assert not LogsAlertEvent.objects.filter(alert_id=created["id"]).exists()
+
+    # --- Event history ---
+
+    def _events_url(self, alert_id: str) -> str:
+        return f"{self.base_url}{alert_id}/events/"
+
+    def test_events_returns_rows_newest_first(self):
+        created = self._create_via_api()
+        older_transition = LogsAlertEvent.objects.create(
+            alert_id=created["id"],
+            kind=LogsAlertEvent.Kind.CHECK,
+            threshold_breached=False,
+            state_before="firing",
+            state_after="not_firing",
+        )
+        newer_transition = LogsAlertEvent.objects.create(
+            alert_id=created["id"],
+            kind=LogsAlertEvent.Kind.CHECK,
+            threshold_breached=True,
+            state_before="not_firing",
+            state_after="firing",
+        )
+
+        response = self.client.get(self._events_url(created["id"]))
+
+        assert response.status_code == status.HTTP_200_OK
+        results = response.json().get("results", response.json())
+        ids = [row["id"] for row in results]
+        assert ids.index(str(newer_transition.id)) < ids.index(str(older_transition.id))
+
+    def test_events_filters_out_quiet_check_rows(self):
+        # "Quiet" CHECK rows (state didn't change, no error) carry no forensic value and
+        # are kept inline at a cap of 10 per alert — surfacing them in the event history
+        # would bury the interesting transitions. Backend filter pins this contract.
+        created = self._create_via_api()
+        LogsAlertEvent.objects.create(
+            alert_id=created["id"],
+            kind=LogsAlertEvent.Kind.CHECK,
+            threshold_breached=False,
+            state_before="not_firing",
+            state_after="not_firing",
+        )
+        LogsAlertEvent.objects.create(
+            alert_id=created["id"],
+            kind=LogsAlertEvent.Kind.CHECK,
+            threshold_breached=True,
+            state_before="firing",
+            state_after="firing",
+        )
+        transition = LogsAlertEvent.objects.create(
+            alert_id=created["id"],
+            kind=LogsAlertEvent.Kind.CHECK,
+            threshold_breached=True,
+            state_before="not_firing",
+            state_after="firing",
+        )
+        errored = LogsAlertEvent.objects.create(
+            alert_id=created["id"],
+            kind=LogsAlertEvent.Kind.CHECK,
+            threshold_breached=False,
+            state_before="not_firing",
+            state_after="not_firing",
+            error_message="CH timeout",
+        )
+
+        response = self.client.get(self._events_url(created["id"]))
+
+        assert response.status_code == status.HTTP_200_OK
+        results = response.json().get("results", response.json())
+        returned_ids = {row["id"] for row in results}
+        assert returned_ids == {str(transition.id), str(errored.id)}
+
+    @parameterized.expand([(kind,) for kind in LogsAlertEvent.Kind.values])
+    def test_events_filter_by_kind(self, kind):
+        created = self._create_via_api()
+        # CHECK rows need a real transition to survive the quiet-row filter; control-plane
+        # kinds are never quiet-filtered so any state pair is fine.
+        kept_before, kept_after = (
+            ("not_firing", "firing") if kind == LogsAlertEvent.Kind.CHECK else ("not_firing", "not_firing")
+        )
+        kept = LogsAlertEvent.objects.create(
+            alert_id=created["id"],
+            kind=kind,
+            threshold_breached=False,
+            state_before=kept_before,
+            state_after=kept_after,
+        )
+        # Noise row of a different kind with a state transition so it survives the quiet
+        # filter and would show up absent the ?kind= narrowing.
+        other_kind = next(k for k in LogsAlertEvent.Kind.values if k != kind)
+        LogsAlertEvent.objects.create(
+            alert_id=created["id"],
+            kind=other_kind,
+            threshold_breached=False,
+            state_before="firing",
+            state_after="not_firing",
+        )
+
+        response = self.client.get(self._events_url(created["id"]), {"kind": kind})
+
+        assert response.status_code == status.HTTP_200_OK
+        results = response.json().get("results", response.json())
+        returned_ids = {row["id"] for row in results}
+        assert returned_ids == {str(kept.id)}
+
+    def test_events_rejects_unknown_kind(self):
+        created = self._create_via_api()
+
+        response = self.client.get(self._events_url(created["id"]), {"kind": "not_a_real_kind"})
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["attr"] == "kind"
+
+    def test_events_scoped_to_alert_team(self):
+        other_team = Team.objects.create(organization=self.organization, name="Other")
+        other_alert = LogsAlertConfiguration.objects.create(
+            team=other_team,
+            name="Other team alert",
+            threshold_count=10,
+            filters={"severityLevels": ["error"]},
+        )
+
+        response = self.client.get(self._events_url(str(other_alert.id)))
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    # --- Sparkline ---
+
+    @freeze_time("2025-12-16T10:30:00Z")
+    def test_sparkline_has_24_hourly_buckets_on_empty_alert(self):
+        created = self._create_via_api()
+
+        response = self.client.get(f"{self.base_url}{created['id']}/")
+
+        assert response.status_code == status.HTTP_200_OK
+        sparkline = response.json()["sparkline"]
+        assert len(sparkline) == 24
+        assert all(
+            bucket["breached"] == 0 and bucket["errored"] == 0 and bucket["resolved"] == 0 for bucket in sparkline
+        )
+        # Buckets are ordered oldest-first, hourly-aligned.
+        timestamps = [bucket["timestamp"] for bucket in sparkline]
+        assert timestamps == sorted(timestamps)
+
+    def _make_event_at(self, alert_id: str, when: datetime, **fields) -> LogsAlertEvent:
+        """Create a LogsAlertEvent at a specific timestamp (works around auto_now_add)."""
+        defaults = {
+            "kind": LogsAlertEvent.Kind.CHECK,
+            "threshold_breached": False,
+            "state_before": "not_firing",
+            "state_after": "not_firing",
+        }
+        defaults.update(fields)
+        event = LogsAlertEvent.objects.create(alert_id=alert_id, **defaults)
+        LogsAlertEvent.objects.filter(pk=event.pk).update(created_at=when)
+        event.refresh_from_db()
+        return event
+
+    @freeze_time("2025-12-16T10:30:00Z")
+    def test_sparkline_buckets_breached_and_errored_events(self):
+        created = self._create_via_api()
+        alert_id = created["id"]
+        self._make_event_at(
+            alert_id,
+            datetime(2025, 12, 16, 7, 15, tzinfo=UTC),
+            threshold_breached=True,
+            state_before="not_firing",
+            state_after="firing",
+        )
+        self._make_event_at(
+            alert_id,
+            datetime(2025, 12, 16, 9, 10, tzinfo=UTC),
+            state_before="firing",
+            state_after="errored",
+            error_message="Query timeout",
+        )
+        self._make_event_at(
+            alert_id,
+            datetime(2025, 12, 16, 9, 45, tzinfo=UTC),
+            threshold_breached=True,
+            state_before="not_firing",
+            state_after="firing",
+        )
+
+        response = self.client.get(f"{self.base_url}{alert_id}/")
+
+        assert response.status_code == status.HTTP_200_OK
+        sparkline = response.json()["sparkline"]
+        total_breached = sum(b["breached"] for b in sparkline)
+        total_errored = sum(b["errored"] for b in sparkline)
+        assert total_breached == 2
+        assert total_errored == 1
+
+    @parameterized.expand([(k.value, k) for k in LogsAlertEvent.Kind if k != LogsAlertEvent.Kind.CHECK])
+    @freeze_time("2025-12-16T10:30:00Z")
+    def test_sparkline_excludes_control_plane_row(self, _name: str, kind: LogsAlertEvent.Kind):
+        created = self._create_via_api()
+        alert_id = created["id"]
+        self._make_event_at(alert_id, datetime(2025, 12, 16, 9, 0, tzinfo=UTC), kind=kind)
+
+        response = self.client.get(f"{self.base_url}{alert_id}/")
+
+        sparkline = response.json()["sparkline"]
+        assert all(b["breached"] == 0 and b["errored"] == 0 and b["resolved"] == 0 for b in sparkline)
+
+    @freeze_time("2025-12-16T10:30:00Z")
+    def test_sparkline_excludes_events_older_than_24h(self):
+        created = self._create_via_api()
+        alert_id = created["id"]
+        # 26h before frozen time — outside the lookback window.
+        self._make_event_at(
+            alert_id,
+            datetime(2025, 12, 15, 8, 0, tzinfo=UTC),
+            threshold_breached=True,
+            state_before="not_firing",
+            state_after="firing",
+        )
+
+        response = self.client.get(f"{self.base_url}{alert_id}/")
+
+        sparkline = response.json()["sparkline"]
+        assert all(b["breached"] == 0 and b["errored"] == 0 and b["resolved"] == 0 for b in sparkline)
+
+    @parameterized.expand(
+        [
+            ("firing_to_not_firing", "firing"),
+            ("pending_resolve_to_not_firing", "pending_resolve"),
+        ]
+    )
+    @freeze_time("2025-12-16T10:30:00Z")
+    def test_sparkline_buckets_resolved_events(self, _name: str, state_before: str):
+        created = self._create_via_api()
+        alert_id = created["id"]
+        self._make_event_at(
+            alert_id,
+            datetime(2025, 12, 16, 9, 5, tzinfo=UTC),
+            threshold_breached=False,
+            state_before=state_before,
+            state_after="not_firing",
+        )
+
+        response = self.client.get(f"{self.base_url}{alert_id}/")
+
+        assert response.status_code == status.HTTP_200_OK
+        sparkline = response.json()["sparkline"]
+        assert sum(b["resolved"] for b in sparkline) == 1
+
+    # --- Simulate ---
+
+    def _simulate_url(self) -> str:
+        return f"{self.base_url}simulate/"
+
+    def _simulate_payload(self, **overrides) -> dict:
+        defaults = {
+            "filters": {"severityLevels": ["error"]},
+            "threshold_count": 100,
+            "threshold_operator": "above",
+            "window_minutes": 5,
+            "date_from": "-24h",
+        }
+        defaults.update(overrides)
+        return defaults
+
+    def _mock_minute_buckets(self, minute_counts: list[tuple[int, int]]) -> list[BucketedCount]:
+        """Create 1-minute buckets. minute_counts is [(offset_minutes, count), ...]."""
+        base = datetime(2025, 12, 16, 10, 0, tzinfo=UTC)
+        return [BucketedCount(timestamp=base + timedelta(minutes=m), count=c) for m, c in minute_counts]
+
+    @freeze_time("2025-12-16T10:30:00Z")
+    @patch("products.logs.backend.alerts_api.AlertCheckQuery")
+    def test_simulate_returns_response_shape(self, mock_query_cls):
+        mock_query_cls.return_value.execute_bucketed.return_value = self._mock_minute_buckets([(0, 50), (1, 20)])
+
+        response = self.client.post(self._simulate_url(), self._simulate_payload(), format="json")
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert "buckets" in data
+        assert "fire_count" in data
+        assert "resolve_count" in data
+        assert "total_buckets" in data
+        assert data["total_buckets"] > 0
+        bucket = data["buckets"][0]
+        assert "threshold_breached" in bucket
+        assert "state" in bucket
+        assert "notification" in bucket
+
+    @freeze_time("2025-12-16T10:30:00Z")
+    @patch("products.logs.backend.alerts_api.AlertCheckQuery")
+    def test_simulate_fills_empty_minutes(self, mock_query_cls):
+        # Two data points 10 minutes apart — should fill 1-min gaps between them
+        mock_query_cls.return_value.execute_bucketed.return_value = self._mock_minute_buckets([(0, 50), (10, 200)])
+
+        response = self.client.post(
+            self._simulate_url(),
+            self._simulate_payload(window_minutes=5),
+            format="json",
+        )
+        data = response.json()
+        # Should have many more buckets than 2 (filled 1-min gaps for the full range)
+        assert data["total_buckets"] > 10
+
+    @parameterized.expand(
+        [
+            (
+                "fires",
+                [(0, 40), (1, 40), (2, 40)],
+                {"threshold_count": 100, "threshold_operator": "above", "window_minutes": 5},
+                {"min_fire_count": 1},
+            ),
+            (
+                "fires_and_resolves",
+                [(0, 40), (1, 40), (2, 40)],
+                {"threshold_count": 100, "threshold_operator": "above", "window_minutes": 5},
+                {"min_fire_count": 1, "min_resolve_count": 1},
+            ),
+        ]
+    )
+    @freeze_time("2025-12-16T10:30:00Z")
+    @patch("products.logs.backend.alerts_api.AlertCheckQuery")
+    def test_simulate_rolling_window(self, _name, buckets, payload_overrides, expected, mock_query_cls):
+        mock_query_cls.return_value.execute_bucketed.return_value = self._mock_minute_buckets(buckets)
+
+        response = self.client.post(
+            self._simulate_url(),
+            self._simulate_payload(**payload_overrides),
+            format="json",
+        )
+        data = response.json()
+        if "min_fire_count" in expected:
+            assert data["fire_count"] >= expected["min_fire_count"]
+        if "min_resolve_count" in expected:
+            assert data["resolve_count"] >= expected["min_resolve_count"]
+
+    @freeze_time("2025-12-16T10:30:00Z")
+    @patch("products.logs.backend.alerts_api.AlertCheckQuery")
+    def test_simulate_n_of_m_delays_firing(self, mock_query_cls):
+        # window=5, 2-of-3 N-of-M. A spike at minute 0 pushes rolling sum above threshold
+        # for minutes 0-4. At minute 0 there's only one evaluation, so N=2 isn't met and
+        # the alert stays not_firing; by minute 1 there are two consecutive breaches,
+        # satisfying 2-of-3 -> fires. This is the "N-of-M delays firing past first breach"
+        # invariant; with window=5 the delay is one tick rather than two.
+        mock_query_cls.return_value.execute_bucketed.return_value = self._mock_minute_buckets(
+            [(0, 150), (1, 50), (2, 150)]
+        )
+
+        response = self.client.post(
+            self._simulate_url(),
+            self._simulate_payload(
+                threshold_count=100,
+                threshold_operator="above",
+                evaluation_periods=3,
+                datapoints_to_alarm=2,
+                window_minutes=5,
+            ),
+            format="json",
+        )
+        data = response.json()
+        data_buckets = [b for b in data["buckets"] if b["count"] > 0]
+        # Minute 0: rolling=150 breached, but only 1 evaluation -> not_firing
+        assert data_buckets[0]["state"] == "not_firing"
+        # Minute 1: rolling=200 breached, 2 consecutive breaches met N=2 -> fires
+        assert data_buckets[1]["state"] == "firing"
+        assert data_buckets[1]["notification"] == "fire"
+
+    @freeze_time("2025-12-16T10:30:00Z")
+    @patch("products.logs.backend.alerts_api.AlertCheckQuery")
+    def test_simulate_cooldown_suppresses_renotification(self, mock_query_cls):
+        # window=5, cooldown=15 min. Two spikes 10 minutes apart: first fires at minute 0,
+        # rolling sum drops below threshold at minute 5 (spike falls out of window) -> resolves,
+        # second spike at minute 10 would re-fire but cooldown from minute 0 fire suppresses it.
+        mock_query_cls.return_value.execute_bucketed.return_value = self._mock_minute_buckets([(0, 200), (10, 200)])
+
+        response = self.client.post(
+            self._simulate_url(),
+            self._simulate_payload(
+                threshold_count=100,
+                threshold_operator="above",
+                cooldown_minutes=15,
+                window_minutes=5,
+            ),
+            format="json",
+        )
+        data = response.json()
+        data_buckets = [b for b in data["buckets"] if b["count"] > 0]
+        # Minute 0: fires (index 0 in data_buckets since only 2 raw counts are non-zero)
+        assert data_buckets[0]["notification"] == "fire"
+        # Minute 10: firing again, cooldown suppresses the fire notification
+        assert data_buckets[1]["state"] == "firing"
+        assert data_buckets[1]["notification"] == "none"
+        assert data["fire_count"] == 1
+
+    @freeze_time("2025-12-16T10:30:00Z")
+    @patch("products.logs.backend.alerts_api.AlertCheckQuery")
+    def test_simulate_empty_results(self, mock_query_cls):
+        mock_query_cls.return_value.execute_bucketed.return_value = []
+
+        response = self.client.post(self._simulate_url(), self._simulate_payload(), format="json")
+        data = response.json()
+        assert data["fire_count"] == 0
+        assert data["resolve_count"] == 0
+        for b in data["buckets"]:
+            assert b["count"] == 0
+
+    def test_simulate_rejects_empty_filters(self):
+        response = self.client.post(
+            self._simulate_url(),
+            self._simulate_payload(filters={}),
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_simulate_rejects_invalid_window(self):
+        response = self.client.post(
+            self._simulate_url(),
+            self._simulate_payload(window_minutes=7),
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_simulate_rejects_n_greater_than_m(self):
+        response = self.client.post(
+            self._simulate_url(),
+            self._simulate_payload(evaluation_periods=2, datapoints_to_alarm=3),
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    @freeze_time("2025-12-16T10:30:00Z")
+    @patch("products.logs.backend.alerts_api.AlertCheckQuery")
+    def test_simulate_echoes_threshold_config(self, mock_query_cls):
+        mock_query_cls.return_value.execute_bucketed.return_value = self._mock_minute_buckets([(0, 10)])
+
+        response = self.client.post(
+            self._simulate_url(),
+            self._simulate_payload(threshold_count=42, threshold_operator="below"),
+            format="json",
+        )
+        data = response.json()
+        assert data["threshold_count"] == 42
+        assert data["threshold_operator"] == "below"

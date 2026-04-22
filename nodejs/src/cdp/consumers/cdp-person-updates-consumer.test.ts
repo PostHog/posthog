@@ -2,6 +2,7 @@ import '../../../tests/helpers/mocks/producer.mock'
 
 import { forSnapshot } from '~/tests/helpers/snapshots'
 
+import { createCdpConsumerDeps } from '../../../tests/helpers/cdp'
 import { getFirstTeam, resetTestDatabase } from '../../../tests/helpers/sql'
 import { Hub, Team } from '../../types'
 import { closeHub, createHub } from '../../utils/db/hub'
@@ -33,9 +34,9 @@ describe('CDP Person Updates Consumer', () => {
         hub = await createHub({
             SITE_URL: 'http://localhost:8000',
         })
-        team = await getFirstTeam(hub)
+        team = await getFirstTeam(hub.postgres)
 
-        processor = new CdpPersonUpdatesConsumer(hub)
+        processor = new CdpPersonUpdatesConsumer(hub, createCdpConsumerDeps(hub))
         await processor.start()
 
         hogFunction = createHogFunction({

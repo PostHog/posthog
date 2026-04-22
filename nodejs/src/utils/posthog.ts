@@ -22,6 +22,10 @@ export function initSuperProperties(): void {
             plugin_server_mode: defaultConfig.PLUGIN_SERVER_MODE,
             deployment: defaultConfig.CLOUD_DEPLOYMENT,
             plugin_server_events_ingestion_pipeline: defaultConfig.PLUGIN_SERVER_EVENTS_INGESTION_PIPELINE,
+            // Super properties matching Python posthoganalytics.super_properties (posthog/apps.py)
+            region: defaultConfig.CLOUD_DEPLOYMENT,
+            service: defaultConfig.OTEL_SERVICE_NAME,
+            environment: defaultConfig.OTEL_SERVICE_ENVIRONMENT,
         }
 
         try {
@@ -29,7 +33,7 @@ export function initSuperProperties(): void {
             // commit hash used to generate them. `nodejs` runs from a child directory, so we
             // need to look up one level.
             superProperties['release'] = fs.readFileSync('../commit.txt', 'utf8')
-        } catch (error) {
+        } catch {
             // The release isn't required, it's just nice to have.
         }
 

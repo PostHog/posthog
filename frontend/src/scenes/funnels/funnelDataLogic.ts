@@ -8,16 +8,20 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { average, percentage, sum } from 'lib/utils'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { getColorFromToken } from 'scenes/dataThemeLogic'
+import { AGGREGATION_LABEL_FOR_CUSTOM_DATA_WAREHOUSE } from 'scenes/insights/filters/aggregationTargetUtils'
+import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { getFunnelDatasetKey, getFunnelResultCustomizationColorToken } from 'scenes/insights/utils'
 
 import { Noun, groupsModel } from '~/models/groupsModel'
-import { InsightQueryNode } from '~/queries/schema/schema-general'
+import { seriesNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
+import { FunnelExclusionSteps, InsightQueryNode } from '~/queries/schema/schema-general'
 import { FunnelsFilter, FunnelsQuery, NodeKind } from '~/queries/schema/schema-general'
 import { isFunnelsQuery, isWebOverviewQuery, isWebStatsTableQuery } from '~/queries/utils'
 import {
     FlattenedFunnelStepByBreakdown,
+    EntityType,
     FunnelConversionWindow,
     FunnelConversionWindowTimeUnit,
     FunnelResultType,
@@ -33,6 +37,7 @@ import {
     InsightType,
     StepOrderValue,
     TrendResult,
+    FilterType,
 } from '~/types'
 
 import type { funnelDataLogicType } from './funnelDataLogicType'
@@ -46,10 +51,62 @@ import {
     getReferenceStep,
     getVisibilityKey,
     isBreakdownFunnelResults,
+    isFunnelWithEnoughSteps,
+    isFunnelWithIncompleteDataWarehouseStep,
     stepsWithConversionMetrics,
 } from './funnelUtils'
 
 const DEFAULT_FUNNEL_LOGIC_KEY = 'default_funnel_key'
+
+function getStepMetric(step: FunnelStepWithConversionMetrics | undefined, metric: string): number {
+    if (!step) {
+        return 0
+    }
+    switch (metric) {
+        case 'conversion':
+            return step.count ?? 0
+        case 'dropoff':
+            return step.droppedOffFromPrevious ?? 0
+        case 'conversion_so_far':
+            return step.conversionRates?.total ?? 0
+        case 'conversion_from_prev':
+            return step.conversionRates?.fromPrevious ?? 0
+        case 'median_time':
+            return step.median_conversion_time ?? 0
+        case 'average_time':
+            return step.average_conversion_time ?? 0
+        default:
+            return 0
+    }
+}
+
+function compareBreakdownsByColumnKey(
+    a: FlattenedFunnelStepByBreakdown,
+    b: FlattenedFunnelStepByBreakdown,
+    columnKey: string
+): number {
+    if (columnKey === 'breakdown_value') {
+        const aVal =
+            Array.isArray(a.breakdown_value) && a.breakdown_value.length > 0 ? a.breakdown_value[0] : a.breakdown_value
+        const bVal =
+            Array.isArray(b.breakdown_value) && b.breakdown_value.length > 0 ? b.breakdown_value[0] : b.breakdown_value
+        if (typeof aVal === 'number' && typeof bVal === 'number') {
+            return aVal - bVal
+        }
+        return String(aVal ?? '').localeCompare(String(bVal ?? ''))
+    }
+    if (columnKey === 'total_conversion') {
+        return (a.conversionRates?.total ?? 0) - (b.conversionRates?.total ?? 0)
+    }
+    const stepMatch = columnKey.match(/^step_(\d+)_(.+)$/)
+    if (stepMatch) {
+        return (
+            getStepMetric(a.steps?.[parseInt(stepMatch[1])], stepMatch[2]) -
+            getStepMetric(b.steps?.[parseInt(stepMatch[1])], stepMatch[2])
+        )
+    }
+    return 0
+}
 
 function isFunnelsQueryOrLegacyFilter(
     insightData: Partial<InsightModel> | null | undefined,
@@ -79,12 +136,14 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
                 'funnelsFilter',
                 'breakdownFilter',
                 'goalLines',
-                'series',
+                'series as vizSeries',
                 'interval',
                 'insightData',
                 'insightDataError',
                 'getTheme',
                 'showValuesOnSeries',
+                'hasDataWarehouseSeries',
+                'labelGroupType',
             ],
             groupsModel,
             ['aggregationLabel'],
@@ -93,7 +152,14 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
             router,
             ['searchParams'],
         ],
-        actions: [insightVizDataLogic(props), ['updateInsightFilter', 'updateQuerySource'], router, ['push']],
+        actions: [
+            insightVizDataLogic(props),
+            ['updateInsightFilter', 'updateQuerySource'],
+            insightDataLogic(props),
+            ['cancelChanges'],
+            router,
+            ['push'],
+        ],
     })),
 
     actions({
@@ -119,12 +185,14 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
             null as number | null,
             {
                 setConversionWindowInterval: (_, { funnelWindowInterval }) => funnelWindowInterval,
+                cancelChanges: () => null,
             },
         ],
         conversionWindowUnit: [
             null as FunnelConversionWindowTimeUnit | null,
             {
                 setConversionWindowUnit: (_, { funnelWindowIntervalUnit }) => funnelWindowIntervalUnit,
+                cancelChanges: () => null,
             },
         ],
     }),
@@ -133,6 +201,11 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
         querySource: [
             (s) => [s.vizQuerySource],
             (vizQuerySource) => (isFunnelsQuery(vizQuerySource) ? vizQuerySource : null),
+        ],
+
+        series: [
+            (s) => [s.vizQuerySource, s.vizSeries],
+            (vizQuerySource, series) => (isFunnelsQuery(vizQuerySource) ? (series as FunnelsQuery['series']) : null),
         ],
 
         isStepsFunnel: [
@@ -173,6 +246,10 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
             (querySource, aggregationLabel): Noun => {
                 if (!querySource) {
                     return { singular: '', plural: '' }
+                }
+
+                if (querySource.funnelsFilter?.customAggregationTarget) {
+                    return AGGREGATION_LABEL_FOR_CUSTOM_DATA_WAREHOUSE
                 }
 
                 return querySource.funnelsFilter?.funnelAggregateByHogQL
@@ -243,7 +320,7 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
 
                 // we need to check wether results are an array, since isTimeToConvertFunnel can be false,
                 // while still having "time-to-convert" results in insightData
-                if (!isTimeToConvertFunnel && Array.isArray(results)) {
+                if (!isTimeToConvertFunnel && Array.isArray(results) && results.length > 0) {
                     if (isBreakdownFunnelResults(results)) {
                         const breakdownProperty = breakdownFilter?.breakdowns
                             ? breakdownFilter?.breakdowns.map((b) => b.property).join('::')
@@ -252,7 +329,40 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
                     }
                     return results.sort((a, b) => a.order - b.order)
                 }
+
                 return []
+            },
+        ],
+        stepNames: [
+            (s) => [s.querySource],
+            (querySource): FunnelStepWithNestedBreakdown[] => {
+                if (!querySource?.series?.length) {
+                    return []
+                }
+
+                return querySource.series.map((node, index) => ({
+                    action_id:
+                        node.kind === NodeKind.ActionsNode
+                            ? String(node.id)
+                            : node.kind === NodeKind.EventsNode
+                              ? (node.event ?? '')
+                              : '',
+                    name:
+                        node.custom_name ||
+                        (node.kind === NodeKind.ActionsNode
+                            ? `Action ${node.id}`
+                            : node.kind === NodeKind.EventsNode
+                              ? (node.event ?? '')
+                              : ''),
+                    custom_name: node.custom_name ?? null,
+                    order: index,
+                    count: 0,
+                    type: (node.kind === NodeKind.ActionsNode ? 'actions' : 'events') as EntityType,
+                    average_conversion_time: null,
+                    median_conversion_time: null,
+                    converted_people_url: '',
+                    dropped_people_url: null,
+                }))
             },
         ],
         stepsWithConversionMetrics: [
@@ -279,9 +389,30 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
             (props: InsightLogicProps): boolean => !!props.cachedInsight?.disable_baseline,
         ],
         flattenedBreakdowns: [
-            (s) => [s.stepsWithConversionMetrics, s.funnelsFilter, s.disableFunnelBreakdownBaseline],
-            (steps, funnelsFilter, disableBaseline): FlattenedFunnelStepByBreakdown[] => {
-                return flattenedStepsByBreakdown(steps, funnelsFilter?.layout, disableBaseline, true)
+            (s) => [
+                s.stepsWithConversionMetrics,
+                s.funnelsFilter,
+                s.disableFunnelBreakdownBaseline,
+                s.breakdownSorting,
+            ],
+            (
+                steps: FunnelStepWithConversionMetrics[],
+                funnelsFilter: FunnelsFilter | null | undefined,
+                disableBaseline: boolean,
+                breakdownSorting: string | undefined
+            ): FlattenedFunnelStepByBreakdown[] => {
+                const breakdowns = flattenedStepsByBreakdown(steps, funnelsFilter?.layout, disableBaseline, true)
+                if (!breakdownSorting) {
+                    return breakdowns
+                }
+
+                const isDescending = breakdownSorting.startsWith('-')
+                const columnKey = isDescending ? breakdownSorting.slice(1) : breakdownSorting
+                const sortOrder = isDescending ? -1 : 1
+
+                return [...breakdowns].sort((a, b) => {
+                    return sortOrder * compareBreakdownsByColumnKey(a, b, columnKey)
+                })
             },
         ],
         hiddenLegendBreakdowns: [
@@ -294,17 +425,22 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
         ],
         resultCustomizations: [(s) => [s.funnelsFilter], (funnelsFilter) => funnelsFilter?.resultCustomizations],
         visibleStepsWithConversionMetrics: [
-            (s) => [s.stepsWithConversionMetrics, s.flattenedBreakdowns, s.breakdownSorting, s.hiddenLegendBreakdowns],
+            (s) => [s.stepsWithConversionMetrics, s.flattenedBreakdowns, s.hiddenLegendBreakdowns],
             (
                 steps: FunnelStepWithConversionMetrics[],
                 flattenedBreakdowns: FlattenedFunnelStepByBreakdown[],
-                breakdownSorting: string | undefined,
                 hiddenLegendBreakdowns: string[] | undefined
             ): FunnelStepWithConversionMetrics[] => {
                 const isOnlySeries = flattenedBreakdowns.length <= 1
                 const baseLineSteps = flattenedBreakdowns.find((b) => b.isBaseline)
+
+                // Build a breakdown order lookup from flattenedBreakdowns (already sorted
+                // by breakdownSorting) so the graph matches the table order.
+                const breakdownOrder = new Map<string, number>()
+                flattenedBreakdowns.forEach((b, i) => breakdownOrder.set(getVisibilityKey(b.breakdown_value), i))
+
                 return steps.map((step, stepIndex) => {
-                    let nested = (
+                    const nested = (
                         baseLineSteps?.steps
                             ? [baseLineSteps.steps[stepIndex], ...(step?.nested_breakdown ?? [])]
                             : step?.nested_breakdown
@@ -317,32 +453,11 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
                             (b) =>
                                 isOnlySeries || !hiddenLegendBreakdowns?.includes(getVisibilityKey(b.breakdown_value))
                         )
-                    // Sort by breakdownSorting if present
-                    if (breakdownSorting && nested) {
-                        const isDescending = breakdownSorting.startsWith('-')
-                        const columnKey = isDescending ? breakdownSorting.slice(1) : breakdownSorting
-                        const sortOrder = isDescending ? -1 : 1
-
-                        // Sort based on the column key
-                        nested = [...nested].sort((a, b) => {
-                            if (columnKey === 'breakdown_value') {
-                                const aValue = Array.isArray(a.breakdown_value)
-                                    ? a.breakdown_value[0]
-                                    : a.breakdown_value
-                                const bValue = Array.isArray(b.breakdown_value)
-                                    ? b.breakdown_value[0]
-                                    : b.breakdown_value
-                                if (typeof aValue === 'number' && typeof bValue === 'number') {
-                                    return sortOrder * (aValue - bValue)
-                                }
-                                return sortOrder * String(aValue ?? '').localeCompare(String(bValue ?? ''))
-                            }
-                            // For other columns, use the raw numeric comparison
-                            const aVal = (a as any)[columnKey] ?? 0
-                            const bVal = (b as any)[columnKey] ?? 0
-                            return sortOrder * (aVal - bVal)
+                        ?.sort((a, b) => {
+                            const aIdx = breakdownOrder.get(getVisibilityKey(a.breakdown_value)) ?? Infinity
+                            const bIdx = breakdownOrder.get(getVisibilityKey(b.breakdown_value)) ?? Infinity
+                            return aIdx - bIdx
                         })
-                    }
                     return {
                         ...step,
                         nested_breakdown: nested,
@@ -389,8 +504,8 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
             },
         ],
         hasFunnelResults: [
-            (s) => [s.insightData, s.funnelsFilter, s.steps, s.histogramGraphData, s.querySource],
-            (insightData, funnelsFilter, steps, histogramGraphData, querySource) => {
+            (s) => [s.insightData, s.funnelsFilter, s.steps, s.histogramGraphData, s.querySource, s.stepNames],
+            (insightData, funnelsFilter, steps, histogramGraphData, querySource, stepNames) => {
                 if (!isFunnelsQueryOrLegacyFilter(insightData, querySource)) {
                     return false
                 }
@@ -401,7 +516,10 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
                     return (histogramGraphData?.length ?? 0) > 0
                 } else if (funnelsFilter.funnelVizType === FunnelVizType.Trends) {
                     return (steps?.length ?? 0) > 0 && !!steps?.[0]?.labels
+                } else if (funnelsFilter.funnelVizType === FunnelVizType.Flow && stepNames.length > 0) {
+                    return true
                 }
+
                 return false
             },
         ],
@@ -585,6 +703,33 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
                     return false
                 }
             },
+        ],
+
+        // Validations
+        isFunnelWithEnoughSteps: [(s) => [s.series], (series) => isFunnelWithEnoughSteps(series)],
+        isFunnelWithIncompleteDataWarehouseStep: [
+            (s) => [s.series],
+            (series) => isFunnelWithIncompleteDataWarehouseStep(series),
+        ],
+
+        // Exclusion filters
+        exclusionDefaultStepRange: [
+            (s) => [s.querySource],
+            (querySource: FunnelsQuery): FunnelExclusionSteps => ({
+                funnelFromStep: 0,
+                funnelToStep: (querySource.series || []).length > 1 ? querySource.series.length - 1 : 1,
+            }),
+        ],
+        exclusionFilters: [
+            (s) => [s.funnelsFilter],
+            (funnelsFilter): FilterType => ({
+                events: funnelsFilter?.exclusions?.map(({ funnelFromStep, funnelToStep, ...rest }, index) => ({
+                    funnel_from_step: funnelFromStep,
+                    funnel_to_step: funnelToStep,
+                    order: index,
+                    ...seriesNodeToFilter(rest),
+                })),
+            }),
         ],
     })),
 

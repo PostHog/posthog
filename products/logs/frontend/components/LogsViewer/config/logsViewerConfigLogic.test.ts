@@ -64,6 +64,22 @@ describe('logsViewerConfigLogic', () => {
         })
     })
 
+    describe('sparklineCollapsed', () => {
+        it('defaults to false', () => {
+            expect(logic.values.sparklineCollapsed).toBe(false)
+        })
+
+        it('toggles on each dispatch', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.toggleSparklineCollapsed()
+            }).toMatchValues({ sparklineCollapsed: true })
+
+            await expectLogic(logic, () => {
+                logic.actions.toggleSparklineCollapsed()
+            }).toMatchValues({ sparklineCollapsed: false })
+        })
+    })
+
     describe('keyed instances', () => {
         it('maintains separate state for different keys', async () => {
             const logic1 = logsViewerConfigLogic({ id: 'tab-1' })

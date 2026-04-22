@@ -1,7 +1,8 @@
-import { actions, events, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, connect, events, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
+import { teamLogic } from 'scenes/teamLogic'
 
 import type { liveDebuggerLogicType } from './liveDebuggerLogicType'
 
@@ -29,6 +30,7 @@ export interface BreakpointInstance {
 
 export const liveDebuggerLogic = kea<liveDebuggerLogicType>([
     path(['products', 'live_debugger', 'frontend', 'liveDebuggerLogic']),
+    connect(() => ({ values: [teamLogic, ['currentProjectId']] })),
 
     actions({
         toggleBreakpoint: (filename: string, lineNumber: number, repository: string) => ({
@@ -48,7 +50,6 @@ export const liveDebuggerLogic = kea<liveDebuggerLogicType>([
         showHitsForLine: (lineNumber: number | null) => ({ lineNumber }),
         startPollingBreakpoints: true,
         stopPollingBreakpoints: true,
-        savePollingInterval: (intervalHdl: number) => ({ intervalHdl }),
         setSelectedFilePath: (filePath: string) => ({ filePath }),
         setCurrentRepository: (repository: string) => ({ repository }),
     }),
@@ -68,7 +69,7 @@ export const liveDebuggerLogic = kea<liveDebuggerLogicType>([
                     params.append('filename', values.selectedFilePath)
 
                     const queryString = params.toString()
-                    const url = `api/projects/@current/live_debugger_breakpoints/?${queryString}`
+                    const url = `api/projects/${values.currentProjectId}/live_debugger_breakpoints/?${queryString}`
                     const response = await api.get(url)
                     return response.results || []
                 },
@@ -85,7 +86,7 @@ export const liveDebuggerLogic = kea<liveDebuggerLogicType>([
                     breakpointIds.forEach((id: string) => params.append('breakpoint_ids', id))
 
                     const queryString = params.toString()
-                    const url = `api/projects/@current/live_debugger_breakpoints/breakpoint_hits/${queryString ? `?${queryString}` : ''}`
+                    const url = `api/projects/${values.currentProjectId}/live_debugger_breakpoints/breakpoint_hits/${queryString ? `?${queryString}` : ''}`
                     const response = await api.get(url)
                     return response.results || []
                 },
@@ -138,15 +139,9 @@ export const liveDebuggerLogic = kea<liveDebuggerLogicType>([
                 showHitsForLine: (_, { lineNumber }) => lineNumber,
             },
         ],
-        breakpointPollingInterval: [
-            null as number | null,
-            {
-                savePollingInterval: (_, { intervalHdl }) => intervalHdl,
-            },
-        ],
     }),
 
-    listeners(({ actions, values }) => ({
+    listeners(({ actions, values, cache }) => ({
         loadBreakpointInstancesSuccess: ({ breakpointInstances }) => {
             const newIds = breakpointInstances
                 .map((instance) => instance.id)
@@ -166,9 +161,11 @@ export const liveDebuggerLogic = kea<liveDebuggerLogicType>([
                 : undefined
 
             if (existingBreakpoint) {
-                await api.delete(`api/projects/@current/live_debugger_breakpoints/${existingBreakpoint.id}/`)
+                await api.delete(
+                    `api/projects/${values.currentProjectId}/live_debugger_breakpoints/${existingBreakpoint.id}/`
+                )
             } else {
-                await api.create('api/projects/@current/live_debugger_breakpoints/', {
+                await api.create(`api/projects/${values.currentProjectId}/live_debugger_breakpoints/`, {
                     repository,
                     filename,
                     line_number: lineNumber,
@@ -187,9 +184,11 @@ export const liveDebuggerLogic = kea<liveDebuggerLogicType>([
                 : undefined
 
             if (existingBreakpoint) {
-                await api.delete(`api/projects/@current/live_debugger_breakpoints/${existingBreakpoint.id}/`)
+                await api.delete(
+                    `api/projects/${values.currentProjectId}/live_debugger_breakpoints/${existingBreakpoint.id}/`
+                )
             } else {
-                await api.create('api/projects/@current/live_debugger_breakpoints/', {
+                await api.create(`api/projects/${values.currentProjectId}/live_debugger_breakpoints/`, {
                     repository,
                     filename,
                     line_number: lineNumber,
@@ -204,7 +203,7 @@ export const liveDebuggerLogic = kea<liveDebuggerLogicType>([
             if (Array.isArray(values.breakpoints)) {
                 await Promise.all(
                     values.breakpoints.map((bp) =>
-                        api.delete(`api/projects/@current/live_debugger_breakpoints/${bp.id}/`)
+                        api.delete(`api/projects/${values.currentProjectId}/live_debugger_breakpoints/${bp.id}/`)
                     )
                 )
             }
@@ -212,21 +211,20 @@ export const liveDebuggerLogic = kea<liveDebuggerLogicType>([
             actions.loadBreakpoints()
             actions.loadBreakpointInstances()
         },
-        startPollingBreakpoints: async () => {
+        startPollingBreakpoints: () => {
             actions.loadBreakpoints()
             actions.loadBreakpointInstances()
 
-            const interval = setInterval(() => {
-                actions.loadBreakpoints()
-                actions.loadBreakpointInstances()
-            }, 15000)
-
-            actions.savePollingInterval(interval as unknown as number)
+            cache.disposables.add(() => {
+                const interval = setInterval(() => {
+                    actions.loadBreakpoints()
+                    actions.loadBreakpointInstances()
+                }, 15000)
+                return () => clearInterval(interval)
+            }, 'breakpointPolling')
         },
         stopPollingBreakpoints: () => {
-            if (values.breakpointPollingInterval) {
-                clearInterval(values.breakpointPollingInterval)
-            }
+            cache.disposables.dispose('breakpointPolling')
         },
         setCurrentRepository: () => {
             // Reload breakpoints when repository changes (only if file is selected)

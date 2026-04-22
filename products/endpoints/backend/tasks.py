@@ -5,6 +5,7 @@ from django.utils import timezone
 from celery import shared_task
 from structlog import get_logger
 
+from products.endpoints.backend.metrics import ENDPOINT_MATERIALIZATION_EVENT_TOTAL
 from products.endpoints.backend.models import EndpointVersion
 
 logger = get_logger(__name__)
@@ -36,6 +37,7 @@ def deactivate_stale_materializations() -> None:
         saved_query__deleted=False,
         saved_query__created_at__lte=stale_threshold,
         endpoint__last_executed_at__lt=stale_threshold,
+        endpoint__deleted=False,
     ).select_related("saved_query", "endpoint")
 
     if not stale_versions.exists():
@@ -47,7 +49,6 @@ def deactivate_stale_materializations() -> None:
     for version in stale_versions:
         try:
             _deactivate_version_materialization(version)
-            deactivated_count += 1
         except Exception as e:
             logger.exception(
                 "deactivate_stale_materialization_failed",
@@ -57,6 +58,10 @@ def deactivate_stale_materializations() -> None:
                 team_id=version.endpoint.team_id,
                 error=str(e),
             )
+            ENDPOINT_MATERIALIZATION_EVENT_TOTAL.labels(action="deactivate_stale", status="error").inc()
+            continue
+        deactivated_count += 1
+        ENDPOINT_MATERIALIZATION_EVENT_TOTAL.labels(action="deactivate_stale", status="success").inc()
 
     logger.info(
         "deactivate_stale_materializations_completed",
@@ -85,8 +90,4 @@ def _deactivate_version_materialization(version: EndpointVersion) -> None:
         last_run_at=str(saved_query.last_run_at) if saved_query.last_run_at else None,
     )
 
-    saved_query.revert_materialization()
-    saved_query.soft_delete()
-    version.saved_query = None
-    version.is_materialized = False
-    version.save(update_fields=["saved_query", "is_materialized"])
+    version.disable_materialization()

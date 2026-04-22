@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/env -S uv run --script
 """Entry point for the PostHog developer CLI."""
 
 from pathlib import Path

@@ -2,7 +2,15 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import TYPE_CHECKING
 
-from posthog.schema import AttributionMode, MarketingAnalyticsBaseColumns, MarketingAnalyticsHelperForColumnNames
+import structlog
+import posthoganalytics
+
+from posthog.schema import (
+    AttributionMode,
+    MarketingAnalyticsBaseColumns,
+    MarketingAnalyticsConstants,
+    MarketingAnalyticsDrillDownLevel,
+)
 
 if TYPE_CHECKING:
     from posthog.models.team import Team
@@ -14,6 +22,7 @@ from .constants import (
     CONVERSION_GOAL_PREFIX_ABBREVIATION,
     DECIMAL_PRECISION,
     DEFAULT_DISTINCT_ID_FIELD,
+    DRILL_DOWN_LEVEL_CONFIG,
     ORGANIC_CAMPAIGN,
     ORGANIC_SOURCE,
     TOTAL_CLICKS_FIELD,
@@ -24,10 +33,21 @@ from .constants import (
     UNIFIED_CONVERSION_GOALS_CTE_ALIAS,
 )
 
+logger = structlog.get_logger(__name__)
+
 
 class AttributionModeOperator(Enum):
     LAST_TOUCH = "arrayMax"
     FIRST_TOUCH = "arrayMin"
+
+
+MULTI_TOUCH_MODES: frozenset[AttributionMode] = frozenset(
+    {
+        AttributionMode.LINEAR,
+        AttributionMode.TIME_DECAY,
+        AttributionMode.POSITION_BASED,
+    }
+)
 
 
 @dataclass
@@ -55,7 +75,7 @@ class MarketingAnalyticsConfig:
     # Prefixes for naming
     conversion_goal_prefix: str = CONVERSION_GOAL_PREFIX
     conversion_goal_abbreviation: str = CONVERSION_GOAL_PREFIX_ABBREVIATION
-    cost_per_prefix: str = MarketingAnalyticsHelperForColumnNames.COST_PER
+    cost_per_prefix: str = MarketingAnalyticsConstants.COST_PER
 
     # Default values
     organic_campaign: str = ORGANIC_CAMPAIGN
@@ -72,9 +92,12 @@ class MarketingAnalyticsConfig:
     # Precision settings
     decimal_precision: int = DECIMAL_PRECISION
 
+    # Drill-down level (defaults to campaign for backward compatibility)
+    drill_down_level: MarketingAnalyticsDrillDownLevel = MarketingAnalyticsDrillDownLevel.CAMPAIGN
+
     # Attribution settings (can be overridden by team settings)
     attribution_window_days: int = 90
-    attribution_mode: str = AttributionMode.LAST_TOUCH
+    attribution_mode: AttributionMode = AttributionMode.LAST_TOUCH
 
     @classmethod
     def from_team(cls, team: "Team") -> "MarketingAnalyticsConfig":
@@ -83,25 +106,60 @@ class MarketingAnalyticsConfig:
         if hasattr(team, "marketing_analytics_config"):
             ma_config = team.marketing_analytics_config
             config.attribution_window_days = ma_config.attribution_window_days
-            config.attribution_mode = ma_config.attribution_mode
+            config.attribution_mode = AttributionMode(ma_config.attribution_mode)
+
+        # Gate multi-touch attribution behind feature flag
+        if config.attribution_mode in MULTI_TOUCH_MODES:
+            has_multi_touch = posthoganalytics.feature_enabled(
+                "marketing-analytics-multi-touch-attribution",
+                str(team.uuid),
+                groups={"organization": str(team.organization.id)},
+                group_properties={"organization": {"id": str(team.organization.id)}},
+            )
+            if not has_multi_touch:
+                logger.warning(
+                    "multi_touch_attribution_disabled",
+                    team_id=team.pk,
+                    requested_mode=config.attribution_mode.value,
+                    flag_value=has_multi_touch,
+                )
+                config.attribution_mode = AttributionMode.LAST_TOUCH
+
         return config
 
     @property
+    def is_multi_touch(self) -> bool:
+        return self.attribution_mode in MULTI_TOUCH_MODES
+
+    @property
     def attribution_mode_operator(self) -> str:
-        """Get the HogQL operator for the attribution mode"""
+        """Get the HogQL operator for single-touch attribution modes"""
         if self.attribution_mode == AttributionMode.FIRST_TOUCH:
             return AttributionModeOperator.FIRST_TOUCH.value
         elif self.attribution_mode == AttributionMode.LAST_TOUCH:
             return AttributionModeOperator.LAST_TOUCH.value
         else:
-            # Future attribution modes could be added here
-            # For now, default to last touch
             return AttributionModeOperator.LAST_TOUCH.value
 
     @property
     def group_by_fields(self) -> list[str]:
-        """Get the list of fields to group by"""
-        return [self.campaign_field, self.id_field, self.source_field]
+        """Get the list of fields to group by based on drill-down level.
+        At channel/source level, we repurpose the standard field names since
+        the CTE already maps them to the correct values.
+        """
+        if self.drill_down_level == MarketingAnalyticsDrillDownLevel.CHANNEL:
+            # CTE repurposes campaign_name to hold the channel value
+            return [self.campaign_field]
+        elif self.drill_down_level == MarketingAnalyticsDrillDownLevel.SOURCE:
+            return [self.source_field]
+        elif self.drill_down_level in (
+            MarketingAnalyticsDrillDownLevel.MEDIUM,
+            MarketingAnalyticsDrillDownLevel.CONTENT,
+            MarketingAnalyticsDrillDownLevel.TERM,
+        ):
+            return [self.campaign_field]
+        else:
+            return [self.campaign_field, self.id_field, self.source_field]
 
     def get_campaign_cost_field_chain(self, field_name: str) -> list[str | int]:
         """Get field chain for campaign cost CTE fields"""
@@ -118,3 +176,7 @@ class MarketingAnalyticsConfig:
     def get_conversion_goal_alias(self, index: int) -> str:
         """Get conversion goal CTE alias"""
         return f"{self.conversion_goal_abbreviation}{index}"
+
+    def get_campaign_column_alias(self) -> str:
+        """Get the display alias for the campaign/grouping column based on drill-down level"""
+        return DRILL_DOWN_LEVEL_CONFIG[self.drill_down_level]["column_alias"]

@@ -77,8 +77,12 @@ class TracesQueryRunner(AnalyticsQueryRunner[TracesQueryResponse]):
             offset_value = self.paginator.offset
             pagination_limit = limit_value + offset_value + 1
 
-            # Determine ordering based on randomOrder parameter
-            order_clause = "rand()" if self.query.randomOrder else "max(timestamp) DESC"
+            # The subquery ordering must match the main query's ORDER BY first_timestamp DESC
+            # (where first_timestamp = min(timestamp)). Using a different ordering here (e.g.
+            # max(timestamp)) causes pagination bugs: the subquery selects trace IDs in one
+            # order but the main query re-sorts them differently, so OFFSET-based slicing
+            # produces overlapping or missing traces across pages.
+            order_clause = "rand()" if self.query.randomOrder else "min(timestamp) DESC"
 
             trace_ids_query = parse_select(
                 f"""
@@ -192,7 +196,11 @@ class TracesQueryRunner(AnalyticsQueryRunner[TracesQueryResponse]):
                 properties.$ai_trace_id AS id,
                 any(properties.$ai_session_id) AS ai_session_id,
                 min(timestamp) AS first_timestamp,
-                argMin(distinct_id, timestamp) AS first_distinct_id,
+                max(timestamp) AS last_timestamp,
+                ifNull(
+                    nullIf(argMinIf(distinct_id, timestamp, event = '$ai_trace'), ''),
+                    argMin(distinct_id, timestamp)
+                ) AS first_distinct_id,
                 round(
                     CASE
                         -- If all events with latency are generations, sum them all
@@ -217,17 +225,27 @@ class TracesQueryRunner(AnalyticsQueryRunner[TracesQueryResponse]):
                 round(
                     sumIf(toFloat(properties.$ai_input_cost_usd),
                           event IN ('$ai_generation', '$ai_embedding')
-                    ), 4
+                    ), 10
                 ) AS input_cost,
                 round(
                     sumIf(toFloat(properties.$ai_output_cost_usd),
                           event IN ('$ai_generation', '$ai_embedding')
-                    ), 4
+                    ), 10
                 ) AS output_cost,
+                round(
+                    sumIf(toFloat(properties.$ai_request_cost_usd),
+                          event IN ('$ai_generation', '$ai_embedding')
+                    ), 10
+                ) AS request_cost,
+                round(
+                    sumIf(toFloat(properties.$ai_web_search_cost_usd),
+                          event IN ('$ai_generation', '$ai_embedding')
+                    ), 10
+                ) AS web_search_cost,
                 round(
                     sumIf(toFloat(properties.$ai_total_cost_usd),
                           event IN ('$ai_generation', '$ai_embedding')
-                    ), 4
+                    ), 10
                 ) AS total_cost,
                 arrayDistinct(
                     arraySort(x -> x.3,
@@ -257,7 +275,23 @@ class TracesQueryRunner(AnalyticsQueryRunner[TracesQueryResponse]):
                 countIf(
                     isNotNull(properties.$ai_error) OR properties.$ai_is_error = 'true'
                 ) AS error_count,
-                any(properties.ai_support_impersonated) AS is_support_trace
+                any(properties.ai_support_impersonated) AS is_support_trace,
+                arrayFilter(
+                    x -> x != '',
+                    arrayDistinct(
+                        splitByChar(',',
+                            arrayStringConcat(
+                                groupArrayIf(
+                                    toString(properties.$ai_tools_called),
+                                    event = '$ai_generation'
+                                    AND isNotNull(properties.$ai_tools_called)
+                                    AND toString(properties.$ai_tools_called) != ''
+                                ),
+                                ','
+                            )
+                        )
+                    )
+                ) AS tools
             FROM events
             WHERE event IN (
                 '$ai_span', '$ai_generation', '$ai_embedding', '$ai_metric', '$ai_feedback', '$ai_trace'
@@ -288,7 +322,7 @@ class TracesQueryRunner(AnalyticsQueryRunner[TracesQueryResponse]):
         return {
             **super().get_cache_payload(),
             # When the response schema changes, increment this version to invalidate the cache.
-            "schema_version": 4,
+            "schema_version": 6,
         }
 
     @cached_property
@@ -319,16 +353,18 @@ class TracesQueryRunner(AnalyticsQueryRunner[TracesQueryResponse]):
         mapped_results = [dict(zip(columns, value)) for value in query_results]
         traces = []
 
+        date_from = self._date_range.date_from_for_filtering()
+        date_to = self._date_range.date_to_for_filtering()
+
         for result in mapped_results:
-            # Exclude traces that are outside of the capture range.
-            timestamp_dt = cast(datetime, result["first_timestamp"])
-            if (
-                timestamp_dt < self._date_range.date_from_for_filtering()
-                or timestamp_dt > self._date_range.date_to_for_filtering()
-            ):
+            # Overlap semantics: match sessions list behavior where a trace
+            # is counted if ANY of its events fall in the date window.
+            first_timestamp = cast(datetime, result["first_timestamp"])
+            last_timestamp = cast(datetime, result["last_timestamp"])
+            if first_timestamp > date_to or last_timestamp < date_from:
                 continue
 
-            traces.append(self._map_trace(result, timestamp_dt))
+            traces.append(self._map_trace(result, first_timestamp))
 
         return traces
 
@@ -345,11 +381,14 @@ class TracesQueryRunner(AnalyticsQueryRunner[TracesQueryResponse]):
             "output_tokens": "outputTokens",
             "input_cost": "inputCost",
             "output_cost": "outputCost",
+            "request_cost": "requestCost",
+            "web_search_cost": "webSearchCost",
             "total_cost": "totalCost",
             "events": "events",
             "trace_name": "traceName",
             "error_count": "errorCount",
             "is_support_trace": "isSupportTrace",
+            "tools": "tools",
         }
 
         generations = []
@@ -361,14 +400,13 @@ class TracesQueryRunner(AnalyticsQueryRunner[TracesQueryResponse]):
             "created_at": created_at.isoformat(),
             "events": generations,
         }
-        try:
-            trace_dict["input_state_parsed"] = orjson.loads(trace_dict["input_state"])
-        except (TypeError, orjson.JSONDecodeError):
-            pass
-        try:
-            trace_dict["output_state_parsed"] = orjson.loads(trace_dict["output_state"])
-        except (TypeError, orjson.JSONDecodeError):
-            pass
+        for raw_key, parsed_key in [("input_state", "input_state_parsed"), ("output_state", "output_state_parsed")]:
+            raw = trace_dict.get(raw_key)
+            if raw is not None:
+                try:
+                    trace_dict[parsed_key] = orjson.loads(raw)
+                except (TypeError, orjson.JSONDecodeError):
+                    trace_dict[parsed_key] = raw
         # Remap keys from snake case to camel case
         trace = LLMTrace.model_validate(
             {TRACE_FIELDS_MAPPING[key]: value for key, value in trace_dict.items() if key in TRACE_FIELDS_MAPPING}

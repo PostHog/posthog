@@ -11,7 +11,6 @@ from posthog.temporal.data_imports.sources.common.base import FieldType, SimpleS
 from posthog.temporal.data_imports.sources.common.mixins import OAuthMixin
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
-from posthog.temporal.data_imports.sources.common.utils import dlt_source_to_source_response
 from posthog.temporal.data_imports.sources.generated_configs import SalesforceSourceConfig
 from posthog.temporal.data_imports.sources.salesforce.auth import salesforce_refresh_access_token
 from posthog.temporal.data_imports.sources.salesforce.salesforce import salesforce_source
@@ -35,9 +34,9 @@ class SalesforceSource(SimpleSource[SalesforceSourceConfig], OAuthMixin):
         }
 
     def get_schemas(
-        self, config: SalesforceSourceConfig, team_id: int, with_counts: bool = False
+        self, config: SalesforceSourceConfig, team_id: int, with_counts: bool = False, names: list[str] | None = None
     ) -> list[SourceSchema]:
-        return [
+        schemas = [
             SourceSchema(
                 name=endpoint,
                 supports_incremental=INCREMENTAL_FIELDS.get(endpoint, None) is not None,
@@ -46,6 +45,10 @@ class SalesforceSource(SimpleSource[SalesforceSourceConfig], OAuthMixin):
             )
             for endpoint in ENDPOINTS
         ]
+        if names:
+            names_set = set(names)
+            schemas = [s for s in schemas if s.name in names_set]
+        return schemas
 
     @property
     def get_source_config(self) -> SourceConfig:
@@ -78,17 +81,21 @@ class SalesforceSource(SimpleSource[SalesforceSourceConfig], OAuthMixin):
         if not salesforce_access_token:
             salesforce_access_token = salesforce_refresh_access_token(salesforce_refresh_token, salesforce_instance_url)
 
-        return dlt_source_to_source_response(
-            salesforce_source(
-                instance_url=salesforce_instance_url,
-                access_token=salesforce_access_token,
-                refresh_token=salesforce_refresh_token,
-                endpoint=inputs.schema_name,
-                team_id=inputs.team_id,
-                job_id=inputs.job_id,
-                should_use_incremental_field=inputs.should_use_incremental_field,
-                db_incremental_field_last_value=inputs.db_incremental_field_last_value
-                if inputs.should_use_incremental_field
-                else None,
-            )
+        resource = salesforce_source(
+            instance_url=salesforce_instance_url,
+            access_token=salesforce_access_token,
+            refresh_token=salesforce_refresh_token,
+            endpoint=inputs.schema_name,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
+            should_use_incremental_field=inputs.should_use_incremental_field,
+            db_incremental_field_last_value=inputs.db_incremental_field_last_value
+            if inputs.should_use_incremental_field
+            else None,
+        )
+        return SourceResponse(
+            name=resource.name,
+            items=lambda: resource,
+            primary_keys=["id"] if inputs.should_use_incremental_field else None,
+            column_hints=resource.column_hints,
         )

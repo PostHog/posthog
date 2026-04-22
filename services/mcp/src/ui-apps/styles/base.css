@@ -101,6 +101,18 @@ body {
     }
 }
 
+/* Logo pulse for loading state */
+@keyframes loading__pulse {
+    0%,
+    100% {
+        opacity: 1;
+    }
+
+    50% {
+        opacity: 0.2;
+    }
+}
+
 /* Error state */
 .error {
     padding: 1rem;

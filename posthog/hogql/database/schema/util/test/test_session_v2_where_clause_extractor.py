@@ -1,7 +1,10 @@
+from datetime import UTC, datetime
 from typing import Any, Optional, Union
 
 import pytest
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
+
+from parameterized import parameterized
 
 from posthog.schema import SessionTableVersion
 
@@ -12,6 +15,8 @@ from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
 from posthog.hogql.visitor import clone_expr
+
+from posthog.models import EventDefinition
 
 
 def f(s: Union[str, ast.Expr, None], placeholders: Optional[dict[str, ast.Expr]] = None) -> Union[ast.Expr, None]:
@@ -52,6 +57,61 @@ class TestSessionWhereClauseExtractorV2(ClickhouseTestMixin, APIBaseTest):
     def test_handles_select_with_no_where_claus(self):
         inner_where = self.inliner.get_inner_where(parse("SELECT * FROM sessions"))
         assert inner_where is None
+
+    def test_default_bound_with_limit(self):
+        EventDefinition.objects.create(
+            team=self.team,
+            name="$pageview",
+            last_seen_at=datetime(2099, 1, 15, tzinfo=UTC),
+        )
+        actual = f(self.inliner.get_inner_where(parse("SELECT * FROM sessions LIMIT 10")))
+        expected = f(
+            "fromUnixTimestamp(intDiv(_toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)) >= (toDateTime('2099-01-15 00:00:00') - toIntervalDay(30))"
+        )
+        assert expected == actual
+
+    def test_no_default_bound_with_limit_and_order_by(self):
+        actual = self.inliner.get_inner_where(parse("SELECT * FROM sessions ORDER BY $start_timestamp LIMIT 10"))
+        assert actual is None
+
+    def test_no_default_bound_with_limit_and_order_by_non_timestamp(self):
+        actual = self.inliner.get_inner_where(parse("SELECT * FROM sessions ORDER BY $channel_type LIMIT 10"))
+        assert actual is None
+
+    def test_no_default_bound_with_limit_and_unrelated_where(self):
+        actual = self.inliner.get_inner_where(
+            parse("SELECT * FROM sessions WHERE $initial_utm_campaign = $initial_utm_source LIMIT 10")
+        )
+        assert actual is None
+
+    def test_no_default_bound_with_limit_when_not_select_star(self):
+        actual = self.inliner.get_inner_where(parse("SELECT event FROM sessions LIMIT 10"))
+        assert actual is None
+
+    def assert_limit_bound_edge_case(self, query: str, expected: str):
+        EventDefinition.objects.create(
+            team=self.team,
+            name="$pageview",
+            last_seen_at=datetime(2099, 1, 15, tzinfo=UTC),
+        )
+        actual = f(self.inliner.get_inner_where(parse(query)))
+        assert actual == f(expected)
+
+    def test_limit_bound_where_wins(self):
+        self.assert_limit_bound_edge_case(
+            "SELECT * FROM sessions WHERE $start_timestamp > '2021-01-01' LIMIT 10",
+            "fromUnixTimestamp(intDiv(_toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)) >= ('2021-01-01' - toIntervalDay(3))",
+        )
+
+    def test_limit_bound_with_offset(self):
+        self.assert_limit_bound_edge_case(
+            "SELECT * FROM sessions LIMIT 10 OFFSET 5",
+            "fromUnixTimestamp(intDiv(_toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)) >= (toDateTime('2099-01-15 00:00:00') - toIntervalDay(30))",
+        )
+
+    def test_no_limit_bound_with_group_by(self):
+        actual = self.inliner.get_inner_where(parse("SELECT event, count() FROM sessions GROUP BY event LIMIT 10"))
+        assert actual is None
 
     def test_handles_select_with_eq(self):
         actual = f(self.inliner.get_inner_where(parse("SELECT * FROM sessions WHERE $start_timestamp = '2021-01-01'")))
@@ -347,6 +407,26 @@ SELECT
         )
         assert expected == actual
 
+    def test_handles_select_set_query_in_comparison(self):
+        select_set_query = ast.SelectSetQuery(
+            initial_select_query=ast.SelectQuery(select=[ast.Constant(value="2021-01-01")]),
+            subsequent_select_queries=[
+                ast.SelectSetNode(
+                    select_query=ast.SelectQuery(select=[ast.Constant(value="2021-06-01")]),
+                    set_operator="UNION ALL",
+                )
+            ],
+        )
+        where = ast.CompareOperation(
+            left=ast.Field(chain=["$start_timestamp"]),
+            op=ast.CompareOperationOp.Gt,
+            right=select_set_query,
+        )
+        select = ast.SelectQuery(select=[], where=where)
+        # Should not raise NotImplementedError (regression test for #49867)
+        inner_where = self.inliner.get_inner_where(select)
+        assert inner_where is None
+
 
 class TestSessionsV2QueriesHogQLToClickhouse(ClickhouseTestMixin, APIBaseTest):
     def print_query(self, query: str) -> str:
@@ -485,3 +565,153 @@ WHERE subquery.session_id = '0199a58b-fdf2-785c-b6e3-6ba32b2380cf'
 """
         )
         assert self.generalize_sql(actual) == self.snapshot
+
+
+@pytest.mark.usefixtures("unittest_snapshot")
+class TestSessionIdPushdownV2(ClickhouseTestMixin, APIBaseTest):
+    # Tests for the sessionIdPushdown modifier — see
+    # https://github.com/PostHog/query-performance-analysis/blob/main/analysis/2026-04-17-experiment-sessions-oom.md
+
+    snapshot: Any
+
+    def print_query(self, query: str, pushdown: bool) -> str:
+        team = self.team
+        modifiers = create_default_modifiers_for_team(team)
+        modifiers.sessionTableVersion = SessionTableVersion.V2
+        modifiers.sessionIdPushdown = pushdown
+        context = HogQLContext(
+            team_id=team.pk,
+            team=team,
+            enable_select_queries=True,
+            modifiers=modifiers,
+        )
+        prepared_ast = prepare_ast_for_printing(node=parse(query), context=context, dialect="clickhouse")
+        if prepared_ast is None:
+            return ""
+        return print_prepared_ast(prepared_ast, context=context, dialect="clickhouse", pretty=True)
+
+    @parameterized.expand([("with_pushdown", True), ("without_pushdown", False)])
+    def test_experiment_shape(self, _name: str, pushdown: bool):
+        # Mirrors the ExperimentQuery shape: events -> LEFT JOIN sessions filtered by a
+        # session-typed property. With the modifier on, the raw_sessions subquery must carry
+        # an IN-pushdown on session_id_v7 (printed as `globalIn(...)` or `in(...)` depending
+        # on optimizer settings); with it off, it must not.
+        query = """
+SELECT
+    events.$session_id AS sid,
+    events.session.$entry_pathname AS entry
+FROM events
+WHERE events.event = '$pageview'
+  AND events.timestamp >= '2026-03-27 00:00:00'
+  AND events.timestamp <= '2026-03-31 23:59:59'
+  AND events.session.$entry_pathname = '/signup'
+"""
+        actual = self.print_query(query, pushdown=pushdown)
+        normalized = " ".join(actual.split())
+        has_in_pushdown = (
+            "in(raw_sessions.session_id_v7" in normalized or "globalIn(raw_sessions.session_id_v7" in normalized
+        )
+        assert has_in_pushdown == pushdown, f"Expected pushdown={pushdown} in:\n{actual}"
+        assert self.generalize_sql(actual) == self.snapshot
+
+    def test_pushdown_noop_for_sessions_only_query(self):
+        # A standalone sessions query has no events source to push down from — pushdown
+        # should not attempt to add anything, and the query should look identical to the
+        # pushdown-disabled version.
+        query = "SELECT session_id, $entry_pathname FROM sessions WHERE $start_timestamp >= '2026-03-27'"
+        with_pushdown = self.print_query(query, pushdown=True)
+        without_pushdown = self.print_query(query, pushdown=False)
+        assert with_pushdown == without_pushdown
+
+    def test_pushdown_drops_non_events_or_branches(self):
+        # An OR between an events predicate and a session-side predicate must not be
+        # pushed down: dropping the session-side half would change semantics. So the
+        # extracted events-only WHERE is None and pushdown is skipped.
+        query = """
+SELECT events.$session_id AS sid, events.session.$entry_pathname AS entry
+FROM events
+WHERE (events.event = '$pageview') OR (events.session.$entry_pathname = '/signup')
+"""
+        actual = self.print_query(query, pushdown=True)
+        normalized = " ".join(actual.split())
+        assert "in(raw_sessions.session_id_v7" not in normalized
+        assert "globalIn(raw_sessions.session_id_v7" not in normalized
+
+    def _extract_in_subquery(self, actual: str) -> str:
+        # The IN subquery is printed as ``globalIn(raw_sessions.session_id_v7, (SELECT … ))``
+        # (or ``in(…)`` when the printer bypasses the global rewrite). We scan for the start
+        # and then walk parens to find the matching close, since the body itself contains
+        # nested parens.
+        for prefix in ("globalIn(raw_sessions.session_id_v7, ", "in(raw_sessions.session_id_v7, "):
+            start = actual.find(prefix)
+            if start == -1:
+                continue
+            body_start = start + len(prefix)
+            if actual[body_start] != "(":
+                continue
+            depth = 0
+            for i in range(body_start, len(actual)):
+                if actual[i] == "(":
+                    depth += 1
+                elif actual[i] == ")":
+                    depth -= 1
+                    if depth == 0:
+                        return actual[body_start : i + 1]
+        raise AssertionError(f"Could not locate IN subquery in:\n{actual}")
+
+    @parameterized.expand(
+        [
+            # Mirrors ExperimentQuery funnel shape:
+            # ``WHERE timestamp_range AND (exposure_event OR (step_1_event AND session.filter))``.
+            # The exposure branch has no session reference, so rows matching it don't consult
+            # ``events__session.*``; their LEFT JOIN to NULL is fine. Only the step_1 branch
+            # needs its sessions in the IN list — narrowing avoids pulling millions of
+            # exposure-event session_ids through the DISTINCT and GLOBAL IN broadcast.
+            (
+                "narrow_drops_non_session_branch",
+                """
+SELECT
+    events.$session_id AS sid,
+    events.session.$entry_pathname AS entry
+FROM events
+WHERE events.timestamp >= '2026-03-27 00:00:00'
+  AND events.timestamp <= '2026-03-31 23:59:59'
+  AND (
+    events.event = '$feature_flag_called'
+    OR (events.event = '$pageview' AND events.session.$entry_pathname = '/signup')
+  )
+""",
+                1,  # expected event equality count after narrowing
+                False,  # expected OR in IN subquery
+            ),
+            # When every disjunct references the session join, narrowing is a no-op: both
+            # event equalities survive (joined by OR); the session-side halves drop via
+            # the events-only extractor's tombstone logic.
+            (
+                "preserve_or_when_all_branches_touch_session",
+                """
+SELECT
+    events.$session_id AS sid,
+    events.session.$entry_pathname AS entry
+FROM events
+WHERE events.timestamp >= '2026-03-27 00:00:00'
+  AND (
+    (events.event = '$pageview' AND events.session.$entry_pathname = '/signup')
+    OR (events.event = 'custom_click' AND events.session.$entry_pathname = '/home')
+  )
+""",
+                2,
+                True,
+            ),
+        ]
+    )
+    def test_pushdown_or_narrowing(self, _name: str, query: str, expected_event_eq_count: int, expected_has_or: bool):
+        actual = self.print_query(query, pushdown=True)
+        in_subquery = self._extract_in_subquery(actual)
+        assert in_subquery.count("equals(events.event,") == expected_event_eq_count, (
+            f"Expected {expected_event_eq_count} event equality/equalities in IN subquery; got:\n{in_subquery}"
+        )
+        if expected_has_or:
+            assert "or(" in in_subquery, f"Expected OR preserved in IN; got:\n{in_subquery}"
+        else:
+            assert "or(" not in in_subquery, f"Expected no OR in narrowed IN; got:\n{in_subquery}"

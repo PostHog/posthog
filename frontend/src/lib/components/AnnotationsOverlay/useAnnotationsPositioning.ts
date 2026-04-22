@@ -5,6 +5,8 @@ import { Chart } from 'lib/Chart'
 export interface AnnotationsPositioning {
     tickIntervalPx: number
     firstTickLeftPx: number
+    /** Pixel x of a data point by index, or null if the chart isn't ready / index is out of range. */
+    getDataPointX: (dataIndex: number) => number | null
 }
 
 export function useAnnotationsPositioning(
@@ -15,7 +17,7 @@ export function useAnnotationsPositioning(
     // Calculate chart content coordinates for annotations overlay positioning
     return useMemo<AnnotationsPositioning>(() => {
         // @ts-expect-error - _metasets is not officially exposed
-        if (chart && chart.scales.x.ticks.length > 1 && chart._metasets && chart._metasets.length > 0) {
+        if (chart && chart.scales.x.ticks.length > 1 && chart._metasets?.[0]?.data?.length > 0) {
             const tickCount = chart.scales.x.ticks.length
             // NOTE: If there are lots of points on the X axis, Chart.js only renders a tick once n data points
             // so that the axis is readable. We use that mechanism to aggregate annotations for readability too.
@@ -31,11 +33,16 @@ export function useAnnotationsPositioning(
             return {
                 tickIntervalPx: (lastTickLeftPx - firstTickLeftPx) / (tickCount - 1),
                 firstTickLeftPx,
+                getDataPointX: (dataIndex: number) => {
+                    const point = points[dataIndex]
+                    return point ? point.x : null
+                },
             }
         }
         return {
             tickIntervalPx: 0,
             firstTickLeftPx: 0,
+            getDataPointX: () => null,
         }
     }, [chart, chartWidth, chartHeight])
 }

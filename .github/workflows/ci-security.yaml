@@ -5,6 +5,10 @@ on:
     pull_request:
     merge_group:
 
+concurrency:
+    group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+    cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 name: Security
 
 permissions:
@@ -16,6 +20,7 @@ env:
 jobs:
     ensure-pinned-actions:
         runs-on: ubuntu-latest
+        timeout-minutes: 15
         steps:
             - name: Checkout code
               uses: actions/checkout@v6
@@ -24,18 +29,14 @@ jobs:
               with:
                   allowlist: |
                       actions/
-                      aws-actions/
-                      docker/
                       github/
-                      hashicorp/
                       PostHog/
-                      tailscale/
-                      inkeep/
 
     semgrep-python:
         runs-on: ubuntu-latest
+        timeout-minutes: 15
         container:
-            image: returntocorp/semgrep
+            image: semgrep/semgrep
 
         steps:
             - name: Checkout
@@ -55,12 +56,13 @@ jobs:
                     --error \
                     --metrics=off \
                     --verbose \
-                    common/ ee/ posthog/ products/
+                    common/ ee/ posthog/ products/ services/llm-gateway/ services/stripe-mock/
 
     semgrep-go:
         runs-on: ubuntu-latest
+        timeout-minutes: 5
         container:
-            image: returntocorp/semgrep
+            image: semgrep/semgrep
 
         steps:
             - name: Checkout
@@ -82,8 +84,9 @@ jobs:
 
     semgrep-rust:
         runs-on: ubuntu-latest
+        timeout-minutes: 5
         container:
-            image: returntocorp/semgrep
+            image: semgrep/semgrep
 
         steps:
             - name: Checkout
@@ -107,8 +110,9 @@ jobs:
 
     semgrep-js:
         runs-on: ubuntu-latest
+        timeout-minutes: 10
         container:
-            image: returntocorp/semgrep
+            image: semgrep/semgrep
 
         steps:
             - name: Checkout
@@ -125,13 +129,14 @@ jobs:
                     --error \
                     --metrics=off \
                     --verbose \
-                    frontend/ nodejs/
+                    frontend/ nodejs/ services/mcp/ services/oauth-proxy/ services/stripe-app/
 
     # scans GitHub Actions and other repo-wide config
     semgrep-general:
         runs-on: ubuntu-latest
+        timeout-minutes: 10
         container:
-            image: returntocorp/semgrep
+            image: semgrep/semgrep
 
         steps:
             - name: Checkout
@@ -161,12 +166,15 @@ jobs:
                     --exclude ./products/ \
                     --exclude ./rust/ \
                     --exclude ./.semgrep/ \
+                    --exclude ./docs/ \
+                    --exclude ./services/ \
                     .
 
     semgrep-test-rules:
         runs-on: ubuntu-latest
+        timeout-minutes: 5
         container:
-            image: returntocorp/semgrep
+            image: semgrep/semgrep
 
         steps:
             - name: Checkout
@@ -180,6 +188,7 @@ jobs:
         needs: [semgrep-python, semgrep-go, semgrep-rust, semgrep-js, semgrep-general, semgrep-test-rules]
         name: Semgrep Checks Pass
         runs-on: ubuntu-latest
+        timeout-minutes: 5
         if: always()
         steps:
             - name: Check matrix outcome

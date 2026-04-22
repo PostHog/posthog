@@ -2,6 +2,20 @@ import { env } from 'cloudflare:workers'
 
 import type { CloudRegion } from '@/tools/types'
 
+import packageJson from '../../package.json'
+
+export const USER_AGENT = `posthog/mcp-server; version: ${packageJson.version}`
+
+export function getUserAgent(clientUserAgent?: string): string {
+    if (clientUserAgent) {
+        const match = clientUserAgent.match(/posthog\/([\w.-]+)/)
+        if (match) {
+            return `${USER_AGENT}; for ${match[0]}`
+        }
+    }
+    return USER_AGENT
+}
+
 // Region-specific PostHog API base URLs
 export const POSTHOG_US_BASE_URL = 'https://us.posthog.com'
 export const POSTHOG_EU_BASE_URL = 'https://eu.posthog.com'
@@ -29,13 +43,16 @@ export const getBaseUrlForRegion = (region: CloudRegion): string => {
  */
 export const CUSTOM_API_BASE_URL = env.POSTHOG_API_BASE_URL
 
-// Get the authorization server URL for OAuth, respecting CUSTOM_API_BASE_URL for self-hosted instances
-export const getAuthorizationServerUrl = (regionParam: string | null): string => {
+const OAUTH_PROXY_URL = 'https://oauth.posthog.com'
+
+// Get the authorization server URL for OAuth
+// Uses the cross-region OAuth proxy for cloud, or CUSTOM_API_BASE_URL for self-hosted
+export const getAuthorizationServerUrl = (): string => {
     if (CUSTOM_API_BASE_URL) {
         return CUSTOM_API_BASE_URL
     }
 
-    return getBaseUrlForRegion(toCloudRegion(regionParam))
+    return OAUTH_PROXY_URL
 }
 
 // OAuth Authorization Server URL (where clients get tokens)
@@ -52,20 +69,78 @@ export const OAUTH_SCOPES_SUPPORTED = [
     'profile',
     'email',
     'introspection',
-    'user:read',
-    'organization:read',
-    'project:read',
-    'feature_flag:read',
-    'feature_flag:write',
-    'experiment:read',
-    'experiment:write',
-    'insight:read',
-    'insight:write',
+    'alert:read',
+    'alert:write',
+    'annotation:read',
+    'annotation:write',
+    'action:read',
+    'action:write',
+    'activity_log:read',
+    'approvals:read',
+    'comment:read',
+    'cohort:read',
+    'cohort:write',
     'dashboard:read',
     'dashboard:write',
+    'early_access_feature:read',
+    'early_access_feature:write',
+    'endpoint:read',
+    'endpoint:write',
+    'error_tracking:read',
+    'error_tracking:write',
+    'event_definition:read',
+    'event_definition:write',
+    'evaluation:read',
+    'external_data_source:read',
+    'external_data_source:write',
+    'evaluation:write',
+    'experiment:read',
+    'experiment:write',
+    'feature_flag:read',
+    'feature_flag:write',
+    'group:read',
+    'hog_flow:read',
+    'hog_function:read',
+    'hog_function:write',
+    'insight:read',
+    'insight:write',
+    'insight_variable:read',
+    'insight_variable:write',
+    'integration:read',
+    'integration:write',
+    'llm_analytics:read',
+    'llm_analytics:write',
+    'llm_prompt:read',
+    'llm_prompt:write',
+    'llm_skill:read',
+    'llm_skill:write',
+    'logs:read',
+    'logs:write',
+    'notebook:read',
+    'notebook:write',
+    'organization:read',
+    'organization:write',
+    'organization_member:read',
+    'person:read',
+    'person:write',
+    'project:read',
+    'project:write',
+    'property_definition:read',
     'query:read',
+    'session_recording:read',
+    'session_recording:write',
+    'session_recording_playlist:read',
+    'session_recording_playlist:write',
+    'subscription:read',
+    'subscription:write',
     'survey:read',
     'survey:write',
-    'error_tracking:read',
-    'logs:read',
+    'ticket:read',
+    'ticket:write',
+    'user:read',
+    'user:write',
+    'warehouse_table:read',
+    'warehouse_view:read',
+    'warehouse_view:write',
+    'web_analytics:read',
 ] as const

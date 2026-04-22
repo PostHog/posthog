@@ -5,10 +5,14 @@ import { SpanEvent } from '@posthog/shared-onboarding/llm-analytics/_snippets/sp
 import { TraceEvent } from '@posthog/shared-onboarding/llm-analytics/_snippets/trace-event'
 import { AnthropicInstallation } from '@posthog/shared-onboarding/llm-analytics/anthropic'
 import { AutoGenInstallation } from '@posthog/shared-onboarding/llm-analytics/autogen'
+import { AWSBedrockInstallation } from '@posthog/shared-onboarding/llm-analytics/aws-bedrock'
 import { AzureOpenAIInstallation } from '@posthog/shared-onboarding/llm-analytics/azure-openai'
 import { CerebrasInstallation } from '@posthog/shared-onboarding/llm-analytics/cerebras'
+import { CloudflareAIGatewayInstallation } from '@posthog/shared-onboarding/llm-analytics/cloudflare-ai-gateway'
 import { CohereInstallation } from '@posthog/shared-onboarding/llm-analytics/cohere'
+import { ConvexInstallation } from '@posthog/shared-onboarding/llm-analytics/convex'
 import { CrewAIInstallation } from '@posthog/shared-onboarding/llm-analytics/crewai'
+import { DedalusInstallation } from '@posthog/shared-onboarding/llm-analytics/dedalus'
 import { DeepSeekInstallation } from '@posthog/shared-onboarding/llm-analytics/deepseek'
 import { DSPyInstallation } from '@posthog/shared-onboarding/llm-analytics/dspy'
 import { FireworksAIInstallation } from '@posthog/shared-onboarding/llm-analytics/fireworks-ai'
@@ -29,6 +33,7 @@ import { OllamaInstallation } from '@posthog/shared-onboarding/llm-analytics/oll
 import { OpenAIInstallation } from '@posthog/shared-onboarding/llm-analytics/openai'
 import { OpenAIAgentsInstallation } from '@posthog/shared-onboarding/llm-analytics/openai-agents'
 import { OpenRouterInstallation } from '@posthog/shared-onboarding/llm-analytics/openrouter'
+import { OpenTelemetryInstallation } from '@posthog/shared-onboarding/llm-analytics/opentelemetry'
 import { PerplexityInstallation } from '@posthog/shared-onboarding/llm-analytics/perplexity'
 import { PortkeyInstallation } from '@posthog/shared-onboarding/llm-analytics/portkey'
 import { PydanticAIInstallation } from '@posthog/shared-onboarding/llm-analytics/pydantic-ai'
@@ -114,6 +119,10 @@ const LLMDSPyInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: DSPyInstallation,
     snippets: PROVIDER_SNIPPETS,
 })
+const LLMAWSBedrockInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: AWSBedrockInstallation,
+    snippets: PROVIDER_SNIPPETS,
+})
 const LLMAutoGenInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: AutoGenInstallation,
     snippets: PROVIDER_SNIPPETS,
@@ -182,6 +191,10 @@ const LLMPortkeyInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: PortkeyInstallation,
     snippets: PROVIDER_SNIPPETS,
 })
+const LLMConvexInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: ConvexInstallation,
+    snippets: PROVIDER_SNIPPETS,
+})
 const LLMCohereInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: CohereInstallation,
     snippets: PROVIDER_SNIPPETS,
@@ -198,6 +211,18 @@ const LLMOpenAIAgentsInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: OpenAIAgentsInstallation,
     snippets: PROVIDER_SNIPPETS,
 })
+const LLMCloudflareAIGatewayInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: CloudflareAIGatewayInstallation,
+    snippets: PROVIDER_SNIPPETS,
+})
+const LLMDedalusInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: DedalusInstallation,
+    snippets: PROVIDER_SNIPPETS,
+})
+const LLMOpenTelemetryInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: OpenTelemetryInstallation,
+    snippets: PROVIDER_SNIPPETS,
+})
 
 export const LLMAnalyticsSDKTagOverrides: SDKTagOverrides = {
     [SDKKey.HELICONE]: [SDKTag.GATEWAY],
@@ -206,12 +231,15 @@ export const LLMAnalyticsSDKTagOverrides: SDKTagOverrides = {
 export const LLMAnalyticsSDKInstructions: SDKInstructionsMap = {
     [SDKKey.OPENAI]: LLMOpenAIInstructionsWrapper,
     [SDKKey.ANTHROPIC]: LLMAnthropicInstructionsWrapper,
+    [SDKKey.AWS_BEDROCK]: LLMAWSBedrockInstructionsWrapper,
     [SDKKey.GOOGLE_GEMINI]: LLMGoogleInstructionsWrapper,
     [SDKKey.VERCEL_AI]: LLMVercelAIInstructionsWrapper,
     [SDKKey.VERCEL_AI_GATEWAY]: LLMVercelAIGatewayInstructionsWrapper,
     [SDKKey.LANGCHAIN]: LLMLangChainInstructionsWrapper,
     [SDKKey.LITELLM]: LLMLiteLLMInstructionsWrapper,
     [SDKKey.OPENROUTER]: LLMOpenRouterInstructionsWrapper,
+    [SDKKey.CLOUDFLARE_AI_GATEWAY]: LLMCloudflareAIGatewayInstructionsWrapper,
+    [SDKKey.DEDALUS]: LLMDedalusInstructionsWrapper,
     [SDKKey.INSTRUCTOR]: LLMInstructorInstructionsWrapper,
     [SDKKey.CREWAI]: LLMCrewAIInstructionsWrapper,
     [SDKKey.PYDANTIC_AI]: LLMPydanticAIInstructionsWrapper,
@@ -234,9 +262,11 @@ export const LLMAnalyticsSDKInstructions: SDKInstructionsMap = {
     [SDKKey.CEREBRAS]: LLMCerebrasInstructionsWrapper,
     [SDKKey.PERPLEXITY]: LLMPerplexityInstructionsWrapper,
     [SDKKey.PORTKEY]: LLMPortkeyInstructionsWrapper,
+    [SDKKey.CONVEX]: LLMConvexInstructionsWrapper,
     [SDKKey.COHERE]: LLMCohereInstructionsWrapper,
     [SDKKey.HUGGING_FACE]: LLMHuggingFaceInstructionsWrapper,
     [SDKKey.XAI]: LLMXAIInstructionsWrapper,
     [SDKKey.OPENAI_AGENTS]: LLMOpenAIAgentsInstructionsWrapper,
+    [SDKKey.OPENTELEMETRY]: LLMOpenTelemetryInstructionsWrapper,
     [SDKKey.MANUAL_CAPTURE]: LLMManualInstructionsWrapper,
 }

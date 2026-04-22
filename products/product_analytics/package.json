@@ -1,5 +1,8 @@
 {
     "name": "@posthog/products-product-analytics",
+    "scripts": {
+        "backend:test": "echo 'No backend tests'"
+    },
     "dependencies": {
         "kea": "catalog:",
         "kea-loaders": "catalog:",

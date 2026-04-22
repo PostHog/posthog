@@ -8,12 +8,13 @@ from typing import Any, Literal, LiteralString, Optional, cast
 
 import psycopg
 import pyarrow as pa
-from dlt.common.normalizers.naming.snake_case import NamingConvention
+import structlog
 from psycopg import sql
 from psycopg.adapt import Loader
 from structlog.types import FilteringBoundLogger
 
 from posthog.exceptions_capture import capture_exception
+from posthog.temporal.data_imports.naming_convention import NamingConvention
 from posthog.temporal.data_imports.pipelines.helpers import incremental_type_to_initial_value
 from posthog.temporal.data_imports.pipelines.pipeline.consts import DEFAULT_CHUNK_SIZE, DEFAULT_TABLE_SIZE_BYTES
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
@@ -31,23 +32,25 @@ from posthog.temporal.data_imports.sources.common.sql import Column, Table
 from products.data_warehouse.backend.types import IncrementalFieldType, PartitionSettings
 
 
-def filter_redshift_incremental_fields(columns: list[tuple[str, str]]) -> list[tuple[str, IncrementalFieldType]]:
+def filter_redshift_incremental_fields(
+    columns: list[tuple[str, str, bool]],
+) -> list[tuple[str, IncrementalFieldType, bool]]:
     """Filter columns that can be used as incremental fields for Redshift."""
-    results: list[tuple[str, IncrementalFieldType]] = []
-    for column_name, type in columns:
+    results: list[tuple[str, IncrementalFieldType, bool]] = []
+    for column_name, type, nullable in columns:
         type = type.lower()
         if type.startswith("timestamp"):
-            results.append((column_name, IncrementalFieldType.Timestamp))
+            results.append((column_name, IncrementalFieldType.Timestamp, nullable))
         elif type == "date":
-            results.append((column_name, IncrementalFieldType.Date))
+            results.append((column_name, IncrementalFieldType.Date, nullable))
         elif type in ("integer", "smallint", "bigint", "int", "int2", "int4", "int8"):
-            results.append((column_name, IncrementalFieldType.Integer))
+            results.append((column_name, IncrementalFieldType.Integer, nullable))
 
     return results
 
 
 def get_redshift_row_count(
-    host: str, port: int, database: str, user: str, password: str, schema: str
+    host: str, port: int, database: str, user: str, password: str, schema: str, names: list[str] | None = None
 ) -> dict[str, int]:
     """Get row counts for all tables in a Redshift schema."""
     connection = psycopg.connect(
@@ -70,20 +73,32 @@ def get_redshift_row_count(
                 sql.SQL("SET statement_timeout = {timeout}").format(timeout=sql.Literal(1000 * 30))  # 30 secs
             )
 
+            params: dict = {"schema": schema}
+            names_filter = ""
+            if names:
+                params["names"] = names
+                names_filter = 'AND "table" = ANY(%(names)s)'
+
             cursor.execute(
-                """
+                f"""
                 SELECT "table" AS table_name, tbl_rows AS row_count
                 FROM svv_table_info
-                WHERE schema = %(schema)s
+                WHERE schema = %(schema)s {names_filter}
                 """,
-                {"schema": schema},
+                params,
             )
             row_count_result = cursor.fetchall()
             row_counts = {row[0]: int(row[1]) for row in row_count_result}
 
+            views_params: dict = {"schema": schema}
+            views_names_filter = ""
+            if names is not None:
+                views_params["names"] = names
+                views_names_filter = "AND viewname = ANY(%(names)s)"
+
             cursor.execute(
-                "SELECT viewname FROM pg_views WHERE schemaname = %(schema)s",
-                {"schema": schema},
+                f"SELECT viewname FROM pg_views WHERE schemaname = %(schema)s {views_names_filter}",
+                views_params,
             )
             views = cursor.fetchall()
 
@@ -108,8 +123,8 @@ def get_redshift_row_count(
 
 
 def get_schemas(
-    host: str, database: str, user: str, password: str, schema: str, port: int
-) -> dict[str, list[tuple[str, str]]]:
+    host: str, database: str, user: str, password: str, schema: str, port: int, names: list[str] | None = None
+) -> dict[str, list[tuple[str, str, bool]]]:
     """Get all tables from Redshift source schemas to sync."""
     connection = psycopg.connect(
         host=host,
@@ -126,20 +141,26 @@ def get_schemas(
     )
 
     with connection.cursor() as cursor:
+        params: dict = {"schema": schema}
+        names_filter = ""
+        if names:
+            params["names"] = names
+            names_filter = "AND table_name = ANY(%(names)s)"
+
         cursor.execute(
-            """
-            SELECT table_name, column_name, data_type
+            f"""
+            SELECT table_name, column_name, data_type, is_nullable
             FROM information_schema.columns
-            WHERE table_schema = %(schema)s
+            WHERE table_schema = %(schema)s {names_filter}
             ORDER BY table_name ASC
             """,
-            {"schema": schema},
+            params,
         )
         result = cursor.fetchall()
 
-        schema_list = collections.defaultdict(list)
+        schema_list: dict[str, list[tuple[str, str, bool]]] = collections.defaultdict(list)
         for row in result:
-            schema_list[row[0]].append((row[1], row[2]))
+            schema_list[row[0]].append((row[1], row[2], row[3] == "YES"))
 
     connection.close()
 
@@ -223,6 +244,60 @@ def _explain_query(cursor: psycopg.Cursor, query: sql.Composed, logger: Filterin
     except Exception as e:
         capture_exception(e)
         logger.debug(f"EXPLAIN raised an exception: {e}")
+
+
+def get_primary_keys_for_schemas(
+    host: str,
+    database: str,
+    user: str,
+    password: str,
+    schema: str,
+    port: int,
+    table_names: list[str],
+) -> dict[str, list[str] | None]:
+    """Detect primary keys for all tables in a single query."""
+    result: dict[str, list[str] | None] = dict.fromkeys(table_names)
+
+    try:
+        with psycopg.connect(
+            host=host,
+            port=port,
+            dbname=database,
+            user=user,
+            password=password,
+            sslmode="require",
+            connect_timeout=15,
+            sslrootcert="/tmp/no.txt",
+            sslcert="/tmp/no.txt",
+            sslkey="/tmp/no.txt",
+            options="-c client_encoding=UTF8",
+        ) as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    sql.SQL("""
+                        SELECT tc.table_name, kcu.column_name
+                        FROM information_schema.table_constraints tc
+                        JOIN information_schema.key_column_usage kcu
+                        ON tc.constraint_name = kcu.constraint_name
+                        AND tc.table_schema = kcu.table_schema
+                        AND tc.table_name = kcu.table_name
+                        WHERE tc.table_schema = {schema}
+                        AND tc.table_name = ANY({names})
+                        AND tc.constraint_type = 'PRIMARY KEY'
+                    """).format(schema=sql.Literal(schema), names=sql.Literal(table_names))
+                )
+                rows = cursor.fetchall()
+
+                pks: dict[str, list[str]] = collections.defaultdict(list)
+                for table_name, column_name in rows:
+                    pks[table_name].append(column_name)
+
+                for table_name, pk_cols in pks.items():
+                    result[table_name] = pk_cols
+    except Exception as e:
+        structlog.get_logger().warning("Failed to detect primary keys for Redshift schemas", exc_info=e)
+
+    return result
 
 
 def _get_primary_keys(
@@ -552,6 +627,7 @@ def redshift_source(
             with connection.cursor() as cursor:
                 logger.debug("Getting table types...")
                 table = _get_table(cursor, schema, table_name, logger)
+                logger.debug(f"Source schema: {table.to_arrow_schema()}")
 
                 inner_query_with_limit = _build_query(
                     schema,
@@ -657,7 +733,7 @@ def redshift_source(
 
                         yield table_from_iterator((dict(zip(column_names, row)) for row in rows), arrow_schema)
 
-    name = NamingConvention().normalize_identifier(table_name)
+    name = NamingConvention.normalize_identifier(table_name)
 
     return SourceResponse(
         name=name,

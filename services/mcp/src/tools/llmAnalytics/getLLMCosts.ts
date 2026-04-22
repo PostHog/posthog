@@ -1,13 +1,19 @@
 import type { z } from 'zod'
 
+import { withUiApp } from '@/resources/ui-apps'
 import { LLMAnalyticsGetCostsSchema } from '@/schema/tool-inputs'
+import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase } from '@/tools/types'
 
 const schema = LLMAnalyticsGetCostsSchema
 
 type Params = z.infer<typeof schema>
+type Result = WithPostHogUrl<{ results: unknown[] }>
 
-export const getLLMCostsHandler: ToolBase<typeof schema>['handler'] = async (context: Context, params: Params) => {
+export const getLLMCostsHandler: ToolBase<typeof schema, Result>['handler'] = async (
+    context: Context,
+    params: Params
+) => {
     const { projectId, days } = params
 
     const trendsQuery = {
@@ -36,13 +42,12 @@ export const getLLMCostsHandler: ToolBase<typeof schema>['handler'] = async (con
     if (!costsResult.success) {
         throw new Error(`Failed to get LLM costs: ${costsResult.error.message}`)
     }
-    return costsResult.data.results
+    return withPostHogUrl(context, { results: costsResult.data.results }, '/llm-observability')
 }
 
-const tool = (): ToolBase<typeof schema> => ({
-    name: 'get-llm-total-costs-for-project',
-    schema,
-    handler: getLLMCostsHandler,
-})
-
-export default tool
+export default (): ToolBase<typeof schema, Result> =>
+    withUiApp('llm-costs', {
+        name: 'get-llm-total-costs-for-project',
+        schema,
+        handler: getLLMCostsHandler,
+    })

@@ -20,14 +20,14 @@
 export type RoleAtOrganizationEnumApi = (typeof RoleAtOrganizationEnumApi)[keyof typeof RoleAtOrganizationEnumApi]
 
 export const RoleAtOrganizationEnumApi = {
-    engineering: 'engineering',
-    data: 'data',
-    product: 'product',
-    founder: 'founder',
-    leadership: 'leadership',
-    marketing: 'marketing',
-    sales: 'sales',
-    other: 'other',
+    Engineering: 'engineering',
+    Data: 'data',
+    Product: 'product',
+    Founder: 'founder',
+    Leadership: 'leadership',
+    Marketing: 'marketing',
+    Sales: 'sales',
+    Other: 'other',
 } as const
 
 export type BlankEnumApi = (typeof BlankEnumApi)[keyof typeof BlankEnumApi]
@@ -67,10 +67,16 @@ export interface UserBasicApi {
 }
 
 export interface NotebookMinimalApi {
+    /** UUID of the notebook. */
     readonly id: string
+    /** Short alphanumeric identifier used in URLs and API lookups. */
     readonly short_id: string
-    /** @nullable */
+    /**
+     * Title of the notebook.
+     * @nullable
+     */
     readonly title: string | null
+    /** Whether the notebook has been soft-deleted. */
     readonly deleted: boolean
     readonly created_at: string
     readonly created_by: UserBasicApi
@@ -94,21 +100,30 @@ export interface PaginatedNotebookMinimalListApi {
 }
 
 export interface NotebookApi {
+    /** UUID of the notebook. */
     readonly id: string
+    /** Short alphanumeric identifier used in URLs and API lookups. */
     readonly short_id: string
     /**
+     * Title of the notebook.
      * @maxLength 256
      * @nullable
      */
     title?: string | null
+    /** Notebook content as a ProseMirror JSON document structure. */
     content?: unknown | null
-    /** @nullable */
+    /**
+     * Plain text representation of the notebook content for search.
+     * @nullable
+     */
     text_content?: string | null
     /**
+     * Version number for optimistic concurrency control. Must match the current version when updating content.
      * @minimum -2147483648
      * @maximum 2147483647
      */
     version?: number
+    /** Whether the notebook has been soft-deleted. */
     deleted?: boolean
     readonly created_at: string
     readonly created_by: UserBasicApi
@@ -123,21 +138,30 @@ export interface NotebookApi {
 }
 
 export interface PatchedNotebookApi {
+    /** UUID of the notebook. */
     readonly id?: string
+    /** Short alphanumeric identifier used in URLs and API lookups. */
     readonly short_id?: string
     /**
+     * Title of the notebook.
      * @maxLength 256
      * @nullable
      */
     title?: string | null
+    /** Notebook content as a ProseMirror JSON document structure. */
     content?: unknown | null
-    /** @nullable */
+    /**
+     * Plain text representation of the notebook content for search.
+     * @nullable
+     */
     text_content?: string | null
     /**
+     * Version number for optimistic concurrency control. Must match the current version when updating content.
      * @minimum -2147483648
      * @maximum 2147483647
      */
     version?: number
+    /** Whether the notebook has been soft-deleted. */
     deleted?: boolean
     readonly created_at?: string
     readonly created_by?: UserBasicApi
@@ -149,6 +173,21 @@ export interface PatchedNotebookApi {
      */
     readonly user_access_level?: string | null
     _create_in_folder?: string
+}
+
+export interface NotebookCollabSaveApi {
+    /** Unique identifier for the client session. */
+    client_id: string
+    /** The collab version the client's steps are based on. */
+    version: number
+    /** List of ProseMirror step JSON objects to apply. */
+    steps: unknown[]
+    /** The resulting ProseMirror document after applying the steps locally. */
+    content: unknown
+    /** Plain text for search indexing. */
+    text_content?: string
+    /** Updated notebook title. */
+    title?: string
 }
 
 export type NotebooksListParams = {

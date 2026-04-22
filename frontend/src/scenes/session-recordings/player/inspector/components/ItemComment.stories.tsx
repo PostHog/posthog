@@ -1,4 +1,4 @@
-import { Meta, StoryFn, StoryObj } from '@storybook/react'
+import type { Meta, StoryObj } from '@storybook/react'
 import { BindLogic } from 'kea'
 
 import { now } from 'lib/dayjs'
@@ -18,8 +18,8 @@ import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/se
 import { mswDecorator } from '~/mocks/browser'
 import { CommentType } from '~/types'
 
-type Story = StoryObj<typeof ItemAnyComment>
-const meta: Meta<typeof ItemAnyComment> = {
+type Story = StoryObj<ItemCommentProps>
+const meta: Meta<ItemCommentProps> = {
     title: 'Components/PlayerInspector/ItemComment',
     component: ItemAnyComment,
     decorators: [
@@ -27,6 +27,57 @@ const meta: Meta<typeof ItemAnyComment> = {
             get: {},
         }),
     ],
+    render: (props) => {
+        props.item = props.item || makeNotebookItem()
+
+        const propsToUse = props as ItemCommentProps
+
+        return (
+            <BindLogic logic={sessionRecordingPlayerLogic} props={{ sessionRecordingId: '12345' }}>
+                <div className="flex flex-col gap-2 min-w-96">
+                    <h3>Collapsed</h3>
+                    <ItemAnyComment {...propsToUse} />
+                    <LemonDivider />
+                    <h3>Expanded</h3>
+                    <ItemAnyCommentDetail {...propsToUse} />
+                    <LemonDivider />
+                    <h3>Expanded with overflowing comment</h3>
+                    <div className="w-52">
+                        <ItemAnyCommentDetail
+                            {...propsToUse}
+                            item={
+                                {
+                                    ...propsToUse.item,
+                                    data: {
+                                        ...propsToUse.item.data,
+                                        comment:
+                                            'abcdefghijklmnopqrstuvwxyz abcdefghijklmnopqrstuvwxyz abcdefghijklmnopqrstuvwxyz abcdefghijklmnopqrstuvwxyz abcdefghijklmnopqrstuvwxyz abcdefghijklmnopqrstuvwxyz',
+                                    },
+                                } as InspectorListItemNotebookComment
+                            }
+                        />
+                    </div>
+                    <LemonDivider />
+                    <h3>Collapsed with overflowing comment</h3>
+                    <div className="w-52">
+                        <ItemAnyComment
+                            {...propsToUse}
+                            item={
+                                {
+                                    ...propsToUse.item,
+                                    data: {
+                                        ...propsToUse.item.data,
+                                        comment:
+                                            'abcdefghijklmnopqrstuvwxyz abcdefghijklmnopqrstuvwxyz abcdefghijklmnopqrstuvwxyz abcdefghijklmnopqrstuvwxyz abcdefghijklmnopqrstuvwxyz abcdefghijklmnopqrstuvwxyz',
+                                    },
+                                } as InspectorListItemNotebookComment
+                            }
+                        />
+                    </div>
+                </div>
+            </BindLogic>
+        )
+    },
 }
 export default meta
 
@@ -90,64 +141,14 @@ function makeCommentItem(
     }
 }
 
-const BasicTemplate: StoryFn<typeof ItemAnyComment> = (props: Partial<ItemCommentProps>) => {
-    props.item = props.item || makeNotebookItem()
-
-    const propsToUse = props as ItemCommentProps
-
-    return (
-        <BindLogic logic={sessionRecordingPlayerLogic} props={{ sessionRecordingId: '12345' }}>
-            <div className="flex flex-col gap-2 min-w-96">
-                <h3>Collapsed</h3>
-                <ItemAnyComment {...propsToUse} />
-                <LemonDivider />
-                <h3>Expanded</h3>
-                <ItemAnyCommentDetail {...propsToUse} />
-                <LemonDivider />
-                <h3>Expanded with overflowing comment</h3>
-                <div className="w-52">
-                    <ItemAnyCommentDetail
-                        {...propsToUse}
-                        item={
-                            {
-                                ...propsToUse.item,
-                                data: {
-                                    ...propsToUse.item.data,
-                                    comment:
-                                        'abcdefghijklmnopqrstuvwxyz abcdefghijklmnopqrstuvwxyz abcdefghijklmnopqrstuvwxyz abcdefghijklmnopqrstuvwxyz abcdefghijklmnopqrstuvwxyz abcdefghijklmnopqrstuvwxyz',
-                                },
-                            } as InspectorListItemNotebookComment
-                        }
-                    />
-                </div>
-                <LemonDivider />
-                <h3>Collapsed with overflowing comment</h3>
-                <div className="w-52">
-                    <ItemAnyComment
-                        {...propsToUse}
-                        item={
-                            {
-                                ...propsToUse.item,
-                                data: {
-                                    ...propsToUse.item.data,
-                                    comment:
-                                        'abcdefghijklmnopqrstuvwxyz abcdefghijklmnopqrstuvwxyz abcdefghijklmnopqrstuvwxyz abcdefghijklmnopqrstuvwxyz abcdefghijklmnopqrstuvwxyz abcdefghijklmnopqrstuvwxyz',
-                                },
-                            } as InspectorListItemNotebookComment
-                        }
-                    />
-                </div>
-            </div>
-        </BindLogic>
-    )
+export const NotebookComment: Story = {
+    args: {
+        item: makeNotebookItem(),
+    },
 }
 
-export const NotebookComment: Story = BasicTemplate.bind({})
-NotebookComment.args = {
-    item: makeNotebookItem(),
-}
-
-export const AnnotationComment: Story = BasicTemplate.bind({})
-AnnotationComment.args = {
-    item: makeCommentItem(),
+export const AnnotationComment: Story = {
+    args: {
+        item: makeCommentItem(),
+    },
 }

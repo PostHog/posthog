@@ -1,38 +1,43 @@
 import { DateTime } from 'luxon'
 
-import { PluginEvent } from '@posthog/plugin-scaffold'
+import { PluginEvent } from '~/plugin-scaffold'
 
-import { EventHeaders, PipelineEvent, Team } from '../../types'
-import { normalizeEventStep } from '../../worker/ingestion/event-pipeline/normalizeEventStep'
+import { EventHeaders } from '../../types'
+import { normalizeEvent, normalizeProcessPerson } from '../../utils/event'
+import { parseEventTimestamp } from '../../worker/ingestion/timestamps'
 import { PipelineResult, ok } from '../pipelines/results'
 import { ProcessingStep } from '../pipelines/steps'
 
-export function createNormalizeEventStep<
-    TInput extends { event: PipelineEvent; headers: EventHeaders; team: Team; processPerson: boolean },
->(
-    timestampComparisonLoggingSampleRate: number
-): ProcessingStep<TInput, Omit<TInput, 'event'> & { normalizedEvent: PipelineEvent; timestamp: DateTime }> {
-    return async function normalizeEventStepWrapper(
+type NormalizeEventInput = {
+    event: PluginEvent
+    headers: EventHeaders
+    processPerson: boolean
+}
+
+type NormalizeEventOutput = {
+    normalizedEvent: PluginEvent
+    timestamp: DateTime
+}
+
+export function createNormalizeEventStep<TInput extends NormalizeEventInput>(): ProcessingStep<
+    TInput,
+    Omit<TInput, 'event'> & NormalizeEventOutput
+> {
+    return function normalizeEventStepWrapper(
         input: TInput
-    ): Promise<PipelineResult<Omit<TInput, 'event'> & { normalizedEvent: PipelineEvent; timestamp: DateTime }>> {
-        const { event: event, ...restInput } = input
+    ): Promise<PipelineResult<Omit<TInput, 'event'> & NormalizeEventOutput>> {
+        const { event, ...restInput } = input
+        const normalizedEvent = normalizeEvent(event)
+        normalizeProcessPerson(normalizedEvent, input.processPerson)
 
-        const pluginEvent: PluginEvent = {
-            ...event,
-            team_id: input.team.id,
-        }
+        const timestamp = parseEventTimestamp(normalizedEvent)
 
-        const [normalizedEvent, timestamp] = await normalizeEventStep(
-            pluginEvent,
-            input.processPerson,
-            input.headers,
-            timestampComparisonLoggingSampleRate
+        return Promise.resolve(
+            ok({
+                ...restInput,
+                normalizedEvent,
+                timestamp,
+            })
         )
-
-        return ok({
-            ...restInput,
-            normalizedEvent,
-            timestamp,
-        })
     }
 }

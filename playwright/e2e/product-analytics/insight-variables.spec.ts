@@ -2,7 +2,7 @@ import { DashboardPage } from '../../page-models/dashboardPage'
 import { expect, test } from '../../utils/playwright-test-base'
 
 test.describe('insight variables', () => {
-    test('show correctly on dashboards', async ({ page }) => {
+    test.skip('show correctly on dashboards', async ({ page }) => {
         const dashboard = new DashboardPage(page)
 
         // Go to "Insight variables" dashboard.

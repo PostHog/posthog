@@ -3,37 +3,32 @@ import { Message } from 'node-rdkafka'
 import { mutatePostIngestionEventWithElementsList } from '~/utils/event'
 import { clickHouseTimestampSecondPrecisionToISO, clickHouseTimestampToISO } from '~/utils/utils'
 
-import {
-    Action,
-    Hook,
-    HookPayload,
-    Hub,
-    PostIngestionEvent,
-    RawClickHouseEvent,
-    RawKafkaEvent,
-    Team,
-} from '../../types'
-import { PostgresUse } from '../../utils/db/postgres'
+import { Action, Hook, HookPayload, PostIngestionEvent, RawClickHouseEvent, RawKafkaEvent, Team } from '../../types'
+import { PostgresRouter, PostgresUse } from '../../utils/db/postgres'
 import { parseJSON } from '../../utils/json-parse'
 import { logger } from '../../utils/logger'
+import { PubSub } from '../../utils/pubsub'
+import { TeamManager } from '../../utils/team-manager'
+import { GroupTypeManager } from '../../worker/ingestion/group-type-manager'
+import { GroupRepository } from '../../worker/ingestion/groups/repositories/group-repository.interface'
 import { counterParseError } from '../consumers/metrics'
 import { ActionManager } from '../legacy-webhooks/action-manager'
 import { ActionMatcher } from '../legacy-webhooks/action-matcher'
 import { addGroupPropertiesToPostIngestionEvent } from '../legacy-webhooks/utils'
 import { cdpTrackedFetch } from '../services/hog-executor.service'
 
-/** Narrowed Hub type for LegacyWebhookService */
-export type LegacyWebhookServiceHub = Pick<
-    Hub,
-    'postgres' | 'pubSub' | 'teamManager' | 'groupTypeManager' | 'groupRepository'
->
-
 export class LegacyWebhookService {
     protected actionManager: ActionManager
     protected actionMatcher: ActionMatcher
 
-    constructor(private hub: LegacyWebhookServiceHub) {
-        this.actionManager = new ActionManager(hub.postgres, hub.pubSub)
+    constructor(
+        private postgres: PostgresRouter,
+        private teamManager: TeamManager,
+        private groupTypeManager: GroupTypeManager,
+        private groupRepository: GroupRepository,
+        pubSub: PubSub
+    ) {
+        this.actionManager = new ActionManager(postgres, pubSub)
         this.actionMatcher = new ActionMatcher(this.actionManager)
     }
 
@@ -47,13 +42,13 @@ export class LegacyWebhookService {
     }
 
     private async fireWebhooks(event: PostIngestionEvent, actionMatches: Action[]): Promise<void> {
-        const team = await this.hub.teamManager.getTeam(event.teamId)
+        const team = await this.teamManager.getTeam(event.teamId)
 
         if (!team) {
             return
         }
 
-        if (await this.hub.teamManager.hasAvailableFeature(team.id, 'zapier')) {
+        if (await this.teamManager.hasAvailableFeature(team.id, 'zapier')) {
             const restHooks = actionMatches.flatMap((action) => action.hooks.map((hook) => ({ hook, action })))
 
             if (restHooks.length > 0) {
@@ -95,7 +90,7 @@ export class LegacyWebhookService {
     }
 
     private async deleteRestHook(hookId: Hook['id']): Promise<void> {
-        await this.hub.postgres.query(
+        await this.postgres.query(
             PostgresUse.COMMON_WRITE,
             `DELETE FROM ee_hook WHERE id = $1`,
             [hookId],
@@ -113,7 +108,7 @@ export class LegacyWebhookService {
 
                     if (
                         !this.actionMatcher.hasWebhooks(clickHouseEvent.team_id) ||
-                        !(await this.hub.teamManager.hasAvailableFeature(clickHouseEvent.team_id, 'zapier'))
+                        !(await this.teamManager.hasAvailableFeature(clickHouseEvent.team_id, 'zapier'))
                     ) {
                         // exit early if no webhooks nor resthooks
                         return
@@ -126,9 +121,9 @@ export class LegacyWebhookService {
                     // that will be deprecated in the near future by CDP/Hog
                     const event = await addGroupPropertiesToPostIngestionEvent(
                         eventWithoutGroups,
-                        this.hub.groupTypeManager,
-                        this.hub.teamManager,
-                        this.hub.groupRepository
+                        this.groupTypeManager,
+                        this.teamManager,
+                        this.groupRepository
                     )
 
                     events.push(event)

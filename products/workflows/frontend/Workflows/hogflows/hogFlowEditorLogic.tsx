@@ -12,22 +12,24 @@ import {
 } from '@xyflow/react'
 import { actions, connect, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { actionToUrl, router, urlToAction } from 'kea-router'
+import { router } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 import type { DragEvent, RefObject } from 'react'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
 import { AppMetricsTotalsRequest, loadAppMetricsTotals } from 'lib/components/AppMetrics/appMetricsLogic'
+import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
+import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
 import { uuid } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
 import { optOutCategoriesLogic } from '../../OptOuts/optOutCategoriesLogic'
 import { EXIT_NODE_ID, TRIGGER_NODE_ID, WorkflowLogicProps, workflowLogic } from '../workflowLogic'
 import type { hogFlowEditorLogicType } from './hogFlowEditorLogicType'
-import { getSmartStepPath } from './react_flow_utils/SmartEdge'
 import { getFormattedNodes } from './react_flow_utils/autolayout'
 import { BOTTOM_HANDLE_POSITION, NODE_HEIGHT, NODE_WIDTH, TOP_HANDLE_POSITION } from './react_flow_utils/constants'
+import { getSmartStepPath } from './react_flow_utils/SmartEdge'
 import { getHogFlowStep } from './steps/HogFlowSteps'
 import { StepViewNodeHandle } from './steps/types'
 import type { DropzoneNode, HogFlow, HogFlowAction, HogFlowActionEdge, HogFlowActionNode } from './types'
@@ -148,15 +150,15 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
     props({} as WorkflowLogicProps),
     path((key) => ['scenes', 'hogflows', 'hogFlowEditorLogic', key]),
     key((props) => `hog-flow-editor-${props.id}-${props.tabId}`),
-    connect((props: WorkflowLogicProps) => ({
+    connect(() => ({
         values: [
-            workflowLogic(props),
+            workflowLogic,
             ['workflow', 'edgesByActionId', 'hogFunctionTemplatesById'],
             optOutCategoriesLogic(),
             ['categories', 'categoriesLoading'],
         ],
         actions: [
-            workflowLogic(props),
+            workflowLogic,
             ['setWorkflowInfo', 'setWorkflowAction', 'setWorkflowActionEdges', 'loadWorkflowSuccess'],
             optOutCategoriesLogic(),
             ['loadCategories'],
@@ -343,14 +345,7 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                     const _params: AppMetricsTotalsRequest = {
                         ...params,
                         breakdownBy: ['instance_id', 'metric_name'],
-                        metricName: [
-                            'succeeded',
-                            'failed',
-                            'filtered',
-                            'disabled_permanently',
-                            'rate_limited',
-                            'triggered',
-                        ],
+                        metricName: ['succeeded', 'failed', 'rate_limited', 'triggered'],
                     }
                     const response = await loadAppMetricsTotals(_params, timezone)
                     await breakpoint(10)
@@ -367,11 +362,9 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                             // TRICKY: Trigger and exit dont get their own metrics so we pull from the overall metrics
                             if (['succeeded', 'failed'].includes(metricName)) {
                                 instanceId = EXIT_NODE_ID
-                            } else if (
-                                ['filtered', 'disabled_permanently', 'rate_limited', 'triggered'].includes(metricName)
-                            ) {
+                            } else if (['rate_limited', 'triggered'].includes(metricName)) {
                                 instanceId = TRIGGER_NODE_ID
-                                if (['disabled_permanently', 'rate_limited'].includes(metricName)) {
+                                if (['rate_limited'].includes(metricName)) {
                                     metricName = 'failed'
                                 }
                                 if (['triggered'].includes(metricName)) {
@@ -601,9 +594,11 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                             selectable: false,
                         })
 
-                        // If this branch edge has same target as other edges, we also add a single dropzone near the target node
+                        // If multiple edges share the same target, add a single dropzone near the target node
+                        // to allow branch convergence (fan-in). This covers both branch edges directly
+                        // from a conditional node and continue edges from downstream nodes in parallel paths.
                         const hasSiblingEdges = edges.filter((e) => e.data?.edge.to === edge.target).length > 1
-                        if (edge.data?.edge.type === 'branch' && hasSiblingEdges) {
+                        if (hasSiblingEdges) {
                             // Use an ID that we can consistently look up for the branch join point to avoid duplicate dropzones
                             const branchJoinDropzoneTargetId = `dropzone_target_${edge.target}_branch_join`
                             // Avoid duplicating dropzones for multiple branch edges to the same target
@@ -611,7 +606,7 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                                 return
                             }
 
-                            // For branch edges, we also add a dropzone near the target node to allow easier dropping
+                            // Add a dropzone near the target node to allow merging parallel branches
                             dropzoneNodes.push({
                                 id: branchJoinDropzoneTargetId,
                                 type: 'dropzone',
@@ -752,30 +747,49 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
 
                     // Auto-create workflow variables if the action has a default output_variable
                     let updatedVariables = values.workflow.variables
-                    if (newAction.output_variable?.key) {
-                        const prefix = newAction.output_variable.key
-                        if (newAction.output_variable.spread) {
-                            // Create individual variables for each expected property
-                            const spreadKeys = [
-                                'status',
-                                'priority',
-                                'ticket_number',
-                                'channel_source',
-                                'message_count',
-                                'last_message_at',
-                                'last_message_text',
-                                'unread_team_count',
-                                'unread_customer_count',
-                            ].map((prop) => `${prefix}_${prop}`)
+                    const outputVars = Array.isArray(newAction.output_variable)
+                        ? newAction.output_variable
+                        : newAction.output_variable
+                          ? [newAction.output_variable]
+                          : []
 
-                            const newVars = spreadKeys
-                                .filter((key) => !updatedVariables?.some((v) => v.key === key))
-                                .map((key) => ({
-                                    key,
-                                    label: key,
+                    for (const outputVar of outputVars) {
+                        if (!outputVar.key) {
+                            continue
+                        }
+                        const prefix = outputVar.key
+                        if (outputVar.spread) {
+                            // Create individual variables for each expected property
+                            const spreadFields: [string, string][] = [
+                                ['status', 'Status'],
+                                ['priority', 'Priority'],
+                                ['number', 'Number'],
+                                ['channel_source', 'Channel source'],
+                                ['last_message_at', 'Last message at'],
+                                ['last_message_text', 'Last message text'],
+                                ['unread_team_count', 'Unread team'],
+                                ['unread_customer_count', 'Unread customer'],
+                                ['sla', 'SLA'],
+                                ['assignee', 'Assignee'],
+                                ['url', 'URL'],
+                                ['tags', 'Tags'],
+                                ['slack_channel_id', 'Slack channel ID'],
+                                ['slack_thread_ts', 'Slack thread timestamp'],
+                                ['slack_team_id', 'Slack team ID'],
+                                ['email_subject', 'Email subject'],
+                                ['email_from', 'Email from'],
+                                ['email_to', 'Email to'],
+                                ['cc_participants', 'CC participants'],
+                            ]
+
+                            const newVars = spreadFields
+                                .map(([prop, label]) => ({
+                                    key: `${prefix}_${prop}`,
+                                    label,
                                     type: 'string' as const,
                                     default: '',
                                 }))
+                                .filter(({ key }) => !updatedVariables?.some((v) => v.key === key))
 
                             if (newVars.length > 0) {
                                 updatedVariables = [...(updatedVariables || []), ...newVars]
@@ -910,7 +924,7 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
         },
     })),
 
-    actionToUrl(({ values }) => {
+    tabAwareActionToUrl(({ values }) => {
         const syncProperty = (
             key: string,
             value: string | null
@@ -930,7 +944,7 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
             setMode: () => syncProperty('mode', values.mode),
         }
     }),
-    urlToAction(({ actions, values }) => {
+    tabAwareUrlToAction(({ actions, values }) => {
         const reactToTabChange = (_: any, search: Record<string, string>): void => {
             const { node = null, mode } = search
             if (node !== values.selectedNodeId) {

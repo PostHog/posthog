@@ -53,6 +53,7 @@ class TermSearchFilterBackend(filters.BaseFilterBackend):
         for _term_idx, search_term in enumerate(search_terms):
             search_filter_query = Q()
             for _idx, search_field in enumerate(search_fields):
+                # nosemgrep: orm-field-injection -- search_field from view's get_search_fields(), not user input
                 search_filter_query = search_filter_query | Q(**{f"{search_field}__icontains": search_term})
             term_filter = term_filter & search_filter_query
 

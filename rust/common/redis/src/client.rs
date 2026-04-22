@@ -234,6 +234,12 @@ impl Client for RedisClient {
         Ok(results)
     }
 
+    async fn zadd(&self, k: String, member: String, score: i64) -> Result<(), CustomRedisError> {
+        let mut conn = self.connection.clone();
+        conn.zadd::<_, _, _, ()>(k, member, score).await?;
+        Ok(())
+    }
+
     async fn hincrby(
         &self,
         k: String,
@@ -329,7 +335,17 @@ impl Client for RedisClient {
     }
 
     async fn setex(&self, k: String, v: String, seconds: u64) -> Result<(), CustomRedisError> {
-        let final_bytes = self.serialize_and_compress(v, self.format)?;
+        self.setex_with_format(k, v, seconds, self.format).await
+    }
+
+    async fn setex_with_format(
+        &self,
+        k: String,
+        v: String,
+        seconds: u64,
+        format: RedisValueFormat,
+    ) -> Result<(), CustomRedisError> {
+        let final_bytes = self.serialize_and_compress(v, format)?;
 
         let mut conn = self.connection.clone();
         conn.set_ex::<_, _, ()>(k, final_bytes, seconds).await?;
@@ -478,20 +494,14 @@ impl Client for RedisClient {
 
     async fn batch_set_nx_ex(
         &self,
-        items: Vec<(String, String)>,
-        ttl_seconds: usize,
+        items: Vec<(String, String, usize)>,
     ) -> Result<Vec<bool>, CustomRedisError> {
         if items.is_empty() {
             return Ok(vec![]);
         }
         let mut pipe = redis::pipe();
-        for (k, v) in &items {
-            pipe.cmd("SET")
-                .arg(k)
-                .arg(v)
-                .arg("NX")
-                .arg("EX")
-                .arg(ttl_seconds);
+        for (k, v, ttl) in &items {
+            pipe.cmd("SET").arg(k).arg(v).arg("NX").arg("EX").arg(ttl);
         }
         let mut conn = self.connection.clone();
         let results: Vec<Option<String>> = pipe.query_async(&mut conn).await?;
@@ -564,6 +574,12 @@ impl Client for RedisClient {
                 PipelineCommand::Scard { key } => {
                     pipe.cmd("SCARD").arg(key);
                 }
+                PipelineCommand::SAdd { key, member } => {
+                    pipe.cmd("SADD").arg(key).arg(member);
+                }
+                PipelineCommand::Expire { key, seconds } => {
+                    pipe.cmd("EXPIRE").arg(key).arg(*seconds);
+                }
                 PipelineCommand::ZRangeByScore { key, min, max } => {
                     pipe.cmd("ZRANGEBYSCORE").arg(key).arg(min).arg(max);
                 }
@@ -624,6 +640,14 @@ impl RedisClient {
             | PipelineCommand::SetEx { .. }
             | PipelineCommand::Del { .. }
             | PipelineCommand::HIncrBy { .. } => Ok(PipelineResult::Ok),
+            PipelineCommand::Expire { .. } => {
+                // EXPIRE returns 1 if the timeout was set, 0 if the key does not exist
+                Ok(PipelineResult::Bool(matches!(raw, redis::Value::Int(1))))
+            }
+            PipelineCommand::SAdd { .. } => {
+                let count: u64 = redis::from_redis_value(&raw)?;
+                Ok(PipelineResult::Count(count))
+            }
             PipelineCommand::SetNxEx { .. } => {
                 // SET NX returns OK if set, nil if key existed
                 match raw {
@@ -1190,6 +1214,36 @@ mod integration_tests {
         assert!(matches!(results[0], Ok(PipelineResult::Ok)));
         assert!(matches!(results[1], Ok(PipelineResult::Ok)));
         assert!(matches!(results[2], Err(CustomRedisError::NotFound)));
+    }
+
+    #[tokio::test]
+    #[ignore] // Requires Docker; run with: cargo test integration_tests -- --ignored
+    async fn test_pipeline_expire() {
+        let (client, _container) = create_test_client().await;
+
+        // EXPIRE on a key that exists should return true
+        let results = client
+            .pipeline()
+            .set("expirable_key", "value")
+            .expire("expirable_key", 3600)
+            .execute()
+            .await
+            .unwrap();
+
+        assert_eq!(results.len(), 2);
+        assert!(matches!(results[0], Ok(PipelineResult::Ok)));
+        assert!(matches!(results[1], Ok(PipelineResult::Bool(true))));
+
+        // EXPIRE on a key that doesn't exist should return false
+        let results = client
+            .pipeline()
+            .expire("nonexistent_key", 3600)
+            .execute()
+            .await
+            .unwrap();
+
+        assert_eq!(results.len(), 1);
+        assert!(matches!(results[0], Ok(PipelineResult::Bool(false))));
     }
 
     #[tokio::test]

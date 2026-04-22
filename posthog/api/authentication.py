@@ -2,17 +2,20 @@ import json
 import time
 import datetime
 from typing import Any, Optional, TypedDict, cast
+from urllib.parse import urlencode
 from uuid import uuid4
 
 from django.conf import settings
 from django.contrib.auth import (
     authenticate,
     login,
+    logout as auth_logout,
     views as auth_views,
 )
 from django.contrib.auth.password_validation import validate_password
 from django.contrib.auth.signals import user_logged_in
 from django.contrib.auth.tokens import PasswordResetTokenGenerator as DefaultPasswordResetTokenGenerator
+from django.contrib.auth.views import redirect_to_login
 from django.core.exceptions import ValidationError
 from django.core.signing import BadSignature
 from django.db import transaction
@@ -20,6 +23,7 @@ from django.dispatch import receiver
 from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.shortcuts import redirect
 from django.utils import timezone
+from django.utils.http import url_has_allowed_host_and_scheme
 from django.views.decorators.csrf import csrf_protect
 
 import structlog
@@ -32,6 +36,7 @@ from rest_framework.decorators import action
 from rest_framework.exceptions import APIException
 from rest_framework.request import Request
 from rest_framework.response import Response
+from social_core.exceptions import AuthFailed, AuthMissingParameter
 from social_django.strategy import DjangoStrategy
 from social_django.views import auth
 from two_factor.utils import default_device
@@ -54,6 +59,7 @@ from posthog.helpers.two_factor_session import (
     has_passkeys,
     set_two_factor_verified_in_session,
 )
+from posthog.helpers.user_devices import has_valid_known_device_cookie
 from posthog.models import OrganizationDomain, User
 from posthog.models.activity_logging import signal_handlers  # noqa: F401
 from posthog.models.webauthn_credential import WebauthnCredential
@@ -67,6 +73,7 @@ from posthog.tasks.email import (
 from posthog.utils import get_instance_available_sso_providers, get_ip_address, get_short_user_agent
 from posthog.workos_radar import RadarAction, RadarAuthMethod, evaluate_auth_attempt
 
+logger = structlog.get_logger("posthog.auth")
 mfa_logger = structlog.get_logger("posthog.auth.mfa")
 
 USER_AUTH_METHOD_MISMATCH = Counter(
@@ -108,10 +115,6 @@ def post_login(sender, user, request: HttpRequest, **kwargs):
 
 @csrf_protect
 def logout(request):
-    if request.user.is_authenticated:
-        request.user.temporary_token = None
-        request.user.save()
-
     clear_two_factor_session_flags(request)
 
     request.session.pop("reauth", None)
@@ -121,8 +124,13 @@ def logout(request):
         restore_original_login(request)
         return redirect(f"/admin/posthog/user/{impersonated_user_pk}/change/")
 
-    response = auth_views.logout_then_login(request)
-    return response
+    # Preserve any safe `next` param
+    next_param = request.GET.get("next")
+    if next_param and url_has_allowed_host_and_scheme(next_param, allowed_hosts={request.get_host()}):
+        auth_logout(request)
+        return redirect_to_login(next_param, login_url=settings.LOGIN_URL)
+
+    return auth_views.logout_then_login(request)
 
 
 def axes_locked_out(*args, **kwargs):
@@ -139,7 +147,20 @@ def axes_locked_out(*args, **kwargs):
 
 
 def sso_login(request: HttpRequest, backend: str) -> HttpResponse:
-    request.session.flush()
+    # The one known `connect_from` value is "posthog_code" - what PH Code uses when linking GH profile to PostHog user
+    connect_from = (request.GET.get("connect_from") or "").strip()
+    if not connect_from:
+        # This is the default case - for regular login, we flush the session (log out)
+        request.session.flush()
+    else:
+        # For linking a social provider, we keep the session and set the next URL to the /account/social-connected page
+        # (see frontend AccountSocialConnected). QueryDict must be copied before mutation (GET is often immutable).
+        query_dict = request.GET.copy()
+        query_dict["next"] = (
+            f"/account/social-connected?{urlencode({'provider': backend, 'connect_from': connect_from})}"
+        )
+        request.GET = query_dict  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
+
     sso_providers = get_instance_available_sso_providers()
     # because SAML is configured at the domain-level, we have to assume it's enabled for someone in the instance
     sso_providers["saml"] = settings.EE_AVAILABLE
@@ -148,9 +169,13 @@ def sso_login(request: HttpRequest, backend: str) -> HttpResponse:
         return redirect(f"/login?error_code=invalid_sso_provider")
 
     if not sso_providers[backend]:
-        return redirect(f"/login?error_code=improperly_configured_sso")
+        return redirect("/login?error_code=improperly_configured_sso")
 
-    return auth(request, backend)
+    try:
+        return auth(request, backend)
+    except (AuthFailed, AuthMissingParameter) as e:
+        logger.warning("SSO login failed, redirecting to login page", exc_info=e)
+        return redirect("/login?error_code=improperly_configured_sso")
 
 
 class TwoFactorRequired(APIException):
@@ -231,8 +256,6 @@ class LoginSerializer(serializers.Serializer):
 
         request = self.context["request"]
 
-        # Evaluate signin attempt with WorkOS Radar (log-only mode, does not block)
-        # Get user_id if user exists, for better tracking in the event
         existing_user = User.objects.filter(email__iexact=validated_data["email"]).first()
         evaluate_auth_attempt(
             request=request._request,
@@ -243,7 +266,11 @@ class LoginSerializer(serializers.Serializer):
         )
 
         axes_request = getattr(request, "_request", request)
-        was_authenticated_before_login_attempt = bool(getattr(request, "user", None) and request.user.is_authenticated)
+        was_authenticated_before_login_attempt = bool(
+            getattr(request, "user", None)
+            and request.user.is_authenticated
+            and request.user.email.lower() == validated_data["email"].lower()
+        )
 
         # Initialize axes handler via proxy so request metadata is populated consistently
         from axes.exceptions import AxesBackendPermissionDenied
@@ -323,7 +350,7 @@ class LoginSerializer(serializers.Serializer):
         request.session.save()
 
         # Trigger login notification (password, no-2FA) and skip re-auth
-        if not was_authenticated_before_login_attempt:
+        if not was_authenticated_before_login_attempt and not has_valid_known_device_cookie(request, user):
             short_user_agent = get_short_user_agent(request)
             ip_address = get_ip_address(request)
             backend_name = request.session.get("_auth_user_backend", "django.contrib.auth.backends.ModelBackend")
@@ -823,9 +850,12 @@ class PasswordResetSerializer(serializers.Serializer):
             )
 
         try:
-            user = User.objects.filter(is_active=True).get(email=email)
+            user = User.objects.filter(is_active=True).get(email__iexact=email)
         except User.DoesNotExist:
             user = None
+        except User.MultipleObjectsReturned:
+            # If multiple users share the same email (different casing), use the exact match
+            user = User.objects.filter(is_active=True, email=email).first()
 
         if user:
             user.requested_password_reset_at = datetime.datetime.now(datetime.UTC)
@@ -852,7 +882,7 @@ class PasswordResetCompleteSerializer(serializers.Serializer):
 
         try:
             user = User.objects.filter(is_active=True).get(uuid=self.context["view"].kwargs["user_uuid"])
-        except User.DoesNotExist:
+        except (User.DoesNotExist, ValidationError):
             capture_exception(
                 Exception("User not found in password reset serializer"),
                 {"user_uuid": self.context["view"].kwargs["user_uuid"]},
@@ -912,7 +942,7 @@ class PasswordResetCompleteViewSet(NonCreatingViewSetMixin, mixins.RetrieveModel
 
         try:
             user = User.objects.filter(is_active=True).get(uuid=user_uuid)
-        except User.DoesNotExist:
+        except (User.DoesNotExist, ValidationError):
             capture_exception(
                 Exception("User not found in password reset viewset"), {"user_uuid": user_uuid, "token": token}
             )
@@ -944,7 +974,7 @@ class PasswordResetTokenGenerator(DefaultPasswordResetTokenGenerator):
         # Due to type differences between the user model and the token generator, we need to
         # re-fetch the user from the database to get the correct type.
         usable_user: User = User.objects.get(pk=user.pk)
-        return f"{user.pk}{user.email}{usable_user.requested_password_reset_at}{timestamp}"
+        return f"{user.pk}{user.email}{usable_user.requested_password_reset_at}{timestamp}{usable_user.password}"
 
 
 password_reset_token_generator = PasswordResetTokenGenerator()
@@ -965,7 +995,10 @@ def social_login_notification(
         report_user_logged_in(user, social_provider=getattr(backend, "name", ""))
 
         request = strategy.request
-        short_user_agent = get_short_user_agent(request)
-        ip_address = get_ip_address(request)
-        backend_name = getattr(backend, "name", "")
-        login_from_new_device_notification.delay(user.id, timezone.now(), short_user_agent, ip_address, backend_name)
+        if not has_valid_known_device_cookie(request, user):
+            short_user_agent = get_short_user_agent(request)
+            ip_address = get_ip_address(request)
+            backend_name = getattr(backend, "name", "")
+            login_from_new_device_notification.delay(
+                user.id, timezone.now(), short_user_agent, ip_address, backend_name
+            )

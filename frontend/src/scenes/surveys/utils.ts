@@ -4,14 +4,20 @@ import posthog from 'posthog-js'
 
 import { dayjs } from 'lib/dayjs'
 import { dateStringToDayJs } from 'lib/utils'
+import { getAppContext } from 'lib/utils/getAppContext'
 import { NEW_SURVEY, NewSurvey, SURVEY_CREATED_SOURCE, SURVEY_RATING_SCALE } from 'scenes/surveys/constants'
 import { SurveyRatingResults } from 'scenes/surveys/surveyLogic'
 
 import {
     BasicSurveyQuestion,
+    CyclotronJobInvocationGlobals,
+    CyclotronJobFiltersType,
     EventPropertyFilter,
+    FeatureFlagFilters,
     LinkSurveyQuestion,
     MultipleSurveyQuestion,
+    PropertyFilterType,
+    PropertyOperator,
     QuestionProcessedResponses,
     RatingSurveyQuestion,
     Survey,
@@ -61,6 +67,9 @@ export function validateSurveyAppearance(
     return {
         backgroundColor: validateCSSProperty('background-color', appearance.backgroundColor),
         borderColor: validateCSSProperty('border-color', appearance.borderColor),
+        textColor: validateCSSProperty('color', appearance.textColor),
+        inputBackground: validateCSSProperty('background-color', appearance.inputBackground),
+        inputTextColor: validateCSSProperty('color', appearance.inputTextColor),
         // Only validate rating button colors if there's a rating question
         ...(hasRatingQuestions && {
             ratingButtonActiveColor: validateCSSProperty('background-color', appearance.ratingButtonActiveColor),
@@ -88,6 +97,92 @@ export function getSurveyResponseKey(questionIndex: number): string {
 
 export function getSurveyIdBasedResponseKey(questionId: string): string {
     return `${SurveyEventProperties.SURVEY_RESPONSE}_${questionId}`
+}
+
+type SurveyExampleContext = Pick<Survey, 'id' | 'name' | 'questions'> | null | undefined
+
+function getExampleSurveyResponseValue(question: SurveyQuestion, index: number): string | string[] | undefined {
+    switch (question.type) {
+        case SurveyQuestionType.Open:
+            return question.question || `Example answer ${index + 1}`
+        case SurveyQuestionType.Rating:
+            return String(question.scale >= 10 ? 9 : Math.min(question.scale, 4))
+        case SurveyQuestionType.SingleChoice:
+            return question.choices[0] || `Option ${index + 1}`
+        case SurveyQuestionType.MultipleChoice:
+            return question.choices.slice(0, Math.min(question.choices.length, 2))
+        case SurveyQuestionType.Link:
+            return undefined
+    }
+}
+
+export function buildSurveyExampleInvocationGlobals({
+    survey,
+    projectId,
+    projectName,
+    projectUrl,
+    source,
+    timestamp = new Date().toISOString(),
+    eventUuid = '00000000-0000-0000-0000-000000000000',
+    distinctId = 'example-distinct-id',
+    personId = 'person-id',
+    personName = 'Jane Doe',
+    personEmail = 'jane@example.com',
+}: {
+    survey: SurveyExampleContext
+    projectId: number
+    projectName: string
+    projectUrl: string
+    source?: CyclotronJobInvocationGlobals['source']
+    timestamp?: string
+    eventUuid?: string
+    distinctId?: string
+    personId?: string
+    personName?: string
+    personEmail?: string
+}): CyclotronJobInvocationGlobals {
+    const responseProperties = Object.fromEntries(
+        (survey?.questions ?? [])
+            .filter((question) => question.id && question.type !== SurveyQuestionType.Link)
+            .map((question, index) => [
+                getSurveyIdBasedResponseKey(question.id!),
+                getExampleSurveyResponseValue(question, index),
+            ])
+            .filter(([, value]) => value !== undefined)
+    )
+
+    return {
+        project: {
+            id: projectId,
+            name: projectName,
+            url: projectUrl,
+        },
+        event: {
+            event: SurveyEventName.SENT,
+            uuid: eventUuid,
+            distinct_id: distinctId,
+            timestamp,
+            elements_chain: '',
+            properties: {
+                [SurveyEventProperties.SURVEY_ID]: survey?.id && survey.id !== NEW_SURVEY.id ? survey.id : 'survey-id',
+                $survey_name: survey?.name || 'Survey',
+                [SurveyEventProperties.SURVEY_COMPLETED]: true,
+                [SurveyEventProperties.SURVEY_SUBMISSION_ID]: 'survey-submission-id',
+                ...responseProperties,
+            },
+            url: `${projectUrl}/events/${encodeURIComponent(eventUuid)}/${encodeURIComponent(timestamp)}`,
+        },
+        person: {
+            id: personId,
+            name: personName,
+            url: `${projectUrl}/person/${encodeURIComponent(distinctId)}`,
+            properties: {
+                email: personEmail,
+            },
+        },
+        groups: {},
+        ...(source ? { source } : {}),
+    }
 }
 
 // Helper function to generate the response field keys with proper typing
@@ -275,20 +370,15 @@ function escapeSqlString(value: string): string {
 }
 
 export function getSurveyResponse(question: SurveyQuestion, index: number): string {
-    const { indexBasedKey, idBasedKey } = getResponseFieldWithId(index, question.id)
-
+    // Delegate to the backend HogQL helper so survey response typing stays
+    // consistent with PropertyDefinition metadata and materialized column rules.
     if (question.type === SurveyQuestionType.MultipleChoice) {
-        return `if(
-        JSONHas(events.properties, '${idBasedKey}') AND length(JSONExtractArrayRaw(events.properties, '${idBasedKey}')) > 0,
-        JSONExtractArrayRaw(events.properties, '${idBasedKey}'),
-        JSONExtractArrayRaw(events.properties, '${indexBasedKey}')
-    )`
+        return question.id
+            ? `getSurveyResponse(${index}, '${question.id}', true)`
+            : `getSurveyResponse(${index}, '', true)`
     }
 
-    return `COALESCE(
-        NULLIF(JSONExtractString(events.properties, '${idBasedKey}'), ''),
-        NULLIF(JSONExtractString(events.properties, '${indexBasedKey}'), '')
-    )`
+    return question.id ? `getSurveyResponse(${index}, '${question.id}')` : `getSurveyResponse(${index})`
 }
 
 /**
@@ -411,6 +501,27 @@ export function isSurveyRunning(survey: Pick<Survey, 'start_date' | 'end_date'>)
     return !!(survey.start_date && !survey.end_date)
 }
 
+// Some fields can only be edited in the full editor — opening such a survey
+// in the wizard would hide those values from the user, so we route them to
+// the full editor regardless of their general editor preference. Keep this
+// list in sync with what the wizard's steps actually expose.
+export function canUseSurveyWizard(survey: Survey | NewSurvey): boolean {
+    if (survey.type !== SurveyType.Popover) {
+        return false
+    }
+    // Adaptive sampling — WhenStep exposes a simple responses_limit but not
+    // the adaptive sampling controls
+    if (survey.response_sampling_limit || survey.response_sampling_start_date) {
+        return false
+    }
+    // Property-based targeting filters — WhereStep handles linked_flag
+    // (release conditions) but not targeting_flag_filters
+    if (survey.targeting_flag_filters && Object.keys(survey.targeting_flag_filters).length > 0) {
+        return false
+    }
+    return true
+}
+
 export function doesSurveyHaveDisplayConditions(survey: Survey | NewSurvey): boolean {
     const conditions = sanitizeSurveyDisplayConditions(survey.conditions)
     if (!conditions) {
@@ -465,12 +576,16 @@ export function doesSurveyHaveDisplayConditions(survey: Survey | NewSurvey): boo
     return false
 }
 
+export function buildSurveyOptionalBooleanPropertyFilter(
+    propertyName: SurveyEventProperties,
+    excludedValue: 'true' | 'false'
+): string {
+    return `coalesce(JSONExtractString(properties, '${propertyName}'), '') != '${excludedValue}'`
+}
+
 export function buildPartialResponsesFilter(survey: Survey, dateRange?: SurveyDateRange | null): string {
     if (!survey.enable_partial_responses) {
-        return `AND (
-        NOT JSONHas(properties, '${SurveyEventProperties.SURVEY_COMPLETED}')
-        OR JSONExtractBool(properties, '${SurveyEventProperties.SURVEY_COMPLETED}') = true
-    )`
+        return `AND ${buildSurveyOptionalBooleanPropertyFilter(SurveyEventProperties.SURVEY_COMPLETED, 'false')}`
     }
 
     const { fromDate, toDate } = getResolvedSurveyDateRange(survey, dateRange)
@@ -481,17 +596,158 @@ export function buildPartialResponsesFilter(survey: Survey, dateRange?: SurveyDa
         FROM events
         WHERE and(
             equals(event, '${SurveyEventName.SENT}'),
-            equals(JSONExtractString(properties, '${SurveyEventProperties.SURVEY_ID}'), '${survey.id}'),
+            equals(properties.\`${SurveyEventProperties.SURVEY_ID}\`, '${survey.id}'),
             greaterOrEquals(timestamp, '${fromDate}'),
             lessOrEquals(timestamp, '${toDate}')
         )
         GROUP BY
             if(
-                JSONHas(properties, '${SurveyEventProperties.SURVEY_SUBMISSION_ID}'),
-                JSONExtractString(properties, '${SurveyEventProperties.SURVEY_SUBMISSION_ID}'),
+                isNotNull(properties.\`${SurveyEventProperties.SURVEY_SUBMISSION_ID}\`)
+                    AND properties.\`${SurveyEventProperties.SURVEY_SUBMISSION_ID}\` != '',
+                properties.\`${SurveyEventProperties.SURVEY_SUBMISSION_ID}\`,
                 toString(uuid)
             )
     ) --- Filter to ensure we only get one response per ${SurveyEventProperties.SURVEY_SUBMISSION_ID}`
+}
+
+export interface SurveyQueryFilters {
+    timestampFilter: string
+    answerFilterHogQLExpression: string
+    archivedResponsesFilter: string
+}
+
+export interface OpenEndedColumnMap {
+    [questionId: string]: {
+        columnIndex: number
+        questionIndex: number
+        type: SurveyQuestionType.Open | SurveyQuestionType.SingleChoice | SurveyQuestionType.MultipleChoice
+    }
+}
+
+export function buildAggregateQuery(
+    survey: Survey,
+    filters: SurveyQueryFilters,
+    dateRange?: SurveyDateRange | null
+): string | null {
+    const dedupFilter = buildPartialResponsesFilter(survey, dateRange)
+    const branches: string[] = []
+
+    const baseWhere = `event = '${SurveyEventName.SENT}'
+        AND properties.\`${SurveyEventProperties.SURVEY_ID}\` = '${survey.id}'
+        ${filters.timestampFilter}
+        ${filters.answerFilterHogQLExpression}
+        ${filters.archivedResponsesFilter}
+        ${dedupFilter}
+        AND {filters}`
+
+    for (const [index, question] of survey.questions.entries()) {
+        if (!question.id || question.type === SurveyQuestionType.Link) {
+            continue
+        }
+
+        const responseExpr = getSurveyResponse(question, index)
+
+        if (question.type === SurveyQuestionType.Rating || question.type === SurveyQuestionType.SingleChoice) {
+            branches.push(`SELECT '${question.id}' AS question_id,
+                ${responseExpr} AS label,
+                count() AS cnt
+            FROM events
+            WHERE ${baseWhere} AND isNotNull(${responseExpr})
+            GROUP BY label`)
+
+            if (question.type === SurveyQuestionType.SingleChoice && question.optional) {
+                branches.push(`SELECT '${question.id}' AS question_id,
+                    '__no_response__' AS label,
+                    count() AS cnt
+                FROM events
+                WHERE ${baseWhere} AND ${responseExpr} = ''`)
+            }
+        } else if (question.type === SurveyQuestionType.MultipleChoice) {
+            branches.push(`SELECT '${question.id}' AS question_id,
+                trim(BOTH '"\\'' FROM arrayJoin(${responseExpr})) AS label,
+                count() AS cnt
+            FROM events
+            WHERE ${baseWhere}
+            GROUP BY label HAVING isNotNull(label) AND label != ''`)
+
+            branches.push(`SELECT '${question.id}' AS question_id,
+                '__total__' AS label,
+                count() AS cnt
+            FROM events
+            WHERE ${baseWhere} AND length(${responseExpr}) > 0`)
+
+            if (question.optional) {
+                branches.push(`SELECT '${question.id}' AS question_id,
+                    '__no_response__' AS label,
+                    count() AS cnt
+                FROM events
+                WHERE ${baseWhere} AND length(${responseExpr}) = 0`)
+            }
+        } else if (question.type === SurveyQuestionType.Open) {
+            branches.push(`SELECT '${question.id}' AS question_id,
+                '__total__' AS label,
+                count() AS cnt
+            FROM events
+            WHERE ${baseWhere} AND isNotNull(${responseExpr})`)
+        }
+    }
+
+    if (branches.length === 0) {
+        return null
+    }
+
+    return `SELECT question_id, label, cnt FROM (${branches.join('\nUNION ALL\n')}) LIMIT 50000`
+}
+
+export function buildOpenEndedQuery(
+    survey: Survey,
+    filters: SurveyQueryFilters,
+    dateRange?: SurveyDateRange | null,
+    limit: number = 50000
+): { query: string; columnMap: OpenEndedColumnMap } | null {
+    const dedupFilter = buildPartialResponsesFilter(survey, dateRange)
+    const openColumns: string[] = []
+    const columnMap: OpenEndedColumnMap = {}
+    let columnIndex = 0
+
+    for (const [index, question] of survey.questions.entries()) {
+        if (!question.id || question.type === SurveyQuestionType.Link) {
+            continue
+        }
+
+        const isOpen = question.type === SurveyQuestionType.Open
+        const hasOpenChoice =
+            (question.type === SurveyQuestionType.SingleChoice ||
+                question.type === SurveyQuestionType.MultipleChoice) &&
+            (question as MultipleSurveyQuestion).hasOpenChoice
+
+        if (isOpen || hasOpenChoice) {
+            openColumns.push(`${getSurveyResponse(question, index)} AS q${index}_response`)
+            columnMap[question.id] = { columnIndex, questionIndex: index, type: question.type }
+            columnIndex++
+        }
+    }
+
+    if (openColumns.length === 0) {
+        return null
+    }
+
+    const query = `SELECT
+            ${openColumns.join(',\n')},
+            events.distinct_id,
+            events.timestamp
+        FROM events
+        WHERE event = '${SurveyEventName.SENT}'
+            AND properties.${SurveyEventProperties.SURVEY_ID} = '${survey.id}'
+            ${filters.timestampFilter}
+            ${filters.answerFilterHogQLExpression}
+            ${filters.archivedResponsesFilter}
+            ${dedupFilter}
+            AND {filters}
+        ORDER BY events.timestamp DESC
+        LIMIT ${limit}`
+
+    return { query, columnMap }
 }
 
 interface SanitizeSurveyOptions {
@@ -500,11 +756,21 @@ interface SanitizeSurveyOptions {
 
 export function sanitizeSurvey(survey: Partial<Survey>, options?: SanitizeSurveyOptions): Partial<Survey> {
     const sanitizedQuestions =
-        survey.questions?.map((question) => ({
-            ...question,
-            question: sanitizeHTML(question.question ?? ''),
-            description: sanitizeHTML(question.description ?? ''),
-        })) || []
+        survey.questions?.map((question) => {
+            const sanitized = {
+                ...question,
+                question: sanitizeHTML(question.question ?? ''),
+                description: sanitizeHTML(question.description ?? ''),
+            }
+            if (
+                (sanitized.type === SurveyQuestionType.SingleChoice ||
+                    sanitized.type === SurveyQuestionType.MultipleChoice) &&
+                sanitized.choices
+            ) {
+                sanitized.choices = sanitized.choices.map((choice) => choice.trim())
+            }
+            return sanitized
+        }) || []
 
     const sanitizedAppearance = sanitizeSurveyAppearance(
         survey.appearance,
@@ -584,14 +850,25 @@ export function captureMaxAISurveyCreationException(error?: string, source?: SUR
 
 export const DATE_FORMAT = 'YYYY-MM-DDTHH:mm:ss'
 
-export function getSurveyStartDateForQuery(survey: Pick<Survey, 'created_at'>): string {
-    return dayjs.utc(survey.created_at).startOf('day').format(DATE_FORMAT)
+function getTeamTimezone(): string {
+    return getAppContext()?.current_team?.timezone || 'UTC'
+}
+
+export function getSurveyStartDateForQuery(
+    survey: Pick<Survey, 'created_at'> & Partial<Pick<Survey, 'start_date'>>
+): string {
+    const tz = getTeamTimezone()
+    return dayjs
+        .tz(survey.start_date ?? survey.created_at, tz)
+        .startOf('day')
+        .format(DATE_FORMAT)
 }
 
 export function getSurveyEndDateForQuery(survey: Pick<Survey, 'end_date'>): string {
+    const tz = getTeamTimezone()
     return survey.end_date
-        ? dayjs.utc(survey.end_date).endOf('day').format(DATE_FORMAT)
-        : dayjs.utc().endOf('day').format(DATE_FORMAT)
+        ? dayjs.tz(survey.end_date, tz).endOf('day').format(DATE_FORMAT)
+        : dayjs.tz(undefined, tz).endOf('day').format(DATE_FORMAT)
 }
 
 export interface SurveyDateRange {
@@ -600,7 +877,7 @@ export interface SurveyDateRange {
 }
 
 export function getResolvedSurveyDateRange(
-    survey: Pick<Survey, 'created_at' | 'end_date'>,
+    survey: Pick<Survey, 'created_at' | 'end_date'> & Partial<Pick<Survey, 'start_date'>>,
     dateRange?: SurveyDateRange | null
 ): { fromDate: string; toDate: string } {
     let fromDate = getSurveyStartDateForQuery(survey)
@@ -609,10 +886,11 @@ export function getResolvedSurveyDateRange(
     // date_from only is valid ("from custom date until now")
     // date_to only is ignored to avoid impossible ranges
     if (dateRange?.date_from) {
-        fromDate = dateStringToDayJs(dateRange.date_from)?.startOf('day').format(DATE_FORMAT) ?? fromDate
+        const tz = getTeamTimezone()
+        fromDate = dateStringToDayJs(dateRange.date_from, tz)?.startOf('day').format(DATE_FORMAT) ?? fromDate
 
         if (dateRange.date_to) {
-            toDate = dateStringToDayJs(dateRange.date_to)?.endOf('day').format(DATE_FORMAT) ?? toDate
+            toDate = dateStringToDayJs(dateRange.date_to, tz)?.endOf('day').format(DATE_FORMAT) ?? toDate
         }
     }
 
@@ -620,7 +898,7 @@ export function getResolvedSurveyDateRange(
 }
 
 export function buildSurveyTimestampFilter(
-    survey: Pick<Survey, 'created_at' | 'end_date'>,
+    survey: Pick<Survey, 'created_at' | 'end_date'> & Partial<Pick<Survey, 'start_date'>>,
     dateRange?: SurveyDateRange | null
 ): string {
     const { fromDate, toDate } = getResolvedSurveyDateRange(survey, dateRange)
@@ -666,4 +944,207 @@ export const isThumbQuestion = (question: SurveyQuestion): boolean => {
         question.display === 'emoji' &&
         question.scale === SURVEY_RATING_SCALE.THUMB_2_POINT
     )
+}
+
+export type SurveyConditionType =
+    | 'url'
+    | 'selector'
+    | 'device'
+    | 'events'
+    | 'actions'
+    | 'flag'
+    | 'targeting'
+    | 'wait_period'
+
+export interface SurveyConditionSummary {
+    type: SurveyConditionType
+    label: string
+    value: string
+}
+
+export interface SurveyCollectionLimitSummary {
+    label: 'Response limit' | 'Sampling limit'
+    value: string
+}
+
+export function getSurveyTargetingFilters(survey: Survey | NewSurvey): FeatureFlagFilters | undefined {
+    if (survey.targeting_flag_filters) {
+        return survey.targeting_flag_filters
+    }
+
+    return survey.targeting_flag?.filters || undefined
+}
+
+export function getSurveyAudienceRuleCount(filters?: FeatureFlagFilters | null): number {
+    return filters?.groups.reduce((count, group) => count + (group.properties?.length ?? 0), 0) ?? 0
+}
+
+export function getSurveyAudienceRolloutPercentage(filters?: FeatureFlagFilters | null): number | null {
+    if (!filters || filters.groups.length !== 1) {
+        return null
+    }
+
+    return filters.groups[0].rollout_percentage ?? 100
+}
+
+export function isSimpleSurveyAudienceTargeting(filters?: FeatureFlagFilters | null): boolean {
+    if (!filters) {
+        return true
+    }
+
+    if (filters.groups.length !== 1 || filters.aggregation_group_type_index != null || filters.super_groups?.length) {
+        return false
+    }
+
+    if (filters.multivariate?.variants?.length) {
+        return false
+    }
+
+    const [group] = filters.groups
+
+    if (group.aggregation_group_type_index != null || group.variant != null) {
+        return false
+    }
+
+    return (group.properties || []).every(
+        (property) => property.type === PropertyFilterType.Person || property.type === PropertyFilterType.Cohort
+    )
+}
+
+export function getSurveyAudienceSummaryValue(survey: Survey | NewSurvey): string | null {
+    const filters = getSurveyTargetingFilters(survey)
+
+    if (!filters) {
+        return null
+    }
+
+    if (!isSimpleSurveyAudienceTargeting(filters)) {
+        return 'Advanced audience targeting'
+    }
+
+    const ruleCount = getSurveyAudienceRuleCount(filters)
+    const rolloutPercentage = getSurveyAudienceRolloutPercentage(filters)
+    const isPartialRollout = rolloutPercentage != null && rolloutPercentage < 100
+
+    if (ruleCount === 0 && !isPartialRollout) {
+        return null
+    }
+
+    if (ruleCount === 0) {
+        return `${rolloutPercentage}% of matching users`
+    }
+
+    if (isPartialRollout) {
+        return `${ruleCount} audience rule${ruleCount === 1 ? '' : 's'} · ${rolloutPercentage}% shown`
+    }
+
+    return `${ruleCount} audience rule${ruleCount === 1 ? '' : 's'}`
+}
+
+export function getSurveyCollectionLimitSummary(survey: Survey | NewSurvey): SurveyCollectionLimitSummary | null {
+    if (survey.responses_limit && survey.responses_limit > 0) {
+        return {
+            label: 'Response limit',
+            value: String(survey.responses_limit),
+        }
+    }
+
+    if (
+        survey.response_sampling_limit &&
+        survey.response_sampling_limit > 0 &&
+        survey.response_sampling_interval &&
+        survey.response_sampling_interval > 0 &&
+        survey.response_sampling_interval_type
+    ) {
+        return {
+            label: 'Sampling limit',
+            value: `${survey.response_sampling_limit} / ${survey.response_sampling_interval} ${survey.response_sampling_interval_type}`,
+        }
+    }
+
+    return null
+}
+
+export function getSurveyDisplayConditionsSummary(survey: Survey | NewSurvey): SurveyConditionSummary[] {
+    const parts: SurveyConditionSummary[] = []
+    const conditions = survey.conditions
+
+    if (conditions?.url) {
+        parts.push({
+            type: 'url',
+            label: 'URL',
+            value: `${conditions.urlMatchType === 'exact' ? 'is' : 'contains'} "${conditions.url}"`,
+        })
+    }
+    if (conditions?.selector) {
+        parts.push({ type: 'selector', label: 'Selector', value: conditions.selector })
+    }
+    if (conditions?.deviceTypes?.length) {
+        parts.push({ type: 'device', label: 'Device', value: conditions.deviceTypes.join(', ') })
+    }
+    if ((conditions?.events?.values?.length ?? 0) > 0) {
+        parts.push({
+            type: 'events',
+            label: 'Events',
+            value: conditions!.events!.values.map((e) => e.name).join(', '),
+        })
+    }
+    if ((conditions?.actions?.values?.length ?? 0) > 0) {
+        parts.push({
+            type: 'actions',
+            label: 'Actions',
+            value: conditions!.actions!.values.map((a) => a.name).join(', '),
+        })
+    }
+    if (survey.linked_flag?.key) {
+        parts.push({ type: 'flag', label: 'Feature flag', value: survey.linked_flag.key })
+    } else if (survey.linked_flag_id) {
+        parts.push({ type: 'flag', label: 'Feature flag', value: 'Linked' })
+    }
+    const audienceSummary = getSurveyAudienceSummaryValue(survey)
+    if (audienceSummary) {
+        parts.push({ type: 'targeting', label: 'Targeting', value: audienceSummary })
+    }
+    if (conditions?.seenSurveyWaitPeriodInDays) {
+        parts.push({
+            type: 'wait_period',
+            label: 'Wait period',
+            value: `${conditions.seenSurveyWaitPeriodInDays} days since last survey`,
+        })
+    }
+
+    return parts
+}
+
+export function getSurveyNotificationFilters(
+    surveyId: string,
+    onlyCompletedResponses: boolean = true
+): CyclotronJobFiltersType {
+    const properties: EventPropertyFilter[] = [
+        {
+            key: SurveyEventProperties.SURVEY_ID,
+            type: PropertyFilterType.Event,
+            value: surveyId,
+            operator: PropertyOperator.Exact,
+        },
+    ]
+
+    if (onlyCompletedResponses) {
+        properties.push({
+            key: SurveyEventProperties.SURVEY_COMPLETED,
+            type: PropertyFilterType.Event,
+            value: true,
+            operator: PropertyOperator.Exact,
+        })
+    }
+
+    return {
+        events: [
+            {
+                id: SurveyEventName.SENT,
+                type: 'events',
+                properties,
+            },
+        ],
+    }
 }

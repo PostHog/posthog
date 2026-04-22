@@ -9,6 +9,7 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { getOrdinalSuffix } from 'lib/utils'
 import { AggregationSelect } from 'scenes/insights/filters/AggregationSelect'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
+import { getRetentionPropertyFilterGroupTypes } from 'scenes/insights/utils/propertyTaxonomicGroupTypes'
 import {
     dateOptionPlurals,
     dateOptions,
@@ -157,6 +158,7 @@ export function RetentionCondition({ insightProps }: EditorFilterProps): JSX.Ele
                     }
                 }}
                 typeKey={`${keyForInsightLogicProps('new')(insightProps)}-targetEntity`}
+                propertiesTaxonomicGroupTypes={getRetentionPropertyFilterGroupTypes()}
             />
             <LemonSelect
                 options={Object.entries(retentionOptions).map(([key, value]) => ({
@@ -198,6 +200,7 @@ export function RetentionCondition({ insightProps }: EditorFilterProps): JSX.Ele
                     }
                 }}
                 typeKey={`${keyForInsightLogicProps('new')(insightProps)}-returningEntity`}
+                propertiesTaxonomicGroupTypes={getRetentionPropertyFilterGroupTypes()}
             />
             <div className="flex items-center gap-2">
                 {!retentionCustomBrackets ? (

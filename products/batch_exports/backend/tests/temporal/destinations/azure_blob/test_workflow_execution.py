@@ -1,7 +1,6 @@
 import pytest
 
-from posthog.batch_exports.service import BatchExportModel, BatchExportSchema
-
+from products.batch_exports.backend.service import BatchExportModel, BatchExportSchema
 from products.batch_exports.backend.temporal.destinations.azure_blob_batch_export import SUPPORTED_COMPRESSIONS
 from products.batch_exports.backend.tests.temporal.destinations.azure_blob.utils import (
     TEST_AZURE_BLOB_MODELS,

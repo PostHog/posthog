@@ -2,7 +2,7 @@ import { FallbackCoverImage } from 'lib/components/FallbackCoverImage/FallbackCo
 import { TZLabel } from 'lib/components/TZLabel'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 
-import { MessageTemplate } from './messageTemplatesLogic'
+import { MessageTemplate } from './types'
 
 export function MessageTemplateCard({
     template,
@@ -30,6 +30,7 @@ export function MessageTemplateCard({
                         <iframe
                             srcDoc={emailHtml}
                             sandbox="allow-same-origin"
+                            title="Message template preview"
                             className="w-full h-full border-0 bg-white pointer-events-none"
                         />
                     ) : (

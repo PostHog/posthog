@@ -1,3 +1,4 @@
+import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 /**
  * Auto-generated from the Django backend OpenAPI schema.
  * To modify these types, update the Django serializers or views, then run:
@@ -7,37 +8,40 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
-import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 import type {
+    BulkUpdateTagsRequestApi,
+    BulkUpdateTagsResponseApi,
+    CopyDashboardTemplateApi,
+    CopyDashboardTileRequestApi,
     DashboardApi,
     DashboardCollaboratorApi,
-    DashboardsCreate2Params,
-    DashboardsCreateFromTemplateJsonCreate2Params,
+    DashboardTemplateApi,
+    DashboardTemplatesListParams,
+    DashboardsAnalyzeRefreshResultCreateParams,
+    DashboardsBulkUpdateTagsCreateParams,
+    DashboardsCopyTileCreateParams,
     DashboardsCreateFromTemplateJsonCreateParams,
     DashboardsCreateParams,
-    DashboardsCreateUnlistedDashboardCreate2Params,
     DashboardsCreateUnlistedDashboardCreateParams,
-    DashboardsDestroy2Params,
     DashboardsDestroyParams,
-    DashboardsList2Params,
     DashboardsListParams,
-    DashboardsMoveTilePartialUpdate2Params,
     DashboardsMoveTilePartialUpdateParams,
-    DashboardsPartialUpdate2Params,
     DashboardsPartialUpdateParams,
-    DashboardsRetrieve2Params,
+    DashboardsReorderTilesCreateParams,
     DashboardsRetrieveParams,
-    DashboardsStreamTilesRetrieve2Params,
+    DashboardsRunInsightsRetrieveParams,
+    DashboardsSnapshotCreateParams,
     DashboardsStreamTilesRetrieveParams,
-    DashboardsUpdate2Params,
     DashboardsUpdateParams,
     DataColorThemeApi,
-    DataColorThemesList2Params,
     DataColorThemesListParams,
     PaginatedDashboardBasicListApi,
+    PaginatedDashboardTemplateListApi,
     PaginatedDataColorThemeListApi,
     PatchedDashboardApi,
     PatchedDataColorThemeApi,
+    ReorderTilesRequestApi,
+    RunInsightsResponseApi,
     SharingConfigurationApi,
 } from './api.schemas'
 
@@ -57,63 +61,6 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
           [P in keyof Writable<T>]: T[P] extends object ? NonReadonly<NonNullable<T[P]>> : T[P]
       }
     : DistributeReadOnlyOverUnions<T>
-
-export const getDashboardsListUrl = (projectId: string, params?: DashboardsListParams) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/environments/${projectId}/dashboards/?${stringifiedParams}`
-        : `/api/environments/${projectId}/dashboards/`
-}
-
-export const dashboardsList = async (
-    projectId: string,
-    params?: DashboardsListParams,
-    options?: RequestInit
-): Promise<PaginatedDashboardBasicListApi> => {
-    return apiMutator<PaginatedDashboardBasicListApi>(getDashboardsListUrl(projectId, params), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export const getDashboardsCreateUrl = (projectId: string, params?: DashboardsCreateParams) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/environments/${projectId}/dashboards/?${stringifiedParams}`
-        : `/api/environments/${projectId}/dashboards/`
-}
-
-export const dashboardsCreate = async (
-    projectId: string,
-    dashboardApi: NonReadonly<DashboardApi>,
-    params?: DashboardsCreateParams,
-    options?: RequestInit
-): Promise<DashboardApi> => {
-    return apiMutator<DashboardApi>(getDashboardsCreateUrl(projectId, params), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(dashboardApi),
-    })
-}
 
 export const getDashboardsCollaboratorsListUrl = (projectId: string, dashboardId: number) => {
     return `/api/environments/${projectId}/dashboards/${dashboardId}/collaborators/`
@@ -164,452 +111,83 @@ export const dashboardsCollaboratorsDestroy = async (
     })
 }
 
-export const getDashboardsSharingListUrl = (projectId: string, dashboardId: number) => {
-    return `/api/environments/${projectId}/dashboards/${dashboardId}/sharing/`
+export const getDashboardTemplatesListUrl = (projectId: string, params?: DashboardTemplatesListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/dashboard_templates/?${stringifiedParams}`
+        : `/api/projects/${projectId}/dashboard_templates/`
 }
 
-export const dashboardsSharingList = async (
+export const dashboardTemplatesList = async (
     projectId: string,
-    dashboardId: number,
+    params?: DashboardTemplatesListParams,
     options?: RequestInit
-): Promise<SharingConfigurationApi[]> => {
-    return apiMutator<SharingConfigurationApi[]>(getDashboardsSharingListUrl(projectId, dashboardId), {
+): Promise<PaginatedDashboardTemplateListApi> => {
+    return apiMutator<PaginatedDashboardTemplateListApi>(getDashboardTemplatesListUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
 }
 
-/**
- * Create a new password for the sharing configuration.
- */
-export const getDashboardsSharingPasswordsCreateUrl = (projectId: string, dashboardId: number) => {
-    return `/api/environments/${projectId}/dashboards/${dashboardId}/sharing/passwords/`
+export const getDashboardTemplatesCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/dashboard_templates/`
 }
 
-export const dashboardsSharingPasswordsCreate = async (
+export const dashboardTemplatesCreate = async (
     projectId: string,
-    dashboardId: number,
-    sharingConfigurationApi: NonReadonly<SharingConfigurationApi>,
+    dashboardTemplateApi: NonReadonly<DashboardTemplateApi>,
     options?: RequestInit
-): Promise<SharingConfigurationApi> => {
-    return apiMutator<SharingConfigurationApi>(getDashboardsSharingPasswordsCreateUrl(projectId, dashboardId), {
+): Promise<DashboardTemplateApi> => {
+    return apiMutator<DashboardTemplateApi>(getDashboardTemplatesCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(sharingConfigurationApi),
+        body: JSON.stringify(dashboardTemplateApi),
     })
 }
 
 /**
- * Delete a password from the sharing configuration.
+ * Creates a new team-scoped template in the **target** project (URL) from a **team-scoped** source template in the same organization. Global and feature-flag templates return 400. Cross-organization or inaccessible sources return 404. Source and destination projects must differ (400 if equal). Conflicting `template_name` values on the destination are auto-suffixed with `(copy)`, `(copy 2)`, …
+ * @summary Copy a team template to this project
  */
-export const getDashboardsSharingPasswordsDestroyUrl = (projectId: string, dashboardId: number, passwordId: string) => {
-    return `/api/environments/${projectId}/dashboards/${dashboardId}/sharing/passwords/${passwordId}/`
+export const getDashboardTemplatesCopyBetweenProjectsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/dashboard_templates/copy_between_projects/`
 }
 
-export const dashboardsSharingPasswordsDestroy = async (
+export const dashboardTemplatesCopyBetweenProjectsCreate = async (
     projectId: string,
-    dashboardId: number,
-    passwordId: string,
+    copyDashboardTemplateApi: CopyDashboardTemplateApi,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getDashboardsSharingPasswordsDestroyUrl(projectId, dashboardId, passwordId), {
-        ...options,
-        method: 'DELETE',
-    })
-}
-
-export const getDashboardsSharingRefreshCreateUrl = (projectId: string, dashboardId: number) => {
-    return `/api/environments/${projectId}/dashboards/${dashboardId}/sharing/refresh/`
-}
-
-export const dashboardsSharingRefreshCreate = async (
-    projectId: string,
-    dashboardId: number,
-    sharingConfigurationApi: NonReadonly<SharingConfigurationApi>,
-    options?: RequestInit
-): Promise<SharingConfigurationApi> => {
-    return apiMutator<SharingConfigurationApi>(getDashboardsSharingRefreshCreateUrl(projectId, dashboardId), {
+): Promise<DashboardTemplateApi> => {
+    return apiMutator<DashboardTemplateApi>(getDashboardTemplatesCopyBetweenProjectsCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(sharingConfigurationApi),
+        body: JSON.stringify(copyDashboardTemplateApi),
     })
 }
 
-export const getDashboardsRetrieveUrl = (projectId: string, id: number, params?: DashboardsRetrieveParams) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/environments/${projectId}/dashboards/${id}/?${stringifiedParams}`
-        : `/api/environments/${projectId}/dashboards/${id}/`
+export const getDashboardTemplatesJsonSchemaRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/dashboard_templates/json_schema/`
 }
 
-export const dashboardsRetrieve = async (
-    projectId: string,
-    id: number,
-    params?: DashboardsRetrieveParams,
-    options?: RequestInit
-): Promise<DashboardApi> => {
-    return apiMutator<DashboardApi>(getDashboardsRetrieveUrl(projectId, id, params), {
+export const dashboardTemplatesJsonSchemaRetrieve = async (projectId: string, options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getDashboardTemplatesJsonSchemaRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
     })
 }
 
-export const getDashboardsUpdateUrl = (projectId: string, id: number, params?: DashboardsUpdateParams) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/environments/${projectId}/dashboards/${id}/?${stringifiedParams}`
-        : `/api/environments/${projectId}/dashboards/${id}/`
-}
-
-export const dashboardsUpdate = async (
-    projectId: string,
-    id: number,
-    dashboardApi: NonReadonly<DashboardApi>,
-    params?: DashboardsUpdateParams,
-    options?: RequestInit
-): Promise<DashboardApi> => {
-    return apiMutator<DashboardApi>(getDashboardsUpdateUrl(projectId, id, params), {
-        ...options,
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(dashboardApi),
-    })
-}
-
-export const getDashboardsPartialUpdateUrl = (
-    projectId: string,
-    id: number,
-    params?: DashboardsPartialUpdateParams
-) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/environments/${projectId}/dashboards/${id}/?${stringifiedParams}`
-        : `/api/environments/${projectId}/dashboards/${id}/`
-}
-
-export const dashboardsPartialUpdate = async (
-    projectId: string,
-    id: number,
-    patchedDashboardApi: NonReadonly<PatchedDashboardApi>,
-    params?: DashboardsPartialUpdateParams,
-    options?: RequestInit
-): Promise<DashboardApi> => {
-    return apiMutator<DashboardApi>(getDashboardsPartialUpdateUrl(projectId, id, params), {
-        ...options,
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(patchedDashboardApi),
-    })
-}
-
-/**
- * Hard delete of this model is not allowed. Use a patch API call to set "deleted" to true
- */
-export const getDashboardsDestroyUrl = (projectId: string, id: number, params?: DashboardsDestroyParams) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/environments/${projectId}/dashboards/${id}/?${stringifiedParams}`
-        : `/api/environments/${projectId}/dashboards/${id}/`
-}
-
-export const dashboardsDestroy = async (
-    projectId: string,
-    id: number,
-    params?: DashboardsDestroyParams,
-    options?: RequestInit
-): Promise<unknown> => {
-    return apiMutator<unknown>(getDashboardsDestroyUrl(projectId, id, params), {
-        ...options,
-        method: 'DELETE',
-    })
-}
-
-export const getDashboardsMoveTilePartialUpdateUrl = (
-    projectId: string,
-    id: number,
-    params?: DashboardsMoveTilePartialUpdateParams
-) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/environments/${projectId}/dashboards/${id}/move_tile/?${stringifiedParams}`
-        : `/api/environments/${projectId}/dashboards/${id}/move_tile/`
-}
-
-export const dashboardsMoveTilePartialUpdate = async (
-    projectId: string,
-    id: number,
-    patchedDashboardApi: NonReadonly<PatchedDashboardApi>,
-    params?: DashboardsMoveTilePartialUpdateParams,
-    options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getDashboardsMoveTilePartialUpdateUrl(projectId, id, params), {
-        ...options,
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(patchedDashboardApi),
-    })
-}
-
-/**
- * Stream dashboard metadata and tiles via Server-Sent Events. Sends metadata first, then tiles as they are rendered.
- */
-export const getDashboardsStreamTilesRetrieveUrl = (
-    projectId: string,
-    id: number,
-    params?: DashboardsStreamTilesRetrieveParams
-) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/environments/${projectId}/dashboards/${id}/stream_tiles/?${stringifiedParams}`
-        : `/api/environments/${projectId}/dashboards/${id}/stream_tiles/`
-}
-
-export const dashboardsStreamTilesRetrieve = async (
-    projectId: string,
-    id: number,
-    params?: DashboardsStreamTilesRetrieveParams,
-    options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getDashboardsStreamTilesRetrieveUrl(projectId, id, params), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export const getDashboardsCreateFromTemplateJsonCreateUrl = (
-    projectId: string,
-    params?: DashboardsCreateFromTemplateJsonCreateParams
-) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/environments/${projectId}/dashboards/create_from_template_json/?${stringifiedParams}`
-        : `/api/environments/${projectId}/dashboards/create_from_template_json/`
-}
-
-export const dashboardsCreateFromTemplateJsonCreate = async (
-    projectId: string,
-    dashboardApi: NonReadonly<DashboardApi>,
-    params?: DashboardsCreateFromTemplateJsonCreateParams,
-    options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getDashboardsCreateFromTemplateJsonCreateUrl(projectId, params), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(dashboardApi),
-    })
-}
-
-/**
- * Creates an unlisted dashboard from template by tag.
-Enforces uniqueness (one per tag per team).
-Returns 409 if unlisted dashboard with this tag already exists.
- */
-export const getDashboardsCreateUnlistedDashboardCreateUrl = (
-    projectId: string,
-    params?: DashboardsCreateUnlistedDashboardCreateParams
-) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/environments/${projectId}/dashboards/create_unlisted_dashboard/?${stringifiedParams}`
-        : `/api/environments/${projectId}/dashboards/create_unlisted_dashboard/`
-}
-
-export const dashboardsCreateUnlistedDashboardCreate = async (
-    projectId: string,
-    dashboardApi: NonReadonly<DashboardApi>,
-    params?: DashboardsCreateUnlistedDashboardCreateParams,
-    options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getDashboardsCreateUnlistedDashboardCreateUrl(projectId, params), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(dashboardApi),
-    })
-}
-
-export const getDataColorThemesListUrl = (projectId: string, params?: DataColorThemesListParams) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/environments/${projectId}/data_color_themes/?${stringifiedParams}`
-        : `/api/environments/${projectId}/data_color_themes/`
-}
-
-export const dataColorThemesList = async (
-    projectId: string,
-    params?: DataColorThemesListParams,
-    options?: RequestInit
-): Promise<PaginatedDataColorThemeListApi> => {
-    return apiMutator<PaginatedDataColorThemeListApi>(getDataColorThemesListUrl(projectId, params), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export const getDataColorThemesCreateUrl = (projectId: string) => {
-    return `/api/environments/${projectId}/data_color_themes/`
-}
-
-export const dataColorThemesCreate = async (
-    projectId: string,
-    dataColorThemeApi: NonReadonly<DataColorThemeApi>,
-    options?: RequestInit
-): Promise<DataColorThemeApi> => {
-    return apiMutator<DataColorThemeApi>(getDataColorThemesCreateUrl(projectId), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(dataColorThemeApi),
-    })
-}
-
-export const getDataColorThemesRetrieveUrl = (projectId: string, id: number) => {
-    return `/api/environments/${projectId}/data_color_themes/${id}/`
-}
-
-export const dataColorThemesRetrieve = async (
-    projectId: string,
-    id: number,
-    options?: RequestInit
-): Promise<DataColorThemeApi> => {
-    return apiMutator<DataColorThemeApi>(getDataColorThemesRetrieveUrl(projectId, id), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export const getDataColorThemesUpdateUrl = (projectId: string, id: number) => {
-    return `/api/environments/${projectId}/data_color_themes/${id}/`
-}
-
-export const dataColorThemesUpdate = async (
-    projectId: string,
-    id: number,
-    dataColorThemeApi: NonReadonly<DataColorThemeApi>,
-    options?: RequestInit
-): Promise<DataColorThemeApi> => {
-    return apiMutator<DataColorThemeApi>(getDataColorThemesUpdateUrl(projectId, id), {
-        ...options,
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(dataColorThemeApi),
-    })
-}
-
-export const getDataColorThemesPartialUpdateUrl = (projectId: string, id: number) => {
-    return `/api/environments/${projectId}/data_color_themes/${id}/`
-}
-
-export const dataColorThemesPartialUpdate = async (
-    projectId: string,
-    id: number,
-    patchedDataColorThemeApi: NonReadonly<PatchedDataColorThemeApi>,
-    options?: RequestInit
-): Promise<DataColorThemeApi> => {
-    return apiMutator<DataColorThemeApi>(getDataColorThemesPartialUpdateUrl(projectId, id), {
-        ...options,
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(patchedDataColorThemeApi),
-    })
-}
-
-export const getDataColorThemesDestroyUrl = (projectId: string, id: number) => {
-    return `/api/environments/${projectId}/data_color_themes/${id}/`
-}
-
-export const dataColorThemesDestroy = async (projectId: string, id: number, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getDataColorThemesDestroyUrl(projectId, id), {
-        ...options,
-        method: 'DELETE',
-    })
-}
-
-export const getDashboardsList2Url = (projectId: string, params?: DashboardsList2Params) => {
+export const getDashboardsListUrl = (projectId: string, params?: DashboardsListParams) => {
     const normalizedParams = new URLSearchParams()
 
     Object.entries(params || {}).forEach(([key, value]) => {
@@ -625,18 +203,18 @@ export const getDashboardsList2Url = (projectId: string, params?: DashboardsList
         : `/api/projects/${projectId}/dashboards/`
 }
 
-export const dashboardsList2 = async (
+export const dashboardsList = async (
     projectId: string,
-    params?: DashboardsList2Params,
+    params?: DashboardsListParams,
     options?: RequestInit
 ): Promise<PaginatedDashboardBasicListApi> => {
-    return apiMutator<PaginatedDashboardBasicListApi>(getDashboardsList2Url(projectId, params), {
+    return apiMutator<PaginatedDashboardBasicListApi>(getDashboardsListUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
 }
 
-export const getDashboardsCreate2Url = (projectId: string, params?: DashboardsCreate2Params) => {
+export const getDashboardsCreateUrl = (projectId: string, params?: DashboardsCreateParams) => {
     const normalizedParams = new URLSearchParams()
 
     Object.entries(params || {}).forEach(([key, value]) => {
@@ -652,13 +230,13 @@ export const getDashboardsCreate2Url = (projectId: string, params?: DashboardsCr
         : `/api/projects/${projectId}/dashboards/`
 }
 
-export const dashboardsCreate2 = async (
+export const dashboardsCreate = async (
     projectId: string,
     dashboardApi: NonReadonly<DashboardApi>,
-    params?: DashboardsCreate2Params,
+    params?: DashboardsCreateParams,
     options?: RequestInit
 ): Promise<DashboardApi> => {
-    return apiMutator<DashboardApi>(getDashboardsCreate2Url(projectId, params), {
+    return apiMutator<DashboardApi>(getDashboardsCreateUrl(projectId, params), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -715,16 +293,16 @@ export const dashboardsCollaboratorsDestroy2 = async (
     })
 }
 
-export const getDashboardsSharingList2Url = (projectId: string, dashboardId: number) => {
+export const getDashboardsSharingListUrl = (projectId: string, dashboardId: number) => {
     return `/api/projects/${projectId}/dashboards/${dashboardId}/sharing/`
 }
 
-export const dashboardsSharingList2 = async (
+export const dashboardsSharingList = async (
     projectId: string,
     dashboardId: number,
     options?: RequestInit
 ): Promise<SharingConfigurationApi[]> => {
-    return apiMutator<SharingConfigurationApi[]>(getDashboardsSharingList2Url(projectId, dashboardId), {
+    return apiMutator<SharingConfigurationApi[]>(getDashboardsSharingListUrl(projectId, dashboardId), {
         ...options,
         method: 'GET',
     })
@@ -733,17 +311,17 @@ export const dashboardsSharingList2 = async (
 /**
  * Create a new password for the sharing configuration.
  */
-export const getDashboardsSharingPasswordsCreate2Url = (projectId: string, dashboardId: number) => {
+export const getDashboardsSharingPasswordsCreateUrl = (projectId: string, dashboardId: number) => {
     return `/api/projects/${projectId}/dashboards/${dashboardId}/sharing/passwords/`
 }
 
-export const dashboardsSharingPasswordsCreate2 = async (
+export const dashboardsSharingPasswordsCreate = async (
     projectId: string,
     dashboardId: number,
     sharingConfigurationApi: NonReadonly<SharingConfigurationApi>,
     options?: RequestInit
 ): Promise<SharingConfigurationApi> => {
-    return apiMutator<SharingConfigurationApi>(getDashboardsSharingPasswordsCreate2Url(projectId, dashboardId), {
+    return apiMutator<SharingConfigurationApi>(getDashboardsSharingPasswordsCreateUrl(projectId, dashboardId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -754,37 +332,33 @@ export const dashboardsSharingPasswordsCreate2 = async (
 /**
  * Delete a password from the sharing configuration.
  */
-export const getDashboardsSharingPasswordsDestroy2Url = (
-    projectId: string,
-    dashboardId: number,
-    passwordId: string
-) => {
+export const getDashboardsSharingPasswordsDestroyUrl = (projectId: string, dashboardId: number, passwordId: string) => {
     return `/api/projects/${projectId}/dashboards/${dashboardId}/sharing/passwords/${passwordId}/`
 }
 
-export const dashboardsSharingPasswordsDestroy2 = async (
+export const dashboardsSharingPasswordsDestroy = async (
     projectId: string,
     dashboardId: number,
     passwordId: string,
     options?: RequestInit
 ): Promise<void> => {
-    return apiMutator<void>(getDashboardsSharingPasswordsDestroy2Url(projectId, dashboardId, passwordId), {
+    return apiMutator<void>(getDashboardsSharingPasswordsDestroyUrl(projectId, dashboardId, passwordId), {
         ...options,
         method: 'DELETE',
     })
 }
 
-export const getDashboardsSharingRefreshCreate2Url = (projectId: string, dashboardId: number) => {
+export const getDashboardsSharingRefreshCreateUrl = (projectId: string, dashboardId: number) => {
     return `/api/projects/${projectId}/dashboards/${dashboardId}/sharing/refresh/`
 }
 
-export const dashboardsSharingRefreshCreate2 = async (
+export const dashboardsSharingRefreshCreate = async (
     projectId: string,
     dashboardId: number,
     sharingConfigurationApi: NonReadonly<SharingConfigurationApi>,
     options?: RequestInit
 ): Promise<SharingConfigurationApi> => {
-    return apiMutator<SharingConfigurationApi>(getDashboardsSharingRefreshCreate2Url(projectId, dashboardId), {
+    return apiMutator<SharingConfigurationApi>(getDashboardsSharingRefreshCreateUrl(projectId, dashboardId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -792,7 +366,7 @@ export const dashboardsSharingRefreshCreate2 = async (
     })
 }
 
-export const getDashboardsRetrieve2Url = (projectId: string, id: number, params?: DashboardsRetrieve2Params) => {
+export const getDashboardsRetrieveUrl = (projectId: string, id: number, params?: DashboardsRetrieveParams) => {
     const normalizedParams = new URLSearchParams()
 
     Object.entries(params || {}).forEach(([key, value]) => {
@@ -808,19 +382,19 @@ export const getDashboardsRetrieve2Url = (projectId: string, id: number, params?
         : `/api/projects/${projectId}/dashboards/${id}/`
 }
 
-export const dashboardsRetrieve2 = async (
+export const dashboardsRetrieve = async (
     projectId: string,
     id: number,
-    params?: DashboardsRetrieve2Params,
+    params?: DashboardsRetrieveParams,
     options?: RequestInit
 ): Promise<DashboardApi> => {
-    return apiMutator<DashboardApi>(getDashboardsRetrieve2Url(projectId, id, params), {
+    return apiMutator<DashboardApi>(getDashboardsRetrieveUrl(projectId, id, params), {
         ...options,
         method: 'GET',
     })
 }
 
-export const getDashboardsUpdate2Url = (projectId: string, id: number, params?: DashboardsUpdate2Params) => {
+export const getDashboardsUpdateUrl = (projectId: string, id: number, params?: DashboardsUpdateParams) => {
     const normalizedParams = new URLSearchParams()
 
     Object.entries(params || {}).forEach(([key, value]) => {
@@ -836,14 +410,14 @@ export const getDashboardsUpdate2Url = (projectId: string, id: number, params?: 
         : `/api/projects/${projectId}/dashboards/${id}/`
 }
 
-export const dashboardsUpdate2 = async (
+export const dashboardsUpdate = async (
     projectId: string,
     id: number,
     dashboardApi: NonReadonly<DashboardApi>,
-    params?: DashboardsUpdate2Params,
+    params?: DashboardsUpdateParams,
     options?: RequestInit
 ): Promise<DashboardApi> => {
-    return apiMutator<DashboardApi>(getDashboardsUpdate2Url(projectId, id, params), {
+    return apiMutator<DashboardApi>(getDashboardsUpdateUrl(projectId, id, params), {
         ...options,
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -851,10 +425,10 @@ export const dashboardsUpdate2 = async (
     })
 }
 
-export const getDashboardsPartialUpdate2Url = (
+export const getDashboardsPartialUpdateUrl = (
     projectId: string,
     id: number,
-    params?: DashboardsPartialUpdate2Params
+    params?: DashboardsPartialUpdateParams
 ) => {
     const normalizedParams = new URLSearchParams()
 
@@ -871,14 +445,14 @@ export const getDashboardsPartialUpdate2Url = (
         : `/api/projects/${projectId}/dashboards/${id}/`
 }
 
-export const dashboardsPartialUpdate2 = async (
+export const dashboardsPartialUpdate = async (
     projectId: string,
     id: number,
     patchedDashboardApi: NonReadonly<PatchedDashboardApi>,
-    params?: DashboardsPartialUpdate2Params,
+    params?: DashboardsPartialUpdateParams,
     options?: RequestInit
 ): Promise<DashboardApi> => {
-    return apiMutator<DashboardApi>(getDashboardsPartialUpdate2Url(projectId, id, params), {
+    return apiMutator<DashboardApi>(getDashboardsPartialUpdateUrl(projectId, id, params), {
         ...options,
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -889,7 +463,7 @@ export const dashboardsPartialUpdate2 = async (
 /**
  * Hard delete of this model is not allowed. Use a patch API call to set "deleted" to true
  */
-export const getDashboardsDestroy2Url = (projectId: string, id: number, params?: DashboardsDestroy2Params) => {
+export const getDashboardsDestroyUrl = (projectId: string, id: number, params?: DashboardsDestroyParams) => {
     const normalizedParams = new URLSearchParams()
 
     Object.entries(params || {}).forEach(([key, value]) => {
@@ -905,22 +479,99 @@ export const getDashboardsDestroy2Url = (projectId: string, id: number, params?:
         : `/api/projects/${projectId}/dashboards/${id}/`
 }
 
-export const dashboardsDestroy2 = async (
+export const dashboardsDestroy = async (
     projectId: string,
     id: number,
-    params?: DashboardsDestroy2Params,
+    params?: DashboardsDestroyParams,
     options?: RequestInit
 ): Promise<unknown> => {
-    return apiMutator<unknown>(getDashboardsDestroy2Url(projectId, id, params), {
+    return apiMutator<unknown>(getDashboardsDestroyUrl(projectId, id, params), {
         ...options,
         method: 'DELETE',
     })
 }
 
-export const getDashboardsMoveTilePartialUpdate2Url = (
+/**
+ * Generate AI analysis comparing before/after dashboard refresh.
+Expects cache_key in request body pointing to the stored 'before' state.
+ */
+export const getDashboardsAnalyzeRefreshResultCreateUrl = (
     projectId: string,
     id: number,
-    params?: DashboardsMoveTilePartialUpdate2Params
+    params?: DashboardsAnalyzeRefreshResultCreateParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/dashboards/${id}/analyze_refresh_result/?${stringifiedParams}`
+        : `/api/projects/${projectId}/dashboards/${id}/analyze_refresh_result/`
+}
+
+export const dashboardsAnalyzeRefreshResultCreate = async (
+    projectId: string,
+    id: number,
+    dashboardApi: NonReadonly<DashboardApi>,
+    params?: DashboardsAnalyzeRefreshResultCreateParams,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getDashboardsAnalyzeRefreshResultCreateUrl(projectId, id, params), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(dashboardApi),
+    })
+}
+
+/**
+ * Copy an existing dashboard tile to another dashboard (insight or text card; new tile row).
+ */
+export const getDashboardsCopyTileCreateUrl = (
+    projectId: string,
+    id: number,
+    params?: DashboardsCopyTileCreateParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/dashboards/${id}/copy_tile/?${stringifiedParams}`
+        : `/api/projects/${projectId}/dashboards/${id}/copy_tile/`
+}
+
+export const dashboardsCopyTileCreate = async (
+    projectId: string,
+    id: number,
+    copyDashboardTileRequestApi: CopyDashboardTileRequestApi,
+    params?: DashboardsCopyTileCreateParams,
+    options?: RequestInit
+): Promise<DashboardApi> => {
+    return apiMutator<DashboardApi>(getDashboardsCopyTileCreateUrl(projectId, id, params), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(copyDashboardTileRequestApi),
+    })
+}
+
+export const getDashboardsMoveTilePartialUpdateUrl = (
+    projectId: string,
+    id: number,
+    params?: DashboardsMoveTilePartialUpdateParams
 ) => {
     const normalizedParams = new URLSearchParams()
 
@@ -937,14 +588,14 @@ export const getDashboardsMoveTilePartialUpdate2Url = (
         : `/api/projects/${projectId}/dashboards/${id}/move_tile/`
 }
 
-export const dashboardsMoveTilePartialUpdate2 = async (
+export const dashboardsMoveTilePartialUpdate = async (
     projectId: string,
     id: number,
     patchedDashboardApi: NonReadonly<PatchedDashboardApi>,
-    params?: DashboardsMoveTilePartialUpdate2Params,
+    params?: DashboardsMoveTilePartialUpdateParams,
     options?: RequestInit
 ): Promise<void> => {
-    return apiMutator<void>(getDashboardsMoveTilePartialUpdate2Url(projectId, id, params), {
+    return apiMutator<void>(getDashboardsMoveTilePartialUpdateUrl(projectId, id, params), {
         ...options,
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -952,13 +603,122 @@ export const dashboardsMoveTilePartialUpdate2 = async (
     })
 }
 
+export const getDashboardsReorderTilesCreateUrl = (
+    projectId: string,
+    id: number,
+    params?: DashboardsReorderTilesCreateParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/dashboards/${id}/reorder_tiles/?${stringifiedParams}`
+        : `/api/projects/${projectId}/dashboards/${id}/reorder_tiles/`
+}
+
+export const dashboardsReorderTilesCreate = async (
+    projectId: string,
+    id: number,
+    reorderTilesRequestApi: ReorderTilesRequestApi,
+    params?: DashboardsReorderTilesCreateParams,
+    options?: RequestInit
+): Promise<DashboardApi> => {
+    return apiMutator<DashboardApi>(getDashboardsReorderTilesCreateUrl(projectId, id, params), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(reorderTilesRequestApi),
+    })
+}
+
+/**
+ * Run all insights on a dashboard and return their results.
+ */
+export const getDashboardsRunInsightsRetrieveUrl = (
+    projectId: string,
+    id: number,
+    params?: DashboardsRunInsightsRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/dashboards/${id}/run_insights/?${stringifiedParams}`
+        : `/api/projects/${projectId}/dashboards/${id}/run_insights/`
+}
+
+export const dashboardsRunInsightsRetrieve = async (
+    projectId: string,
+    id: number,
+    params?: DashboardsRunInsightsRetrieveParams,
+    options?: RequestInit
+): Promise<RunInsightsResponseApi> => {
+    return apiMutator<RunInsightsResponseApi>(getDashboardsRunInsightsRetrieveUrl(projectId, id, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+/**
+ * Snapshot the current dashboard state (from cache) for AI analysis.
+Returns a cache_key representing the 'before' state, to be used with analyze_refresh_result.
+ */
+export const getDashboardsSnapshotCreateUrl = (
+    projectId: string,
+    id: number,
+    params?: DashboardsSnapshotCreateParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/dashboards/${id}/snapshot/?${stringifiedParams}`
+        : `/api/projects/${projectId}/dashboards/${id}/snapshot/`
+}
+
+export const dashboardsSnapshotCreate = async (
+    projectId: string,
+    id: number,
+    dashboardApi: NonReadonly<DashboardApi>,
+    params?: DashboardsSnapshotCreateParams,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getDashboardsSnapshotCreateUrl(projectId, id, params), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(dashboardApi),
+    })
+}
+
 /**
  * Stream dashboard metadata and tiles via Server-Sent Events. Sends metadata first, then tiles as they are rendered.
  */
-export const getDashboardsStreamTilesRetrieve2Url = (
+export const getDashboardsStreamTilesRetrieveUrl = (
     projectId: string,
     id: number,
-    params?: DashboardsStreamTilesRetrieve2Params
+    params?: DashboardsStreamTilesRetrieveParams
 ) => {
     const normalizedParams = new URLSearchParams()
 
@@ -975,21 +735,65 @@ export const getDashboardsStreamTilesRetrieve2Url = (
         : `/api/projects/${projectId}/dashboards/${id}/stream_tiles/`
 }
 
-export const dashboardsStreamTilesRetrieve2 = async (
+export const dashboardsStreamTilesRetrieve = async (
     projectId: string,
     id: number,
-    params?: DashboardsStreamTilesRetrieve2Params,
+    params?: DashboardsStreamTilesRetrieveParams,
     options?: RequestInit
 ): Promise<void> => {
-    return apiMutator<void>(getDashboardsStreamTilesRetrieve2Url(projectId, id, params), {
+    return apiMutator<void>(getDashboardsStreamTilesRetrieveUrl(projectId, id, params), {
         ...options,
         method: 'GET',
     })
 }
 
-export const getDashboardsCreateFromTemplateJsonCreate2Url = (
+/**
+ * Bulk update tags on multiple objects.
+
+Accepts:
+- {"ids": [...], "action": "add"|"remove"|"set", "tags": ["tag1", "tag2"]}
+
+Actions:
+- "add": Add tags to existing tags on each object
+- "remove": Remove specific tags from each object
+- "set": Replace all tags on each object with the provided list
+ */
+export const getDashboardsBulkUpdateTagsCreateUrl = (
     projectId: string,
-    params?: DashboardsCreateFromTemplateJsonCreate2Params
+    params?: DashboardsBulkUpdateTagsCreateParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/dashboards/bulk_update_tags/?${stringifiedParams}`
+        : `/api/projects/${projectId}/dashboards/bulk_update_tags/`
+}
+
+export const dashboardsBulkUpdateTagsCreate = async (
+    projectId: string,
+    bulkUpdateTagsRequestApi: BulkUpdateTagsRequestApi,
+    params?: DashboardsBulkUpdateTagsCreateParams,
+    options?: RequestInit
+): Promise<BulkUpdateTagsResponseApi> => {
+    return apiMutator<BulkUpdateTagsResponseApi>(getDashboardsBulkUpdateTagsCreateUrl(projectId, params), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(bulkUpdateTagsRequestApi),
+    })
+}
+
+export const getDashboardsCreateFromTemplateJsonCreateUrl = (
+    projectId: string,
+    params?: DashboardsCreateFromTemplateJsonCreateParams
 ) => {
     const normalizedParams = new URLSearchParams()
 
@@ -1006,13 +810,13 @@ export const getDashboardsCreateFromTemplateJsonCreate2Url = (
         : `/api/projects/${projectId}/dashboards/create_from_template_json/`
 }
 
-export const dashboardsCreateFromTemplateJsonCreate2 = async (
+export const dashboardsCreateFromTemplateJsonCreate = async (
     projectId: string,
     dashboardApi: NonReadonly<DashboardApi>,
-    params?: DashboardsCreateFromTemplateJsonCreate2Params,
+    params?: DashboardsCreateFromTemplateJsonCreateParams,
     options?: RequestInit
 ): Promise<void> => {
-    return apiMutator<void>(getDashboardsCreateFromTemplateJsonCreate2Url(projectId, params), {
+    return apiMutator<void>(getDashboardsCreateFromTemplateJsonCreateUrl(projectId, params), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -1025,9 +829,9 @@ export const dashboardsCreateFromTemplateJsonCreate2 = async (
 Enforces uniqueness (one per tag per team).
 Returns 409 if unlisted dashboard with this tag already exists.
  */
-export const getDashboardsCreateUnlistedDashboardCreate2Url = (
+export const getDashboardsCreateUnlistedDashboardCreateUrl = (
     projectId: string,
-    params?: DashboardsCreateUnlistedDashboardCreate2Params
+    params?: DashboardsCreateUnlistedDashboardCreateParams
 ) => {
     const normalizedParams = new URLSearchParams()
 
@@ -1044,13 +848,13 @@ export const getDashboardsCreateUnlistedDashboardCreate2Url = (
         : `/api/projects/${projectId}/dashboards/create_unlisted_dashboard/`
 }
 
-export const dashboardsCreateUnlistedDashboardCreate2 = async (
+export const dashboardsCreateUnlistedDashboardCreate = async (
     projectId: string,
     dashboardApi: NonReadonly<DashboardApi>,
-    params?: DashboardsCreateUnlistedDashboardCreate2Params,
+    params?: DashboardsCreateUnlistedDashboardCreateParams,
     options?: RequestInit
 ): Promise<void> => {
-    return apiMutator<void>(getDashboardsCreateUnlistedDashboardCreate2Url(projectId, params), {
+    return apiMutator<void>(getDashboardsCreateUnlistedDashboardCreateUrl(projectId, params), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -1058,7 +862,7 @@ export const dashboardsCreateUnlistedDashboardCreate2 = async (
     })
 }
 
-export const getDataColorThemesList2Url = (projectId: string, params?: DataColorThemesList2Params) => {
+export const getDataColorThemesListUrl = (projectId: string, params?: DataColorThemesListParams) => {
     const normalizedParams = new URLSearchParams()
 
     Object.entries(params || {}).forEach(([key, value]) => {
@@ -1074,27 +878,27 @@ export const getDataColorThemesList2Url = (projectId: string, params?: DataColor
         : `/api/projects/${projectId}/data_color_themes/`
 }
 
-export const dataColorThemesList2 = async (
+export const dataColorThemesList = async (
     projectId: string,
-    params?: DataColorThemesList2Params,
+    params?: DataColorThemesListParams,
     options?: RequestInit
 ): Promise<PaginatedDataColorThemeListApi> => {
-    return apiMutator<PaginatedDataColorThemeListApi>(getDataColorThemesList2Url(projectId, params), {
+    return apiMutator<PaginatedDataColorThemeListApi>(getDataColorThemesListUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
 }
 
-export const getDataColorThemesCreate2Url = (projectId: string) => {
+export const getDataColorThemesCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/data_color_themes/`
 }
 
-export const dataColorThemesCreate2 = async (
+export const dataColorThemesCreate = async (
     projectId: string,
     dataColorThemeApi: NonReadonly<DataColorThemeApi>,
     options?: RequestInit
 ): Promise<DataColorThemeApi> => {
-    return apiMutator<DataColorThemeApi>(getDataColorThemesCreate2Url(projectId), {
+    return apiMutator<DataColorThemeApi>(getDataColorThemesCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -1102,32 +906,32 @@ export const dataColorThemesCreate2 = async (
     })
 }
 
-export const getDataColorThemesRetrieve2Url = (projectId: string, id: number) => {
+export const getDataColorThemesRetrieveUrl = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/data_color_themes/${id}/`
 }
 
-export const dataColorThemesRetrieve2 = async (
+export const dataColorThemesRetrieve = async (
     projectId: string,
     id: number,
     options?: RequestInit
 ): Promise<DataColorThemeApi> => {
-    return apiMutator<DataColorThemeApi>(getDataColorThemesRetrieve2Url(projectId, id), {
+    return apiMutator<DataColorThemeApi>(getDataColorThemesRetrieveUrl(projectId, id), {
         ...options,
         method: 'GET',
     })
 }
 
-export const getDataColorThemesUpdate2Url = (projectId: string, id: number) => {
+export const getDataColorThemesUpdateUrl = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/data_color_themes/${id}/`
 }
 
-export const dataColorThemesUpdate2 = async (
+export const dataColorThemesUpdate = async (
     projectId: string,
     id: number,
     dataColorThemeApi: NonReadonly<DataColorThemeApi>,
     options?: RequestInit
 ): Promise<DataColorThemeApi> => {
-    return apiMutator<DataColorThemeApi>(getDataColorThemesUpdate2Url(projectId, id), {
+    return apiMutator<DataColorThemeApi>(getDataColorThemesUpdateUrl(projectId, id), {
         ...options,
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -1135,17 +939,17 @@ export const dataColorThemesUpdate2 = async (
     })
 }
 
-export const getDataColorThemesPartialUpdate2Url = (projectId: string, id: number) => {
+export const getDataColorThemesPartialUpdateUrl = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/data_color_themes/${id}/`
 }
 
-export const dataColorThemesPartialUpdate2 = async (
+export const dataColorThemesPartialUpdate = async (
     projectId: string,
     id: number,
     patchedDataColorThemeApi: NonReadonly<PatchedDataColorThemeApi>,
     options?: RequestInit
 ): Promise<DataColorThemeApi> => {
-    return apiMutator<DataColorThemeApi>(getDataColorThemesPartialUpdate2Url(projectId, id), {
+    return apiMutator<DataColorThemeApi>(getDataColorThemesPartialUpdateUrl(projectId, id), {
         ...options,
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -1153,12 +957,12 @@ export const dataColorThemesPartialUpdate2 = async (
     })
 }
 
-export const getDataColorThemesDestroy2Url = (projectId: string, id: number) => {
+export const getDataColorThemesDestroyUrl = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/data_color_themes/${id}/`
 }
 
-export const dataColorThemesDestroy2 = async (projectId: string, id: number, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getDataColorThemesDestroy2Url(projectId, id), {
+export const dataColorThemesDestroy = async (projectId: string, id: number, options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getDataColorThemesDestroyUrl(projectId, id), {
         ...options,
         method: 'DELETE',
     })

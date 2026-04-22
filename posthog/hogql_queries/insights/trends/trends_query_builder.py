@@ -7,7 +7,6 @@ from posthog.schema import (
     Breakdown as BreakdownSchema,
     ChartDisplayType,
     DataWarehouseNode,
-    DataWarehousePropertyFilter,
     EventsNode,
     GroupNode,
     HogQLQueryModifiers,
@@ -28,7 +27,7 @@ from posthog.hogql_queries.insights.trends.breakdown import (
     Breakdown,
 )
 from posthog.hogql_queries.insights.trends.display import TrendsDisplay
-from posthog.hogql_queries.insights.trends.utils import is_groups_math
+from posthog.hogql_queries.insights.trends.utils import group_node_to_expr, is_groups_math
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.action.action import Action
 from posthog.models.filters.mixins.utils import cached_property
@@ -136,11 +135,11 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
             return parse_select(
                 f"""
                 WITH
-                (
+                breakdown_series AS (
                     -- Raw per-day breakdown rows
                     SELECT * FROM {{inner_query}}
-                ) AS breakdown_series,
-                (
+                ),
+                totals_per_breakdown AS (
                     -- Aggregate totals per breakdown for ranking
                     SELECT
                         breakdown_value,
@@ -148,8 +147,8 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
                         {{breakdown_order}} AS ordering
                     FROM breakdown_series
                     GROUP BY breakdown_value
-                ) AS totals_per_breakdown,
-                (
+                ),
+                ranked_breakdown_totals AS (
                     -- Global rank applied to aggregated totals
                     SELECT
                         breakdown_value,
@@ -159,8 +158,8 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
                             ORDER BY ordering ASC, total_count_for_breakdown DESC, breakdown_value ASC
                         ) AS breakdown_rank
                     FROM totals_per_breakdown
-                ) AS ranked_breakdown_totals,
-                (
+                ),
+                ranked_breakdown_values AS (
                     -- Attach ranks back to per-day rows
                     SELECT
                         breakdown_series.*,
@@ -168,8 +167,8 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
                         ranked_breakdown_totals.breakdown_rank
                     FROM breakdown_series
                     JOIN ranked_breakdown_totals ON ranked_breakdown_totals.breakdown_value = breakdown_series.breakdown_value
-                ) AS ranked_breakdown_values,
-                (
+                ),
+                top_n_breakdown_values AS (
                     -- Top N breakdown values
                     SELECT
                         day_start,
@@ -177,8 +176,8 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
                         breakdown_value
                     FROM ranked_breakdown_values
                     WHERE breakdown_rank <= {{breakdown_limit}}
-                ) AS top_n_breakdown_values,
-                (
+                ),
+                other_breakdown_values AS (
                     -- "Other" breakdown value
                     SELECT
                         day_start,
@@ -187,15 +186,15 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
                     FROM ranked_breakdown_values
                     WHERE breakdown_rank > {{breakdown_limit}}
                     GROUP BY day_start
-                ) AS other_breakdown_values,
-                (
+                ),
+                top_n_and_other_breakdown_values AS (
                     -- Combine and order top N and "other" breakdown values
                     SELECT * FROM (
                         SELECT * FROM top_n_breakdown_values
                         UNION ALL
                         SELECT * FROM other_breakdown_values
                     ) ORDER BY day_start, value
-                ) AS top_n_and_other_breakdown_values,
+                )
 
                 -- Transpose the results into arrays for each breakdown value
                 {"SELECT date, total, breakdown_value FROM (" if is_cumulative else ""}
@@ -604,9 +603,8 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
         if self._trends_display.display_type == ChartDisplayType.WORLD_MAP:
             return 250
 
-        return (
-            self.query.breakdownFilter and self.query.breakdownFilter.breakdown_limit
-        ) or get_breakdown_limit_for_context(self.limit_context)
+        breakdown_limit = self.query.breakdownFilter.breakdown_limit if self.query.breakdownFilter else None
+        return breakdown_limit or get_breakdown_limit_for_context(self.limit_context)
 
     def _inner_breakdown_subquery(self, query: ast.SelectQuery, breakdown: Breakdown) -> ast.SelectQuery:
         assert self.query.breakdownFilter is not None  # type checking
@@ -796,13 +794,6 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
     ) -> ast.Expr:
         series = self.series
         filters: list[ast.Expr] = []
-        is_data_warehouse_event_series = (
-            isinstance(series, DataWarehouseNode)
-            and self.modifiers.dataWarehouseEventsModifiers is not None
-            and any(
-                series.table_name == modifier.table_name for modifier in self.modifiers.dataWarehouseEventsModifiers
-            )
-        )
 
         # Dates
         if not self._aggregation_operation.requires_query_orchestration():
@@ -829,35 +820,11 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
             and len(self.team.test_account_filters) > 0
         ):
             for property in self.team.test_account_filters:
-                if is_data_warehouse_event_series:
-                    property_clone = property.copy()
-                    if property_clone["type"] in ("event", "person"):
-                        if property_clone["type"] == "event":
-                            property_clone["key"] = f"events.properties.{property_clone['key']}"
-                        elif property_clone["type"] == "person":
-                            property_clone["key"] = f"events.person.properties.{property_clone['key']}"
-                        property_clone["type"] = "data_warehouse"
-                    expr = property_to_expr(property_clone, self.team)
-                    if (
-                        property_clone["type"] in ("group", "element")
-                        and isinstance(expr, ast.CompareOperation)
-                        and isinstance(expr.left, ast.Field)
-                    ):
-                        expr.left.chain = ["events", *expr.left.chain]
-                    filters.append(expr)
-                else:
-                    filters.append(property_to_expr(property, self.team))
+                filters.append(property_to_expr(property, self.team))
 
         # Properties
         if self.query.properties is not None and self.query.properties != []:
-            if is_data_warehouse_event_series:
-                data_warehouse_properties = [
-                    p for p in self.query.properties if isinstance(p, DataWarehousePropertyFilter)
-                ]
-                if data_warehouse_properties:
-                    filters.append(property_to_expr(data_warehouse_properties, self.team))
-            else:
-                filters.append(property_to_expr(self.query.properties, self.team))
+            filters.append(property_to_expr(self.query.properties, self.team))
 
         # Series Filters
         if series.properties is not None and series.properties != []:
@@ -880,6 +847,10 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
                 )
             )
 
+        # Hide weekends — exclude Saturday (6) and Sunday (7) events
+        if self.query.trendsFilter and self.query.trendsFilter.hideWeekends:
+            filters.append(parse_expr("toDayOfWeek(timestamp) <= 5"))
+
         if len(filters) == 0:
             return ast.Constant(value=True)
 
@@ -893,7 +864,7 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
             return self._get_action_expr(self.series)
 
         if isinstance(self.series, GroupNode):
-            return self._get_group_expr(self.series)
+            return group_node_to_expr(self.series, self.team)
 
         return None
 
@@ -912,49 +883,6 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
         except Action.DoesNotExist:
             # If an action doesn't exist, we want to return no events
             return parse_expr("1 = 2")
-
-    def _get_group_expr(self, series: GroupNode) -> ast.Expr | None:
-        group_filters: list[ast.Expr] = []
-        for node in series.nodes:
-            if isinstance(node, EventsNode):
-                event_expr = self._get_event_expr(node)
-                if event_expr is None:
-                    continue
-
-                # Add property filters if present
-                if node.properties is not None and node.properties != []:
-                    properties_expr = property_to_expr(node.properties, self.team)
-                    combined_expr: ast.Expr = ast.And(exprs=[event_expr, properties_expr])
-                    group_filters.append(combined_expr)
-                else:
-                    group_filters.append(event_expr)
-
-            if isinstance(node, ActionsNode):
-                action_expr = self._get_action_expr(node)
-                if action_expr is None:
-                    continue
-
-                # Add property filters if present
-                if node.properties is not None and node.properties != []:
-                    properties_expr = property_to_expr(node.properties, self.team)
-                    combined_expr = ast.And(exprs=[action_expr, properties_expr])
-                    group_filters.append(combined_expr)
-                else:
-                    group_filters.append(action_expr)
-
-        if len(group_filters) == 0:
-            return None
-
-        if len(group_filters) == 1:
-            return group_filters[0]
-
-        if series.operator == "OR":
-            return ast.Or(exprs=group_filters)
-
-        # if series.operator == "AND":
-        #     return ast.And(exprs=group_filters)
-
-        return None
 
     def _sample_value(self) -> ast.RatioExpr:
         if self.query.samplingFactor is None:

@@ -1,10 +1,9 @@
 use std::sync::Arc;
 
 use aws_sdk_s3::primitives::ByteStreamError;
-use common_geoip::GeoIpError;
 use common_kafka::kafka_producer::KafkaProduceError;
 use common_redis::CustomRedisError;
-use common_types::{CapturedEvent, ClickHouseEvent};
+use common_types::ClickHouseEvent;
 use posthog_symbol_data::SymbolDataError;
 use rdkafka::error::KafkaError;
 use serde::{Deserialize, Serialize};
@@ -50,8 +49,6 @@ pub enum UnhandledError {
     ByteStreamError(#[from] ByteStreamError), // AWS specific bytestream error. Idk
     #[error("Unhandled serde error: {0}")]
     SerdeError(#[from] serde_json::Error),
-    #[error("Unhandled geoip error: {0}")]
-    GeoIpError(#[from] GeoIpError),
     #[error("Unhandled redis error: {0}")]
     RedisError(#[from] CustomRedisError),
     #[error("Unhandled error: {0}")]
@@ -64,7 +61,7 @@ pub enum UnhandledError {
 // NOTE - these are serialized and deserialized, so that when we fail to get a symbol set from
 // some provider (e.g. we fail to look up a sourcemap), we can return the correct error in the future
 // without hitting their infra again (by storing it in PG).
-#[derive(Debug, Error, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Error, Serialize, Deserialize)]
 pub enum FrameError {
     #[error(transparent)]
     JavaScript(#[from] JsResolveErr),
@@ -72,11 +69,13 @@ pub enum FrameError {
     Hermes(#[from] HermesError),
     #[error(transparent)]
     Proguard(#[from] ProguardError),
+    #[error(transparent)]
+    Apple(#[from] AppleError),
     #[error("No symbol set for chunk id: {0}")]
     MissingChunkIdData(String),
 }
 
-#[derive(Debug, Error, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Error, Serialize, Deserialize)]
 pub enum JsResolveErr {
     #[error("This frame had no source url or chunk id")]
     NoUrlOrChunkId,
@@ -128,7 +127,7 @@ pub enum JsResolveErr {
     NoSourcemapUploaded(String),
 }
 
-#[derive(Debug, Error, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Error, Serialize, Deserialize)]
 pub enum HermesError {
     #[error("Data error: {0}")]
     DataError(#[from] SymbolDataError),
@@ -142,7 +141,7 @@ pub enum HermesError {
     NoTokenForColumn(u32, String),
 }
 
-#[derive(Debug, Error, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Error, Serialize, Deserialize)]
 pub enum ProguardError {
     #[error("Data error: {0}")]
     DataError(#[from] SymbolDataError),
@@ -154,28 +153,110 @@ pub enum ProguardError {
     NoMapId,
     #[error("No original frames could be derived from this raw frame")]
     NoOriginalFrames,
+    #[error("No module provided")]
+    NoModuleProvided,
+    #[error("No class matched")]
+    MissingClass,
+    #[error("Invalid class format")]
+    InvalidClass,
 }
 
-#[derive(Debug, Error, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, Error, Serialize, Deserialize)]
+pub enum AppleError {
+    #[error("Data error: {0}")]
+    DataError(#[from] SymbolDataError),
+    #[error("No dSYM uploaded for debug_id: {0}")]
+    MissingDsym(String),
+    #[error("No debug_id found for frame")]
+    NoDebugId,
+    #[error("Invalid address format: {0}")]
+    InvalidAddress(String),
+    #[error("Symbol not found at address: {0:#x}")]
+    SymbolNotFound(u64),
+    #[error("Failed to parse dSYM: {0}")]
+    ParseError(String),
+    #[error("No matching debug image found for frame")]
+    NoMatchingDebugImage,
+}
+
+#[derive(Debug, Error, Clone, Serialize, PartialEq)]
 pub enum EventError {
     #[error("Wrong event type: {0} for event {1}")]
     WrongEventType(String, Uuid),
-    #[error("No properties on event {0}")]
-    NoProperties(Uuid),
     #[error("Invalid properties on event {0}, serde error: {1}")]
     InvalidProperties(Uuid, String),
     #[error("Empty exception list on event {0}")]
     EmptyExceptionList(Uuid),
-    #[error("Invalid event timestamp: {0}, {1}")]
-    InvalidTimestamp(String, String),
-    #[error("No team for token: {0}")]
-    NoTeamForToken(String),
     #[error("Suppressed issue: {0}")]
     Suppressed(Uuid),
-    #[error("Could not deserialize event data: {1}")]
-    FailedToDeserialize(Box<CapturedEvent>, String),
-    #[error("Filtered by team id")]
-    FilteredByTeamId,
+    #[error("Suppressed by rule: {0}")]
+    SuppressedByRule(Uuid),
+}
+
+impl JsResolveErr {
+    pub fn metric_reason(&self) -> &'static str {
+        match self {
+            Self::NoUrlOrChunkId | Self::NoSourceUrl => "no_reference",
+            Self::NoSourcemap(_) | Self::NoSourcemapUploaded(_) => "no_symbol_set",
+            Self::TokenNotFound(..) => "symbol_not_found",
+            Self::Timeout(_)
+            | Self::HttpStatus(..)
+            | Self::NetworkError(_)
+            | Self::RedirectError(_) => "network_error",
+            Self::InvalidSourceMap(_)
+            | Self::InvalidSourceUrl(_)
+            | Self::InvalidSourceMapHeader(_)
+            | Self::InvalidSourceMapUrl(_)
+            | Self::InvalidDataUrl(..)
+            | Self::JSDataError(_)
+            | Self::InvalidSourceAndMap => "invalid_data",
+        }
+    }
+}
+
+impl HermesError {
+    pub fn metric_reason(&self) -> &'static str {
+        match self {
+            Self::NoChunkId => "no_reference",
+            Self::NoSourcemapUploaded(_) => "no_symbol_set",
+            Self::NoTokenForColumn(..) => "symbol_not_found",
+            Self::DataError(_) | Self::InvalidMap(_) => "invalid_data",
+        }
+    }
+}
+
+impl ProguardError {
+    pub fn metric_reason(&self) -> &'static str {
+        match self {
+            Self::NoMapId | Self::NoModuleProvided => "no_reference",
+            Self::MissingMap(_) => "no_symbol_set",
+            Self::NoOriginalFrames | Self::MissingClass => "symbol_not_found",
+            Self::DataError(_) | Self::InvalidMapping | Self::InvalidClass => "invalid_data",
+        }
+    }
+}
+
+impl AppleError {
+    pub fn metric_reason(&self) -> &'static str {
+        match self {
+            Self::NoDebugId | Self::NoMatchingDebugImage => "no_reference",
+            Self::MissingDsym(_) => "no_symbol_set",
+            Self::SymbolNotFound(_) => "symbol_not_found",
+            Self::DataError(_) | Self::InvalidAddress(_) | Self::ParseError(_) => "invalid_data",
+        }
+    }
+}
+
+impl FrameError {
+    pub fn metric_reason(&self) -> &'static str {
+        match self {
+            Self::JavaScript(e) => e.metric_reason(),
+            Self::Hermes(e) => e.metric_reason(),
+            Self::Proguard(e) => e.metric_reason(),
+            Self::Apple(e) => e.metric_reason(),
+            Self::MissingChunkIdData(_) => "no_symbol_set",
+        }
+    }
 }
 
 impl From<JsResolveErr> for ResolveError {
@@ -193,6 +274,12 @@ impl From<HermesError> for ResolveError {
 impl From<ProguardError> for ResolveError {
     fn from(e: ProguardError) -> Self {
         FrameError::Proguard(e).into()
+    }
+}
+
+impl From<AppleError> for ResolveError {
+    fn from(e: AppleError) -> Self {
+        FrameError::Apple(e).into()
     }
 }
 
@@ -247,5 +334,14 @@ impl From<(usize, UnhandledError)> for PipelineFailure {
 impl From<(usize, Arc<UnhandledError>)> for PipelineFailure {
     fn from((index, error): (usize, Arc<UnhandledError>)) -> Self {
         PipelineFailure { index, error }
+    }
+}
+
+impl From<UnhandledError> for PipelineFailure {
+    fn from(error: UnhandledError) -> Self {
+        PipelineFailure {
+            index: 0,
+            error: Arc::new(error),
+        }
     }
 }

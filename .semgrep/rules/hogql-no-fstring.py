@@ -478,6 +478,33 @@ class TestFstringSafeComputedExpressions:
 # ============================================================================
 
 
+class TestFstringSafeExperimentQueryBuilder:
+    def test_common_ctes(self):
+        common_ctes = "exposures AS (...), metric_events AS (...)"
+        # ok: hogql-fstring-audit
+        parse_select(f"WITH {common_ctes} SELECT variant, count(entity_id) FROM entity_metrics")
+
+    def test_ctes_sql(self):
+        ctes_sql = "exposures AS (...)"
+        # ok: hogql-fstring-audit
+        parse_select(f"WITH {ctes_sql} SELECT variant FROM entity_metrics")
+
+    def test_events_alias(self):
+        events_alias = "metric_events"
+        # ok: hogql-fstring-audit
+        parse_expr(f"{events_alias}.timestamp >= exposures.first_exposure_time")
+
+    def test_column_ref(self):
+        column_ref = "metric_events.value"
+        # ok: hogql-fstring-audit
+        parse_expr(f"coalesce(min(toFloat({column_ref})), 0)")
+
+
+# ============================================================================
+# hogql-fstring-audit: SHOULD NOT FIND - Date filter patterns
+# ============================================================================
+
+
 class TestFstringSafeDateFilters:
     def test_date_to_filter(self):
         date_to_filter = "toDateTime('2024-01-01')"
@@ -505,6 +532,68 @@ class TestFstringSafeTernary:
         ascending = False
         # ok: hogql-fstring-audit
         parse_order_expr(f"timestamp {'ASC' if ascending else 'DESC'}")
+
+
+# ============================================================================
+# hogql-injection-taint: SHOULD FIND - Nested self attribute access
+# ============================================================================
+
+
+class TestTaintNestedAttrVulnerable:
+    def test_self_source_table_name(self):
+        # ruleid: hogql-injection-taint, hogql-fstring-audit
+        parse_select(f"SELECT * FROM {self.source.table_name}")
+
+    def test_self_metric_source_field(self):
+        # ruleid: hogql-injection-taint, hogql-fstring-audit
+        parse_expr(f"{self.metric.source.timestamp_field} AS ts")
+
+    def test_self_source_info_field(self):
+        # ruleid: hogql-injection-taint, hogql-fstring-audit
+        parse_select(f"SELECT {self.source_info.timestamp_field} FROM events")
+
+
+# ============================================================================
+# hogql-injection-taint: SHOULD NOT FIND - Nested attr (sanitized / excluded)
+# ============================================================================
+
+
+class TestTaintInternalObjectsSafe:
+    def test_context_max_steps(self):
+        # ok: hogql-injection-taint
+        # ruleid: hogql-fstring-audit
+        parse_expr(f"steps <= {self.context.max_steps}")
+
+    def test_context_funnel_order_type(self):
+        # ok: hogql-injection-taint
+        # ruleid: hogql-fstring-audit
+        parse_select(f"SELECT '{self.context.funnelOrderType}'")
+
+    def test_query_date_range_lookahead(self):
+        # ok: hogql-injection-taint
+        # ruleid: hogql-fstring-audit
+        parse_expr(f"arraySlice(arr, 1, {self.query_date_range.lookahead})")
+
+    def test_query_date_range_interval_name(self):
+        # ok: hogql-injection-taint
+        # ruleid: hogql-fstring-audit
+        parse_expr(f"toInterval{self.query_date_range.interval_name}(x)")
+
+    def test_team_timezone(self):
+        # ok: hogql-injection-taint
+        # ruleid: hogql-fstring-audit
+        parse_expr(f"toTimeZone(ts, '{self.team.timezone}')")
+
+
+class TestTaintNestedAttrSafe:
+    def test_sanitized_with_ast_field(self):
+        # ok: hogql-injection-taint
+        parse_select("{x}", placeholders={"x": ast.Field(chain=[self.source.table_name])})
+
+    def test_sanitized_with_direct_pass(self):
+        # Safe: user provides entire expression (no f-string, no context to escape)
+        # ok: hogql-injection-taint
+        parse_expr(self.source.timestamp_field)
 
 
 # ============================================================================

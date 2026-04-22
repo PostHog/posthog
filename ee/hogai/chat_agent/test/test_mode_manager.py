@@ -30,6 +30,9 @@ from posthog.schema import (
 from posthog.models import Team, User
 from posthog.models.organization import OrganizationMembership
 
+from products.alerts.backend.max_tools import UpsertAlertTool
+from products.surveys.backend.max_tools import CreateSurveyTool, EditSurveyTool, SurveyAnalysisTool
+
 from ee.hogai.chat_agent.mode_manager import ChatAgentModeManager
 from ee.hogai.chat_agent.prompt_builder import ChatAgentPlanPromptBuilder, ChatAgentPromptBuilder
 from ee.hogai.chat_agent.prompts import (
@@ -37,10 +40,11 @@ from ee.hogai.chat_agent.prompts import (
     ROOT_BILLING_CONTEXT_WITH_ACCESS_PROMPT,
     ROOT_BILLING_CONTEXT_WITH_NO_ACCESS_PROMPT,
 )
-from ee.hogai.chat_agent.toolkit import ChatAgentPlanToolkit, ChatAgentToolkit
+from ee.hogai.chat_agent.toolkit import ChatAgentPlanToolkit, ChatAgentToolkit, ChatAgentToolkitManager
 from ee.hogai.context import AssistantContextManager
 from ee.hogai.core.agent_modes.presets.product_analytics import ReadOnlyProductAnalyticsAgentToolkit
-from ee.hogai.core.agent_modes.presets.survey import SubagentSurveyAgentToolkit
+from ee.hogai.core.agent_modes.presets.survey import ReadOnlySurveyAgentToolkit
+from ee.hogai.tools import CreateInsightTool, UpsertDashboardTool
 from ee.hogai.tools.replay.filter_session_recordings import FilterSessionRecordingsTool
 from ee.hogai.utils.tests import FakeChatAnthropic, FakeChatOpenAI
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
@@ -127,8 +131,8 @@ class TestAgentToolkit(BaseTest):
             # (tasks_flag, expected_tools, unexpected_tools)
             [
                 False,
-                ["read_taxonomy", "read_data", "search", "todo_write", "switch_mode"],
-                ["create_form", "create_task", "run_task", "list_tasks"],
+                ["read_taxonomy", "read_data", "search", "todo_write", "switch_mode", "create_form"],
+                ["create_task", "run_task", "list_tasks"],
             ],
             [
                 True,
@@ -138,6 +142,7 @@ class TestAgentToolkit(BaseTest):
                     "search",
                     "todo_write",
                     "switch_mode",
+                    "create_form",
                     "create_task",
                     "run_task",
                     "get_task_run",
@@ -145,7 +150,7 @@ class TestAgentToolkit(BaseTest):
                     "list_tasks",
                     "list_task_runs",
                 ],
-                ["create_form"],
+                [],
             ],
         ]
     )
@@ -162,42 +167,44 @@ class TestAgentToolkit(BaseTest):
             for unexpected in unexpected_tools:
                 self.assertNotIn(unexpected, tool_names)
 
-    @parameterized.expand(
-        [
-            # (error_tracking_flag, flags_flag, expected_modes, unexpected_modes)
-            [False, False, ["product_analytics", "sql", "session_replay"], ["error_tracking", "flags"]],
-            [True, False, ["product_analytics", "sql", "session_replay", "error_tracking"], ["flags"]],
-            [False, True, ["product_analytics", "sql", "session_replay", "flags"], ["error_tracking"]],
-            [True, True, ["product_analytics", "sql", "session_replay", "error_tracking", "flags"], []],
-        ]
-    )
-    def test_mode_registry_based_on_feature_flags(
-        self, error_tracking_flag, flags_flag, expected_modes, unexpected_modes
-    ):
-        with (
-            patch(
-                "ee.hogai.chat_agent.mode_manager.has_error_tracking_mode_feature_flag",
-                return_value=error_tracking_flag,
-            ),
-            patch("ee.hogai.chat_agent.mode_manager.has_flags_mode_feature_flag", return_value=flags_flag),
-        ):
-            node_path = (NodePath(name=AssistantNodeName.ROOT, message_id="test_id", tool_call_id="test_tool_call_id"),)
-            context_manager = AssistantContextManager(
-                team=self.team, user=self.user, config=RunnableConfig(configurable={})
-            )
-            mode_manager = ChatAgentModeManager(
-                team=self.team,
-                user=self.user,
-                node_path=node_path,
-                context_manager=context_manager,
-                state=AssistantState(messages=[HumanMessage(content="Test")]),
-            )
-            mode_names = [mode.value for mode in mode_manager.mode_registry.keys()]
+    @patch("ee.hogai.core.agent_modes.toolkit.AgentToolkitManager.get_tools", new_callable=AsyncMock)
+    async def test_toolkit_manager_always_includes_web_search_server_tool(self, mock_get_tools):
+        mock_get_tools.return_value = []
 
-            for expected in expected_modes:
-                self.assertIn(expected, mode_names)
-            for unexpected in unexpected_modes:
-                self.assertNotIn(unexpected, mode_names)
+        context_manager = AssistantContextManager(
+            team=self.team, user=self.user, config=RunnableConfig(configurable={})
+        )
+        toolkit_manager = ChatAgentToolkitManager(team=self.team, user=self.user, context_manager=context_manager)
+
+        tools = await toolkit_manager.get_tools(AssistantState(messages=[]), RunnableConfig(configurable={}))
+
+        mock_get_tools.assert_awaited_once()
+        self.assertIn({"type": "web_search_20250305", "name": "web_search", "max_uses": 5}, tools)
+
+    def test_mode_registry_includes_all_modes(self):
+        node_path = (NodePath(name=AssistantNodeName.ROOT, message_id="test_id", tool_call_id="test_tool_call_id"),)
+        context_manager = AssistantContextManager(
+            team=self.team, user=self.user, config=RunnableConfig(configurable={})
+        )
+        mode_manager = ChatAgentModeManager(
+            team=self.team,
+            user=self.user,
+            node_path=node_path,
+            context_manager=context_manager,
+            state=AssistantState(messages=[HumanMessage(content="Test")]),
+        )
+        mode_names = [mode.value for mode in mode_manager.mode_registry.keys()]
+
+        for expected in [
+            "product_analytics",
+            "sql",
+            "session_replay",
+            "error_tracking",
+            "flags",
+            "survey",
+            "llm_analytics",
+        ]:
+            self.assertIn(expected, mode_names)
 
     @parameterized.expand(
         [
@@ -639,106 +646,91 @@ class TestRootNodeTools(BaseTest):
             self.assertIn("does not exist", result.messages[0].content)
 
 
-class TestChatAgentModeManagerSubagent(BaseTest):
+class TestChatAgentModeManagerModeFallback(BaseTest):
     @parameterized.expand(
         [
-            # (error_tracking_flag, plan_flag, survey_flag, expected_modes, unexpected_modes)
-            [
-                False,
-                False,
-                False,
-                ["product_analytics", "sql", "session_replay"],
-                ["plan", "error_tracking", "survey"],
-            ],
-            [
-                True,
-                False,
-                False,
-                ["product_analytics", "sql", "session_replay", "error_tracking"],
-                ["plan", "survey"],
-            ],
-            [
-                False,
-                False,
-                True,
-                ["product_analytics", "sql", "session_replay", "survey"],
-                ["plan", "error_tracking"],
-            ],
-            [
-                False,
-                True,
-                False,
-                ["product_analytics", "sql", "session_replay"],
-                ["plan", "error_tracking", "survey"],
-            ],
+            [AgentMode.LLM_ANALYTICS],
+            [AgentMode.ERROR_TRACKING],
+            [AgentMode.SURVEY],
+            [AgentMode.FLAGS],
         ]
     )
-    def test_subagent_mode_registry(
-        self, error_tracking_flag, plan_flag, survey_flag, expected_modes, unexpected_modes
-    ):
+    def test_all_modes_are_always_available(self, mode):
+        node_path = (NodePath(name=AssistantNodeName.ROOT, message_id="test_id", tool_call_id="test_tool_call_id"),)
+        context_manager = AssistantContextManager(
+            team=self.team, user=self.user, config=RunnableConfig(configurable={})
+        )
+        state = AssistantState(messages=[HumanMessage(content="Test")], agent_mode=mode)
+
+        mode_manager = ChatAgentModeManager(
+            team=self.team,
+            user=self.user,
+            node_path=node_path,
+            context_manager=context_manager,
+            state=state,
+        )
+        self.assertEqual(mode_manager._mode, mode)
+        self.assertIn(mode_manager._mode, mode_manager.mode_registry)
+
+
+class TestChatAgentModeManagerSubagent(BaseTest):
+    def test_subagent_mode_registry_includes_all_modes(self):
         node_path = (NodePath(name=AssistantNodeName.ROOT, message_id="test_id", tool_call_id="test_tool_call_id"),)
         config = RunnableConfig(configurable={"is_subagent": True})
         context_manager = AssistantContextManager(team=self.team, user=self.user, config=config)
-        with (
-            patch(
-                "ee.hogai.chat_agent.mode_manager.has_error_tracking_mode_feature_flag",
-                return_value=error_tracking_flag,
-            ),
-            patch("ee.hogai.chat_agent.mode_manager.has_plan_mode_feature_flag", return_value=plan_flag),
-            patch("ee.hogai.chat_agent.mode_manager.has_survey_mode_feature_flag", return_value=survey_flag),
-        ):
-            mode_manager = ChatAgentModeManager(
-                team=self.team,
-                user=self.user,
-                node_path=node_path,
-                context_manager=context_manager,
-                state=AssistantState(messages=[HumanMessage(content="Test")]),
-            )
-            mode_names = [mode.value for mode in mode_manager.mode_registry.keys()]
-            for expected in expected_modes:
-                self.assertIn(expected, mode_names)
-            for unexpected in unexpected_modes:
-                self.assertNotIn(unexpected, mode_names)
+        mode_manager = ChatAgentModeManager(
+            team=self.team,
+            user=self.user,
+            node_path=node_path,
+            context_manager=context_manager,
+            state=AssistantState(messages=[HumanMessage(content="Test")]),
+        )
+        mode_names = [mode.value for mode in mode_manager.mode_registry.keys()]
+        for expected in [
+            "product_analytics",
+            "sql",
+            "session_replay",
+            "error_tracking",
+            "flags",
+            "survey",
+            "llm_analytics",
+        ]:
+            self.assertIn(expected, mode_names)
+        # Plan mode is never available for subagents
+        self.assertNotIn("plan", mode_names)
 
     def test_subagent_product_analytics_toolkit_excludes_dangerous_tools(self):
-        from ee.hogai.tools import CreateInsightTool, UpsertDashboardTool
-
         context_manager = AssistantContextManager(
             team=self.team, user=self.user, config=RunnableConfig(configurable={"is_subagent": True})
         )
         toolkit = ReadOnlyProductAnalyticsAgentToolkit(team=self.team, user=self.user, context_manager=context_manager)
         self.assertIn(CreateInsightTool, toolkit.tools)
         self.assertNotIn(UpsertDashboardTool, toolkit.tools)
+        self.assertNotIn(UpsertAlertTool, toolkit.tools)
 
     def test_subagent_survey_toolkit_excludes_dangerous_tools(self):
-        from products.surveys.backend.max_tools import CreateSurveyTool, EditSurveyTool, SurveyAnalysisTool
-
         context_manager = AssistantContextManager(
             team=self.team, user=self.user, config=RunnableConfig(configurable={"is_subagent": True})
         )
-        toolkit = SubagentSurveyAgentToolkit(team=self.team, user=self.user, context_manager=context_manager)
+        toolkit = ReadOnlySurveyAgentToolkit(team=self.team, user=self.user, context_manager=context_manager)
         self.assertIn(SurveyAnalysisTool, toolkit.tools)
         self.assertNotIn(CreateSurveyTool, toolkit.tools)
         self.assertNotIn(EditSurveyTool, toolkit.tools)
 
-    def test_non_subagent_mode_registry_unchanged(self):
+    def test_non_subagent_mode_registry_includes_all_modes(self):
         node_path = (NodePath(name=AssistantNodeName.ROOT, message_id="test_id", tool_call_id="test_tool_call_id"),)
         config = RunnableConfig(configurable={})
         context_manager = AssistantContextManager(team=self.team, user=self.user, config=config)
-        with (
-            patch("ee.hogai.chat_agent.mode_manager.has_error_tracking_mode_feature_flag", return_value=True),
-            patch("ee.hogai.chat_agent.mode_manager.has_plan_mode_feature_flag", return_value=True),
-            patch("ee.hogai.chat_agent.mode_manager.has_survey_mode_feature_flag", return_value=True),
-        ):
-            mode_manager = ChatAgentModeManager(
-                team=self.team,
-                user=self.user,
-                node_path=node_path,
-                context_manager=context_manager,
-                state=AssistantState(messages=[HumanMessage(content="Test")]),
-            )
-            mode_names = [mode.value for mode in mode_manager.mode_registry.keys()]
-            self.assertIn("product_analytics", mode_names)
-            self.assertIn("plan", mode_names)
-            self.assertIn("survey", mode_names)
-            self.assertIn("error_tracking", mode_names)
+        mode_manager = ChatAgentModeManager(
+            team=self.team,
+            user=self.user,
+            node_path=node_path,
+            context_manager=context_manager,
+            state=AssistantState(messages=[HumanMessage(content="Test")]),
+        )
+        mode_names = [mode.value for mode in mode_manager.mode_registry.keys()]
+        self.assertIn("product_analytics", mode_names)
+        self.assertIn("survey", mode_names)
+        self.assertIn("error_tracking", mode_names)
+        self.assertIn("flags", mode_names)
+        self.assertIn("llm_analytics", mode_names)

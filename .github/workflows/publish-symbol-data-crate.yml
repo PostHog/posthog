@@ -1,0 +1,51 @@
+name: Publish posthog-symbol-data to crates.io
+
+on:
+    push:
+        tags:
+            - 'posthog-symbol-data/v*'
+
+env:
+    CARGO_TERM_COLOR: always
+
+jobs:
+    publish:
+        name: Publish to crates.io
+        runs-on: ubuntu-24.04
+        timeout-minutes: 5
+        if: github.repository == 'PostHog/posthog'
+
+        permissions:
+            contents: read
+            id-token: write
+
+        defaults:
+            run:
+                working-directory: rust
+
+        steps:
+            - uses: actions/checkout@v6
+
+            - name: Install rust
+              uses: dtolnay/rust-toolchain@0b1efabc08b657293548b77fb76cc02d26091c7e
+              with:
+                  toolchain: 1.91.1
+
+            - name: Verify tag matches crate version
+              run: |
+                  TAG_VERSION="${GITHUB_REF_NAME#posthog-symbol-data/v}"
+                  CRATE_VERSION=$(grep '^version' common/symbol_data/Cargo.toml | head -1 | sed 's/.*"\(.*\)".*/\1/')
+                  if [ "$TAG_VERSION" != "$CRATE_VERSION" ]; then
+                      echo "::error::Tag version ($TAG_VERSION) does not match crate version ($CRATE_VERSION)"
+                      exit 1
+                  fi
+                  echo "Publishing posthog-symbol-data v$CRATE_VERSION"
+
+            - name: Authenticate with crates.io
+              id: auth
+              uses: rust-lang/crates-io-auth-action@b7e9a28eded4986ec6b1fa40eeee8f8f165559ec # v1.0.3
+
+            - name: Publish to crates.io
+              env:
+                  CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
+              run: cargo publish -p posthog-symbol-data

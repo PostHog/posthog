@@ -29,13 +29,21 @@ jobs:
                   filters: |
                       proto:
                         - 'proto/**'
+                        - 'posthog/personhog_client/proto/generated/**'
+                        - 'bin/generate_personhog_proto.sh'
                         - '.github/workflows/ci-proto.yml'
 
     lint:
-        name: Lint proto definitions
+        name: Lint proto definitions (${{ matrix.runner }})
         needs: changes
         if: needs.changes.outputs.proto == 'true'
-        runs-on: depot-ubuntu-22.04-4
+        strategy:
+            fail-fast: false
+            matrix:
+                include: ${{ vars.BLACKSMITH_SHADOW_ENABLED == 'true' && fromJson('[{"runner":"depot-ubuntu-22.04-4","is_shadow":false},{"runner":"blacksmith-4vcpu-ubuntu-2204","is_shadow":true}]') || fromJson('[{"runner":"depot-ubuntu-22.04-4","is_shadow":false}]') }}
+        runs-on: ${{ matrix.runner }}
+        continue-on-error: ${{ matrix.is_shadow }}
+        timeout-minutes: 5
 
         steps:
             - uses: actions/checkout@v6
@@ -43,18 +51,25 @@ jobs:
                   clean: false
 
             - name: Install buf
-              uses: bufbuild/buf-setup-action@a47c93e0b1648d5651a065437926377d060baa99 # v1.50.0
+              uses: bufbuild/buf-action@8f4a1456a0ab6a1eb80ba68e53832e6fcfacc16c # v1.3.0
               with:
-                  github_token: ${{ secrets.GITHUB_TOKEN }}
+                  setup_only: true
+                  version: '1.50.0'
 
             - name: Lint protos
               run: buf lint proto/
 
     breaking:
-        name: Check for breaking changes
+        name: Check for breaking changes (${{ matrix.runner }})
         needs: changes
         if: needs.changes.outputs.proto == 'true'
-        runs-on: depot-ubuntu-22.04-4
+        strategy:
+            fail-fast: false
+            matrix:
+                include: ${{ vars.BLACKSMITH_SHADOW_ENABLED == 'true' && fromJson('[{"runner":"depot-ubuntu-22.04-4","is_shadow":false},{"runner":"blacksmith-4vcpu-ubuntu-2204","is_shadow":true}]') || fromJson('[{"runner":"depot-ubuntu-22.04-4","is_shadow":false}]') }}
+        runs-on: ${{ matrix.runner }}
+        continue-on-error: ${{ matrix.is_shadow }}
+        timeout-minutes: 5
 
         steps:
             - uses: actions/checkout@v6
@@ -62,17 +77,56 @@ jobs:
                   clean: false
 
             - name: Install buf
-              uses: bufbuild/buf-setup-action@a47c93e0b1648d5651a065437926377d060baa99 # v1.50.0
+              uses: bufbuild/buf-action@8f4a1456a0ab6a1eb80ba68e53832e6fcfacc16c # v1.3.0
               with:
-                  github_token: ${{ secrets.GITHUB_TOKEN }}
+                  setup_only: true
+                  version: '1.50.0'
 
             - name: Check for breaking changes
               run: buf breaking proto/ --against 'https://github.com/PostHog/posthog.git#branch=master,subdir=proto'
 
+    python-codegen:
+        name: Check Python proto stubs are up to date (${{ matrix.runner }})
+        needs: changes
+        if: needs.changes.outputs.proto == 'true'
+        strategy:
+            fail-fast: false
+            matrix:
+                include: ${{ vars.BLACKSMITH_SHADOW_ENABLED == 'true' && fromJson('[{"runner":"depot-ubuntu-22.04-4","is_shadow":false},{"runner":"blacksmith-4vcpu-ubuntu-2204","is_shadow":true}]') || fromJson('[{"runner":"depot-ubuntu-22.04-4","is_shadow":false}]') }}
+        runs-on: ${{ matrix.runner }}
+        continue-on-error: ${{ matrix.is_shadow }}
+        timeout-minutes: 10
+
+        steps:
+            - uses: actions/checkout@v6
+              with:
+                  clean: false
+
+            - uses: actions/setup-python@v5
+              with:
+                  python-version: '3.12'
+
+            - name: Install codegen tools
+              run: pip install grpcio-tools protoletariat ruff
+
+            - name: Regenerate Python proto stubs
+              run: bash bin/generate_personhog_proto.sh
+
+            - name: Check for diff
+              run: |
+                  if ! git diff --exit-code posthog/personhog_client/proto/generated/; then
+                    echo ""
+                    echo "ERROR: Generated Python proto stubs are out of date."
+                    echo "Run 'bash bin/generate_personhog_proto.sh' and commit the result."
+                    exit 1
+                  fi
+                  echo "Generated Python proto stubs are up to date."
+
     proto_checks:
-        needs: [changes, lint, breaking]
+        needs: [changes, lint, breaking, python-codegen]
         name: Proto Checks Pass
         runs-on: ubuntu-latest
+        timeout-minutes: 5
         if: always()
         steps:
             - name: Check all proto jobs
@@ -94,6 +148,11 @@ jobs:
 
                   if [[ "${{ needs.breaking.result }}" != "success" && "${{ needs.breaking.result }}" != "skipped" ]]; then
                     echo "Proto breaking change check failed."
+                    exit 1
+                  fi
+
+                  if [[ "${{ needs.python-codegen.result }}" != "success" && "${{ needs.python-codegen.result }}" != "skipped" ]]; then
+                    echo "Python proto codegen staleness check failed."
                     exit 1
                   fi
 

@@ -6,7 +6,7 @@ from django.db.models import Model, QuerySet
 from django.shortcuts import get_object_or_404
 
 import posthoganalytics
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.utils import extend_schema, extend_schema_field
 from rest_framework import exceptions, permissions, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.request import Request
@@ -14,11 +14,17 @@ from rest_framework.response import Response
 
 from posthog import settings
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.scoped_related_fields import OrgScopedPrimaryKeyRelatedField
 from posthog.api.shared import ProjectBasicSerializer, TeamBasicSerializer
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
 from posthog.cloud_utils import get_cached_instance_license, is_cloud
 from posthog.constants import INTERNAL_BOT_EMAIL_SUFFIX, AvailableFeature
-from posthog.event_usage import groups, report_organization_action, report_organization_deleted
+from posthog.event_usage import (
+    groups,
+    report_organization_action,
+    report_organization_deleted,
+    report_organization_deletion_initiated,
+)
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Organization, User
 from posthog.models.activity_logging.activity_log import ActivityContextBase, Detail, changes_between, log_activity
@@ -83,13 +89,17 @@ class OrganizationSerializer(
     projects = serializers.SerializerMethodField()
     metadata = serializers.SerializerMethodField()
     member_count = serializers.SerializerMethodField()
-    logo_media_id = serializers.PrimaryKeyRelatedField(
+    logo_media_id = OrgScopedPrimaryKeyRelatedField(
         queryset=UploadedMedia.objects.all(), required=False, allow_null=True
     )
     default_role_id = serializers.CharField(
         required=False,
         allow_null=True,
         help_text="ID of the role to automatically assign to new members joining the organization",
+    )
+    is_member_join_email_enabled = serializers.BooleanField(
+        read_only=True,
+        help_text="Legacy field; member-join emails are controlled per user in account notification settings.",
     )
 
     class Meta:
@@ -120,6 +130,7 @@ class OrganizationSerializer(
             "default_role_id",
             "is_active",
             "is_not_active_reason",
+            "is_pending_deletion",
         ]
         read_only_fields = [
             "id",
@@ -137,12 +148,23 @@ class OrganizationSerializer(
             "default_role_id",
             "is_active",
             "is_not_active_reason",
+            "is_pending_deletion",
         ]
         extra_kwargs = {
             "slug": {
                 "required": False,
             },  # slug is not required here as it's generated automatically for new organizations
         }
+
+    def validate_logo_media_id(self, value: UploadedMedia | None) -> UploadedMedia | None:
+        if value is None:
+            return value
+        if self.instance:
+            if value.team.organization_id != self.instance.id:
+                raise serializers.ValidationError("This media does not belong to this organization.")
+        else:
+            raise serializers.ValidationError("Cannot set logo media when creating an organization.")
+        return value
 
     def create(self, validated_data: dict, *args: Any, **kwargs: Any) -> Organization:
         serializers.raise_errors_on_nested_writes("create", self, validated_data)
@@ -152,7 +174,7 @@ class OrganizationSerializer(
 
     def get_membership_level(self, organization: Organization) -> OrganizationMembership.Level | None:
         membership = self.user_permissions.organization_memberships.get(organization.pk)
-        return membership.level if membership is not None else None
+        return OrganizationMembership.Level(membership.level) if membership is not None else None
 
     def get_teams(self, instance: Organization) -> list[dict[str, Any]]:
         # Support new access control system
@@ -171,6 +193,7 @@ class OrganizationSerializer(
         visible_projects = instance.projects.filter(id__in=self.user_permissions.project_ids_visible_for_user)
         return ProjectBasicSerializer(visible_projects, context=self.context, many=True).data  # type: ignore
 
+    @extend_schema_field(serializers.DictField(child=serializers.CharField()))
     def get_metadata(self, instance: Organization) -> dict[str, Union[str, int, object]]:
         return {
             "instance_tag": settings.INSTANCE_TAG,
@@ -212,6 +235,7 @@ class OrganizationSerializer(
                 )
         return value
 
+    @extend_schema_field(serializers.IntegerField())
     def get_member_count(self, organization: Organization):
         return (
             OrganizationMembership.objects.exclude(user__email__endswith=INTERNAL_BOT_EMAIL_SUFFIX)
@@ -223,6 +247,7 @@ class OrganizationSerializer(
         )
 
 
+@extend_schema(tags=["platform_features"])
 class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "organization"
     serializer_class = OrganizationSerializer
@@ -319,13 +344,21 @@ class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                         "Please cancel your subscription first in the billing page."
                     )
 
+        if organization.is_pending_deletion:
+            raise exceptions.ValidationError("This organization is already being deleted.")
+
         user = cast(User, self.request.user)
         report_organization_deleted(user, organization)
+        report_organization_deletion_initiated(user, organization)
         teams = list(organization.teams.only("id", "name").all())
         team_ids = [team.pk for team in teams]
         project_names = [team.name for team in teams]
         organization_id = organization.pk
         organization_name = organization.name
+
+        # Mark as pending deletion
+        organization.is_pending_deletion = True
+        organization.save(update_fields=["is_pending_deletion"])
 
         # Queue background task to handle all deletion
         # bulky postgres, batch exports, org/team records, ClickHouse, email

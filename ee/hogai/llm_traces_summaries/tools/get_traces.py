@@ -1,5 +1,6 @@
 from posthog.schema import CachedTracesQueryResponse, DateRange, HogQLPropertyFilter, QueryLogTags, TracesQuery
 
+from posthog.event_usage import EventSource
 from posthog.hogql_queries.ai.traces_query_runner import TracesQueryRunner
 from posthog.models.team.team import Team
 
@@ -13,7 +14,7 @@ class LLMTracesSummarizerCollector:
     def get_db_traces_per_page(self, offset: int, date_range: DateRange) -> CachedTracesQueryResponse:
         query = self._get_traces_query(offset=offset, date_range=date_range, limit=self._traces_per_page)
         runner = TracesQueryRunner(query=query, team=self._team)
-        response = runner.run()
+        response = runner.run(analytics_props={"source": EventSource.POSTHOG_AI})
         if not isinstance(response, CachedTracesQueryResponse):
             raise ValueError(f"Failed to get result for the previous day when summarizing LLM traces: {response}")
         return response
