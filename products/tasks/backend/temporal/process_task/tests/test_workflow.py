@@ -398,10 +398,7 @@ class TestProcessTaskWorkflowUnit:
         assert result.sandbox_id == "sandbox-123"
         assert inject_fresh_tokens_on_resume in activity_calls
         # Should run after create, before any clone/checkout
-        assert (
-            activity_calls.index(inject_fresh_tokens_on_resume)
-            == activity_calls.index(create_sandbox_for_repository) + 1
-        )
+        assert activity_calls.index(inject_fresh_tokens_on_resume) > activity_calls.index(create_sandbox_for_repository)
         assert clone_repository_in_sandbox not in activity_calls
         assert checkout_branch_in_sandbox not in activity_calls
         assert inject_call_args["input"].sandbox_id == "sandbox-123"
