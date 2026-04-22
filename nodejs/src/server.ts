@@ -16,12 +16,15 @@ import { CdpInternalEventsConsumer } from './cdp/consumers/cdp-internal-event.co
 import { CdpLegacyEventsConsumer, CdpLegacyEventsConsumerDeps } from './cdp/consumers/cdp-legacy-event.consumer'
 import { CdpPersonUpdatesConsumer } from './cdp/consumers/cdp-person-updates-consumer'
 import { CdpPrecalculatedFiltersConsumer } from './cdp/consumers/cdp-precalculated-filters.consumer'
+import { createCdpProducerRegistry } from './cdp/outputs/producer-registry'
+import { CdpProducerName } from './cdp/outputs/producers'
 import { CyclotronV2JanitorService } from './cdp/services/cyclotron-v2'
 import { HogFlowScheduleService } from './cdp/services/hogflow-schedule/hogflow-schedule.service'
 import { EncryptedFields } from './cdp/utils/encryption-utils'
 import { defaultConfig } from './config/config'
 import { createIngestionRedisConnectionConfig, createPosthogRedisConnectionConfig } from './config/redis-pools'
 import { startEvaluationScheduler } from './evaluation-scheduler/evaluation-scheduler'
+import { KafkaProducerRegistry } from './ingestion/outputs/kafka-producer-registry'
 import { buildGroupRepository, buildPersonRepository, createPersonHogClient } from './ingestion/personhog'
 import { KafkaProducerWrapper } from './kafka/producer'
 import { CleanupResources, NodeServer, ServerLifecycle } from './servers/base-server'
@@ -49,7 +52,7 @@ export class PluginServer implements NodeServer {
 
     // Infrastructure resources (tracked for shutdown cleanup)
     private kafkaProducer?: KafkaProducerWrapper
-    private monitoringProducer?: KafkaProducerWrapper
+    private cdpProducerRegistry?: KafkaProducerRegistry<CdpProducerName>
     private postgres?: PostgresRouter
     private redisPool?: RedisPool
     private posthogRedisPool?: RedisPool
@@ -95,10 +98,7 @@ export class PluginServer implements NodeServer {
         // 2. Services shared by CDP (geoip, repos, encryption)
         let cdpServices: Awaited<ReturnType<typeof this.createCdpSharedServices>> | undefined
         if (needsCdp) {
-            this.monitoringProducer = await KafkaProducerWrapper.create(
-                this.config.KAFKA_CLIENT_RACK,
-                'MONITORING_PRODUCER'
-            )
+            this.cdpProducerRegistry = await createCdpProducerRegistry(this.config.KAFKA_CLIENT_RACK).build(this.config)
             cdpServices = await this.createCdpSharedServices()
         }
 
@@ -117,7 +117,7 @@ export class PluginServer implements NodeServer {
                   teamManager,
                   integrationManager: cdpServices!.integrationManager,
                   kafkaProducer: this.kafkaProducer!,
-                  monitoringProducer: this.monitoringProducer!,
+                  cdpProducerRegistry: this.cdpProducerRegistry!,
                   internalCaptureService: cdpServices!.internalCaptureService,
                   personRepository: cdpServices!.personRepository,
                   geoipService: cdpServices!.geoipService,
@@ -273,10 +273,13 @@ export class PluginServer implements NodeServer {
 
     private getCleanupResources(): CleanupResources {
         return {
-            kafkaProducers: [this.kafkaProducer, this.monitoringProducer].filter(Boolean) as KafkaProducerWrapper[],
+            kafkaProducers: [this.kafkaProducer].filter(Boolean) as KafkaProducerWrapper[],
             redisPools: [this.redisPool, this.posthogRedisPool].filter(Boolean) as RedisPool[],
             postgres: this.postgres,
             pubsub: this.pubsub,
+            additionalCleanup: async () => {
+                await this.cdpProducerRegistry?.disconnectAll()
+            },
         }
     }
 

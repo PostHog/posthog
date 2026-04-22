@@ -1,5 +1,6 @@
 import { KAFKA_APP_METRICS_2, KAFKA_EVENTS_JSON, KAFKA_LOG_ENTRIES } from '../config/kafka-topics'
 import { isDevEnv, isProdEnv, isTestEnv } from '../utils/env-utils'
+import { CdpProducerName, WARPSTREAM_INGESTION_PRODUCER } from './outputs/producers'
 import { CyclotronJobQueueKind, CyclotronJobQueueSource } from './types'
 
 export type CdpConfig = {
@@ -54,7 +55,9 @@ export type CdpConfig = {
     CDP_FETCH_BACKOFF_MAX_MS: number
     CDP_OVERFLOW_QUEUE_ENABLED: boolean
     HOG_FUNCTION_MONITORING_APP_METRICS_TOPIC: string
+    HOG_FUNCTION_MONITORING_APP_METRICS_PRODUCER: CdpProducerName
     HOG_FUNCTION_MONITORING_LOG_ENTRIES_TOPIC: string
+    HOG_FUNCTION_MONITORING_LOG_ENTRIES_PRODUCER: CdpProducerName
 
     CDP_EMAIL_TRACKING_URL: string
 
@@ -140,7 +143,9 @@ export function getDefaultCdpConfig(): CdpConfig {
         CDP_FETCH_BACKOFF_MAX_MS: 30000,
         CDP_OVERFLOW_QUEUE_ENABLED: false,
         HOG_FUNCTION_MONITORING_APP_METRICS_TOPIC: KAFKA_APP_METRICS_2,
+        HOG_FUNCTION_MONITORING_APP_METRICS_PRODUCER: WARPSTREAM_INGESTION_PRODUCER,
         HOG_FUNCTION_MONITORING_LOG_ENTRIES_TOPIC: KAFKA_LOG_ENTRIES,
+        HOG_FUNCTION_MONITORING_LOG_ENTRIES_PRODUCER: WARPSTREAM_INGESTION_PRODUCER,
 
         CDP_EMAIL_TRACKING_URL: 'http://localhost:8010',
 

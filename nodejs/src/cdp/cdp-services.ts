@@ -2,14 +2,14 @@ import { RedisV2, createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
 
 import type { CommonConfig } from '../common/config'
 import { InternalCaptureService } from '../common/services/internal-capture'
-import { APP_METRICS_OUTPUT, LOG_ENTRIES_OUTPUT } from '../ingestion/common/outputs'
-import { IngestionOutputs } from '../ingestion/outputs/ingestion-outputs'
-import { SingleIngestionOutput } from '../ingestion/outputs/single-ingestion-output'
+import { KafkaProducerRegistry } from '../ingestion/outputs/kafka-producer-registry'
 import { KafkaProducerWrapper } from '../kafka/producer'
 import { PostgresRouter } from '../utils/db/postgres'
 import { PubSub } from '../utils/pubsub'
 import { TeamManager } from '../utils/team-manager'
 import type { CdpConfig } from './config'
+import { CdpProducerName } from './outputs/producers'
+import { createCdpOutputsRegistry } from './outputs/registry'
 import { HogExecutorService } from './services/hog-executor.service'
 import { HogInputsService } from './services/hog-inputs.service'
 import { HogFlowExecutorService } from './services/hogflows/hogflow-executor.service'
@@ -78,7 +78,9 @@ export type CdpCoreServicesConfig = Pick<
         | 'CDP_FETCH_BACKOFF_BASE_MS'
         | 'CDP_FETCH_BACKOFF_MAX_MS'
         | 'HOG_FUNCTION_MONITORING_APP_METRICS_TOPIC'
+        | 'HOG_FUNCTION_MONITORING_APP_METRICS_PRODUCER'
         | 'HOG_FUNCTION_MONITORING_LOG_ENTRIES_TOPIC'
+        | 'HOG_FUNCTION_MONITORING_LOG_ENTRIES_PRODUCER'
     >
 
 export interface CdpCoreServicesDeps {
@@ -88,8 +90,8 @@ export interface CdpCoreServicesDeps {
     teamManager: TeamManager
     integrationManager: IntegrationManagerService
     kafkaProducer: KafkaProducerWrapper
-    /** Producer targeting the ingestion WarpStream cluster for monitoring outputs (app metrics, log entries). */
-    monitoringProducer: KafkaProducerWrapper
+    /** Registry of producers used by the CDP monitoring outputs (MSK / Warpstream-ingestion / Warpstream-cdp). */
+    cdpProducerRegistry: KafkaProducerRegistry<CdpProducerName>
     internalCaptureService: InternalCaptureService
 }
 
@@ -175,20 +177,7 @@ export function createCdpCoreServices(
     const hogFlowExecutor = new HogFlowExecutorService(hogFlowFunctionsService, recipientPreferencesService)
 
     const hogFunctionMonitoringService = new HogFunctionMonitoringService(
-        new IngestionOutputs({
-            [APP_METRICS_OUTPUT]: new SingleIngestionOutput(
-                APP_METRICS_OUTPUT,
-                config.HOG_FUNCTION_MONITORING_APP_METRICS_TOPIC,
-                deps.monitoringProducer,
-                'default'
-            ),
-            [LOG_ENTRIES_OUTPUT]: new SingleIngestionOutput(
-                LOG_ENTRIES_OUTPUT,
-                config.HOG_FUNCTION_MONITORING_LOG_ENTRIES_TOPIC,
-                deps.monitoringProducer,
-                'default'
-            ),
-        }),
+        createCdpOutputsRegistry().build(deps.cdpProducerRegistry, config),
         deps.internalCaptureService,
         deps.teamManager
     )
