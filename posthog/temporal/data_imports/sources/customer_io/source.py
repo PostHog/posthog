@@ -1,7 +1,6 @@
 from collections.abc import AsyncIterable, Iterable
 from typing import TYPE_CHECKING, Any, Optional, cast
 
-import posthoganalytics
 from asgiref.sync import async_to_sync
 
 from posthog.schema import (
@@ -11,7 +10,6 @@ from posthog.schema import (
     SourceFieldInputConfigType,
 )
 
-from posthog.exceptions_capture import capture_exception
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
 from posthog.temporal.data_imports.sources.common.base import (
     ExternalWebhookInfo,
@@ -23,7 +21,10 @@ from posthog.temporal.data_imports.sources.common.base import (
 )
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
-from posthog.temporal.data_imports.sources.common.webhook_s3 import WAREHOUSE_WEBHOOK_FLAG, WebhookSourceManager
+from posthog.temporal.data_imports.sources.common.webhook_s3 import (
+    WebhookSourceManager,
+    is_webhook_feature_flag_enabled,
+)
 from posthog.temporal.data_imports.sources.customer_io.constants import CIO_ENDPOINTS, RESOURCE_TO_CIO_OBJECT_TYPE
 from posthog.temporal.data_imports.sources.generated_configs import CustomerIOSourceConfig
 
@@ -34,36 +35,6 @@ if TYPE_CHECKING:
 
 
 CIO_DOCS_WEBHOOKS_URL = "https://fly.customer.io/settings/webhooks/new/reporting_webhook"
-
-
-def _is_webhook_feature_flag_enabled(team_id: int) -> bool:
-    from posthog.models import Team
-
-    try:
-        team = Team.objects.only("uuid", "organization_id").get(id=team_id)
-    except Team.DoesNotExist:
-        return False
-
-    try:
-        enabled = posthoganalytics.feature_enabled(
-            WAREHOUSE_WEBHOOK_FLAG,
-            str(team.uuid),
-            groups={
-                "organization": str(team.organization_id),
-                "project": str(team.id),
-            },
-            group_properties={
-                "organization": {"id": str(team.organization_id)},
-                "project": {"id": str(team.id)},
-            },
-            only_evaluate_locally=False,
-            send_feature_flag_events=False,
-        )
-
-        return bool(enabled)
-    except Exception as e:
-        capture_exception(e)
-        return False
 
 
 @SourceRegistry.register
@@ -138,7 +109,7 @@ Once created, copy the **Signing key** from the webhook details page and add it 
         with_counts: bool = False,
         names: list[str] | None = None,
     ) -> list[SourceSchema]:
-        webhooks_enabled = _is_webhook_feature_flag_enabled(team_id)
+        webhooks_enabled = is_webhook_feature_flag_enabled(team_id)
         schemas = [
             SourceSchema(
                 name=endpoint,

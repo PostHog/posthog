@@ -22,6 +22,36 @@ from products.data_warehouse.backend.s3 import aget_s3_client
 WAREHOUSE_WEBHOOK_FLAG = "warehouse-source-webhooks"
 
 
+def is_webhook_feature_flag_enabled(team_id: int) -> bool:
+    from posthog.models import Team
+
+    try:
+        team = Team.objects.only("uuid", "organization_id").get(id=team_id)
+    except Team.DoesNotExist:
+        return False
+
+    try:
+        enabled = posthoganalytics.feature_enabled(
+            WAREHOUSE_WEBHOOK_FLAG,
+            str(team.uuid),
+            groups={
+                "organization": str(team.organization_id),
+                "project": str(team.id),
+            },
+            group_properties={
+                "organization": {"id": str(team.organization_id)},
+                "project": {"id": str(team.id)},
+            },
+            only_evaluate_locally=False,
+            send_feature_flag_events=False,
+        )
+
+        return bool(enabled)
+    except Exception as e:
+        capture_exception(e)
+        return False
+
+
 class WebhookSourceManager:
     _inputs: SourceInputs
     _logger: FilteringBoundLogger
