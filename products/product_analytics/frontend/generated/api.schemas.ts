@@ -9205,6 +9205,7 @@ export const DisplayTypeApi = {
     Auto: 'auto',
     Line: 'line',
     Bar: 'bar',
+    Area: 'area',
 } as const
 
 export type YAxisPositionApi = (typeof YAxisPositionApi)[keyof typeof YAxisPositionApi]

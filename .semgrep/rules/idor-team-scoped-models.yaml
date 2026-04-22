@@ -482,7 +482,8 @@ rules:
                       metavariable: $MODEL
                       regex: |
                           (?x)(
-                              OrganizationMembership
+                              LegalDocument
+                              |OrganizationMembership
                               |OrganizationDomain
                               |OrganizationIntegration
                               |OrganizationInvite
@@ -543,7 +544,8 @@ rules:
                 metavariable: $MODEL
                 regex: |
                     (?x)(
-                        OrganizationMembership
+                        LegalDocument
+                        |OrganizationMembership
                         |OrganizationDomain
                         |OrganizationIntegration
                         |OrganizationInvite

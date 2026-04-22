@@ -645,7 +645,11 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         try:
             await workflow.execute_activity(
                 send_followup_to_sandbox,
-                SendFollowupToSandboxInput(run_id=self.context.run_id, message=message),
+                SendFollowupToSandboxInput(
+                    run_id=self.context.run_id,
+                    message=message,
+                    posthog_mcp_scopes=self._posthog_mcp_scopes,
+                ),
                 start_to_close_timeout=timedelta(minutes=35),
                 retry_policy=RetryPolicy(maximum_attempts=1),
             )

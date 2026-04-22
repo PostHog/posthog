@@ -589,6 +589,15 @@ export interface PaginatedErrorTrackingFingerprintListApi {
     results: ErrorTrackingFingerprintApi[]
 }
 
+export interface GitProviderFileLinkResolveResponseApi {
+    /** Whether a matching file URL was found. */
+    found: boolean
+    /** Resolved URL for the matching file. */
+    url?: string
+    /** Error message when input parameters are invalid. */
+    error?: string
+}
+
 /**
  * @nullable
  */
@@ -915,6 +924,17 @@ export interface PaginatedErrorTrackingSuppressionRuleListApi {
     results: ErrorTrackingSuppressionRuleApi[]
 }
 
+export interface ErrorTrackingSuppressionRuleCreateRequestApi {
+    /** Optional property-group filters that define which incoming error events should be suppressed. Omit this field or provide an empty `values` array to create a match-all suppression rule. */
+    filters?: PropertyGroupFilterValueApi
+    /**
+     * Fraction of matching events to suppress. Use `1.0` to suppress all matching events.
+     * @minimum 0
+     * @maximum 1
+     */
+    sampling_rate?: number
+}
+
 export interface PatchedErrorTrackingSuppressionRuleApi {
     readonly id?: string
     filters?: unknown
@@ -1017,6 +1037,52 @@ export type ErrorTrackingFingerprintsListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
+}
+
+export type ErrorTrackingGitProviderFileLinksResolveGithubRetrieveParams = {
+    /**
+     * Code snippet to search for in repository files.
+     * @minLength 1
+     */
+    code_sample: string
+    /**
+     * File name to match in search results.
+     * @minLength 1
+     */
+    file_name: string
+    /**
+     * Repository owner or namespace.
+     * @minLength 1
+     */
+    owner: string
+    /**
+     * Repository name.
+     * @minLength 1
+     */
+    repository: string
+}
+
+export type ErrorTrackingGitProviderFileLinksResolveGitlabRetrieveParams = {
+    /**
+     * Code snippet to search for in repository files.
+     * @minLength 1
+     */
+    code_sample: string
+    /**
+     * File name to match in search results.
+     * @minLength 1
+     */
+    file_name: string
+    /**
+     * Repository owner or namespace.
+     * @minLength 1
+     */
+    owner: string
+    /**
+     * Repository name.
+     * @minLength 1
+     */
+    repository: string
 }
 
 export type ErrorTrackingIssuesListParams = {

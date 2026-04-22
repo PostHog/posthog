@@ -1211,7 +1211,9 @@ function generateDefinitionsJson(
                 },
                 ...(toolConfig.requires_ai_consent ? { requires_ai_consent: true } : {}),
                 ...(toolConfig.feature_flag ? { feature_flag: toolConfig.feature_flag } : {}),
-                ...(toolConfig.feature_flag_behavior ? { feature_flag_behavior: toolConfig.feature_flag_behavior } : {}),
+                ...(toolConfig.feature_flag_behavior
+                    ? { feature_flag_behavior: toolConfig.feature_flag_behavior }
+                    : {}),
             }
         }
         // Include query wrappers defined in the same category file
@@ -1231,7 +1233,9 @@ function generateDefinitionsJson(
                     readOnlyHint: wrapperConfig.annotations.readOnly,
                 },
                 ...(wrapperConfig.feature_flag ? { feature_flag: wrapperConfig.feature_flag } : {}),
-                ...(wrapperConfig.feature_flag_behavior ? { feature_flag_behavior: wrapperConfig.feature_flag_behavior } : {}),
+                ...(wrapperConfig.feature_flag_behavior
+                    ? { feature_flag_behavior: wrapperConfig.feature_flag_behavior }
+                    : {}),
             }
         }
     }

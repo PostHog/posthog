@@ -5007,6 +5007,38 @@ export namespace Schemas {
       Snoozed: 'Snoozed',
     } as const;
 
+    /**
+     * * `pending` - pending
+    * `running` - running
+    * `done` - done
+    * `failed` - failed
+    * `skipped` - skipped
+     */
+    export type InvestigationStatusEnum = typeof InvestigationStatusEnum[keyof typeof InvestigationStatusEnum];
+
+
+    export const InvestigationStatusEnum = {
+      Pending: 'pending',
+      Running: 'running',
+      Done: 'done',
+      Failed: 'failed',
+      Skipped: 'skipped',
+    } as const;
+
+    /**
+     * * `true_positive` - true_positive
+    * `false_positive` - false_positive
+    * `inconclusive` - inconclusive
+     */
+    export type InvestigationVerdictEnum = typeof InvestigationVerdictEnum[keyof typeof InvestigationVerdictEnum];
+
+
+    export const InvestigationVerdictEnum = {
+      TruePositive: 'true_positive',
+      FalsePositive: 'false_positive',
+      Inconclusive: 'inconclusive',
+    } as const;
+
     export interface AlertCheck {
       readonly id: string;
       readonly created_at: string;
@@ -5020,6 +5052,18 @@ export namespace Schemas {
       /** @nullable */
       readonly interval: string | null;
       readonly triggered_metadata: unknown | null;
+      readonly investigation_status: InvestigationStatusEnum | NullEnum | null;
+      readonly investigation_verdict: InvestigationVerdictEnum | NullEnum | null;
+      /** @nullable */
+      readonly investigation_summary: string | null;
+      /**
+       * Short ID of the Notebook produced by the investigation agent, when the agent ran for this check.
+       * @nullable
+       */
+      readonly investigation_notebook_short_id: string | null;
+      /** @nullable */
+      readonly notification_sent_at: string | null;
+      readonly notification_suppressed_by_agent: boolean;
     }
 
     export type TrendsAlertConfigType = typeof TrendsAlertConfigType[keyof typeof TrendsAlertConfigType];
@@ -5431,6 +5475,18 @@ export namespace Schemas {
       blocked_windows: AlertScheduleRestrictionWindow[];
     }
 
+    /**
+     * * `notify` - Notify
+    * `suppress` - Suppress
+     */
+    export type InvestigationInconclusiveActionEnum = typeof InvestigationInconclusiveActionEnum[keyof typeof InvestigationInconclusiveActionEnum];
+
+
+    export const InvestigationInconclusiveActionEnum = {
+      Notify: 'notify',
+      Suppress: 'suppress',
+    } as const;
+
     export interface Alert {
       readonly id: string;
       readonly created_by: UserBasic;
@@ -5489,6 +5545,15 @@ export namespace Schemas {
        * @nullable
        */
       readonly last_value: number | null;
+      /** When enabled, an investigation agent runs on the state transition to firing and writes findings to a Notebook linked from the alert check. Only effective for detector-based (anomaly) alerts. */
+      investigation_agent_enabled?: boolean;
+      /** When enabled (and investigation_agent_enabled is on), notification dispatch is held until the investigation agent produces a verdict. Notifications are suppressed when the verdict is false_positive (and optionally when inconclusive). A safety-net task force-fires after a few minutes if the investigation stalls. */
+      investigation_gates_notifications?: boolean;
+      /** How to handle an 'inconclusive' verdict when notifications are gated. 'notify' is the safe default — an agent that can't be sure is itself useful signal.
+
+    * `notify` - Notify
+    * `suppress` - Suppress */
+      investigation_inconclusive_action?: InvestigationInconclusiveActionEnum;
     }
 
     export interface AlertSimulate {
@@ -5764,6 +5829,12 @@ export namespace Schemas {
       PositionBased: 'position_based',
     } as const;
 
+    export interface UserBasicInfo {
+      id: number;
+      first_name: string;
+      email: string;
+    }
+
     export interface RunSummary {
       total: number;
       changed: number;
@@ -5776,6 +5847,7 @@ export namespace Schemas {
     export type RunMetadata = {[key: string]: unknown};
 
     export interface Run {
+      approved_by?: UserBasicInfo | null;
       id: string;
       repo_id: string;
       status: string;
@@ -6561,8 +6633,8 @@ export namespace Schemas {
       records_total_count?: number | null;
       /**
        * The number of bytes that have been exported in this BatchExportRun.
-       * @minimum -9223372036854776000
-       * @maximum 9223372036854776000
+       * @minimum -2147483648
+       * @maximum 2147483647
        * @nullable
        */
       bytes_exported?: number | null;
@@ -6708,8 +6780,8 @@ export namespace Schemas {
       readonly last_updated_at: string;
       /**
        * The total number of records to export. Initially estimated, updated with actual count after completion.
-       * @minimum -9223372036854776000
-       * @maximum 9223372036854776000
+       * @minimum -2147483648
+       * @maximum 2147483647
        * @nullable
        */
       total_records_count?: number | null;
@@ -7399,6 +7471,7 @@ export namespace Schemas {
       Auto: 'auto',
       Line: 'line',
       Bar: 'bar',
+      Area: 'area',
     } as const;
 
     export type YAxisPosition = typeof YAxisPosition[keyof typeof YAxisPosition];
@@ -7658,6 +7731,8 @@ export namespace Schemas {
       resume_from_run_id?: string;
       /** Initial or follow-up user message to include in the run prompt. */
       pending_user_message?: string;
+      /** Identifiers for staged task artifacts that should be attached to the initial run prompt. */
+      pending_user_artifact_ids?: string[];
       /** Optional sandbox environment to apply for this cloud run. */
       sandbox_environment_id?: string;
       /** Whether pull requests for this run should be authored by the user or the bot.
@@ -7954,6 +8029,8 @@ export namespace Schemas {
       resume_from_run_id?: string;
       /** Initial or follow-up user message to include in the run prompt. */
       pending_user_message?: string;
+      /** Identifiers for staged task artifacts that should be attached to the initial run prompt. */
+      pending_user_artifact_ids?: string[];
       /** Optional sandbox environment to apply for this cloud run. */
       sandbox_environment_id?: string;
       /** Whether pull requests for this run should be authored by the user or the bot.
@@ -8221,6 +8298,18 @@ export namespace Schemas {
       /** JWT token for authenticating with the sandbox */
       token: string;
     }
+
+    /**
+     * * `utf-8` - utf-8
+    * `base64` - base64
+     */
+    export type ContentEncodingEnum = typeof ContentEncodingEnum[keyof typeof ContentEncodingEnum];
+
+
+    export const ContentEncodingEnum = {
+      Utf8: 'utf-8',
+      Base64: 'base64',
+    } as const;
 
     export type ConversationMessagesItem = {[key: string]: unknown};
 
@@ -8655,6 +8744,58 @@ export namespace Schemas {
     }
 
     /**
+     * * `BAA` - BAA
+    * `DPA` - DPA
+     */
+    export type DocumentTypeEnum = typeof DocumentTypeEnum[keyof typeof DocumentTypeEnum];
+
+
+    export const DocumentTypeEnum = {
+      Baa: 'BAA',
+      Dpa: 'DPA',
+    } as const;
+
+    /**
+     * Input serializer for POST. Mirrors the submittable fields on the model plus
+    cross-field rules (BAA addon, DPA mode, uniqueness). The view supplies the
+    organization and submitting user.
+     */
+    export interface CreateLegalDocument {
+      /** Either 'BAA' or 'DPA'.
+
+    * `BAA` - BAA
+    * `DPA` - DPA */
+      document_type: DocumentTypeEnum;
+      /**
+       * The customer legal entity entering the agreement.
+       * @maxLength 255
+       */
+      company_name: string;
+      /**
+       * Customer address. Required for DPAs; ignored for BAAs.
+       * @maxLength 512
+       */
+      company_address?: string;
+      /**
+       * Name of the signer at the customer.
+       * @maxLength 255
+       */
+      representative_name: string;
+      /**
+       * Title of the signer at the customer.
+       * @maxLength 255
+       */
+      representative_title: string;
+      /** Email the signed PandaDoc envelope is sent to. */
+      representative_email: string;
+      /**
+       * DPA style: 'pretty' or 'lawyer' for submittable versions. 'fairytale' and 'tswift' are preview-only on posthog.com and are not accepted by the API.
+       * @maxLength 16
+       */
+      dpa_mode?: string;
+    }
+
+    /**
      * * `zoom` - zoom
     * `teams` - teams
     * `meet` - meet
@@ -8771,8 +8912,8 @@ export namespace Schemas {
        */
       video_url?: string | null;
       /**
-       * @minimum -9223372036854776000
-       * @maximum 9223372036854776000
+       * @minimum -2147483648
+       * @maximum 2147483647
        * @nullable
        */
       video_size_bytes?: number | null;
@@ -9102,11 +9243,6 @@ export namespace Schemas {
       explicitDate?: boolean | null;
       /** @nullable */
       properties?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
-    }
-
-    export interface DashboardGeneratedMetadata {
-      name: string;
-      description: string;
     }
 
     /**
@@ -13412,8 +13548,8 @@ export namespace Schemas {
        */
       video_url?: string | null;
       /**
-       * @minimum -9223372036854776000
-       * @maximum 9223372036854776000
+       * @minimum -2147483648
+       * @maximum 2147483647
        * @nullable
        */
       video_size_bytes?: number | null;
@@ -13438,6 +13574,18 @@ export namespace Schemas {
     }
 
     /**
+     * * `slack` - slack
+    * `webhook` - webhook
+     */
+    export type DestinationTypesEnum = typeof DestinationTypesEnum[keyof typeof DestinationTypesEnum];
+
+
+    export const DestinationTypesEnum = {
+      Slack: 'slack',
+      Webhook: 'webhook',
+    } as const;
+
+    /**
      * * `Desktop` - Desktop
     * `Mobile` - Mobile
     * `Tablet` - Tablet
@@ -13449,6 +13597,18 @@ export namespace Schemas {
       Desktop: 'Desktop',
       Mobile: 'Mobile',
       Tablet: 'Tablet',
+    } as const;
+
+    /**
+     * * `Up` - Up
+    * `Down` - Down
+     */
+    export type DirectionEnum = typeof DirectionEnum[keyof typeof DirectionEnum];
+
+
+    export const DirectionEnum = {
+      Up: 'Up',
+      Down: 'Down',
     } as const;
 
     export type DistanceFunc = typeof DistanceFunc[keyof typeof DistanceFunc];
@@ -13575,6 +13735,34 @@ export namespace Schemas {
     export interface DraftStatusResponse {
       updated_at: string;
       has_draft: boolean;
+    }
+
+    export interface WoWChange {
+      /** Absolute percentage change, rounded to nearest integer. */
+      percent: number;
+      /** Direction of the change relative to the prior period.
+
+    * `Up` - Up
+    * `Down` - Down */
+      direction: DirectionEnum;
+      /** Hex color indicating whether the change is a positive or negative signal. */
+      color: string;
+      /** Short label, e.g. 'Up 12%'. */
+      text: string;
+      /** Verbose label, e.g. 'Up 12% from prior period'. */
+      long_text: string;
+    }
+
+    export interface DurationMetric {
+      /** Human-readable duration, e.g. '2m 34s'. */
+      current: string;
+      /**
+       * Prior-period duration, e.g. '2m 10s'.
+       * @nullable
+       */
+      previous: string | null;
+      /** Period-over-period change, null when not meaningful. */
+      change: WoWChange | null;
     }
 
     /**
@@ -14815,6 +15003,17 @@ export namespace Schemas {
       readonly updated_at: string;
     }
 
+    export interface ErrorTrackingSuppressionRuleCreateRequest {
+      /** Optional property-group filters that define which incoming error events should be suppressed. Omit this field or provide an empty `values` array to create a match-all suppression rule. */
+      filters?: PropertyGroupFilterValue;
+      /**
+       * Fraction of matching events to suppress. Use `1.0` to suppress all matching events.
+       * @minimum 0
+       * @maximum 1
+       */
+      sampling_rate?: number;
+    }
+
     /**
      * Release associated with this symbol set
      * @nullable
@@ -14838,6 +15037,31 @@ export namespace Schemas {
        */
       readonly release: ErrorTrackingSymbolSetRelease;
     }
+
+    /**
+     * Configuration dict. For 'llm_judge': {prompt}. For 'hog': {source}.
+     */
+    export type EvaluationEvaluationConfig = {
+      /**
+       * Evaluation criteria for the LLM judge. Describe what makes a good vs bad response.
+       * @minLength 1
+       */
+      prompt: string;
+    } | {
+      /**
+       * Hog source code. Must return true (pass), false (fail), or null for N/A.
+       * @minLength 1
+       */
+      source: string;
+    };
+
+    /**
+     * Output config. For 'boolean' output_type: {allows_na} to permit N/A results.
+     */
+    export type EvaluationOutputConfig = {
+      /** Whether the evaluation can return N/A for non-applicable generations. */
+      allows_na?: boolean;
+    };
 
     /**
      * * `active` - Active
@@ -14922,21 +15146,37 @@ export namespace Schemas {
 
     export interface Evaluation {
       readonly id: string;
-      /** @maxLength 400 */
+      /**
+       * Name of the evaluation.
+       * @maxLength 400
+       */
       name: string;
+      /** Optional description of what this evaluation checks. */
       description?: string;
+      /** Whether the evaluation runs automatically on new $ai_generation events. */
       enabled?: boolean;
       readonly status: EvaluationStatusEnum;
       readonly status_reason: StatusReasonEnum | NullEnum | null;
+      /** 'llm_judge' uses an LLM to score outputs against a prompt; 'hog' runs deterministic Hog code.
+
+    * `llm_judge` - LLM as a judge
+    * `hog` - Hog */
       evaluation_type: EvaluationTypeEnum;
-      evaluation_config?: unknown;
+      /** Configuration dict. For 'llm_judge': {prompt}. For 'hog': {source}. */
+      evaluation_config?: EvaluationEvaluationConfig;
+      /** Output format. Currently only 'boolean' is supported.
+
+    * `boolean` - Boolean (Pass/Fail) */
       output_type: OutputTypeEnum;
-      output_config?: unknown;
+      /** Output config. For 'boolean' output_type: {allows_na} to permit N/A results. */
+      output_config?: EvaluationOutputConfig;
+      /** Optional trigger conditions to filter which events are evaluated. OR between condition sets, AND within each. */
       conditions?: unknown;
       model_configuration?: ModelConfiguration | null;
       readonly created_at: string;
       readonly updated_at: string;
       readonly created_by: UserBasic;
+      /** Set to true to soft-delete the evaluation. */
       deleted?: boolean;
     }
 
@@ -14961,41 +15201,58 @@ export namespace Schemas {
 
     export interface EvaluationReport {
       readonly id: string;
+      /** UUID of the evaluation this report config belongs to. */
       evaluation: string;
+      /** 'every_n' triggers a report after N evaluations run; 'scheduled' uses an rrule schedule.
+
+    * `scheduled` - Scheduled
+    * `every_n` - Every N */
       frequency?: EvaluationReportFrequencyEnum;
+      /** RFC 5545 recurrence rule string. Required when frequency is 'scheduled'. */
       rrule?: string;
-      /** @nullable */
+      /**
+       * Schedule start datetime (ISO 8601). Required when frequency is 'scheduled'.
+       * @nullable
+       */
       starts_at?: string | null;
-      /** @maxLength 64 */
+      /**
+       * IANA timezone name for scheduled delivery (e.g. 'America/New_York').
+       * @maxLength 64
+       */
       timezone_name?: string;
       /** @nullable */
       readonly next_delivery_date: string | null;
+      /** List of delivery targets. Each is {type: 'email', value: '...'} or {type: 'slack', integration_id: N, channel: '...'}. */
       delivery_targets?: unknown;
       /**
+       * Max number of evaluation runs included in each report. Defaults to 100.
        * @minimum -2147483648
        * @maximum 2147483647
        */
       max_sample_size?: number;
+      /** Whether report delivery is active. */
       enabled?: boolean;
+      /** Set to true to soft-delete this report config. */
       deleted?: boolean;
       /** @nullable */
       readonly last_delivered_at: string | null;
+      /** Optional custom instructions injected into the AI report prompt to focus analysis. */
       report_prompt_guidance?: string;
       /**
-       * Number of new eval results that triggers a report
+       * Number of evaluation runs that trigger a report (every_n mode). Min 10, max 1000.
        * @minimum -2147483648
        * @maximum 2147483647
        * @nullable
        */
       trigger_threshold?: number | null;
       /**
-       * Minimum minutes between count-triggered reports
+       * Minimum minutes between reports in every_n mode to prevent spam. Min 60, max 1440 (24 hours).
        * @minimum -2147483648
        * @maximum 2147483647
        */
       cooldown_minutes?: number;
       /**
-       * Maximum count-triggered report runs per calendar day (UTC)
+       * Max reports generated per day. Defaults to 3.
        * @minimum -2147483648
        * @maximum 2147483647
        */
@@ -15006,15 +15263,44 @@ export namespace Schemas {
     }
 
     export interface EvaluationReportRun {
+      /** UUID of this report run. */
       readonly id: string;
+      /** UUID of the report config that generated this run. */
       readonly report: string;
+      /** Generated report content (markdown or structured text). */
       readonly content: unknown;
+      /** Run metadata including model used, token counts, and generation stats. */
       readonly metadata: unknown;
+      /** Start of the evaluation window covered by this report. */
       readonly period_start: string;
+      /** End of the evaluation window covered by this report. */
       readonly period_end: string;
+      /** 'pending', 'delivered', or 'failed'.
+
+    * `pending` - Pending
+    * `delivered` - Delivered
+    * `partial_failure` - Partial Failure
+    * `failed` - Failed */
       readonly delivery_status: DeliveryStatusEnum;
+      /** List of delivery error messages if delivery failed. */
       readonly delivery_errors: unknown;
       readonly created_at: string;
+    }
+
+    export interface EvaluationRunRequest {
+      /** UUID of the evaluation to run. */
+      evaluation_id: string;
+      /** UUID of the $ai_generation event to evaluate. */
+      target_event_id: string;
+      /** ISO 8601 timestamp of the target event (needed for efficient ClickHouse lookup). */
+      timestamp: string;
+      /** Event name. Defaults to '$ai_generation'. */
+      event?: string;
+      /**
+       * Distinct ID of the event (optional, improves lookup performance).
+       * @nullable
+       */
+      distinct_id?: string | null;
     }
 
     /**
@@ -15321,8 +15607,13 @@ export namespace Schemas {
        * @nullable
        */
       name?: string | null;
-      /** Percentage of users assigned to this variant (0–100). All variants must sum to 100. */
-      rollout_percentage: number;
+      /** @nullable */
+      rollout_percentage?: number | null;
+      /**
+       * Percentage of users assigned to this variant (0–100). All variants must sum to 100. One of split_percent (recommended) or rollout_percentage must be provided.
+       * @nullable
+       */
+      split_percent?: number | null;
     }
 
     export interface ExperimentParameters {
@@ -15518,7 +15809,7 @@ export namespace Schemas {
       holdout_id?: number | null;
       /** @nullable */
       readonly exposure_cohort: number | null;
-      /** Variant definitions and statistical configuration. Set feature_flag_variants to customize the split (default: 50/50 control/test). Each variant needs a key and rollout_percentage; percentages must sum to 100. Set minimum_detectable_effect (percentage, suggest 20-30) to control statistical power. */
+      /** Variant definitions and statistical configuration. Set feature_flag_variants to customize the split (default: 50/50 control/test). Each variant needs a key and split_percent (the variant's share of traffic); percentages must sum to 100. Set minimum_detectable_effect (percentage, suggest 20-30) to control statistical power. */
       parameters?: ExperimentParameters | null;
       secondary_metrics?: unknown | null;
       readonly saved_metrics: readonly ExperimentToSavedMetric[];
@@ -16879,6 +17170,24 @@ export namespace Schemas {
       repositories: GitHubRepo[];
       /** Whether more repositories are available beyond this page. */
       has_more: boolean;
+    }
+
+    export interface GitProviderFileLinkResolveResponse {
+      /** Whether a matching file URL was found. */
+      found: boolean;
+      /** Resolved URL for the matching file. */
+      url?: string;
+      /** Error message when input parameters are invalid. */
+      error?: string;
+    }
+
+    export interface Goal {
+      /** Goal name (action name). */
+      name: string;
+      /** Total conversions in the period. */
+      conversions: number;
+      /** Period-over-period change in conversions, null when not meaningful. */
+      change: WoWChange | null;
     }
 
     export interface Group {
@@ -19803,6 +20112,42 @@ export namespace Schemas {
       has_more: boolean;
     }
 
+    /**
+     * * `today` - today
+    * `this_week` - this_week
+    * `inactive` - inactive
+    * `never` - never
+     */
+    export type LastActiveEnum = typeof LastActiveEnum[keyof typeof LastActiveEnum];
+
+
+    export const LastActiveEnum = {
+      Today: 'today',
+      ThisWeek: 'this_week',
+      Inactive: 'inactive',
+      Never: 'never',
+    } as const;
+
+    export interface LegalDocumentCreator {
+      first_name: string;
+      email: string;
+    }
+
+    /**
+     * Output serializer — what the API returns for every row.
+     */
+    export interface LegalDocumentDTO {
+      id: string;
+      document_type: string;
+      company_name: string;
+      representative_name: string;
+      representative_email: string;
+      status: string;
+      signed_document_url: string;
+      created_by: LegalDocumentCreator | null;
+      created_at: string;
+    }
+
     export type LimitContext = typeof LimitContext[keyof typeof LimitContext];
 
 
@@ -19873,16 +20218,30 @@ export namespace Schemas {
       Broken: 'broken',
     } as const;
 
+    export interface LogsAlertSparklineBucket {
+      /** Bucket start timestamp (UTC, hourly). */
+      timestamp: string;
+      /** Count of breached checks in this hour. */
+      breached: number;
+      /** Count of errored checks in this hour. */
+      errored: number;
+    }
+
     export interface LogsAlertConfiguration {
+      /** Unique identifier for this alert. */
       readonly id: string;
-      /** @maxLength 255 */
+      /**
+       * Human-readable name for this alert.
+       * @maxLength 255
+       */
       name: string;
+      /** Whether the alert is actively being evaluated. Disabling resets the state to not_firing. */
       enabled?: boolean;
       /** Filter criteria — subset of LogsViewerFilters. Must contain at least one of: severityLevels (list of severity strings), serviceNames (list of service name strings), or filterGroup (property filter group object). */
       filters: unknown;
       /**
+       * Number of matching log entries that constitutes a threshold breach within the evaluation window.
        * @minimum 1
-       * @maximum 2147483647
        */
       threshold_count: number;
       /** Whether the alert fires when the count is above or below the threshold.
@@ -19890,12 +20249,18 @@ export namespace Schemas {
     * `above` - Above
     * `below` - Below */
       threshold_operator?: ThresholdOperatorEnum;
-      /**
-       * @minimum 0
-       * @maximum 2147483647
-       */
+      /** Time window in minutes over which log entries are counted. Allowed values: 5, 10, 15, 30, 60. */
       window_minutes?: number;
+      /** How often the alert is evaluated, in minutes. Server-managed. */
       readonly check_interval_minutes: number;
+      /** Current alert state: not_firing, firing, pending_resolve, errored, or snoozed. Server-managed.
+
+    * `not_firing` - Not firing
+    * `firing` - Firing
+    * `pending_resolve` - Pending resolve
+    * `errored` - Errored
+    * `snoozed` - Snoozed
+    * `broken` - Broken */
       readonly state: LogsAlertConfigurationStateEnum;
       /**
        * Total number of check periods in the sliding evaluation window for firing (M in N-of-M).
@@ -19910,27 +20275,48 @@ export namespace Schemas {
        */
       datapoints_to_alarm?: number;
       /**
+       * Minimum minutes between repeated notifications after the alert fires. 0 means no cooldown.
        * @minimum 0
-       * @maximum 2147483647
        */
       cooldown_minutes?: number;
-      /** @nullable */
+      /**
+       * ISO 8601 timestamp until which the alert is snoozed. Set to null to unsnooze.
+       * @nullable
+       */
       snooze_until?: string | null;
-      /** @nullable */
+      /**
+       * When the next evaluation is scheduled. Server-managed.
+       * @nullable
+       */
       readonly next_check_at: string | null;
-      /** @nullable */
+      /**
+       * When the last notification was sent. Server-managed.
+       * @nullable
+       */
       readonly last_notified_at: string | null;
-      /** @nullable */
+      /**
+       * When the alert was last evaluated. Server-managed.
+       * @nullable
+       */
       readonly last_checked_at: string | null;
+      /** Number of consecutive evaluation failures. Resets on success. Server-managed. */
       readonly consecutive_failures: number;
       /**
        * Error message from the most recent errored check, or null if the alert's most recent check was successful. Sourced from LogsAlertEvent without denormalization so retention-aware cleanup rules stay the only source of truth.
        * @nullable
        */
       readonly last_error_message: string | null;
+      /** 24 hourly buckets of breached + errored check counts for the last 24h, ordered oldest-first. Drives the activity column on the alert list — empty sparkline = healthy alert. Ok checks are not included: retention caps OK rows at MAX_EVALUATION_PERIODS (~50min at 5-min cadence), so only events that survive the prune (breached + errored) are meaningful over a 24h window. */
+      readonly sparkline: readonly LogsAlertSparklineBucket[];
+      /** Notification destination types configured for this alert — e.g. 'slack', 'webhook'. Empty list means no notifications will fire. One or more destinations should be added after creating an alert. */
+      readonly destination_types: readonly DestinationTypesEnum[];
+      /** When the alert was created. */
       readonly created_at: string;
       readonly created_by: UserBasic;
-      /** @nullable */
+      /**
+       * When the alert was last modified.
+       * @nullable
+       */
       readonly updated_at: string | null;
     }
 
@@ -19938,10 +20324,10 @@ export namespace Schemas {
      * * `slack` - slack
     * `webhook` - webhook
      */
-    export type LogsAlertCreateDestinationTypeEnum = typeof LogsAlertCreateDestinationTypeEnum[keyof typeof LogsAlertCreateDestinationTypeEnum];
+    export type TypeC34Enum = typeof TypeC34Enum[keyof typeof TypeC34Enum];
 
 
-    export const LogsAlertCreateDestinationTypeEnum = {
+    export const TypeC34Enum = {
       Slack: 'slack',
       Webhook: 'webhook',
     } as const;
@@ -19951,7 +20337,7 @@ export namespace Schemas {
 
     * `slack` - slack
     * `webhook` - webhook */
-      type: LogsAlertCreateDestinationTypeEnum;
+      type: TypeC34Enum;
       /** Integration ID for the Slack workspace. Required when type=slack. */
       slack_workspace_id?: number;
       /** Slack channel ID. Required when type=slack. */
@@ -19972,6 +20358,43 @@ export namespace Schemas {
 
     export interface LogsAlertDestinationResponse {
       hog_function_ids: string[];
+    }
+
+    /**
+     * * `check` - Check
+    * `reset` - Reset
+    * `enable` - Enable
+    * `disable` - Disable
+    * `snooze` - Snooze
+    * `unsnooze` - Unsnooze
+    * `threshold_change` - Threshold change
+     */
+    export type LogsAlertEventKindEnum = typeof LogsAlertEventKindEnum[keyof typeof LogsAlertEventKindEnum];
+
+
+    export const LogsAlertEventKindEnum = {
+      Check: 'check',
+      Reset: 'reset',
+      Enable: 'enable',
+      Disable: 'disable',
+      Snooze: 'snooze',
+      Unsnooze: 'unsnooze',
+      ThresholdChange: 'threshold_change',
+    } as const;
+
+    export interface LogsAlertEvent {
+      readonly id: string;
+      readonly created_at: string;
+      readonly kind: LogsAlertEventKindEnum;
+      readonly state_before: string;
+      readonly state_after: string;
+      readonly threshold_breached: boolean;
+      /** @nullable */
+      readonly result_count: number | null;
+      /** @nullable */
+      readonly error_message: string | null;
+      /** @nullable */
+      readonly query_duration_ms: number | null;
     }
 
     export interface LogsAlertSimulateBucket {
@@ -20670,6 +21093,18 @@ export namespace Schemas {
       /** @nullable */
       source_id: string | null;
       created_at: string;
+    }
+
+    export interface NumericMetric {
+      /** Value for the most recent period. */
+      current: number;
+      /**
+       * Value for the prior period, if available.
+       * @nullable
+       */
+      previous: number | null;
+      /** Period-over-period change, null when not meaningful. */
+      change: WoWChange | null;
     }
 
     export interface NumericScoreDefinitionConfig {
@@ -21700,6 +22135,15 @@ export namespace Schemas {
       results: LLMSkillList[];
     }
 
+    export interface PaginatedLegalDocumentDTOList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: LegalDocumentDTO[];
+    }
+
     export interface PaginatedLiveDebuggerBreakpointList {
       count: number;
       /** @nullable */
@@ -21716,6 +22160,15 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: LogsAlertConfiguration[];
+    }
+
+    export interface PaginatedLogsAlertEventList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: LogsAlertEvent[];
     }
 
     export interface PaginatedLogsViewList {
@@ -22080,6 +22533,27 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: ProjectSecretAPIKey[];
+    }
+
+    export interface QuarantinedIdentifierEntry {
+      created_by?: UserBasicInfo | null;
+      id: string;
+      identifier: string;
+      run_type: string;
+      reason: string;
+      /** @nullable */
+      expires_at: string | null;
+      created_at: string;
+      updated_at: string;
+    }
+
+    export interface PaginatedQuarantinedIdentifierEntryList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: QuarantinedIdentifierEntry[];
     }
 
     export interface QueryTabState {
@@ -22657,6 +23131,7 @@ export namespace Schemas {
       current_artifact?: Artifact | null;
       baseline_artifact?: Artifact | null;
       diff_artifact?: Artifact | null;
+      reviewed_by?: UserBasicInfo | null;
       id: string;
       identifier: string;
       result: string;
@@ -22671,6 +23146,7 @@ export namespace Schemas {
       approved_hash: string;
       /** @nullable */
       tolerated_hash_id?: string | null;
+      is_quarantined?: boolean;
       metadata?: SnapshotMetadata;
     }
 
@@ -23301,10 +23777,14 @@ export namespace Schemas {
     } as const;
 
     export interface TaskRunArtifactResponse {
+      /** Stable identifier for the artifact within this run */
+      id?: string;
       /** Artifact file name */
       name: string;
       /** Artifact classification (plan, context, etc.) */
       type: string;
+      /** Source of the artifact, such as agent_output or user_attachment */
+      source?: string;
       /** Artifact size in bytes */
       size?: number;
       /** Optional MIME type */
@@ -23386,8 +23866,8 @@ export namespace Schemas {
       readonly uuid: string;
       readonly organization: string;
       /**
-       * @minimum -9223372036854776000
-       * @maximum 9223372036854776000
+       * @minimum -2147483648
+       * @maximum 2147483647
        */
       readonly project_id: number;
       readonly api_token: string;
@@ -23743,6 +24223,20 @@ export namespace Schemas {
       Hidden: 'hidden',
     } as const;
 
+    /**
+     * Shape of each item in UserSerializer.pending_invites.
+     */
+    export interface PendingInvite {
+      id: string;
+      target_email: string;
+      organization_id: string;
+      organization_name: string;
+      created_at: string;
+    }
+
+    /**
+     * Map of notification preferences. Keys include `plugin_disabled`, `all_weekly_report_disabled`, `project_weekly_digest_disabled`, `error_tracking_weekly_digest_project_enabled`, `web_analytics_weekly_digest_project_enabled`, `organization_member_join_email_disabled`, `data_pipeline_error_threshold` (number between 0.0 and 1.0), and other per-topic switches. Values are either booleans, or (for per-project/per-resource keys) a map of IDs to booleans. Only the keys you send are updated — other preferences stay as-is.
+     */
     export type UserNotificationSettings = {[key: string]: unknown};
 
     export interface User {
@@ -23760,8 +24254,12 @@ export namespace Schemas {
       readonly pending_email: string | null;
       /** @nullable */
       readonly is_email_verified: boolean | null;
+      /** Map of notification preferences. Keys include `plugin_disabled`, `all_weekly_report_disabled`, `project_weekly_digest_disabled`, `error_tracking_weekly_digest_project_enabled`, `web_analytics_weekly_digest_project_enabled`, `organization_member_join_email_disabled`, `data_pipeline_error_threshold` (number between 0.0 and 1.0), and other per-topic switches. Values are either booleans, or (for per-project/per-resource keys) a map of IDs to booleans. Only the keys you send are updated — other preferences stay as-is. */
       notification_settings?: UserNotificationSettings;
-      /** @nullable */
+      /**
+       * Whether PostHog should anonymize events captured for this user when identified.
+       * @nullable
+       */
       anonymize_data?: boolean | null;
       /** @nullable */
       allow_impersonation?: boolean | null;
@@ -23785,6 +24283,7 @@ export namespace Schemas {
       set_current_team?: string;
       /** @maxLength 128 */
       password: string;
+      /** The user's current password. Required when changing `password` if the user already has a usable password set. */
       current_password?: string;
       events_column_config?: unknown;
       readonly is_2fa_enabled: boolean;
@@ -23803,6 +24302,9 @@ export namespace Schemas {
        * @nullable
        */
       passkeys_enabled_for_2fa?: boolean | null;
+      /** @nullable */
+      readonly is_organization_first_user: boolean | null;
+      readonly pending_invites: readonly PendingInvite[];
     }
 
     export interface PaginatedUserList {
@@ -24055,6 +24557,15 @@ export namespace Schemas {
        * @nullable
        */
       readonly last_value?: number | null;
+      /** When enabled, an investigation agent runs on the state transition to firing and writes findings to a Notebook linked from the alert check. Only effective for detector-based (anomaly) alerts. */
+      investigation_agent_enabled?: boolean;
+      /** When enabled (and investigation_agent_enabled is on), notification dispatch is held until the investigation agent produces a verdict. Notifications are suppressed when the verdict is false_positive (and optionally when inconclusive). A safety-net task force-fires after a few minutes if the investigation stalls. */
+      investigation_gates_notifications?: boolean;
+      /** How to handle an 'inconclusive' verdict when notifications are gated. 'notify' is the safe default — an agent that can't be sure is itself useful signal.
+
+    * `notify` - Notify
+    * `suppress` - Suppress */
+      investigation_inconclusive_action?: InvestigationInconclusiveActionEnum;
     }
 
     export interface PatchedAnnotation {
@@ -24738,8 +25249,8 @@ export namespace Schemas {
        */
       video_url?: string | null;
       /**
-       * @minimum -9223372036854776000
-       * @maximum 9223372036854776000
+       * @minimum -2147483648
+       * @maximum 2147483647
        * @nullable
        */
       video_size_bytes?: number | null;
@@ -25112,63 +25623,121 @@ export namespace Schemas {
       readonly release?: PatchedErrorTrackingSymbolSetRelease;
     }
 
+    /**
+     * Configuration dict. For 'llm_judge': {prompt}. For 'hog': {source}.
+     */
+    export type PatchedEvaluationEvaluationConfig = {
+      /**
+       * Evaluation criteria for the LLM judge. Describe what makes a good vs bad response.
+       * @minLength 1
+       */
+      prompt: string;
+    } | {
+      /**
+       * Hog source code. Must return true (pass), false (fail), or null for N/A.
+       * @minLength 1
+       */
+      source: string;
+    };
+
+    /**
+     * Output config. For 'boolean' output_type: {allows_na} to permit N/A results.
+     */
+    export type PatchedEvaluationOutputConfig = {
+      /** Whether the evaluation can return N/A for non-applicable generations. */
+      allows_na?: boolean;
+    };
+
     export interface PatchedEvaluation {
       readonly id?: string;
-      /** @maxLength 400 */
+      /**
+       * Name of the evaluation.
+       * @maxLength 400
+       */
       name?: string;
+      /** Optional description of what this evaluation checks. */
       description?: string;
+      /** Whether the evaluation runs automatically on new $ai_generation events. */
       enabled?: boolean;
       readonly status?: EvaluationStatusEnum;
       readonly status_reason?: StatusReasonEnum | NullEnum | null;
+      /** 'llm_judge' uses an LLM to score outputs against a prompt; 'hog' runs deterministic Hog code.
+
+    * `llm_judge` - LLM as a judge
+    * `hog` - Hog */
       evaluation_type?: EvaluationTypeEnum;
-      evaluation_config?: unknown;
+      /** Configuration dict. For 'llm_judge': {prompt}. For 'hog': {source}. */
+      evaluation_config?: PatchedEvaluationEvaluationConfig;
+      /** Output format. Currently only 'boolean' is supported.
+
+    * `boolean` - Boolean (Pass/Fail) */
       output_type?: OutputTypeEnum;
-      output_config?: unknown;
+      /** Output config. For 'boolean' output_type: {allows_na} to permit N/A results. */
+      output_config?: PatchedEvaluationOutputConfig;
+      /** Optional trigger conditions to filter which events are evaluated. OR between condition sets, AND within each. */
       conditions?: unknown;
       model_configuration?: ModelConfiguration | null;
       readonly created_at?: string;
       readonly updated_at?: string;
       readonly created_by?: UserBasic;
+      /** Set to true to soft-delete the evaluation. */
       deleted?: boolean;
     }
 
     export interface PatchedEvaluationReport {
       readonly id?: string;
+      /** UUID of the evaluation this report config belongs to. */
       evaluation?: string;
+      /** 'every_n' triggers a report after N evaluations run; 'scheduled' uses an rrule schedule.
+
+    * `scheduled` - Scheduled
+    * `every_n` - Every N */
       frequency?: EvaluationReportFrequencyEnum;
+      /** RFC 5545 recurrence rule string. Required when frequency is 'scheduled'. */
       rrule?: string;
-      /** @nullable */
+      /**
+       * Schedule start datetime (ISO 8601). Required when frequency is 'scheduled'.
+       * @nullable
+       */
       starts_at?: string | null;
-      /** @maxLength 64 */
+      /**
+       * IANA timezone name for scheduled delivery (e.g. 'America/New_York').
+       * @maxLength 64
+       */
       timezone_name?: string;
       /** @nullable */
       readonly next_delivery_date?: string | null;
+      /** List of delivery targets. Each is {type: 'email', value: '...'} or {type: 'slack', integration_id: N, channel: '...'}. */
       delivery_targets?: unknown;
       /**
+       * Max number of evaluation runs included in each report. Defaults to 100.
        * @minimum -2147483648
        * @maximum 2147483647
        */
       max_sample_size?: number;
+      /** Whether report delivery is active. */
       enabled?: boolean;
+      /** Set to true to soft-delete this report config. */
       deleted?: boolean;
       /** @nullable */
       readonly last_delivered_at?: string | null;
+      /** Optional custom instructions injected into the AI report prompt to focus analysis. */
       report_prompt_guidance?: string;
       /**
-       * Number of new eval results that triggers a report
+       * Number of evaluation runs that trigger a report (every_n mode). Min 10, max 1000.
        * @minimum -2147483648
        * @maximum 2147483647
        * @nullable
        */
       trigger_threshold?: number | null;
       /**
-       * Minimum minutes between count-triggered reports
+       * Minimum minutes between reports in every_n mode to prevent spam. Min 60, max 1440 (24 hours).
        * @minimum -2147483648
        * @maximum 2147483647
        */
       cooldown_minutes?: number;
       /**
-       * Maximum count-triggered report runs per calendar day (UTC)
+       * Max reports generated per day. Defaults to 3.
        * @minimum -2147483648
        * @maximum 2147483647
        */
@@ -25218,7 +25787,7 @@ export namespace Schemas {
       holdout_id?: number | null;
       /** @nullable */
       readonly exposure_cohort?: number | null;
-      /** Variant definitions and statistical configuration. Set feature_flag_variants to customize the split (default: 50/50 control/test). Each variant needs a key and rollout_percentage; percentages must sum to 100. Set minimum_detectable_effect (percentage, suggest 20-30) to control statistical power. */
+      /** Variant definitions and statistical configuration. Set feature_flag_variants to customize the split (default: 50/50 control/test). Each variant needs a key and split_percent (the variant's share of traffic); percentages must sum to 100. Set minimum_detectable_effect (percentage, suggest 20-30) to control statistical power. */
       parameters?: ExperimentParameters | null;
       secondary_metrics?: unknown | null;
       readonly saved_metrics?: readonly ExperimentToSavedMetric[];
@@ -25908,15 +26477,20 @@ export namespace Schemas {
     }
 
     export interface PatchedLogsAlertConfiguration {
+      /** Unique identifier for this alert. */
       readonly id?: string;
-      /** @maxLength 255 */
+      /**
+       * Human-readable name for this alert.
+       * @maxLength 255
+       */
       name?: string;
+      /** Whether the alert is actively being evaluated. Disabling resets the state to not_firing. */
       enabled?: boolean;
       /** Filter criteria — subset of LogsViewerFilters. Must contain at least one of: severityLevels (list of severity strings), serviceNames (list of service name strings), or filterGroup (property filter group object). */
       filters?: unknown;
       /**
+       * Number of matching log entries that constitutes a threshold breach within the evaluation window.
        * @minimum 1
-       * @maximum 2147483647
        */
       threshold_count?: number;
       /** Whether the alert fires when the count is above or below the threshold.
@@ -25924,12 +26498,18 @@ export namespace Schemas {
     * `above` - Above
     * `below` - Below */
       threshold_operator?: ThresholdOperatorEnum;
-      /**
-       * @minimum 0
-       * @maximum 2147483647
-       */
+      /** Time window in minutes over which log entries are counted. Allowed values: 5, 10, 15, 30, 60. */
       window_minutes?: number;
+      /** How often the alert is evaluated, in minutes. Server-managed. */
       readonly check_interval_minutes?: number;
+      /** Current alert state: not_firing, firing, pending_resolve, errored, or snoozed. Server-managed.
+
+    * `not_firing` - Not firing
+    * `firing` - Firing
+    * `pending_resolve` - Pending resolve
+    * `errored` - Errored
+    * `snoozed` - Snoozed
+    * `broken` - Broken */
       readonly state?: LogsAlertConfigurationStateEnum;
       /**
        * Total number of check periods in the sliding evaluation window for firing (M in N-of-M).
@@ -25944,27 +26524,48 @@ export namespace Schemas {
        */
       datapoints_to_alarm?: number;
       /**
+       * Minimum minutes between repeated notifications after the alert fires. 0 means no cooldown.
        * @minimum 0
-       * @maximum 2147483647
        */
       cooldown_minutes?: number;
-      /** @nullable */
+      /**
+       * ISO 8601 timestamp until which the alert is snoozed. Set to null to unsnooze.
+       * @nullable
+       */
       snooze_until?: string | null;
-      /** @nullable */
+      /**
+       * When the next evaluation is scheduled. Server-managed.
+       * @nullable
+       */
       readonly next_check_at?: string | null;
-      /** @nullable */
+      /**
+       * When the last notification was sent. Server-managed.
+       * @nullable
+       */
       readonly last_notified_at?: string | null;
-      /** @nullable */
+      /**
+       * When the alert was last evaluated. Server-managed.
+       * @nullable
+       */
       readonly last_checked_at?: string | null;
+      /** Number of consecutive evaluation failures. Resets on success. Server-managed. */
       readonly consecutive_failures?: number;
       /**
        * Error message from the most recent errored check, or null if the alert's most recent check was successful. Sourced from LogsAlertEvent without denormalization so retention-aware cleanup rules stay the only source of truth.
        * @nullable
        */
       readonly last_error_message?: string | null;
+      /** 24 hourly buckets of breached + errored check counts for the last 24h, ordered oldest-first. Drives the activity column on the alert list — empty sparkline = healthy alert. Ok checks are not included: retention caps OK rows at MAX_EVALUATION_PERIODS (~50min at 5-min cadence), so only events that survive the prune (breached + errored) are meaningful over a 24h window. */
+      readonly sparkline?: readonly LogsAlertSparklineBucket[];
+      /** Notification destination types configured for this alert — e.g. 'slack', 'webhook'. Empty list means no notifications will fire. One or more destinations should be added after creating an alert. */
+      readonly destination_types?: readonly DestinationTypesEnum[];
+      /** When the alert was created. */
       readonly created_at?: string;
       readonly created_by?: UserBasic;
-      /** @nullable */
+      /**
+       * When the alert was last modified.
+       * @nullable
+       */
       readonly updated_at?: string | null;
     }
 
@@ -26406,11 +27007,13 @@ export namespace Schemas {
       readonly id?: number;
       readonly organization?: string;
       /**
+       * Human-readable project name.
        * @minLength 1
        * @maxLength 200
        */
       name?: string;
       /**
+       * Short description of what the project is about. This is helpful to give our AI agents context about your project.
        * @maxLength 1000
        * @nullable
        */
@@ -26425,38 +27028,664 @@ export namespace Schemas {
       readonly uuid?: string;
       readonly api_token?: string;
       app_urls?: (string | null)[];
+      /** When true, PostHog drops the IP address from every ingested event. */
       anonymize_ips?: boolean;
       completed_snippet_onboarding?: boolean;
       readonly ingested_event?: boolean;
+      /** Filter groups that identify internal/test traffic to be excluded from insights. */
       test_account_filters?: unknown;
-      /** @nullable */
+      /**
+       * When true, new insights default to excluding internal/test users.
+       * @nullable
+       */
       test_account_filters_default_checked?: boolean | null;
+      /** Regex rewrite rules that collapse dynamic path segments (e.g. user IDs) before displaying URLs in paths. */
       path_cleaning_filters?: unknown | null;
       is_demo?: boolean;
+      /** IANA timezone used for date-based filters and reporting (e.g. `America/Los_Angeles`).
+
+    * `Africa/Abidjan` - Africa/Abidjan
+    * `Africa/Accra` - Africa/Accra
+    * `Africa/Addis_Ababa` - Africa/Addis_Ababa
+    * `Africa/Algiers` - Africa/Algiers
+    * `Africa/Asmara` - Africa/Asmara
+    * `Africa/Asmera` - Africa/Asmera
+    * `Africa/Bamako` - Africa/Bamako
+    * `Africa/Bangui` - Africa/Bangui
+    * `Africa/Banjul` - Africa/Banjul
+    * `Africa/Bissau` - Africa/Bissau
+    * `Africa/Blantyre` - Africa/Blantyre
+    * `Africa/Brazzaville` - Africa/Brazzaville
+    * `Africa/Bujumbura` - Africa/Bujumbura
+    * `Africa/Cairo` - Africa/Cairo
+    * `Africa/Casablanca` - Africa/Casablanca
+    * `Africa/Ceuta` - Africa/Ceuta
+    * `Africa/Conakry` - Africa/Conakry
+    * `Africa/Dakar` - Africa/Dakar
+    * `Africa/Dar_es_Salaam` - Africa/Dar_es_Salaam
+    * `Africa/Djibouti` - Africa/Djibouti
+    * `Africa/Douala` - Africa/Douala
+    * `Africa/El_Aaiun` - Africa/El_Aaiun
+    * `Africa/Freetown` - Africa/Freetown
+    * `Africa/Gaborone` - Africa/Gaborone
+    * `Africa/Harare` - Africa/Harare
+    * `Africa/Johannesburg` - Africa/Johannesburg
+    * `Africa/Juba` - Africa/Juba
+    * `Africa/Kampala` - Africa/Kampala
+    * `Africa/Khartoum` - Africa/Khartoum
+    * `Africa/Kigali` - Africa/Kigali
+    * `Africa/Kinshasa` - Africa/Kinshasa
+    * `Africa/Lagos` - Africa/Lagos
+    * `Africa/Libreville` - Africa/Libreville
+    * `Africa/Lome` - Africa/Lome
+    * `Africa/Luanda` - Africa/Luanda
+    * `Africa/Lubumbashi` - Africa/Lubumbashi
+    * `Africa/Lusaka` - Africa/Lusaka
+    * `Africa/Malabo` - Africa/Malabo
+    * `Africa/Maputo` - Africa/Maputo
+    * `Africa/Maseru` - Africa/Maseru
+    * `Africa/Mbabane` - Africa/Mbabane
+    * `Africa/Mogadishu` - Africa/Mogadishu
+    * `Africa/Monrovia` - Africa/Monrovia
+    * `Africa/Nairobi` - Africa/Nairobi
+    * `Africa/Ndjamena` - Africa/Ndjamena
+    * `Africa/Niamey` - Africa/Niamey
+    * `Africa/Nouakchott` - Africa/Nouakchott
+    * `Africa/Ouagadougou` - Africa/Ouagadougou
+    * `Africa/Porto-Novo` - Africa/Porto-Novo
+    * `Africa/Sao_Tome` - Africa/Sao_Tome
+    * `Africa/Timbuktu` - Africa/Timbuktu
+    * `Africa/Tripoli` - Africa/Tripoli
+    * `Africa/Tunis` - Africa/Tunis
+    * `Africa/Windhoek` - Africa/Windhoek
+    * `America/Adak` - America/Adak
+    * `America/Anchorage` - America/Anchorage
+    * `America/Anguilla` - America/Anguilla
+    * `America/Antigua` - America/Antigua
+    * `America/Araguaina` - America/Araguaina
+    * `America/Argentina/Buenos_Aires` - America/Argentina/Buenos_Aires
+    * `America/Argentina/Catamarca` - America/Argentina/Catamarca
+    * `America/Argentina/ComodRivadavia` - America/Argentina/ComodRivadavia
+    * `America/Argentina/Cordoba` - America/Argentina/Cordoba
+    * `America/Argentina/Jujuy` - America/Argentina/Jujuy
+    * `America/Argentina/La_Rioja` - America/Argentina/La_Rioja
+    * `America/Argentina/Mendoza` - America/Argentina/Mendoza
+    * `America/Argentina/Rio_Gallegos` - America/Argentina/Rio_Gallegos
+    * `America/Argentina/Salta` - America/Argentina/Salta
+    * `America/Argentina/San_Juan` - America/Argentina/San_Juan
+    * `America/Argentina/San_Luis` - America/Argentina/San_Luis
+    * `America/Argentina/Tucuman` - America/Argentina/Tucuman
+    * `America/Argentina/Ushuaia` - America/Argentina/Ushuaia
+    * `America/Aruba` - America/Aruba
+    * `America/Asuncion` - America/Asuncion
+    * `America/Atikokan` - America/Atikokan
+    * `America/Atka` - America/Atka
+    * `America/Bahia` - America/Bahia
+    * `America/Bahia_Banderas` - America/Bahia_Banderas
+    * `America/Barbados` - America/Barbados
+    * `America/Belem` - America/Belem
+    * `America/Belize` - America/Belize
+    * `America/Blanc-Sablon` - America/Blanc-Sablon
+    * `America/Boa_Vista` - America/Boa_Vista
+    * `America/Bogota` - America/Bogota
+    * `America/Boise` - America/Boise
+    * `America/Buenos_Aires` - America/Buenos_Aires
+    * `America/Cambridge_Bay` - America/Cambridge_Bay
+    * `America/Campo_Grande` - America/Campo_Grande
+    * `America/Cancun` - America/Cancun
+    * `America/Caracas` - America/Caracas
+    * `America/Catamarca` - America/Catamarca
+    * `America/Cayenne` - America/Cayenne
+    * `America/Cayman` - America/Cayman
+    * `America/Chicago` - America/Chicago
+    * `America/Chihuahua` - America/Chihuahua
+    * `America/Ciudad_Juarez` - America/Ciudad_Juarez
+    * `America/Coral_Harbour` - America/Coral_Harbour
+    * `America/Cordoba` - America/Cordoba
+    * `America/Costa_Rica` - America/Costa_Rica
+    * `America/Creston` - America/Creston
+    * `America/Cuiaba` - America/Cuiaba
+    * `America/Curacao` - America/Curacao
+    * `America/Danmarkshavn` - America/Danmarkshavn
+    * `America/Dawson` - America/Dawson
+    * `America/Dawson_Creek` - America/Dawson_Creek
+    * `America/Denver` - America/Denver
+    * `America/Detroit` - America/Detroit
+    * `America/Dominica` - America/Dominica
+    * `America/Edmonton` - America/Edmonton
+    * `America/Eirunepe` - America/Eirunepe
+    * `America/El_Salvador` - America/El_Salvador
+    * `America/Ensenada` - America/Ensenada
+    * `America/Fort_Nelson` - America/Fort_Nelson
+    * `America/Fort_Wayne` - America/Fort_Wayne
+    * `America/Fortaleza` - America/Fortaleza
+    * `America/Glace_Bay` - America/Glace_Bay
+    * `America/Godthab` - America/Godthab
+    * `America/Goose_Bay` - America/Goose_Bay
+    * `America/Grand_Turk` - America/Grand_Turk
+    * `America/Grenada` - America/Grenada
+    * `America/Guadeloupe` - America/Guadeloupe
+    * `America/Guatemala` - America/Guatemala
+    * `America/Guayaquil` - America/Guayaquil
+    * `America/Guyana` - America/Guyana
+    * `America/Halifax` - America/Halifax
+    * `America/Havana` - America/Havana
+    * `America/Hermosillo` - America/Hermosillo
+    * `America/Indiana/Indianapolis` - America/Indiana/Indianapolis
+    * `America/Indiana/Knox` - America/Indiana/Knox
+    * `America/Indiana/Marengo` - America/Indiana/Marengo
+    * `America/Indiana/Petersburg` - America/Indiana/Petersburg
+    * `America/Indiana/Tell_City` - America/Indiana/Tell_City
+    * `America/Indiana/Vevay` - America/Indiana/Vevay
+    * `America/Indiana/Vincennes` - America/Indiana/Vincennes
+    * `America/Indiana/Winamac` - America/Indiana/Winamac
+    * `America/Indianapolis` - America/Indianapolis
+    * `America/Inuvik` - America/Inuvik
+    * `America/Iqaluit` - America/Iqaluit
+    * `America/Jamaica` - America/Jamaica
+    * `America/Jujuy` - America/Jujuy
+    * `America/Juneau` - America/Juneau
+    * `America/Kentucky/Louisville` - America/Kentucky/Louisville
+    * `America/Kentucky/Monticello` - America/Kentucky/Monticello
+    * `America/Knox_IN` - America/Knox_IN
+    * `America/Kralendijk` - America/Kralendijk
+    * `America/La_Paz` - America/La_Paz
+    * `America/Lima` - America/Lima
+    * `America/Los_Angeles` - America/Los_Angeles
+    * `America/Louisville` - America/Louisville
+    * `America/Lower_Princes` - America/Lower_Princes
+    * `America/Maceio` - America/Maceio
+    * `America/Managua` - America/Managua
+    * `America/Manaus` - America/Manaus
+    * `America/Marigot` - America/Marigot
+    * `America/Martinique` - America/Martinique
+    * `America/Matamoros` - America/Matamoros
+    * `America/Mazatlan` - America/Mazatlan
+    * `America/Mendoza` - America/Mendoza
+    * `America/Menominee` - America/Menominee
+    * `America/Merida` - America/Merida
+    * `America/Metlakatla` - America/Metlakatla
+    * `America/Mexico_City` - America/Mexico_City
+    * `America/Miquelon` - America/Miquelon
+    * `America/Moncton` - America/Moncton
+    * `America/Monterrey` - America/Monterrey
+    * `America/Montevideo` - America/Montevideo
+    * `America/Montreal` - America/Montreal
+    * `America/Montserrat` - America/Montserrat
+    * `America/Nassau` - America/Nassau
+    * `America/New_York` - America/New_York
+    * `America/Nipigon` - America/Nipigon
+    * `America/Nome` - America/Nome
+    * `America/Noronha` - America/Noronha
+    * `America/North_Dakota/Beulah` - America/North_Dakota/Beulah
+    * `America/North_Dakota/Center` - America/North_Dakota/Center
+    * `America/North_Dakota/New_Salem` - America/North_Dakota/New_Salem
+    * `America/Nuuk` - America/Nuuk
+    * `America/Ojinaga` - America/Ojinaga
+    * `America/Panama` - America/Panama
+    * `America/Pangnirtung` - America/Pangnirtung
+    * `America/Paramaribo` - America/Paramaribo
+    * `America/Phoenix` - America/Phoenix
+    * `America/Port-au-Prince` - America/Port-au-Prince
+    * `America/Port_of_Spain` - America/Port_of_Spain
+    * `America/Porto_Acre` - America/Porto_Acre
+    * `America/Porto_Velho` - America/Porto_Velho
+    * `America/Puerto_Rico` - America/Puerto_Rico
+    * `America/Punta_Arenas` - America/Punta_Arenas
+    * `America/Rainy_River` - America/Rainy_River
+    * `America/Rankin_Inlet` - America/Rankin_Inlet
+    * `America/Recife` - America/Recife
+    * `America/Regina` - America/Regina
+    * `America/Resolute` - America/Resolute
+    * `America/Rio_Branco` - America/Rio_Branco
+    * `America/Rosario` - America/Rosario
+    * `America/Santa_Isabel` - America/Santa_Isabel
+    * `America/Santarem` - America/Santarem
+    * `America/Santiago` - America/Santiago
+    * `America/Santo_Domingo` - America/Santo_Domingo
+    * `America/Sao_Paulo` - America/Sao_Paulo
+    * `America/Scoresbysund` - America/Scoresbysund
+    * `America/Shiprock` - America/Shiprock
+    * `America/Sitka` - America/Sitka
+    * `America/St_Barthelemy` - America/St_Barthelemy
+    * `America/St_Johns` - America/St_Johns
+    * `America/St_Kitts` - America/St_Kitts
+    * `America/St_Lucia` - America/St_Lucia
+    * `America/St_Thomas` - America/St_Thomas
+    * `America/St_Vincent` - America/St_Vincent
+    * `America/Swift_Current` - America/Swift_Current
+    * `America/Tegucigalpa` - America/Tegucigalpa
+    * `America/Thule` - America/Thule
+    * `America/Thunder_Bay` - America/Thunder_Bay
+    * `America/Tijuana` - America/Tijuana
+    * `America/Toronto` - America/Toronto
+    * `America/Tortola` - America/Tortola
+    * `America/Vancouver` - America/Vancouver
+    * `America/Virgin` - America/Virgin
+    * `America/Whitehorse` - America/Whitehorse
+    * `America/Winnipeg` - America/Winnipeg
+    * `America/Yakutat` - America/Yakutat
+    * `America/Yellowknife` - America/Yellowknife
+    * `Antarctica/Casey` - Antarctica/Casey
+    * `Antarctica/Davis` - Antarctica/Davis
+    * `Antarctica/DumontDUrville` - Antarctica/DumontDUrville
+    * `Antarctica/Macquarie` - Antarctica/Macquarie
+    * `Antarctica/Mawson` - Antarctica/Mawson
+    * `Antarctica/McMurdo` - Antarctica/McMurdo
+    * `Antarctica/Palmer` - Antarctica/Palmer
+    * `Antarctica/Rothera` - Antarctica/Rothera
+    * `Antarctica/South_Pole` - Antarctica/South_Pole
+    * `Antarctica/Syowa` - Antarctica/Syowa
+    * `Antarctica/Troll` - Antarctica/Troll
+    * `Antarctica/Vostok` - Antarctica/Vostok
+    * `Arctic/Longyearbyen` - Arctic/Longyearbyen
+    * `Asia/Aden` - Asia/Aden
+    * `Asia/Almaty` - Asia/Almaty
+    * `Asia/Amman` - Asia/Amman
+    * `Asia/Anadyr` - Asia/Anadyr
+    * `Asia/Aqtau` - Asia/Aqtau
+    * `Asia/Aqtobe` - Asia/Aqtobe
+    * `Asia/Ashgabat` - Asia/Ashgabat
+    * `Asia/Ashkhabad` - Asia/Ashkhabad
+    * `Asia/Atyrau` - Asia/Atyrau
+    * `Asia/Baghdad` - Asia/Baghdad
+    * `Asia/Bahrain` - Asia/Bahrain
+    * `Asia/Baku` - Asia/Baku
+    * `Asia/Bangkok` - Asia/Bangkok
+    * `Asia/Barnaul` - Asia/Barnaul
+    * `Asia/Beirut` - Asia/Beirut
+    * `Asia/Bishkek` - Asia/Bishkek
+    * `Asia/Brunei` - Asia/Brunei
+    * `Asia/Calcutta` - Asia/Calcutta
+    * `Asia/Chita` - Asia/Chita
+    * `Asia/Choibalsan` - Asia/Choibalsan
+    * `Asia/Chongqing` - Asia/Chongqing
+    * `Asia/Chungking` - Asia/Chungking
+    * `Asia/Colombo` - Asia/Colombo
+    * `Asia/Dacca` - Asia/Dacca
+    * `Asia/Damascus` - Asia/Damascus
+    * `Asia/Dhaka` - Asia/Dhaka
+    * `Asia/Dili` - Asia/Dili
+    * `Asia/Dubai` - Asia/Dubai
+    * `Asia/Dushanbe` - Asia/Dushanbe
+    * `Asia/Famagusta` - Asia/Famagusta
+    * `Asia/Gaza` - Asia/Gaza
+    * `Asia/Harbin` - Asia/Harbin
+    * `Asia/Hebron` - Asia/Hebron
+    * `Asia/Ho_Chi_Minh` - Asia/Ho_Chi_Minh
+    * `Asia/Hong_Kong` - Asia/Hong_Kong
+    * `Asia/Hovd` - Asia/Hovd
+    * `Asia/Irkutsk` - Asia/Irkutsk
+    * `Asia/Istanbul` - Asia/Istanbul
+    * `Asia/Jakarta` - Asia/Jakarta
+    * `Asia/Jayapura` - Asia/Jayapura
+    * `Asia/Jerusalem` - Asia/Jerusalem
+    * `Asia/Kabul` - Asia/Kabul
+    * `Asia/Kamchatka` - Asia/Kamchatka
+    * `Asia/Karachi` - Asia/Karachi
+    * `Asia/Kashgar` - Asia/Kashgar
+    * `Asia/Kathmandu` - Asia/Kathmandu
+    * `Asia/Katmandu` - Asia/Katmandu
+    * `Asia/Khandyga` - Asia/Khandyga
+    * `Asia/Kolkata` - Asia/Kolkata
+    * `Asia/Krasnoyarsk` - Asia/Krasnoyarsk
+    * `Asia/Kuala_Lumpur` - Asia/Kuala_Lumpur
+    * `Asia/Kuching` - Asia/Kuching
+    * `Asia/Kuwait` - Asia/Kuwait
+    * `Asia/Macao` - Asia/Macao
+    * `Asia/Macau` - Asia/Macau
+    * `Asia/Magadan` - Asia/Magadan
+    * `Asia/Makassar` - Asia/Makassar
+    * `Asia/Manila` - Asia/Manila
+    * `Asia/Muscat` - Asia/Muscat
+    * `Asia/Nicosia` - Asia/Nicosia
+    * `Asia/Novokuznetsk` - Asia/Novokuznetsk
+    * `Asia/Novosibirsk` - Asia/Novosibirsk
+    * `Asia/Omsk` - Asia/Omsk
+    * `Asia/Oral` - Asia/Oral
+    * `Asia/Phnom_Penh` - Asia/Phnom_Penh
+    * `Asia/Pontianak` - Asia/Pontianak
+    * `Asia/Pyongyang` - Asia/Pyongyang
+    * `Asia/Qatar` - Asia/Qatar
+    * `Asia/Qostanay` - Asia/Qostanay
+    * `Asia/Qyzylorda` - Asia/Qyzylorda
+    * `Asia/Rangoon` - Asia/Rangoon
+    * `Asia/Riyadh` - Asia/Riyadh
+    * `Asia/Saigon` - Asia/Saigon
+    * `Asia/Sakhalin` - Asia/Sakhalin
+    * `Asia/Samarkand` - Asia/Samarkand
+    * `Asia/Seoul` - Asia/Seoul
+    * `Asia/Shanghai` - Asia/Shanghai
+    * `Asia/Singapore` - Asia/Singapore
+    * `Asia/Srednekolymsk` - Asia/Srednekolymsk
+    * `Asia/Taipei` - Asia/Taipei
+    * `Asia/Tashkent` - Asia/Tashkent
+    * `Asia/Tbilisi` - Asia/Tbilisi
+    * `Asia/Tehran` - Asia/Tehran
+    * `Asia/Tel_Aviv` - Asia/Tel_Aviv
+    * `Asia/Thimbu` - Asia/Thimbu
+    * `Asia/Thimphu` - Asia/Thimphu
+    * `Asia/Tokyo` - Asia/Tokyo
+    * `Asia/Tomsk` - Asia/Tomsk
+    * `Asia/Ujung_Pandang` - Asia/Ujung_Pandang
+    * `Asia/Ulaanbaatar` - Asia/Ulaanbaatar
+    * `Asia/Ulan_Bator` - Asia/Ulan_Bator
+    * `Asia/Urumqi` - Asia/Urumqi
+    * `Asia/Ust-Nera` - Asia/Ust-Nera
+    * `Asia/Vientiane` - Asia/Vientiane
+    * `Asia/Vladivostok` - Asia/Vladivostok
+    * `Asia/Yakutsk` - Asia/Yakutsk
+    * `Asia/Yangon` - Asia/Yangon
+    * `Asia/Yekaterinburg` - Asia/Yekaterinburg
+    * `Asia/Yerevan` - Asia/Yerevan
+    * `Atlantic/Azores` - Atlantic/Azores
+    * `Atlantic/Bermuda` - Atlantic/Bermuda
+    * `Atlantic/Canary` - Atlantic/Canary
+    * `Atlantic/Cape_Verde` - Atlantic/Cape_Verde
+    * `Atlantic/Faeroe` - Atlantic/Faeroe
+    * `Atlantic/Faroe` - Atlantic/Faroe
+    * `Atlantic/Jan_Mayen` - Atlantic/Jan_Mayen
+    * `Atlantic/Madeira` - Atlantic/Madeira
+    * `Atlantic/Reykjavik` - Atlantic/Reykjavik
+    * `Atlantic/South_Georgia` - Atlantic/South_Georgia
+    * `Atlantic/St_Helena` - Atlantic/St_Helena
+    * `Atlantic/Stanley` - Atlantic/Stanley
+    * `Australia/ACT` - Australia/ACT
+    * `Australia/Adelaide` - Australia/Adelaide
+    * `Australia/Brisbane` - Australia/Brisbane
+    * `Australia/Broken_Hill` - Australia/Broken_Hill
+    * `Australia/Canberra` - Australia/Canberra
+    * `Australia/Currie` - Australia/Currie
+    * `Australia/Darwin` - Australia/Darwin
+    * `Australia/Eucla` - Australia/Eucla
+    * `Australia/Hobart` - Australia/Hobart
+    * `Australia/LHI` - Australia/LHI
+    * `Australia/Lindeman` - Australia/Lindeman
+    * `Australia/Lord_Howe` - Australia/Lord_Howe
+    * `Australia/Melbourne` - Australia/Melbourne
+    * `Australia/NSW` - Australia/NSW
+    * `Australia/North` - Australia/North
+    * `Australia/Perth` - Australia/Perth
+    * `Australia/Queensland` - Australia/Queensland
+    * `Australia/South` - Australia/South
+    * `Australia/Sydney` - Australia/Sydney
+    * `Australia/Tasmania` - Australia/Tasmania
+    * `Australia/Victoria` - Australia/Victoria
+    * `Australia/West` - Australia/West
+    * `Australia/Yancowinna` - Australia/Yancowinna
+    * `Brazil/Acre` - Brazil/Acre
+    * `Brazil/DeNoronha` - Brazil/DeNoronha
+    * `Brazil/East` - Brazil/East
+    * `Brazil/West` - Brazil/West
+    * `CET` - CET
+    * `CST6CDT` - CST6CDT
+    * `Canada/Atlantic` - Canada/Atlantic
+    * `Canada/Central` - Canada/Central
+    * `Canada/Eastern` - Canada/Eastern
+    * `Canada/Mountain` - Canada/Mountain
+    * `Canada/Newfoundland` - Canada/Newfoundland
+    * `Canada/Pacific` - Canada/Pacific
+    * `Canada/Saskatchewan` - Canada/Saskatchewan
+    * `Canada/Yukon` - Canada/Yukon
+    * `Chile/Continental` - Chile/Continental
+    * `Chile/EasterIsland` - Chile/EasterIsland
+    * `Cuba` - Cuba
+    * `EET` - EET
+    * `EST` - EST
+    * `EST5EDT` - EST5EDT
+    * `Egypt` - Egypt
+    * `Eire` - Eire
+    * `Etc/GMT` - Etc/GMT
+    * `Etc/GMT+0` - Etc/GMT+0
+    * `Etc/GMT+1` - Etc/GMT+1
+    * `Etc/GMT+10` - Etc/GMT+10
+    * `Etc/GMT+11` - Etc/GMT+11
+    * `Etc/GMT+12` - Etc/GMT+12
+    * `Etc/GMT+2` - Etc/GMT+2
+    * `Etc/GMT+3` - Etc/GMT+3
+    * `Etc/GMT+4` - Etc/GMT+4
+    * `Etc/GMT+5` - Etc/GMT+5
+    * `Etc/GMT+6` - Etc/GMT+6
+    * `Etc/GMT+7` - Etc/GMT+7
+    * `Etc/GMT+8` - Etc/GMT+8
+    * `Etc/GMT+9` - Etc/GMT+9
+    * `Etc/GMT-0` - Etc/GMT-0
+    * `Etc/GMT-1` - Etc/GMT-1
+    * `Etc/GMT-10` - Etc/GMT-10
+    * `Etc/GMT-11` - Etc/GMT-11
+    * `Etc/GMT-12` - Etc/GMT-12
+    * `Etc/GMT-13` - Etc/GMT-13
+    * `Etc/GMT-14` - Etc/GMT-14
+    * `Etc/GMT-2` - Etc/GMT-2
+    * `Etc/GMT-3` - Etc/GMT-3
+    * `Etc/GMT-4` - Etc/GMT-4
+    * `Etc/GMT-5` - Etc/GMT-5
+    * `Etc/GMT-6` - Etc/GMT-6
+    * `Etc/GMT-7` - Etc/GMT-7
+    * `Etc/GMT-8` - Etc/GMT-8
+    * `Etc/GMT-9` - Etc/GMT-9
+    * `Etc/GMT0` - Etc/GMT0
+    * `Etc/Greenwich` - Etc/Greenwich
+    * `Etc/UCT` - Etc/UCT
+    * `Etc/UTC` - Etc/UTC
+    * `Etc/Universal` - Etc/Universal
+    * `Etc/Zulu` - Etc/Zulu
+    * `Europe/Amsterdam` - Europe/Amsterdam
+    * `Europe/Andorra` - Europe/Andorra
+    * `Europe/Astrakhan` - Europe/Astrakhan
+    * `Europe/Athens` - Europe/Athens
+    * `Europe/Belfast` - Europe/Belfast
+    * `Europe/Belgrade` - Europe/Belgrade
+    * `Europe/Berlin` - Europe/Berlin
+    * `Europe/Bratislava` - Europe/Bratislava
+    * `Europe/Brussels` - Europe/Brussels
+    * `Europe/Bucharest` - Europe/Bucharest
+    * `Europe/Budapest` - Europe/Budapest
+    * `Europe/Busingen` - Europe/Busingen
+    * `Europe/Chisinau` - Europe/Chisinau
+    * `Europe/Copenhagen` - Europe/Copenhagen
+    * `Europe/Dublin` - Europe/Dublin
+    * `Europe/Gibraltar` - Europe/Gibraltar
+    * `Europe/Guernsey` - Europe/Guernsey
+    * `Europe/Helsinki` - Europe/Helsinki
+    * `Europe/Isle_of_Man` - Europe/Isle_of_Man
+    * `Europe/Istanbul` - Europe/Istanbul
+    * `Europe/Jersey` - Europe/Jersey
+    * `Europe/Kaliningrad` - Europe/Kaliningrad
+    * `Europe/Kiev` - Europe/Kiev
+    * `Europe/Kirov` - Europe/Kirov
+    * `Europe/Kyiv` - Europe/Kyiv
+    * `Europe/Lisbon` - Europe/Lisbon
+    * `Europe/Ljubljana` - Europe/Ljubljana
+    * `Europe/London` - Europe/London
+    * `Europe/Luxembourg` - Europe/Luxembourg
+    * `Europe/Madrid` - Europe/Madrid
+    * `Europe/Malta` - Europe/Malta
+    * `Europe/Mariehamn` - Europe/Mariehamn
+    * `Europe/Minsk` - Europe/Minsk
+    * `Europe/Monaco` - Europe/Monaco
+    * `Europe/Moscow` - Europe/Moscow
+    * `Europe/Nicosia` - Europe/Nicosia
+    * `Europe/Oslo` - Europe/Oslo
+    * `Europe/Paris` - Europe/Paris
+    * `Europe/Podgorica` - Europe/Podgorica
+    * `Europe/Prague` - Europe/Prague
+    * `Europe/Riga` - Europe/Riga
+    * `Europe/Rome` - Europe/Rome
+    * `Europe/Samara` - Europe/Samara
+    * `Europe/San_Marino` - Europe/San_Marino
+    * `Europe/Sarajevo` - Europe/Sarajevo
+    * `Europe/Saratov` - Europe/Saratov
+    * `Europe/Simferopol` - Europe/Simferopol
+    * `Europe/Skopje` - Europe/Skopje
+    * `Europe/Sofia` - Europe/Sofia
+    * `Europe/Stockholm` - Europe/Stockholm
+    * `Europe/Tallinn` - Europe/Tallinn
+    * `Europe/Tirane` - Europe/Tirane
+    * `Europe/Tiraspol` - Europe/Tiraspol
+    * `Europe/Ulyanovsk` - Europe/Ulyanovsk
+    * `Europe/Uzhgorod` - Europe/Uzhgorod
+    * `Europe/Vaduz` - Europe/Vaduz
+    * `Europe/Vatican` - Europe/Vatican
+    * `Europe/Vienna` - Europe/Vienna
+    * `Europe/Vilnius` - Europe/Vilnius
+    * `Europe/Volgograd` - Europe/Volgograd
+    * `Europe/Warsaw` - Europe/Warsaw
+    * `Europe/Zagreb` - Europe/Zagreb
+    * `Europe/Zaporozhye` - Europe/Zaporozhye
+    * `Europe/Zurich` - Europe/Zurich
+    * `GB` - GB
+    * `GB-Eire` - GB-Eire
+    * `GMT` - GMT
+    * `GMT+0` - GMT+0
+    * `GMT-0` - GMT-0
+    * `GMT0` - GMT0
+    * `Greenwich` - Greenwich
+    * `HST` - HST
+    * `Hongkong` - Hongkong
+    * `Iceland` - Iceland
+    * `Indian/Antananarivo` - Indian/Antananarivo
+    * `Indian/Chagos` - Indian/Chagos
+    * `Indian/Christmas` - Indian/Christmas
+    * `Indian/Cocos` - Indian/Cocos
+    * `Indian/Comoro` - Indian/Comoro
+    * `Indian/Kerguelen` - Indian/Kerguelen
+    * `Indian/Mahe` - Indian/Mahe
+    * `Indian/Maldives` - Indian/Maldives
+    * `Indian/Mauritius` - Indian/Mauritius
+    * `Indian/Mayotte` - Indian/Mayotte
+    * `Indian/Reunion` - Indian/Reunion
+    * `Iran` - Iran
+    * `Israel` - Israel
+    * `Jamaica` - Jamaica
+    * `Japan` - Japan
+    * `Kwajalein` - Kwajalein
+    * `Libya` - Libya
+    * `MET` - MET
+    * `MST` - MST
+    * `MST7MDT` - MST7MDT
+    * `Mexico/BajaNorte` - Mexico/BajaNorte
+    * `Mexico/BajaSur` - Mexico/BajaSur
+    * `Mexico/General` - Mexico/General
+    * `NZ` - NZ
+    * `NZ-CHAT` - NZ-CHAT
+    * `Navajo` - Navajo
+    * `PRC` - PRC
+    * `PST8PDT` - PST8PDT
+    * `Pacific/Apia` - Pacific/Apia
+    * `Pacific/Auckland` - Pacific/Auckland
+    * `Pacific/Bougainville` - Pacific/Bougainville
+    * `Pacific/Chatham` - Pacific/Chatham
+    * `Pacific/Chuuk` - Pacific/Chuuk
+    * `Pacific/Easter` - Pacific/Easter
+    * `Pacific/Efate` - Pacific/Efate
+    * `Pacific/Enderbury` - Pacific/Enderbury
+    * `Pacific/Fakaofo` - Pacific/Fakaofo
+    * `Pacific/Fiji` - Pacific/Fiji
+    * `Pacific/Funafuti` - Pacific/Funafuti
+    * `Pacific/Galapagos` - Pacific/Galapagos
+    * `Pacific/Gambier` - Pacific/Gambier
+    * `Pacific/Guadalcanal` - Pacific/Guadalcanal
+    * `Pacific/Guam` - Pacific/Guam
+    * `Pacific/Honolulu` - Pacific/Honolulu
+    * `Pacific/Johnston` - Pacific/Johnston
+    * `Pacific/Kanton` - Pacific/Kanton
+    * `Pacific/Kiritimati` - Pacific/Kiritimati
+    * `Pacific/Kosrae` - Pacific/Kosrae
+    * `Pacific/Kwajalein` - Pacific/Kwajalein
+    * `Pacific/Majuro` - Pacific/Majuro
+    * `Pacific/Marquesas` - Pacific/Marquesas
+    * `Pacific/Midway` - Pacific/Midway
+    * `Pacific/Nauru` - Pacific/Nauru
+    * `Pacific/Niue` - Pacific/Niue
+    * `Pacific/Norfolk` - Pacific/Norfolk
+    * `Pacific/Noumea` - Pacific/Noumea
+    * `Pacific/Pago_Pago` - Pacific/Pago_Pago
+    * `Pacific/Palau` - Pacific/Palau
+    * `Pacific/Pitcairn` - Pacific/Pitcairn
+    * `Pacific/Pohnpei` - Pacific/Pohnpei
+    * `Pacific/Ponape` - Pacific/Ponape
+    * `Pacific/Port_Moresby` - Pacific/Port_Moresby
+    * `Pacific/Rarotonga` - Pacific/Rarotonga
+    * `Pacific/Saipan` - Pacific/Saipan
+    * `Pacific/Samoa` - Pacific/Samoa
+    * `Pacific/Tahiti` - Pacific/Tahiti
+    * `Pacific/Tarawa` - Pacific/Tarawa
+    * `Pacific/Tongatapu` - Pacific/Tongatapu
+    * `Pacific/Truk` - Pacific/Truk
+    * `Pacific/Wake` - Pacific/Wake
+    * `Pacific/Wallis` - Pacific/Wallis
+    * `Pacific/Yap` - Pacific/Yap
+    * `Poland` - Poland
+    * `Portugal` - Portugal
+    * `ROC` - ROC
+    * `ROK` - ROK
+    * `Singapore` - Singapore
+    * `Turkey` - Turkey
+    * `UCT` - UCT
+    * `US/Alaska` - US/Alaska
+    * `US/Aleutian` - US/Aleutian
+    * `US/Arizona` - US/Arizona
+    * `US/Central` - US/Central
+    * `US/East-Indiana` - US/East-Indiana
+    * `US/Eastern` - US/Eastern
+    * `US/Hawaii` - US/Hawaii
+    * `US/Indiana-Starke` - US/Indiana-Starke
+    * `US/Michigan` - US/Michigan
+    * `US/Mountain` - US/Mountain
+    * `US/Pacific` - US/Pacific
+    * `US/Samoa` - US/Samoa
+    * `UTC` - UTC
+    * `Universal` - Universal
+    * `W-SU` - W-SU
+    * `WET` - WET
+    * `Zulu` - Zulu */
       timezone?: string;
+      /** Element attributes that posthog-js should capture as action identifiers (e.g. `['data-attr']`). */
       data_attributes?: unknown;
-      /** @nullable */
+      /**
+       * Ordered list of person properties used to render a human-friendly display name in the UI.
+       * @nullable
+       */
       person_display_name_properties?: string[] | null;
       correlation_config?: unknown | null;
-      /** @nullable */
+      /**
+       * Disables posthog-js autocapture (clicks, page views) when true.
+       * @nullable
+       */
       autocapture_opt_out?: boolean | null;
-      /** @nullable */
+      /**
+       * Enables automatic capture of JavaScript exceptions via the SDK.
+       * @nullable
+       */
       autocapture_exceptions_opt_in?: boolean | null;
-      /** @nullable */
+      /**
+       * Enables automatic capture of Core Web Vitals performance metrics.
+       * @nullable
+       */
       autocapture_web_vitals_opt_in?: boolean | null;
       autocapture_web_vitals_allowed_metrics?: unknown | null;
       autocapture_exceptions_errors_to_ignore?: unknown | null;
-      /** @nullable */
+      /**
+       * Enables capturing browser console logs alongside session replays.
+       * @nullable
+       */
       capture_console_log_opt_in?: boolean | null;
-      /** @nullable */
+      /**
+       * Enables capturing performance timing and network requests.
+       * @nullable
+       */
       capture_performance_opt_in?: boolean | null;
+      /** Enables session replay recording for this project. */
       session_recording_opt_in?: boolean;
       /**
+       * Fraction of sessions to record, as a decimal string between `0.00` and `1.00` (e.g. `0.1` = 10%).
        * @nullable
        * @pattern ^-?\d{0,1}(?:\.\d{0,2})?$
        */
       session_recording_sample_rate?: string | null;
       /**
+       * Skip saving sessions shorter than this many milliseconds.
        * @minimum 0
        * @maximum 30000
        * @nullable
@@ -26478,20 +27707,36 @@ export namespace Schemas {
       session_recording_trigger_match_type_config?: string | null;
       /** V2 trigger groups configuration for session recording. If present, takes precedence over legacy trigger fields. */
       session_recording_trigger_groups?: unknown | null;
+      /** How long to retain new session recordings. One of `30d`, `90d`, `1y`, or `5y` (availability depends on plan).
+
+    * `30d` - 30 Days
+    * `90d` - 90 Days
+    * `1y` - 1 Year
+    * `5y` - 5 Years */
       session_recording_retention_period?: SessionRecordingRetentionPeriodEnum;
       session_replay_config?: unknown | null;
       survey_config?: unknown | null;
       access_control?: boolean;
       /**
+       * First day of the week for date range filters. 0 = Sunday, 1 = Monday.
+
+    * `0` - Sunday
+    * `1` - Monday
        * @minimum -32768
        * @maximum 32767
        */
       week_start_day?: WeekStartDayEnum | NullEnum | null;
-      /** @nullable */
+      /**
+       * ID of the dashboard shown as the project's default landing dashboard.
+       * @nullable
+       */
       primary_dashboard?: number | null;
       /** @nullable */
       live_events_columns?: string[] | null;
-      /** @nullable */
+      /**
+       * Origins permitted to record session replays and heatmaps. Empty list allows all origins.
+       * @nullable
+       */
       recording_domains?: (string | null)[] | null;
       readonly person_on_events_querying_enabled?: string;
       /** @nullable */
@@ -26500,12 +27745,21 @@ export namespace Schemas {
       modifiers?: unknown | null;
       readonly default_modifiers?: string;
       has_completed_onboarding_for?: unknown | null;
-      /** @nullable */
+      /**
+       * Enables displaying surveys via posthog-js on allowed origins.
+       * @nullable
+       */
       surveys_opt_in?: boolean | null;
-      /** @nullable */
+      /**
+       * Enables heatmap recording on pages that host posthog-js.
+       * @nullable
+       */
       heatmaps_opt_in?: boolean | null;
       readonly product_intents?: readonly PatchedProjectBackwardCompatProductIntentsItem[];
-      /** @nullable */
+      /**
+       * Default value for the `persist` option on newly created feature flags.
+       * @nullable
+       */
       flags_persistence_default?: boolean | null;
       /** @nullable */
       readonly secret_api_token?: string | null;
@@ -26513,13 +27767,16 @@ export namespace Schemas {
       readonly secret_api_token_backup?: string | null;
       /** @nullable */
       receive_org_level_activity_logs?: boolean | null;
-      /** Whether this project serves B2B or B2C customers, used to optimize the UI layout.
+      /** Whether this project serves B2B or B2C customers. Used to optimize default UI layouts.
 
     * `b2b` - B2B
     * `b2c` - B2C
     * `other` - Other */
       business_model?: BusinessModelEnum | BlankEnum | NullEnum | null;
-      /** @nullable */
+      /**
+       * Enables the customer conversations / live chat product for this project.
+       * @nullable
+       */
       conversations_enabled?: boolean | null;
       conversations_settings?: unknown | null;
       logs_settings?: unknown | null;
@@ -27735,6 +28992,8 @@ export namespace Schemas {
       output?: unknown | null;
       /** State of the run */
       state?: unknown;
+      /** State keys to remove atomically before applying any state updates. */
+      state_remove_keys?: string[];
       /**
        * Error message if execution failed
        * @nullable
@@ -27790,8 +29049,8 @@ export namespace Schemas {
       access_control?: boolean;
       readonly organization?: string;
       /**
-       * @minimum -9223372036854776000
-       * @maximum 9223372036854776000
+       * @minimum -2147483648
+       * @maximum 2147483647
        */
       readonly project_id?: number;
       readonly api_token?: string;
@@ -28071,6 +29330,9 @@ export namespace Schemas {
       enable_pr_comments?: boolean | null;
     }
 
+    /**
+     * Map of notification preferences. Keys include `plugin_disabled`, `all_weekly_report_disabled`, `project_weekly_digest_disabled`, `error_tracking_weekly_digest_project_enabled`, `web_analytics_weekly_digest_project_enabled`, `organization_member_join_email_disabled`, `data_pipeline_error_threshold` (number between 0.0 and 1.0), and other per-topic switches. Values are either booleans, or (for per-project/per-resource keys) a map of IDs to booleans. Only the keys you send are updated — other preferences stay as-is.
+     */
     export type PatchedUserNotificationSettings = {[key: string]: unknown};
 
     export interface PatchedUser {
@@ -28088,8 +29350,12 @@ export namespace Schemas {
       readonly pending_email?: string | null;
       /** @nullable */
       readonly is_email_verified?: boolean | null;
+      /** Map of notification preferences. Keys include `plugin_disabled`, `all_weekly_report_disabled`, `project_weekly_digest_disabled`, `error_tracking_weekly_digest_project_enabled`, `web_analytics_weekly_digest_project_enabled`, `organization_member_join_email_disabled`, `data_pipeline_error_threshold` (number between 0.0 and 1.0), and other per-topic switches. Values are either booleans, or (for per-project/per-resource keys) a map of IDs to booleans. Only the keys you send are updated — other preferences stay as-is. */
       notification_settings?: PatchedUserNotificationSettings;
-      /** @nullable */
+      /**
+       * Whether PostHog should anonymize events captured for this user when identified.
+       * @nullable
+       */
       anonymize_data?: boolean | null;
       /** @nullable */
       allow_impersonation?: boolean | null;
@@ -28113,6 +29379,7 @@ export namespace Schemas {
       set_current_team?: string;
       /** @maxLength 128 */
       password?: string;
+      /** The user's current password. Required when changing `password` if the user already has a usable password set. */
       current_password?: string;
       events_column_config?: unknown;
       readonly is_2fa_enabled?: boolean;
@@ -28131,6 +29398,9 @@ export namespace Schemas {
        * @nullable
        */
       passkeys_enabled_for_2fa?: boolean | null;
+      /** @nullable */
+      readonly is_organization_first_user?: boolean | null;
+      readonly pending_invites?: readonly PendingInvite[];
     }
 
     export interface PatchedUserInterview {
@@ -28404,11 +29674,13 @@ export namespace Schemas {
       readonly id: number;
       readonly organization: string;
       /**
+       * Human-readable project name.
        * @minLength 1
        * @maxLength 200
        */
       name?: string;
       /**
+       * Short description of what the project is about. This is helpful to give our AI agents context about your project.
        * @maxLength 1000
        * @nullable
        */
@@ -28423,38 +29695,664 @@ export namespace Schemas {
       readonly uuid: string;
       readonly api_token: string;
       app_urls?: (string | null)[];
+      /** When true, PostHog drops the IP address from every ingested event. */
       anonymize_ips?: boolean;
       completed_snippet_onboarding?: boolean;
       readonly ingested_event: boolean;
+      /** Filter groups that identify internal/test traffic to be excluded from insights. */
       test_account_filters?: unknown;
-      /** @nullable */
+      /**
+       * When true, new insights default to excluding internal/test users.
+       * @nullable
+       */
       test_account_filters_default_checked?: boolean | null;
+      /** Regex rewrite rules that collapse dynamic path segments (e.g. user IDs) before displaying URLs in paths. */
       path_cleaning_filters?: unknown | null;
       is_demo?: boolean;
+      /** IANA timezone used for date-based filters and reporting (e.g. `America/Los_Angeles`).
+
+    * `Africa/Abidjan` - Africa/Abidjan
+    * `Africa/Accra` - Africa/Accra
+    * `Africa/Addis_Ababa` - Africa/Addis_Ababa
+    * `Africa/Algiers` - Africa/Algiers
+    * `Africa/Asmara` - Africa/Asmara
+    * `Africa/Asmera` - Africa/Asmera
+    * `Africa/Bamako` - Africa/Bamako
+    * `Africa/Bangui` - Africa/Bangui
+    * `Africa/Banjul` - Africa/Banjul
+    * `Africa/Bissau` - Africa/Bissau
+    * `Africa/Blantyre` - Africa/Blantyre
+    * `Africa/Brazzaville` - Africa/Brazzaville
+    * `Africa/Bujumbura` - Africa/Bujumbura
+    * `Africa/Cairo` - Africa/Cairo
+    * `Africa/Casablanca` - Africa/Casablanca
+    * `Africa/Ceuta` - Africa/Ceuta
+    * `Africa/Conakry` - Africa/Conakry
+    * `Africa/Dakar` - Africa/Dakar
+    * `Africa/Dar_es_Salaam` - Africa/Dar_es_Salaam
+    * `Africa/Djibouti` - Africa/Djibouti
+    * `Africa/Douala` - Africa/Douala
+    * `Africa/El_Aaiun` - Africa/El_Aaiun
+    * `Africa/Freetown` - Africa/Freetown
+    * `Africa/Gaborone` - Africa/Gaborone
+    * `Africa/Harare` - Africa/Harare
+    * `Africa/Johannesburg` - Africa/Johannesburg
+    * `Africa/Juba` - Africa/Juba
+    * `Africa/Kampala` - Africa/Kampala
+    * `Africa/Khartoum` - Africa/Khartoum
+    * `Africa/Kigali` - Africa/Kigali
+    * `Africa/Kinshasa` - Africa/Kinshasa
+    * `Africa/Lagos` - Africa/Lagos
+    * `Africa/Libreville` - Africa/Libreville
+    * `Africa/Lome` - Africa/Lome
+    * `Africa/Luanda` - Africa/Luanda
+    * `Africa/Lubumbashi` - Africa/Lubumbashi
+    * `Africa/Lusaka` - Africa/Lusaka
+    * `Africa/Malabo` - Africa/Malabo
+    * `Africa/Maputo` - Africa/Maputo
+    * `Africa/Maseru` - Africa/Maseru
+    * `Africa/Mbabane` - Africa/Mbabane
+    * `Africa/Mogadishu` - Africa/Mogadishu
+    * `Africa/Monrovia` - Africa/Monrovia
+    * `Africa/Nairobi` - Africa/Nairobi
+    * `Africa/Ndjamena` - Africa/Ndjamena
+    * `Africa/Niamey` - Africa/Niamey
+    * `Africa/Nouakchott` - Africa/Nouakchott
+    * `Africa/Ouagadougou` - Africa/Ouagadougou
+    * `Africa/Porto-Novo` - Africa/Porto-Novo
+    * `Africa/Sao_Tome` - Africa/Sao_Tome
+    * `Africa/Timbuktu` - Africa/Timbuktu
+    * `Africa/Tripoli` - Africa/Tripoli
+    * `Africa/Tunis` - Africa/Tunis
+    * `Africa/Windhoek` - Africa/Windhoek
+    * `America/Adak` - America/Adak
+    * `America/Anchorage` - America/Anchorage
+    * `America/Anguilla` - America/Anguilla
+    * `America/Antigua` - America/Antigua
+    * `America/Araguaina` - America/Araguaina
+    * `America/Argentina/Buenos_Aires` - America/Argentina/Buenos_Aires
+    * `America/Argentina/Catamarca` - America/Argentina/Catamarca
+    * `America/Argentina/ComodRivadavia` - America/Argentina/ComodRivadavia
+    * `America/Argentina/Cordoba` - America/Argentina/Cordoba
+    * `America/Argentina/Jujuy` - America/Argentina/Jujuy
+    * `America/Argentina/La_Rioja` - America/Argentina/La_Rioja
+    * `America/Argentina/Mendoza` - America/Argentina/Mendoza
+    * `America/Argentina/Rio_Gallegos` - America/Argentina/Rio_Gallegos
+    * `America/Argentina/Salta` - America/Argentina/Salta
+    * `America/Argentina/San_Juan` - America/Argentina/San_Juan
+    * `America/Argentina/San_Luis` - America/Argentina/San_Luis
+    * `America/Argentina/Tucuman` - America/Argentina/Tucuman
+    * `America/Argentina/Ushuaia` - America/Argentina/Ushuaia
+    * `America/Aruba` - America/Aruba
+    * `America/Asuncion` - America/Asuncion
+    * `America/Atikokan` - America/Atikokan
+    * `America/Atka` - America/Atka
+    * `America/Bahia` - America/Bahia
+    * `America/Bahia_Banderas` - America/Bahia_Banderas
+    * `America/Barbados` - America/Barbados
+    * `America/Belem` - America/Belem
+    * `America/Belize` - America/Belize
+    * `America/Blanc-Sablon` - America/Blanc-Sablon
+    * `America/Boa_Vista` - America/Boa_Vista
+    * `America/Bogota` - America/Bogota
+    * `America/Boise` - America/Boise
+    * `America/Buenos_Aires` - America/Buenos_Aires
+    * `America/Cambridge_Bay` - America/Cambridge_Bay
+    * `America/Campo_Grande` - America/Campo_Grande
+    * `America/Cancun` - America/Cancun
+    * `America/Caracas` - America/Caracas
+    * `America/Catamarca` - America/Catamarca
+    * `America/Cayenne` - America/Cayenne
+    * `America/Cayman` - America/Cayman
+    * `America/Chicago` - America/Chicago
+    * `America/Chihuahua` - America/Chihuahua
+    * `America/Ciudad_Juarez` - America/Ciudad_Juarez
+    * `America/Coral_Harbour` - America/Coral_Harbour
+    * `America/Cordoba` - America/Cordoba
+    * `America/Costa_Rica` - America/Costa_Rica
+    * `America/Creston` - America/Creston
+    * `America/Cuiaba` - America/Cuiaba
+    * `America/Curacao` - America/Curacao
+    * `America/Danmarkshavn` - America/Danmarkshavn
+    * `America/Dawson` - America/Dawson
+    * `America/Dawson_Creek` - America/Dawson_Creek
+    * `America/Denver` - America/Denver
+    * `America/Detroit` - America/Detroit
+    * `America/Dominica` - America/Dominica
+    * `America/Edmonton` - America/Edmonton
+    * `America/Eirunepe` - America/Eirunepe
+    * `America/El_Salvador` - America/El_Salvador
+    * `America/Ensenada` - America/Ensenada
+    * `America/Fort_Nelson` - America/Fort_Nelson
+    * `America/Fort_Wayne` - America/Fort_Wayne
+    * `America/Fortaleza` - America/Fortaleza
+    * `America/Glace_Bay` - America/Glace_Bay
+    * `America/Godthab` - America/Godthab
+    * `America/Goose_Bay` - America/Goose_Bay
+    * `America/Grand_Turk` - America/Grand_Turk
+    * `America/Grenada` - America/Grenada
+    * `America/Guadeloupe` - America/Guadeloupe
+    * `America/Guatemala` - America/Guatemala
+    * `America/Guayaquil` - America/Guayaquil
+    * `America/Guyana` - America/Guyana
+    * `America/Halifax` - America/Halifax
+    * `America/Havana` - America/Havana
+    * `America/Hermosillo` - America/Hermosillo
+    * `America/Indiana/Indianapolis` - America/Indiana/Indianapolis
+    * `America/Indiana/Knox` - America/Indiana/Knox
+    * `America/Indiana/Marengo` - America/Indiana/Marengo
+    * `America/Indiana/Petersburg` - America/Indiana/Petersburg
+    * `America/Indiana/Tell_City` - America/Indiana/Tell_City
+    * `America/Indiana/Vevay` - America/Indiana/Vevay
+    * `America/Indiana/Vincennes` - America/Indiana/Vincennes
+    * `America/Indiana/Winamac` - America/Indiana/Winamac
+    * `America/Indianapolis` - America/Indianapolis
+    * `America/Inuvik` - America/Inuvik
+    * `America/Iqaluit` - America/Iqaluit
+    * `America/Jamaica` - America/Jamaica
+    * `America/Jujuy` - America/Jujuy
+    * `America/Juneau` - America/Juneau
+    * `America/Kentucky/Louisville` - America/Kentucky/Louisville
+    * `America/Kentucky/Monticello` - America/Kentucky/Monticello
+    * `America/Knox_IN` - America/Knox_IN
+    * `America/Kralendijk` - America/Kralendijk
+    * `America/La_Paz` - America/La_Paz
+    * `America/Lima` - America/Lima
+    * `America/Los_Angeles` - America/Los_Angeles
+    * `America/Louisville` - America/Louisville
+    * `America/Lower_Princes` - America/Lower_Princes
+    * `America/Maceio` - America/Maceio
+    * `America/Managua` - America/Managua
+    * `America/Manaus` - America/Manaus
+    * `America/Marigot` - America/Marigot
+    * `America/Martinique` - America/Martinique
+    * `America/Matamoros` - America/Matamoros
+    * `America/Mazatlan` - America/Mazatlan
+    * `America/Mendoza` - America/Mendoza
+    * `America/Menominee` - America/Menominee
+    * `America/Merida` - America/Merida
+    * `America/Metlakatla` - America/Metlakatla
+    * `America/Mexico_City` - America/Mexico_City
+    * `America/Miquelon` - America/Miquelon
+    * `America/Moncton` - America/Moncton
+    * `America/Monterrey` - America/Monterrey
+    * `America/Montevideo` - America/Montevideo
+    * `America/Montreal` - America/Montreal
+    * `America/Montserrat` - America/Montserrat
+    * `America/Nassau` - America/Nassau
+    * `America/New_York` - America/New_York
+    * `America/Nipigon` - America/Nipigon
+    * `America/Nome` - America/Nome
+    * `America/Noronha` - America/Noronha
+    * `America/North_Dakota/Beulah` - America/North_Dakota/Beulah
+    * `America/North_Dakota/Center` - America/North_Dakota/Center
+    * `America/North_Dakota/New_Salem` - America/North_Dakota/New_Salem
+    * `America/Nuuk` - America/Nuuk
+    * `America/Ojinaga` - America/Ojinaga
+    * `America/Panama` - America/Panama
+    * `America/Pangnirtung` - America/Pangnirtung
+    * `America/Paramaribo` - America/Paramaribo
+    * `America/Phoenix` - America/Phoenix
+    * `America/Port-au-Prince` - America/Port-au-Prince
+    * `America/Port_of_Spain` - America/Port_of_Spain
+    * `America/Porto_Acre` - America/Porto_Acre
+    * `America/Porto_Velho` - America/Porto_Velho
+    * `America/Puerto_Rico` - America/Puerto_Rico
+    * `America/Punta_Arenas` - America/Punta_Arenas
+    * `America/Rainy_River` - America/Rainy_River
+    * `America/Rankin_Inlet` - America/Rankin_Inlet
+    * `America/Recife` - America/Recife
+    * `America/Regina` - America/Regina
+    * `America/Resolute` - America/Resolute
+    * `America/Rio_Branco` - America/Rio_Branco
+    * `America/Rosario` - America/Rosario
+    * `America/Santa_Isabel` - America/Santa_Isabel
+    * `America/Santarem` - America/Santarem
+    * `America/Santiago` - America/Santiago
+    * `America/Santo_Domingo` - America/Santo_Domingo
+    * `America/Sao_Paulo` - America/Sao_Paulo
+    * `America/Scoresbysund` - America/Scoresbysund
+    * `America/Shiprock` - America/Shiprock
+    * `America/Sitka` - America/Sitka
+    * `America/St_Barthelemy` - America/St_Barthelemy
+    * `America/St_Johns` - America/St_Johns
+    * `America/St_Kitts` - America/St_Kitts
+    * `America/St_Lucia` - America/St_Lucia
+    * `America/St_Thomas` - America/St_Thomas
+    * `America/St_Vincent` - America/St_Vincent
+    * `America/Swift_Current` - America/Swift_Current
+    * `America/Tegucigalpa` - America/Tegucigalpa
+    * `America/Thule` - America/Thule
+    * `America/Thunder_Bay` - America/Thunder_Bay
+    * `America/Tijuana` - America/Tijuana
+    * `America/Toronto` - America/Toronto
+    * `America/Tortola` - America/Tortola
+    * `America/Vancouver` - America/Vancouver
+    * `America/Virgin` - America/Virgin
+    * `America/Whitehorse` - America/Whitehorse
+    * `America/Winnipeg` - America/Winnipeg
+    * `America/Yakutat` - America/Yakutat
+    * `America/Yellowknife` - America/Yellowknife
+    * `Antarctica/Casey` - Antarctica/Casey
+    * `Antarctica/Davis` - Antarctica/Davis
+    * `Antarctica/DumontDUrville` - Antarctica/DumontDUrville
+    * `Antarctica/Macquarie` - Antarctica/Macquarie
+    * `Antarctica/Mawson` - Antarctica/Mawson
+    * `Antarctica/McMurdo` - Antarctica/McMurdo
+    * `Antarctica/Palmer` - Antarctica/Palmer
+    * `Antarctica/Rothera` - Antarctica/Rothera
+    * `Antarctica/South_Pole` - Antarctica/South_Pole
+    * `Antarctica/Syowa` - Antarctica/Syowa
+    * `Antarctica/Troll` - Antarctica/Troll
+    * `Antarctica/Vostok` - Antarctica/Vostok
+    * `Arctic/Longyearbyen` - Arctic/Longyearbyen
+    * `Asia/Aden` - Asia/Aden
+    * `Asia/Almaty` - Asia/Almaty
+    * `Asia/Amman` - Asia/Amman
+    * `Asia/Anadyr` - Asia/Anadyr
+    * `Asia/Aqtau` - Asia/Aqtau
+    * `Asia/Aqtobe` - Asia/Aqtobe
+    * `Asia/Ashgabat` - Asia/Ashgabat
+    * `Asia/Ashkhabad` - Asia/Ashkhabad
+    * `Asia/Atyrau` - Asia/Atyrau
+    * `Asia/Baghdad` - Asia/Baghdad
+    * `Asia/Bahrain` - Asia/Bahrain
+    * `Asia/Baku` - Asia/Baku
+    * `Asia/Bangkok` - Asia/Bangkok
+    * `Asia/Barnaul` - Asia/Barnaul
+    * `Asia/Beirut` - Asia/Beirut
+    * `Asia/Bishkek` - Asia/Bishkek
+    * `Asia/Brunei` - Asia/Brunei
+    * `Asia/Calcutta` - Asia/Calcutta
+    * `Asia/Chita` - Asia/Chita
+    * `Asia/Choibalsan` - Asia/Choibalsan
+    * `Asia/Chongqing` - Asia/Chongqing
+    * `Asia/Chungking` - Asia/Chungking
+    * `Asia/Colombo` - Asia/Colombo
+    * `Asia/Dacca` - Asia/Dacca
+    * `Asia/Damascus` - Asia/Damascus
+    * `Asia/Dhaka` - Asia/Dhaka
+    * `Asia/Dili` - Asia/Dili
+    * `Asia/Dubai` - Asia/Dubai
+    * `Asia/Dushanbe` - Asia/Dushanbe
+    * `Asia/Famagusta` - Asia/Famagusta
+    * `Asia/Gaza` - Asia/Gaza
+    * `Asia/Harbin` - Asia/Harbin
+    * `Asia/Hebron` - Asia/Hebron
+    * `Asia/Ho_Chi_Minh` - Asia/Ho_Chi_Minh
+    * `Asia/Hong_Kong` - Asia/Hong_Kong
+    * `Asia/Hovd` - Asia/Hovd
+    * `Asia/Irkutsk` - Asia/Irkutsk
+    * `Asia/Istanbul` - Asia/Istanbul
+    * `Asia/Jakarta` - Asia/Jakarta
+    * `Asia/Jayapura` - Asia/Jayapura
+    * `Asia/Jerusalem` - Asia/Jerusalem
+    * `Asia/Kabul` - Asia/Kabul
+    * `Asia/Kamchatka` - Asia/Kamchatka
+    * `Asia/Karachi` - Asia/Karachi
+    * `Asia/Kashgar` - Asia/Kashgar
+    * `Asia/Kathmandu` - Asia/Kathmandu
+    * `Asia/Katmandu` - Asia/Katmandu
+    * `Asia/Khandyga` - Asia/Khandyga
+    * `Asia/Kolkata` - Asia/Kolkata
+    * `Asia/Krasnoyarsk` - Asia/Krasnoyarsk
+    * `Asia/Kuala_Lumpur` - Asia/Kuala_Lumpur
+    * `Asia/Kuching` - Asia/Kuching
+    * `Asia/Kuwait` - Asia/Kuwait
+    * `Asia/Macao` - Asia/Macao
+    * `Asia/Macau` - Asia/Macau
+    * `Asia/Magadan` - Asia/Magadan
+    * `Asia/Makassar` - Asia/Makassar
+    * `Asia/Manila` - Asia/Manila
+    * `Asia/Muscat` - Asia/Muscat
+    * `Asia/Nicosia` - Asia/Nicosia
+    * `Asia/Novokuznetsk` - Asia/Novokuznetsk
+    * `Asia/Novosibirsk` - Asia/Novosibirsk
+    * `Asia/Omsk` - Asia/Omsk
+    * `Asia/Oral` - Asia/Oral
+    * `Asia/Phnom_Penh` - Asia/Phnom_Penh
+    * `Asia/Pontianak` - Asia/Pontianak
+    * `Asia/Pyongyang` - Asia/Pyongyang
+    * `Asia/Qatar` - Asia/Qatar
+    * `Asia/Qostanay` - Asia/Qostanay
+    * `Asia/Qyzylorda` - Asia/Qyzylorda
+    * `Asia/Rangoon` - Asia/Rangoon
+    * `Asia/Riyadh` - Asia/Riyadh
+    * `Asia/Saigon` - Asia/Saigon
+    * `Asia/Sakhalin` - Asia/Sakhalin
+    * `Asia/Samarkand` - Asia/Samarkand
+    * `Asia/Seoul` - Asia/Seoul
+    * `Asia/Shanghai` - Asia/Shanghai
+    * `Asia/Singapore` - Asia/Singapore
+    * `Asia/Srednekolymsk` - Asia/Srednekolymsk
+    * `Asia/Taipei` - Asia/Taipei
+    * `Asia/Tashkent` - Asia/Tashkent
+    * `Asia/Tbilisi` - Asia/Tbilisi
+    * `Asia/Tehran` - Asia/Tehran
+    * `Asia/Tel_Aviv` - Asia/Tel_Aviv
+    * `Asia/Thimbu` - Asia/Thimbu
+    * `Asia/Thimphu` - Asia/Thimphu
+    * `Asia/Tokyo` - Asia/Tokyo
+    * `Asia/Tomsk` - Asia/Tomsk
+    * `Asia/Ujung_Pandang` - Asia/Ujung_Pandang
+    * `Asia/Ulaanbaatar` - Asia/Ulaanbaatar
+    * `Asia/Ulan_Bator` - Asia/Ulan_Bator
+    * `Asia/Urumqi` - Asia/Urumqi
+    * `Asia/Ust-Nera` - Asia/Ust-Nera
+    * `Asia/Vientiane` - Asia/Vientiane
+    * `Asia/Vladivostok` - Asia/Vladivostok
+    * `Asia/Yakutsk` - Asia/Yakutsk
+    * `Asia/Yangon` - Asia/Yangon
+    * `Asia/Yekaterinburg` - Asia/Yekaterinburg
+    * `Asia/Yerevan` - Asia/Yerevan
+    * `Atlantic/Azores` - Atlantic/Azores
+    * `Atlantic/Bermuda` - Atlantic/Bermuda
+    * `Atlantic/Canary` - Atlantic/Canary
+    * `Atlantic/Cape_Verde` - Atlantic/Cape_Verde
+    * `Atlantic/Faeroe` - Atlantic/Faeroe
+    * `Atlantic/Faroe` - Atlantic/Faroe
+    * `Atlantic/Jan_Mayen` - Atlantic/Jan_Mayen
+    * `Atlantic/Madeira` - Atlantic/Madeira
+    * `Atlantic/Reykjavik` - Atlantic/Reykjavik
+    * `Atlantic/South_Georgia` - Atlantic/South_Georgia
+    * `Atlantic/St_Helena` - Atlantic/St_Helena
+    * `Atlantic/Stanley` - Atlantic/Stanley
+    * `Australia/ACT` - Australia/ACT
+    * `Australia/Adelaide` - Australia/Adelaide
+    * `Australia/Brisbane` - Australia/Brisbane
+    * `Australia/Broken_Hill` - Australia/Broken_Hill
+    * `Australia/Canberra` - Australia/Canberra
+    * `Australia/Currie` - Australia/Currie
+    * `Australia/Darwin` - Australia/Darwin
+    * `Australia/Eucla` - Australia/Eucla
+    * `Australia/Hobart` - Australia/Hobart
+    * `Australia/LHI` - Australia/LHI
+    * `Australia/Lindeman` - Australia/Lindeman
+    * `Australia/Lord_Howe` - Australia/Lord_Howe
+    * `Australia/Melbourne` - Australia/Melbourne
+    * `Australia/NSW` - Australia/NSW
+    * `Australia/North` - Australia/North
+    * `Australia/Perth` - Australia/Perth
+    * `Australia/Queensland` - Australia/Queensland
+    * `Australia/South` - Australia/South
+    * `Australia/Sydney` - Australia/Sydney
+    * `Australia/Tasmania` - Australia/Tasmania
+    * `Australia/Victoria` - Australia/Victoria
+    * `Australia/West` - Australia/West
+    * `Australia/Yancowinna` - Australia/Yancowinna
+    * `Brazil/Acre` - Brazil/Acre
+    * `Brazil/DeNoronha` - Brazil/DeNoronha
+    * `Brazil/East` - Brazil/East
+    * `Brazil/West` - Brazil/West
+    * `CET` - CET
+    * `CST6CDT` - CST6CDT
+    * `Canada/Atlantic` - Canada/Atlantic
+    * `Canada/Central` - Canada/Central
+    * `Canada/Eastern` - Canada/Eastern
+    * `Canada/Mountain` - Canada/Mountain
+    * `Canada/Newfoundland` - Canada/Newfoundland
+    * `Canada/Pacific` - Canada/Pacific
+    * `Canada/Saskatchewan` - Canada/Saskatchewan
+    * `Canada/Yukon` - Canada/Yukon
+    * `Chile/Continental` - Chile/Continental
+    * `Chile/EasterIsland` - Chile/EasterIsland
+    * `Cuba` - Cuba
+    * `EET` - EET
+    * `EST` - EST
+    * `EST5EDT` - EST5EDT
+    * `Egypt` - Egypt
+    * `Eire` - Eire
+    * `Etc/GMT` - Etc/GMT
+    * `Etc/GMT+0` - Etc/GMT+0
+    * `Etc/GMT+1` - Etc/GMT+1
+    * `Etc/GMT+10` - Etc/GMT+10
+    * `Etc/GMT+11` - Etc/GMT+11
+    * `Etc/GMT+12` - Etc/GMT+12
+    * `Etc/GMT+2` - Etc/GMT+2
+    * `Etc/GMT+3` - Etc/GMT+3
+    * `Etc/GMT+4` - Etc/GMT+4
+    * `Etc/GMT+5` - Etc/GMT+5
+    * `Etc/GMT+6` - Etc/GMT+6
+    * `Etc/GMT+7` - Etc/GMT+7
+    * `Etc/GMT+8` - Etc/GMT+8
+    * `Etc/GMT+9` - Etc/GMT+9
+    * `Etc/GMT-0` - Etc/GMT-0
+    * `Etc/GMT-1` - Etc/GMT-1
+    * `Etc/GMT-10` - Etc/GMT-10
+    * `Etc/GMT-11` - Etc/GMT-11
+    * `Etc/GMT-12` - Etc/GMT-12
+    * `Etc/GMT-13` - Etc/GMT-13
+    * `Etc/GMT-14` - Etc/GMT-14
+    * `Etc/GMT-2` - Etc/GMT-2
+    * `Etc/GMT-3` - Etc/GMT-3
+    * `Etc/GMT-4` - Etc/GMT-4
+    * `Etc/GMT-5` - Etc/GMT-5
+    * `Etc/GMT-6` - Etc/GMT-6
+    * `Etc/GMT-7` - Etc/GMT-7
+    * `Etc/GMT-8` - Etc/GMT-8
+    * `Etc/GMT-9` - Etc/GMT-9
+    * `Etc/GMT0` - Etc/GMT0
+    * `Etc/Greenwich` - Etc/Greenwich
+    * `Etc/UCT` - Etc/UCT
+    * `Etc/UTC` - Etc/UTC
+    * `Etc/Universal` - Etc/Universal
+    * `Etc/Zulu` - Etc/Zulu
+    * `Europe/Amsterdam` - Europe/Amsterdam
+    * `Europe/Andorra` - Europe/Andorra
+    * `Europe/Astrakhan` - Europe/Astrakhan
+    * `Europe/Athens` - Europe/Athens
+    * `Europe/Belfast` - Europe/Belfast
+    * `Europe/Belgrade` - Europe/Belgrade
+    * `Europe/Berlin` - Europe/Berlin
+    * `Europe/Bratislava` - Europe/Bratislava
+    * `Europe/Brussels` - Europe/Brussels
+    * `Europe/Bucharest` - Europe/Bucharest
+    * `Europe/Budapest` - Europe/Budapest
+    * `Europe/Busingen` - Europe/Busingen
+    * `Europe/Chisinau` - Europe/Chisinau
+    * `Europe/Copenhagen` - Europe/Copenhagen
+    * `Europe/Dublin` - Europe/Dublin
+    * `Europe/Gibraltar` - Europe/Gibraltar
+    * `Europe/Guernsey` - Europe/Guernsey
+    * `Europe/Helsinki` - Europe/Helsinki
+    * `Europe/Isle_of_Man` - Europe/Isle_of_Man
+    * `Europe/Istanbul` - Europe/Istanbul
+    * `Europe/Jersey` - Europe/Jersey
+    * `Europe/Kaliningrad` - Europe/Kaliningrad
+    * `Europe/Kiev` - Europe/Kiev
+    * `Europe/Kirov` - Europe/Kirov
+    * `Europe/Kyiv` - Europe/Kyiv
+    * `Europe/Lisbon` - Europe/Lisbon
+    * `Europe/Ljubljana` - Europe/Ljubljana
+    * `Europe/London` - Europe/London
+    * `Europe/Luxembourg` - Europe/Luxembourg
+    * `Europe/Madrid` - Europe/Madrid
+    * `Europe/Malta` - Europe/Malta
+    * `Europe/Mariehamn` - Europe/Mariehamn
+    * `Europe/Minsk` - Europe/Minsk
+    * `Europe/Monaco` - Europe/Monaco
+    * `Europe/Moscow` - Europe/Moscow
+    * `Europe/Nicosia` - Europe/Nicosia
+    * `Europe/Oslo` - Europe/Oslo
+    * `Europe/Paris` - Europe/Paris
+    * `Europe/Podgorica` - Europe/Podgorica
+    * `Europe/Prague` - Europe/Prague
+    * `Europe/Riga` - Europe/Riga
+    * `Europe/Rome` - Europe/Rome
+    * `Europe/Samara` - Europe/Samara
+    * `Europe/San_Marino` - Europe/San_Marino
+    * `Europe/Sarajevo` - Europe/Sarajevo
+    * `Europe/Saratov` - Europe/Saratov
+    * `Europe/Simferopol` - Europe/Simferopol
+    * `Europe/Skopje` - Europe/Skopje
+    * `Europe/Sofia` - Europe/Sofia
+    * `Europe/Stockholm` - Europe/Stockholm
+    * `Europe/Tallinn` - Europe/Tallinn
+    * `Europe/Tirane` - Europe/Tirane
+    * `Europe/Tiraspol` - Europe/Tiraspol
+    * `Europe/Ulyanovsk` - Europe/Ulyanovsk
+    * `Europe/Uzhgorod` - Europe/Uzhgorod
+    * `Europe/Vaduz` - Europe/Vaduz
+    * `Europe/Vatican` - Europe/Vatican
+    * `Europe/Vienna` - Europe/Vienna
+    * `Europe/Vilnius` - Europe/Vilnius
+    * `Europe/Volgograd` - Europe/Volgograd
+    * `Europe/Warsaw` - Europe/Warsaw
+    * `Europe/Zagreb` - Europe/Zagreb
+    * `Europe/Zaporozhye` - Europe/Zaporozhye
+    * `Europe/Zurich` - Europe/Zurich
+    * `GB` - GB
+    * `GB-Eire` - GB-Eire
+    * `GMT` - GMT
+    * `GMT+0` - GMT+0
+    * `GMT-0` - GMT-0
+    * `GMT0` - GMT0
+    * `Greenwich` - Greenwich
+    * `HST` - HST
+    * `Hongkong` - Hongkong
+    * `Iceland` - Iceland
+    * `Indian/Antananarivo` - Indian/Antananarivo
+    * `Indian/Chagos` - Indian/Chagos
+    * `Indian/Christmas` - Indian/Christmas
+    * `Indian/Cocos` - Indian/Cocos
+    * `Indian/Comoro` - Indian/Comoro
+    * `Indian/Kerguelen` - Indian/Kerguelen
+    * `Indian/Mahe` - Indian/Mahe
+    * `Indian/Maldives` - Indian/Maldives
+    * `Indian/Mauritius` - Indian/Mauritius
+    * `Indian/Mayotte` - Indian/Mayotte
+    * `Indian/Reunion` - Indian/Reunion
+    * `Iran` - Iran
+    * `Israel` - Israel
+    * `Jamaica` - Jamaica
+    * `Japan` - Japan
+    * `Kwajalein` - Kwajalein
+    * `Libya` - Libya
+    * `MET` - MET
+    * `MST` - MST
+    * `MST7MDT` - MST7MDT
+    * `Mexico/BajaNorte` - Mexico/BajaNorte
+    * `Mexico/BajaSur` - Mexico/BajaSur
+    * `Mexico/General` - Mexico/General
+    * `NZ` - NZ
+    * `NZ-CHAT` - NZ-CHAT
+    * `Navajo` - Navajo
+    * `PRC` - PRC
+    * `PST8PDT` - PST8PDT
+    * `Pacific/Apia` - Pacific/Apia
+    * `Pacific/Auckland` - Pacific/Auckland
+    * `Pacific/Bougainville` - Pacific/Bougainville
+    * `Pacific/Chatham` - Pacific/Chatham
+    * `Pacific/Chuuk` - Pacific/Chuuk
+    * `Pacific/Easter` - Pacific/Easter
+    * `Pacific/Efate` - Pacific/Efate
+    * `Pacific/Enderbury` - Pacific/Enderbury
+    * `Pacific/Fakaofo` - Pacific/Fakaofo
+    * `Pacific/Fiji` - Pacific/Fiji
+    * `Pacific/Funafuti` - Pacific/Funafuti
+    * `Pacific/Galapagos` - Pacific/Galapagos
+    * `Pacific/Gambier` - Pacific/Gambier
+    * `Pacific/Guadalcanal` - Pacific/Guadalcanal
+    * `Pacific/Guam` - Pacific/Guam
+    * `Pacific/Honolulu` - Pacific/Honolulu
+    * `Pacific/Johnston` - Pacific/Johnston
+    * `Pacific/Kanton` - Pacific/Kanton
+    * `Pacific/Kiritimati` - Pacific/Kiritimati
+    * `Pacific/Kosrae` - Pacific/Kosrae
+    * `Pacific/Kwajalein` - Pacific/Kwajalein
+    * `Pacific/Majuro` - Pacific/Majuro
+    * `Pacific/Marquesas` - Pacific/Marquesas
+    * `Pacific/Midway` - Pacific/Midway
+    * `Pacific/Nauru` - Pacific/Nauru
+    * `Pacific/Niue` - Pacific/Niue
+    * `Pacific/Norfolk` - Pacific/Norfolk
+    * `Pacific/Noumea` - Pacific/Noumea
+    * `Pacific/Pago_Pago` - Pacific/Pago_Pago
+    * `Pacific/Palau` - Pacific/Palau
+    * `Pacific/Pitcairn` - Pacific/Pitcairn
+    * `Pacific/Pohnpei` - Pacific/Pohnpei
+    * `Pacific/Ponape` - Pacific/Ponape
+    * `Pacific/Port_Moresby` - Pacific/Port_Moresby
+    * `Pacific/Rarotonga` - Pacific/Rarotonga
+    * `Pacific/Saipan` - Pacific/Saipan
+    * `Pacific/Samoa` - Pacific/Samoa
+    * `Pacific/Tahiti` - Pacific/Tahiti
+    * `Pacific/Tarawa` - Pacific/Tarawa
+    * `Pacific/Tongatapu` - Pacific/Tongatapu
+    * `Pacific/Truk` - Pacific/Truk
+    * `Pacific/Wake` - Pacific/Wake
+    * `Pacific/Wallis` - Pacific/Wallis
+    * `Pacific/Yap` - Pacific/Yap
+    * `Poland` - Poland
+    * `Portugal` - Portugal
+    * `ROC` - ROC
+    * `ROK` - ROK
+    * `Singapore` - Singapore
+    * `Turkey` - Turkey
+    * `UCT` - UCT
+    * `US/Alaska` - US/Alaska
+    * `US/Aleutian` - US/Aleutian
+    * `US/Arizona` - US/Arizona
+    * `US/Central` - US/Central
+    * `US/East-Indiana` - US/East-Indiana
+    * `US/Eastern` - US/Eastern
+    * `US/Hawaii` - US/Hawaii
+    * `US/Indiana-Starke` - US/Indiana-Starke
+    * `US/Michigan` - US/Michigan
+    * `US/Mountain` - US/Mountain
+    * `US/Pacific` - US/Pacific
+    * `US/Samoa` - US/Samoa
+    * `UTC` - UTC
+    * `Universal` - Universal
+    * `W-SU` - W-SU
+    * `WET` - WET
+    * `Zulu` - Zulu */
       timezone?: string;
+      /** Element attributes that posthog-js should capture as action identifiers (e.g. `['data-attr']`). */
       data_attributes?: unknown;
-      /** @nullable */
+      /**
+       * Ordered list of person properties used to render a human-friendly display name in the UI.
+       * @nullable
+       */
       person_display_name_properties?: string[] | null;
       correlation_config?: unknown | null;
-      /** @nullable */
+      /**
+       * Disables posthog-js autocapture (clicks, page views) when true.
+       * @nullable
+       */
       autocapture_opt_out?: boolean | null;
-      /** @nullable */
+      /**
+       * Enables automatic capture of JavaScript exceptions via the SDK.
+       * @nullable
+       */
       autocapture_exceptions_opt_in?: boolean | null;
-      /** @nullable */
+      /**
+       * Enables automatic capture of Core Web Vitals performance metrics.
+       * @nullable
+       */
       autocapture_web_vitals_opt_in?: boolean | null;
       autocapture_web_vitals_allowed_metrics?: unknown | null;
       autocapture_exceptions_errors_to_ignore?: unknown | null;
-      /** @nullable */
+      /**
+       * Enables capturing browser console logs alongside session replays.
+       * @nullable
+       */
       capture_console_log_opt_in?: boolean | null;
-      /** @nullable */
+      /**
+       * Enables capturing performance timing and network requests.
+       * @nullable
+       */
       capture_performance_opt_in?: boolean | null;
+      /** Enables session replay recording for this project. */
       session_recording_opt_in?: boolean;
       /**
+       * Fraction of sessions to record, as a decimal string between `0.00` and `1.00` (e.g. `0.1` = 10%).
        * @nullable
        * @pattern ^-?\d{0,1}(?:\.\d{0,2})?$
        */
       session_recording_sample_rate?: string | null;
       /**
+       * Skip saving sessions shorter than this many milliseconds.
        * @minimum 0
        * @maximum 30000
        * @nullable
@@ -28476,20 +30374,36 @@ export namespace Schemas {
       session_recording_trigger_match_type_config?: string | null;
       /** V2 trigger groups configuration for session recording. If present, takes precedence over legacy trigger fields. */
       session_recording_trigger_groups?: unknown | null;
+      /** How long to retain new session recordings. One of `30d`, `90d`, `1y`, or `5y` (availability depends on plan).
+
+    * `30d` - 30 Days
+    * `90d` - 90 Days
+    * `1y` - 1 Year
+    * `5y` - 5 Years */
       session_recording_retention_period?: SessionRecordingRetentionPeriodEnum;
       session_replay_config?: unknown | null;
       survey_config?: unknown | null;
       access_control?: boolean;
       /**
+       * First day of the week for date range filters. 0 = Sunday, 1 = Monday.
+
+    * `0` - Sunday
+    * `1` - Monday
        * @minimum -32768
        * @maximum 32767
        */
       week_start_day?: WeekStartDayEnum | NullEnum | null;
-      /** @nullable */
+      /**
+       * ID of the dashboard shown as the project's default landing dashboard.
+       * @nullable
+       */
       primary_dashboard?: number | null;
       /** @nullable */
       live_events_columns?: string[] | null;
-      /** @nullable */
+      /**
+       * Origins permitted to record session replays and heatmaps. Empty list allows all origins.
+       * @nullable
+       */
       recording_domains?: (string | null)[] | null;
       readonly person_on_events_querying_enabled: string;
       /** @nullable */
@@ -28498,12 +30412,21 @@ export namespace Schemas {
       modifiers?: unknown | null;
       readonly default_modifiers: string;
       has_completed_onboarding_for?: unknown | null;
-      /** @nullable */
+      /**
+       * Enables displaying surveys via posthog-js on allowed origins.
+       * @nullable
+       */
       surveys_opt_in?: boolean | null;
-      /** @nullable */
+      /**
+       * Enables heatmap recording on pages that host posthog-js.
+       * @nullable
+       */
       heatmaps_opt_in?: boolean | null;
       readonly product_intents: readonly ProjectBackwardCompatProductIntentsItem[];
-      /** @nullable */
+      /**
+       * Default value for the `persist` option on newly created feature flags.
+       * @nullable
+       */
       flags_persistence_default?: boolean | null;
       /** @nullable */
       readonly secret_api_token: string | null;
@@ -28511,13 +30434,16 @@ export namespace Schemas {
       readonly secret_api_token_backup: string | null;
       /** @nullable */
       receive_org_level_activity_logs?: boolean | null;
-      /** Whether this project serves B2B or B2C customers, used to optimize the UI layout.
+      /** Whether this project serves B2B or B2C customers. Used to optimize default UI layouts.
 
     * `b2b` - B2B
     * `b2c` - B2C
     * `other` - Other */
       business_model?: BusinessModelEnum | BlankEnum | NullEnum | null;
-      /** @nullable */
+      /**
+       * Enables the customer conversations / live chat product for this project.
+       * @nullable
+       */
       conversations_enabled?: boolean | null;
       conversations_settings?: unknown | null;
       logs_settings?: unknown | null;
@@ -28758,6 +30684,15 @@ export namespace Schemas {
       results: ProxyRecord[];
       /** Maximum number of proxy records allowed for this organization's current plan. */
       max_proxy_records: number;
+    }
+
+    export interface QuarantineInput {
+      /** @maxLength 512 */
+      identifier: string;
+      /** @maxLength 255 */
+      reason: string;
+      /** @nullable */
+      expires_at?: string | null;
     }
 
     /**
@@ -31642,6 +33577,18 @@ export namespace Schemas {
       results: DashboardTileResult[];
     }
 
+    /**
+     * Form fields that must be submitted verbatim with the file upload
+     */
+    export type S3PresignedPostFields = {[key: string]: string};
+
+    export interface S3PresignedPost {
+      /** Presigned S3 POST URL */
+      url: string;
+      /** Form fields that must be submitted verbatim with the file upload */
+      fields: S3PresignedPostFields;
+    }
+
     export interface SandboxEnvironment {
       readonly id: string;
       /** @maxLength 255 */
@@ -32407,6 +34354,118 @@ export namespace Schemas {
       entries: TaskRunAppendLogRequestEntriesItem[];
     }
 
+    /**
+     * * `plan` - plan
+    * `context` - context
+    * `reference` - reference
+    * `output` - output
+    * `artifact` - artifact
+    * `tree_snapshot` - tree_snapshot
+    * `user_attachment` - user_attachment
+     */
+    export type TypeE8eEnum = typeof TypeE8eEnum[keyof typeof TypeE8eEnum];
+
+
+    export const TypeE8eEnum = {
+      Plan: 'plan',
+      Context: 'context',
+      Reference: 'reference',
+      Output: 'output',
+      Artifact: 'artifact',
+      TreeSnapshot: 'tree_snapshot',
+      UserAttachment: 'user_attachment',
+    } as const;
+
+    export interface TaskRunArtifactFinalizeUpload {
+      /** Stable identifier returned by the prepare upload endpoint */
+      id: string;
+      /**
+       * File name associated with the artifact
+       * @maxLength 255
+       */
+      name: string;
+      /** Classification for the artifact
+
+    * `plan` - plan
+    * `context` - context
+    * `reference` - reference
+    * `output` - output
+    * `artifact` - artifact
+    * `tree_snapshot` - tree_snapshot
+    * `user_attachment` - user_attachment */
+      type: TypeE8eEnum;
+      /**
+       * Optional source label for the artifact, such as agent_output or user_attachment
+       * @maxLength 64
+       */
+      source?: string;
+      /**
+       * S3 object key returned by the prepare step
+       * @maxLength 500
+       */
+      storage_path: string;
+      /**
+       * Optional MIME type recorded for the artifact
+       * @maxLength 255
+       */
+      content_type?: string;
+    }
+
+    export interface TaskRunArtifactPrepareUpload {
+      /**
+       * File name to associate with the artifact
+       * @maxLength 255
+       */
+      name: string;
+      /** Classification for the artifact
+
+    * `plan` - plan
+    * `context` - context
+    * `reference` - reference
+    * `output` - output
+    * `artifact` - artifact
+    * `tree_snapshot` - tree_snapshot
+    * `user_attachment` - user_attachment */
+      type: TypeE8eEnum;
+      /**
+       * Optional source label for the artifact, such as agent_output or user_attachment
+       * @maxLength 64
+       */
+      source?: string;
+      /**
+       * Expected upload size in bytes (max 31457280 bytes)
+       * @minimum 1
+       * @maximum 31457280
+       */
+      size: number;
+      /**
+       * Optional MIME type for the artifact upload
+       * @maxLength 255
+       */
+      content_type?: string;
+    }
+
+    export interface TaskRunArtifactPrepareUploadResponse {
+      /** Stable identifier for the prepared artifact within this run */
+      id: string;
+      /** Artifact file name */
+      name: string;
+      /** Artifact classification (plan, context, etc.) */
+      type: string;
+      /** Source of the artifact, such as agent_output or user_attachment */
+      source?: string;
+      /** Expected upload size in bytes */
+      size: number;
+      /** Optional MIME type */
+      content_type?: string;
+      /** S3 object key reserved for the artifact */
+      storage_path: string;
+      /** Presigned POST expiry in seconds */
+      expires_in: number;
+      /** Presigned S3 POST configuration for uploading the file */
+      presigned_post: S3PresignedPost;
+    }
+
     export interface TaskRunArtifactPresignRequest {
       /**
        * S3 storage path returned in the artifact manifest
@@ -32422,26 +34481,6 @@ export namespace Schemas {
       expires_in: number;
     }
 
-    /**
-     * * `plan` - plan
-    * `context` - context
-    * `reference` - reference
-    * `output` - output
-    * `artifact` - artifact
-    * `tree_snapshot` - tree_snapshot
-     */
-    export type TaskRunArtifactUploadTypeEnum = typeof TaskRunArtifactUploadTypeEnum[keyof typeof TaskRunArtifactUploadTypeEnum];
-
-
-    export const TaskRunArtifactUploadTypeEnum = {
-      Plan: 'plan',
-      Context: 'context',
-      Reference: 'reference',
-      Output: 'output',
-      Artifact: 'artifact',
-      TreeSnapshot: 'tree_snapshot',
-    } as const;
-
     export interface TaskRunArtifactUpload {
       /**
        * File name to associate with the artifact
@@ -32455,15 +34494,46 @@ export namespace Schemas {
     * `reference` - reference
     * `output` - output
     * `artifact` - artifact
-    * `tree_snapshot` - tree_snapshot */
-      type: TaskRunArtifactUploadTypeEnum;
-      /** Raw file contents (UTF-8 string or base64 data) */
+    * `tree_snapshot` - tree_snapshot
+    * `user_attachment` - user_attachment */
+      type: TypeE8eEnum;
+      /**
+       * Optional source label for the artifact, such as agent_output or user_attachment
+       * @maxLength 64
+       */
+      source?: string;
+      /** Artifact contents encoded according to content_encoding */
       content: string;
+      /** Encoding used for content. Use base64 for binary files and utf-8 for text payloads.
+
+    * `utf-8` - utf-8
+    * `base64` - base64 */
+      content_encoding?: ContentEncodingEnum;
       /**
        * Optional MIME type for the artifact
        * @maxLength 255
        */
       content_type?: string;
+    }
+
+    export interface TaskRunArtifactsFinalizeUploadRequest {
+      /** Array of uploaded artifacts to finalize */
+      artifacts: TaskRunArtifactFinalizeUpload[];
+    }
+
+    export interface TaskRunArtifactsFinalizeUploadResponse {
+      /** Updated list of artifacts on the run */
+      artifacts: TaskRunArtifactResponse[];
+    }
+
+    export interface TaskRunArtifactsPrepareUploadRequest {
+      /** Array of artifacts to prepare */
+      artifacts: TaskRunArtifactPrepareUpload[];
+    }
+
+    export interface TaskRunArtifactsPrepareUploadResponse {
+      /** Prepared uploads for the requested artifacts */
+      artifacts: TaskRunArtifactPrepareUploadResponse[];
     }
 
     export interface TaskRunArtifactsUploadRequest {
@@ -32575,6 +34645,116 @@ export namespace Schemas {
       relay_id?: string;
     }
 
+    export interface TaskStagedArtifactFinalizeUpload {
+      /** Stable identifier returned by the staged prepare upload endpoint */
+      id: string;
+      /**
+       * File name associated with the staged artifact
+       * @maxLength 255
+       */
+      name: string;
+      /** Classification for the artifact
+
+    * `plan` - plan
+    * `context` - context
+    * `reference` - reference
+    * `output` - output
+    * `artifact` - artifact
+    * `tree_snapshot` - tree_snapshot
+    * `user_attachment` - user_attachment */
+      type: TypeE8eEnum;
+      /**
+       * Optional source label for the artifact, such as agent_output or user_attachment
+       * @maxLength 64
+       */
+      source?: string;
+      /**
+       * S3 object key returned by the prepare step
+       * @maxLength 500
+       */
+      storage_path: string;
+      /**
+       * Optional MIME type recorded for the artifact
+       * @maxLength 255
+       */
+      content_type?: string;
+    }
+
+    export interface TaskStagedArtifactPrepareUpload {
+      /**
+       * File name to associate with the staged artifact
+       * @maxLength 255
+       */
+      name: string;
+      /** Classification for the artifact
+
+    * `plan` - plan
+    * `context` - context
+    * `reference` - reference
+    * `output` - output
+    * `artifact` - artifact
+    * `tree_snapshot` - tree_snapshot
+    * `user_attachment` - user_attachment */
+      type: TypeE8eEnum;
+      /**
+       * Optional source label for the artifact, such as agent_output or user_attachment
+       * @maxLength 64
+       */
+      source?: string;
+      /**
+       * Expected upload size in bytes (max 31457280 bytes)
+       * @minimum 1
+       * @maximum 31457280
+       */
+      size: number;
+      /**
+       * Optional MIME type for the artifact upload
+       * @maxLength 255
+       */
+      content_type?: string;
+    }
+
+    export interface TaskStagedArtifactPrepareUploadResponse {
+      /** Stable identifier for the prepared staged artifact within this task */
+      id: string;
+      /** Artifact file name */
+      name: string;
+      /** Artifact classification (plan, context, etc.) */
+      type: string;
+      /** Source of the artifact, such as agent_output or user_attachment */
+      source?: string;
+      /** Expected upload size in bytes */
+      size: number;
+      /** Optional MIME type */
+      content_type?: string;
+      /** S3 object key reserved for the staged artifact */
+      storage_path: string;
+      /** Presigned POST expiry in seconds */
+      expires_in: number;
+      /** Presigned S3 POST configuration for uploading the file */
+      presigned_post: S3PresignedPost;
+    }
+
+    export interface TaskStagedArtifactsFinalizeUploadRequest {
+      /** Array of staged artifacts to finalize after upload */
+      artifacts: TaskStagedArtifactFinalizeUpload[];
+    }
+
+    export interface TaskStagedArtifactsFinalizeUploadResponse {
+      /** Finalized staged artifacts available for attachment to a new run */
+      artifacts: TaskRunArtifactResponse[];
+    }
+
+    export interface TaskStagedArtifactsPrepareUploadRequest {
+      /** Array of staged artifacts to prepare before creating a run */
+      artifacts: TaskStagedArtifactPrepareUpload[];
+    }
+
+    export interface TaskStagedArtifactsPrepareUploadResponse {
+      /** Prepared staged uploads for the requested artifacts */
+      artifacts: TaskStagedArtifactPrepareUploadResponse[];
+    }
+
     export type TeamDefaultModifiers = {[key: string]: unknown};
 
     export type TeamGroupTypesItem = {[key: string]: unknown};
@@ -32594,8 +34774,8 @@ export namespace Schemas {
       access_control?: boolean;
       readonly organization: string;
       /**
-       * @minimum -9223372036854776000
-       * @maximum 9223372036854776000
+       * @minimum -2147483648
+       * @maximum 2147483647
        */
       readonly project_id: number;
       readonly api_token: string;
@@ -32751,6 +34931,61 @@ export namespace Schemas {
       readonly available_setup_task_ids: readonly AvailableSetupTaskIdsEnum[];
     }
 
+    export type TestHogRequestConditionsItem = {[key: string]: unknown};
+
+    export interface TestHogRequest {
+      /**
+       * Hog source code to test. Must return a boolean (true = pass, false = fail) or null for N/A.
+       * @minLength 1
+       */
+      source: string;
+      /**
+       * Number of recent $ai_generation events to test against (1–10, default 5).
+       * @minimum 1
+       * @maximum 10
+       */
+      sample_count?: number;
+      /** Whether the evaluation can return N/A for non-applicable generations. */
+      allows_na?: boolean;
+      /** Optional trigger conditions to filter which events are sampled. */
+      conditions?: TestHogRequestConditionsItem[];
+    }
+
+    export interface TestHogResultItem {
+      /** UUID of the $ai_generation event. */
+      event_uuid: string;
+      /**
+       * Trace ID if available.
+       * @nullable
+       */
+      trace_id?: string | null;
+      /** First 200 chars of the generation input. */
+      input_preview: string;
+      /** First 200 chars of the generation output. */
+      output_preview: string;
+      /**
+       * True = pass, False = fail, null = N/A or error.
+       * @nullable
+       */
+      result: boolean | null;
+      /**
+       * Hog evaluation reasoning string, if any.
+       * @nullable
+       */
+      reasoning: string | null;
+      /**
+       * Error message if the Hog code raised an exception.
+       * @nullable
+       */
+      error: string | null;
+    }
+
+    export interface TestHogResponse {
+      results: TestHogResultItem[];
+      /** Optional message, e.g. when no recent events were found. */
+      message?: string;
+    }
+
     export interface TextReprMetadata {
       event_type?: string;
       event_id?: string;
@@ -32803,6 +35038,26 @@ export namespace Schemas {
       text: string;
       /** Metadata about the text representation */
       metadata: TextReprMetadata;
+    }
+
+    export interface TopPage {
+      /** Host for the page, if recorded. */
+      host: string;
+      /** URL path. */
+      path: string;
+      /** Unique visitors in the period. */
+      visitors: number;
+      /** Period-over-period change in visitors, null when not meaningful. */
+      change: WoWChange | null;
+    }
+
+    export interface TopSource {
+      /** Initial referring domain. */
+      name: string;
+      /** Unique visitors from this source. */
+      visitors: number;
+      /** Period-over-period change in visitors, null when not meaningful. */
+      change: WoWChange | null;
     }
 
     export interface TraceReviewCreate {
@@ -32927,6 +35182,78 @@ export namespace Schemas {
       ready_at: string | null;
       /** @nullable */
       failed_at: string | null;
+    }
+
+    export interface WeeklyDigestResponse {
+      /** Unique visitors. */
+      visitors: NumericMetric;
+      /** Total pageviews. */
+      pageviews: NumericMetric;
+      /** Total sessions. */
+      sessions: NumericMetric;
+      /** Bounce rate (0–100). */
+      bounce_rate: NumericMetric;
+      /** Average session duration. */
+      avg_session_duration: DurationMetric;
+      /** Top 5 pages by unique visitors. */
+      top_pages: TopPage[];
+      /** Top 5 traffic sources by unique visitors. */
+      top_sources: TopSource[];
+      /** Goal conversions. */
+      goals: Goal[];
+      /** Link to the Web analytics dashboard for this project. */
+      dashboard_url: string;
+    }
+
+    export interface _WelcomeInviter {
+      name: string;
+      email: string;
+    }
+
+    export interface _WelcomeTeamMember {
+      name: string;
+      email: string;
+      /** @nullable */
+      avatar: string | null;
+      role: string;
+      last_active: LastActiveEnum;
+    }
+
+    export interface _WelcomeRecentActivity {
+      /** Scope.activity pair, e.g. 'Insight.created'. */
+      type: string;
+      actor_name: string;
+      entity_name: string;
+      /** @nullable */
+      entity_url: string | null;
+      timestamp: string;
+    }
+
+    export interface _WelcomePopularDashboard {
+      id: number;
+      name: string;
+      description: string;
+      team_id: number;
+      url: string;
+    }
+
+    export interface _WelcomeSuggestedStep {
+      label: string;
+      href: string;
+      reason: string;
+      docs_href?: string;
+      product_key?: string;
+    }
+
+    export interface WelcomeResponse {
+      organization_name: string;
+      inviter: _WelcomeInviter | null;
+      team_members: _WelcomeTeamMember[];
+      recent_activity: _WelcomeRecentActivity[];
+      popular_dashboards: _WelcomePopularDashboard[];
+      products_in_use: string[];
+      suggested_next_steps: _WelcomeSuggestedStep[];
+      is_organization_first_user: boolean;
     }
 
     export interface _DateRange {
@@ -33132,6 +35459,70 @@ export namespace Schemas {
     ordering?: string;
     };
 
+    export type EnvironmentsBatchExportsRunsLogsRetrieveParams = {
+    /**
+     * Only return entries after this ISO 8601 timestamp.
+     */
+    after?: string;
+    /**
+     * Only return entries before this ISO 8601 timestamp.
+     */
+    before?: string;
+    /**
+     * Filter logs to a specific execution instance.
+     * @minLength 1
+     */
+    instance_id?: string;
+    /**
+     * Comma-separated log levels to include, e.g. 'WARN,ERROR'. Valid levels: DEBUG, LOG, INFO, WARN, ERROR.
+     * @minLength 1
+     */
+    level?: string;
+    /**
+     * Maximum number of log entries to return (1-500, default 50).
+     * @minimum 1
+     * @maximum 500
+     */
+    limit?: number;
+    /**
+     * Case-insensitive substring search across log messages.
+     * @minLength 1
+     */
+    search?: string;
+    };
+
+    export type EnvironmentsBatchExportsLogsRetrieveParams = {
+    /**
+     * Only return entries after this ISO 8601 timestamp.
+     */
+    after?: string;
+    /**
+     * Only return entries before this ISO 8601 timestamp.
+     */
+    before?: string;
+    /**
+     * Filter logs to a specific execution instance.
+     * @minLength 1
+     */
+    instance_id?: string;
+    /**
+     * Comma-separated log levels to include, e.g. 'WARN,ERROR'. Valid levels: DEBUG, LOG, INFO, WARN, ERROR.
+     * @minLength 1
+     */
+    level?: string;
+    /**
+     * Maximum number of log entries to return (1-500, default 50).
+     * @minimum 1
+     * @maximum 500
+     */
+    limit?: number;
+    /**
+     * Case-insensitive substring search across log messages.
+     * @minLength 1
+     */
+    search?: string;
+    };
+
     export type EnvironmentsDashboardsListParams = {
     format?: EnvironmentsDashboardsListFormat;
     /**
@@ -33232,18 +35623,6 @@ export namespace Schemas {
 
 
     export const EnvironmentsDashboardsCopyTileCreateFormat = {
-      Json: 'json',
-      Txt: 'txt',
-    } as const;
-
-    export type EnvironmentsDashboardsGenerateMetadataCreateParams = {
-    format?: EnvironmentsDashboardsGenerateMetadataCreateFormat;
-    };
-
-    export type EnvironmentsDashboardsGenerateMetadataCreateFormat = typeof EnvironmentsDashboardsGenerateMetadataCreateFormat[keyof typeof EnvironmentsDashboardsGenerateMetadataCreateFormat];
-
-
-    export const EnvironmentsDashboardsGenerateMetadataCreateFormat = {
       Json: 'json',
       Txt: 'txt',
     } as const;
@@ -33757,6 +36136,38 @@ export namespace Schemas {
     offset?: number;
     };
 
+    export type EnvironmentsHogFlowTemplatesLogsRetrieveParams = {
+    /**
+     * Only return entries after this ISO 8601 timestamp.
+     */
+    after?: string;
+    /**
+     * Only return entries before this ISO 8601 timestamp.
+     */
+    before?: string;
+    /**
+     * Filter logs to a specific execution instance.
+     * @minLength 1
+     */
+    instance_id?: string;
+    /**
+     * Comma-separated log levels to include, e.g. 'WARN,ERROR'. Valid levels: DEBUG, LOG, INFO, WARN, ERROR.
+     * @minLength 1
+     */
+    level?: string;
+    /**
+     * Maximum number of log entries to return (1-500, default 50).
+     * @minimum 1
+     * @maximum 500
+     */
+    limit?: number;
+    /**
+     * Case-insensitive substring search across log messages.
+     * @minLength 1
+     */
+    search?: string;
+    };
+
     export type EnvironmentsHogFlowsListParams = {
     created_at?: string;
     created_by?: number;
@@ -33771,6 +36182,162 @@ export namespace Schemas {
     offset?: number;
     updated_at?: string;
     };
+
+    export type EnvironmentsHogFlowsLogsRetrieveParams = {
+    /**
+     * Only return entries after this ISO 8601 timestamp.
+     */
+    after?: string;
+    /**
+     * Only return entries before this ISO 8601 timestamp.
+     */
+    before?: string;
+    /**
+     * Filter logs to a specific execution instance.
+     * @minLength 1
+     */
+    instance_id?: string;
+    /**
+     * Comma-separated log levels to include, e.g. 'WARN,ERROR'. Valid levels: DEBUG, LOG, INFO, WARN, ERROR.
+     * @minLength 1
+     */
+    level?: string;
+    /**
+     * Maximum number of log entries to return (1-500, default 50).
+     * @minimum 1
+     * @maximum 500
+     */
+    limit?: number;
+    /**
+     * Case-insensitive substring search across log messages.
+     * @minLength 1
+     */
+    search?: string;
+    };
+
+    export type EnvironmentsHogFlowsMetricsRetrieveParams = {
+    /**
+     * Start of the time range. Accepts relative formats like '-7d', '-24h' or ISO 8601 timestamps. Defaults to '-7d'.
+     * @minLength 1
+     */
+    after?: string;
+    /**
+     * End of the time range. Same format as 'after'. Defaults to now.
+     * @minLength 1
+     */
+    before?: string;
+    /**
+     * Group the series by metric 'name' or 'kind'. Defaults to 'kind'.
+
+    * `name` - name
+    * `kind` - kind
+     * @minLength 1
+     */
+    breakdown_by?: EnvironmentsHogFlowsMetricsRetrieveBreakdownBy;
+    /**
+     * Filter metrics to a specific execution instance.
+     * @minLength 1
+     */
+    instance_id?: string;
+    /**
+     * Time bucket size for the series. One of: hour, day, week. Defaults to 'day'.
+
+    * `hour` - hour
+    * `day` - day
+    * `week` - week
+     * @minLength 1
+     */
+    interval?: EnvironmentsHogFlowsMetricsRetrieveInterval;
+    /**
+     * Comma-separated metric kinds to filter by, e.g. 'success,failure'.
+     * @minLength 1
+     */
+    kind?: string;
+    /**
+     * Comma-separated metric names to filter by.
+     * @minLength 1
+     */
+    name?: string;
+    };
+
+    export type EnvironmentsHogFlowsMetricsRetrieveBreakdownBy = typeof EnvironmentsHogFlowsMetricsRetrieveBreakdownBy[keyof typeof EnvironmentsHogFlowsMetricsRetrieveBreakdownBy];
+
+
+    export const EnvironmentsHogFlowsMetricsRetrieveBreakdownBy = {
+      Name: 'name',
+      Kind: 'kind',
+    } as const;
+
+    export type EnvironmentsHogFlowsMetricsRetrieveInterval = typeof EnvironmentsHogFlowsMetricsRetrieveInterval[keyof typeof EnvironmentsHogFlowsMetricsRetrieveInterval];
+
+
+    export const EnvironmentsHogFlowsMetricsRetrieveInterval = {
+      Hour: 'hour',
+      Day: 'day',
+      Week: 'week',
+    } as const;
+
+    export type EnvironmentsHogFlowsMetricsTotalsRetrieveParams = {
+    /**
+     * Start of the time range. Accepts relative formats like '-7d', '-24h' or ISO 8601 timestamps. Defaults to '-7d'.
+     * @minLength 1
+     */
+    after?: string;
+    /**
+     * End of the time range. Same format as 'after'. Defaults to now.
+     * @minLength 1
+     */
+    before?: string;
+    /**
+     * Group the series by metric 'name' or 'kind'. Defaults to 'kind'.
+
+    * `name` - name
+    * `kind` - kind
+     * @minLength 1
+     */
+    breakdown_by?: EnvironmentsHogFlowsMetricsTotalsRetrieveBreakdownBy;
+    /**
+     * Filter metrics to a specific execution instance.
+     * @minLength 1
+     */
+    instance_id?: string;
+    /**
+     * Time bucket size for the series. One of: hour, day, week. Defaults to 'day'.
+
+    * `hour` - hour
+    * `day` - day
+    * `week` - week
+     * @minLength 1
+     */
+    interval?: EnvironmentsHogFlowsMetricsTotalsRetrieveInterval;
+    /**
+     * Comma-separated metric kinds to filter by, e.g. 'success,failure'.
+     * @minLength 1
+     */
+    kind?: string;
+    /**
+     * Comma-separated metric names to filter by.
+     * @minLength 1
+     */
+    name?: string;
+    };
+
+    export type EnvironmentsHogFlowsMetricsTotalsRetrieveBreakdownBy = typeof EnvironmentsHogFlowsMetricsTotalsRetrieveBreakdownBy[keyof typeof EnvironmentsHogFlowsMetricsTotalsRetrieveBreakdownBy];
+
+
+    export const EnvironmentsHogFlowsMetricsTotalsRetrieveBreakdownBy = {
+      Name: 'name',
+      Kind: 'kind',
+    } as const;
+
+    export type EnvironmentsHogFlowsMetricsTotalsRetrieveInterval = typeof EnvironmentsHogFlowsMetricsTotalsRetrieveInterval[keyof typeof EnvironmentsHogFlowsMetricsTotalsRetrieveInterval];
+
+
+    export const EnvironmentsHogFlowsMetricsTotalsRetrieveInterval = {
+      Hour: 'hour',
+      Day: 'day',
+      Week: 'week',
+    } as const;
 
     export type EnvironmentsHogFlowsSchedulesListParams = {
     created_at?: string;
@@ -33825,6 +36392,162 @@ export namespace Schemas {
     type?: string[];
     updated_at?: string;
     };
+
+    export type EnvironmentsHogFunctionsLogsRetrieveParams = {
+    /**
+     * Only return entries after this ISO 8601 timestamp.
+     */
+    after?: string;
+    /**
+     * Only return entries before this ISO 8601 timestamp.
+     */
+    before?: string;
+    /**
+     * Filter logs to a specific execution instance.
+     * @minLength 1
+     */
+    instance_id?: string;
+    /**
+     * Comma-separated log levels to include, e.g. 'WARN,ERROR'. Valid levels: DEBUG, LOG, INFO, WARN, ERROR.
+     * @minLength 1
+     */
+    level?: string;
+    /**
+     * Maximum number of log entries to return (1-500, default 50).
+     * @minimum 1
+     * @maximum 500
+     */
+    limit?: number;
+    /**
+     * Case-insensitive substring search across log messages.
+     * @minLength 1
+     */
+    search?: string;
+    };
+
+    export type EnvironmentsHogFunctionsMetricsRetrieveParams = {
+    /**
+     * Start of the time range. Accepts relative formats like '-7d', '-24h' or ISO 8601 timestamps. Defaults to '-7d'.
+     * @minLength 1
+     */
+    after?: string;
+    /**
+     * End of the time range. Same format as 'after'. Defaults to now.
+     * @minLength 1
+     */
+    before?: string;
+    /**
+     * Group the series by metric 'name' or 'kind'. Defaults to 'kind'.
+
+    * `name` - name
+    * `kind` - kind
+     * @minLength 1
+     */
+    breakdown_by?: EnvironmentsHogFunctionsMetricsRetrieveBreakdownBy;
+    /**
+     * Filter metrics to a specific execution instance.
+     * @minLength 1
+     */
+    instance_id?: string;
+    /**
+     * Time bucket size for the series. One of: hour, day, week. Defaults to 'day'.
+
+    * `hour` - hour
+    * `day` - day
+    * `week` - week
+     * @minLength 1
+     */
+    interval?: EnvironmentsHogFunctionsMetricsRetrieveInterval;
+    /**
+     * Comma-separated metric kinds to filter by, e.g. 'success,failure'.
+     * @minLength 1
+     */
+    kind?: string;
+    /**
+     * Comma-separated metric names to filter by.
+     * @minLength 1
+     */
+    name?: string;
+    };
+
+    export type EnvironmentsHogFunctionsMetricsRetrieveBreakdownBy = typeof EnvironmentsHogFunctionsMetricsRetrieveBreakdownBy[keyof typeof EnvironmentsHogFunctionsMetricsRetrieveBreakdownBy];
+
+
+    export const EnvironmentsHogFunctionsMetricsRetrieveBreakdownBy = {
+      Name: 'name',
+      Kind: 'kind',
+    } as const;
+
+    export type EnvironmentsHogFunctionsMetricsRetrieveInterval = typeof EnvironmentsHogFunctionsMetricsRetrieveInterval[keyof typeof EnvironmentsHogFunctionsMetricsRetrieveInterval];
+
+
+    export const EnvironmentsHogFunctionsMetricsRetrieveInterval = {
+      Hour: 'hour',
+      Day: 'day',
+      Week: 'week',
+    } as const;
+
+    export type EnvironmentsHogFunctionsMetricsTotalsRetrieveParams = {
+    /**
+     * Start of the time range. Accepts relative formats like '-7d', '-24h' or ISO 8601 timestamps. Defaults to '-7d'.
+     * @minLength 1
+     */
+    after?: string;
+    /**
+     * End of the time range. Same format as 'after'. Defaults to now.
+     * @minLength 1
+     */
+    before?: string;
+    /**
+     * Group the series by metric 'name' or 'kind'. Defaults to 'kind'.
+
+    * `name` - name
+    * `kind` - kind
+     * @minLength 1
+     */
+    breakdown_by?: EnvironmentsHogFunctionsMetricsTotalsRetrieveBreakdownBy;
+    /**
+     * Filter metrics to a specific execution instance.
+     * @minLength 1
+     */
+    instance_id?: string;
+    /**
+     * Time bucket size for the series. One of: hour, day, week. Defaults to 'day'.
+
+    * `hour` - hour
+    * `day` - day
+    * `week` - week
+     * @minLength 1
+     */
+    interval?: EnvironmentsHogFunctionsMetricsTotalsRetrieveInterval;
+    /**
+     * Comma-separated metric kinds to filter by, e.g. 'success,failure'.
+     * @minLength 1
+     */
+    kind?: string;
+    /**
+     * Comma-separated metric names to filter by.
+     * @minLength 1
+     */
+    name?: string;
+    };
+
+    export type EnvironmentsHogFunctionsMetricsTotalsRetrieveBreakdownBy = typeof EnvironmentsHogFunctionsMetricsTotalsRetrieveBreakdownBy[keyof typeof EnvironmentsHogFunctionsMetricsTotalsRetrieveBreakdownBy];
+
+
+    export const EnvironmentsHogFunctionsMetricsTotalsRetrieveBreakdownBy = {
+      Name: 'name',
+      Kind: 'kind',
+    } as const;
+
+    export type EnvironmentsHogFunctionsMetricsTotalsRetrieveInterval = typeof EnvironmentsHogFunctionsMetricsTotalsRetrieveInterval[keyof typeof EnvironmentsHogFunctionsMetricsTotalsRetrieveInterval];
+
+
+    export const EnvironmentsHogFunctionsMetricsTotalsRetrieveInterval = {
+      Hour: 'hour',
+      Day: 'day',
+      Week: 'week',
+    } as const;
 
     export type EnvironmentsInsightVariablesListParams = {
     /**
@@ -34162,6 +36885,17 @@ export namespace Schemas {
     };
 
     export type EnvironmentsLogsAlertsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type EnvironmentsLogsAlertsEventsListParams = {
     /**
      * Number of results to return per page.
      */
@@ -35009,6 +37743,52 @@ export namespace Schemas {
     offset?: number;
     };
 
+    export type ErrorTrackingGitProviderFileLinksResolveGithubRetrieveParams = {
+    /**
+     * Code snippet to search for in repository files.
+     * @minLength 1
+     */
+    code_sample: string;
+    /**
+     * File name to match in search results.
+     * @minLength 1
+     */
+    file_name: string;
+    /**
+     * Repository owner or namespace.
+     * @minLength 1
+     */
+    owner: string;
+    /**
+     * Repository name.
+     * @minLength 1
+     */
+    repository: string;
+    };
+
+    export type ErrorTrackingGitProviderFileLinksResolveGitlabRetrieveParams = {
+    /**
+     * Code snippet to search for in repository files.
+     * @minLength 1
+     */
+    code_sample: string;
+    /**
+     * File name to match in search results.
+     * @minLength 1
+     */
+    file_name: string;
+    /**
+     * Repository owner or namespace.
+     * @minLength 1
+     */
+    owner: string;
+    /**
+     * Repository name.
+     * @minLength 1
+     */
+    repository: string;
+    };
+
     export type ErrorTrackingIssuesListParams = {
     /**
      * Number of results to return per page.
@@ -35663,6 +38443,17 @@ export namespace Schemas {
     offset?: number;
     };
 
+    export type WebAnalyticsWeeklyDigestParams = {
+    /**
+     * When true (default), include period-over-period change for each metric comparing against the prior equal-length period. Set to false to skip the comparison query (faster).
+     */
+    compare?: boolean;
+    /**
+     * Lookback window in days (1–90). Defaults to 7.
+     */
+    days?: number;
+    };
+
     export type WebAnalyticsFilterPresetsListParams = {
     created_by?: number;
     /**
@@ -35705,6 +38496,38 @@ export namespace Schemas {
     offset?: number;
     };
 
+    export type BatchExportsLogsRetrieveParams = {
+    /**
+     * Only return entries after this ISO 8601 timestamp.
+     */
+    after?: string;
+    /**
+     * Only return entries before this ISO 8601 timestamp.
+     */
+    before?: string;
+    /**
+     * Filter logs to a specific execution instance.
+     * @minLength 1
+     */
+    instance_id?: string;
+    /**
+     * Comma-separated log levels to include, e.g. 'WARN,ERROR'. Valid levels: DEBUG, LOG, INFO, WARN, ERROR.
+     * @minLength 1
+     */
+    level?: string;
+    /**
+     * Maximum number of log entries to return (1-500, default 50).
+     * @minimum 1
+     * @maximum 500
+     */
+    limit?: number;
+    /**
+     * Case-insensitive substring search across log messages.
+     * @minLength 1
+     */
+    search?: string;
+    };
+
     export type DomainsListParams = {
     /**
      * Number of results to return per page.
@@ -35728,6 +38551,17 @@ export namespace Schemas {
     };
 
     export type InvitesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type LegalDocumentsListParams = {
     /**
      * Number of results to return per page.
      */
@@ -35953,6 +38787,7 @@ export namespace Schemas {
     * `Project` - Project
     * `ErrorTrackingIssue` - ErrorTrackingIssue
     * `DataWarehouseSavedQuery` - DataWarehouseSavedQuery
+    * `LegalDocument` - LegalDocument
     * `Organization` - Organization
     * `OrganizationDomain` - OrganizationDomain
     * `OrganizationMembership` - OrganizationMembership
@@ -36026,6 +38861,7 @@ export namespace Schemas {
       Project: 'Project',
       ErrorTrackingIssue: 'ErrorTrackingIssue',
       DataWarehouseSavedQuery: 'DataWarehouseSavedQuery',
+      LegalDocument: 'LegalDocument',
       Organization: 'Organization',
       OrganizationDomain: 'OrganizationDomain',
       OrganizationMembership: 'OrganizationMembership',
@@ -36085,6 +38921,7 @@ export namespace Schemas {
     * `Project` - Project
     * `ErrorTrackingIssue` - ErrorTrackingIssue
     * `DataWarehouseSavedQuery` - DataWarehouseSavedQuery
+    * `LegalDocument` - LegalDocument
     * `Organization` - Organization
     * `OrganizationDomain` - OrganizationDomain
     * `OrganizationMembership` - OrganizationMembership
@@ -36146,6 +38983,7 @@ export namespace Schemas {
       Project: 'Project',
       ErrorTrackingIssue: 'ErrorTrackingIssue',
       DataWarehouseSavedQuery: 'DataWarehouseSavedQuery',
+      LegalDocument: 'LegalDocument',
       Organization: 'Organization',
       OrganizationDomain: 'OrganizationDomain',
       OrganizationMembership: 'OrganizationMembership',
@@ -36284,6 +39122,70 @@ export namespace Schemas {
      * Which field to use when ordering the results.
      */
     ordering?: string;
+    };
+
+    export type BatchExportsRunsLogsRetrieveParams = {
+    /**
+     * Only return entries after this ISO 8601 timestamp.
+     */
+    after?: string;
+    /**
+     * Only return entries before this ISO 8601 timestamp.
+     */
+    before?: string;
+    /**
+     * Filter logs to a specific execution instance.
+     * @minLength 1
+     */
+    instance_id?: string;
+    /**
+     * Comma-separated log levels to include, e.g. 'WARN,ERROR'. Valid levels: DEBUG, LOG, INFO, WARN, ERROR.
+     * @minLength 1
+     */
+    level?: string;
+    /**
+     * Maximum number of log entries to return (1-500, default 50).
+     * @minimum 1
+     * @maximum 500
+     */
+    limit?: number;
+    /**
+     * Case-insensitive substring search across log messages.
+     * @minLength 1
+     */
+    search?: string;
+    };
+
+    export type BatchExportsLogsRetrieve2Params = {
+    /**
+     * Only return entries after this ISO 8601 timestamp.
+     */
+    after?: string;
+    /**
+     * Only return entries before this ISO 8601 timestamp.
+     */
+    before?: string;
+    /**
+     * Filter logs to a specific execution instance.
+     * @minLength 1
+     */
+    instance_id?: string;
+    /**
+     * Comma-separated log levels to include, e.g. 'WARN,ERROR'. Valid levels: DEBUG, LOG, INFO, WARN, ERROR.
+     * @minLength 1
+     */
+    level?: string;
+    /**
+     * Maximum number of log entries to return (1-500, default 50).
+     * @minimum 1
+     * @maximum 500
+     */
+    limit?: number;
+    /**
+     * Case-insensitive substring search across log messages.
+     * @minLength 1
+     */
+    search?: string;
     };
 
     export type CohortsListParams = {
@@ -36559,18 +39461,6 @@ export namespace Schemas {
 
 
     export const DashboardsCopyTileCreateFormat = {
-      Json: 'json',
-      Txt: 'txt',
-    } as const;
-
-    export type DashboardsGenerateMetadataCreateParams = {
-    format?: DashboardsGenerateMetadataCreateFormat;
-    };
-
-    export type DashboardsGenerateMetadataCreateFormat = typeof DashboardsGenerateMetadataCreateFormat[keyof typeof DashboardsGenerateMetadataCreateFormat];
-
-
-    export const DashboardsGenerateMetadataCreateFormat = {
       Json: 'json',
       Txt: 'txt',
     } as const;
@@ -37354,6 +40244,38 @@ export namespace Schemas {
     offset?: number;
     };
 
+    export type HogFlowTemplatesLogsRetrieveParams = {
+    /**
+     * Only return entries after this ISO 8601 timestamp.
+     */
+    after?: string;
+    /**
+     * Only return entries before this ISO 8601 timestamp.
+     */
+    before?: string;
+    /**
+     * Filter logs to a specific execution instance.
+     * @minLength 1
+     */
+    instance_id?: string;
+    /**
+     * Comma-separated log levels to include, e.g. 'WARN,ERROR'. Valid levels: DEBUG, LOG, INFO, WARN, ERROR.
+     * @minLength 1
+     */
+    level?: string;
+    /**
+     * Maximum number of log entries to return (1-500, default 50).
+     * @minimum 1
+     * @maximum 500
+     */
+    limit?: number;
+    /**
+     * Case-insensitive substring search across log messages.
+     * @minLength 1
+     */
+    search?: string;
+    };
+
     export type HogFlowsListParams = {
     created_at?: string;
     created_by?: number;
@@ -37368,6 +40290,162 @@ export namespace Schemas {
     offset?: number;
     updated_at?: string;
     };
+
+    export type HogFlowsLogsRetrieveParams = {
+    /**
+     * Only return entries after this ISO 8601 timestamp.
+     */
+    after?: string;
+    /**
+     * Only return entries before this ISO 8601 timestamp.
+     */
+    before?: string;
+    /**
+     * Filter logs to a specific execution instance.
+     * @minLength 1
+     */
+    instance_id?: string;
+    /**
+     * Comma-separated log levels to include, e.g. 'WARN,ERROR'. Valid levels: DEBUG, LOG, INFO, WARN, ERROR.
+     * @minLength 1
+     */
+    level?: string;
+    /**
+     * Maximum number of log entries to return (1-500, default 50).
+     * @minimum 1
+     * @maximum 500
+     */
+    limit?: number;
+    /**
+     * Case-insensitive substring search across log messages.
+     * @minLength 1
+     */
+    search?: string;
+    };
+
+    export type HogFlowsMetricsRetrieveParams = {
+    /**
+     * Start of the time range. Accepts relative formats like '-7d', '-24h' or ISO 8601 timestamps. Defaults to '-7d'.
+     * @minLength 1
+     */
+    after?: string;
+    /**
+     * End of the time range. Same format as 'after'. Defaults to now.
+     * @minLength 1
+     */
+    before?: string;
+    /**
+     * Group the series by metric 'name' or 'kind'. Defaults to 'kind'.
+
+    * `name` - name
+    * `kind` - kind
+     * @minLength 1
+     */
+    breakdown_by?: HogFlowsMetricsRetrieveBreakdownBy;
+    /**
+     * Filter metrics to a specific execution instance.
+     * @minLength 1
+     */
+    instance_id?: string;
+    /**
+     * Time bucket size for the series. One of: hour, day, week. Defaults to 'day'.
+
+    * `hour` - hour
+    * `day` - day
+    * `week` - week
+     * @minLength 1
+     */
+    interval?: HogFlowsMetricsRetrieveInterval;
+    /**
+     * Comma-separated metric kinds to filter by, e.g. 'success,failure'.
+     * @minLength 1
+     */
+    kind?: string;
+    /**
+     * Comma-separated metric names to filter by.
+     * @minLength 1
+     */
+    name?: string;
+    };
+
+    export type HogFlowsMetricsRetrieveBreakdownBy = typeof HogFlowsMetricsRetrieveBreakdownBy[keyof typeof HogFlowsMetricsRetrieveBreakdownBy];
+
+
+    export const HogFlowsMetricsRetrieveBreakdownBy = {
+      Name: 'name',
+      Kind: 'kind',
+    } as const;
+
+    export type HogFlowsMetricsRetrieveInterval = typeof HogFlowsMetricsRetrieveInterval[keyof typeof HogFlowsMetricsRetrieveInterval];
+
+
+    export const HogFlowsMetricsRetrieveInterval = {
+      Hour: 'hour',
+      Day: 'day',
+      Week: 'week',
+    } as const;
+
+    export type HogFlowsMetricsTotalsRetrieveParams = {
+    /**
+     * Start of the time range. Accepts relative formats like '-7d', '-24h' or ISO 8601 timestamps. Defaults to '-7d'.
+     * @minLength 1
+     */
+    after?: string;
+    /**
+     * End of the time range. Same format as 'after'. Defaults to now.
+     * @minLength 1
+     */
+    before?: string;
+    /**
+     * Group the series by metric 'name' or 'kind'. Defaults to 'kind'.
+
+    * `name` - name
+    * `kind` - kind
+     * @minLength 1
+     */
+    breakdown_by?: HogFlowsMetricsTotalsRetrieveBreakdownBy;
+    /**
+     * Filter metrics to a specific execution instance.
+     * @minLength 1
+     */
+    instance_id?: string;
+    /**
+     * Time bucket size for the series. One of: hour, day, week. Defaults to 'day'.
+
+    * `hour` - hour
+    * `day` - day
+    * `week` - week
+     * @minLength 1
+     */
+    interval?: HogFlowsMetricsTotalsRetrieveInterval;
+    /**
+     * Comma-separated metric kinds to filter by, e.g. 'success,failure'.
+     * @minLength 1
+     */
+    kind?: string;
+    /**
+     * Comma-separated metric names to filter by.
+     * @minLength 1
+     */
+    name?: string;
+    };
+
+    export type HogFlowsMetricsTotalsRetrieveBreakdownBy = typeof HogFlowsMetricsTotalsRetrieveBreakdownBy[keyof typeof HogFlowsMetricsTotalsRetrieveBreakdownBy];
+
+
+    export const HogFlowsMetricsTotalsRetrieveBreakdownBy = {
+      Name: 'name',
+      Kind: 'kind',
+    } as const;
+
+    export type HogFlowsMetricsTotalsRetrieveInterval = typeof HogFlowsMetricsTotalsRetrieveInterval[keyof typeof HogFlowsMetricsTotalsRetrieveInterval];
+
+
+    export const HogFlowsMetricsTotalsRetrieveInterval = {
+      Hour: 'hour',
+      Day: 'day',
+      Week: 'week',
+    } as const;
 
     export type HogFlowsSchedulesListParams = {
     created_at?: string;
@@ -37445,6 +40523,162 @@ export namespace Schemas {
     type?: string[];
     updated_at?: string;
     };
+
+    export type HogFunctionsLogsRetrieveParams = {
+    /**
+     * Only return entries after this ISO 8601 timestamp.
+     */
+    after?: string;
+    /**
+     * Only return entries before this ISO 8601 timestamp.
+     */
+    before?: string;
+    /**
+     * Filter logs to a specific execution instance.
+     * @minLength 1
+     */
+    instance_id?: string;
+    /**
+     * Comma-separated log levels to include, e.g. 'WARN,ERROR'. Valid levels: DEBUG, LOG, INFO, WARN, ERROR.
+     * @minLength 1
+     */
+    level?: string;
+    /**
+     * Maximum number of log entries to return (1-500, default 50).
+     * @minimum 1
+     * @maximum 500
+     */
+    limit?: number;
+    /**
+     * Case-insensitive substring search across log messages.
+     * @minLength 1
+     */
+    search?: string;
+    };
+
+    export type HogFunctionsMetricsRetrieveParams = {
+    /**
+     * Start of the time range. Accepts relative formats like '-7d', '-24h' or ISO 8601 timestamps. Defaults to '-7d'.
+     * @minLength 1
+     */
+    after?: string;
+    /**
+     * End of the time range. Same format as 'after'. Defaults to now.
+     * @minLength 1
+     */
+    before?: string;
+    /**
+     * Group the series by metric 'name' or 'kind'. Defaults to 'kind'.
+
+    * `name` - name
+    * `kind` - kind
+     * @minLength 1
+     */
+    breakdown_by?: HogFunctionsMetricsRetrieveBreakdownBy;
+    /**
+     * Filter metrics to a specific execution instance.
+     * @minLength 1
+     */
+    instance_id?: string;
+    /**
+     * Time bucket size for the series. One of: hour, day, week. Defaults to 'day'.
+
+    * `hour` - hour
+    * `day` - day
+    * `week` - week
+     * @minLength 1
+     */
+    interval?: HogFunctionsMetricsRetrieveInterval;
+    /**
+     * Comma-separated metric kinds to filter by, e.g. 'success,failure'.
+     * @minLength 1
+     */
+    kind?: string;
+    /**
+     * Comma-separated metric names to filter by.
+     * @minLength 1
+     */
+    name?: string;
+    };
+
+    export type HogFunctionsMetricsRetrieveBreakdownBy = typeof HogFunctionsMetricsRetrieveBreakdownBy[keyof typeof HogFunctionsMetricsRetrieveBreakdownBy];
+
+
+    export const HogFunctionsMetricsRetrieveBreakdownBy = {
+      Name: 'name',
+      Kind: 'kind',
+    } as const;
+
+    export type HogFunctionsMetricsRetrieveInterval = typeof HogFunctionsMetricsRetrieveInterval[keyof typeof HogFunctionsMetricsRetrieveInterval];
+
+
+    export const HogFunctionsMetricsRetrieveInterval = {
+      Hour: 'hour',
+      Day: 'day',
+      Week: 'week',
+    } as const;
+
+    export type HogFunctionsMetricsTotalsRetrieveParams = {
+    /**
+     * Start of the time range. Accepts relative formats like '-7d', '-24h' or ISO 8601 timestamps. Defaults to '-7d'.
+     * @minLength 1
+     */
+    after?: string;
+    /**
+     * End of the time range. Same format as 'after'. Defaults to now.
+     * @minLength 1
+     */
+    before?: string;
+    /**
+     * Group the series by metric 'name' or 'kind'. Defaults to 'kind'.
+
+    * `name` - name
+    * `kind` - kind
+     * @minLength 1
+     */
+    breakdown_by?: HogFunctionsMetricsTotalsRetrieveBreakdownBy;
+    /**
+     * Filter metrics to a specific execution instance.
+     * @minLength 1
+     */
+    instance_id?: string;
+    /**
+     * Time bucket size for the series. One of: hour, day, week. Defaults to 'day'.
+
+    * `hour` - hour
+    * `day` - day
+    * `week` - week
+     * @minLength 1
+     */
+    interval?: HogFunctionsMetricsTotalsRetrieveInterval;
+    /**
+     * Comma-separated metric kinds to filter by, e.g. 'success,failure'.
+     * @minLength 1
+     */
+    kind?: string;
+    /**
+     * Comma-separated metric names to filter by.
+     * @minLength 1
+     */
+    name?: string;
+    };
+
+    export type HogFunctionsMetricsTotalsRetrieveBreakdownBy = typeof HogFunctionsMetricsTotalsRetrieveBreakdownBy[keyof typeof HogFunctionsMetricsTotalsRetrieveBreakdownBy];
+
+
+    export const HogFunctionsMetricsTotalsRetrieveBreakdownBy = {
+      Name: 'name',
+      Kind: 'kind',
+    } as const;
+
+    export type HogFunctionsMetricsTotalsRetrieveInterval = typeof HogFunctionsMetricsTotalsRetrieveInterval[keyof typeof HogFunctionsMetricsTotalsRetrieveInterval];
+
+
+    export const HogFunctionsMetricsTotalsRetrieveInterval = {
+      Hour: 'hour',
+      Day: 'day',
+      Week: 'week',
+    } as const;
 
     export type InsightVariablesListParams = {
     /**
@@ -37825,6 +41059,17 @@ export namespace Schemas {
     };
 
     export type LogsAlertsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type LogsAlertsEventsListParams = {
     /**
      * Number of results to return per page.
      */
@@ -38855,6 +42100,34 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    };
+
+    export type VisualReviewReposQuarantineListParams = {
+    /**
+     * Filter by identifier (returns full history)
+     */
+    identifier?: string;
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    /**
+     * Filter by run type
+     */
+    run_type?: string;
+    };
+
+    export type VisualReviewReposQuarantineDestroyParams = {
+    /**
+     * Snapshot identifier to unquarantine
+     * @minLength 1
+     * @maxLength 512
+     */
+    identifier: string;
     };
 
     export type VisualReviewRunsListParams = {
