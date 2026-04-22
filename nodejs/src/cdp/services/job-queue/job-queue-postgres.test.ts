@@ -86,30 +86,29 @@ describe('CyclotronJobQueue - postgres', () => {
             expect(jobsArg[0].id).toBeUndefined()
         })
 
-        it('strips id when it is in UUIDT format (bug reproduction — pre-fix)', async () => {
+        it.each([
+            {
+                label: 'UUIDT (pre-fix, non-RFC-4122)',
+                getId: () => new UUIDT().toString(),
+                versionNibble: '0',
+                expectPreserved: false,
+            },
+            { label: 'uuidv7 (post-fix)', getId: () => uuidv7(), versionNibble: '7', expectPreserved: true },
+        ])('handles $label id in V1 Postgres route', async ({ getId, versionNibble, expectPreserved }) => {
             const { queue, bulkCreateJobs } = createQueue()
 
-            const uuidtId = new UUIDT().toString()
-            expect(uuidtId[14]).toBe('0')
+            const id = getId()
+            expect(id[14]).toBe(versionNibble)
 
-            const invocation: any = { ...baseInvocation, id: uuidtId }
+            const invocation: any = { ...baseInvocation, id }
             await queue.queueInvocations([invocation])
 
             const jobsArg = bulkCreateJobs.mock.calls[0][0]
-            expect(jobsArg[0].id).toBeUndefined()
-        })
-
-        it('preserves id when it is in UUIDv7 format (post-fix)', async () => {
-            const { queue, bulkCreateJobs } = createQueue()
-
-            const v7Id = uuidv7()
-            expect(v7Id[14]).toBe('7')
-
-            const invocation: any = { ...baseInvocation, id: v7Id }
-            await queue.queueInvocations([invocation])
-
-            const jobsArg = bulkCreateJobs.mock.calls[0][0]
-            expect(jobsArg[0].id).toBe(v7Id)
+            if (expectPreserved) {
+                expect(jobsArg[0].id).toBe(id)
+            } else {
+                expect(jobsArg[0].id).toBeUndefined()
+            }
         })
 
         it('preserves id minted by createHogFlowInvocation across the V1 Postgres route', async () => {
