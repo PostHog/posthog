@@ -9,6 +9,8 @@ import { insightNavLogic } from 'scenes/insights/InsightNav/insightNavLogic'
 import { INSIGHT_TYPE_URLS } from 'scenes/insights/utils'
 import { INSIGHT_TYPES_METADATA } from 'scenes/saved-insights/SavedInsights'
 
+import { ComputationTimeWithRefresh } from '~/queries/nodes/InsightViz/ComputationTimeWithRefresh'
+
 import { insightLogic } from '../insightLogic'
 
 export function InsightsNav(): JSX.Element {
@@ -42,6 +44,11 @@ export function InsightsNav(): JSX.Element {
                         </Link>
                     ),
                 }))}
+                rightSlot={
+                    <div className="InsightNav__refresh-slot">
+                        <ComputationTimeWithRefresh />
+                    </div>
+                }
             />
         </>
     )

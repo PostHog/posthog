@@ -16,6 +16,7 @@ import { QueryContext } from '~/queries/types'
 import { InsightLogicProps } from '~/types'
 
 import { DataNodeLogicProps, dataNodeLogic } from '../DataNode/dataNodeLogic'
+import { ComputationTimeWithRefresh } from './ComputationTimeWithRefresh'
 import { EditorFilters } from './EditorFilters'
 import { InsightVizDisplay } from './InsightVizDisplay'
 import { getCachedResults } from './utils'
@@ -95,8 +96,8 @@ export function InsightViz({
     const disableHeader = embedded || !(query.showHeader ?? showIfFull)
     const disableTable = embedded || !(query.showTable ?? showIfFull)
     const disableCorrelationTable = embedded || !(query.showCorrelationTable ?? showIfFull)
-    const disableLastComputation = embedded || !(query.showLastComputation ?? showIfFull)
-    const disableLastComputationRefresh = embedded || !(query.showLastComputationRefresh ?? showIfFull)
+    const disableLastComputation = true // shown in the tabs row (InsightsNav)
+    const disableLastComputationRefresh = true
     const showingFilters = query.showFilters ?? editMode ?? false
     const showingResults = query.showResults ?? true
     const isEmbedded = embedded || (query.embedded ?? false)
@@ -143,6 +144,11 @@ export function InsightViz({
                                     showing={!readOnly && showingFilters}
                                     embedded={isEmbedded}
                                 />
+                                {editMode && !isEmbedded && (
+                                    <div className="InsightViz__stacked-refresh">
+                                        <ComputationTimeWithRefresh />
+                                    </div>
+                                )}
                                 {!isEmbedded ? (
                                     <div className="flex-1 max-h-full overflow-auto">{display}</div>
                                 ) : (

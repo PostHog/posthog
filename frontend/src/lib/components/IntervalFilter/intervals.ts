@@ -11,23 +11,23 @@ export type Intervals = {
 
 export const intervals: Intervals = {
     minute: {
-        label: 'minute',
+        label: 'Minute',
         newDateFrom: 'hStart',
     },
     hour: {
-        label: 'hour',
+        label: 'Hour',
         newDateFrom: 'dStart',
     },
     day: {
-        label: 'day',
+        label: 'Day',
         newDateFrom: undefined,
     },
     week: {
-        label: 'week',
+        label: 'Week',
         newDateFrom: '-30d',
     },
     month: {
-        label: 'month',
+        label: 'Month',
         newDateFrom: '-90d',
     },
 }

@@ -29,7 +29,7 @@ export class ChartInsightBase {
     }
 
     async openOptionsMenu(): Promise<void> {
-        await this.page.getByRole('button', { name: /^Options/ }).click()
+        await this.page.getByRole('button', { name: /^Data/ }).click()
     }
 
     async closeOptionsMenu(): Promise<void> {
