@@ -27,6 +27,7 @@ from products.tasks.backend.temporal.process_task.activities import (
     cleanup_sandbox,
     clone_repository_in_sandbox,
     create_sandbox_for_repository,
+    emit_progress_activity,
     forward_pending_user_message,
     get_task_processing_context,
     inject_fresh_tokens_on_resume,
@@ -286,6 +287,7 @@ class TestProcessTaskWorkflowUnit:
         monkeypatch.setattr(workflow, "_read_sandbox_logs", read_sandbox_logs_mock)
         monkeypatch.setattr(workflow, "_cleanup_sandbox", cleanup_sandbox_mock)
         monkeypatch.setattr(workflow, "_create_resume_snapshot", create_resume_snapshot_mock)
+        monkeypatch.setattr(workflow, "_emit_progress", AsyncMock())
 
         async def fail_after_sandbox_creation() -> GetSandboxForRepositoryOutput:
             workflow._sandbox_id_for_cleanup = "sandbox-123"
@@ -334,6 +336,8 @@ class TestProcessTaskWorkflowUnit:
                 return prepared
             if activity_fn is create_sandbox_for_repository:
                 return created
+            if activity_fn is emit_progress_activity:
+                return None
             raise AssertionError(f"Unexpected activity call: {activity_fn}")
 
         monkeypatch.setattr(process_task_workflow_module.workflow, "execute_activity", fake_execute_activity)
@@ -382,6 +386,8 @@ class TestProcessTaskWorkflowUnit:
                 return created
             if activity_fn is inject_fresh_tokens_on_resume:
                 inject_call_args["input"] = args[0]
+                return None
+            if activity_fn is emit_progress_activity:
                 return None
             raise AssertionError(f"Unexpected activity call: {activity_fn}")
 
@@ -432,6 +438,8 @@ class TestProcessTaskWorkflowUnit:
                 return prepared
             if activity_fn is create_sandbox_for_repository:
                 return created
+            if activity_fn is emit_progress_activity:
+                return None
             raise AssertionError(f"Unexpected activity call: {activity_fn}")
 
         monkeypatch.setattr(process_task_workflow_module.workflow, "execute_activity", fake_execute_activity)
