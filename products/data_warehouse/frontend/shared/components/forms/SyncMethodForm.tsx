@@ -155,11 +155,13 @@ export const SyncMethodForm = forwardRef<SyncMethodFormHandle, SyncMethodFormPro
     const columns = availableColumns ?? schema.available_columns ?? []
     const resolvedDetectedPks = detectedPrimaryKeys ?? schema.detected_primary_keys ?? null
 
+    const defaultField = schema.incremental_field ?? schema.incremental_fields[0]?.field ?? null
+
     const [radioValue, setRadioValue] = useState(() =>
         getInitialRadioState(schema, !incrementalSyncSupported.disabled, !appendSyncSupported.disabled)
     )
-    const [incrementalFieldValue, setIncrementalFieldValue] = useState(schema.incremental_field ?? null)
-    const [appendFieldValue, setAppendFieldValue] = useState(schema.incremental_field ?? null)
+    const [incrementalFieldValue, setIncrementalFieldValue] = useState(defaultField)
+    const [appendFieldValue, setAppendFieldValue] = useState(defaultField)
     const [primaryKeyColumns, setPrimaryKeyColumns] = useState<string[]>(schema.primary_key_columns ?? [])
     const [cdcTableMode, setCdcTableMode] = useState<'consolidated' | 'cdc_only' | 'both'>(
         schema.cdc_table_mode ?? 'consolidated'
@@ -170,8 +172,8 @@ export const SyncMethodForm = forwardRef<SyncMethodFormHandle, SyncMethodFormPro
             schema.sync_type ??
                 (schema.supports_webhooks ? 'webhook' : incrementalSyncSupported.disabled ? 'append' : 'incremental')
         )
-        setIncrementalFieldValue(schema.incremental_field ?? null)
-        setAppendFieldValue(schema.incremental_field ?? null)
+        setIncrementalFieldValue(defaultField)
+        setAppendFieldValue(defaultField)
         setPrimaryKeyColumns(schema.primary_key_columns ?? [])
     }, [schema.table]) // oxlint-disable-line react-hooks/exhaustive-deps
 
@@ -297,7 +299,10 @@ export const SyncMethodForm = forwardRef<SyncMethodFormHandle, SyncMethodFormPro
                         <>
                             <LemonSelect
                                 value={incrementalFieldValue}
-                                onChange={(newValue) => setIncrementalFieldValue(newValue)}
+                                onChange={(newValue) => {
+                                    setIncrementalFieldValue(newValue)
+                                    setRadioValue('incremental')
+                                }}
                                 options={
                                     schema.incremental_fields.map((n) => ({
                                         value: n.field,
@@ -393,7 +398,10 @@ export const SyncMethodForm = forwardRef<SyncMethodFormHandle, SyncMethodFormPro
                         <>
                             <LemonSelect
                                 value={appendFieldValue}
-                                onChange={(newValue) => setAppendFieldValue(newValue)}
+                                onChange={(newValue) => {
+                                    setAppendFieldValue(newValue)
+                                    setRadioValue('append')
+                                }}
                                 options={
                                     schema.incremental_fields.map((n) => ({
                                         value: n.field,

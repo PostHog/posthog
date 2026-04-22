@@ -65,7 +65,7 @@ export function ConfigurationTab({ sourceId, schema, source, section }: Configur
                 />
             )
         case 'sync-method':
-            return <SyncMethodSection source={source} schema={schema} />
+            return <SyncMethodSection sourceId={sourceId} source={source} schema={schema} />
         case 'schedule':
             return (
                 <ScheduleSection
@@ -264,18 +264,25 @@ function DetailsSection({
 }
 
 function SyncMethodSection({
+    sourceId,
     source,
     schema,
 }: {
+    sourceId: string
     source: ExternalDataSource | null
     schema: ExternalDataSourceSchema
 }): JSX.Element {
+    // We use syncMethodModalLogic only for loading the schema's incremental fields — saving goes
+    // through a direct bulkUpdateSchemas call so the logic's reset-on-success listener (used by
+    // the modal flow in the new source wizard) doesn't blow the inline form back into a loading state.
     const logic = syncMethodModalLogic({ schema })
-    const { schemaIncrementalFields, schemaIncrementalFieldsLoading, saveButtonIsLoading } = useValues(logic)
-    const { loadSchemaIncrementalFields, resetSchemaIncrementalFields, updateSchema } = useActions(logic)
+    const { schemaIncrementalFields, schemaIncrementalFieldsLoading } = useValues(logic)
+    const { loadSchemaIncrementalFields, resetSchemaIncrementalFields } = useActions(logic)
+    const { loadSource } = useActions(sourceSettingsLogic({ id: sourceId }))
 
     const formRef = useRef<SyncMethodFormHandle>(null)
     const [saveDisabledReason, setSaveDisabledReason] = useState<string | undefined>()
+    const [saving, setSaving] = useState(false)
 
     useEffect(() => {
         resetSchemaIncrementalFields()
@@ -283,6 +290,33 @@ function SyncMethodSection({
     }, [schema.id, resetSchemaIncrementalFields, loadSchemaIncrementalFields])
 
     const loading = schemaIncrementalFieldsLoading || !schemaIncrementalFields
+
+    const persistSyncMethod = async (
+        syncType: ExternalDataSourceSchema['sync_type'],
+        incrementalField: string | null,
+        incrementalFieldType: string | null,
+        primaryKeyColumns: string[] | null,
+        cdcTableMode?: 'consolidated' | 'cdc_only' | 'both'
+    ): Promise<void> => {
+        const noIncrementalField = syncType === 'full_refresh' || syncType === 'cdc'
+        setSaving(true)
+        try {
+            await api.externalDataSchemas.update(schema.id, {
+                should_sync: true,
+                sync_type: syncType,
+                incremental_field: noIncrementalField ? null : incrementalField,
+                incremental_field_type: noIncrementalField ? null : incrementalFieldType,
+                primary_key_columns: syncType === 'incremental' ? (primaryKeyColumns ?? null) : null,
+                ...(syncType === 'cdc' && cdcTableMode ? { cdc_table_mode: cdcTableMode } : {}),
+            })
+            lemonToast.success('Sync method saved')
+            loadSource()
+        } catch (e: any) {
+            lemonToast.error(e?.message || "Can't save sync method at this time")
+        } finally {
+            setSaving(false)
+        }
+    }
 
     return (
         <div>
@@ -305,7 +339,7 @@ function SyncMethodSection({
                                     ref={formRef}
                                     hideFooter
                                     onSaveDisabledReasonChange={setSaveDisabledReason}
-                                    saveButtonIsLoading={saveButtonIsLoading}
+                                    saveButtonIsLoading={saving}
                                     schema={{
                                         table: schema.name,
                                         should_sync: schema.should_sync,
@@ -329,28 +363,7 @@ function SyncMethodSection({
                                     detectedPrimaryKeys={schemaIncrementalFields.detected_primary_keys ?? null}
                                     primaryKeyLocked={!!schema.table}
                                     onClose={() => {}}
-                                    onSave={(
-                                        syncType,
-                                        incrementalField,
-                                        incrementalFieldType,
-                                        primaryKeyColumns,
-                                        cdcTableMode
-                                    ) => {
-                                        const noIncrementalField = syncType === 'full_refresh' || syncType === 'cdc'
-                                        updateSchema({
-                                            ...schema,
-                                            should_sync: true,
-                                            sync_type: syncType,
-                                            incremental_field: noIncrementalField ? null : incrementalField,
-                                            incremental_field_type: noIncrementalField ? null : incrementalFieldType,
-                                            sync_time_of_day: schema.sync_time_of_day ?? null,
-                                            primary_key_columns:
-                                                syncType === 'incremental' ? (primaryKeyColumns ?? null) : null,
-                                            ...(syncType === 'cdc' && cdcTableMode
-                                                ? { cdc_table_mode: cdcTableMode }
-                                                : {}),
-                                        })
-                                    }}
+                                    onSave={persistSyncMethod}
                                 />
                             </fieldset>
                         )}
@@ -363,7 +376,7 @@ function SyncMethodSection({
                         {({ disabledReason: accessDisabledReason }) => (
                             <LemonButton
                                 type="primary"
-                                loading={saveButtonIsLoading}
+                                loading={saving}
                                 disabledReason={accessDisabledReason ?? saveDisabledReason}
                                 onClick={() => formRef.current?.triggerSave()}
                             >
