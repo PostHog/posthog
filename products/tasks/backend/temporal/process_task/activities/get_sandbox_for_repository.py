@@ -125,7 +125,7 @@ def get_sandbox_for_repository(input: GetSandboxForRepositoryInput) -> GetSandbo
                 snapshot_lookup_timer.set_used_snapshot(used_snapshot)
             increment_snapshot_usage(used_snapshot)
         elif not has_repo:
-            emit_agent_log(ctx.run_id, "info", "Creating environment without repository")
+            emit_agent_log(ctx.run_id, "debug", "Creating environment without repository")
 
         try:
             task = Task.objects.select_related("created_by").get(id=ctx.task_id)
@@ -227,9 +227,9 @@ def get_sandbox_for_repository(input: GetSandboxForRepositoryInput) -> GetSandbo
         )
 
         if resume_snapshot_ext_id:
-            emit_agent_log(ctx.run_id, "info", f"Resuming environment from snapshot for {repository}")
+            emit_agent_log(ctx.run_id, "debug", f"Resuming environment from snapshot for {repository}")
         elif has_repo and used_snapshot:
-            emit_agent_log(ctx.run_id, "info", f"Found existing environment for {repository}")
+            emit_agent_log(ctx.run_id, "debug", f"Found existing environment for {repository}")
         elif has_repo:
             emit_agent_log(ctx.run_id, "debug", f"Creating environment from {image_source_label} for {repository}")
         else:
@@ -261,11 +261,11 @@ def get_sandbox_for_repository(input: GetSandboxForRepositoryInput) -> GetSandbo
             if local_bind is not None and getattr(settings, "SANDBOX_PROVIDER", None) == "docker":
                 emit_agent_log(
                     ctx.run_id,
-                    "info",
+                    "debug",
                     f"Using local checkout for {repository} at {local_bind} (SANDBOX_REPO_MOUNT_MAP); skipping clone from GitHub",
                 )
             else:
-                emit_agent_log(ctx.run_id, "info", f"Cloning {repository} into sandbox")
+                emit_agent_log(ctx.run_id, "debug", f"Cloning {repository} into sandbox")
             with StepTimer("repository_clone", used_snapshot=used_snapshot):
                 clone_result = sandbox.clone_repository(repository, github_token=github_token, shallow=shallow)
             if clone_result.exit_code != 0:
@@ -274,7 +274,7 @@ def get_sandbox_for_repository(input: GetSandboxForRepositoryInput) -> GetSandbo
 
         if has_repo and ctx.branch:
             assert repository is not None
-            emit_agent_log(ctx.run_id, "info", f"Checking out branch {ctx.branch}")
+            emit_agent_log(ctx.run_id, "debug", f"Checking out branch {ctx.branch}")
             org, repo = repository.lower().split("/")
             repo_path = f"/tmp/workspace/repos/{org}/{repo}"
 

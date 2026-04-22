@@ -362,6 +362,127 @@ class TestLLMSkillAPI(APIBaseTest):
         assert LLMSkillFile.objects.filter(skill=new_skill).count() == 1
         assert LLMSkillFile.objects.get(skill=new_skill).path == "scripts/run.sh"
 
+    # --- Publish with edits (find/replace) ---
+
+    def test_publish_with_edits_applies_single_replacement(self, mock_feature_enabled):
+        self.create_skill(name="edit-me", body="# Title\n\nHello world.\n")
+
+        response = self.client.patch(
+            self._url("name/edit-me"),
+            data={
+                "edits": [{"old": "Hello world.", "new": "Hello there."}],
+                "base_version": 1,
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert data["version"] == 2
+        assert data["body"] == "# Title\n\nHello there.\n"
+
+    def test_publish_with_edits_applies_sequential_replacements(self, mock_feature_enabled):
+        self.create_skill(name="seq-edits", body="alpha\nbeta\ngamma\n")
+
+        response = self.client.patch(
+            self._url("name/seq-edits"),
+            data={
+                "edits": [
+                    {"old": "alpha", "new": "APLHA"},
+                    {"old": "beta", "new": "BETA"},
+                ],
+                "base_version": 1,
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["body"] == "APLHA\nBETA\ngamma\n"
+
+    @parameterized.expand(
+        [
+            ("zero_matches", "some content\n", [{"old": "missing", "new": "x"}], None),
+            ("multi_matches", "pick pick pick\n", [{"old": "pick", "new": "chose"}], "3 times"),
+        ]
+    )
+    def test_publish_with_edits_apply_errors(self, mock_feature_enabled, label, initial_body, edits, detail_fragment):
+        skill_name = f"edit-apply-err-{label.replace('_', '-')}"
+        self.create_skill(name=skill_name, body=initial_body)
+
+        response = self.client.patch(
+            self._url(f"name/{skill_name}"),
+            data={"edits": edits, "base_version": 1},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        body_resp = response.json()
+        assert body_resp["edit_index"] == 0
+        if detail_fragment is not None:
+            assert detail_fragment in body_resp["detail"]
+
+    @parameterized.expand(
+        [
+            (
+                "body_and_edits_conflict",
+                {
+                    "body": "new content\n",
+                    "edits": [{"old": "content", "new": "other"}],
+                    "base_version": 1,
+                },
+            ),
+            ("empty_edits_list", {"edits": [], "base_version": 1}),
+        ]
+    )
+    def test_publish_rejects_invalid_edit_requests(self, mock_feature_enabled, label, payload):
+        skill_name = f"invalid-{label.replace('_', '-')}"
+        self.create_skill(name=skill_name, body="content\n")
+
+        response = self.client.patch(
+            self._url(f"name/{skill_name}"),
+            data=payload,
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_publish_with_edits_exceeding_body_size_limit_fails(self, mock_feature_enabled):
+        # Seed a body just under the 1 MB limit, then edit to push the result over.
+        seeded_body = "x" * (1_000_000 - len("MARKER")) + "MARKER"
+        self.create_skill(name="size-edit", body=seeded_body)
+
+        response = self.client.patch(
+            self._url("name/size-edit"),
+            data={
+                "edits": [{"old": "MARKER", "new": "MARKER" + "y" * 100}],
+                "base_version": 1,
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        body_resp = response.json()
+        assert body_resp["edit_index"] == 0
+        assert "size limit" in body_resp["detail"]
+
+    def test_publish_with_edits_carries_files_forward(self, mock_feature_enabled):
+        skill = self.create_skill(name="edits-files", body="original\n")
+        LLMSkillFile.objects.create(skill=skill, path="references/a.md", content="A")
+
+        response = self.client.patch(
+            self._url("name/edits-files"),
+            data={
+                "edits": [{"old": "original", "new": "edited"}],
+                "base_version": 1,
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        new_skill = LLMSkill.objects.get(name="edits-files", version=2, deleted=False)
+        assert new_skill.body == "edited\n"
+        assert LLMSkillFile.objects.filter(skill=new_skill, path="references/a.md").exists()
+
     # --- Archive ---
 
     def test_archive_skill(self, mock_feature_enabled):

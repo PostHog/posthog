@@ -768,6 +768,42 @@ class TaskRun(models.Model):
         self.append_log([event])
         self.publish_stream_event(event)
 
+    def emit_progress_event(
+        self,
+        step: str,
+        status: str,
+        label: str,
+        group: str,
+        detail: Optional[str] = None,
+    ) -> None:
+        """Emit a structured progress notification in ACP format.
+
+        Consumed by the desktop client as `_posthog/progress`. Events sharing a
+        `group` coalesce into a single collapsible card on the client, so the
+        backend decides grouping granularity by picking a phase id (e.g.
+        `"setup"`, `"pr_create"`).
+        """
+        params: dict[str, Any] = {
+            "sessionId": str(self.id),
+            "step": step,
+            "status": status,
+            "label": label,
+            "group": group,
+        }
+        if detail is not None:
+            params["detail"] = detail
+        event = {
+            "type": "notification",
+            "timestamp": django_timezone.now().isoformat(),
+            "notification": {
+                "jsonrpc": "2.0",
+                "method": "_posthog/progress",
+                "params": params,
+            },
+        }
+        self.append_log([event])
+        self.publish_stream_event(event)
+
     def emit_sandbox_output(self, stdout: str, stderr: str, exit_code: int) -> None:
         """Emit sandbox execution output as ACP notification."""
         event = {
