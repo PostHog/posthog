@@ -1,3 +1,4 @@
+import logging
 from typing import Any, Union
 
 from django.conf import settings
@@ -28,6 +29,23 @@ from posthog.utils import (
     is_redis_alive,
 )
 
+logger = logging.getLogger(__name__)
+
+Metric = dict[str, Union[str, bool, int, float, dict[str, Any]]]
+
+
+def _record_probe_failure(metrics: list[Metric], key: str, metric_label: str, exc: Exception) -> None:
+    """Append an error metric and forward the exception to error tracking."""
+    posthoganalytics.capture_exception(exc)
+    logger.exception("Instance status probe %s failed", key)
+    metrics.append(
+        {
+            "key": key,
+            "metric": metric_label,
+            "value": f"error: {type(exc).__name__}: {exc}",
+        }
+    )
+
 
 class InstanceStatusViewSet(viewsets.ViewSet):
     """
@@ -38,16 +56,13 @@ class InstanceStatusViewSet(viewsets.ViewSet):
 
     @method_decorator(cache_page(60))
     def list(self, request: Request) -> Response:
+        metrics: list[Metric] = []
+
+        metrics.append(
+            {"key": "posthog_git_sha", "metric": "PostHog Git SHA", "value": get_git_commit_short() or "unknown"}
+        )
+
         try:
-            redis_alive = is_redis_alive()
-            postgres_alive = is_postgres_alive()
-
-            metrics: list[dict[str, Union[str, bool, int, float, dict[str, Any]]]] = []
-
-            metrics.append(
-                {"key": "posthog_git_sha", "metric": "PostHog Git SHA", "value": get_git_commit_short() or "unknown"}
-            )
-
             helm_info = get_helm_info_env()
             if len(helm_info) > 0:
                 metrics.append(
@@ -61,7 +76,10 @@ class InstanceStatusViewSet(viewsets.ViewSet):
                         },
                     }
                 )
+        except Exception as e:
+            _record_probe_failure(metrics, "helm", "Helm Info", e)
 
+        try:
             metrics.append(
                 {
                     "key": "plugin_sever_alive",
@@ -69,7 +87,10 @@ class InstanceStatusViewSet(viewsets.ViewSet):
                     "value": is_plugin_server_alive(),
                 }
             )
+        except Exception as e:
+            _record_probe_failure(metrics, "plugin_sever_alive", "Plugin server alive", e)
 
+        try:
             plugin_server_queues = get_plugin_server_job_queues()
             metrics.append(
                 {
@@ -80,7 +101,11 @@ class InstanceStatusViewSet(viewsets.ViewSet):
                     else "unknown",
                 }
             )
+        except Exception as e:
+            _record_probe_failure(metrics, "plugin_sever_job_queues", "Job queues enabled in plugin server", e)
 
+        try:
+            postgres_alive = is_postgres_alive()
             metrics.append(
                 {
                     "key": "db_alive",
@@ -104,11 +129,18 @@ class InstanceStatusViewSet(viewsets.ViewSet):
                         "value": async_migrations_ok(),
                     }
                 )
+        except Exception as e:
+            _record_probe_failure(metrics, "db_alive", "Postgres database alive", e)
 
+        try:
             from posthog.clickhouse.system_status import system_status
 
             metrics.extend(list(system_status()))
+        except Exception as e:
+            _record_probe_failure(metrics, "clickhouse", "ClickHouse system status", e)
 
+        try:
+            redis_alive = is_redis_alive()
             metrics.append({"key": "redis_alive", "metric": "Redis alive", "value": redis_alive})
             if redis_alive:
                 import redis
@@ -171,7 +203,10 @@ class InstanceStatusViewSet(viewsets.ViewSet):
                             "value": f"Redis connected but then failed to return metrics: {e}",
                         }
                     )
+        except Exception as e:
+            _record_probe_failure(metrics, "redis_alive", "Redis alive", e)
 
+        try:
             metrics.append(
                 {
                     "key": "object_storage",
@@ -188,8 +223,7 @@ class InstanceStatusViewSet(viewsets.ViewSet):
                     }
                 )
         except Exception as e:
-            posthoganalytics.capture_exception(e)
-            return Response({"error": "unknown error"}, status=500)
+            _record_probe_failure(metrics, "object_storage", "Object Storage", e)
 
         return Response({"results": {"overview": metrics}})
 
