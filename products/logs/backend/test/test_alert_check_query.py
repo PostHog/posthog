@@ -1,5 +1,6 @@
 import os
 import json
+import datetime as dt
 from datetime import UTC, datetime
 
 import unittest
@@ -12,10 +13,13 @@ from parameterized import parameterized
 from posthog.clickhouse.client import sync_execute
 
 from products.logs.backend.alert_check_query import (
+    CHECKPOINT_MAX_STALENESS,
     AlertCheckCountResult,
     AlertCheckQuery,
     BucketedCount,
+    fetch_live_logs_checkpoint,
     is_projection_eligible,
+    resolve_alert_date_to,
 )
 from products.logs.backend.models import LogsAlertConfiguration
 
@@ -325,3 +329,65 @@ class TestAlertCheckQuery(ClickhouseTestMixin, APIBaseTest):
         ):
             with self.assertRaisesRegex(Exception, "ClickHouse timeout"):
                 query.execute()
+
+
+class TestFetchLiveLogsCheckpoint(APIBaseTest):
+    @patch("products.logs.backend.alert_check_query.execute_hogql_query")
+    def test_returns_datetime_from_response(self, mock_execute):
+        mock_response = type("R", (), {"results": [[datetime(2025, 1, 1, 12, 34, 56, tzinfo=UTC)]]})()
+        mock_execute.return_value = mock_response
+
+        result = fetch_live_logs_checkpoint(self.team)
+
+        assert result == datetime(2025, 1, 1, 12, 34, 56, tzinfo=UTC)
+
+    @patch("products.logs.backend.alert_check_query.execute_hogql_query")
+    def test_returns_none_on_empty_table(self, mock_execute):
+        # min() over an empty set returns NULL.
+        mock_execute.return_value = type("R", (), {"results": [[None]]})()
+
+        assert fetch_live_logs_checkpoint(self.team) is None
+
+    @patch("products.logs.backend.alert_check_query.execute_hogql_query")
+    def test_returns_none_when_no_rows(self, mock_execute):
+        mock_execute.return_value = type("R", (), {"results": []})()
+
+        assert fetch_live_logs_checkpoint(self.team) is None
+
+    @patch("products.logs.backend.alert_check_query.execute_hogql_query")
+    def test_attaches_utc_to_naive_datetime(self, mock_execute):
+        # ClickHouse returns tz-naive datetimes for DateTime64 columns in some code paths.
+        mock_execute.return_value = type("R", (), {"results": [[datetime(2025, 1, 1, 12, 34, 56)]]})()
+
+        result = fetch_live_logs_checkpoint(self.team)
+
+        assert result == datetime(2025, 1, 1, 12, 34, 56, tzinfo=UTC)
+        assert result is not None and result.tzinfo is not None
+
+
+class TestResolveAlertDateTo(unittest.TestCase):
+    NOW = datetime(2025, 1, 1, 12, 0, 0, tzinfo=UTC)
+
+    def test_none_checkpoint_returns_now(self):
+        assert resolve_alert_date_to(self.NOW, None) == self.NOW
+
+    def test_fresh_checkpoint_in_past_is_used(self):
+        checkpoint = self.NOW - dt.timedelta(seconds=30)
+        assert resolve_alert_date_to(self.NOW, checkpoint) == checkpoint
+
+    def test_checkpoint_equal_to_now_is_used(self):
+        assert resolve_alert_date_to(self.NOW, self.NOW) == self.NOW
+
+    def test_future_checkpoint_is_clamped_to_now(self):
+        checkpoint = self.NOW + dt.timedelta(seconds=60)
+        assert resolve_alert_date_to(self.NOW, checkpoint) == self.NOW
+
+    def test_stale_checkpoint_beyond_threshold_falls_back_to_now(self):
+        # The "quiet partition pins min() backwards" case — must not strand spikes
+        # on active partitions in the past.
+        checkpoint = self.NOW - CHECKPOINT_MAX_STALENESS - dt.timedelta(seconds=1)
+        assert resolve_alert_date_to(self.NOW, checkpoint) == self.NOW
+
+    def test_checkpoint_exactly_at_threshold_is_still_used(self):
+        checkpoint = self.NOW - CHECKPOINT_MAX_STALENESS
+        assert resolve_alert_date_to(self.NOW, checkpoint) == checkpoint

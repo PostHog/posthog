@@ -621,7 +621,7 @@ const redirectPipeline = (id: string, fallbackUrl: string): string => {
 
 // NOTE: These redirects will fully replace the URL. If you want to keep support for query and hash params then you should use a function (not string) redirect
 // NOTE: If you need a query param to be automatically forwarded to the redirect URL, add it to the forwardedRedirectQueryParams array
-export const forwardedRedirectQueryParams: string[] = ['invite_modal']
+export const forwardedRedirectQueryParams: string[] = ['modal']
 export const redirects: Record<
     string,
     string | ((params: Params, searchParams: Params, hashParams: Params) => string)

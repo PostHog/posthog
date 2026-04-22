@@ -20,7 +20,33 @@ from posthog.storage import object_storage
 
 FOUR_MEGABYTES = 4 * 1024 * 1024
 
+# Content types safe to render inline in a browser when served from the
+# unauthenticated /uploaded_media endpoint. Anything outside this set is
+# served as a download with a generic content type so stored HTML/SVG/etc.
+# cannot execute script in the application origin.
+_INLINE_SAFE_CONTENT_TYPES = frozenset(
+    {
+        "image/png",
+        "image/jpeg",
+        "image/jpg",
+        "image/gif",
+        "image/webp",
+        "image/avif",
+        "image/bmp",
+    }
+)
+
 logger = structlog.getLogger(__name__)
+
+
+def _normalize_content_type(value: str | None) -> str:
+    if not value:
+        return ""
+    return value.split(";", 1)[0].strip().lower()
+
+
+def _is_inline_safe_content_type(content_type: str | None) -> bool:
+    return _normalize_content_type(content_type) in _INLINE_SAFE_CONTENT_TYPES
 
 
 def validate_image_file(file: Optional[bytes], user: int) -> bool:
@@ -73,10 +99,26 @@ def download(request, *args, **kwargs) -> HttpResponse:
         tags={"team_id": instance.team_id, "uuid": kwargs["image_uuid"]},
     )
 
+    # Defense in depth against stored XSS: files whose content type is not on
+    # an inline-safe allowlist (raster images) are served as an opaque download
+    # with a generic content type so any malicious HTML/SVG/JS can't execute
+    # in the application origin — even if it slipped past upload validation.
+    # CSPMiddleware layers on `default-src 'none'` for all non-HTML responses,
+    # and SecurityMiddleware already emits X-Content-Type-Options: nosniff.
+    response_headers: dict[str, str] = {
+        "Cache-Control": "public, max-age=315360000, immutable",
+    }
+
+    if _is_inline_safe_content_type(instance.content_type):
+        response_content_type = instance.content_type
+    else:
+        response_content_type = "application/octet-stream"
+        response_headers["Content-Disposition"] = "attachment"
+
     return HttpResponse(
         file_bytes,
-        content_type=instance.content_type,
-        headers={"Cache-Control": "public, max-age=315360000, immutable"},
+        content_type=response_content_type,
+        headers=response_headers,
     )
 
 

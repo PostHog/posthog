@@ -8,7 +8,7 @@ from django.utils.timezone import now
 import structlog
 from dateutil.parser import isoparse
 
-from posthog.kafka_client.client import KafkaProducer
+from posthog.kafka_client.routing import flush_all_producers
 from posthog.models.person.person import Person
 from posthog.models.person.util import create_person
 
@@ -60,9 +60,8 @@ def run(options):
                 is_deleted=False,
                 created_at=person.created_at,
                 version=person.version or 0,
-                sync=True,
             )
 
     logger.info("Waiting on Kafka producer flush, for up to 5 minutes")
-    KafkaProducer().flush(5 * 60)
+    flush_all_producers(5 * 60)
     logger.info("Kafka producer queue flushed.")

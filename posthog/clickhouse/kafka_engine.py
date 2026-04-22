@@ -94,7 +94,7 @@ def kafka_engine(
         )
 
     if kafka_host is None:
-        kafka_host = ",".join(settings.KAFKA_HOSTS_FOR_CLICKHOUSE)
+        raise ValueError("kafka_host is required when use_named_collection=False")
     return KAFKA_ENGINE.format(topic=topic, kafka_host=kafka_host, group=group, serialization=serialization)
 
 

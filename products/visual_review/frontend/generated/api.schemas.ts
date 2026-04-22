@@ -46,6 +46,42 @@ export interface PatchedUpdateRepoRequestInputApi {
     enable_pr_comments?: boolean | null
 }
 
+export interface UserBasicInfoApi {
+    id: number
+    first_name: string
+    email: string
+}
+
+export interface QuarantinedIdentifierEntryApi {
+    created_by?: UserBasicInfoApi | null
+    id: string
+    identifier: string
+    run_type: string
+    reason: string
+    /** @nullable */
+    expires_at: string | null
+    created_at: string
+    updated_at: string
+}
+
+export interface PaginatedQuarantinedIdentifierEntryListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: QuarantinedIdentifierEntryApi[]
+}
+
+export interface QuarantineInputApi {
+    /** @maxLength 512 */
+    identifier: string
+    /** @maxLength 255 */
+    reason: string
+    /** @nullable */
+    expires_at?: string | null
+}
+
 export interface RunSummaryApi {
     total: number
     changed: number
@@ -58,6 +94,7 @@ export interface RunSummaryApi {
 export type RunApiMetadata = { [key: string]: unknown }
 
 export interface RunApi {
+    approved_by?: UserBasicInfoApi | null
     id: string
     repo_id: string
     status: string
@@ -196,6 +233,7 @@ export interface SnapshotApi {
     current_artifact?: ArtifactApi | null
     baseline_artifact?: ArtifactApi | null
     diff_artifact?: ArtifactApi | null
+    reviewed_by?: UserBasicInfoApi | null
     id: string
     identifier: string
     result: string
@@ -210,6 +248,7 @@ export interface SnapshotApi {
     approved_hash: string
     /** @nullable */
     tolerated_hash_id?: string | null
+    is_quarantined?: boolean
     metadata?: SnapshotApiMetadata
 }
 
@@ -261,6 +300,34 @@ export type VisualReviewReposListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
+}
+
+export type VisualReviewReposQuarantineListParams = {
+    /**
+     * Filter by identifier (returns full history)
+     */
+    identifier?: string
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+    /**
+     * Filter by run type
+     */
+    run_type?: string
+}
+
+export type VisualReviewReposQuarantineDestroyParams = {
+    /**
+     * Snapshot identifier to unquarantine
+     * @minLength 1
+     * @maxLength 512
+     */
+    identifier: string
 }
 
 export type VisualReviewRunsListParams = {
