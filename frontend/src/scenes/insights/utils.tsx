@@ -828,7 +828,9 @@ export const getOverrideWarningPropsForButton = (
         : {}
 }
 
-export const containsNonDataWarehouseBreakdown = (
+/** Checks for breakdown features that are unsupported by trend insights with a
+ * data warehouse series. */
+export const hasUnsupportedBreakdownForDataWarehouseTrends = (
     filtersOverride: DashboardFilter | TileFilters | null | undefined
 ): boolean => {
     const breakdownFilter = filtersOverride?.breakdown_filter

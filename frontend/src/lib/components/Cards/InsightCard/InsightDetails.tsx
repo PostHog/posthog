@@ -24,7 +24,7 @@ import { Link } from 'lib/lemon-ui/Link'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { capitalizeFirstLetter, dateFilterToText } from 'lib/utils'
 import { BreakdownTag } from 'scenes/insights/filters/BreakdownFilter/BreakdownTag'
-import { humanizePathsEventTypes, containsNonDataWarehouseBreakdown } from 'scenes/insights/utils'
+import { humanizePathsEventTypes, hasUnsupportedBreakdownForDataWarehouseTrends } from 'scenes/insights/utils'
 import { QUERY_TYPES_METADATA } from 'scenes/saved-insights/SavedInsights'
 import { MathCategory, apiValueToMathType, mathsLogic } from 'scenes/trends/mathsLogic'
 import { urls } from 'scenes/urls'
@@ -498,8 +498,8 @@ export const InsightDetails = React.memo(
         const hasIgnoredBreakdownOverrides =
             isInsightVizNode(query) &&
             isTrendsQuery(query.source) &&
-            (containsNonDataWarehouseBreakdown(filtersOverride) ||
-                containsNonDataWarehouseBreakdown(tileFiltersOverride))
+            (hasUnsupportedBreakdownForDataWarehouseTrends(filtersOverride) ||
+                hasUnsupportedBreakdownForDataWarehouseTrends(tileFiltersOverride))
 
         return (
             <div className="InsightDetails space-y-2" ref={ref}>
