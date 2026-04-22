@@ -1,18 +1,15 @@
-from unittest.mock import Mock, call, patch
+from unittest.mock import patch
 
 from posthog.logging.timing import timed
 
 
-@patch("posthog.logging.timing.statsd.timer")
-def test_wrap_with_timing_calls_statsd(mock_timer) -> None:
-    timer_instance = Mock()
-    mock_timer.return_value = timer_instance
-
+@patch("posthog.logging.timing.TIMED_DECORATOR_HISTOGRAM")
+def test_wrap_with_timing_records_histogram(mock_histogram) -> None:
     @timed(name="test")
     def test_func():
         pass
 
     test_func()
 
-    mock_timer.assert_called_with("test")
-    timer_instance.assert_has_calls(calls=[call.start(), call.start().stop()])
+    mock_histogram.labels.assert_called_with(name="test")
+    mock_histogram.labels.return_value.time.assert_called_once()

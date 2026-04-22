@@ -4,6 +4,7 @@ from django.http.request import HttpRequest
 from django.http.response import JsonResponse
 
 import structlog
+from prometheus_client import Counter
 from rest_framework import status
 from rest_framework.exceptions import APIException
 
@@ -12,6 +13,12 @@ from posthog.cloud_utils import is_cloud
 from posthog.exceptions_capture import capture_exception
 
 logger = structlog.get_logger(__name__)
+
+RAW_ENDPOINT_EXCEPTION_COUNTER = Counter(
+    "posthog_cloud_raw_endpoint_exception_total",
+    "Exceptions returned from raw (non-DRF) endpoints.",
+    labelnames=["endpoint", "code", "type"],
+)
 
 
 class RequestParsingError(Exception):
@@ -112,13 +119,5 @@ def generate_exception_response(
     """
     Generates a friendly JSON error response in line with drf-exceptions-hog for endpoints not under DRF.
     """
-
-    # Importing here because this module is loaded before Django settings are configured,
-    # and statshog relies on those being ready
-    from statshog.defaults.django import statsd
-
-    statsd.incr(
-        f"posthog_cloud_raw_endpoint_exception",
-        tags={"endpoint": endpoint, "code": code, "type": type, "attr": attr},
-    )
+    RAW_ENDPOINT_EXCEPTION_COUNTER.labels(endpoint=endpoint, code=code, type=type).inc()
     return JsonResponse({"type": type, "code": code, "detail": detail, "attr": attr}, status=status_code)

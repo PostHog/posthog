@@ -23,7 +23,6 @@ from rest_framework import request, serializers, status
 from rest_framework.decorators import action as drf_action
 from rest_framework.exceptions import ValidationError
 from rest_framework.fields import Field
-from statshog.defaults.django import statsd
 from urllib3 import HTTPConnectionPool, HTTPSConnectionPool, PoolManager
 
 from posthog.schema import QueryTiming
@@ -43,6 +42,11 @@ from posthog.utils import load_data_from_request
 from posthog.utils_cors import cors_response
 
 logger = structlog.get_logger(__name__)
+
+CAPTURE_ENDPOINT_INVALID_PAYLOAD_COUNTER = Counter(
+    "posthog_capture_endpoint_invalid_payload_total",
+    "Requests to the capture endpoint that failed payload parsing.",
+)
 
 
 class PaginationMode(Enum):
@@ -207,7 +211,7 @@ def get_data(request):
     try:
         data = load_data_from_request(request)
     except (RequestParsingError, UnspecifiedCompressionFallbackParsingError) as error:
-        statsd.incr("capture_endpoint_invalid_payload")
+        CAPTURE_ENDPOINT_INVALID_PAYLOAD_COUNTER.inc()
         logger.exception(f"Invalid payload", error=error)
         return (
             None,

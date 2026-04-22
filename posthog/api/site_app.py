@@ -3,13 +3,19 @@ import json
 from django.http import HttpRequest, HttpResponse
 from django.views.decorators.csrf import csrf_exempt
 
+from prometheus_client import Counter
 from rest_framework import status
-from statshog.defaults.django import statsd
 
 from posthog.exceptions import generate_exception_response
 from posthog.exceptions_capture import capture_exception
 from posthog.logging.timing import timed
 from posthog.plugins.site import get_site_config_from_schema, get_transpiled_site_source
+
+RAW_ENDPOINT_COUNTER = Counter(
+    "posthog_cloud_raw_endpoint_total",
+    "Raw (non-DRF) endpoint requests, per endpoint and outcome (success/failure).",
+    labelnames=["endpoint", "outcome"],
+)
 
 
 @csrf_exempt
@@ -25,11 +31,11 @@ def get_site_app(request: HttpRequest, id: int, token: str, hash: str) -> HttpRe
         config = get_site_config_from_schema(source_file.config_schema, source_file.config)
         response = f"{source}().inject({{config:{json.dumps(config)},posthog:window['__$$ph_site_app_{id}']}})"
 
-        statsd.incr(f"posthog_cloud_raw_endpoint_success", tags={"endpoint": "site_app"})
+        RAW_ENDPOINT_COUNTER.labels(endpoint="site_app", outcome="success").inc()
         return HttpResponse(content=response, content_type="application/javascript")
     except Exception as e:
         capture_exception(e, {"data": {"id": id, "token": token}})
-        statsd.incr("posthog_cloud_raw_endpoint_failure", tags={"endpoint": "site_app"})
+        RAW_ENDPOINT_COUNTER.labels(endpoint="site_app", outcome="failure").inc()
         return generate_exception_response(
             "site_app",
             "Unable to serve site app source code.",

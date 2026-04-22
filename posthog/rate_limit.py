@@ -10,7 +10,6 @@ from django.urls import resolve
 
 from prometheus_client import Counter
 from rest_framework.throttling import SimpleRateThrottle, UserRateThrottle
-from statshog.defaults.django import statsd
 
 from posthog.auth import PersonalAPIKeyAuthentication
 from posthog.event_usage import report_user_action
@@ -180,10 +179,6 @@ class PersonalApiKeyRateThrottle(SimpleRateThrottle):
             route = get_route_from_path(path)
 
             if team_is_allowed_to_bypass_throttle(team_id):
-                statsd.incr(
-                    "team_allowed_to_bypass_rate_limit_exceeded",
-                    tags={"team_id": team_id, "route": route},
-                )
                 RATE_LIMIT_BYPASSED_COUNTER.labels(team_id=team_id, path=route, route=route).inc()
 
                 from posthog.clickhouse.query_tagging import tag_queries
@@ -192,18 +187,6 @@ class PersonalApiKeyRateThrottle(SimpleRateThrottle):
                 return True
             else:
                 scope = getattr(self, "scope", None)
-                rate = getattr(self, "rate", None)
-
-                statsd.incr(
-                    "rate_limit_exceeded",
-                    tags={
-                        "team_id": team_id,
-                        "scope": scope,
-                        "rate": rate,
-                        "route": route,
-                        "hashed_personal_api_key": hash_key_value(personal_api_key[0]) if personal_api_key else None,
-                    },
-                )
                 RATE_LIMIT_EXCEEDED_COUNTER.labels(team_id=team_id, scope=scope, path=route, route=route).inc()
 
             return False

@@ -158,10 +158,19 @@ def _team_integrity_statistics(person_data: list[Any]) -> Counter:
 
 
 def _emit_metrics(integrity_results: Counter) -> None:
-    from statshog.defaults.django import statsd
+    from prometheus_client import Gauge
 
-    for key, value in integrity_results.items():
-        statsd.gauge(f"posthog_person_integrity_{key}", value)
+    from posthog.metrics import pushed_metrics_registry
+
+    with pushed_metrics_registry("celery_verify_persons_data_in_sync") as registry:
+        integrity_gauge = Gauge(
+            "posthog_person_integrity",
+            "Person data integrity counts comparing Postgres and ClickHouse, per check.",
+            labelnames=["check"],
+            registry=registry,
+        )
+        for key, value in integrity_results.items():
+            integrity_gauge.labels(check=key).set(value)
 
 
 def _index_by(collection: list[Any], key_fn: Any, flat: bool = True) -> dict:

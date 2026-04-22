@@ -11,11 +11,6 @@ LOGGING_FORMATTER_NAME = os.getenv("LOGGING_FORMATTER_NAME", "default")
 DEFAULT_LOG_LEVEL = os.getenv("DJANGO_LOG_LEVEL", "ERROR" if TEST else "INFO")
 
 
-class FilterStatsd(logging.Filter):
-    def filter(self, record):
-        return not record.name.startswith("statsd.client")
-
-
 def add_pid_and_tid(
     logger: logging.Logger, method_name: str, event_dict: structlog.types.EventDict
 ) -> structlog.types.EventDict:
@@ -68,16 +63,10 @@ LOGGING = {
             "foreign_pre_chain": foreign_pre_chain,
         },
     },
-    "filters": {
-        "filter_statsd": {
-            "()": "posthog.settings.logs.FilterStatsd",
-        }
-    },
     "handlers": {
         "console": {
             "class": "logging.StreamHandler",
             "formatter": LOGGING_FORMATTER_NAME,
-            "filters": ["filter_statsd"],
         },
         "null": {
             "class": "logging.NullHandler",

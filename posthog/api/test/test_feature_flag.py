@@ -6436,7 +6436,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
     @patch("posthog.api.feature_flag.LocalEvaluationThrottle.rate", new="7/minute")
     @patch("posthog.rate_limit.BurstRateThrottle.rate", new="5/minute")
-    @patch("posthog.rate_limit.statsd.incr")
+    @patch("posthog.rate_limit.RATE_LIMIT_EXCEEDED_COUNTER")
     @patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)
     def test_rate_limits_for_local_evaluation_are_independent(self, rate_limit_enabled_mock, incr_mock):
         personal_api_key = generate_random_token_personal()
@@ -6457,19 +6457,12 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             headers={"authorization": f"Bearer {personal_api_key}"},
         )
         self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
-        self.assertEqual(
-            len([1 for name, args, kwargs in incr_mock.mock_calls if args[0] == "rate_limit_exceeded"]),
-            1,
-        )
-        incr_mock.assert_any_call(
-            "rate_limit_exceeded",
-            tags={
-                "team_id": self.team.pk,
-                "scope": "burst",
-                "rate": "5/minute",
-                "route": "/api/projects/TEAM_ID/feature_flags/",
-                "hashed_personal_api_key": hash_key_value(personal_api_key),
-            },
+        self.assertEqual(incr_mock.labels.call_count, 1)
+        incr_mock.labels.assert_any_call(
+            team_id=self.team.pk,
+            scope="burst",
+            path="/api/projects/TEAM_ID/feature_flags/",
+            route="/api/projects/TEAM_ID/feature_flags/",
         )
 
         incr_mock.reset_mock()
@@ -6481,10 +6474,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 headers={"authorization": f"Bearer {personal_api_key}"},
             )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(
-            len([1 for name, args, kwargs in incr_mock.mock_calls if args[0] == "rate_limit_exceeded"]),
-            0,
-        )
+        self.assertEqual(incr_mock.labels.call_count, 0)
 
     def test_feature_flag_dashboard(self):
         another_feature_flag = FeatureFlag.objects.create(

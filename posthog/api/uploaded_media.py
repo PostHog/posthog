@@ -7,16 +7,34 @@ from django.views.decorators.csrf import csrf_exempt
 import structlog
 from drf_spectacular.utils import extend_schema
 from PIL import Image, ImageOps
+from prometheus_client import Counter
 from rest_framework import status, viewsets
 from rest_framework.exceptions import APIException, UnsupportedMediaType, ValidationError
 from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.response import Response
-from statshog.defaults.django import statsd
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models import UploadedMedia
 from posthog.models.uploaded_media import ObjectStorageUnavailable
 from posthog.storage import object_storage
+
+UPLOADED_MEDIA_SERVED_COUNTER = Counter(
+    "posthog_uploaded_media_served_total",
+    "Uploaded media items served via the public download endpoint.",
+    labelnames=["team_id"],
+)
+
+UPLOADED_MEDIA_UPLOADED_COUNTER = Counter(
+    "posthog_uploaded_media_uploaded_total",
+    "Uploaded media items successfully stored, per team and content type.",
+    labelnames=["team_id", "content_type"],
+)
+
+UPLOADED_MEDIA_IMAGE_FAILED_VALIDATION_COUNTER = Counter(
+    "posthog_uploaded_media_image_failed_validation_total",
+    "Uploaded media items that failed image content validation, per team.",
+    labelnames=["team_id"],
+)
 
 FOUR_MEGABYTES = 4 * 1024 * 1024
 
@@ -94,10 +112,7 @@ def download(request, *args, **kwargs) -> HttpResponse:
         return HttpResponse(status=404)
     file_bytes = object_storage.read_bytes(instance.media_location)
 
-    statsd.incr(
-        "uploaded_media.served",
-        tags={"team_id": instance.team_id, "uuid": kwargs["image_uuid"]},
-    )
+    UPLOADED_MEDIA_SERVED_COUNTER.labels(team_id=instance.team_id).inc()
 
     # Defense in depth against stored XSS: files whose content type is not on
     # an inline-safe allowlist (raster images) are served as an opaque download
@@ -158,10 +173,7 @@ class MediaViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                     raise APIException("Could not read uploaded media")
                 bytes_to_verify = object_storage.read_bytes(uploaded_media.media_location)
                 if not validate_image_file(bytes_to_verify, user=request.user.id):
-                    statsd.incr(
-                        "uploaded_media.image_failed_validation",
-                        tags={"file_name": file.name, "team": self.team_id},
-                    )
+                    UPLOADED_MEDIA_IMAGE_FAILED_VALIDATION_COUNTER.labels(team_id=self.team_id).inc()
                     # TODO a batch process can delete media with no records in the DB or for deleted teams
                     uploaded_media.delete()
                     raise ValidationError(
@@ -170,10 +182,7 @@ class MediaViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                     )
 
                 headers = self.get_success_headers(uploaded_media.get_absolute_url())
-                statsd.incr(
-                    "uploaded_media.uploaded",
-                    tags={"team_id": self.team.pk, "content_type": file.content_type},
-                )
+                UPLOADED_MEDIA_UPLOADED_COUNTER.labels(team_id=self.team.pk, content_type=file.content_type).inc()
                 return Response(
                     {
                         "id": uploaded_media.id,

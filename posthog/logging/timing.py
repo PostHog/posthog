@@ -3,20 +3,23 @@ from time import time
 from typing import Any, Optional
 
 import structlog
-from statshog.defaults.django import statsd
+from prometheus_client import Histogram
 
 logger = structlog.get_logger(__name__)
+
+TIMED_DECORATOR_HISTOGRAM = Histogram(
+    "posthog_timed_decorator_duration_seconds",
+    "Duration of functions wrapped with @timed, by metric name.",
+    labelnames=["name"],
+)
 
 
 def timed(name: str):
     def timed_decorator(func: Any) -> Any:
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
-            timer = statsd.timer(name).start()
-            try:
+            with TIMED_DECORATOR_HISTOGRAM.labels(name=name).time():
                 return func(*args, **kwargs)
-            finally:
-                timer.stop()
 
         return wrapper
 

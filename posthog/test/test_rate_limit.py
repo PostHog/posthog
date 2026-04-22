@@ -4,7 +4,7 @@ from urllib.parse import quote
 
 from freezegun.api import freeze_time
 from posthog.test.base import APIBaseTest
-from unittest.mock import ANY, Mock, call, patch
+from unittest.mock import Mock, patch
 
 from django.core.cache import cache
 from django.utils.timezone import now
@@ -125,7 +125,7 @@ class TestUserAPI(APIBaseTest):
         self.assertIsNone(cache.get(cache_key))
 
     @patch("posthog.rate_limit.BurstRateThrottle.rate", new="5/minute")
-    @patch("posthog.rate_limit.statsd.incr")
+    @patch("posthog.rate_limit.RATE_LIMIT_EXCEEDED_COUNTER")
     @patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)
     def test_default_burst_rate_limit(self, rate_limit_enabled_mock, incr_mock):
         for _ in range(5):
@@ -140,25 +140,16 @@ class TestUserAPI(APIBaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
 
-        # mock_calls call object is a tuple of (function, args, kwargs)
-        # so the incremented metric is args[0]
-        self.assertEqual(
-            len([1 for name, args, kwargs in incr_mock.mock_calls if args[0] == "rate_limit_exceeded"]),
-            1,
-        )
-        incr_mock.assert_any_call(
-            "rate_limit_exceeded",
-            tags={
-                "team_id": self.team.pk,
-                "scope": "burst",
-                "rate": "5/minute",
-                "route": "/api/projects/TEAM_ID/feature_flags/",
-                "hashed_personal_api_key": self.hashed_personal_api_key,
-            },
+        self.assertEqual(incr_mock.labels.call_count, 1)
+        incr_mock.labels.assert_any_call(
+            team_id=self.team.pk,
+            scope="burst",
+            path="/api/projects/TEAM_ID/feature_flags/",
+            route="/api/projects/TEAM_ID/feature_flags/",
         )
 
     @patch("posthog.rate_limit.SustainedRateThrottle.rate", new="5/hour")
-    @patch("posthog.rate_limit.statsd.incr")
+    @patch("posthog.rate_limit.RATE_LIMIT_EXCEEDED_COUNTER")
     @patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)
     def test_default_sustained_rate_limit(self, rate_limit_enabled_mock, incr_mock):
         base_time = now()
@@ -179,22 +170,18 @@ class TestUserAPI(APIBaseTest):
                 )
                 self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
             self.assertEqual(
-                len([1 for name, args, kwargs in incr_mock.mock_calls if args[0] == "rate_limit_exceeded"]),
+                incr_mock.labels.call_count,
                 2,
             )
-            incr_mock.assert_any_call(
-                "rate_limit_exceeded",
-                tags={
-                    "team_id": self.team.pk,
-                    "scope": "sustained",
-                    "rate": "5/hour",
-                    "route": "/api/projects/TEAM_ID/feature_flags/",
-                    "hashed_personal_api_key": self.hashed_personal_api_key,
-                },
+            incr_mock.labels.assert_any_call(
+                team_id=self.team.pk,
+                scope="sustained",
+                path="/api/projects/TEAM_ID/feature_flags/",
+                route="/api/projects/TEAM_ID/feature_flags/",
             )
 
     @patch("posthog.rate_limit.ClickHouseBurstRateThrottle.rate", new="5/minute")
-    @patch("posthog.rate_limit.statsd.incr")
+    @patch("posthog.rate_limit.RATE_LIMIT_EXCEEDED_COUNTER")
     @patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)
     def test_clickhouse_burst_rate_limit(self, rate_limit_enabled_mock, incr_mock):
         # Does nothing on /feature_flags endpoint
@@ -204,7 +191,7 @@ class TestUserAPI(APIBaseTest):
                 headers={"authorization": f"Bearer {self.personal_api_key}"},
             )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        assert call("rate_limit_exceeded", tags=ANY) not in incr_mock.mock_calls
+        incr_mock.labels.assert_not_called()
 
         for _ in range(5):
             response = self.client.get(
@@ -219,22 +206,18 @@ class TestUserAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
 
         self.assertEqual(
-            len([1 for name, args, kwargs in incr_mock.mock_calls if args[0] == "rate_limit_exceeded"]),
+            incr_mock.labels.call_count,
             1,
         )
-        incr_mock.assert_any_call(
-            "rate_limit_exceeded",
-            tags={
-                "team_id": self.team.pk,
-                "scope": "clickhouse_burst",
-                "rate": "5/minute",
-                "route": "/api/projects/TEAM_ID/events/",
-                "hashed_personal_api_key": self.hashed_personal_api_key,
-            },
+        incr_mock.labels.assert_any_call(
+            team_id=self.team.pk,
+            scope="clickhouse_burst",
+            path="/api/projects/TEAM_ID/events/",
+            route="/api/projects/TEAM_ID/events/",
         )
 
     @patch("posthog.rate_limit.BurstRateThrottle.rate", new="5/minute")
-    @patch("posthog.rate_limit.statsd.incr")
+    @patch("posthog.rate_limit.RATE_LIMIT_EXCEEDED_COUNTER")
     @patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)
     def test_rate_limits_are_based_on_api_key_not_user(self, rate_limit_enabled_mock, incr_mock):
         self.client.logout()
@@ -251,18 +234,14 @@ class TestUserAPI(APIBaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
         self.assertEqual(
-            len([1 for name, args, kwargs in incr_mock.mock_calls if args[0] == "rate_limit_exceeded"]),
+            incr_mock.labels.call_count,
             1,
         )
-        incr_mock.assert_any_call(
-            "rate_limit_exceeded",
-            tags={
-                "team_id": self.team.pk,
-                "scope": "burst",
-                "rate": "5/minute",
-                "route": "/api/projects/TEAM_ID/feature_flags/",
-                "hashed_personal_api_key": self.hashed_personal_api_key,
-            },
+        incr_mock.labels.assert_any_call(
+            team_id=self.team.pk,
+            scope="burst",
+            path="/api/projects/TEAM_ID/feature_flags/",
+            route="/api/projects/TEAM_ID/feature_flags/",
         )
 
         # Create a new user
@@ -297,7 +276,7 @@ class TestUserAPI(APIBaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(
-            len([1 for name, args, kwargs in incr_mock.mock_calls if args[0] == "rate_limit_exceeded"]),
+            incr_mock.labels.call_count,
             0,
         )
 
@@ -309,12 +288,12 @@ class TestUserAPI(APIBaseTest):
             )
         self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
         self.assertEqual(
-            len([1 for name, args, kwargs in incr_mock.mock_calls if args[0] == "rate_limit_exceeded"]),
+            incr_mock.labels.call_count,
             1,
         )
 
     @patch("posthog.rate_limit.BurstRateThrottle.rate", new="5/minute")
-    @patch("posthog.rate_limit.statsd.incr")
+    @patch("posthog.rate_limit.RATE_LIMIT_EXCEEDED_COUNTER")
     @patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)
     def test_rate_limits_work_on_non_team_endpoints(self, rate_limit_enabled_mock, incr_mock):
         self.client.logout()
@@ -332,22 +311,18 @@ class TestUserAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
 
         self.assertEqual(
-            len([1 for name, args, kwargs in incr_mock.mock_calls if args[0] == "rate_limit_exceeded"]),
+            incr_mock.labels.call_count,
             1,
         )
-        incr_mock.assert_any_call(
-            "rate_limit_exceeded",
-            tags={
-                "team_id": None,
-                "scope": "burst",
-                "rate": "5/minute",
-                "route": "/api/organizations/ORG_ID/plugins/",
-                "hashed_personal_api_key": self.hashed_personal_api_key,
-            },
+        incr_mock.labels.assert_any_call(
+            team_id=None,
+            scope="burst",
+            path="/api/organizations/ORG_ID/plugins/",
+            route="/api/organizations/ORG_ID/plugins/",
         )
 
     @patch("posthog.rate_limit.BurstRateThrottle.rate", new="5/minute")
-    @patch("posthog.rate_limit.statsd.incr")
+    @patch("posthog.rate_limit.RATE_LIMIT_EXCEEDED_COUNTER")
     @patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)
     def test_does_not_rate_limit_non_personal_api_key_endpoints(self, rate_limit_enabled_mock, incr_mock):
         self.client.logout()
@@ -360,7 +335,7 @@ class TestUserAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
         # got rate limited with personal API key
         self.assertEqual(
-            len([1 for name, args, kwargs in incr_mock.mock_calls if args[0] == "rate_limit_exceeded"]),
+            incr_mock.labels.call_count,
             1,
         )
         incr_mock.reset_mock()
@@ -375,12 +350,12 @@ class TestUserAPI(APIBaseTest):
         response = self.client.get(f"/api/organizations/{self.organization.pk}/plugins")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(
-            len([1 for name, args, kwargs in incr_mock.mock_calls if args[0] == "rate_limit_exceeded"]),
+            incr_mock.labels.call_count,
             0,
         )
 
     @patch("posthog.rate_limit.BurstRateThrottle.rate", new="5/minute")
-    @patch("posthog.rate_limit.statsd.incr")
+    @patch("posthog.rate_limit.RATE_LIMIT_EXCEEDED_COUNTER")
     @patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)
     def test_rate_limits_unauthenticated_users(self, rate_limit_enabled_mock, incr_mock):
         self.client.logout()
@@ -393,22 +368,18 @@ class TestUserAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS, response.content)
 
         self.assertEqual(
-            len([1 for name, args, kwargs in incr_mock.mock_calls if args[0] == "rate_limit_exceeded"]),
+            incr_mock.labels.call_count,
             1,
         )
-        incr_mock.assert_any_call(
-            "rate_limit_exceeded",
-            tags={
-                "team_id": None,
-                "scope": "burst",
-                "rate": "5/minute",
-                "route": "/api/login/",
-                "hashed_personal_api_key": None,
-            },
+        incr_mock.labels.assert_any_call(
+            team_id=None,
+            scope="burst",
+            path="/api/login/",
+            route="/api/login/",
         )
 
     @patch("posthog.rate_limit.BurstRateThrottle.rate", new="5/minute")
-    @patch("posthog.rate_limit.statsd.incr")
+    @patch("posthog.rate_limit.RATE_LIMIT_EXCEEDED_COUNTER")
     @patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)
     @patch("posthog.kafka_client.client._KafkaProducer.produce")
     def test_does_not_rate_limit_capture_endpoints(self, kafka_mock, rate_limit_enabled_mock, incr_mock):
@@ -421,19 +392,19 @@ class TestUserAPI(APIBaseTest):
                 "/e/?data={}".format(quote(json.dumps(data))), headers={"origin": "https://localhost"}
             )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        assert call("rate_limit_exceeded", tags=ANY) not in incr_mock.mock_calls
+        incr_mock.labels.assert_not_called()
 
     @patch("posthog.rate_limit.BurstRateThrottle.rate", new="5/minute")
-    @patch("posthog.rate_limit.statsd.incr")
+    @patch("posthog.rate_limit.RATE_LIMIT_EXCEEDED_COUNTER")
     @patch("posthog.rate_limit.is_rate_limit_enabled", return_value=False)
     def test_does_not_rate_limit_if_rate_limit_disabled(self, rate_limit_enabled_mock, incr_mock):
         for _ in range(6):
             response = self.client.get(f"/api/projects/{self.team.pk}/feature_flags")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        assert call("rate_limit_exceeded", tags=ANY) not in incr_mock.mock_calls
+        incr_mock.labels.assert_not_called()
 
     @patch("posthog.rate_limit.BurstRateThrottle.rate", new="5/minute")
-    @patch("posthog.rate_limit.statsd.incr")
+    @patch("posthog.rate_limit.RATE_LIMIT_EXCEEDED_COUNTER")
     @patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)
     def test_does_not_call_get_instance_setting_for_every_request(self, rate_limit_enabled_mock, incr_mock):
         with freeze_time("2022-04-01 12:34:45") as frozen_time:
@@ -460,7 +431,7 @@ class TestUserAPI(APIBaseTest):
                     assert wrapped_get_instance_setting.call_count == 2
 
     @patch("posthog.rate_limit.BurstRateThrottle.rate", new="5/minute")
-    @patch("posthog.rate_limit.statsd.incr")
+    @patch("posthog.rate_limit.RATE_LIMIT_EXCEEDED_COUNTER")
     @patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)
     def test_allow_list_works_as_expected(self, rate_limit_enabled_mock, incr_mock):
         with freeze_time("2022-04-01 12:34:45"):
@@ -471,7 +442,7 @@ class TestUserAPI(APIBaseTest):
                         headers={"authorization": f"Bearer {self.personal_api_key}"},
                     )
                     self.assertEqual(response.status_code, status.HTTP_200_OK)
-                assert call("rate_limit_exceeded", tags=ANY) not in incr_mock.mock_calls
+                incr_mock.labels.assert_not_called()
 
     @patch("posthog.rate_limit.report_user_action")
     def test_ai_burst_rate_throttle_calls_report_user_action(self, mock_report_user_action):
@@ -575,7 +546,7 @@ class TestUserAPI(APIBaseTest):
     @patch(
         "posthog.rate_limit.get_route_from_path", return_value="/api/environments/TEAM_ID/llm_prompts/name/PROMPT_NAME/"
     )
-    @patch("posthog.rate_limit.statsd.incr")
+    @patch("posthog.rate_limit.RATE_LIMIT_EXCEEDED_COUNTER")
     @patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)
     def test_llm_prompt_publish_burst_throttle_limits_web_authenticated_requests(
         self, rate_limit_enabled_mock, incr_mock, route_mock, bypass_mock
@@ -593,22 +564,18 @@ class TestUserAPI(APIBaseTest):
             result = throttle.allow_request(mock_request, mock_view)
 
         self.assertFalse(result)
-        incr_mock.assert_any_call(
-            "rate_limit_exceeded",
-            tags={
-                "team_id": self.team.pk,
-                "scope": "llm_prompt_publish_burst",
-                "rate": "30/minute",
-                "route": "/api/environments/TEAM_ID/llm_prompts/name/PROMPT_NAME/",
-                "hashed_personal_api_key": None,
-            },
+        incr_mock.labels.assert_any_call(
+            team_id=self.team.pk,
+            scope="llm_prompt_publish_burst",
+            path="/api/environments/TEAM_ID/llm_prompts/name/PROMPT_NAME/",
+            route="/api/environments/TEAM_ID/llm_prompts/name/PROMPT_NAME/",
         )
 
     @patch("posthog.rate_limit.team_is_allowed_to_bypass_throttle", return_value=False)
     @patch(
         "posthog.rate_limit.get_route_from_path", return_value="/api/environments/TEAM_ID/llm_prompts/name/PROMPT_NAME/"
     )
-    @patch("posthog.rate_limit.statsd.incr")
+    @patch("posthog.rate_limit.RATE_LIMIT_EXCEEDED_COUNTER")
     @patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)
     def test_llm_prompt_publish_burst_throttle_limits_personal_api_key_requests(
         self, rate_limit_enabled_mock, incr_mock, route_mock, bypass_mock
@@ -630,15 +597,11 @@ class TestUserAPI(APIBaseTest):
             result = throttle.allow_request(mock_request, mock_view)
 
         self.assertFalse(result)
-        incr_mock.assert_any_call(
-            "rate_limit_exceeded",
-            tags={
-                "team_id": self.team.pk,
-                "scope": "llm_prompt_publish_burst",
-                "rate": "30/minute",
-                "route": "/api/environments/TEAM_ID/llm_prompts/name/PROMPT_NAME/",
-                "hashed_personal_api_key": hash_key_value(personal_api_key),
-            },
+        incr_mock.labels.assert_any_call(
+            team_id=self.team.pk,
+            scope="llm_prompt_publish_burst",
+            path="/api/environments/TEAM_ID/llm_prompts/name/PROMPT_NAME/",
+            route="/api/environments/TEAM_ID/llm_prompts/name/PROMPT_NAME/",
         )
 
     def test_local_evaluation_throttle_uses_default_rate_when_no_custom_limit(self):
@@ -834,7 +797,7 @@ class TestUserAPI(APIBaseTest):
             ),
         ]
     )
-    @patch("posthog.rate_limit.statsd.incr")
+    @patch("posthog.rate_limit.RATE_LIMIT_EXCEEDED_COUNTER")
     def test_get_route_from_path(self, test_path, mock_route, expected_result, description, incr_mock):
         """Test that get_route_from_path correctly extracts and normalizes route patterns"""
         if test_path in ("", None):

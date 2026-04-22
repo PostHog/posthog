@@ -7,9 +7,9 @@ from django.urls import resolve
 from django.utils.timezone import now
 
 from loginas.utils import is_impersonated_session
+from prometheus_client import Counter
 from rest_framework.request import Request
 from rest_framework.response import Response
-from statshog.defaults.django import statsd
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.caching.utils import is_stale_filter
@@ -19,6 +19,12 @@ from posthog.models.filters.utils import get_filter
 from posthog.utils import refresh_requested_by_client
 
 from .utils import generate_cache_key, get_safe_cache
+
+CACHED_FUNCTION_CACHE_COUNTER = Counter(
+    "posthog_cached_function_cache_total",
+    "Cache lookups from the @cached_by_filters decorator, per route and outcome (hit/stale/miss).",
+    labelnames=["route", "outcome"],
+)
 
 
 class CacheType(StrEnum):
@@ -84,12 +90,12 @@ def cached_by_filters(f: Callable[[U, Request], T]) -> Callable[[U, Request], T]
             if cached_result_package and cached_result_package.get("result"):
                 if not is_stale_filter(team, filter, cached_result_package):
                     cached_result_package["is_cached"] = True
-                    statsd.incr("posthog_cached_function_cache_hit", tags={"route": route})
+                    CACHED_FUNCTION_CACHE_COUNTER.labels(route=route, outcome="hit").inc()
                     return cached_result_package
                 else:
-                    statsd.incr("posthog_cached_function_cache_stale", tags={"route": route})
+                    CACHED_FUNCTION_CACHE_COUNTER.labels(route=route, outcome="stale").inc()
             else:
-                statsd.incr("posthog_cached_function_cache_miss", tags={"route": route})
+                CACHED_FUNCTION_CACHE_COUNTER.labels(route=route, outcome="miss").inc()
 
         # call function being wrapped
         fresh_result_package = cast(T, f(self, request))

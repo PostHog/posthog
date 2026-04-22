@@ -138,8 +138,6 @@ def process_query_task(
 
 @shared_task(ignore_result=True)
 def pg_table_cache_hit_rate() -> None:
-    from statshog.defaults.django import statsd
-
     with connection.cursor() as cursor:
         try:
             cursor.execute(
@@ -162,7 +160,6 @@ def pg_table_cache_hit_rate() -> None:
                 )
                 for row in tables:
                     hit_rate_gauge.labels(table_name=row[0]).set(float(row[1]))
-                    statsd.gauge("pg_table_cache_hit_rate", float(row[1]), tags={"table": row[0]})
         except:
             # if this doesn't work keep going
             pass
@@ -170,8 +167,6 @@ def pg_table_cache_hit_rate() -> None:
 
 @shared_task(ignore_result=True)
 def pg_plugin_server_query_timing() -> None:
-    from statshog.defaults.django import statsd
-
     with connection.cursor() as cursor:
         try:
             cursor.execute(
@@ -192,17 +187,31 @@ def pg_plugin_server_query_timing() -> None:
                 """
             )
 
-            for row in cursor.fetchall():
-                row_dictionary = {column.name: value for column, value in zip(cursor.description, row)}
-
-                for key, value in row_dictionary.items():
-                    if key == "query_type":
-                        continue
-                    statsd.gauge(
-                        f"pg_plugin_server_query_{key}",
-                        value,
-                        tags={"query_type": row_dictionary["query_type"]},
+            with pushed_metrics_registry("celery_pg_plugin_server_query_timing") as registry:
+                gauges = {
+                    key: Gauge(
+                        f"posthog_celery_pg_plugin_server_query_{key}",
+                        f"Postgres pg_stat_statements {key} for plugin-server queries, per query_type.",
+                        labelnames=["query_type"],
+                        registry=registry,
                     )
+                    for key in (
+                        "total_time",
+                        "avg_time",
+                        "min_time",
+                        "max_time",
+                        "stddev_time",
+                        "calls",
+                        "rows_read_or_affected",
+                    )
+                }
+                for row in cursor.fetchall():
+                    row_dictionary = {column.name: value for column, value in zip(cursor.description, row)}
+                    query_type = row_dictionary["query_type"]
+                    for key, value in row_dictionary.items():
+                        if key == "query_type" or value is None:
+                            continue
+                        gauges[key].labels(query_type=query_type).set(float(value))
         except:
             # if this doesn't work keep going
             pass
@@ -246,8 +255,6 @@ HEARTBEAT_EVENT_TO_INGESTION_LAG_METRIC = {"$heartbeat": "ingestion_api"}
 
 @shared_task(ignore_result=True)
 def ingestion_lag() -> None:
-    from statshog.defaults.django import statsd
-
     from posthog.clickhouse.client import sync_execute
     from posthog.models.team.team import Team
 
@@ -280,7 +287,6 @@ def ingestion_lag() -> None:
             )
             for event, lag in results:
                 metric = HEARTBEAT_EVENT_TO_INGESTION_LAG_METRIC[event]
-                statsd.gauge(f"posthog_celery_{metric}_lag_seconds_rough_minute_precision", lag)
                 lag_gauge.labels(scenario=metric).set(lag)
     except:
         pass
@@ -307,8 +313,6 @@ KNOWN_CELERY_TASK_IDENTIFIERS = {
 
 @shared_task(ignore_result=True)
 def clickhouse_row_count() -> None:
-    from statshog.defaults.django import statsd
-
     from posthog.clickhouse.client import sync_execute
 
     with pushed_metrics_registry("celery_clickhouse_row_count") as registry:
@@ -325,11 +329,6 @@ def clickhouse_row_count() -> None:
                 query = QUERY.format(table=table)
                 rows = sync_execute(query)[0][0]
                 row_count_gauge.labels(table_name=table).set(rows)
-                statsd.gauge(
-                    f"posthog_celery_clickhouse_table_row_count",
-                    rows,
-                    tags={"table": table},
-                )
             except:
                 pass
 
@@ -374,8 +373,6 @@ def clickhouse_errors_count() -> None:
 
 @shared_task(ignore_result=True)
 def clickhouse_part_count() -> None:
-    from statshog.defaults.django import statsd
-
     from posthog.clickhouse.client import sync_execute
 
     QUERY = """
@@ -396,17 +393,10 @@ def clickhouse_part_count() -> None:
         )
         for table, parts in rows:
             parts_count_gauge.labels(table=table).set(parts)
-            statsd.gauge(
-                f"posthog_celery_clickhouse_table_parts_count",
-                parts,
-                tags={"table": table},
-            )
 
 
 @shared_task(ignore_result=True)
 def clickhouse_mutation_count() -> None:
-    from statshog.defaults.django import statsd
-
     from posthog.clickhouse.client import sync_execute
 
     QUERY = """
@@ -429,11 +419,6 @@ def clickhouse_mutation_count() -> None:
         )
     for table, muts in rows:
         mutations_count_gauge.labels(table=table).set(muts)
-        statsd.gauge(
-            f"posthog_celery_clickhouse_table_mutations_count",
-            muts,
-            tags={"table": table},
-        )
 
 
 @shared_task(ignore_result=True)

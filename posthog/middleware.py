@@ -26,8 +26,8 @@ from django.utils.cache import add_never_cache_headers
 import structlog
 from django_prometheus.middleware import Metrics
 from loginas.utils import is_impersonated_session, restore_original_login
+from prometheus_client import Counter
 from social_core.exceptions import AuthCanceled, AuthException, AuthFailed
-from statshog.defaults.django import statsd
 
 from posthog.api.shared import UserBasicSerializer
 from posthog.clickhouse.client.execute import clickhouse_query_counter
@@ -72,6 +72,12 @@ default_cookie_options = {
 }
 
 cookie_api_paths_to_ignore = {"api", "flags", "scim"}
+
+HTTP_API_REQUEST_RESPONSE_COUNTER = Counter(
+    "posthog_http_api_request_response_total",
+    "Responses served from /api/ endpoints (excluding capture), per route and status code.",
+    labelnames=["route", "status_code"],
+)
 
 
 class AllowIPMiddleware:
@@ -399,10 +405,7 @@ class CHQueries:
             response: HttpResponse = self.get_response(request)
 
             if "api/" in request.path and "capture" not in request.path:
-                statsd.incr(
-                    "http_api_request_response",
-                    tags={"id": route_id, "status_code": response.status_code},
-                )
+                HTTP_API_REQUEST_RESPONSE_COUNTER.labels(route=route_id, status_code=response.status_code).inc()
 
             return response
         finally:
