@@ -508,10 +508,11 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
 
         # Pre-aggregated tables store data in UTC **buckets**, so we need to disable timezone conversion
         # to prevent HogQL from automatically converting DateTime fields to team timezone
-        modifiers = self.modifiers
         if self.used_preaggregated_tables:
             modifiers = self.modifiers.model_copy() if self.modifiers else HogQLQueryModifiers()
             modifiers.convertToProjectTimezone = False
+        else:
+            modifiers = self._joined_path_modifiers()
 
         response = self.paginator.execute_hogql_query(
             query_type="stats_table_query",

@@ -84,7 +84,7 @@ class WebOverviewQueryRunner(WebAnalyticsQueryRunner[WebOverviewQueryResponse]):
                 query=self.to_query(),
                 team=self.team,
                 timings=self.timings,
-                modifiers=self.modifiers,
+                modifiers=self._joined_path_modifiers(),
                 limit_context=self.limit_context,
             )
             if not pre_aggregated_response

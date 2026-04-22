@@ -23,6 +23,7 @@ from posthog.hogql.database.schema.channel_type import DEFAULT_CHANNEL_TYPES, Ch
 from posthog.hogql.database.schema.sessions_v1 import DEFAULT_BOUNCE_RATE_DURATION_SECONDS, null_if_empty
 from posthog.hogql.database.schema.util.where_clause_extractor import (
     SessionMinTimestampWhereClauseExtractorV2,
+    WhereClauseExtractor,
     build_session_id_v7_pushdown_predicate,
 )
 from posthog.hogql.errors import ResolutionError
@@ -499,6 +500,17 @@ def join_events_table_to_sessions_table_v2(
             session_id_v7_field=ast.Field(chain=["raw_sessions", "session_id_v7"]),
             events_session_id_field=["$session_id_uuid"],
         )
+
+    if context.modifiers.optimizeJoinedFilters:
+        extractor = WhereClauseExtractor(context)
+        extractor.add_local_tables(join_to_add)
+        session_property_where = extractor.get_inner_where(node)
+        if session_property_where is not None:
+            extra_where = (
+                ast.And(exprs=[extra_where, session_property_where])
+                if extra_where is not None
+                else session_property_where
+            )
 
     join_expr = ast.JoinExpr(
         table=select_from_sessions_table_v2(join_to_add.fields_accessed, node, context, extra_where=extra_where)

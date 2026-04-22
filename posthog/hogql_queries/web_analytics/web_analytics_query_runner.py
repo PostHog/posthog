@@ -16,6 +16,7 @@ from posthog.schema import (
     CohortPropertyFilter,
     CustomEventConversionGoal,
     EventPropertyFilter,
+    HogQLQueryModifiers,
     PersonPropertyFilter,
     SamplingRate,
     SessionPropertyFilter,
@@ -31,7 +32,7 @@ from posthog.schema import (
 
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr, parse_select
-from posthog.hogql.property import action_to_expr, apply_path_cleaning, property_to_expr
+from posthog.hogql.property import action_to_expr, apply_path_cleaning, get_property_type, property_to_expr
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.caching.insights_api import BASE_MINIMUM_INSIGHT_REFRESH_INTERVAL, REDUCED_MINIMUM_INSIGHT_REFRESH_INTERVAL
@@ -229,6 +230,22 @@ class WebAnalyticsQueryRunner(AnalyticsQueryRunner[WAR], ABC):
             if isinstance(p, EventPropertyFilter) and p.key == "$pathname":
                 return p
         return None
+
+    def _has_session_scope_filters(self) -> bool:
+        for p in list(self.query.properties) + list(self._test_account_filters):
+            if get_property_type(p) == "session":
+                return True
+        return False
+
+    def _joined_path_modifiers(self) -> Optional[HogQLQueryModifiers]:
+        # Opt into optimizeJoinedFilters when the joined sessions path carries a
+        # session-scope predicate, so the predicate is pushed into the raw_sessions
+        # subquery instead of filtering post-aggregation.
+        if not self._has_session_scope_filters():
+            return self.modifiers
+        modifiers = self.modifiers.model_copy() if self.modifiers else HogQLQueryModifiers()
+        modifiers.optimizeJoinedFilters = True
+        return modifiers
 
     @cached_property
     def property_filters_without_pathname(
