@@ -368,10 +368,10 @@ mod tests {
         for _ in 0..3 {
             backend.next_client();
         }
-        // 4th call should wrap to index 0
+        // 4th call uses counter=3, so index = 3 % 3 = 0 (wraps back to first channel)
+        let idx_before = backend.next_idx.load(Ordering::Relaxed);
         backend.next_client();
-        let idx = backend.next_idx.load(Ordering::Relaxed) % backend.clients.len();
-        assert_eq!(idx, 1);
+        assert_eq!(idx_before % backend.clients.len(), 0);
     }
 
     #[tokio::test]
