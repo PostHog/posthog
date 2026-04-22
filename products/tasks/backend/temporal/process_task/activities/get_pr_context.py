@@ -56,9 +56,7 @@ def get_pr_context(input: GetPrContextInput):
         )
     """Get PR context for a task run, including PR URL, repository, and allowed domains."""
     try:
-        task_run = TaskRun.objects.select_related("task", "task__created_by", "task__created_by__team").get(
-            id=ctx.run_id
-        )
+        task_run = TaskRun.objects.get(id=ctx.run_id)
     except TaskRun.DoesNotExist:
         raise TaskNotFoundError(
             f"TaskRun with id {ctx.run_id} not found",
