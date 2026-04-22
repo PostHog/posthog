@@ -261,6 +261,7 @@ def _validate_identifier_fields(destination_type: str, config: collections.abc.M
 class BatchExportDestinationSerializer(serializers.ModelSerializer):
     """Serializer for an BatchExportDestination model."""
 
+    integration = TeamScopedPrimaryKeyRelatedField(queryset=Integration.objects.all(), required=False, allow_null=True)
     integration_id = TeamScopedPrimaryKeyRelatedField(
         write_only=True, queryset=Integration.objects.all(), source="integration", required=False, allow_null=True
     )
@@ -268,15 +269,6 @@ class BatchExportDestinationSerializer(serializers.ModelSerializer):
     class Meta:
         model = BatchExportDestination
         fields = ["type", "config", "integration", "integration_id"]
-
-    def get_fields(self):
-        fields = super().get_fields()
-        team_id = self.context.get("team_id")
-        if team_id:
-            fields["integration_id"].queryset = Integration.objects.filter(team_id=team_id)  # type: ignore[attr-defined]
-        else:
-            fields["integration_id"].queryset = Integration.objects.none()  # type: ignore[attr-defined]
-        return fields
 
     def create(self, validated_data: collections.abc.Mapping[str, typing.Any]) -> BatchExportDestination:
         """Create a BatchExportDestination."""

@@ -13,7 +13,15 @@ from posthog.hogql.hogql import HogQLContext
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_ast_for_printing
 
-from posthog.batch_exports.http import _IDENTIFIER_FIELDS_BY_TYPE, BatchExportSerializer, _validate_identifier_fields
+from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
+from posthog.batch_exports.http import (
+    _IDENTIFIER_FIELDS_BY_TYPE,
+    BatchExportDestinationSerializer,
+    BatchExportSerializer,
+    _validate_identifier_fields,
+)
+from posthog.models import Organization, Team
+from posthog.models.integration import Integration
 
 
 def prepare_query(query: str, team_id: int) -> ast.SelectQuery:
@@ -224,3 +232,31 @@ class TestValidateIdentifierFields:
         # A forbidden char in a non-identifier field (e.g. 'user') must not raise — only
         # fields that reach SQL identifier positions are validated here.
         _validate_identifier_fields("Snowflake", {"user": 'svc"; DROP', "table_name": "events"})
+
+
+class TestBatchExportDestinationSerializerTeamScoping(BaseTest):
+    def _make_integration(self, team: Team) -> Integration:
+        return Integration.objects.create(team=team, kind="databricks", integration_id="server")
+
+    @parameterized.expand([("integration",), ("integration_id",)])
+    def test_field_rejects_cross_team_integration(self, field_name):
+        foreign_org = Organization.objects.create(name="Foreign")
+        foreign_team = Team.objects.create(organization=foreign_org, name="Foreign")
+        foreign_integration = self._make_integration(foreign_team)
+
+        serializer = BatchExportDestinationSerializer(
+            data={"type": "Databricks", "config": {}, field_name: foreign_integration.pk},
+            context={"team_id": self.team.pk},
+        )
+        assert not serializer.is_valid()
+        assert field_name in serializer.errors
+
+    @parameterized.expand([("integration",), ("integration_id",)])
+    def test_field_accepts_same_team_integration(self, field_name):
+        own_integration = self._make_integration(self.team)
+
+        serializer = BatchExportDestinationSerializer(context={"team_id": self.team.pk})
+        # Field-level queryset filter should include same-team integrations.
+        field = cast(TeamScopedPrimaryKeyRelatedField, serializer.fields[field_name])
+        queryset = field.get_queryset()
+        assert queryset is not None and own_integration in queryset

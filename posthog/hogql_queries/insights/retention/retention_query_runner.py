@@ -38,6 +38,7 @@ from posthog.hogql.timings import HogQLTimings
 from posthog.caching.insights_api import BASE_MINIMUM_INSIGHT_REFRESH_INTERVAL, REDUCED_MINIMUM_INSIGHT_REFRESH_INTERVAL
 from posthog.constants import TREND_FILTER_TYPE_EVENTS
 from posthog.hogql_queries.insights.trends.breakdown import BREAKDOWN_OTHER_STRING_LABEL
+from posthog.hogql_queries.insights.utils.breakdowns import has_breakdown_filter, has_single_breakdown
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRangeWithIntervals
 from posthog.models import Team
@@ -247,10 +248,12 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
         return global_event_filters
 
     def convert_single_breakdown_to_multiple_breakdowns(self):
-        if self.query.breakdownFilter and self.query.breakdownFilter.breakdown:
+        if has_single_breakdown(self.query.breakdownFilter):
+            assert self.query.breakdownFilter is not None  # type checking
             if self.query.breakdownFilter.breakdown_type == "cohort":
                 # Ensure breakdown is always a list for cohorts
                 breakdown_values = self.query.breakdownFilter.breakdown
+                assert breakdown_values is not None  # type checking
                 if not isinstance(breakdown_values, list):
                     breakdown_values = [breakdown_values]
 
@@ -282,10 +285,7 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
 
     @cached_property
     def breakdowns_in_query(self) -> bool:
-        return self.query.breakdownFilter is not None and (
-            self.query.breakdownFilter.breakdown is not None
-            or (self.query.breakdownFilter.breakdowns is not None and len(self.query.breakdownFilter.breakdowns) > 0)
-        )
+        return has_breakdown_filter(self.query.breakdownFilter)
 
     @cached_property
     def events_timestamp_filter(self) -> ast.Expr:
@@ -429,19 +429,13 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
 
     def actor_query(
         self,
-        cumulative: bool = False,
         start_interval_index_filter: Optional[int] = None,
         selected_breakdown_value: str | list[str] | int | None = None,
     ) -> ast.SelectQuery:
         if self.is_24h_window_calculation:
-            inner_query = self.actor_query_24h_window(
-                cumulative=cumulative,
-                start_interval_index_filter=start_interval_index_filter,
-                selected_breakdown_value=selected_breakdown_value,
-            )
+            inner_query = self.actor_query_24h_window()
         else:
             inner_query = self.actor_query_calendar(
-                cumulative=cumulative,
                 start_interval_index_filter=start_interval_index_filter,
                 selected_breakdown_value=selected_breakdown_value,
             )
@@ -478,12 +472,7 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
 
         return inner_query
 
-    def actor_query_24h_window(
-        self,
-        cumulative: bool = False,
-        start_interval_index_filter: Optional[int] = None,
-        selected_breakdown_value: str | list[str] | int | None = None,
-    ) -> ast.SelectQuery:
+    def actor_query_24h_window(self) -> ast.SelectQuery:
         interval = self.query_date_range.interval_name
         if interval == "hour":
             unit, count = "hour", 1
@@ -610,7 +599,6 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
 
     def actor_query_calendar(
         self,
-        cumulative: bool = False,
         start_interval_index_filter: Optional[int] = None,
         selected_breakdown_value: str | list[str] | int | None = None,
     ) -> ast.SelectQuery:
@@ -733,8 +721,6 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
             )
 
         intervals_from_base_array_aggregator = "arrayJoin"
-        if cumulative:
-            intervals_from_base_array_aggregator = "arrayMax"
 
         intervals_from_base_expr: ast.Expr
         retention_value_expr: ast.Expr | None = None
@@ -1062,14 +1048,14 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
                     temp_runner = RetentionQueryRunner(
                         query=temp_query, team=self.team, timings=self.timings, modifiers=self.modifiers
                     )
-                    actor_queries.append(temp_runner.actor_query(cumulative=False))
+                    actor_queries.append(temp_runner.actor_query())
 
                 if len(actor_queries) == 1:
                     actor_query = actor_queries[0]
                 else:
                     actor_query = ast.SelectSetQuery.create_from_queries(actor_queries, "UNION ALL")
             else:
-                actor_query = self.actor_query(cumulative=False)
+                actor_query = self.actor_query()
 
             if self.query.retentionFilter.cumulative:
                 # For cumulative, we need to calculate the max interval and then explode it

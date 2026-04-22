@@ -18,6 +18,7 @@ from products.tasks.backend.services.agent_command import (
 )
 from products.tasks.backend.services.connection_token import create_sandbox_connection_token
 from products.tasks.backend.services.sandbox import SANDBOX_TTL_SECONDS
+from products.tasks.backend.services.staged_artifacts import get_task_run_artifacts_by_id
 from products.tasks.backend.stream.redis_stream import get_task_run_stream_key
 from products.tasks.backend.temporal.oauth import create_oauth_access_token
 from products.tasks.backend.temporal.process_task.utils import (
@@ -37,8 +38,9 @@ REFRESH_RETRY_DELAY_SECONDS = 0.5
 @dataclass
 class SendFollowupToSandboxInput:
     run_id: str
-    message: str
+    message: str | None = None
     posthog_mcp_scopes: PosthogMcpScopes = "read_only"
+    artifact_ids: list[str] | None = None
 
 
 @activity.defn
@@ -69,8 +71,28 @@ def send_followup_to_sandbox(input: SendFollowupToSandboxInput) -> None:
     # ACP session to a non-stale OAuth token. Non-fatal: if refresh fails we
     # still deliver the follow-up with the existing (possibly stale) creds.
     _refresh_sandbox_mcp(task_run, input.posthog_mcp_scopes, auth_token)
+    artifacts = None
+    artifact_ids = input.artifact_ids or []
+    if artifact_ids:
+        artifacts, missing_artifact_ids = get_task_run_artifacts_by_id(task_run, artifact_ids)
+        if missing_artifact_ids:
+            error_msg = f"Artifacts not found on this run: {', '.join(missing_artifact_ids)}"
+            _write_error_and_complete(input.run_id, error_msg)
+            raise RuntimeError(f"send_followup failed: {error_msg}")
 
-    result = send_user_message(task_run, input.message, auth_token=auth_token, timeout=SANDBOX_TTL_SECONDS)
+    result = send_user_message(
+        task_run,
+        input.message,
+        artifacts=artifacts,
+        auth_token=auth_token,
+        timeout=SANDBOX_TTL_SECONDS,
+    )
+    logger.info(
+        "send_followup_to_sandbox_attempted",
+        run_id=input.run_id,
+        has_message=bool(input.message),
+        artifact_count=len(artifacts or []),
+    )
 
     if result.success:
         _write_turn_complete(input.run_id, _get_stop_reason(result.data))
