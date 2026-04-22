@@ -1,10 +1,10 @@
 import datetime as dt
 from datetime import UTC, datetime
-from typing import Final, cast
+from typing import Final, TypedDict, cast
 from zoneinfo import ZoneInfo
 
-from django.db import transaction
-from django.db.models import F, OuterRef, Q, QuerySet, Subquery
+from django.db import models, transaction
+from django.db.models import F, OuterRef, Prefetch, Q, QuerySet, Subquery
 
 from drf_spectacular.utils import extend_schema, extend_schema_field
 from loginas.utils import is_impersonated_session
@@ -50,12 +50,39 @@ ALLOWED_WINDOW_MINUTES = {5, 10, 15, 30, 60}
 MAX_ALERTS_PER_TEAM = 20
 MAX_SIMULATE_LOOKBACK_DAYS = 30
 MAX_SIMULATE_BUCKETS = 15_000
+SPARKLINE_LOOKBACK_HOURS = 24
 _SENTINEL: Final = object()
 _NOT_ANNOTATED: Final = object()
 
 
 def _any_field_changed(instance: LogsAlertConfiguration, validated_data: dict, fields: set[str]) -> bool:
     return any(f in validated_data and validated_data[f] != getattr(instance, f) for f in fields)
+
+
+class DestinationType(models.TextChoices):
+    SLACK = "slack"
+    WEBHOOK = "webhook"
+
+
+class LogsAlertSparklineBucketSerializer(serializers.Serializer):
+    timestamp = serializers.DateTimeField(help_text="Bucket start timestamp (UTC, hourly).")
+    breached = serializers.IntegerField(help_text="Count of breached checks in this hour.")
+    errored = serializers.IntegerField(help_text="Count of errored checks in this hour.")
+    resolved = serializers.IntegerField(
+        help_text="Count of checks that transitioned the alert from firing to resolved in this hour."
+    )
+
+
+class SparklineBucket(TypedDict):
+    timestamp: datetime
+    breached: int
+    errored: int
+    resolved: int
+
+
+def _sparkline_window_start() -> datetime:
+    current_hour = datetime.now(UTC).replace(minute=0, second=0, microsecond=0)
+    return current_hour - dt.timedelta(hours=SPARKLINE_LOOKBACK_HOURS - 1)
 
 
 class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
@@ -156,6 +183,97 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
         allow_null=True,
         help_text="When the alert was last modified.",
     )
+    sparkline = serializers.SerializerMethodField(
+        help_text=(
+            f"{SPARKLINE_LOOKBACK_HOURS} hourly buckets of breached + errored check counts "
+            "for the last 24h, ordered oldest-first. Drives the activity column on the "
+            "alert list — empty sparkline = healthy alert. Ok checks are not included: "
+            "retention caps OK rows at MAX_EVALUATION_PERIODS (~50min at 5-min cadence), "
+            "so only events that survive the prune (breached + errored) are meaningful "
+            "over a 24h window."
+        ),
+    )
+    destination_types = serializers.SerializerMethodField(
+        help_text=(
+            "Notification destination types configured for this alert — e.g. 'slack', 'webhook'. "
+            "Empty list means no notifications will fire. One or more destinations should be added "
+            "after creating an alert."
+        ),
+    )
+
+    @extend_schema_field(LogsAlertSparklineBucketSerializer(many=True))
+    def get_sparkline(self, obj: LogsAlertConfiguration) -> list[SparklineBucket]:
+        start = self.context.get("sparkline_start") or _sparkline_window_start()
+
+        buckets: list[SparklineBucket] = [
+            {
+                "timestamp": start + dt.timedelta(hours=i),
+                "breached": 0,
+                "errored": 0,
+                "resolved": 0,
+            }
+            for i in range(SPARKLINE_LOOKBACK_HOURS)
+        ]
+
+        events = getattr(obj, "recent_checks", None)
+        if events is None:
+            events = LogsAlertEvent.objects.filter(
+                alert=obj,
+                kind=LogsAlertEvent.Kind.CHECK,
+                created_at__gte=start,
+            )
+
+        for event in events:
+            hour_offset = int((event.created_at - start).total_seconds() // 3600)
+            if 0 <= hour_offset < SPARKLINE_LOOKBACK_HOURS:
+                if event.error_message:
+                    buckets[hour_offset]["errored"] += 1
+                elif event.threshold_breached:
+                    buckets[hour_offset]["breached"] += 1
+                elif (
+                    event.state_before in (AlertState.FIRING, AlertState.PENDING_RESOLVE)
+                    and event.state_after == AlertState.NOT_FIRING
+                ):
+                    buckets[hour_offset]["resolved"] += 1
+
+        return buckets
+
+    @extend_schema_field(serializers.ListField(child=serializers.ChoiceField(choices=list(DestinationType))))
+    def get_destination_types(self, obj: LogsAlertConfiguration) -> list[str]:
+        # N+1 is acceptable: max 20 alerts per team, each query is a fast indexed lookup.
+        team_id = obj.team_id
+        template_ids = (
+            HogFunction.objects.filter(
+                team_id=team_id,
+                deleted=False,
+                template_id__in=["template-slack", "template-webhook"],
+                filters__properties__contains=[{"key": "alert_id", "value": str(obj.id)}],
+            )
+            .values_list("template_id", flat=True)
+            .distinct()
+        )
+        type_map = {"template-slack": "slack", "template-webhook": "webhook"}
+        return sorted(type_map[tid] for tid in template_ids if tid in type_map)
+
+    @extend_schema_field(serializers.CharField(allow_null=True))
+    def get_last_error_message(self, obj: LogsAlertConfiguration) -> str | None:
+        # The viewset annotates `_latest_error_message` via Subquery to avoid N+1 on list.
+        # Fallback direct query covers callers that construct this serializer outside the
+        # viewset (tests, admin actions).
+        annotated = getattr(obj, "_latest_error_message", _NOT_ANNOTATED)
+        if annotated is not _NOT_ANNOTATED:
+            # Subquery annotation yields either the error_message string or None.
+            return cast(str | None, annotated)
+        return (
+            LogsAlertEvent.objects.filter(
+                alert=obj,
+                kind=LogsAlertEvent.Kind.CHECK,
+                error_message__isnull=False,
+            )
+            .order_by("-created_at")
+            .values_list("error_message", flat=True)
+            .first()
+        )
 
     class Meta:
         model = LogsAlertConfiguration
@@ -178,6 +296,8 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
             "last_checked_at",
             "consecutive_failures",
             "last_error_message",
+            "sparkline",
+            "destination_types",
             "created_at",
             "created_by",
             "updated_at",
@@ -191,30 +311,12 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
             "last_checked_at",
             "consecutive_failures",
             "last_error_message",
+            "sparkline",
+            "destination_types",
             "created_at",
             "created_by",
             "updated_at",
         ]
-
-    @extend_schema_field(serializers.CharField(allow_null=True))
-    def get_last_error_message(self, obj: LogsAlertConfiguration) -> str | None:
-        # The viewset annotates `_latest_error_message` via Subquery to avoid N+1 on list.
-        # Fallback direct query covers callers that construct this serializer outside the
-        # viewset (tests, admin actions).
-        annotated = getattr(obj, "_latest_error_message", _NOT_ANNOTATED)
-        if annotated is not _NOT_ANNOTATED:
-            # Subquery annotation yields either the error_message string or None.
-            return cast(str | None, annotated)
-        return (
-            LogsAlertEvent.objects.filter(
-                alert=obj,
-                kind=LogsAlertEvent.Kind.CHECK,
-                error_message__isnull=False,
-            )
-            .order_by("-created_at")
-            .values_list("error_message", flat=True)
-            .first()
-        )
 
     def validate(self, attrs: dict) -> dict:
         filters = attrs.get("filters", getattr(self.instance, "filters", None) or {})
@@ -415,7 +517,7 @@ class LogsAlertSimulateResponseSerializer(serializers.Serializer):
 
 
 class LogsAlertCreateDestinationSerializer(serializers.Serializer):
-    type = serializers.ChoiceField(choices=["slack", "webhook"], help_text="Destination type — slack or webhook.")
+    type = serializers.ChoiceField(choices=list(DestinationType), help_text="Destination type — slack or webhook.")
     slack_workspace_id = serializers.IntegerField(
         required=False, help_text="Integration ID for the Slack workspace. Required when type=slack."
     )
@@ -564,7 +666,23 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             .order_by("-created_at")
             .values("error_message")[:1]
         )
-        return queryset.filter(team_id=self.team_id).annotate(_latest_error_message=Subquery(latest_error))
+        # Anchor the prefetch window and the serializer's bucket grid to the same
+        # instant so they can't drift across an hour-boundary rollover mid-request.
+        self._sparkline_start = _sparkline_window_start()
+        sparkline_events = LogsAlertEvent.objects.filter(
+            kind=LogsAlertEvent.Kind.CHECK,
+            created_at__gte=self._sparkline_start,
+        ).order_by("created_at")
+        return (
+            queryset.filter(team_id=self.team_id)
+            .annotate(_latest_error_message=Subquery(latest_error))
+            .prefetch_related(Prefetch("events", queryset=sparkline_events, to_attr="recent_checks"))
+        )
+
+    def get_serializer_context(self) -> dict:
+        context = super().get_serializer_context()
+        context["sparkline_start"] = getattr(self, "_sparkline_start", None) or _sparkline_window_start()
+        return context
 
     @extend_schema(
         request=LogsAlertCreateDestinationSerializer,

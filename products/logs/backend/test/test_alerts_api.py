@@ -601,11 +601,16 @@ class TestLogsAlertAPI(APIBaseTest):
         )
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         ids = response.json()["hog_function_ids"]
-        assert len(ids) == 3  # firing + resolved + broken
+        assert len(ids) == 4  # firing + resolved + broken + errored
 
         hog_functions = HogFunction.objects.filter(id__in=ids).order_by("name")
         event_ids = sorted([(hf.filters or {})["events"][0]["id"] for hf in hog_functions])
-        assert event_ids == ["$logs_alert_auto_disabled", "$logs_alert_firing", "$logs_alert_resolved"]
+        assert event_ids == [
+            "$logs_alert_auto_disabled",
+            "$logs_alert_errored",
+            "$logs_alert_firing",
+            "$logs_alert_resolved",
+        ]
         for hf in hog_functions:
             assert hf.template_id == "template-slack"
             inputs = hf.inputs or {}
@@ -636,7 +641,7 @@ class TestLogsAlertAPI(APIBaseTest):
         )
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         ids = response.json()["hog_function_ids"]
-        assert len(ids) == 3
+        assert len(ids) == 4  # firing + resolved + broken + errored
 
         hog_functions = HogFunction.objects.filter(id__in=ids)
         for hf in hog_functions:
@@ -644,7 +649,12 @@ class TestLogsAlertAPI(APIBaseTest):
             inputs = hf.inputs or {}
             assert inputs["url"]["value"] == "https://example.com/hook"
             body = inputs["body"]["value"]
-            assert body["event"] in ("firing", "resolved", "broken")
+            assert body["type"] in (
+                "logs_alert.firing",
+                "logs_alert.resolved",
+                "logs_alert.auto_disabled",
+                "logs_alert.errored",
+            )
 
     @parameterized.expand(
         [
@@ -1029,6 +1039,127 @@ class TestLogsAlertAPI(APIBaseTest):
         response = self.client.get(self._events_url(str(other_alert.id)))
 
         assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    # --- Sparkline ---
+
+    @freeze_time("2025-12-16T10:30:00Z")
+    def test_sparkline_has_24_hourly_buckets_on_empty_alert(self):
+        created = self._create_via_api()
+
+        response = self.client.get(f"{self.base_url}{created['id']}/")
+
+        assert response.status_code == status.HTTP_200_OK
+        sparkline = response.json()["sparkline"]
+        assert len(sparkline) == 24
+        assert all(
+            bucket["breached"] == 0 and bucket["errored"] == 0 and bucket["resolved"] == 0 for bucket in sparkline
+        )
+        # Buckets are ordered oldest-first, hourly-aligned.
+        timestamps = [bucket["timestamp"] for bucket in sparkline]
+        assert timestamps == sorted(timestamps)
+
+    def _make_event_at(self, alert_id: str, when: datetime, **fields) -> LogsAlertEvent:
+        """Create a LogsAlertEvent at a specific timestamp (works around auto_now_add)."""
+        defaults = {
+            "kind": LogsAlertEvent.Kind.CHECK,
+            "threshold_breached": False,
+            "state_before": "not_firing",
+            "state_after": "not_firing",
+        }
+        defaults.update(fields)
+        event = LogsAlertEvent.objects.create(alert_id=alert_id, **defaults)
+        LogsAlertEvent.objects.filter(pk=event.pk).update(created_at=when)
+        event.refresh_from_db()
+        return event
+
+    @freeze_time("2025-12-16T10:30:00Z")
+    def test_sparkline_buckets_breached_and_errored_events(self):
+        created = self._create_via_api()
+        alert_id = created["id"]
+        self._make_event_at(
+            alert_id,
+            datetime(2025, 12, 16, 7, 15, tzinfo=UTC),
+            threshold_breached=True,
+            state_before="not_firing",
+            state_after="firing",
+        )
+        self._make_event_at(
+            alert_id,
+            datetime(2025, 12, 16, 9, 10, tzinfo=UTC),
+            state_before="firing",
+            state_after="errored",
+            error_message="Query timeout",
+        )
+        self._make_event_at(
+            alert_id,
+            datetime(2025, 12, 16, 9, 45, tzinfo=UTC),
+            threshold_breached=True,
+            state_before="not_firing",
+            state_after="firing",
+        )
+
+        response = self.client.get(f"{self.base_url}{alert_id}/")
+
+        assert response.status_code == status.HTTP_200_OK
+        sparkline = response.json()["sparkline"]
+        total_breached = sum(b["breached"] for b in sparkline)
+        total_errored = sum(b["errored"] for b in sparkline)
+        assert total_breached == 2
+        assert total_errored == 1
+
+    @parameterized.expand([(k.value, k) for k in LogsAlertEvent.Kind if k != LogsAlertEvent.Kind.CHECK])
+    @freeze_time("2025-12-16T10:30:00Z")
+    def test_sparkline_excludes_control_plane_row(self, _name: str, kind: LogsAlertEvent.Kind):
+        created = self._create_via_api()
+        alert_id = created["id"]
+        self._make_event_at(alert_id, datetime(2025, 12, 16, 9, 0, tzinfo=UTC), kind=kind)
+
+        response = self.client.get(f"{self.base_url}{alert_id}/")
+
+        sparkline = response.json()["sparkline"]
+        assert all(b["breached"] == 0 and b["errored"] == 0 and b["resolved"] == 0 for b in sparkline)
+
+    @freeze_time("2025-12-16T10:30:00Z")
+    def test_sparkline_excludes_events_older_than_24h(self):
+        created = self._create_via_api()
+        alert_id = created["id"]
+        # 26h before frozen time — outside the lookback window.
+        self._make_event_at(
+            alert_id,
+            datetime(2025, 12, 15, 8, 0, tzinfo=UTC),
+            threshold_breached=True,
+            state_before="not_firing",
+            state_after="firing",
+        )
+
+        response = self.client.get(f"{self.base_url}{alert_id}/")
+
+        sparkline = response.json()["sparkline"]
+        assert all(b["breached"] == 0 and b["errored"] == 0 and b["resolved"] == 0 for b in sparkline)
+
+    @parameterized.expand(
+        [
+            ("firing_to_not_firing", "firing"),
+            ("pending_resolve_to_not_firing", "pending_resolve"),
+        ]
+    )
+    @freeze_time("2025-12-16T10:30:00Z")
+    def test_sparkline_buckets_resolved_events(self, _name: str, state_before: str):
+        created = self._create_via_api()
+        alert_id = created["id"]
+        self._make_event_at(
+            alert_id,
+            datetime(2025, 12, 16, 9, 5, tzinfo=UTC),
+            threshold_breached=False,
+            state_before=state_before,
+            state_after="not_firing",
+        )
+
+        response = self.client.get(f"{self.base_url}{alert_id}/")
+
+        assert response.status_code == status.HTTP_200_OK
+        sparkline = response.json()["sparkline"]
+        assert sum(b["resolved"] for b in sparkline) == 1
 
     # --- Simulate ---
 

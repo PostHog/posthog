@@ -412,11 +412,6 @@ class AssistantHogQLQuery(BaseModel):
     )
 
 
-class Compare(StrEnum):
-    CURRENT = "current"
-    PREVIOUS = "previous"
-
-
 class AssistantInsightVizNode(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -737,6 +732,11 @@ class AssistantToolCallMessage(BaseModel):
             " through to the frontend."
         ),
     )
+
+
+class Compare(StrEnum):
+    CURRENT = "current"
+    PREVIOUS = "previous"
 
 
 class AssistantTrendsDisplayType(RootModel[str | Any]):
@@ -18298,37 +18298,6 @@ class AssistantBasePropertyFilter(
     )
 
 
-class AssistantInsightActorsQuery(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    breakdown: list[str] | None = Field(
-        default=None,
-        description=(
-            "Breakdown values, one per dimension in the source's"
-            " `breakdownFilter.breakdowns`, in the same order. Array length must equal"
-            " the number of breakdown dimensions."
-        ),
-    )
-    compare: Compare | None = Field(
-        default=None,
-        description=("Whether to pull from the previous period when `compare` is enabled in the source."),
-    )
-    day: str | int | None = Field(
-        default=None,
-        description=("Bucket date for the data point. Accepts ISO date or integer offset."),
-    )
-    kind: Literal["InsightActorsQuery"] = "InsightActorsQuery"
-    series: int | None = Field(
-        default=None,
-        description="Series index (0-based) when the source has multiple series.",
-    )
-    source: AssistantTrendsQuery = Field(
-        ...,
-        description="The source insight query whose data point we are drilling into.",
-    )
-
-
 class AssistantLifecycleQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -18380,6 +18349,41 @@ class AssistantLifecycleQuery(BaseModel):
         ...,
         description=("Event or action to analyze. Lifecycle insights only support a single series."),
         max_length=1,
+    )
+
+
+class AssistantTrendsActorsQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    breakdown: list[str] | None = Field(
+        default=None,
+        description=(
+            "Breakdown values, one per dimension in the source's"
+            " `breakdownFilter.breakdowns`, in the same order. Array length must equal"
+            " the number of breakdown dimensions."
+        ),
+    )
+    compare: Compare | None = Field(
+        default=None,
+        description=("Whether to pull from the previous period when `compare` is enabled in the source."),
+    )
+    day: str = Field(
+        ...,
+        description=("Bucket date for the data point. Must be an ISO date string (YYYY-MM-DD), e.g. '2024-01-15'."),
+    )
+    includeRecordings: bool | None = Field(
+        default=True,
+        description="Whether to include matched session recordings for each actor.",
+    )
+    kind: Literal["InsightActorsQuery"] = "InsightActorsQuery"
+    series: int | None = Field(
+        default=None,
+        description="Series index (0-based) when the source has multiple series.",
+    )
+    source: AssistantTrendsQuery = Field(
+        ...,
+        description="The source insight query whose data point we are drilling into.",
     )
 
 

@@ -211,7 +211,6 @@ class TestTypeformTransport:
         assert resource["endpoint"]["path"] == "/forms"
         assert resource["endpoint"]["data_selector"] == "items"
         assert resource["endpoint"]["params"]["page_size"] == 200
-        assert resource["primary_key"] == "id"
         assert resource["table_format"] == "delta"
 
     def test_get_resource_forms_incremental(self) -> None:
@@ -232,9 +231,9 @@ class TestTypeformTransport:
         with pytest.raises(ValueError, match="Fan-out endpoint"):
             get_resource(endpoint="responses", should_use_incremental_field=False)
 
-    @patch("posthog.temporal.data_imports.sources.typeform.typeform.rest_api_resources")
-    def test_typeform_source_forms_response(self, mock_rest_api_resources) -> None:
-        mock_rest_api_resources.return_value = [Mock()]
+    @patch("posthog.temporal.data_imports.sources.typeform.typeform.rest_api_resource")
+    def test_typeform_source_forms_response(self, mock_rest_api_resource) -> None:
+        mock_rest_api_resource.return_value = Mock()
         response = typeform_source(
             auth_token="token",
             api_base_url="https://api.typeform.com",

@@ -24,12 +24,11 @@ import {
 } from '@posthog/icons'
 import { LemonBanner, LemonDivider, LemonTag, LemonTextArea, Link, Tooltip } from '@posthog/lemon-ui'
 
-import { FEATURE_FLAGS, SESSION_SUMMARY_FEEDBACK_SURVEY_ID } from 'lib/constants'
+import { SESSION_SUMMARY_FEEDBACK_SURVEY_ID } from 'lib/constants'
 import { usePageVisibility } from 'lib/hooks/usePageVisibility'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { Spinner } from 'lib/lemon-ui/Spinner'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { playerMetaLogic } from 'scenes/session-recordings/player/player-meta/playerMetaLogic'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
@@ -799,9 +798,6 @@ function SessionSummaryFeedback(): JSX.Element {
     const { logicProps } = useValues(sessionRecordingPlayerLogic)
     const { summaryHasHadFeedback, showFeedbackSurvey } = useValues(playerMetaLogic(logicProps))
     const { sessionSummaryFeedback, setShowFeedbackSurvey } = useActions(playerMetaLogic(logicProps))
-    const { featureFlags } = useValues(featureFlagLogic)
-
-    const showSurveyFlag = !!featureFlags[FEATURE_FLAGS.SHOW_SESSION_SUMMARY_FEEDBACK_SURVEY]
 
     return (
         <div className="mb-2 mt-4">
@@ -824,16 +820,12 @@ function SessionSummaryFeedback(): JSX.Element {
                         disabledReason={summaryHasHadFeedback ? 'Thanks for your feedback!' : undefined}
                         onClick={() => {
                             sessionSummaryFeedback('bad')
-                            if (showSurveyFlag) {
-                                setShowFeedbackSurvey(true)
-                            }
+                            setShowFeedbackSurvey(true)
                         }}
                     />
                 </div>
             </div>
-            {showSurveyFlag && showFeedbackSurvey && SESSION_SUMMARY_FEEDBACK_SURVEY_ID && (
-                <SessionSummaryFeedbackSurvey />
-            )}
+            {showFeedbackSurvey && SESSION_SUMMARY_FEEDBACK_SURVEY_ID && <SessionSummaryFeedbackSurvey />}
         </div>
     )
 }
