@@ -28,6 +28,7 @@ export function createOutputsRegistry() {
             secondaryProducerKey: 'INGESTION_OUTPUT_EVENTS_SECONDARY_PRODUCER',
             modeKey: 'INGESTION_OUTPUT_EVENTS_SECONDARY_MODE',
             percentageKey: 'INGESTION_OUTPUT_EVENTS_SECONDARY_PERCENTAGE',
+            teamDenylistKey: 'INGESTION_OUTPUT_EVENTS_SECONDARY_TEAM_DENYLIST',
         })
         .registerDualWrite(AI_EVENTS_OUTPUT, {
             topicKey: 'INGESTION_OUTPUT_AI_EVENTS_TOPIC',
@@ -36,6 +37,7 @@ export function createOutputsRegistry() {
             secondaryProducerKey: 'INGESTION_OUTPUT_AI_EVENTS_SECONDARY_PRODUCER',
             modeKey: 'INGESTION_OUTPUT_AI_EVENTS_SECONDARY_MODE',
             percentageKey: 'INGESTION_OUTPUT_AI_EVENTS_SECONDARY_PERCENTAGE',
+            teamDenylistKey: 'INGESTION_OUTPUT_AI_EVENTS_SECONDARY_TEAM_DENYLIST',
         })
         .registerDualWrite(HEATMAPS_OUTPUT, {
             topicKey: 'INGESTION_OUTPUT_HEATMAPS_TOPIC',
@@ -44,6 +46,7 @@ export function createOutputsRegistry() {
             secondaryProducerKey: 'INGESTION_OUTPUT_HEATMAPS_SECONDARY_PRODUCER',
             modeKey: 'INGESTION_OUTPUT_HEATMAPS_SECONDARY_MODE',
             percentageKey: 'INGESTION_OUTPUT_HEATMAPS_SECONDARY_PERCENTAGE',
+            teamDenylistKey: 'INGESTION_OUTPUT_HEATMAPS_SECONDARY_TEAM_DENYLIST',
         })
         .registerDualWrite(INGESTION_WARNINGS_OUTPUT, {
             topicKey: 'INGESTION_OUTPUT_INGESTION_WARNINGS_TOPIC',
@@ -84,6 +87,7 @@ export function createOutputsRegistry() {
             secondaryProducerKey: 'INGESTION_OUTPUT_GROUPS_SECONDARY_PRODUCER',
             modeKey: 'INGESTION_OUTPUT_GROUPS_SECONDARY_MODE',
             percentageKey: 'INGESTION_OUTPUT_GROUPS_SECONDARY_PERCENTAGE',
+            teamDenylistKey: 'INGESTION_OUTPUT_GROUPS_SECONDARY_TEAM_DENYLIST',
         })
         .registerDualWrite(PERSONS_OUTPUT, {
             topicKey: 'INGESTION_OUTPUT_PERSONS_TOPIC',
@@ -92,6 +96,7 @@ export function createOutputsRegistry() {
             secondaryProducerKey: 'INGESTION_OUTPUT_PERSONS_SECONDARY_PRODUCER',
             modeKey: 'INGESTION_OUTPUT_PERSONS_SECONDARY_MODE',
             percentageKey: 'INGESTION_OUTPUT_PERSONS_SECONDARY_PERCENTAGE',
+            teamDenylistKey: 'INGESTION_OUTPUT_PERSONS_SECONDARY_TEAM_DENYLIST',
         })
         .registerDualWrite(PERSON_DISTINCT_IDS_OUTPUT, {
             topicKey: 'INGESTION_OUTPUT_PERSON_DISTINCT_IDS_TOPIC',
@@ -100,6 +105,7 @@ export function createOutputsRegistry() {
             secondaryProducerKey: 'INGESTION_OUTPUT_PERSON_DISTINCT_IDS_SECONDARY_PRODUCER',
             modeKey: 'INGESTION_OUTPUT_PERSON_DISTINCT_IDS_SECONDARY_MODE',
             percentageKey: 'INGESTION_OUTPUT_PERSON_DISTINCT_IDS_SECONDARY_PERCENTAGE',
+            teamDenylistKey: 'INGESTION_OUTPUT_PERSON_DISTINCT_IDS_SECONDARY_TEAM_DENYLIST',
         })
         .registerDualWrite(APP_METRICS_OUTPUT, {
             topicKey: 'INGESTION_OUTPUT_APP_METRICS_TOPIC',
@@ -108,6 +114,7 @@ export function createOutputsRegistry() {
             secondaryProducerKey: 'INGESTION_OUTPUT_APP_METRICS_SECONDARY_PRODUCER',
             modeKey: 'INGESTION_OUTPUT_APP_METRICS_SECONDARY_MODE',
             percentageKey: 'INGESTION_OUTPUT_APP_METRICS_SECONDARY_PERCENTAGE',
+            teamDenylistKey: 'INGESTION_OUTPUT_APP_METRICS_SECONDARY_TEAM_DENYLIST',
         })
         .registerDualWrite(LOG_ENTRIES_OUTPUT, {
             topicKey: 'INGESTION_OUTPUT_LOG_ENTRIES_TOPIC',

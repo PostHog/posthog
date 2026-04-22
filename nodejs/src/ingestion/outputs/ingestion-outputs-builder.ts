@@ -22,11 +22,17 @@ interface DualWriteDef<
     SPK extends string,
     MK extends string,
     PerK extends string,
+    DenyK extends string,
 > extends PrimaryDef<TK, PK> {
     secondaryTopicKey: STK
     secondaryProducerKey: SPK
     modeKey: MK
     percentageKey: PerK
+    /**
+     * Optional config key holding a comma-separated list of team IDs.
+     * Required when the output uses a `*_team_denylist` mode; ignored otherwise.
+     */
+    teamDenylistKey?: DenyK
 }
 
 /**
@@ -51,7 +57,7 @@ interface DualWriteDef<
  */
 export class IngestionOutputsBuilder<
     O extends string = never,
-    /** Accumulated config keys with string values (topics, mode). */
+    /** Accumulated config keys with string values (topics, mode, team denylist). */
     StringKey extends string = never,
     /** Accumulated config keys with producer-name values. */
     ProducerKey extends string = never,
@@ -62,7 +68,7 @@ export class IngestionOutputsBuilder<
         private readonly primaryDefs: Map<string, PrimaryDef<StringKey, ProducerKey>> = new Map(),
         private readonly dualWriteDefs: Map<
             string,
-            DualWriteDef<StringKey, ProducerKey, StringKey, ProducerKey, StringKey, NumberKey>
+            DualWriteDef<StringKey, ProducerKey, StringKey, ProducerKey, StringKey, NumberKey, StringKey>
         > = new Map()
     ) {}
 
@@ -84,8 +90,11 @@ export class IngestionOutputsBuilder<
     /**
      * Register an output with primary and secondary config key pairs for dual writes.
      *
-     * The mode key controls routing behavior (`off`, `copy`, `move`).
-     * The percentage key controls what fraction of messages (by key hash) are routed to secondary.
+     * The mode key controls routing behavior (`off`, `copy`, `move`, `copy_team_denylist`,
+     * `move_team_denylist`). For percentage modes (`copy`/`move`), the percentage key controls
+     * what fraction of messages (by key hash) are routed to secondary. For team-denylist modes,
+     * `teamDenylistKey` must be supplied and holds a comma-separated list of team IDs that
+     * stay on primary — every other team goes to secondary.
      */
     registerDualWrite<
         Name extends string,
@@ -95,24 +104,26 @@ export class IngestionOutputsBuilder<
         NewSPK extends string,
         NewMK extends string,
         NewPerK extends string,
+        NewDenyK extends string = never,
     >(
         name: Name & (Name extends O ? never : Name),
-        definition: DualWriteDef<NewTK, NewPK, NewSTK, NewSPK, NewMK, NewPerK>
+        definition: DualWriteDef<NewTK, NewPK, NewSTK, NewSPK, NewMK, NewPerK, NewDenyK>
     ): IngestionOutputsBuilder<
         O | Name,
-        StringKey | NewTK | NewSTK | NewMK,
+        StringKey | NewTK | NewSTK | NewMK | NewDenyK,
         ProducerKey | NewPK | NewSPK,
         NumberKey | NewPerK
     > {
         const duals = new Map<
             string,
             DualWriteDef<
-                StringKey | NewTK | NewSTK | NewMK,
+                StringKey | NewTK | NewSTK | NewMK | NewDenyK,
                 ProducerKey | NewPK | NewSPK,
-                StringKey | NewTK | NewSTK | NewMK,
+                StringKey | NewTK | NewSTK | NewMK | NewDenyK,
                 ProducerKey | NewPK | NewSPK,
-                StringKey | NewTK | NewSTK | NewMK,
-                NumberKey | NewPerK
+                StringKey | NewTK | NewSTK | NewMK | NewDenyK,
+                NumberKey | NewPerK,
+                StringKey | NewTK | NewSTK | NewMK | NewDenyK
             >
         >(this.dualWriteDefs)
         duals.set(name, definition)
@@ -157,6 +168,13 @@ export class IngestionOutputsBuilder<
             } else {
                 const secondaryProducerName = config[def.secondaryProducerKey]
                 const percentage = config[def.percentageKey]
+                const usesDenylist = mode === 'copy_team_denylist' || mode === 'move_team_denylist'
+                if (usesDenylist && !def.teamDenylistKey) {
+                    throw new Error(`Output "${name}" uses mode "${mode}" but no teamDenylistKey was registered`)
+                }
+                const teamDenylist = def.teamDenylistKey
+                    ? parseTeamDenylist(config[def.teamDenylistKey])
+                    : new Set<number>()
                 record[name] = new DualWriteIngestionOutput(
                     primary,
                     new SingleIngestionOutput(
@@ -166,7 +184,8 @@ export class IngestionOutputsBuilder<
                         secondaryProducerName
                     ),
                     mode,
-                    percentage
+                    percentage,
+                    teamDenylist
                 )
             }
         }
@@ -176,4 +195,19 @@ export class IngestionOutputsBuilder<
         // entry to definitions, and build() resolves all of them.
         return new IngestionOutputs<O>(record as Record<O, IngestionOutput>)
     }
+}
+
+/** Parse a comma-separated string of team IDs into a Set. Whitespace and non-numeric entries are skipped. */
+export function parseTeamDenylist(raw: string): Set<number> {
+    if (!raw.trim()) {
+        return new Set()
+    }
+    const ids = new Set<number>()
+    for (const part of raw.split(',')) {
+        const n = parseInt(part.trim(), 10)
+        if (!isNaN(n)) {
+            ids.add(n)
+        }
+    }
+    return ids
 }

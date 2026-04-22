@@ -1,5 +1,5 @@
 import { KafkaProducerWrapper } from '../../kafka/producer'
-import { IngestionOutputsBuilder } from './ingestion-outputs-builder'
+import { IngestionOutputsBuilder, parseTeamDenylist } from './ingestion-outputs-builder'
 import { KafkaProducerRegistry } from './kafka-producer-registry'
 
 describe('IngestionOutputsBuilder', () => {
@@ -191,6 +191,69 @@ describe('IngestionOutputsBuilder', () => {
         expect(registry.getProducer('SECONDARY').produce).not.toHaveBeenCalled()
     })
 
+    it('dual write in move_team_denylist mode routes by teamId', async () => {
+        const registry = createRegistry()
+        const config = {
+            EVENTS_TOPIC: 'events_v1',
+            EVENTS_PRODUCER: 'PRIMARY' as TestProducer,
+            EVENTS_SECONDARY_TOPIC: 'events_v2',
+            EVENTS_SECONDARY_PRODUCER: 'SECONDARY' as TestProducer,
+            EVENTS_MODE: 'move_team_denylist',
+            EVENTS_PERCENTAGE: 0,
+            EVENTS_TEAM_DENYLIST: '42,99',
+        }
+
+        const outputs = new IngestionOutputsBuilder()
+            .registerDualWrite('events', {
+                topicKey: 'EVENTS_TOPIC',
+                producerKey: 'EVENTS_PRODUCER',
+                secondaryTopicKey: 'EVENTS_SECONDARY_TOPIC',
+                secondaryProducerKey: 'EVENTS_SECONDARY_PRODUCER',
+                modeKey: 'EVENTS_MODE',
+                percentageKey: 'EVENTS_PERCENTAGE',
+                teamDenylistKey: 'EVENTS_TEAM_DENYLIST',
+            })
+            .build(registry, config)
+
+        // denied team → primary
+        await outputs.produce('events', { key: Buffer.from('k'), value: Buffer.from('v'), teamId: 42 })
+        expect(registry.getProducer('PRIMARY').produce).toHaveBeenCalledWith(
+            expect.objectContaining({ topic: 'events_v1' })
+        )
+        expect(registry.getProducer('SECONDARY').produce).not.toHaveBeenCalled()
+
+        // allowed team → secondary only
+        await outputs.produce('events', { key: Buffer.from('k'), value: Buffer.from('v'), teamId: 7 })
+        expect(registry.getProducer('SECONDARY').produce).toHaveBeenCalledWith(
+            expect.objectContaining({ topic: 'events_v2' })
+        )
+    })
+
+    it('throws when a denylist mode is configured without teamDenylistKey', () => {
+        const registry = createRegistry()
+        const config = {
+            EVENTS_TOPIC: 'events_v1',
+            EVENTS_PRODUCER: 'PRIMARY' as TestProducer,
+            EVENTS_SECONDARY_TOPIC: 'events_v2',
+            EVENTS_SECONDARY_PRODUCER: 'SECONDARY' as TestProducer,
+            EVENTS_MODE: 'move_team_denylist',
+            EVENTS_PERCENTAGE: 0,
+        }
+
+        expect(() =>
+            new IngestionOutputsBuilder()
+                .registerDualWrite('events', {
+                    topicKey: 'EVENTS_TOPIC',
+                    producerKey: 'EVENTS_PRODUCER',
+                    secondaryTopicKey: 'EVENTS_SECONDARY_TOPIC',
+                    secondaryProducerKey: 'EVENTS_SECONDARY_PRODUCER',
+                    modeKey: 'EVENTS_MODE',
+                    percentageKey: 'EVENTS_PERCENTAGE',
+                })
+                .build(registry, config)
+        ).toThrow(/teamDenylistKey/)
+    })
+
     it('mixes register and registerDualWrite', async () => {
         const registry = createRegistry()
         const config = {
@@ -230,5 +293,31 @@ describe('IngestionOutputsBuilder', () => {
         expect(registry.getProducer('PRIMARY').queueMessages).toHaveBeenCalledWith(
             expect.objectContaining({ topic: 'dlq_topic' })
         )
+    })
+})
+
+describe('parseTeamDenylist', () => {
+    it('returns empty set for empty string', () => {
+        expect(parseTeamDenylist('')).toEqual(new Set())
+    })
+
+    it('returns empty set for whitespace-only string', () => {
+        expect(parseTeamDenylist('   ')).toEqual(new Set())
+    })
+
+    it('parses comma-separated ids', () => {
+        expect(parseTeamDenylist('1,2,3')).toEqual(new Set([1, 2, 3]))
+    })
+
+    it('trims whitespace around ids', () => {
+        expect(parseTeamDenylist(' 1 , 2 , 3 ')).toEqual(new Set([1, 2, 3]))
+    })
+
+    it('skips non-numeric entries', () => {
+        expect(parseTeamDenylist('1,abc,3')).toEqual(new Set([1, 3]))
+    })
+
+    it('deduplicates repeated ids', () => {
+        expect(parseTeamDenylist('1,1,2')).toEqual(new Set([1, 2]))
     })
 })
