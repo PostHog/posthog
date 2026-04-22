@@ -1063,11 +1063,19 @@ def _commit_baseline_to_github(run: Run, repo: Repo, approved_snapshots: list[di
     # The org comes from github.organization()
     repo_name = repo.repo_full_name.split("/")[-1] if "/" in repo.repo_full_name else repo.repo_full_name
 
+    updated_count = len(updates)
+    removed_count = len(removed_identifiers)
+    parts = [f"{updated_count} updated"]
+    if removed_count:
+        parts.append(f"{removed_count} removed")
+    summary = ", ".join(parts)
+    commit_message = f"chore(visual): update {run.run_type} baselines\n\n{summary}\nRun: {run.id}"
+
     result = github.update_file(
         repository=repo_name,
         file_path=baseline_path,
         content=new_content,
-        commit_message="chore(visual): update visual baselines",
+        commit_message=commit_message,
         branch=pr_info["head_ref"],
         sha=file_sha,
     )
