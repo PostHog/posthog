@@ -377,6 +377,8 @@ export interface ClaudeTaskRunCreateSchemaApi {
     resume_from_run_id?: string
     /** Initial or follow-up user message to include in the run prompt. */
     pending_user_message?: string
+    /** Identifiers for staged task artifacts that should be attached to the initial run prompt. */
+    pending_user_artifact_ids?: string[]
     /** Optional sandbox environment to apply for this cloud run. */
     sandbox_environment_id?: string
     /** Whether pull requests for this run should be authored by the user or the bot.
@@ -458,6 +460,8 @@ export interface CodexTaskRunCreateSchemaApi {
     resume_from_run_id?: string
     /** Initial or follow-up user message to include in the run prompt. */
     pending_user_message?: string
+    /** Identifiers for staged task artifacts that should be attached to the initial run prompt. */
+    pending_user_artifact_ids?: string[]
     /** Optional sandbox environment to apply for this cloud run. */
     sandbox_environment_id?: string
     /** Whether pull requests for this run should be authored by the user or the bot.
@@ -535,6 +539,168 @@ export type TaskRunCreateRequestSchemaApi =
     | TaskRunResumeRequestSchemaApi
 
 /**
+ * * `plan` - plan
+ * `context` - context
+ * `reference` - reference
+ * `output` - output
+ * `artifact` - artifact
+ * `tree_snapshot` - tree_snapshot
+ * `user_attachment` - user_attachment
+ */
+export type TypeE8eEnumApi = (typeof TypeE8eEnumApi)[keyof typeof TypeE8eEnumApi]
+
+export const TypeE8eEnumApi = {
+    Plan: 'plan',
+    Context: 'context',
+    Reference: 'reference',
+    Output: 'output',
+    Artifact: 'artifact',
+    TreeSnapshot: 'tree_snapshot',
+    UserAttachment: 'user_attachment',
+} as const
+
+export interface TaskStagedArtifactFinalizeUploadApi {
+    /** Stable identifier returned by the staged prepare upload endpoint */
+    id: string
+    /**
+     * File name associated with the staged artifact
+     * @maxLength 255
+     */
+    name: string
+    /** Classification for the artifact
+
+* `plan` - plan
+* `context` - context
+* `reference` - reference
+* `output` - output
+* `artifact` - artifact
+* `tree_snapshot` - tree_snapshot
+* `user_attachment` - user_attachment */
+    type: TypeE8eEnumApi
+    /**
+     * Optional source label for the artifact, such as agent_output or user_attachment
+     * @maxLength 64
+     */
+    source?: string
+    /**
+     * S3 object key returned by the prepare step
+     * @maxLength 500
+     */
+    storage_path: string
+    /**
+     * Optional MIME type recorded for the artifact
+     * @maxLength 255
+     */
+    content_type?: string
+}
+
+export interface TaskStagedArtifactsFinalizeUploadRequestApi {
+    /** Array of staged artifacts to finalize after upload */
+    artifacts: TaskStagedArtifactFinalizeUploadApi[]
+}
+
+export interface TaskRunArtifactResponseApi {
+    /** Stable identifier for the artifact within this run */
+    id?: string
+    /** Artifact file name */
+    name: string
+    /** Artifact classification (plan, context, etc.) */
+    type: string
+    /** Source of the artifact, such as agent_output or user_attachment */
+    source?: string
+    /** Artifact size in bytes */
+    size?: number
+    /** Optional MIME type */
+    content_type?: string
+    /** S3 object key for the artifact */
+    storage_path: string
+    /** Timestamp when the artifact was uploaded */
+    uploaded_at: string
+}
+
+export interface TaskStagedArtifactsFinalizeUploadResponseApi {
+    /** Finalized staged artifacts available for attachment to a new run */
+    artifacts: TaskRunArtifactResponseApi[]
+}
+
+export interface TaskStagedArtifactPrepareUploadApi {
+    /**
+     * File name to associate with the staged artifact
+     * @maxLength 255
+     */
+    name: string
+    /** Classification for the artifact
+
+* `plan` - plan
+* `context` - context
+* `reference` - reference
+* `output` - output
+* `artifact` - artifact
+* `tree_snapshot` - tree_snapshot
+* `user_attachment` - user_attachment */
+    type: TypeE8eEnumApi
+    /**
+     * Optional source label for the artifact, such as agent_output or user_attachment
+     * @maxLength 64
+     */
+    source?: string
+    /**
+     * Expected upload size in bytes (max 31457280 bytes)
+     * @minimum 1
+     * @maximum 31457280
+     */
+    size: number
+    /**
+     * Optional MIME type for the artifact upload
+     * @maxLength 255
+     */
+    content_type?: string
+}
+
+export interface TaskStagedArtifactsPrepareUploadRequestApi {
+    /** Array of staged artifacts to prepare before creating a run */
+    artifacts: TaskStagedArtifactPrepareUploadApi[]
+}
+
+/**
+ * Form fields that must be submitted verbatim with the file upload
+ */
+export type S3PresignedPostApiFields = { [key: string]: string }
+
+export interface S3PresignedPostApi {
+    /** Presigned S3 POST URL */
+    url: string
+    /** Form fields that must be submitted verbatim with the file upload */
+    fields: S3PresignedPostApiFields
+}
+
+export interface TaskStagedArtifactPrepareUploadResponseApi {
+    /** Stable identifier for the prepared staged artifact within this task */
+    id: string
+    /** Artifact file name */
+    name: string
+    /** Artifact classification (plan, context, etc.) */
+    type: string
+    /** Source of the artifact, such as agent_output or user_attachment */
+    source?: string
+    /** Expected upload size in bytes */
+    size: number
+    /** Optional MIME type */
+    content_type?: string
+    /** S3 object key reserved for the staged artifact */
+    storage_path: string
+    /** Presigned POST expiry in seconds */
+    expires_in: number
+    /** Presigned S3 POST configuration for uploading the file */
+    presigned_post: S3PresignedPostApi
+}
+
+export interface TaskStagedArtifactsPrepareUploadResponseApi {
+    /** Prepared staged uploads for the requested artifacts */
+    artifacts: TaskStagedArtifactPrepareUploadResponseApi[]
+}
+
+/**
  * * `not_started` - Not Started
  * `queued` - Queued
  * `in_progress` - In Progress
@@ -579,21 +745,6 @@ export const TaskRunDetailProviderEnumApi = {
     Anthropic: 'anthropic',
     Openai: 'openai',
 } as const
-
-export interface TaskRunArtifactResponseApi {
-    /** Artifact file name */
-    name: string
-    /** Artifact classification (plan, context, etc.) */
-    type: string
-    /** Artifact size in bytes */
-    size?: number
-    /** Optional MIME type */
-    content_type?: string
-    /** S3 object key for the artifact */
-    storage_path: string
-    /** Timestamp when the artifact was uploaded */
-    uploaded_at: string
-}
 
 export interface TaskRunDetailApi {
     readonly id: string
@@ -700,6 +851,8 @@ export interface PatchedTaskRunUpdateApi {
     output?: unknown | null
     /** State of the run */
     state?: unknown
+    /** State keys to remove atomically before applying any state updates. */
+    state_remove_keys?: string[]
     /**
      * Error message if execution failed
      * @nullable
@@ -715,23 +868,14 @@ export interface TaskRunAppendLogRequestApi {
 }
 
 /**
- * * `plan` - plan
- * `context` - context
- * `reference` - reference
- * `output` - output
- * `artifact` - artifact
- * `tree_snapshot` - tree_snapshot
+ * * `utf-8` - utf-8
+ * `base64` - base64
  */
-export type TaskRunArtifactUploadTypeEnumApi =
-    (typeof TaskRunArtifactUploadTypeEnumApi)[keyof typeof TaskRunArtifactUploadTypeEnumApi]
+export type ContentEncodingEnumApi = (typeof ContentEncodingEnumApi)[keyof typeof ContentEncodingEnumApi]
 
-export const TaskRunArtifactUploadTypeEnumApi = {
-    Plan: 'plan',
-    Context: 'context',
-    Reference: 'reference',
-    Output: 'output',
-    Artifact: 'artifact',
-    TreeSnapshot: 'tree_snapshot',
+export const ContentEncodingEnumApi = {
+    Utf8: 'utf-8',
+    Base64: 'base64',
 } as const
 
 export interface TaskRunArtifactUploadApi {
@@ -747,10 +891,21 @@ export interface TaskRunArtifactUploadApi {
 * `reference` - reference
 * `output` - output
 * `artifact` - artifact
-* `tree_snapshot` - tree_snapshot */
-    type: TaskRunArtifactUploadTypeEnumApi
-    /** Raw file contents (UTF-8 string or base64 data) */
+* `tree_snapshot` - tree_snapshot
+* `user_attachment` - user_attachment */
+    type: TypeE8eEnumApi
+    /**
+     * Optional source label for the artifact, such as agent_output or user_attachment
+     * @maxLength 64
+     */
+    source?: string
+    /** Artifact contents encoded according to content_encoding */
     content: string
+    /** Encoding used for content. Use base64 for binary files and utf-8 for text payloads.
+
+* `utf-8` - utf-8
+* `base64` - base64 */
+    content_encoding?: ContentEncodingEnumApi
     /**
      * Optional MIME type for the artifact
      * @maxLength 255
@@ -774,6 +929,116 @@ export interface TaskRunArtifactPresignRequestApi {
      * @maxLength 500
      */
     storage_path: string
+}
+
+export interface TaskRunArtifactFinalizeUploadApi {
+    /** Stable identifier returned by the prepare upload endpoint */
+    id: string
+    /**
+     * File name associated with the artifact
+     * @maxLength 255
+     */
+    name: string
+    /** Classification for the artifact
+
+* `plan` - plan
+* `context` - context
+* `reference` - reference
+* `output` - output
+* `artifact` - artifact
+* `tree_snapshot` - tree_snapshot
+* `user_attachment` - user_attachment */
+    type: TypeE8eEnumApi
+    /**
+     * Optional source label for the artifact, such as agent_output or user_attachment
+     * @maxLength 64
+     */
+    source?: string
+    /**
+     * S3 object key returned by the prepare step
+     * @maxLength 500
+     */
+    storage_path: string
+    /**
+     * Optional MIME type recorded for the artifact
+     * @maxLength 255
+     */
+    content_type?: string
+}
+
+export interface TaskRunArtifactsFinalizeUploadRequestApi {
+    /** Array of uploaded artifacts to finalize */
+    artifacts: TaskRunArtifactFinalizeUploadApi[]
+}
+
+export interface TaskRunArtifactsFinalizeUploadResponseApi {
+    /** Updated list of artifacts on the run */
+    artifacts: TaskRunArtifactResponseApi[]
+}
+
+export interface TaskRunArtifactPrepareUploadApi {
+    /**
+     * File name to associate with the artifact
+     * @maxLength 255
+     */
+    name: string
+    /** Classification for the artifact
+
+* `plan` - plan
+* `context` - context
+* `reference` - reference
+* `output` - output
+* `artifact` - artifact
+* `tree_snapshot` - tree_snapshot
+* `user_attachment` - user_attachment */
+    type: TypeE8eEnumApi
+    /**
+     * Optional source label for the artifact, such as agent_output or user_attachment
+     * @maxLength 64
+     */
+    source?: string
+    /**
+     * Expected upload size in bytes (max 31457280 bytes)
+     * @minimum 1
+     * @maximum 31457280
+     */
+    size: number
+    /**
+     * Optional MIME type for the artifact upload
+     * @maxLength 255
+     */
+    content_type?: string
+}
+
+export interface TaskRunArtifactsPrepareUploadRequestApi {
+    /** Array of artifacts to prepare */
+    artifacts: TaskRunArtifactPrepareUploadApi[]
+}
+
+export interface TaskRunArtifactPrepareUploadResponseApi {
+    /** Stable identifier for the prepared artifact within this run */
+    id: string
+    /** Artifact file name */
+    name: string
+    /** Artifact classification (plan, context, etc.) */
+    type: string
+    /** Source of the artifact, such as agent_output or user_attachment */
+    source?: string
+    /** Expected upload size in bytes */
+    size: number
+    /** Optional MIME type */
+    content_type?: string
+    /** S3 object key reserved for the artifact */
+    storage_path: string
+    /** Presigned POST expiry in seconds */
+    expires_in: number
+    /** Presigned S3 POST configuration for uploading the file */
+    presigned_post: S3PresignedPostApi
+}
+
+export interface TaskRunArtifactsPrepareUploadResponseApi {
+    /** Prepared uploads for the requested artifacts */
+    artifacts: TaskRunArtifactPrepareUploadResponseApi[]
 }
 
 export interface TaskRunArtifactPresignResponseApi {

@@ -3,7 +3,7 @@ from datetime import UTC, datetime
 from typing import Final, TypedDict, cast
 from zoneinfo import ZoneInfo
 
-from django.db import transaction
+from django.db import models, transaction
 from django.db.models import F, OuterRef, Prefetch, Q, QuerySet, Subquery
 
 from drf_spectacular.utils import extend_schema, extend_schema_field
@@ -57,6 +57,11 @@ _NOT_ANNOTATED: Final = object()
 
 def _any_field_changed(instance: LogsAlertConfiguration, validated_data: dict, fields: set[str]) -> bool:
     return any(f in validated_data and validated_data[f] != getattr(instance, f) for f in fields)
+
+
+class DestinationType(models.TextChoices):
+    SLACK = "slack"
+    WEBHOOK = "webhook"
 
 
 class LogsAlertSparklineBucketSerializer(serializers.Serializer):
@@ -184,6 +189,13 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
             "over a 24h window."
         ),
     )
+    destination_types = serializers.SerializerMethodField(
+        help_text=(
+            "Notification destination types configured for this alert — e.g. 'slack', 'webhook'. "
+            "Empty list means no notifications will fire. One or more destinations should be added "
+            "after creating an alert."
+        ),
+    )
 
     @extend_schema_field(LogsAlertSparklineBucketSerializer(many=True))
     def get_sparkline(self, obj: LogsAlertConfiguration) -> list[SparklineBucket]:
@@ -215,6 +227,23 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
                     buckets[hour_offset]["breached"] += 1
 
         return buckets
+
+    @extend_schema_field(serializers.ListField(child=serializers.ChoiceField(choices=list(DestinationType))))
+    def get_destination_types(self, obj: LogsAlertConfiguration) -> list[str]:
+        # N+1 is acceptable: max 20 alerts per team, each query is a fast indexed lookup.
+        team_id = obj.team_id
+        template_ids = (
+            HogFunction.objects.filter(
+                team_id=team_id,
+                deleted=False,
+                template_id__in=["template-slack", "template-webhook"],
+                filters__properties__contains=[{"key": "alert_id", "value": str(obj.id)}],
+            )
+            .values_list("template_id", flat=True)
+            .distinct()
+        )
+        type_map = {"template-slack": "slack", "template-webhook": "webhook"}
+        return sorted(type_map[tid] for tid in template_ids if tid in type_map)
 
     @extend_schema_field(serializers.CharField(allow_null=True))
     def get_last_error_message(self, obj: LogsAlertConfiguration) -> str | None:
@@ -258,6 +287,7 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
             "consecutive_failures",
             "last_error_message",
             "sparkline",
+            "destination_types",
             "created_at",
             "created_by",
             "updated_at",
@@ -272,6 +302,7 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
             "consecutive_failures",
             "last_error_message",
             "sparkline",
+            "destination_types",
             "created_at",
             "created_by",
             "updated_at",
@@ -476,7 +507,7 @@ class LogsAlertSimulateResponseSerializer(serializers.Serializer):
 
 
 class LogsAlertCreateDestinationSerializer(serializers.Serializer):
-    type = serializers.ChoiceField(choices=["slack", "webhook"], help_text="Destination type — slack or webhook.")
+    type = serializers.ChoiceField(choices=list(DestinationType), help_text="Destination type — slack or webhook.")
     slack_workspace_id = serializers.IntegerField(
         required=False, help_text="Integration ID for the Slack workspace. Required when type=slack."
     )

@@ -32,8 +32,12 @@ import { sanitizeHeaderValue } from '@/lib/utils'
 import { registerPrompts } from '@/prompts'
 import { registerResources } from '@/resources'
 import { registerUiAppResources } from '@/resources/ui-apps'
+import CLI_PROXY_COMMAND from '@/templates/cli-proxy-command.md'
+import CLI_PROXY_TOOL from '@/templates/cli-proxy-tool.md'
 import INSTRUCTIONS_TEMPLATE_V1 from '@/templates/instructions-v1.md'
 import INSTRUCTIONS_TEMPLATE_V2 from '@/templates/instructions-v2.md'
+import { createExecTool } from '@/tools/exec'
+import { getToolDefinition } from '@/tools/toolDefinitions'
 import {
     POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY,
     POSTHOG_META_KEY,
@@ -123,7 +127,10 @@ export class MCP extends McpAgent<Env> {
 
             const params = (
                 initRequest as {
-                    params?: { clientInfo?: { name?: string; version?: string }; protocolVersion?: string }
+                    params?: {
+                        clientInfo?: { name?: string; version?: string }
+                        protocolVersion?: string
+                    }
                 }
             ).params
             if (!params) {
@@ -336,11 +343,7 @@ export class MCP extends McpAgent<Env> {
             return
         }
 
-        await this.trackEvent(
-            event,
-            {},
-            { context: resolvedContext, ...(previousContext ? { previousContext } : {}) }
-        )
+        await this.trackEvent(event, {}, { context: resolvedContext, ...(previousContext ? { previousContext } : {}) })
     }
 
     registerTool<TSchema extends z.ZodObject>(
@@ -476,6 +479,7 @@ export class MCP extends McpAgent<Env> {
         // Start feature flag resolution in parallel with cache seeding
         const flagPromise = this.resolveVersionFlag()
         const toolFlagsPromise = this.resolveToolFeatureFlags(clientVersion)
+        const singleExecPromise = this.resolveSingleExecFlag()
 
         // Seed cache with header-provided IDs before any fetches
         if (organizationId) {
@@ -492,8 +496,12 @@ export class MCP extends McpAgent<Env> {
             await context.stateManager.setDefaultOrganizationAndProject()
         }
 
-        const [flagVersion, toolFeatureFlags] = await Promise.all([flagPromise, toolFlagsPromise])
-        const version = flagVersion ?? clientVersion ?? 1
+        const [flagVersion, toolFeatureFlags, useSingleExec] = await Promise.all([
+            flagPromise,
+            toolFlagsPromise,
+            singleExecPromise,
+        ])
+        const version = useSingleExec ? 2 : (flagVersion ?? clientVersion ?? 1)
 
         // Fetch group types and metadata in parallel (cache is now seeded)
         const resolvedProjectId = projectId || (await this.cache.get('projectId'))
@@ -503,10 +511,11 @@ export class MCP extends McpAgent<Env> {
                 : Promise.resolve(undefined),
             context.stateManager.getEnvironmentPrompt(),
         ])
-        const instructions =
+        const standardInstructions =
             version === 2
                 ? buildInstructionsV2(INSTRUCTIONS_TEMPLATE_V2, guidelines, groupTypes, metadata)
                 : buildInstructionsV1(INSTRUCTIONS_TEMPLATE_V1, metadata)
+        const instructions = useSingleExec ? '' : standardInstructions
 
         this.server = new McpServer({ name: 'PostHog', version: '1.0.0' }, { instructions })
 
@@ -544,9 +553,23 @@ export class MCP extends McpAgent<Env> {
             this._api.config.oauthClientName = oauthClientName
         }
 
-        for (const tool of allTools) {
-            const typedTool = tool as Tool<z.ZodObject>
-            this.registerTool(typedTool, async (params) => typedTool.handler(context, params))
+        // In single-exec mode, register one "posthog" tool that wraps all tools
+        // behind a CLI-like interface. Otherwise, register each tool individually.
+        if (useSingleExec) {
+            const toolInfos = allTools.map((t) => ({
+                name: t.name,
+                category: getToolDefinition(t.name, version).category,
+            }))
+            const commandReference = buildInstructionsV2(CLI_PROXY_COMMAND, guidelines, groupTypes, metadata, toolInfos)
+
+            const execTool = createExecTool(allTools, context, CLI_PROXY_TOOL, commandReference)
+            const typedExecTool = execTool as Tool<z.ZodObject>
+            this.registerTool(typedExecTool, async (params) => typedExecTool.handler(context, params))
+        } else {
+            for (const tool of allTools) {
+                const typedTool = tool as Tool<z.ZodObject>
+                this.registerTool(typedTool, async (params) => typedTool.handler(context, params))
+            }
         }
 
         await initMcpCatObservability(this.server, {
@@ -601,6 +624,15 @@ export class MCP extends McpAgent<Env> {
             return (await isFeatureFlagEnabled('mcp-version-2', distinctId)) ? 2 : undefined
         } catch {
             return undefined
+        }
+    }
+
+    private async resolveSingleExecFlag(): Promise<boolean> {
+        try {
+            const distinctId = await this.getDistinctId()
+            return !!(await isFeatureFlagEnabled('mcp-single-exec-tool', distinctId))
+        } catch {
+            return false
         }
     }
 
