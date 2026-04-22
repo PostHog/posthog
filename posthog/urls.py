@@ -50,6 +50,7 @@ from posthog.temporal.codec_server import decode_payloads
 
 from products.data_warehouse.backend.api.public_source_configs import PublicSourceConfigViewSet
 from products.early_access_features.backend.api import early_access_features
+from products.legal_documents.backend.presentation.webhook import legal_document_signed_webhook
 from products.messaging.backend.api.customerio_webhook import CustomerIOWebhookView
 from products.product_tours.backend.api import product_tours
 from products.signals.backend import views as signals_views
@@ -203,6 +204,11 @@ urlpatterns = [
     path("api/environments/<int:team_id>/query/<str:query_uuid>/progress", progress),
     path("api/unsubscribe", unsubscribe.unsubscribe),
     path("api/alerts/github", github.SecretAlert.as_view()),
+    path(
+        "api/legal_documents/signed",
+        csrf_exempt(legal_document_signed_webhook),
+        name="legal_document_signed_webhook",
+    ),
     path(
         "api/users/<str:user_id>/signal_autonomy/",
         signals_user_autonomy_view.as_view(),

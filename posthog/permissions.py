@@ -1,3 +1,4 @@
+import os
 import time
 from typing import Optional, cast
 
@@ -699,6 +700,10 @@ class AccessControlPermission(ScopeBasePermission):
         return False
 
 
+_raw = os.environ.get("POSTHOG_FEATURE_FLAGS_FORCE_ENABLED", "")
+_FORCE_ENABLED_FLAGS: frozenset[str] = frozenset(f.strip() for f in _raw.split(",") if f.strip())
+
+
 class PostHogFeatureFlagPermission(BasePermission):
     def has_permission(self, request, view) -> bool:
         user = cast(User, request.user)
@@ -719,6 +724,9 @@ class PostHogFeatureFlagPermission(BasePermission):
 
         for required_flag, actions in config.items():
             if "*" in actions or view.action in actions:
+                if required_flag in _FORCE_ENABLED_FLAGS:
+                    return True
+
                 org_id = str(organization.id)
 
                 enabled = posthoganalytics.feature_enabled(
