@@ -1173,7 +1173,14 @@ def _resolve_or_create_project_team(
         )
     except IntegrityError:
         new_team.delete()
-        race_winner = TeamProvisioningConfig.objects.filter(stripe_project_id=project_id).select_related("team").first()
+        race_winner = (
+            TeamProvisioningConfig.objects.filter(
+                stripe_project_id=project_id,
+                team__organization_id__in=Team.objects.filter(id__in=scoped_teams).values("organization_id"),
+            )
+            .select_related("team")
+            .first()
+        )
         if race_winner:
             return _ensure_team_in_token_scopes(access_token, scoped_teams, race_winner.team)
         return base_team, scoped_teams
