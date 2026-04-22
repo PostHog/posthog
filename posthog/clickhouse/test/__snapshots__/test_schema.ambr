@@ -785,7 +785,7 @@
       _partition UInt64
   
       
-  ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_ai_events', cityHash64(concat(toString(team_id), '-', trace_id, '-', toString(toDate(timestamp)))))
+  ) ENGINE = Distributed('ai_events', 'posthog_test', 'sharded_ai_events', cityHash64(concat(toString(team_id), '-', trace_id, '-', toString(toDate(timestamp)))))
   
   '''
 # ---

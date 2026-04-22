@@ -22,6 +22,8 @@ from posthog.models.data_deletion_request import (
     ExecutionMode,
     RequestStatus,
     RequestType,
+    event_match_params,
+    event_match_sql_fragment,
     jsonhas_expr,
 )
 from posthog.models.event.sql import EVENTS_DATA_TABLE
@@ -44,6 +46,7 @@ class DeletionRequestContext:
     events: list[str]
     properties: list[str] = field(default_factory=list)
     execution_mode: str = ExecutionMode.IMMEDIATE.value
+    delete_all_events: bool = False
 
 
 # ---------------------------------------------------------------------------
@@ -80,18 +83,12 @@ def _base_params(ctx: DeletionRequestContext) -> dict:
     }
 
 
-EVENT_REMOVAL_PREDICATE = (
-    "team_id = %(team_id)s AND timestamp >= %(start_time)s AND timestamp < %(end_time)s AND event IN %(events)s"
-)
+_EVENT_REMOVAL_TIME_PREDICATE = "team_id = %(team_id)s AND timestamp >= %(start_time)s AND timestamp < %(end_time)s"
 
 
-def _event_removal_params(request: DataDeletionRequest) -> dict:
-    return {
-        "team_id": request.team_id,
-        "start_time": request.start_time,
-        "end_time": request.end_time,
-        "events": request.events,
-    }
+def _event_removal_predicate(obj) -> str:
+    """Full WHERE predicate for event removal (time-bounded, optionally event-filtered)."""
+    return f"{_EVENT_REMOVAL_TIME_PREDICATE} {event_match_sql_fragment(obj)}".strip()
 
 
 def _get_affected_mat_columns(client: Client, table: str, properties: list[str]) -> list[tuple[str, bool]]:
@@ -181,19 +178,23 @@ def load_deletion_request(
         request.status = RequestStatus.IN_PROGRESS
         request.save(update_fields=["status", "updated_at"])
 
+    events_desc = "<all events>" if request.delete_all_events else f"{request.events}"
     context.log.info(
         f"Processing deletion request {request.pk}: "
-        f"team_id={request.team_id}, events={request.events}, "
+        f"team_id={request.team_id}, events={events_desc}, "
         f"time_range={request.start_time} to {request.end_time}, "
         f"execution_mode={request.execution_mode}"
     )
     context.add_output_metadata(
         {
             "team_id": dagster.MetadataValue.int(request.team_id),
-            "events": dagster.MetadataValue.text(", ".join(request.events)),
+            "events": dagster.MetadataValue.text(
+                "<all events>" if request.delete_all_events else ", ".join(request.events)
+            ),
             "start_time": dagster.MetadataValue.text(str(request.start_time)),
             "end_time": dagster.MetadataValue.text(str(request.end_time)),
             "execution_mode": dagster.MetadataValue.text(request.execution_mode),
+            "delete_all_events": dagster.MetadataValue.bool(request.delete_all_events),
         }
     )
 
@@ -204,6 +205,7 @@ def load_deletion_request(
         end_time=request.end_time,
         events=request.events,
         execution_mode=request.execution_mode,
+        delete_all_events=request.delete_all_events,
     )
 
 
@@ -223,13 +225,8 @@ def _run_immediate_event_deletion(
 
         runner = LightweightDeleteMutationRunner(
             table=table,
-            predicate=EVENT_REMOVAL_PREDICATE,
-            parameters={
-                "team_id": deletion_request.team_id,
-                "start_time": deletion_request.start_time,
-                "end_time": deletion_request.end_time,
-                "events": deletion_request.events,
-            },
+            predicate=_event_removal_predicate(deletion_request),
+            parameters=event_match_params(deletion_request),
             settings={"lightweight_deletes_sync": 0},
         )
 
@@ -253,16 +250,12 @@ def _queue_events_for_deferred_deletion(
     source_table = EVENTS_DATA_TABLE()
     db = django_settings.CLICKHOUSE_DATABASE
     shards = sorted(cluster.shards)
-    params = {
-        "team_id": deletion_request.team_id,
-        "start_time": deletion_request.start_time,
-        "end_time": deletion_request.end_time,
-        "events": deletion_request.events,
-    }
+    predicate = _event_removal_predicate(deletion_request)
+    params = event_match_params(deletion_request)
     # nosemgrep: clickhouse-fstring-param-audit (all interpolated values are internal constants/settings)
     insert_sql = (
         f"INSERT INTO {db}.{ADHOC_EVENTS_DELETION_TABLE} (team_id, uuid) "
-        f"SELECT team_id, uuid FROM {db}.{source_table} WHERE {EVENT_REMOVAL_PREDICATE}"
+        f"SELECT team_id, uuid FROM {db}.{source_table} WHERE {predicate}"
     )
 
     def run_on_shard(client: Client) -> int:
@@ -698,7 +691,8 @@ def _count_remaining_matching_events(request: DataDeletionRequest) -> int:
     from posthog.clickhouse.query_tagging import Feature, Product, tags_context
     from posthog.clickhouse.workload import Workload
 
-    params = _event_removal_params(request)
+    predicate = _event_removal_predicate(request)
+    params = event_match_params(request)
     with tags_context(
         product=Product.INTERNAL,
         feature=Feature.DATA_DELETION,
@@ -706,9 +700,9 @@ def _count_remaining_matching_events(request: DataDeletionRequest) -> int:
         workload=Workload.OFFLINE,
         query_type="data_deletion_request_verify_queued",
     ):
-        # nosemgrep: clickhouse-fstring-param-audit (EVENT_REMOVAL_PREDICATE is a module-level constant)
+        # nosemgrep: clickhouse-fstring-param-audit (predicate built from internal helper, not user input)
         result = sync_execute(
-            f"SELECT count() FROM events WHERE {EVENT_REMOVAL_PREDICATE} AND _row_exists = 1",
+            f"SELECT count() FROM events WHERE {predicate} AND _row_exists = 1",
             params,
             team_id=request.team_id,
             readonly=True,

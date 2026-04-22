@@ -81,6 +81,7 @@ depends_on = [
     "products.experiments",
     "products.feature_flags",
     "products.growth",
+    "products.legal_documents",
     "products.links",
     "products.live_debugger",
     "products.llm_analytics",
@@ -519,3 +520,11 @@ expose = [
 from = [
     "products.tracing",
 ]
+
+[[modules]]
+path = "products.legal_documents"
+depends_on = [
+    "ee",
+    "posthog",
+]
+layer = "modules"

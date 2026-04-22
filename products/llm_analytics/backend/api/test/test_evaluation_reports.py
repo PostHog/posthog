@@ -190,6 +190,44 @@ class TestEvaluationReportApi(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.json().get("attr"), "trigger_threshold")
 
+    @parameterized.expand(
+        [
+            ("below_min", EvaluationReport.COOLDOWN_MINUTES_MIN - 1),
+            ("above_max", EvaluationReport.COOLDOWN_MINUTES_MAX + 1),
+        ]
+    )
+    def test_create_rejects_out_of_bounds_cooldown_minutes(self, _name, cooldown_minutes):
+        response = self.client.post(
+            self.base_url,
+            {
+                "evaluation": str(self.evaluation.id),
+                "frequency": "every_n",
+                "trigger_threshold": 100,
+                "cooldown_minutes": cooldown_minutes,
+                "delivery_targets": [],
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json().get("attr"), "cooldown_minutes")
+
+    def test_create_accepts_custom_cooldown_minutes(self):
+        response = self.client.post(
+            self.base_url,
+            {
+                "evaluation": str(self.evaluation.id),
+                "frequency": "every_n",
+                "trigger_threshold": 100,
+                "cooldown_minutes": 6 * 60,
+                "delivery_targets": [],
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
+        report = EvaluationReport.objects.first()
+        assert report is not None
+        self.assertEqual(report.cooldown_minutes, 6 * 60)
+
     def test_validate_email_target(self):
         response = self.client.post(
             self.base_url,
