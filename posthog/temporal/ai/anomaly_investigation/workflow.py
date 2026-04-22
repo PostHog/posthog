@@ -278,6 +278,8 @@ def _truncate_summary(summary: str | None) -> str | None:
     if not summary:
         return None
     trimmed = summary.strip()
+    if not trimmed:
+        return None
     if len(trimmed) <= MAX_SUMMARY_CHARS:
         return trimmed
     return trimmed[: MAX_SUMMARY_CHARS - 1].rstrip() + "…"
