@@ -18,7 +18,7 @@ import {
     readToolbarAuthHash,
 } from './utils'
 
-type ApiHostSource = 'posthog_api_host' | 'api_url' | 'fallback_rejected' | 'fallback_absent'
+export type ApiHostSource = 'posthog_api_host' | 'api_url' | 'fallback_rejected' | 'fallback_absent'
 
 export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
     path(['toolbar', 'toolbarConfigLogic']),
@@ -809,6 +809,9 @@ export async function toolbarFetch(
         }
         return headers
     }
+    // `withTokenRefresh` may replay the same request once with a new token. We intentionally
+    // reuse the same FormData instance here: FormData is re-readable (unlike one-shot streams),
+    // so both the initial send and the retry can consume it safely.
     const body: BodyInit | undefined = payload
         ? isFormData
             ? (payload as FormData)

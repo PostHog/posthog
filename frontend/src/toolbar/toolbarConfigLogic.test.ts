@@ -1357,17 +1357,11 @@ describe('toolbar toolbarConfigLogic', () => {
             expect(uploadCalls).toHaveLength(1)
             expect(uploadCalls[0][0]).toBe('https://us.posthog.com/api/projects/@current/uploaded_media/')
 
-            // No fetch anywhere (upload or otherwise) may target the attacker host
-            // carrying an Authorization header.
-            for (const [calledUrl, init] of (global.fetch as jest.Mock).mock.calls) {
-                if (typeof calledUrl !== 'string') {
-                    continue
-                }
-                const auth = (init?.headers as Record<string, string> | undefined)?.Authorization
-                if (calledUrl.includes('evil.example.com')) {
-                    expect(auth).toBeUndefined()
-                }
-            }
+            // Strong regression guard: no fetch (auth or otherwise) may target attacker host.
+            const callsToAttacker = (global.fetch as jest.Mock).mock.calls.filter(
+                ([url]) => typeof url === 'string' && url.includes('evil.example.com')
+            )
+            expect(callsToAttacker).toHaveLength(0)
         })
 
         it('throws "Toolbar not authenticated" when no session exists, without firing tokenExpired', async () => {
