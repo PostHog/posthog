@@ -138,8 +138,10 @@ def _make_paginated_shopify_request(
             # this is intentionally an unsafe lookup so errors surface if expectations aren't met
             next_cursor = page_info["endCursor"]
             vars.update({"cursor": next_cursor})
-            # Checkpoint points to the NEXT unfetched page, so resume never re-fetches
-            # a page already yielded; primary-key merge semantics still dedupe if it does.
+            # Checkpoint points to the NEXT unfetched page. Because this save happens
+            # only after the generator is resumed past `yield data`, a shutdown/crash
+            # after yielding can still cause the last yielded page to be re-fetched on
+            # resume; primary-key merge semantics dedupe if that happens.
             if resumable_source_manager is not None:
                 resumable_source_manager.save_state(ShopifyResumeConfig(phase=phase, cursor=next_cursor))
 
