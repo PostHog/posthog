@@ -1,4 +1,5 @@
-import { BindLogic, useActions, useValues } from 'kea'
+import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
+import { useEffect } from 'react'
 
 import { LemonBanner, LemonTabs } from '@posthog/lemon-ui'
 
@@ -83,6 +84,18 @@ export function LegacyExperimentView({ tabId }: Pick<ExperimentSceneLogicProps, 
         experiment,
         tabId,
     }
+
+    // Mount the logic and load metrics when experiment is available
+    const logic = legacyExperimentLogic(legacyLogicProps)
+    useMountedLogic(logic)
+    const { refreshExperimentResults } = useActions(logic)
+
+    // Load metrics on mount - afterMount doesn't fire reliably on reconnections
+    useEffect(() => {
+        if (!experimentLoading && experiment) {
+            refreshExperimentResults(false, 'page_load')
+        }
+    }, [experimentLoading, experiment?.id])
 
     return (
         <BindLogic logic={legacyExperimentLogic} props={legacyLogicProps}>
