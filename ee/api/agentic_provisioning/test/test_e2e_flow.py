@@ -278,14 +278,26 @@ class TestE2EProvisioningFlow(StripeProvisioningTestBase):
         self.client.force_login(existing_user)
         res = self.client.get(auth_url)
 
-        # Single org + single team = auto-redirect to callback with auth code
+        # PKCE partners always go to the consent page, even for single-org/team
         assert res.status_code == 302
         redirect_url = res["Location"]
+        assert "/agentic/authorize?" in redirect_url
         parsed_redirect = urlparse(redirect_url)
-        assert parsed_redirect.netloc == "partner.example.com"
-        auth_code = parse_qs(parsed_redirect.query)["code"][0]
+        consent_state = parse_qs(parsed_redirect.query)["state"][0]
 
-        # 3. Partner exchanges auth code for tokens using PKCE
+        # 3. User approves on the consent page (simulated via agentic_authorize_confirm)
+        res = self.client.post(
+            "/api/agentic/authorize/confirm/",
+            data=json.dumps({"state": consent_state, "team_id": self.team.id}),
+            content_type="application/json",
+        )
+        assert res.status_code == 200
+        callback_redirect = res.json()["redirect_url"]
+        parsed_callback = urlparse(callback_redirect)
+        assert parsed_callback.netloc == "partner.example.com"
+        auth_code = parse_qs(parsed_callback.query)["code"][0]
+
+        # 4. Partner exchanges auth code for tokens using PKCE
         token_body = urlencode(
             {
                 "grant_type": "authorization_code",
@@ -305,7 +317,7 @@ class TestE2EProvisioningFlow(StripeProvisioningTestBase):
         access_token = token_data["access_token"]
         assert access_token.startswith("pha_")
 
-        # 4. Partner provisions a resource with the token
+        # 5. Partner provisions a resource with the token
         res = self.client.post(
             "/api/agentic/provisioning/resources",
             data=json.dumps({"service_id": "analytics"}).encode(),

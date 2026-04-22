@@ -644,7 +644,19 @@ def agentic_authorize(request: Any) -> HttpResponseBase:
         non_demo_teams = [team]
         _capture_provisioning_event("authorize", "auto_created_project", team_id=team.id)
 
-    if len(memberships) == 1 and len(non_demo_teams) == 1:
+    # PKCE partners always show the consent page so the user explicitly approves.
+    # HMAC partners (Stripe) can auto-redirect for single-org/team users since
+    # they're trusted server-to-server integrations.
+    partner_id = pending.get("partner_id", "")
+    is_pkce_partner = False
+    if partner_id:
+        try:
+            partner_app = OAuthApplication.objects.get(id=partner_id)
+            is_pkce_partner = partner_app.provisioning_auth_method == "pkce"
+        except OAuthApplication.DoesNotExist:
+            pass
+
+    if not is_pkce_partner and len(memberships) == 1 and len(non_demo_teams) == 1:
         cache.delete(pending_key)
 
         organization = memberships[0].organization
