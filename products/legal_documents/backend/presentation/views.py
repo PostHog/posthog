@@ -29,7 +29,7 @@ class IsCloudOrDevDeployment(BasePermission):
 
     message = "Legal documents are only available on PostHog Cloud."
 
-    def has_permission(self, request: Request, view) -> bool:
+    def has_permission(self, request: Request, view: APIView) -> bool:
         if not (is_cloud() or is_dev_mode()):
             raise exceptions.NotFound("Not found.")
         return True

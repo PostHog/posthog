@@ -1,9 +1,12 @@
+from typing import Any
+
 from django.contrib import admin, messages
 from django.forms import ModelForm
-from django.http import HttpRequest
+from django.http import HttpRequest, HttpResponse
 from django.urls import reverse
 from django.utils.html import format_html
 from django.utils.safestring import SafeString
+
 from posthog.cloud_utils import is_cloud, is_dev_mode
 
 from .models import LegalDocument
@@ -89,7 +92,7 @@ class LegalDocumentAdmin(admin.ModelAdmin):
     def has_delete_permission(self, request: HttpRequest, obj: LegalDocument | None = None) -> bool:
         return False
 
-    def changelist_view(self, request: HttpRequest, extra_context=None):
+    def changelist_view(self, request: HttpRequest, extra_context: dict[str, Any] | None = None) -> HttpResponse:
         if not (is_cloud() or is_dev_mode()):
             messages.warning(
                 request,
@@ -99,7 +102,9 @@ class LegalDocumentAdmin(admin.ModelAdmin):
             )
         return super().changelist_view(request, extra_context=extra_context)
 
-    def change_view(self, request: HttpRequest, object_id, form_url="", extra_context=None):
+    def change_view(
+        self, request: HttpRequest, object_id: str, form_url: str = "", extra_context: dict[str, Any] | None = None
+    ) -> HttpResponse:
         if not (is_cloud() or is_dev_mode()):
             messages.warning(
                 request,
@@ -115,7 +120,7 @@ class LegalDocumentAdmin(admin.ModelAdmin):
         return format_html('<a href="{}">{}</a>', url, document.organization.name)
 
     @admin.display(description="PandaDoc", ordering="pandadoc_document_id")
-    def pandadoc_link(self, document: LegalDocument):
+    def pandadoc_link(self, document: LegalDocument) -> str | SafeString:
         if not document.pandadoc_document_id:
             return "—"
         return format_html(

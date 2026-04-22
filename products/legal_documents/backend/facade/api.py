@@ -13,8 +13,8 @@ from uuid import UUID
 from posthog.models.organization import Organization
 
 from .. import logic
-from ..models import LegalDocument
 from ..logic.pandadoc import verify_webhook_signature as _verify_pandadoc_webhook_signature
+from ..models import LegalDocument
 from . import contracts
 from .enums import LegalDocumentStatus
 
