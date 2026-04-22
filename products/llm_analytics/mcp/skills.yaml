@@ -80,6 +80,12 @@ tools:
             for incremental find/replace updates. Each edit must have 'old' (text to find,
             must match exactly once) and 'new' (replacement text). Edits are applied
             sequentially. Only one of 'body' or 'edits' may be provided.
+
+            For bundled files, use 'file_edits' to apply find/replace updates to individual
+            files without resending the full file set — each entry targets one existing file
+            by path. Non-targeted files carry forward unchanged. 'file_edits' cannot add,
+            remove, or rename files; use 'files' (replace-all) for that. 'files' and
+            'file_edits' are mutually exclusive.
         include_params:
             - body
             - edits
@@ -89,6 +95,7 @@ tools:
             - allowed_tools
             - metadata
             - files
+            - file_edits
             - base_version
     skill-duplicate:
         operation: llm_skills_name_duplicate_create

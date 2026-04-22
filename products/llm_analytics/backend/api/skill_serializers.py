@@ -171,6 +171,22 @@ class LLMSkillEditOperationSerializer(serializers.Serializer):
     )
 
 
+class LLMSkillFileEditSerializer(serializers.Serializer):
+    path = serializers.CharField(
+        max_length=500,
+        help_text="Path of the bundled file to edit. Must match an existing file on the current skill version.",
+    )
+    edits = LLMSkillEditOperationSerializer(
+        many=True,
+        help_text="Sequential find/replace operations to apply to this file's content.",
+    )
+
+    def validate_edits(self, value: list[dict[str, str]]) -> list[dict[str, str]]:
+        if len(value) == 0:
+            raise serializers.ValidationError("At least one edit operation is required.")
+        return value
+
+
 class LLMSkillPublishSerializer(serializers.Serializer):
     body = serializers.CharField(
         required=False,
@@ -214,7 +230,19 @@ class LLMSkillPublishSerializer(serializers.Serializer):
     files = LLMSkillFileInputSerializer(
         many=True,
         required=False,
-        help_text="Bundled files to include with this version. Replaces all files from the previous version.",
+        help_text=(
+            "Bundled files to include with this version. Replaces all files from the previous "
+            "version. Mutually exclusive with file_edits."
+        ),
+    )
+    file_edits = LLMSkillFileEditSerializer(
+        many=True,
+        required=False,
+        help_text=(
+            "Per-file find/replace updates. Each entry targets one existing file by path and "
+            "applies sequential edits to its content. Non-targeted files carry forward unchanged. "
+            "Cannot add, remove, or rename files — use 'files' for that. Mutually exclusive with files."
+        ),
     )
     base_version = serializers.IntegerField(
         min_value=1,
@@ -232,9 +260,19 @@ class LLMSkillPublishSerializer(serializers.Serializer):
     def validate_files(self, value: list[dict[str, Any]]) -> list[dict[str, Any]]:
         return _validate_files(value)
 
+    def validate_file_edits(self, value: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        if len(value) == 0:
+            raise serializers.ValidationError("At least one file_edits entry is required.")
+        paths = [entry["path"] for entry in value]
+        if len(paths) != len(set(paths)):
+            raise serializers.ValidationError("Duplicate file paths are not allowed in file_edits.")
+        return value
+
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         if "body" in attrs and "edits" in attrs:
             raise serializers.ValidationError("Provide either 'body' or 'edits', not both.")
+        if "files" in attrs and "file_edits" in attrs:
+            raise serializers.ValidationError("Provide either 'files' or 'file_edits', not both.")
         return attrs
 
 
