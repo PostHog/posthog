@@ -1,7 +1,7 @@
 import pytest
 from unittest.mock import MagicMock, patch
 
-from products.conversations.backend.mailgun import add_domain
+from products.conversations.backend.mailgun import MailgunDomainConflict, MailgunNotConfigured, add_domain
 
 
 def _mailgun_response(status_code: int, body: dict | None = None) -> MagicMock:
@@ -18,7 +18,7 @@ class TestAddDomain:
     def test_already_exists_raises_instead_of_adopting(self, mock_post: MagicMock, _mock_key: MagicMock):
         mock_post.return_value = _mailgun_response(400, {"message": "domain example.com already exists"})
 
-        with pytest.raises(ValueError, match="already exists"):
+        with pytest.raises(MailgunDomainConflict, match="already exists"):
             add_domain("example.com")
 
     def test_already_taken_still_raises(self, mock_post: MagicMock, _mock_key: MagicMock):
@@ -26,7 +26,7 @@ class TestAddDomain:
             400, {"message": "domain example.com is already taken by another account"}
         )
 
-        with pytest.raises(ValueError, match="another Mailgun account"):
+        with pytest.raises(MailgunDomainConflict, match="another Mailgun account"):
             add_domain("example.com")
 
     def test_success_returns_sending_dns_records(self, mock_post: MagicMock, _mock_key: MagicMock):
@@ -47,7 +47,7 @@ class TestAddDomain:
     def test_case_insensitive_already_exists_match(self, mock_post: MagicMock, _mock_key: MagicMock):
         mock_post.return_value = _mailgun_response(400, {"message": "Domain Already EXISTS"})
 
-        with pytest.raises(ValueError, match="already exists"):
+        with pytest.raises(MailgunDomainConflict, match="already exists"):
             add_domain("example.com")
 
     def test_unrecognised_400_falls_through_to_raise_for_status(self, mock_post: MagicMock, _mock_key: MagicMock):
@@ -57,3 +57,12 @@ class TestAddDomain:
 
         with pytest.raises(RuntimeError, match="http 400"):
             add_domain("example.com")
+
+
+@patch("products.conversations.backend.mailgun.get_instance_setting", return_value="")
+class TestGetApiKey:
+    def test_raises_mailgun_not_configured_when_key_missing(self, _mock_setting: MagicMock):
+        from products.conversations.backend.mailgun import _get_api_key
+
+        with pytest.raises(MailgunNotConfigured):
+            _get_api_key()

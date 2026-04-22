@@ -16,6 +16,7 @@ import type { IngestionConsumerConfig } from './ingestion/config'
 import type { CookielessManager } from './ingestion/cookieless/cookieless-manager'
 import type { ErrorTrackingConsumerConfig } from './ingestion/error-tracking/config'
 import { KafkaProducerWrapper } from './kafka/producer'
+import type { LlmAnalyticsConfig } from './llm-analytics/config'
 import type { LogsIngestionConsumerConfig, TracesIngestionConsumerConfig } from './logs-ingestion/config'
 import type { SessionRecordingApiConfig, SessionRecordingConfig } from './session-recording/config'
 import { PostgresRouter } from './utils/db/postgres'
@@ -32,6 +33,7 @@ type Brand<K, T> = K & { __brand: T }
 
 // Re-export config types from domain-specific files, this is to avoid mass refactors, we can eventually update it
 export { CdpConfig } from './cdp/config'
+export { LlmAnalyticsConfig } from './llm-analytics/config'
 export {
     CommonConfig,
     KafkaSaslMechanism,
@@ -114,6 +116,7 @@ export type PluginServerService = {
 export interface PluginsServerConfig
     extends CommonConfig,
         CdpConfig,
+        LlmAnalyticsConfig,
         IngestionConsumerConfig,
         LogsIngestionConsumerConfig,
         TracesIngestionConsumerConfig,

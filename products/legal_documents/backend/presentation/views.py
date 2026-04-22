@@ -10,11 +10,28 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.cloud_utils import is_cloud, is_dev_mode
 from posthog.models.organization import OrganizationMembership
 from posthog.models.user import User
 
 from ..facade import api, contracts
 from .serializers import CreateLegalDocumentSerializer, LegalDocumentSerializer
+
+
+class IsCloudOrDevDeployment(BasePermission):
+    """
+    Gates the legal-documents API to cloud (or a local DEBUG environment, so
+    we can test the flow). Self-hosted production deployments don't have the
+    PandaDoc / Slack credentials and the feature is a PostHog-owned workflow,
+    not something customers run on their own infrastructure.
+    """
+
+    message = "Legal documents are only available on PostHog Cloud."
+
+    def has_permission(self, request: Request, view) -> bool:
+        if not (is_cloud() or is_dev_mode()):
+            raise exceptions.NotFound("Not found.")
+        return True
 
 
 class IsOrganizationAdminOrOwner(BasePermission):
@@ -44,7 +61,7 @@ class IsOrganizationAdminOrOwner(BasePermission):
 @extend_schema(tags=["core"])
 class LegalDocumentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     scope_object = "legal_document"
-    permission_classes = [permissions.IsAuthenticated, IsOrganizationAdminOrOwner]
+    permission_classes = [IsCloudOrDevDeployment, permissions.IsAuthenticated, IsOrganizationAdminOrOwner]
 
     @extend_schema(responses={200: LegalDocumentSerializer(many=True)})
     def list(self, request: Request, **kwargs) -> Response:
@@ -70,10 +87,7 @@ class LegalDocumentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 document_type=serializer.validated_data["document_type"],
                 company_name=serializer.validated_data["company_name"],
                 company_address=serializer.validated_data["company_address"],
-                representative_name=serializer.validated_data["representative_name"],
-                representative_title=serializer.validated_data["representative_title"],
                 representative_email=serializer.validated_data["representative_email"],
-                dpa_mode=serializer.validated_data["dpa_mode"],
             )
         )
         return Response(LegalDocumentSerializer(instance=dto).data, status=status.HTTP_201_CREATED)
