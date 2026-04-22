@@ -1,3 +1,4 @@
+import os
 import json
 from datetime import UTC, datetime, timedelta
 from typing import Any, Optional, cast
@@ -8210,211 +8211,6 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         status_response = self.client.get(f"/api/projects/{self.team.pk}/feature_flags/{flag.id}/status/")
         self.assertEqual(status_response.status_code, status.HTTP_403_FORBIDDEN)
 
-    @patch("posthog.api.feature_flag.get_flags_from_service")
-    def test_test_evaluation_happy_path(self, mock_get_flags):
-        """Test successful evaluation of a feature flag."""
-        flag = FeatureFlag.objects.create(
-            team=self.team,
-            key="test-flag",
-            filters={"groups": [{"properties": [{"key": "email", "type": "person", "value": "test@example.com"}]}]},
-        )
-        Person.objects.create(team=self.team, distinct_ids=["test-user"])
-
-        # Mock successful flag evaluation response
-        mock_get_flags.return_value = {
-            "feature_flags": {
-                "test-flag": {
-                    "enabled": True,
-                    "variant": None,
-                    "reason": {"code": "condition_match", "condition_index": 0},
-                    "metadata": {"payload": None},
-                    "conditions": [{"key": "email", "operator": "exact", "value": ["test@example.com"]}],
-                }
-            }
-        }
-
-        response = self.client.post(
-            f"/api/projects/{self.team.pk}/feature_flags/{flag.id}/test_evaluation/",
-            {"distinct_id": "test-user"},
-            format="json",
-        )
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        data = response.json()
-        self.assertEqual(data["flag_key"], "test-flag")
-        self.assertEqual(data["result"], True)
-        self.assertEqual(data["reason"], "condition_match")
-        self.assertEqual(data["condition_index"], 0)
-        self.assertIsInstance(data["person_properties"], dict)
-
-    @patch("posthog.api.feature_flag.get_flags_from_service")
-    def test_test_evaluation_with_timestamp(self, mock_get_flags):
-        """Test historical evaluation with timestamp."""
-        flag = FeatureFlag.objects.create(
-            team=self.team,
-            key="test-flag",
-            filters={"groups": [{"properties": []}]},
-        )
-        Person.objects.create(team=self.team, distinct_ids=["test-user"])
-
-        # Mock successful flag evaluation response
-        mock_get_flags.return_value = {
-            "feature_flags": {
-                "test-flag": {
-                    "enabled": False,
-                    "variant": None,
-                    "reason": {"code": "no_condition_match"},
-                    "metadata": {},
-                    "conditions": [],
-                }
-            }
-        }
-
-        with patch("posthog.api.feature_flag.build_person_properties_at_time") as mock_build_props:
-            mock_build_props.return_value = {"email": "historical@example.com"}
-
-            response = self.client.post(
-                f"/api/projects/{self.team.pk}/feature_flags/{flag.id}/test_evaluation/",
-                {"distinct_id": "test-user", "timestamp": "2023-01-01T00:00:00Z"},
-                format="json",
-            )
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        mock_build_props.assert_called_once()
-
-    def test_test_evaluation_distinct_id_person_id_conflict(self):
-        """Test validation error when both distinct_id and person_id are provided."""
-        flag = FeatureFlag.objects.create(team=self.team, key="test-flag")
-
-        response = self.client.post(
-            f"/api/projects/{self.team.pk}/feature_flags/{flag.id}/test_evaluation/",
-            {"distinct_id": "test-user", "person_id": "123"},
-            format="json",
-        )
-
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("Cannot provide both distinct_id and person_id", response.json()["non_field_errors"][0])
-
-    def test_test_evaluation_person_not_found(self):
-        """Test 404 when person doesn't exist."""
-        flag = FeatureFlag.objects.create(team=self.team, key="test-flag")
-
-        response = self.client.post(
-            f"/api/projects/{self.team.pk}/feature_flags/{flag.id}/test_evaluation/",
-            {"distinct_id": "nonexistent-user"},
-            format="json",
-        )
-
-        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
-        self.assertEqual(response.json()["detail"], "Person not found for distinct_id: nonexistent-user")
-
-    @patch("posthog.api.feature_flag.build_person_properties_at_time")
-    def test_test_evaluation_person_didnt_exist_at_timestamp(self, mock_build_props):
-        """Test 400 when person didn't exist at specified timestamp."""
-        flag = FeatureFlag.objects.create(team=self.team, key="test-flag")
-        Person.objects.create(team=self.team, distinct_ids=["test-user"])
-
-        # Mock that person didn't exist at timestamp
-        mock_build_props.return_value = {}
-
-        response = self.client.post(
-            f"/api/projects/{self.team.pk}/feature_flags/{flag.id}/test_evaluation/",
-            {"distinct_id": "test-user", "timestamp": "2020-01-01T00:00:00Z"},
-            format="json",
-        )
-
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("Person did not exist at the specified timestamp", response.json()["error"])
-
-    @patch("posthog.api.feature_flag.get_flags_from_service")
-    def test_test_evaluation_missing_internal_token_error(self, mock_get_flags):
-        """Test 500 when INTERNAL_REQUEST_TOKEN is not set."""
-        flag = FeatureFlag.objects.create(team=self.team, key="test-flag")
-        Person.objects.create(team=self.team, distinct_ids=["test-user"])
-
-        with patch("posthog.api.feature_flag.os.getenv", return_value=None):
-            response = self.client.post(
-                f"/api/projects/{self.team.pk}/feature_flags/{flag.id}/test_evaluation/",
-                {"distinct_id": "test-user"},
-                format="json",
-            )
-
-        self.assertEqual(response.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
-        self.assertEqual(response.json()["error"], "Internal request token not configured")
-
-    @patch("posthog.api.feature_flag.build_person_properties_at_time")
-    def test_test_evaluation_build_properties_failure(self, mock_build_props):
-        """Test 500 when build_person_properties_at_time raises exception."""
-        flag = FeatureFlag.objects.create(team=self.team, key="test-flag")
-        Person.objects.create(team=self.team, distinct_ids=["test-user"])
-
-        # Mock exception during property building
-        mock_build_props.side_effect = Exception("Database error")
-
-        response = self.client.post(
-            f"/api/projects/{self.team.pk}/feature_flags/{flag.id}/test_evaluation/",
-            {"distinct_id": "test-user", "timestamp": "2023-01-01T00:00:00Z"},
-            format="json",
-        )
-
-        self.assertEqual(response.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
-        self.assertEqual(response.json()["error"], "Failed to build person properties at specified timestamp.")
-
-    @patch("posthog.api.feature_flag.get_flags_from_service")
-    def test_test_evaluation_filters_person_properties(self, mock_get_flags):
-        """Test that person_properties are filtered to only flag-referenced keys."""
-        flag = FeatureFlag.objects.create(
-            team=self.team,
-            key="test-flag",
-            filters={"groups": [{"properties": [{"key": "email", "type": "person", "value": "test@example.com"}]}]},
-        )
-        Person.objects.create(
-            team=self.team,
-            distinct_ids=["test-user"],
-            properties={"email": "test@example.com", "name": "Test User", "age": 30},
-        )
-
-        mock_get_flags.return_value = {
-            "feature_flags": {
-                "test-flag": {
-                    "enabled": True,
-                    "variant": None,
-                    "reason": {"code": "condition_match"},
-                    "metadata": {},
-                    "conditions": [],
-                }
-            }
-        }
-
-        response = self.client.post(
-            f"/api/projects/{self.team.pk}/feature_flags/{flag.id}/test_evaluation/",
-            {"distinct_id": "test-user"},
-            format="json",
-        )
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        data = response.json()
-        # Should only include 'email' since that's referenced in the flag, not 'name' or 'age'
-        self.assertEqual(data["person_properties"], {"email": "test@example.com"})
-
-    @patch("posthog.api.feature_flag.get_flags_from_service")
-    def test_test_evaluation_unexpected_response_type(self, mock_get_flags):
-        """Test 502 when flag service returns unexpected response format."""
-        flag = FeatureFlag.objects.create(team=self.team, key="test-flag")
-        Person.objects.create(team=self.team, distinct_ids=["test-user"])
-
-        # Mock unexpected response format (not a dict)
-        mock_get_flags.return_value = {"feature_flags": {"test-flag": "unexpected_string"}}
-
-        response = self.client.post(
-            f"/api/projects/{self.team.pk}/feature_flags/{flag.id}/test_evaluation/",
-            {"distinct_id": "test-user"},
-            format="json",
-        )
-
-        self.assertEqual(response.status_code, status.HTTP_502_BAD_GATEWAY)
-        self.assertEqual(response.json()["error"], "Unexpected response format from flag evaluation service")
-
 
 class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
     def test_creating_static_cohort_with_deleted_flag(self):
@@ -12617,9 +12413,264 @@ class TestFeatureFlagVersions(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "not available" in response.json()["detail"].lower()
 
+
+class TestFeatureFlagTestEvaluation(APIBaseTest, ClickhouseTestMixin):
+    @patch("posthog.api.feature_flag.get_flags_from_service")
+    @patch("posthog.api.feature_flag.get_person_and_distinct_ids_for_identifier")
+    @patch.dict(os.environ, {"INTERNAL_REQUEST_TOKEN": "test-token"})
+    def test_test_evaluation_happy_path(self, mock_get_person, mock_get_flags):
+        """Test successful evaluation of a feature flag."""
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="test-flag",
+            filters={"groups": [{"properties": [{"key": "email", "type": "person", "value": "test@example.com"}]}]},
+        )
+        person = Person.objects.create(
+            team=self.team, distinct_ids=["test-user"], properties={"email": "test@example.com"}
+        )
+
+        # Mock person lookup
+        mock_get_person.return_value = (person, ["test-user"])
+
+        # Mock successful flag evaluation response
+        mock_get_flags.return_value = {
+            "flags": {
+                "test-flag": {
+                    "enabled": True,
+                    "variant": None,
+                    "reason": {"code": "condition_match", "condition_index": 0},
+                    "metadata": {"payload": None},
+                    "conditions": [
+                        {
+                            "index": 0,
+                            "matched": True,
+                            "explanation": "Condition matched",
+                            "rollout_percentage": 100.0,
+                            "rollout_excluded": False,
+                            "variant": None,
+                            "properties": [],
+                        }
+                    ],
+                }
+            }
+        }
+
+        response = self.client.post(
+            f"/api/projects/{self.team.pk}/feature_flags/{flag.id}/test_evaluation/",
+            {"distinct_id": "test-user"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual(data["flag_key"], "test-flag")
+        self.assertEqual(data["result"], True)
+        self.assertEqual(data["reason"], "condition_match")
+        self.assertEqual(data["condition_index"], 0)
+        self.assertIsInstance(data["person_properties"], dict)
+
+    @patch("posthog.api.feature_flag.get_flags_from_service")
+    @patch.dict(os.environ, {"INTERNAL_REQUEST_TOKEN": "test-token"})
+    def test_test_evaluation_with_timestamp(self, mock_get_flags):
+        """Test historical evaluation with timestamp."""
+        import logging
+
+        logger = logging.getLogger(__name__)
+        logger.info("Starting test_test_evaluation_with_timestamp")
+
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="test-flag",
+            filters={"groups": [{"properties": []}]},
+        )
+        logger.info(f"Created flag: {flag.id}")
+
+        person = Person.objects.create(team=self.team, distinct_ids=["test-user"])
+        logger.info(f"Created person: {person.id}")
+
+        # Mock successful flag evaluation response
+        mock_get_flags.return_value = {
+            "flags": {
+                "test-flag": {
+                    "enabled": False,
+                    "variant": None,
+                    "reason": {"code": "no_condition_match"},
+                    "metadata": {},
+                    "conditions": [],
+                }
+            }
+        }
+        logger.info("Set up mock_get_flags")
+
+        with (
+            patch("posthog.api.feature_flag.build_person_properties_at_time") as mock_build_props,
+            patch("posthog.api.feature_flag.person_existed_at_timestamp") as mock_person_existed,
+        ):
+            mock_build_props.return_value = {"email": "historical@example.com"}
+            mock_person_existed.return_value = True
+            logger.info("Set up mocks for historical evaluation")
+
+            # Use a recent timestamp that's after flag creation
+            from datetime import datetime
+
+            recent_timestamp = datetime.now(UTC).isoformat()
+
+            response = self.client.post(
+                f"/api/projects/{self.team.pk}/feature_flags/{flag.id}/test_evaluation/",
+                {"distinct_id": "test-user", "timestamp": recent_timestamp},
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        mock_build_props.assert_called_once()
+        logger.info("Test completed successfully")
+
+    def test_test_evaluation_distinct_id_person_id_conflict(self):
+        """Test validation error when both distinct_id and person_id are provided."""
+        flag = FeatureFlag.objects.create(team=self.team, key="test-flag")
+
+        response = self.client.post(
+            f"/api/projects/{self.team.pk}/feature_flags/{flag.id}/test_evaluation/",
+            {"distinct_id": "test-user", "person_id": "123"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("Cannot provide both distinct_id and person_id", response.json()["detail"])
+
+    def test_test_evaluation_person_not_found(self):
+        """Test 404 when person doesn't exist."""
+        flag = FeatureFlag.objects.create(team=self.team, key="test-flag")
+
+        response = self.client.post(
+            f"/api/projects/{self.team.pk}/feature_flags/{flag.id}/test_evaluation/",
+            {"distinct_id": "nonexistent-user"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(response.json()["detail"], "Person not found for distinct_id: nonexistent-user")
+
+    @patch("posthog.api.feature_flag.person_existed_at_timestamp", return_value=False)
+    def test_test_evaluation_person_didnt_exist_at_timestamp(self, mock_person_existed):
+        """Test 400 when person didn't exist at specified timestamp."""
+        flag = FeatureFlag.objects.create(team=self.team, key="test-flag")
+        Person.objects.create(team=self.team, distinct_ids=["test-user"])
+
+        response = self.client.post(
+            f"/api/projects/{self.team.pk}/feature_flags/{flag.id}/test_evaluation/",
+            {"distinct_id": "test-user", "timestamp": "2020-01-01T00:00:00Z"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["error"], "Person did not exist at the specified timestamp")
+
+    @patch("posthog.api.feature_flag.get_flags_from_service")
+    def test_test_evaluation_missing_internal_token_error(self, mock_get_flags):
+        """Test 500 when INTERNAL_REQUEST_TOKEN is not set."""
+        flag = FeatureFlag.objects.create(team=self.team, key="test-flag")
+        Person.objects.create(team=self.team, distinct_ids=["test-user"])
+
+        with patch("posthog.api.feature_flag.os.getenv", return_value=None):
+            response = self.client.post(
+                f"/api/projects/{self.team.pk}/feature_flags/{flag.id}/test_evaluation/",
+                {"distinct_id": "test-user"},
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
+        self.assertEqual(response.json()["error"], "Internal request token not configured")
+
+    @patch("posthog.api.feature_flag.person_existed_at_timestamp", return_value=True)
+    @patch("posthog.api.feature_flag.build_person_properties_at_time")
+    def test_test_evaluation_build_properties_failure(self, mock_build_props, mock_person_existed):
+        """Test 500 when build_person_properties_at_time raises exception."""
+        flag = FeatureFlag.objects.create(team=self.team, key="test-flag")
+        Person.objects.create(team=self.team, distinct_ids=["test-user"])
+
+        # Mock exception during property building
+        mock_build_props.side_effect = Exception("Database error")
+
+        response = self.client.post(
+            f"/api/projects/{self.team.pk}/feature_flags/{flag.id}/test_evaluation/",
+            {"distinct_id": "test-user", "timestamp": "2023-01-01T00:00:00Z"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
+        self.assertEqual(response.json()["error"], "Failed to build person properties at specified timestamp.")
+
+    @patch("posthog.api.feature_flag.get_flags_from_service")
+    @patch.dict(os.environ, {"INTERNAL_REQUEST_TOKEN": "test-token"})
+    def test_test_evaluation_filters_person_properties(self, mock_get_flags):
+        """Test that person_properties are filtered to only flag-referenced keys."""
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="test-flag",
+            filters={"groups": [{"properties": [{"key": "email", "type": "person", "value": "test@example.com"}]}]},
+        )
+        Person.objects.create(
+            team=self.team,
+            distinct_ids=["test-user"],
+            properties={"email": "test@example.com", "name": "Test User", "age": 30},
+        )
+
+        mock_get_flags.return_value = {
+            "flags": {
+                "test-flag": {
+                    "enabled": True,
+                    "variant": None,
+                    "reason": {"code": "condition_match"},
+                    "metadata": {},
+                    "conditions": [
+                        {
+                            "index": 0,
+                            "matched": True,
+                            "explanation": "Condition matched",
+                            "rollout_percentage": 100.0,
+                            "rollout_excluded": False,
+                            "variant": None,
+                            "properties": [],
+                        }
+                    ],
+                }
+            }
+        }
+
+        response = self.client.post(
+            f"/api/projects/{self.team.pk}/feature_flags/{flag.id}/test_evaluation/",
+            {"distinct_id": "test-user"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        # Should only include 'email' since that's referenced in the flag, not 'name' or 'age'
+        self.assertEqual(data["person_properties"], {"email": "test@example.com"})
+
+    @patch("posthog.api.feature_flag.get_flags_from_service")
+    @patch.dict(os.environ, {"INTERNAL_REQUEST_TOKEN": "test-token"})
+    def test_test_evaluation_unexpected_response_type(self, mock_get_flags):
+        """Test 502 when flag service returns unexpected response format."""
+        flag = FeatureFlag.objects.create(team=self.team, key="test-flag")
+        Person.objects.create(team=self.team, distinct_ids=["test-user"])
+
+        # Mock unexpected response format (not a dict)
+        mock_get_flags.return_value = {"flags": {"test-flag": "unexpected_string"}}
+
+        response = self.client.post(
+            f"/api/projects/{self.team.pk}/feature_flags/{flag.id}/test_evaluation/",
+            {"distinct_id": "test-user"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_502_BAD_GATEWAY)
+        self.assertEqual(response.json()["error"], "Unexpected response format from flag evaluation service")
+
     def test_test_evaluation_missing_distinct_id(self):
         """Test validation error when distinct_id is missing."""
-        FeatureFlag.objects.create(
+        flag = FeatureFlag.objects.create(
             team=self.team,
             name="Test Flag",
             key="test-flag",
@@ -12627,7 +12678,7 @@ class TestFeatureFlagVersions(APIBaseTest):
         )
 
         response = self.client.post(
-            f"/api/projects/{self.team.id}/feature_flags/test_evaluation/",
+            f"/api/projects/{self.team.id}/feature_flags/{flag.id}/test_evaluation/",
             data={"flag_key": "test-flag"},
             format="json",
         )
@@ -12636,7 +12687,7 @@ class TestFeatureFlagVersions(APIBaseTest):
 
     def test_test_evaluation_invalid_timestamp(self):
         """Test validation error with invalid timestamp format."""
-        FeatureFlag.objects.create(
+        flag = FeatureFlag.objects.create(
             team=self.team,
             name="Test Flag",
             key="test-flag",
@@ -12644,7 +12695,7 @@ class TestFeatureFlagVersions(APIBaseTest):
         )
 
         response = self.client.post(
-            f"/api/projects/{self.team.id}/feature_flags/test_evaluation/",
+            f"/api/projects/{self.team.id}/feature_flags/{flag.id}/test_evaluation/",
             data={"distinct_id": "user123", "flag_key": "test-flag", "timestamp": "invalid"},
             format="json",
         )
