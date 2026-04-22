@@ -87,36 +87,31 @@ class QueryPerformanceProxyViewSet(viewsets.ViewSet):
 
     @action(detail=False, methods=["POST"], url_path="execute-test")
     def execute_test(self, request: Request) -> Response:
-        host = getattr(settings, "CLICKHOUSE_PERF_TEST_HOST", "")
-        if not host:
+        if not settings.CLICKHOUSE_PERF_TEST_HOST:
             return Response(
                 {"error": "CLICKHOUSE_PERF_TEST_HOST is not configured; test endpoint disabled"},
                 status=status.HTTP_503_SERVICE_UNAVAILABLE,
             )
-        return self._execute(request, host=host)
-
-    def _execute(self, request: Request, *, host: str) -> Response:
         serializer = ExecuteRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        sql: str = serializer.validated_data["sql"]
-        return _run_on_cluster(host, sql)
+        return _run_autoresearch_query(serializer.validated_data["sql"])
 
 
 # ---------------------------------------------------------------- execution --
 
 
-def _run_on_cluster(host: str, sql: str) -> Response:
+def _run_autoresearch_query(sql: str) -> Response:
     """Execute the caller's SQL against the autoresearch cluster.
 
-    Builds a SyncClient pointed at ``host`` and hands it to ``sync_execute``
-    so PostHog's standard query-tagging, metrics, and error-wrapping still
-    apply. Credentials and TLS config come from the usual ``CLICKHOUSE_*``
-    settings for now; a follow-up will split out a dedicated
-    ``CLICKHOUSE_AUTORESEARCH_USER`` / _PASSWORD pair via the existing
-    ``init_clickhouse_users`` mechanism.
+    Builds a SyncClient pointed at ``CLICKHOUSE_PERF_TEST_HOST`` and hands
+    it to ``sync_execute`` so PostHog's standard query-tagging, metrics, and
+    error-wrapping still apply. Credentials and TLS config come from the
+    usual ``CLICKHOUSE_*`` settings for now; a follow-up will split out a
+    dedicated ``CLICKHOUSE_AUTORESEARCH_USER`` / _PASSWORD pair via the
+    existing ``init_clickhouse_users`` mechanism.
     """
     client = SyncClient(
-        host=host,
+        host=settings.CLICKHOUSE_PERF_TEST_HOST,
         database=settings.CLICKHOUSE_DATABASE,
         user=settings.CLICKHOUSE_USER,
         password=settings.CLICKHOUSE_PASSWORD,
