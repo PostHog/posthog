@@ -20,26 +20,29 @@ def _base_kwargs(**overrides) -> dict:
     return kwargs
 
 
-def test_event_removal_requires_events_or_delete_all_events():
-    request = DataDeletionRequest(**_base_kwargs(events=[], delete_all_events=False))
-    with pytest.raises(ValidationError, match="Provide at least one event"):
+@pytest.mark.parametrize(
+    "events,delete_all_events,match",
+    [
+        ([], False, "Provide at least one event"),
+        (["$pageview"], True, "Events must be empty"),
+    ],
+)
+def test_event_removal_clean_raises(events, delete_all_events, match):
+    request = DataDeletionRequest(**_base_kwargs(events=events, delete_all_events=delete_all_events))
+    with pytest.raises(ValidationError, match=match):
         request.clean()
 
 
-def test_event_removal_rejects_events_with_delete_all_events():
-    request = DataDeletionRequest(**_base_kwargs(events=["$pageview"], delete_all_events=True))
-    with pytest.raises(ValidationError, match="Events must be empty"):
-        request.clean()
-
-
-def test_event_removal_passes_with_events_and_no_delete_all_events():
-    request = DataDeletionRequest(**_base_kwargs(events=["$pageview"], delete_all_events=False))
-    request.clean()  # should not raise
-
-
-def test_event_removal_passes_with_delete_all_events_and_no_events():
-    request = DataDeletionRequest(**_base_kwargs(events=[], delete_all_events=True))
-    request.clean()  # should not raise
+@pytest.mark.parametrize(
+    "events,delete_all_events",
+    [
+        (["$pageview"], False),
+        ([], True),
+    ],
+)
+def test_event_removal_clean_passes(events, delete_all_events):
+    request = DataDeletionRequest(**_base_kwargs(events=events, delete_all_events=delete_all_events))
+    request.clean()
 
 
 def test_non_event_removal_cannot_set_delete_all_events():
