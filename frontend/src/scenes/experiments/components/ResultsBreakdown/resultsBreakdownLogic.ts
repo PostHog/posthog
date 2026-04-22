@@ -3,6 +3,7 @@ import { loaders } from 'kea-loaders'
 import { P, match } from 'ts-pattern'
 
 import { FunnelLayout } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { experimentLogic } from 'scenes/experiments/experimentLogic'
 
 import { performQuery } from '~/queries/query'
@@ -18,6 +19,7 @@ import {
     addExposureToMetric,
     compose,
     getExperimentDateRange,
+    getExperimentRefreshMode,
     getExposureConfigEventsNode,
     getInsight,
     getQuery,
@@ -63,6 +65,7 @@ export const resultsBreakdownLogic = kea<resultsBreakdownLogicType>([
     path((key) => ['scenes', 'experiment', 'experimentResultBreakdownLogic', key]),
 
     connect((props: ResultBreakdownLogicProps) => ({
+        values: [featureFlagLogic, ['featureFlags']],
         actions: [experimentLogic({ experimentId: props.experiment.id }), ['refreshExperimentResults']],
     })),
 
@@ -175,7 +178,7 @@ export const resultsBreakdownLogic = kea<resultsBreakdownLogicType>([
                         const response = (await performQuery(
                             query,
                             undefined,
-                            refresh ? 'force_blocking' : 'blocking'
+                            getExperimentRefreshMode(values.featureFlags, !!refresh)
                         )) as {
                             results: FunnelStep[] | FunnelStep[][]
                             last_refresh?: string
