@@ -324,7 +324,7 @@ export const WarehouseSavedQueriesCreateBody = /* @__PURE__ */ zod
             .unknown()
             .nullish()
             .describe(
-                'HogQL query definition as a JSON object with a \"query\" key containing the SQL string and a \"kind\" key containing the query type. Example: {\"query\": \"SELECT * FROM events LIMIT 100\", \"kind\": \"HogQLQuery\"}'
+                'HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key containing the query type. Example: {"query": "SELECT * FROM events LIMIT 100", "kind": "HogQLQuery"}'
             ),
         folder_id: zod
             .string()
@@ -376,7 +376,7 @@ export const WarehouseSavedQueriesPartialUpdateBody = /* @__PURE__ */ zod
             .unknown()
             .nullish()
             .describe(
-                'HogQL query definition as a JSON object with a \"query\" key containing the SQL string and a \"kind\" key containing the query type. Example: {\"query\": \"SELECT * FROM events LIMIT 100\", \"kind\": \"HogQLQuery\"}'
+                'HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key containing the query type. Example: {"query": "SELECT * FROM events LIMIT 100", "kind": "HogQLQuery"}'
             ),
         folder_id: zod
             .string()
@@ -432,7 +432,7 @@ export const WarehouseSavedQueriesMaterializeCreateBody = /* @__PURE__ */ zod
             .unknown()
             .nullish()
             .describe(
-                'HogQL query definition as a JSON object with a \"query\" key containing the SQL string and a \"kind\" key containing the query type. Example: {\"query\": \"SELECT * FROM events LIMIT 100\", \"kind\": \"HogQLQuery\"}'
+                'HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key containing the query type. Example: {"query": "SELECT * FROM events LIMIT 100", "kind": "HogQLQuery"}'
             ),
         folder_id: zod
             .string()
@@ -481,7 +481,7 @@ export const WarehouseSavedQueriesRevertMaterializationCreateBody = /* @__PURE__
             .unknown()
             .nullish()
             .describe(
-                'HogQL query definition as a JSON object with a \"query\" key containing the SQL string and a \"kind\" key containing the query type. Example: {\"query\": \"SELECT * FROM events LIMIT 100\", \"kind\": \"HogQLQuery\"}'
+                'HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key containing the query type. Example: {"query": "SELECT * FROM events LIMIT 100", "kind": "HogQLQuery"}'
             ),
         folder_id: zod
             .string()
@@ -529,7 +529,7 @@ export const WarehouseSavedQueriesRunCreateBody = /* @__PURE__ */ zod
             .unknown()
             .nullish()
             .describe(
-                'HogQL query definition as a JSON object with a \"query\" key containing the SQL string and a \"kind\" key containing the query type. Example: {\"query\": \"SELECT * FROM events LIMIT 100\", \"kind\": \"HogQLQuery\"}'
+                'HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key containing the query type. Example: {"query": "SELECT * FROM events LIMIT 100", "kind": "HogQLQuery"}'
             ),
         folder_id: zod
             .string()
