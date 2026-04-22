@@ -1,6 +1,7 @@
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
-import api from 'lib/api'
+import api, { ApiError } from 'lib/api'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -87,5 +88,39 @@ describe('llmPlaygroundRunLogic', () => {
 
         logic.unmount()
         streamSpy.mockRestore()
+    })
+
+    it('surfaces backend error message and captures exception when stream fails with ApiError', async () => {
+        const apiError = new ApiError('Thinking is not supported for this model', 400, undefined, {
+            error: 'Thinking is not supported for this model',
+        })
+        const streamSpy = jest.spyOn(api, 'stream').mockImplementation(async (_url, options: any) => {
+            options.onError?.(apiError)
+        })
+        const captureExceptionSpy = jest.spyOn(posthog, 'captureException').mockImplementation(() => undefined)
+
+        const logic = llmPlaygroundRunLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        llmPlaygroundPromptsLogic.actions.setModel('gpt-5-mini')
+        llmPlaygroundPromptsLogic.actions.setMessages([{ role: 'user', content: 'hello' }])
+        llmPlaygroundRunLogic.actions.submitPrompt()
+
+        await expectLogic(logic).toFinishAllListeners()
+
+        const items = llmPlaygroundRunLogic.values.comparisonItems
+        expect(items).toHaveLength(1)
+        expect(items[0].error).toBe(true)
+        expect(items[0].response).toContain('**Error:** Thinking is not supported for this model')
+        expect(items[0].response).not.toContain('Stream Connection Error')
+        expect(captureExceptionSpy).toHaveBeenCalledWith(
+            apiError,
+            expect.objectContaining({ tag: 'llma-playground-prompt-run', status: 400 })
+        )
+
+        logic.unmount()
+        streamSpy.mockRestore()
+        captureExceptionSpy.mockRestore()
     })
 })
