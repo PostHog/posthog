@@ -38,6 +38,7 @@ export interface SourceFormProps {
     jobInputs?: Record<string, any>
     initialAccessMethod?: 'warehouse' | 'direct'
     setSourceConfigValue?: (key: FieldName, value: any) => void
+    setSourceConnectionDetailsValue?: (key: FieldName, value: any) => void
 }
 
 const CONNECTION_STRING_DEFAULT_PORT: Record<string, number> = {
@@ -97,7 +98,8 @@ export const sourceFieldToElement = (
     field: SourceFieldConfig,
     sourceConfig: SourceConfig,
     lastValue?: any,
-    isUpdateMode?: boolean
+    isUpdateMode?: boolean,
+    setSourceConnectionDetailsValue?: (key: FieldName, value: any) => void
 ): JSX.Element => {
     // It doesn't make sense for this to show on an update to an existing connection since we likely just want to change
     // a field or two. There is also some divergence in creates vs. updates that make this a bit more complex to handle.
@@ -121,26 +123,14 @@ export const sourceFieldToElement = (
                                     parseConnectionString(updatedConnectionString)
 
                                 if (isValid) {
-                                    sourceWizardLogic.actions.setSourceConnectionDetailsValue(
-                                        ['payload', 'database'],
-                                        database || ''
-                                    )
-                                    sourceWizardLogic.actions.setSourceConnectionDetailsValue(
-                                        ['payload', 'host'],
-                                        host || ''
-                                    )
-                                    sourceWizardLogic.actions.setSourceConnectionDetailsValue(
-                                        ['payload', 'user'],
-                                        user || ''
-                                    )
-                                    sourceWizardLogic.actions.setSourceConnectionDetailsValue(
+                                    setSourceConnectionDetailsValue?.(['payload', 'database'], database || '')
+                                    setSourceConnectionDetailsValue?.(['payload', 'host'], host || '')
+                                    setSourceConnectionDetailsValue?.(['payload', 'user'], user || '')
+                                    setSourceConnectionDetailsValue?.(
                                         ['payload', 'port'],
                                         port || CONNECTION_STRING_DEFAULT_PORT[sourceConfig.name]
                                     )
-                                    sourceWizardLogic.actions.setSourceConnectionDetailsValue(
-                                        ['payload', 'password'],
-                                        password || ''
-                                    )
+                                    setSourceConnectionDetailsValue?.(['payload', 'password'], password || '')
                                 }
                             }}
                         />
@@ -164,7 +154,13 @@ export const sourceFieldToElement = (
                             {isEnabled && (
                                 <Group name={field.name}>
                                     {field.fields.map((field) =>
-                                        sourceFieldToElement(field, sourceConfig, lastValue?.[field.name])
+                                        sourceFieldToElement(
+                                            field,
+                                            sourceConfig,
+                                            lastValue?.[field.name],
+                                            isUpdateMode,
+                                            setSourceConnectionDetailsValue
+                                        )
                                     )}
                                 </Group>
                             )}
@@ -182,7 +178,13 @@ export const sourceFieldToElement = (
             field.options
                 .find((n) => n.value === (value ?? field.defaultValue))
                 ?.fields?.map((optionField) =>
-                    sourceFieldToElement(optionField, sourceConfig, lastValue?.[optionField.name])
+                    sourceFieldToElement(
+                        optionField,
+                        sourceConfig,
+                        lastValue?.[optionField.name],
+                        isUpdateMode,
+                        setSourceConnectionDetailsValue
+                    )
                 )
 
         return (
@@ -264,7 +266,8 @@ export const sourceFieldToElement = (
             { ...SSH_FIELD, name: field.name, label: field.label },
             sourceConfig,
             lastValue,
-            isUpdateMode
+            isUpdateMode,
+            setSourceConnectionDetailsValue
         )
     }
 
@@ -617,9 +620,11 @@ function CDCConfigSection(): JSX.Element {
 }
 
 export default function SourceFormContainer(props: SourceFormProps): JSX.Element {
+    const { setSourceConnectionDetailsValue } = useActions(sourceWizardLogic)
+
     return (
         <Form logic={sourceWizardLogic} formKey="sourceConnectionDetails" enableFormOnSubmit>
-            <SourceFormComponent {...props} />
+            <SourceFormComponent {...props} setSourceConnectionDetailsValue={setSourceConnectionDetailsValue} />
         </Form>
     )
 }
@@ -632,6 +637,7 @@ export function SourceFormComponent({
     jobInputs,
     initialAccessMethod,
     setSourceConfigValue,
+    setSourceConnectionDetailsValue,
 }: SourceFormProps): JSX.Element {
     const { availableSources, availableSourcesLoading } = useValues(availableSourcesLogic)
     const { featureFlags } = useValues(featureFlagLogic)
@@ -736,7 +742,15 @@ export function SourceFormComponent({
             <Group name="payload">
                 {availableSources[sourceConfig.name].fields
                     .filter((field) => !(isPostgresDirectQuery && field.type === 'ssh-tunnel'))
-                    .map((field) => sourceFieldToElement(field, sourceConfig, jobInputs?.[field.name], isUpdateMode))}
+                    .map((field) =>
+                        sourceFieldToElement(
+                            field,
+                            sourceConfig,
+                            jobInputs?.[field.name],
+                            isUpdateMode,
+                            setSourceConnectionDetailsValue
+                        )
+                    )}
             </Group>
             {!isUpdateMode &&
                 sourceConfig.name === 'Postgres' &&

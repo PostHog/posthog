@@ -1,4 +1,5 @@
-import { BindLogic, useActions, useValues } from 'kea'
+import { BindLogic, kea, key, path, props, useActions, useValues } from 'kea'
+import type { Logic } from 'kea'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 
 import { IconCopy, IconQuestion } from '@posthog/icons'
@@ -18,6 +19,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { useFloatingContainer } from 'lib/hooks/useFloatingContainerContext'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
+import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { nonHogFunctionTemplatesLogic } from 'scenes/data-pipelines/utils/nonHogFunctionTemplatesLogic'
 import { HogFunctionTemplateList } from 'scenes/hog-functions/list/HogFunctionTemplateList'
@@ -51,20 +53,40 @@ export const getEffectiveAccessMethod = (
     return persistedAccessMethod
 }
 
-export const scene: SceneExport = {
-    component: NewSourceScene,
-    // logic: sourceWizardLogic, // NOTE: We can't mount it here as it needs the availableSourcesLogic to be mounted first
+export interface NewSourceSceneProps {
+    tabId?: string
 }
 
-export function NewSourceScene(): JSX.Element {
+const newSourceSceneLogic = kea<Logic>([
+    path(['products', 'dataWarehouse', 'newSourceSceneLogic']),
+    props({} as NewSourceSceneProps),
+    key((props) => props.tabId ?? 'default'),
+])
+
+export const scene: SceneExport<NewSourceSceneProps> = {
+    component: NewSourceScene,
+    logic: newSourceSceneLogic,
+}
+
+export function NewSourceScene({ tabId }: NewSourceSceneProps): JSX.Element {
     const { availableSources, availableSourcesLoading } = useValues(availableSourcesLogic)
 
     if (availableSourcesLoading || availableSources === null) {
         return <LemonSkeleton />
     }
 
+    return <NewSourceSceneWithSources availableSources={availableSources} tabId={tabId} />
+}
+
+function NewSourceSceneWithSources({
+    availableSources,
+    tabId,
+}: NewSourceSceneProps & { availableSources: Record<string, SourceConfig> }): JSX.Element {
+    const logic = sourceWizardLogic({ availableSources, tabId })
+    useAttachedLogic(logic, newSourceSceneLogic({ tabId }))
+
     return (
-        <BindLogic logic={sourceWizardLogic} props={{ availableSources }}>
+        <BindLogic logic={sourceWizardLogic} props={{ availableSources, tabId }}>
             <InternalNewSourceScene />
         </BindLogic>
     )

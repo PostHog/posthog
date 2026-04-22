@@ -1,7 +1,7 @@
-import { actions, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
-import { router, urlToAction } from 'kea-router'
+import { router } from 'kea-router'
 import posthog from 'posthog-js'
 
 import { LemonDialog, lemonToast } from '@posthog/lemon-ui'
@@ -10,6 +10,7 @@ import api from 'lib/api'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
@@ -254,11 +255,13 @@ export interface SourceWizardLogicProps {
     availableSources: Record<string, SourceConfig>
     /** When set, only these tables will be pre-selected and they cannot be deselected */
     requiredTables?: string[]
+    tabId?: string
 }
 
 export const sourceWizardLogic = kea<sourceWizardLogicType>([
     path(['products', 'dataWarehouse', 'sourceWizardLogic']),
     props({} as SourceWizardLogicProps),
+    key((props) => props.tabId ?? 'default'),
     actions({
         selectConnector: (connector: SourceConfig | null) => ({ connector }),
         setInitialConnector: (connector: SourceConfig | null) => ({ connector }),
@@ -1364,7 +1367,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             )
         },
     })),
-    urlToAction(({ actions, values }) => {
+    tabAwareUrlToAction(({ actions, values }) => {
         const handleUrlChange = (_: Record<string, string | undefined>, searchParams: Record<string, string>): void => {
             const kind = searchParams.kind?.toLowerCase()
             const accessMethod = searchParams.access_method === 'direct' ? 'direct' : 'warehouse'
