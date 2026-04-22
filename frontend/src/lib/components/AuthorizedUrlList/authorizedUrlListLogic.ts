@@ -347,6 +347,9 @@ export const authorizedUrlListLogic = kea<authorizedUrlListLogicType>([
     })),
     subscriptions(({ props, actions }) => ({
         currentTeam: (currentTeam) => {
+            if (!currentTeam) {
+                return
+            }
             const urls =
                 (props.type === AuthorizedUrlListType.RECORDING_DOMAINS
                     ? currentTeam.recording_domains

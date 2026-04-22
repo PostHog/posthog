@@ -4,6 +4,7 @@ import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
@@ -61,6 +62,26 @@ describe('the authorized urls list logic', () => {
     it('can be launchd without focussing adding new URL', async () => {
         router.actions.push(urls.toolbarLaunch())
         await expectLogic(logic).toNotHaveDispatchedActions(['newUrl'])
+    })
+
+    // Regression coverage for the `currentTeam` subscription mounting while teamLogic's
+    // currentTeam is still null (e.g. before the bootstrap response lands, or when a scene
+    // mounts this logic on the authorized-domains settings / toolbar launch pages before the
+    // team has hydrated). The subscription handler previously destructured `currentTeam.app_urls`
+    // directly and threw `TypeError: null is not an object`.
+    it('does not throw when teamLogic.currentTeam is null on mount', async () => {
+        logic.unmount()
+        teamLogic.actions.loadCurrentTeamSuccess(null)
+
+        const nullTeamLogic = authorizedUrlListLogic({
+            type: AuthorizedUrlListType.TOOLBAR_URLS,
+            actionId: null,
+            experimentId: null,
+            productTourId: null,
+        })
+
+        expect(() => nullTeamLogic.mount()).not.toThrow()
+        expect(nullTeamLogic.values.authorizedUrls).toEqual([])
     })
 
     describe('applying a suggestion', () => {
