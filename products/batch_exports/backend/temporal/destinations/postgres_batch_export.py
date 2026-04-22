@@ -239,7 +239,6 @@ class PostgreSQLClient:
         database: str,
         ssl_mode: typing.Literal["prefer", "require", "verify-ca", "verify-full"],
         ssl_root_cert: str | typing.Literal["system"] = MISSING_CERT_PATH,
-        ssl_password: str | None = None,
         connection_timeout: int = 30,
     ):
         self.user = user
@@ -249,7 +248,6 @@ class PostgreSQLClient:
         self.port = port
         self.ssl_mode = ssl_mode
         self.ssl_root_cert = ssl_root_cert
-        self.ssl_password = ssl_password
         self.connection_timeout = connection_timeout
 
         self.logger = LOGGER.bind(host=host, port=port, database=database, user=user)
@@ -276,7 +274,6 @@ class PostgreSQLClient:
             port=authority.port,
             ssl_mode=tls.ssl_mode,
             ssl_root_cert=tls.ssl_root_cert,
-            ssl_password=tls.ssl_password,
         )
 
     @property
@@ -313,7 +310,6 @@ class PostgreSQLClient:
                     port=self.port,
                     sslmode=self.ssl_mode,
                     sslrootcert=ssl_root_cert,
-                    sslpassword=self.ssl_password,
                     connect_timeout=self.connection_timeout,
                 )
         except psycopg.errors.ConnectionTimeout as err:

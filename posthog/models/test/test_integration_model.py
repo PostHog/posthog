@@ -1769,13 +1769,13 @@ class TestPostgreSQLIntegrationModel(BaseTest):
                 "require_no_cert",
                 {"ssl_mode": "require"},
                 {},
-                TLS(ssl_mode="require", ssl_root_cert=MISSING_CERT_PATH, ssl_password=None),
+                TLS(ssl_mode="require", ssl_root_cert=MISSING_CERT_PATH),
             ),
             (
                 "require_system_cert",
                 {"ssl_mode": "require", "ssl_root_cert": "system"},
                 {},
-                TLS(ssl_mode="require", ssl_root_cert="system", ssl_password=None),
+                TLS(ssl_mode="require", ssl_root_cert="system"),
             ),
             (
                 "verify_ca_with_cert",
@@ -1787,27 +1787,13 @@ class TestPostgreSQLIntegrationModel(BaseTest):
                 TLS(
                     ssl_mode="verify-ca",
                     ssl_root_cert="-----BEGIN CERTIFICATE-----\nfake\n-----END CERTIFICATE-----",
-                    ssl_password=None,
-                ),
-            ),
-            (
-                "verify_full_with_cert_and_password",
-                {
-                    "ssl_mode": "verify-full",
-                    "ssl_root_cert": "-----BEGIN CERTIFICATE-----\nfake\n-----END CERTIFICATE-----",
-                },
-                {"ssl_password": "secret"},
-                TLS(
-                    ssl_mode="verify-full",
-                    ssl_root_cert="-----BEGIN CERTIFICATE-----\nfake\n-----END CERTIFICATE-----",
-                    ssl_password="secret",
                 ),
             ),
             (
                 "prefer_no_cert",
                 {"ssl_mode": "prefer"},
                 {},
-                TLS(ssl_mode="prefer", ssl_root_cert=MISSING_CERT_PATH, ssl_password=None),
+                TLS(ssl_mode="prefer", ssl_root_cert=MISSING_CERT_PATH),
             ),
         ]
     )
@@ -1834,17 +1820,17 @@ class TestPostgreSQLIntegrationModel(BaseTest):
             (
                 "defaults",
                 {},
-                TLS(ssl_mode="require", ssl_root_cert=MISSING_CERT_PATH, ssl_password=None),
+                TLS(ssl_mode="require", ssl_root_cert=MISSING_CERT_PATH),
             ),
             (
                 "system_cert",
                 {"ssl_root_cert": "system"},
-                TLS(ssl_mode="require", ssl_root_cert="system", ssl_password=None),
+                TLS(ssl_mode="require", ssl_root_cert="system"),
             ),
             (
-                "verify_full_with_cert_and_password",
-                {"ssl_mode": "verify-full", "ssl_root_cert": "cert-data", "ssl_password": "pass"},
-                TLS(ssl_mode="verify-full", ssl_root_cert="cert-data", ssl_password="pass"),
+                "verify_full_with_cert",
+                {"ssl_mode": "verify-full", "ssl_root_cert": "cert-data"},
+                TLS(ssl_mode="verify-full", ssl_root_cert="cert-data"),
             ),
         ]
     )
@@ -1866,6 +1852,5 @@ class TestPostgreSQLIntegrationModel(BaseTest):
         assert pq.tls() == expected_tls
 
         assert "password" not in integration.config
-        assert "ssl_password" not in integration.config
 
         assert integration.sensitive_config["password"] == "super-secret"
