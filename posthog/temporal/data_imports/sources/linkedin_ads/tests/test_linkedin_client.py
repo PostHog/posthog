@@ -3,7 +3,13 @@ import json
 import pytest
 from unittest import mock
 
-from posthog.temporal.data_imports.sources.linkedin_ads.client import LinkedinAdsClient, LinkedinAdsPivot
+import requests
+
+from posthog.temporal.data_imports.sources.linkedin_ads.client import (
+    LinkedinAdsClient,
+    LinkedinAdsPivot,
+    LinkedinAdsRetryableError,
+)
 
 
 class TestLinkedinAdsClient:
@@ -110,3 +116,99 @@ class TestLinkedinAdsClient:
 
         expected = {"start": {"year": 2024, "month": 1, "day": 15}, "end": {"year": 2024, "month": 2, "day": 20}}
         assert result == expected
+
+    # Retry behavior: tenacity's exponential backoff sleeps are patched out to keep tests instant.
+
+    @pytest.mark.parametrize(
+        "transient_factory,expected_calls",
+        [
+            pytest.param(
+                lambda: requests.exceptions.SSLError("UNEXPECTED_EOF_WHILE_READING"),
+                3,
+                id="ssl_error",
+            ),
+            pytest.param(
+                lambda: requests.exceptions.ConnectionError("RemoteDisconnected"),
+                3,
+                id="connection_error",
+            ),
+            pytest.param(
+                lambda: requests.exceptions.Timeout("read timed out"),
+                3,
+                id="timeout",
+            ),
+            pytest.param(
+                lambda: _status_response(504, "Gateway Timeout"),
+                2,
+                id="http_504",
+            ),
+            pytest.param(
+                lambda: _status_response(500, "Internal Server Error"),
+                2,
+                id="http_500",
+            ),
+            pytest.param(
+                lambda: _status_response(429, "Too Many Requests"),
+                2,
+                id="http_429",
+            ),
+        ],
+    )
+    @mock.patch("tenacity.nap.time.sleep", return_value=None)
+    @mock.patch("posthog.temporal.data_imports.sources.linkedin_ads.client.RestliClient")
+    def test_transient_errors_are_retried_then_succeed(
+        self, mock_restli_client, _mock_sleep, transient_factory, expected_calls
+    ):
+        mock_success = mock.MagicMock()
+        mock_success.status_code = 200
+        mock_success.elements = [{"id": "ok"}]
+
+        transient_failures = [transient_factory() for _ in range(expected_calls - 1)]
+        mock_client_instance = mock_restli_client.return_value
+        mock_client_instance.finder.side_effect = [*transient_failures, mock_success]
+
+        client = LinkedinAdsClient(self.access_token)
+        result = client.get_accounts()
+
+        assert result == [{"id": "ok"}]
+        assert mock_client_instance.finder.call_count == expected_calls
+
+    @mock.patch("tenacity.nap.time.sleep", return_value=None)
+    @mock.patch("posthog.temporal.data_imports.sources.linkedin_ads.client.RestliClient")
+    def test_retries_exhausted_reraises_last_error(self, mock_restli_client, _mock_sleep):
+        mock_client_instance = mock_restli_client.return_value
+        mock_client_instance.finder.side_effect = requests.exceptions.ConnectionError("boom")
+
+        client = LinkedinAdsClient(self.access_token)
+
+        with pytest.raises(requests.exceptions.ConnectionError, match="boom"):
+            client.get_accounts()
+
+        assert mock_client_instance.finder.call_count == 5
+
+    @mock.patch("tenacity.nap.time.sleep", return_value=None)
+    @mock.patch("posthog.temporal.data_imports.sources.linkedin_ads.client.RestliClient")
+    def test_no_retry_on_4xx(self, mock_restli_client, _mock_sleep):
+        mock_response = mock.MagicMock()
+        mock_response.status_code = 401
+        mock_response.response.text = "Unauthorized"
+
+        mock_client_instance = mock_restli_client.return_value
+        mock_client_instance.finder.return_value = mock_response
+
+        client = LinkedinAdsClient(self.access_token)
+
+        with pytest.raises(Exception, match="LinkedIn API error \\(401\\): Unauthorized"):
+            client.get_accounts()
+
+        assert mock_client_instance.finder.call_count == 1
+
+    def test_retryable_error_is_exported(self):
+        assert issubclass(LinkedinAdsRetryableError, Exception)
+
+
+def _status_response(status_code: int, text: str) -> mock.MagicMock:
+    response = mock.MagicMock()
+    response.status_code = status_code
+    response.response.text = text
+    return response

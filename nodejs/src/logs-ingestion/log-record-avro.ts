@@ -251,12 +251,12 @@ const enrichBatchJsonAttributes = instrumented({
     return Promise.resolve()
 })
 
-const scrubBatchWithBodyParses = instrumented({
+const scrubBatch = instrumented({
     key: SPAN_LOGS_PII_SCRUB,
     ...logRecordProcessInstrumentOpts,
-})((records: LogRecord[], bodyParses: LogBodyParseResult[]): Promise<void> => {
-    for (let i = 0; i < records.length; i++) {
-        scrubLogRecord(records[i], { bodyParse: bodyParses[i] })
+})((records: LogRecord[]): Promise<void> => {
+    for (const record of records) {
+        scrubLogRecord(record)
     }
     return Promise.resolve()
 })
@@ -264,7 +264,10 @@ const scrubBatchWithBodyParses = instrumented({
 /**
  * Processes an AVRO-encoded log message buffer containing multiple records.
  * Passthrough (no decode) when both json_parse_logs and pii_scrub_logs are off.
- * Otherwise: decode → optional parse bodies → optional JSON enrich → optional PII scrub → encode.
+ * Otherwise: decode → optional PII scrub on `body` → optional parse bodies → optional JSON enrich → encode.
+ *
+ * When both `json_parse_logs` and `pii_scrub_logs` are on, scrub runs **before** parse/enrich so flattened JSON
+ * attributes are derived from the redacted body string. `parseLogBodiesForIngestion` runs only when JSON parse is on.
  */
 export async function processLogMessageBuffer(buffer: Buffer, settings: LogsSettings): Promise<Buffer> {
     const jsonParse = settings.json_parse_logs ?? false
@@ -286,15 +289,14 @@ export async function processLogMessageBuffer(buffer: Buffer, settings: LogsSett
         }
 
         if (jsonParse && piiScrub) {
+            await scrubBatch(records)
             const bodyParses = await parseLogBodiesForIngestion(records)
             await enrichBatchJsonAttributes(records, bodyParses)
-            await scrubBatchWithBodyParses(records, bodyParses)
         } else if (jsonParse) {
             const bodyParses = await parseLogBodiesForIngestion(records)
             await enrichBatchJsonAttributes(records, bodyParses)
         } else if (piiScrub) {
-            const bodyParses = await parseLogBodiesForIngestion(records)
-            await scrubBatchWithBodyParses(records, bodyParses)
+            await scrubBatch(records)
         }
 
         return encodeLogRecordsInstrumented(logRecordType, codec, records)

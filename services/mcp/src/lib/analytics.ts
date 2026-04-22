@@ -75,10 +75,7 @@ export async function isFeatureFlagEnabled(flagKey: string, distinctId: string):
  * Evaluate multiple feature flags in parallel for the given user.
  * Returns a map of flag key → boolean.
  */
-export async function evaluateFeatureFlags(
-    flagKeys: string[],
-    distinctId: string
-): Promise<Record<string, boolean>> {
+export async function evaluateFeatureFlags(flagKeys: string[], distinctId: string): Promise<Record<string, boolean>> {
     if (flagKeys.length === 0) {
         return {}
     }
