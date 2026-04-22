@@ -1479,3 +1479,34 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         # Paused views render the check glyph; non-paused render an em-dash.
         assert "&#10003;" in html
         assert "&#8212;" in html
+
+    def test_send_matview_failure_digest_truncates_long_errors(self, MockEmailMessage: MagicMock) -> None:
+        from products.data_warehouse.backend.models import DataModelingJob, DataWarehouseSavedQuery
+
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+
+        self.user.partial_notification_settings = {"materialized_view_sync_failed": True}
+        self.user.save()
+
+        long_error = "A" * 500
+        sq = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="long_error_view",
+            query={"query": "SELECT 1"},
+            sync_frequency_interval=dt.timedelta(hours=1),
+        )
+        DataModelingJob.objects.create(
+            team=self.team,
+            saved_query=sq,
+            status=DataModelingJob.Status.FAILED,
+            error=long_error,
+            last_run_at=timezone.now() - dt.timedelta(hours=1),
+        )
+
+        send_matview_failure_digest()
+
+        assert len(mocked_email_messages) == 1
+        html = mocked_email_messages[0].html_body
+        assert "long_error_view" in html
+        assert long_error not in html
+        assert "AAA..." in html
