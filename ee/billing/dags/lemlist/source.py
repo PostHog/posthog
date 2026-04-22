@@ -4,11 +4,15 @@ Two resources are exposed:
 
 * ``campaigns`` — one row per campaign, upserted on ``campaign_id`` so the
   table always reflects the latest status/name/labels.
-* ``campaign_stats_daily`` — one row per ``(campaign_id, snapshot_date)``
-  appended every run so downstream queries can reconstruct daily deltas with
-  ``LAG()``. The ``steps`` array in each stats result is left nested so dlt
-  materializes it as a child table (``campaign_stats_daily__steps``) with the
-  usual ``_dlt_parent_id`` back-reference.
+* ``campaign_stats_daily`` — one row per ``(campaign_id, snapshot_date)``,
+  appended every run. Ducklake rejects the DDL dlt emits for ``merge``
+  dispositions (``ALTER TABLE … ADD COLUMN … NOT NULL``), so per-day
+  idempotency is handled by the Dagster asset: it deletes any prior rows for
+  the current ``snapshot_date`` before each run. Downstream queries
+  reconstruct daily deltas with ``LAG()``. The ``steps`` array in each stats
+  result is left nested so dlt materializes it as a child table
+  (``campaign_stats_daily__steps``) with the usual ``_dlt_parent_id``
+  back-reference.
 """
 
 from collections.abc import Callable, Iterator
@@ -27,6 +31,10 @@ _REQUEST_TIMEOUT_SECONDS = 60
 LEMLIST_STATS_HISTORY_START = date(2018, 1, 1)
 
 SessionFactory = Callable[[], requests.Session]
+
+
+class LemlistPartialBatchError(RuntimeError):
+    """Raised when Lemlist's batch stats endpoint returns an incomplete response."""
 
 
 def _iter_campaign_pages(session: requests.Session) -> Iterator[dict[str, Any]]:
@@ -92,7 +100,24 @@ def _fetch_stats_batch(
     )
     response.raise_for_status()
     body = response.json()
-    return list(body.get("results", []))
+    results = list(body.get("results", []))
+    errors = list(body.get("errors") or [])
+
+    if errors:
+        raise LemlistPartialBatchError(
+            f"Lemlist batch stats returned {len(errors)} error(s) for "
+            f"{len(campaign_ids)} requested campaign(s): {errors!r}"
+        )
+
+    returned_ids = {row.get("campaignId") for row in results}
+    missing_ids = [cid for cid in campaign_ids if cid not in returned_ids]
+    if missing_ids:
+        raise LemlistPartialBatchError(
+            f"Lemlist batch stats returned {len(results)} result(s) for "
+            f"{len(campaign_ids)} requested campaign(s); missing: {missing_ids!r}"
+        )
+
+    return results
 
 
 def build_stats_row(raw: dict[str, Any], snapshot_date: date) -> dict[str, Any]:
@@ -128,9 +153,13 @@ def lemlist_source(
         for raw in load_raw_campaigns():
             yield normalize_campaign(raw)
 
+    # The logical key is ``(campaign_id, snapshot_date)``, but we deliberately
+    # omit ``primary_key`` here: dlt would translate it into ``NOT NULL`` /
+    # ``UNIQUE`` column constraints, and Ducklake rejects
+    # ``ALTER TABLE … ADD COLUMN … <constraint>`` DDL when the schema evolves.
+    # Per-day idempotency is enforced by the Dagster asset's pre-delete.
     @dlt.resource(
         name="campaign_stats_daily",
-        primary_key=["campaign_id", "snapshot_date"],
         write_disposition="append",
     )
     def campaign_stats_daily() -> Iterator[dict[str, Any]]:

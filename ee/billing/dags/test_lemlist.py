@@ -15,9 +15,10 @@ from parameterized import parameterized
 
 from ee.billing.dags.lemlist import dag as lemlist_dag
 from ee.billing.dags.lemlist.auth import LemlistAuthResource, LemlistNotConfiguredError
-from ee.billing.dags.lemlist.dag import LEMLIST_RETRY_POLICY, lemlist_campaigns_and_stats
+from ee.billing.dags.lemlist.dag import LEMLIST_RETRY_POLICY, _delete_existing_snapshot, lemlist_campaigns_and_stats
 from ee.billing.dags.lemlist.destination import build_pipeline, scoped_snake_case_naming
 from ee.billing.dags.lemlist.source import (
+    LemlistPartialBatchError,
     _fetch_stats_batch,
     _iter_campaign_pages,
     build_stats_payload,
@@ -317,11 +318,20 @@ class TestFetchStatsBatch:
     def test_posts_expected_payload_and_returns_results(self):
         session = MagicMock(spec=requests.Session)
         session.post.return_value = _mock_json_response(
-            {"results": [{"campaignId": "cam_a", "nbLeads": 1}], "errors": []}
+            {
+                "results": [
+                    {"campaignId": "cam_a", "nbLeads": 1},
+                    {"campaignId": "cam_b", "nbLeads": 2},
+                ],
+                "errors": [],
+            }
         )
         results = _fetch_stats_batch(session, ["cam_a", "cam_b"], date(2018, 1, 1), date(2026, 4, 17))
 
-        assert results == [{"campaignId": "cam_a", "nbLeads": 1}]
+        assert results == [
+            {"campaignId": "cam_a", "nbLeads": 1},
+            {"campaignId": "cam_b", "nbLeads": 2},
+        ]
         session.post.assert_called_once()
         posted_json = session.post.call_args.kwargs["json"]
         assert posted_json == {
@@ -331,10 +341,30 @@ class TestFetchStatsBatch:
             "endDate": "2026-04-17T23:59:59.999Z",
         }
 
-    def test_missing_results_returns_empty_list(self):
+    def test_missing_campaign_in_results_raises(self):
+        session = MagicMock(spec=requests.Session)
+        session.post.return_value = _mock_json_response(
+            {"results": [{"campaignId": "cam_a", "nbLeads": 1}], "errors": []}
+        )
+        with pytest.raises(LemlistPartialBatchError, match="cam_b"):
+            _fetch_stats_batch(session, ["cam_a", "cam_b"], date(2018, 1, 1), date(2026, 4, 17))
+
+    def test_missing_results_key_raises(self):
         session = MagicMock(spec=requests.Session)
         session.post.return_value = _mock_json_response({"errors": []})
-        assert _fetch_stats_batch(session, ["cam_a"], date(2018, 1, 1), date(2026, 4, 17)) == []
+        with pytest.raises(LemlistPartialBatchError, match="cam_a"):
+            _fetch_stats_batch(session, ["cam_a"], date(2018, 1, 1), date(2026, 4, 17))
+
+    def test_errors_array_raises(self):
+        session = MagicMock(spec=requests.Session)
+        session.post.return_value = _mock_json_response(
+            {
+                "results": [{"campaignId": "cam_a", "nbLeads": 1}],
+                "errors": [{"campaignId": "cam_b", "message": "not found"}],
+            }
+        )
+        with pytest.raises(LemlistPartialBatchError, match="not found"):
+            _fetch_stats_batch(session, ["cam_a", "cam_b"], date(2018, 1, 1), date(2026, 4, 17))
 
 
 # --------------------------------------------------------------------------- #
@@ -465,6 +495,58 @@ class TestLemlistSourceIntegration:
 
 
 # --------------------------------------------------------------------------- #
+# dag._delete_existing_snapshot — per-day idempotency.
+# --------------------------------------------------------------------------- #
+
+
+class TestDeleteExistingSnapshot:
+    def test_no_op_when_dataset_absent(self, tmp_path):
+        pipeline = dlt.pipeline(
+            pipeline_name="lemlist_delete_test_absent",
+            destination=dlt.destinations.duckdb(str(tmp_path / "absent.duckdb")),
+            dataset_name="lemlist_absent",
+        )
+        # Should not raise even though the dataset and tables don't exist.
+        _delete_existing_snapshot(pipeline, date(2026, 4, 16))
+
+    def test_removes_current_snapshot_rows_only(self, tmp_path, lemlist_snake_case_naming):
+        pipeline = dlt.pipeline(
+            pipeline_name="lemlist_delete_test_existing",
+            destination=dlt.destinations.duckdb(str(tmp_path / "existing.duckdb")),
+            dataset_name="lemlist_existing",
+        )
+
+        def seed_source() -> list:
+            @dlt.resource(name="campaign_stats_daily", write_disposition="append")
+            def stats():
+                yield {
+                    "campaign_id": "cam_a",
+                    "snapshot_date": datetime(2026, 4, 16, tzinfo=UTC),
+                    "steps": [{"task_type": "email", "sent": 1}],
+                }
+                yield {
+                    "campaign_id": "cam_a",
+                    "snapshot_date": datetime(2026, 4, 17, tzinfo=UTC),
+                    "steps": [{"task_type": "email", "sent": 2}],
+                }
+
+            return [stats]
+
+        assert not pipeline.run(seed_source()).has_failed_jobs
+
+        _delete_existing_snapshot(pipeline, date(2026, 4, 17))
+
+        with pipeline.sql_client() as client:
+            with client.execute_query("SELECT snapshot_date FROM campaign_stats_daily") as cursor:
+                remaining_dates = sorted(row[0].date().isoformat() for row in cursor.fetchall())
+            with client.execute_query("SELECT sent FROM campaign_stats_daily__steps ORDER BY sent") as cursor:
+                remaining_steps = [row[0] for row in cursor.fetchall()]
+
+        assert remaining_dates == ["2026-04-16"]
+        assert remaining_steps == [1]
+
+
+# --------------------------------------------------------------------------- #
 # lemlist_campaigns_and_stats asset — failure paths.
 # --------------------------------------------------------------------------- #
 
@@ -588,9 +670,9 @@ class TestLemlistDailySchedule:
         context = dagster.build_schedule_context(scheduled_execution_time=tick_time)
         run_request = lemlist_dag.lemlist_daily_schedule(context)
         assert isinstance(run_request, dagster.RunRequest)
-        assert run_request.run_key == "2026-04-17"
+        assert run_request.run_key == "2026-04-16"
         assert run_request.run_config == {
             "ops": {
-                "lemlist_campaigns_and_stats": {"config": {"snapshot_date": "2026-04-17"}},
+                "lemlist_campaigns_and_stats": {"config": {"snapshot_date": "2026-04-16"}},
             }
         }
