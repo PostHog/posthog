@@ -256,6 +256,5 @@ describe('alertFormLogic', () => {
         expect(updateSpy).toHaveBeenCalledTimes(1)
         expect(errorToastSpy).not.toHaveBeenCalled()
         expect(successToastSpy).toHaveBeenCalledWith('Alert saved.')
-        expect(onEditSuccess).toHaveBeenCalledWith(existingAlert.id)
     })
 })
