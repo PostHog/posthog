@@ -94,7 +94,12 @@ function SchemaSceneContent({ sourceId, schemaId }: SchemaSceneProps): JSX.Eleme
                 description={schema.description || undefined}
                 resourceType={{ type: 'data_pipeline' }}
             />
-            <LemonTabs activeKey={currentTab} tabs={tabs} onChange={setCurrentTab} sceneInset />
+            <LemonTabs
+                activeKey={!showMetrics && currentTab === 'metrics' ? 'configuration' : currentTab}
+                tabs={tabs}
+                onChange={setCurrentTab}
+                sceneInset
+            />
         </SceneContent>
     )
 }
