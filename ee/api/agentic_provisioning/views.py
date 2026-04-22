@@ -663,8 +663,6 @@ def agentic_authorize(request: Any) -> HttpResponseBase:
         _capture_provisioning_event("authorize", "email_mismatch")
         return HttpResponseRedirect(f"{settings.SITE_URL}?error=email_mismatch")
 
-    scope = " ".join(pending.get("scopes", []))
-
     user = request.user
     memberships = list(user.organization_memberships.select_related("organization").all())
     if not memberships:
@@ -684,7 +682,6 @@ def agentic_authorize(request: Any) -> HttpResponseBase:
     TRUSTED_AUTH_METHODS = ("hmac", "bearer")
     partner_id = pending.get("partner_id", "")
     is_trusted_partner = not partner_id
-    partner_name = pending.get("partner_name", "")
     if partner_id:
         try:
             partner_app = OAuthApplication.objects.get(id=partner_id)
@@ -693,7 +690,6 @@ def agentic_authorize(request: Any) -> HttpResponseBase:
                 _capture_provisioning_event("authorize", "partner_deactivated")
                 return HttpResponseRedirect(f"{settings.SITE_URL}?error=partner_deactivated")
             is_trusted_partner = partner_app.provisioning_auth_method in TRUSTED_AUTH_METHODS
-            partner_name = partner_app.name
         except OAuthApplication.DoesNotExist:
             pass
 
@@ -730,11 +726,38 @@ def agentic_authorize(request: Any) -> HttpResponseBase:
 
     base = settings.SITE_URL.rstrip("/")
     sanitized_state = re.sub(r"[^A-Za-z0-9_\-]", "", state)
-    redirect_params: dict[str, str] = {"state": sanitized_state, "scope": scope}
-    if partner_name:
-        redirect_params["partner_name"] = partner_name
-    params = urlencode(redirect_params)
+    params = urlencode({"state": sanitized_state})
     return HttpResponseRedirect(f"{base}/agentic/authorize?{params}")
+
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def agentic_authorize_pending(request: Request) -> Response:
+    """Return server-verified partner name and scopes for a pending auth state.
+
+    The frontend calls this instead of reading from URL params, preventing
+    an attacker from spoofing the partner identity on the consent page.
+    """
+    state = request.query_params.get("state", "")
+    if not state or not _SAFE_STATE_RE.match(state):
+        return Response({"error": "invalid_state"}, status=400)
+
+    pending = cache.get(f"{PENDING_AUTH_CACHE_PREFIX}{state}")
+    if pending is None:
+        return Response({"error": "expired_or_invalid_state"}, status=400)
+
+    user = cast(User, request.user)
+    if user.email != pending["email"]:
+        return Response({"error": "email_mismatch"}, status=403)
+
+    return Response(
+        {
+            "partner_name": pending.get("partner_name", "the requesting app"),
+            "scopes": pending.get("scopes", []),
+        }
+    )
 
 
 @api_view(["POST"])

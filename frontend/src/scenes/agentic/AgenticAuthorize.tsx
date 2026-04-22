@@ -22,6 +22,7 @@ export const AgenticAuthorize = (): JSX.Element => {
         allOrganizations,
         filteredTeams,
         allTeamsLoading,
+        pendingAuthLoading,
         state,
         partnerName,
         agenticAuthorization,
@@ -33,7 +34,7 @@ export const AgenticAuthorize = (): JSX.Element => {
         return <OAuthAuthorizeError title="Invalid request" description="Missing required state parameter." />
     }
 
-    if (allTeamsLoading) {
+    if (allTeamsLoading || pendingAuthLoading) {
         return (
             <div className="flex items-center justify-center h-full py-12">
                 <Spinner />
