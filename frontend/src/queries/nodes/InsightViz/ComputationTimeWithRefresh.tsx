@@ -29,7 +29,7 @@ export function ComputationTimeWithRefresh({ disableRefresh }: { disableRefresh?
     const { isDev } = useValues(preflightLogic)
     const canBypassRefreshDisabled = user?.is_staff || user?.is_impersonated || isDev
 
-    usePeriodicRerender(15000)
+    usePeriodicRerender(15000) // Re-render every 15 seconds for up-to-date `insightRefreshButtonDisabledReason`
 
     if (!response || (!(response as any).result && !(response as any).results)) {
         return null
