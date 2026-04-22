@@ -970,12 +970,12 @@ jobs:
                   # :NOTE: Keep shard counts/group ranges in sync with historical Django matrix tuning.
                   # Consult #team-devex before changing.
                   core=$(jq -cn --arg image "$OLDEST_SUPPORTED_IMAGE" '
-                    [range(1; 39) | {
+                    [range(1; 45) | {
                       segment: "Core",
                       "person-on-events": false,
                       "python-version": "3.12.12",
                       "clickhouse-server-image": $image,
-                      concurrency: 38,
+                      concurrency: 44,
                       group: .,
                       artifact_key: ("core-" + (.|tostring)),
                       compat: false
