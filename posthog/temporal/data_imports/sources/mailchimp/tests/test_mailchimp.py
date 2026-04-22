@@ -1,8 +1,11 @@
+import json
 from datetime import date, datetime
 from typing import Any
 
 import pytest
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
+
+from requests import Request, Response
 
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.sources.mailchimp.mailchimp import (
@@ -12,6 +15,7 @@ from posthog.temporal.data_imports.sources.mailchimp.mailchimp import (
     _format_incremental_value,
     _get_contacts_iterator,
     extract_data_center,
+    mailchimp_source,
 )
 
 
@@ -79,6 +83,46 @@ class TestMailchimpPaginator:
         paginator.update_state(response)
         assert paginator._offset == 300
         assert paginator._has_next_page is False
+
+    @pytest.mark.parametrize(
+        ("label", "seeded_offset"),
+        [
+            ("fresh", None),
+            ("resumed", 2000),
+        ],
+    )
+    def test_init_request_sets_offset_and_count(self, label: str, seeded_offset: int | None) -> None:
+        paginator = MailchimpPaginator(page_size=1000)
+        if seeded_offset is not None:
+            paginator.set_resume_state({"offset": seeded_offset})
+
+        request = Request(method="GET", url="https://us6.api.mailchimp.com/3.0/lists")
+        paginator.init_request(request)
+
+        assert request.params["count"] == 1000
+        assert request.params["offset"] == (seeded_offset if seeded_offset is not None else 0)
+
+    def test_get_resume_state_returns_current_offset(self) -> None:
+        paginator = MailchimpPaginator(page_size=1000)
+        response = MagicMock()
+        response.json.return_value = {"total_items": 3000}
+        paginator.update_state(response)  # _offset advances to 1000
+
+        assert paginator.get_resume_state() == {"offset": 1000}
+
+    def test_set_resume_state_round_trip(self) -> None:
+        paginator = MailchimpPaginator(page_size=1000)
+        paginator.set_resume_state({"offset": 5000})
+
+        assert paginator._offset == 5000
+        assert paginator.has_next_page is True
+        assert paginator.get_resume_state() == {"offset": 5000}
+
+    def test_set_resume_state_ignores_missing_offset(self) -> None:
+        paginator = MailchimpPaginator(page_size=1000)
+        paginator.set_resume_state({})
+
+        assert paginator._offset == 0
 
 
 def _fake_manager(*, can_resume: bool = False, load_state: MailchimpResumeConfig | None = None) -> MagicMock:
@@ -291,3 +335,124 @@ class TestGetContactsIterator:
             manager.load_state.assert_called_once()
         else:
             manager.load_state.assert_not_called()
+
+
+def _make_http_response(body: dict[str, Any], status_code: int = 200) -> Response:
+    resp = Response()
+    resp.status_code = status_code
+    resp._content = json.dumps(body).encode()
+    resp.headers["Content-Type"] = "application/json"
+    return resp
+
+
+class TestRestEndpointResumeBehavior:
+    """End-to-end resume behaviour of the shared ``rest_api_resource`` path used
+    for ``lists``/``campaigns``/``reports`` (offset/count pagination)."""
+
+    def _drive(
+        self, endpoint: str, manager: MagicMock, responses: list[Response]
+    ) -> tuple[MagicMock, list[dict[str, Any]]]:
+        """Drive ``mailchimp_source`` with a mocked HTTP session.
+
+        Returns ``(mock_session, sent_params)`` where ``sent_params`` is a list
+        of shallow copies of ``request.params`` captured at send-time — the
+        underlying Request object is mutated in-place by the paginator between
+        pages, so we can't rely on mock ``call_args_list`` to preserve history.
+        """
+        sent_params: list[dict[str, Any]] = []
+        response_iter = iter(responses)
+
+        def fake_send(request: Any, *_args: Any, **_kwargs: Any) -> Response:
+            sent_params.append(dict(request.params))
+            return next(response_iter)
+
+        with patch(
+            "posthog.temporal.data_imports.sources.common.rest_source.rest_client.requests.Session"
+        ) as MockSession:
+            mock_session = MockSession.return_value
+            mock_session.headers = {}
+            mock_session.prepare_request.side_effect = lambda req: req
+            mock_session.send.side_effect = fake_send
+
+            response = mailchimp_source(
+                api_key="key-us6",
+                endpoint=endpoint,
+                team_id=123,
+                job_id="test_job",
+                resumable_source_manager=manager,
+                should_use_incremental_field=False,
+            )
+            list(response.items())
+            return mock_session, sent_params
+
+    @pytest.mark.parametrize("endpoint", ["lists", "campaigns", "reports"])
+    def test_fresh_run_saves_offset_after_each_non_terminal_page(self, endpoint: str) -> None:
+        manager = MagicMock(spec=ResumableSourceManager)
+        manager.can_resume.return_value = False
+
+        data_key = endpoint  # lists/campaigns/reports all use their own name as data_selector
+        responses = [
+            _make_http_response({data_key: [{"id": "a"}], "total_items": 2500}),
+            _make_http_response({data_key: [{"id": "b"}], "total_items": 2500}),
+            _make_http_response({data_key: [{"id": "c"}], "total_items": 2500}),
+        ]
+        _, sent_params = self._drive(endpoint, manager, responses)
+
+        assert [p["offset"] for p in sent_params] == [0, 1000, 2000]
+
+        saved = [call.args[0] for call in manager.save_state.call_args_list]
+        assert saved == [
+            MailchimpResumeConfig(offset=1000),
+            MailchimpResumeConfig(offset=2000),
+        ]
+
+    @pytest.mark.parametrize("endpoint", ["lists", "campaigns", "reports"])
+    def test_resume_seeds_paginator_with_saved_offset(self, endpoint: str) -> None:
+        manager = MagicMock(spec=ResumableSourceManager)
+        manager.can_resume.return_value = True
+        manager.load_state.return_value = MailchimpResumeConfig(offset=2000)
+
+        data_key = endpoint
+        responses = [
+            _make_http_response({data_key: [{"id": "c"}], "total_items": 2500}),
+        ]
+        _, sent_params = self._drive(endpoint, manager, responses)
+
+        assert [p["offset"] for p in sent_params] == [2000]
+
+    @pytest.mark.parametrize("endpoint", ["lists", "campaigns", "reports"])
+    def test_terminal_single_page_does_not_save_state(self, endpoint: str) -> None:
+        manager = MagicMock(spec=ResumableSourceManager)
+        manager.can_resume.return_value = False
+
+        data_key = endpoint
+        responses = [
+            _make_http_response({data_key: [{"id": "only"}], "total_items": 1}),
+        ]
+        self._drive(endpoint, manager, responses)
+
+        manager.save_state.assert_not_called()
+
+    def test_saved_state_with_zero_offset_is_ignored(self) -> None:
+        # A zero-offset checkpoint is equivalent to a fresh run — don't seed.
+        manager = MagicMock(spec=ResumableSourceManager)
+        manager.can_resume.return_value = True
+        manager.load_state.return_value = MailchimpResumeConfig(offset=0)
+
+        responses = [
+            _make_http_response({"lists": [{"id": "a"}], "total_items": 1}),
+        ]
+        _, sent_params = self._drive("lists", manager, responses)
+
+        assert [p["offset"] for p in sent_params] == [0]
+
+    def test_saved_state_serialization_round_trip_with_list_id_absent(self) -> None:
+        # REST-endpoint checkpoints omit list_id; ensure ResumableSourceManager's
+        # asdict/json round trip reproduces the dataclass unchanged.
+        import dataclasses
+
+        cfg = MailchimpResumeConfig(offset=1500)
+        as_json = json.dumps(dataclasses.asdict(cfg))
+        reconstituted = MailchimpResumeConfig(**json.loads(as_json))
+        assert reconstituted == cfg
+        assert reconstituted.list_id is None

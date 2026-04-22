@@ -16,16 +16,20 @@ from posthog.temporal.data_imports.sources.mailchimp.settings import MAILCHIMP_E
 
 @dataclasses.dataclass
 class MailchimpResumeConfig:
-    """Resume state for the ``contacts`` endpoint's fan-out loop.
+    """Resume state for Mailchimp endpoints.
 
-    ``contacts`` iterates every audience list and paginates members within each.
-    The checkpoint is the ``(list_id, offset)`` of the page we last fetched —
-    on resume we re-request that same page, and duplicates are deduped by the
-    ``(list_id, id)`` primary key.
+    - ``contacts`` fans out over audience lists and paginates members within
+      each; its checkpoint is ``(list_id, offset)``.
+    - ``lists``/``campaigns``/``reports`` go through the shared ``rest_api_resource``
+      path using ``MailchimpPaginator`` (offset/count); their checkpoint is just
+      ``offset`` and ``list_id`` is ``None``.
+
+    On resume we re-request the saved page; duplicates are deduped by the
+    primary key.
     """
 
-    list_id: str
     offset: int
+    list_id: Optional[str] = None
 
 
 def extract_data_center(api_key: str) -> str:
@@ -60,6 +64,14 @@ class MailchimpPaginator(BasePaginator):
         self._offset = 0
         self._total_items: int | None = None
 
+    def init_request(self, request: Request) -> None:
+        # Always set offset/count so that (a) a seeded resume offset is honoured
+        # on the first request, and (b) fresh runs start from offset=0 explicitly.
+        if request.params is None:
+            request.params = {}
+        request.params["offset"] = self._offset
+        request.params["count"] = self._page_size
+
     def update_state(self, response: Response, data: list[Any] | None = None) -> None:
         res = response.json()
 
@@ -77,6 +89,17 @@ class MailchimpPaginator(BasePaginator):
 
         request.params["offset"] = self._offset
         request.params["count"] = self._page_size
+
+    def get_resume_state(self) -> Optional[dict[str, Any]]:
+        # rest_client only calls this when has_next_page is True, so ``_offset``
+        # already points at the page we still need to fetch.
+        return {"offset": self._offset}
+
+    def set_resume_state(self, state: dict[str, Any]) -> None:
+        offset = state.get("offset")
+        if offset is not None:
+            self._offset = int(offset)
+            self._has_next_page = True
 
 
 def get_resource(
@@ -354,7 +377,28 @@ def mailchimp_source(
         ],
     }
 
-    resource = rest_api_resource(config, team_id, job_id, db_incremental_field_last_value)
+    # ``lists``/``campaigns``/``reports`` all paginate by offset/count and can
+    # resume by seeding the paginator with the last un-fetched offset.
+    initial_paginator_state: Optional[dict[str, Any]] = None
+    if resumable_source_manager.can_resume():
+        resume_config = resumable_source_manager.load_state()
+        if resume_config is not None and resume_config.offset > 0:
+            initial_paginator_state = {"offset": resume_config.offset}
+
+    def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
+        # Only persist when there's a next page to resume to — matches the
+        # klaviyo/reddit_ads convention; Redis TTL handles cleanup on completion.
+        if state and state.get("offset") is not None:
+            resumable_source_manager.save_state(MailchimpResumeConfig(offset=int(state["offset"])))
+
+    resource = rest_api_resource(
+        config,
+        team_id,
+        job_id,
+        db_incremental_field_last_value,
+        resume_hook=save_checkpoint,
+        initial_paginator_state=initial_paginator_state,
+    )
 
     return SourceResponse(
         name=endpoint,
