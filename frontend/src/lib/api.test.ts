@@ -1,6 +1,6 @@
 import posthog from 'posthog-js'
 
-import api, { ApiConfig, ApiRequest } from 'lib/api'
+import api, { ApiConfig, ApiRequest, isAbortError } from 'lib/api'
 
 import { NodeKind } from '~/queries/schema/schema-general'
 import { PropertyFilterType, PropertyOperator } from '~/types'
@@ -145,6 +145,40 @@ describe('API helper', () => {
         await expect(api.get('/api/projects/null/dings')).rejects.toStrictEqual({
             detail: 'Cannot make request - project ID is unknown.',
             status: 0,
+        })
+    })
+
+    describe('isAbortError', () => {
+        it.each([
+            ['new query started'],
+            ['unmounting component'],
+            ['Fetch is aborted'],
+            ['The operation was aborted'],
+            ['ABORTED'],
+        ])('returns true for string abort reason %p', (reason) => {
+            expect(isAbortError(reason)).toBe(true)
+        })
+
+        it('returns true for DOMException-style AbortError', () => {
+            const err = new Error('signal is aborted without reason')
+            err.name = 'AbortError'
+            expect(isAbortError(err)).toBe(true)
+        })
+
+        it('returns true for Error whose message matches a known abort reason', () => {
+            expect(isAbortError(new Error('new query started'))).toBe(true)
+            expect(isAbortError(new Error('unmounting component'))).toBe(true)
+        })
+
+        it.each([
+            ['Network error'],
+            ['Server returned 500'],
+            ['Timeout exceeded'],
+            [null],
+            [undefined],
+            [{ status: 500 }],
+        ])('returns false for non-abort error %p', (value) => {
+            expect(isAbortError(value)).toBe(false)
         })
     })
 

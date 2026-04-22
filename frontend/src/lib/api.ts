@@ -361,6 +361,34 @@ export class RecordingDeletedError extends Error {
     }
 }
 
+// Reasons passed to AbortController.abort() by user-initiated cancels
+// (rapid filter changes, debounced queries, component unmounts). fetch()
+// rejects with the reason itself when a reason is provided, so callers may
+// see a plain string rather than a DOMException.
+const ABORT_REASON_MESSAGES = new Set(['new query started', 'unmounting component'])
+
+export function isAbortError(error: unknown): boolean {
+    if (error === null || error === undefined) {
+        return false
+    }
+    if (typeof error === 'string') {
+        return ABORT_REASON_MESSAGES.has(error) || error.toLowerCase().includes('abort')
+    }
+    if (typeof error === 'object') {
+        const name = (error as { name?: unknown }).name
+        if (name === 'AbortError') {
+            return true
+        }
+        const message = (error as { message?: unknown }).message
+        if (typeof message === 'string') {
+            if (ABORT_REASON_MESSAGES.has(message) || message.toLowerCase().includes('abort')) {
+                return true
+            }
+        }
+    }
+    return false
+}
+
 const CSRF_COOKIE_NAME = 'posthog_csrftoken'
 
 export function getCookie(name: string): string | null {
@@ -6671,7 +6699,7 @@ async function handleFetch(url: string, method: string, fetcher: () => Promise<R
     apiStatusLogic.findMounted()?.actions.onApiResponse(response?.clone(), error)
 
     if (error || !response) {
-        if (error && (error as any).name === 'AbortError') {
+        if (isAbortError(error)) {
             throw error
         }
         throw new ApiError(error as any, response?.status)

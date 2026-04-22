@@ -8,6 +8,7 @@ import { waitForPlugin } from 'kea-waitfor'
 import { windowValuesPlugin } from 'kea-window-values'
 import posthog from 'posthog-js'
 
+import { isAbortError } from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { identifierToHuman } from 'lib/utils'
 import { addProjectIdIfMissing, removeProjectIdIfPresent } from 'lib/utils/router-utils'
@@ -100,6 +101,12 @@ export function initKea({
         formsPlugin,
         loadersPlugin({
             onFailure({ error, reducerKey, actionKey }: { error: any; reducerKey: string; actionKey: string }) {
+                // User-initiated aborts (e.g. rapid filter changes cancelling an in-flight fetch)
+                // surface here as plain rejection reasons — don't toast, log, or report them.
+                if (isAbortError(error)) {
+                    return
+                }
+
                 // Toast if it's a fetch error or a specific API update error
                 const isLoadAction = typeof actionKey === 'string' && /^(load|get|fetch)[A-Z]/.test(actionKey)
                 if (
