@@ -11,6 +11,7 @@ from uuid import UUID
 from posthog.models.organization import Organization
 
 from .. import logic
+from ..logic.pandadoc import verify_webhook_signature as _verify_pandadoc_webhook_signature
 from . import contracts
 from .enums import LegalDocumentStatus
 
@@ -44,6 +45,11 @@ def get_for_organization(document_id: UUID, organization_id: UUID) -> contracts.
 
 def has_qualifying_baa_addon(organization: Organization) -> bool:
     return logic.has_qualifying_baa_addon(organization)
+
+
+def verify_pandadoc_webhook_signature(*, secret: str, body: bytes, signature: str) -> bool:
+    """Passthrough so the presentation layer never reaches past the facade."""
+    return _verify_pandadoc_webhook_signature(secret=secret, body=body, signature=signature)
 
 
 def exists_for_organization_and_type(organization_id: UUID, document_type: str) -> bool:

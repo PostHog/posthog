@@ -14,7 +14,6 @@ from posthog.exceptions_capture import capture_exception
 from posthog.rate_limit import IPThrottle
 
 from ..facade import api
-from ..logic.pandadoc import verify_webhook_signature
 
 logger = structlog.get_logger(__name__)
 
@@ -59,7 +58,9 @@ def legal_document_pandadoc_webhook(request: Request) -> Response:
 
     raw_body = request.body or b""
     signature = request.headers.get("X-PandaDoc-Signature") or request.query_params.get("signature") or ""
-    if not verify_webhook_signature(secret=settings.PANDADOC_WEBHOOK_SECRET, body=raw_body, signature=signature):
+    if not api.verify_pandadoc_webhook_signature(
+        secret=settings.PANDADOC_WEBHOOK_SECRET, body=raw_body, signature=signature
+    ):
         # Return 404 (not 403) so an attacker can't distinguish "wrong secret"
         # from "unknown route" via timing or status code.
         return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
