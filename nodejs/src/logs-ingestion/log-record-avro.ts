@@ -264,10 +264,10 @@ const scrubBatch = instrumented({
 /**
  * Processes an AVRO-encoded log message buffer containing multiple records.
  * Passthrough (no decode) when both json_parse_logs and pii_scrub_logs are off.
- * Otherwise: decode → optional parse bodies → optional JSON enrich → optional PII scrub → encode.
+ * Otherwise: decode → optional PII scrub on `body` → optional parse bodies → optional JSON enrich → encode.
  *
- * PII scrub does not parse log bodies; `parseLogBodiesForIngestion` runs only when `json_parse_logs` needs it for
- * enrichment (or when both flags are on, once per record before enrich then scrub).
+ * When both `json_parse_logs` and `pii_scrub_logs` are on, scrub runs **before** parse/enrich so flattened JSON
+ * attributes are derived from the redacted body string. `parseLogBodiesForIngestion` runs only when JSON parse is on.
  */
 export async function processLogMessageBuffer(buffer: Buffer, settings: LogsSettings): Promise<Buffer> {
     const jsonParse = settings.json_parse_logs ?? false
@@ -289,9 +289,9 @@ export async function processLogMessageBuffer(buffer: Buffer, settings: LogsSett
         }
 
         if (jsonParse && piiScrub) {
+            await scrubBatch(records)
             const bodyParses = await parseLogBodiesForIngestion(records)
             await enrichBatchJsonAttributes(records, bodyParses)
-            await scrubBatch(records)
         } else if (jsonParse) {
             const bodyParses = await parseLogBodiesForIngestion(records)
             await enrichBatchJsonAttributes(records, bodyParses)
