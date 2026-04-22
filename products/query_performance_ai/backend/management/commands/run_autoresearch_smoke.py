@@ -14,9 +14,11 @@ so what you observe here is what the weekly job will observe.
 from __future__ import annotations
 
 import sys
+import json
 import time
 import uuid
 import shlex
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -31,6 +33,7 @@ from posthog.temporal.oauth import create_oauth_access_token_for_user
 from products.tasks.backend.services.sandbox import SandboxConfig, SandboxTemplate, get_sandbox_class_for_backend
 from products.tasks.backend.temporal.process_task.activities.run_autoresearch_campaign import (
     LLM_GATEWAY_PRODUCT_SLUG,
+    RunAutoresearchCampaignOutput,
     _harvest_artifacts,
 )
 from products.tasks.backend.temporal.process_task.utils import get_github_token
@@ -40,6 +43,9 @@ _DEFAULT_POSTHOG_URL = "http://host.docker.internal:8000"
 # query under test travels with the code — iterating the smoke means editing
 # this file (or passing ``--sql-file`` with a throwaway path).
 _DEFAULT_SMOKE_SQL_RELPATH = "products/query_performance_ai/data/smoke_test.sql"
+# Where to dump harvested artifacts after a successful run. git-ignored
+# (via a checked-in .gitignore) so runs don't pollute the working tree.
+_SMOKE_OUTPUT_RELPATH = "products/query_performance_ai/data/smoke_output"
 # 45 minutes: matches the prod activity's CAMPAIGN_SCRIPT_TIMEOUT_S.
 _CAMPAIGN_TIMEOUT_S = 45 * 60
 
@@ -231,6 +237,10 @@ class Command(BaseCommand):
                 campaign_stdout_tail=(result.stdout or "")[-4000:],
             )
 
+            output_dir = Path(settings.BASE_DIR) / _SMOKE_OUTPUT_RELPATH
+            _write_artifacts_to_disk(output, output_dir)
+            write(f"Artifacts written to {output_dir}")
+
             self.stdout.write("")
             self.stdout.write(self.style.SUCCESS("=" * 60))
             self.stdout.write(self.style.SUCCESS("Campaign summary"))
@@ -372,6 +382,70 @@ def _resolve_anthropic_base_url(log) -> str | None:
         )
         return None
     return f"{gateway.rstrip('/')}/{LLM_GATEWAY_PRODUCT_SLUG}"
+
+
+def _write_artifacts_to_disk(output: RunAutoresearchCampaignOutput, dest: Path) -> None:
+    """Dump harvested campaign artifacts into a local directory.
+
+    Wipes everything in ``dest`` except the checked-in ``.gitignore`` so each
+    run starts clean. The dir itself is tracked (for the .gitignore) but its
+    contents are ignored, so writing here does not dirty the working tree.
+    """
+    dest.mkdir(parents=True, exist_ok=True)
+    for entry in dest.iterdir():
+        if entry.name == ".gitignore":
+            continue
+        if entry.is_dir():
+            shutil.rmtree(entry)
+        else:
+            entry.unlink()
+
+    (dest / "original.sql").write_text(
+        output.original_sql + "\n" if not output.original_sql.endswith("\n") else output.original_sql
+    )
+    if output.best_sql:
+        (dest / "best.sql").write_text(
+            output.best_sql + "\n" if not output.best_sql.endswith("\n") else output.best_sql
+        )
+    if output.baseline_metrics_json:
+        (dest / "baseline_metrics.json").write_text(output.baseline_metrics_json)
+    if output.best_metrics_json:
+        (dest / "best_run_metrics.json").write_text(output.best_metrics_json)
+    if output.last_run_json:
+        (dest / "last_run.json").write_text(output.last_run_json)
+    if output.operator_hunches:
+        (dest / "operator_hunches.md").write_text(output.operator_hunches)
+    if output.suggestions:
+        (dest / "suggestions.md").write_text(output.suggestions)
+    if output.campaign_stdout_tail:
+        (dest / "campaign_stdout_tail.log").write_text(output.campaign_stdout_tail)
+
+    _write_markdown_dir(dest / "lanes", output.lanes)
+    _write_markdown_dir(dest / "hypotheses", output.hypotheses)
+    _write_markdown_dir(dest / "reviews", output.reviews)
+
+    # Dump the structured output too so downstream tooling / future PR-writing
+    # Task has a canonical JSON view without re-parsing the filesystem.
+    summary = {
+        "query_id": output.query_id,
+        "original_sql": output.original_sql,
+        "best_sql": output.best_sql,
+        "baseline_metrics_json": output.baseline_metrics_json,
+        "best_run_metrics_json": output.best_metrics_json,
+        "last_run_json": output.last_run_json,
+        "lane_count": len(output.lanes),
+        "hypothesis_count": len(output.hypotheses),
+        "review_count": len(output.reviews),
+    }
+    (dest / "summary.json").write_text(json.dumps(summary, indent=2))
+
+
+def _write_markdown_dir(dest: Path, entries: list[tuple[str, str]]) -> None:
+    if not entries:
+        return
+    dest.mkdir(parents=True, exist_ok=True)
+    for name, contents in entries:
+        (dest / name).write_text(contents)
 
 
 def _truncate(s: str, limit: int) -> str:
