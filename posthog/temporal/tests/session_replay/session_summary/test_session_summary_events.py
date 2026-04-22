@@ -17,7 +17,7 @@ from posthog.temporal.session_replay.session_summary.types.video import (
     VideoSummarySingleSessionInputs,
 )
 
-from ee.models.session_summaries import SessionSummaryRunMeta, SingleSessionSummary
+from ee.models.session_summaries import ExtraSummaryContext, SessionSummaryRunMeta, SingleSessionSummary
 
 pytestmark = pytest.mark.django_db
 
@@ -34,6 +34,7 @@ def test_capture_session_summary_ready_emits_internal_project_event(
         session_id="summary-session-1",
         summary=mock_session_summary_serializer,
         exception_event_ids=[],
+        extra_summary_context=ExtraSummaryContext(focus_area="checkout"),
         run_metadata=SessionSummaryRunMeta(model_used="gpt-test", visual_confirmation=False),
         distinct_id="customer-123",
         created_by=user,
@@ -58,6 +59,8 @@ def test_capture_session_summary_ready_emits_internal_project_event(
     assert kwargs["properties"]["summary_id"] == str(summary.id)
     assert kwargs["properties"]["summary_origin"] == "single"
     assert kwargs["properties"]["replay_url"] == f"http://localhost:8000/project/{team.id}/replay/summary-session-1"
+    assert kwargs["properties"]["session_summary_context"] == {"focus_area": "checkout"}
+    assert kwargs["properties"]["session_summary_focus_area"] == "checkout"
     assert kwargs["properties"]["visual_confirmation"] is False
     assert kwargs["properties"]["model_used"] == "gpt-test"
     assert kwargs["properties"]["session_start_time"] is None
