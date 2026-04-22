@@ -23139,6 +23139,16 @@ export namespace Schemas {
       Skipped: 'skipped',
     } as const;
 
+    /**
+     * AI-generated summary included in this delivery, when one was produced. Shape: {"summary": string, ...}; reserved for future fields like backing data or stats.
+     * @nullable
+     */
+    export type SubscriptionDeliveryChangeSummary = {
+      /** @nullable */
+      readonly summary?: string | null;
+      [key: string]: unknown;
+     } | null | null;
+
     export interface SubscriptionDelivery {
       /** Primary key for this delivery row. */
       readonly id: string;
@@ -23187,7 +23197,7 @@ export namespace Schemas {
        * AI-generated summary included in this delivery, when one was produced. Shape: {"summary": string, ...}; reserved for future fields like backing data or stats.
        * @nullable
        */
-      readonly change_summary: { summary?: string | null } | null;
+      readonly change_summary: SubscriptionDeliveryChangeSummary;
     }
 
     export interface PaginatedSubscriptionDeliveryList {
