@@ -150,7 +150,7 @@ describe('alertFormLogic', () => {
             historyChartEnabled: false,
         })
         logic.mount()
-        logic.actions.setAlertFormValues(makeFormDefaults())
+        logic.actions.setAlertFormValues(makeFormDefaults() as Partial<AlertFormType>)
         return logic
     }
 
@@ -247,7 +247,7 @@ describe('alertFormLogic', () => {
             historyChartEnabled: false,
         })
         logic.mount()
-        logic.actions.setAlertFormValues(makeFormDefaults({ id: existingAlert.id }))
+        logic.actions.setAlertFormValues(makeFormDefaults({ id: existingAlert.id }) as Partial<AlertFormType>)
 
         await expectLogic(logic, () => {
             logic.actions.submitAlertForm()
