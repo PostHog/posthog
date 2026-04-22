@@ -8,7 +8,7 @@ RUN npm install -g "@mariozechner/pi-coding-agent@${PI_CODING_AGENT_VERSION}"
 # on the personal upstream cannot affect what lands here. Install via the repo's documented
 # manual-copy path so nothing downstream re-resolves the SHA through a mutable name.
 ARG PI_AUTORESEARCH_SHA=56e9f2ec6f0dc6f9997126e4f1d8a4223de2a534
-RUN set -euxo pipefail; \
+RUN set -eux; \
     src=/tmp/pi-autoresearch; \
     git init -q "$src"; \
     git -C "$src" remote add origin https://github.com/davebcn87/pi-autoresearch.git; \
@@ -23,7 +23,7 @@ RUN set -euxo pipefail; \
 # production_us is the canonical source; US/EU/oldest share the pin today but can diverge.
 # Fetching the exact SHA eliminates the tag-force-move TOCTOU window that --branch would have.
 COPY .github/clickhouse-versions.json /tmp/clickhouse-versions.json
-RUN set -euxo pipefail; \
+RUN set -eux; \
     expected_sha=$(jq -r '.source_shas.production_us // empty' /tmp/clickhouse-versions.json); \
     [ -n "$expected_sha" ] || { echo "source_shas.production_us missing"; exit 1; }; \
     dst=/opt/clickhouse; \
