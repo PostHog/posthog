@@ -158,6 +158,10 @@ export class LegacyPluginAppMetrics {
     }
 
     _key(metric: AppMetric): string {
-        return `${metric.teamId}.${metric.pluginConfigId}.${metric.category}.${metric.jobId}`
+        // category is intentionally absent — it has no slot in the v2 schema
+        // (AppMetric2Row). Including it in the key would split metrics for the
+        // same (team, plugin, job) into separate flush messages that ClickHouse
+        // would just sum back together.
+        return `${metric.teamId}.${metric.pluginConfigId}.${metric.jobId}`
     }
 }
