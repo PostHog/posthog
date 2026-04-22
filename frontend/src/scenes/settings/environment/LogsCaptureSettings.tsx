@@ -103,8 +103,11 @@ export function LogsPiiScrubSettings(): JSX.Element {
                 />
             </AccessControlAction>
             <p className="text-secondary text-sm max-w-200 mt-2">
-                When enabled, common patterns (emails, card numbers, authorization headers, sensitive attribute keys)
-                are replaced with a fixed placeholder before storage. This is lossy redaction, not reversible hashing.
+                When enabled, we scrub common sensitive patterns from log text before storage: email addresses,
+                Bearer-style authorization tokens, and Stripe secret key shapes. Attribute values whose names suggest
+                sensitive data (for example password or api key) may be fully replaced. This is best-effort: values that
+                do not match these patterns, or bank card numbers, may still appear. Redaction is permanent and one-way,
+                not encryption.
             </p>
         </>
     )

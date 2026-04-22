@@ -217,7 +217,7 @@ class TestErrorHandling(TestCase):
         snapshot = _snapshot(state=NOT_FIRING)
         outcome = evaluate_alert_check(snapshot, _check(error="ClickHouse timeout"), NOW)
         assert outcome.new_state == ERRORED
-        assert outcome.notification == NotificationAction.NONE
+        assert outcome.notification == NotificationAction.ERROR
         assert outcome.error_message == "ClickHouse timeout"
 
     def test_error_increments_consecutive_failures(self) -> None:

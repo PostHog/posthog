@@ -4,6 +4,7 @@ import { router } from 'kea-router'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
+import { dayjs } from 'lib/dayjs'
 import { teamLogic } from 'scenes/teamLogic'
 
 import {
@@ -33,6 +34,8 @@ export const logsAlertingLogic = kea<logsAlertingLogicType>([
         resetAlert: (id: string) => ({ id }),
         setResettingAlertId: (id: string, resetting: boolean) => ({ id, resetting }),
         setViewingHistoryAlert: (alert: LogsAlertConfigurationApi | null) => ({ alert }),
+        snoozeAlert: (alertId: string, durationMinutes: number) => ({ alertId, durationMinutes }),
+        unsnoozeAlert: (alertId: string) => ({ alertId }),
     }),
 
     reducers({
@@ -128,6 +131,27 @@ export const logsAlertingLogic = kea<logsAlertingLogicType>([
                 lemonToast.error('Failed to reset alert')
             } finally {
                 actions.setResettingAlertId(id, false)
+            }
+        },
+        snoozeAlert: async ({ alertId, durationMinutes }) => {
+            const projectId = String(values.currentTeamId)
+            const snoozeUntil = dayjs().add(durationMinutes, 'minute').toISOString()
+            try {
+                await logsAlertsPartialUpdate(projectId, alertId, { snooze_until: snoozeUntil })
+                lemonToast.success('Alert snoozed')
+                actions.loadAlerts()
+            } catch {
+                lemonToast.error('Failed to snooze alert')
+            }
+        },
+        unsnoozeAlert: async ({ alertId }) => {
+            const projectId = String(values.currentTeamId)
+            try {
+                await logsAlertsPartialUpdate(projectId, alertId, { snooze_until: null })
+                lemonToast.success('Alert unsnoozed')
+                actions.loadAlerts()
+            } catch {
+                lemonToast.error('Failed to unsnooze alert')
             }
         },
     })),

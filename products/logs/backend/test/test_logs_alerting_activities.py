@@ -1,3 +1,4 @@
+import datetime as dt
 from datetime import UTC, datetime
 
 from freezegun import freeze_time
@@ -21,6 +22,25 @@ def _make_stats() -> dict[str, int]:
 
 
 class TestCheckAlertsSync(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        # Stub the cycle-level CH queries and metric emitters so tests that aren't
+        # asserting on them don't hit a real ClickHouse or raise outside Temporal.
+        # fetch_live_logs_checkpoint must return None (not MagicMock) so the real
+        # date-resolution path can run with a well-typed sentinel.
+        checkpoint_patch = patch(
+            "products.logs.backend.temporal.activities.fetch_live_logs_checkpoint", return_value=None
+        )
+        checkpoint_patch.start()
+        self.addCleanup(checkpoint_patch.stop)
+        for target in (
+            "products.logs.backend.temporal.activities.record_checkpoint_lag",
+            "products.logs.backend.temporal.activities.record_alerts_active",
+        ):
+            p = patch(target)
+            p.start()
+            self.addCleanup(p.stop)
+
     def _make_alert(self, **kwargs) -> LogsAlertConfiguration:
         defaults = {
             "team": self.team,
@@ -134,6 +154,56 @@ class TestCheckAlertsSync(APIBaseTest):
         _check_alerts_sync()
 
         mock_record_gauge.assert_called_once_with(expected_count)
+
+    @freeze_time("2025-01-01T00:01:00Z")
+    @patch("products.logs.backend.temporal.activities.record_checkpoint_lag")
+    @patch("products.logs.backend.temporal.activities.fetch_live_logs_checkpoint")
+    @patch("products.logs.backend.temporal.activities.AlertCheckQuery")
+    def test_fetches_checkpoint_once_and_passes_to_evaluator(
+        self, mock_query_cls, mock_fetch_checkpoint, mock_record_lag
+    ):
+        checkpoint = datetime(2025, 1, 1, 0, 0, 30, tzinfo=UTC)
+        mock_fetch_checkpoint.return_value = checkpoint
+        mock_query_cls.return_value.execute.return_value = AlertCheckCountResult(count=5, query_duration_ms=100)
+        self._make_alert()
+        self._make_alert(name="Second")
+
+        _check_alerts_sync()
+
+        # One checkpoint fetch per cycle, regardless of alert count.
+        mock_fetch_checkpoint.assert_called_once()
+        mock_record_lag.assert_called_once()
+        (now_arg, checkpoint_arg), _ = mock_record_lag.call_args
+        assert checkpoint_arg == checkpoint
+
+    @freeze_time("2025-01-01T00:01:00Z")
+    @patch("products.logs.backend.temporal.activities.record_checkpoint_lag")
+    @patch("products.logs.backend.temporal.activities.fetch_live_logs_checkpoint")
+    @patch("products.logs.backend.temporal.activities.AlertCheckQuery")
+    def test_skips_checkpoint_fetch_when_no_due_alerts(self, _mock_query_cls, mock_fetch_checkpoint, mock_record_lag):
+        _check_alerts_sync()
+
+        mock_fetch_checkpoint.assert_not_called()
+        # Still record the gauge with None so the sentinel fires (pipeline unavailable-ish).
+        mock_record_lag.assert_called_once()
+        _now, checkpoint_arg = mock_record_lag.call_args.args
+        assert checkpoint_arg is None
+
+    @freeze_time("2025-01-01T00:01:00Z")
+    @patch("products.logs.backend.temporal.activities.record_checkpoint_lag")
+    @patch("products.logs.backend.temporal.activities.fetch_live_logs_checkpoint", side_effect=RuntimeError("CH down"))
+    @patch("products.logs.backend.temporal.activities.AlertCheckQuery")
+    def test_checkpoint_fetch_failure_falls_back_to_wall_clock(self, mock_query_cls, _mock_fetch, mock_record_lag):
+        mock_query_cls.return_value.execute.return_value = AlertCheckCountResult(count=5, query_duration_ms=100)
+        self._make_alert()
+
+        result = _check_alerts_sync()
+
+        # Alert still evaluated — failed checkpoint fetch must not block alerting.
+        assert result.alerts_checked == 1
+        mock_record_lag.assert_called_once()
+        _now, checkpoint_arg = mock_record_lag.call_args.args
+        assert checkpoint_arg is None
 
 
 class TestEvaluateSingleAlert(APIBaseTest):
@@ -719,3 +789,66 @@ class TestEvaluateSingleAlert(APIBaseTest):
         )
 
         mock_check_errors.assert_not_called()
+
+    @freeze_time("2025-01-01T00:01:00Z")
+    @patch("products.logs.backend.temporal.activities.AlertCheckQuery")
+    @patch("products.logs.backend.temporal.activities.produce_internal_event")
+    def test_query_uses_checkpoint_as_date_to_when_in_past(self, _mock_produce, mock_query_cls):
+        mock_query_cls.return_value.execute.return_value = AlertCheckCountResult(count=5, query_duration_ms=100)
+        alert = self._make_alert(window_minutes=5)
+        now = datetime(2025, 1, 1, 0, 1, 0, tzinfo=UTC)
+        checkpoint = datetime(2025, 1, 1, 0, 0, 30, tzinfo=UTC)  # 30s behind now
+
+        _evaluate_single_alert(alert, now, _make_stats(), checkpoint=checkpoint)
+
+        kwargs = mock_query_cls.call_args.kwargs
+        assert kwargs["date_to"] == checkpoint
+        assert kwargs["date_from"] == checkpoint - dt.timedelta(minutes=5)
+
+    @freeze_time("2025-01-01T00:01:00Z")
+    @patch("products.logs.backend.temporal.activities.AlertCheckQuery")
+    @patch("products.logs.backend.temporal.activities.produce_internal_event")
+    def test_query_uses_now_when_checkpoint_is_in_future(self, _mock_produce, mock_query_cls):
+        # Defensive case: if clocks are skewed so checkpoint > now, don't query the future.
+        mock_query_cls.return_value.execute.return_value = AlertCheckCountResult(count=5, query_duration_ms=100)
+        alert = self._make_alert(window_minutes=5)
+        now = datetime(2025, 1, 1, 0, 1, 0, tzinfo=UTC)
+        checkpoint = datetime(2025, 1, 1, 0, 2, 0, tzinfo=UTC)  # 60s ahead of now
+
+        _evaluate_single_alert(alert, now, _make_stats(), checkpoint=checkpoint)
+
+        kwargs = mock_query_cls.call_args.kwargs
+        assert kwargs["date_to"] == now
+        assert kwargs["date_from"] == now - dt.timedelta(minutes=5)
+
+    @freeze_time("2025-01-01T00:01:00Z")
+    @patch("products.logs.backend.temporal.activities.AlertCheckQuery")
+    @patch("products.logs.backend.temporal.activities.produce_internal_event")
+    def test_query_uses_now_when_checkpoint_is_none(self, _mock_produce, mock_query_cls):
+        mock_query_cls.return_value.execute.return_value = AlertCheckCountResult(count=5, query_duration_ms=100)
+        alert = self._make_alert(window_minutes=5)
+        now = datetime(2025, 1, 1, 0, 1, 0, tzinfo=UTC)
+
+        _evaluate_single_alert(alert, now, _make_stats(), checkpoint=None)
+
+        kwargs = mock_query_cls.call_args.kwargs
+        assert kwargs["date_to"] == now
+        assert kwargs["date_from"] == now - dt.timedelta(minutes=5)
+
+    @freeze_time("2025-01-01T01:00:00Z")
+    @patch("products.logs.backend.temporal.activities.AlertCheckQuery")
+    @patch("products.logs.backend.temporal.activities.produce_internal_event")
+    def test_query_ignores_stale_checkpoint_quiet_partition_case(self, _mock_produce, mock_query_cls):
+        # Quiet partitions pin min(max_observed_timestamp) backwards. If that's older than
+        # CHECKPOINT_MAX_STALENESS we must ignore the checkpoint — otherwise a spike of
+        # errors on an active partition would never appear in the window.
+        mock_query_cls.return_value.execute.return_value = AlertCheckCountResult(count=5, query_duration_ms=100)
+        alert = self._make_alert(window_minutes=5)
+        now = datetime(2025, 1, 1, 1, 0, 0, tzinfo=UTC)
+        stale_checkpoint = datetime(2025, 1, 1, 0, 0, 0, tzinfo=UTC)  # 1 hour behind now
+
+        _evaluate_single_alert(alert, now, _make_stats(), checkpoint=stale_checkpoint)
+
+        kwargs = mock_query_cls.call_args.kwargs
+        assert kwargs["date_to"] == now
+        assert kwargs["date_from"] == now - dt.timedelta(minutes=5)

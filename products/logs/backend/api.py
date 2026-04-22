@@ -50,6 +50,50 @@ tracer = trace.get_tracer(__name__)
 LOGS_MAX_EXPORT_ROWS = 10_000
 
 
+class DateRangeSerializer(serializers.Serializer):
+    date_from = serializers.CharField(help_text='Start of date range (ISO 8601 format, e.g., "2024-01-01T00:00:00Z").')
+    date_to = serializers.CharField(help_text='End of date range (ISO 8601 format, e.g., "2024-01-02T00:00:00Z").')
+
+
+class SparklineQuerySerializer(serializers.Serializer):
+    dateRange = DateRangeSerializer(help_text="Date range for the sparkline query.")
+    severityLevels = serializers.ListField(
+        child=serializers.ChoiceField(choices=["trace", "debug", "info", "warn", "error", "fatal"]),
+        required=False,
+        default=list,
+        help_text="Filter by severity levels (trace, debug, info, warn, error, fatal).",
+    )
+    serviceNames = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        default=list,
+        help_text="Filter by service names.",
+    )
+    searchTerm = serializers.CharField(
+        required=False,
+        allow_null=True,
+        default=None,
+        help_text="Free text search term to filter log entries.",
+    )
+    filterGroup = serializers.JSONField(
+        required=False,
+        allow_null=True,
+        default=None,
+        help_text="Property filter group object for structured filtering.",
+    )
+    sparklineBreakdownBy = serializers.ChoiceField(
+        choices=["severity", "service"],
+        required=False,
+        allow_null=True,
+        default=None,
+        help_text="Break down sparkline data by severity level or service name (default: severity).",
+    )
+
+
+class SparklineRequestSerializer(serializers.Serializer):
+    query = SparklineQuerySerializer(help_text="Sparkline query parameters.")
+
+
 # Serializers below are used exclusively for OpenAPI spec generation via
 # drf-spectacular. They are NOT used for request validation — the existing
 # manual parsing in LogsViewSet is unchanged.

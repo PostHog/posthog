@@ -120,8 +120,13 @@ export const POSTHOG_META_KEY = 'com.posthog.mcp' as const
 export const POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY = '__formatted_results_override' as const
 
 export type PostHogToolMeta = {
-    /** Return JSON instead of TOON-encoded text. Use for tools whose output is consumed programmatically. */
-    responseFormat?: 'json'
+    /**
+     * Output format for the tool response.
+     * `'optimized'` surfaces the LLM-friendly formatter output (from `ee/hogai/context/insight/format/`)
+     * via `formatted_results` when available; `'json'` returns raw JSON-stringified content. When unset,
+     * the text content is TOON-encoded by default.
+     */
+    outputFormat?: 'optimized' | 'json'
 }
 
 export type ToolMeta = {

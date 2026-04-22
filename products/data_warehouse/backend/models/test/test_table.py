@@ -329,6 +329,44 @@ class TestTable(BaseTest):
                 }
             }
 
+    @parameterized.expand(
+        [
+            ("get_columns", "id,Int64\n"),
+            ("get_count", "42\n"),
+        ]
+    )
+    def test_chdb_introspection_escapes_single_quotes_in_placeholders(self, method_name: str, chdb_csv: str):
+        # Regression test: placeholder values flowing into the chdb query must be
+        # escaped, otherwise a single quote in a credential or url_pattern breaks
+        # out of the string literal and chdb (multi-statement) runs attacker SQL.
+        malicious_secret = "s3cr'; SELECT 1--"
+        credential = DataWarehouseCredential.objects.create(
+            access_key="key", access_secret=malicious_secret, team=self.team
+        )
+        table = DataWarehouseTable.objects.create(
+            name="test_table",
+            url_pattern="https://example.com/data.parquet",
+            credential=credential,
+            format="Parquet",
+            team=self.team,
+        )
+
+        chdb_result = type("R", (), {"__str__": lambda self: chdb_csv})()
+        with (
+            patch("products.data_warehouse.backend.models.table.TEST", False),
+            patch("products.data_warehouse.backend.models.table.chdb.query", return_value=chdb_result) as chdb_query,
+        ):
+            getattr(table, method_name)()
+
+        assert chdb_query.called, "chdb.query should have been invoked on the chdb path"
+        rendered_query: str = chdb_query.call_args.args[0]
+        assert malicious_secret not in rendered_query, (
+            f"Unescaped secret leaked into chdb query, enabling SQL injection: {rendered_query}"
+        )
+        assert "s3cr\\'; SELECT 1--" in rendered_query, (
+            f"Expected single quote to be escaped as \\' in chdb query: {rendered_query}"
+        )
+
     def test_hogql_definition_old_style(self):
         credential = DataWarehouseCredential.objects.create(access_key="test", access_secret="test", team=self.team)
         table = DataWarehouseTable.objects.create(
