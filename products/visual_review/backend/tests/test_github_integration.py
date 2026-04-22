@@ -405,7 +405,7 @@ class TestGitHubCommitOnApprove:
             capture_output=True,
             text=True,
         )
-        assert "chore(visual): update visual baselines" in log_result.stdout
+        assert "chore(visual): update storybook baselines" in log_result.stdout
 
     def test_approve_merges_with_existing_baselines(
         self,
