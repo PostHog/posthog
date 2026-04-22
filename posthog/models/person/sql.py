@@ -29,6 +29,9 @@ KAFKA_PERSONS_TABLE = f"kafka_{PERSONS_TABLE}"
 DROP_PERSONS_TABLE_MV_SQL = f"DROP TABLE IF EXISTS {PERSONS_TABLE_MV}"
 DROP_KAFKA_PERSONS_TABLE_SQL = f"DROP TABLE IF EXISTS {KAFKA_PERSONS_TABLE}"
 
+# Also rendered as a Distributed shim on NodeRole.AI_EVENTS — see
+# posthog/models/ai_events/person_shims.py. Column ALTERs on the main
+# cluster must be mirrored by a migration targeting NodeRole.AI_EVENTS.
 PERSONS_TABLE_BASE_SQL = """
 CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause}
 (
@@ -253,6 +256,9 @@ DROP_KAFKA_PERSON_DISTINCT_ID2_TABLE_SQL = f"DROP TABLE IF EXISTS {KAFKA_PERSON_
 DROP_PERSON_DISTINCT_ID2_TABLE_MV_SQL = f"DROP TABLE IF EXISTS {PERSON_DISTINCT_ID2_TABLE_MV}"
 
 # NOTE: This table base SQL is also used for distinct ID overrides!
+# Also rendered as a Distributed shim on NodeRole.AI_EVENTS — see
+# posthog/models/ai_events/person_shims.py. Column ALTERs on the main
+# cluster must be mirrored by a migration targeting NodeRole.AI_EVENTS.
 PERSON_DISTINCT_ID2_TABLE_BASE_SQL = """
 CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause}
 (

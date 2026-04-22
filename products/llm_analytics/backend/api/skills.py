@@ -43,6 +43,7 @@ from .skill_serializers import (
 )
 from .skill_services import (
     LLMSkillDuplicateNameConflictError,
+    LLMSkillEditError,
     LLMSkillNotFoundError,
     LLMSkillVersionConflictError,
     LLMSkillVersionLimitError,
@@ -233,6 +234,7 @@ class LLMSkillViewSet(
                 user=cast(User, request.user),
                 skill_name=skill_name,
                 body=payload.validated_data.get("body"),
+                edits=payload.validated_data.get("edits"),
                 description=payload.validated_data.get("description"),
                 license=payload.validated_data.get("license"),
                 compatibility=payload.validated_data.get("compatibility"),
@@ -262,6 +264,14 @@ class LLMSkillViewSet(
                         f"Skill has reached the maximum of {err.max_version} versions. "
                         "Archive and recreate the skill to continue publishing."
                     ),
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        except LLMSkillEditError as err:
+            return Response(
+                {
+                    "detail": err.message,
+                    "edit_index": err.edit_index,
                 },
                 status=status.HTTP_400_BAD_REQUEST,
             )

@@ -4603,8 +4603,6 @@ export namespace Schemas {
       experiment_id?: number | null;
       kind?: ExperimentQueryKind;
       metric: ExperimentMeanMetric | ExperimentFunnelMetric | ExperimentRatioMetric | ExperimentRetentionMetric;
-      /** @nullable */
-      metric_events_precomputation?: boolean | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
       /** @nullable */
@@ -20037,6 +20035,13 @@ export namespace Schemas {
       new_name: string;
     }
 
+    export interface LLMSkillEditOperation {
+      /** Text to find in the current skill body. Must match exactly once. */
+      old: string;
+      /** Replacement text. */
+      new: string;
+    }
+
     export interface LLMSkillFile {
       /** @maxLength 500 */
       path: string;
@@ -26425,8 +26430,10 @@ export namespace Schemas {
     export type PatchedLLMSkillPublishMetadata = {[key: string]: unknown};
 
     export interface PatchedLLMSkillPublish {
-      /** Full skill body (SKILL.md instruction content) to publish as a new version. */
+      /** Full skill body (SKILL.md instruction content) to publish as a new version. Mutually exclusive with edits. */
       body?: string;
+      /** List of find/replace operations to apply to the current skill body. Each edit's 'old' text must match exactly once. Edits are applied sequentially. Mutually exclusive with body. */
+      edits?: LLMSkillEditOperation[];
       /**
        * Updated description for the new version.
        * @maxLength 4096

@@ -71,7 +71,7 @@ class TaskEvent(StrEnum):
     CI_FOLLOW_UP = "ci_follow_up"
 
 
-INACTIVITY_TIMEOUT = timedelta(minutes=30)
+INACTIVITY_TIMEOUT = timedelta(minutes=5)
 CI_FOLLOW_UP_DELAY = timedelta(minutes=15)
 PENDING_MESSAGE_FORWARD_TIMEOUT_SECONDS = 180
 MAX_CI_REPETITIONS = 3
@@ -124,8 +124,8 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         )
         return TaskEvent.SIGNAL_RECEIVED
 
-    async def _wait_for_inactivity(self):
-        await workflow.sleep(INACTIVITY_TIMEOUT.total_seconds())
+    async def _wait_for_inactivity(self, timeout: timedelta = INACTIVITY_TIMEOUT):
+        await workflow.sleep(timeout.total_seconds())
         return TaskEvent.TIMEOUT_REACHED
 
     async def _wait_for_ci_follow_up(self):
@@ -145,19 +145,25 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         return TaskEvent.CI_FOLLOW_UP
 
     async def _wait_for_event(self) -> TaskEvent:
-        possible_events: list[asyncio.Task[TaskEvent]] = [
-            asyncio.create_task(self._wait_for_task_external_event()),
-            asyncio.create_task(self._wait_for_inactivity()),
-        ]
-        if (
-            self._context
+        ci_follow_up_scheduled = (
+            self._context is not None
             and self._context.create_pr
             and self._context.pr_loop_enabled
             and self._ci_repetitions < MAX_CI_REPETITIONS
-        ):
-            workflow.logger.info(
-                "Waiting for CI follow-up event", run_id=self.context.run_id, repetitions=self._ci_repetitions
-            )
+        )
+        # When a CI follow-up is scheduled, ensure the inactivity timer can't
+        # race ahead of it — otherwise the short inactivity window would always
+        # fire first and CI fixes would be silently skipped.
+        inactivity_timeout = (
+            max(INACTIVITY_TIMEOUT, CI_FOLLOW_UP_DELAY + timedelta(minutes=1))
+            if ci_follow_up_scheduled
+            else INACTIVITY_TIMEOUT
+        )
+        possible_events: list[asyncio.Task[TaskEvent]] = [
+            asyncio.create_task(self._wait_for_task_external_event()),
+            asyncio.create_task(self._wait_for_inactivity(inactivity_timeout)),
+        ]
+        if ci_follow_up_scheduled:
             possible_events.append(asyncio.create_task(self._wait_for_ci_follow_up()))
         done, pending = await workflow.wait(possible_events, return_when=asyncio.FIRST_COMPLETED)
         for task in pending:

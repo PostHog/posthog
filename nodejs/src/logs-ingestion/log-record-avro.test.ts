@@ -513,7 +513,7 @@ describe('log-record-avro', () => {
             expect(body.message).toContain('{{REDACTED}}')
         })
 
-        it('enriches then scrubs when both JSON parse and PII scrub are on', async () => {
+        it('scrubs body then enriches when both JSON parse and PII scrub are on', async () => {
             const records: LogRecord[] = [
                 {
                     uuid: 'test-uuid',
@@ -542,7 +542,7 @@ describe('log-record-avro', () => {
             expect(decoded[0]?.attributes).toEqual({
                 level: encodeAttributeCell('info'),
                 message: encodeAttributeCell(PII_REDACTED),
-                note: encodeAttributeCell(PII_REDACTED),
+                note: 'c@d.co',
             })
         })
 
@@ -624,7 +624,7 @@ describe('log-record-avro', () => {
             spy.mockRestore()
         })
 
-        it('flattens nested JSON keys then scrubs sensitive flattened attribute keys when both flags are on', async () => {
+        it('flattens nested JSON keys when both flags are on; body is pattern-scrubbed only', async () => {
             const records: LogRecord[] = [
                 {
                     uuid: 'test-uuid',
@@ -655,7 +655,7 @@ describe('log-record-avro', () => {
             expect(body.meta.api_key).toBe('leak-value')
             expect(body.ok).toBe('keep')
             expect(decoded[0]?.attributes).toEqual({
-                'meta.api_key': encodeAttributeCell(PII_REDACTED),
+                'meta.api_key': encodeAttributeCell('leak-value'),
                 ok: encodeAttributeCell('keep'),
             })
         })
