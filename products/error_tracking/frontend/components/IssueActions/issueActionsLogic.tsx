@@ -10,7 +10,7 @@ import { createCohortFormData } from 'scenes/cohorts/cohortUtils'
 import { ErrorTrackingIssue } from '~/queries/schema/schema-general'
 import { BehavioralEventType, CohortType, FilterLogicalOperator, PropertyFilterType, PropertyOperator } from '~/types'
 
-import { captureMergePhantoms, capturePhantomsForIssues } from '../../logics/capturePhantomsForIssues'
+import { captureMergePhantoms, capturePhantomsForIssues } from '../../logics/phantomFingerprintIssueStateLogic'
 import type { issueActionsLogicType } from './issueActionsLogicType'
 
 export const issueActionsLogic = kea<issueActionsLogicType>([

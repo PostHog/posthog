@@ -32,9 +32,7 @@ ERROR_TRACKING_FINGERPRINT_ISSUE_STATE_FIELDS: dict[str, FieldOrTable] = {
 
 RAW_TABLE_NAME = "raw_error_tracking_fingerprint_issue_state"
 
-# Column order used when building UNION-ALL phantom-row branches. Must cover
-# every column referenced by the argmax subquery; order here is just for
-# readability, the UNION matches by position so all branches must use the same order.
+# UNION ALL matches by position, so every branch must select these columns in this order.
 _PHANTOM_COLUMNS: list[str] = [
     "team_id",
     "fingerprint",
@@ -105,8 +103,7 @@ def select_from_error_tracking_fingerprint_issue_state_table(
 
     phantoms = _phantoms_from_context(context)
     if phantoms:
-        # Replace the raw-table scan with `(base UNION ALL phantom1 UNION ALL ...) AS raw_table`
-        # so argMax sees phantom rows with their (higher) versions and picks them.
+        # Wrap the raw-table scan so argMax sees phantom rows with higher versions and picks them.
         select.select_from = ast.JoinExpr(
             table=_build_union_with_phantoms(phantoms),
             alias=RAW_TABLE_NAME,
@@ -137,13 +134,7 @@ def _build_union_with_phantoms(phantoms: list[dict[str, Any]]):
 
 
 def _phantom_select(row: dict[str, Any]):
-    """Build a `SELECT <constants>` branch shaped to match the raw table column types.
-
-    Casts match `ERROR_TRACKING_FINGERPRINT_ISSUE_STATE_TABLE_BASE_SQL`. The first
-    UNION ALL branch (the real table) dictates column types, so bare NULLs in
-    subsequent branches unify to the corresponding Nullable type. HogQL exposes
-    the explicit CH width casts under underscored names (`_toInt64`, `_toInt8`).
-    """
+    # Casts match the raw table column types; the first UNION ALL branch dictates column types.
     from posthog.hogql import ast
 
     def _int64(value: Any):

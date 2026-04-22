@@ -34,14 +34,11 @@ _VALID_STATUSES = {s.value for s in ErrorTrackingIssueStatus}
 
 
 def _coerce_first_seen(value: Any) -> str:
-    """Normalize an ISO-ish timestamp into a form ClickHouse's `toDateTime64(..., 3, 'UTC')`
-    can parse (no trailing `Z`, space separator, microsecond precision preserved).
-    """
+    # Normalize for ClickHouse `toDateTime64(..., 3, 'UTC')`: no trailing Z, space separator.
     if isinstance(value, datetime.datetime):
         dt = value
     else:
         s = str(value).strip()
-        # `fromisoformat` in Py3.12 handles trailing `Z` via `'Z' -> '+00:00'` shim below.
         if s.endswith("Z"):
             s = s[:-1] + "+00:00"
         try:
@@ -113,10 +110,7 @@ class ErrorTrackingQueryRunner(AnalyticsQueryRunner[ErrorTrackingQueryResponse])
 
     @cached_property
     def _sanitized_fingerprint_phantoms(self) -> list[dict[str, Any]]:
-        """Validate + sanitize client-supplied phantom fingerprint rows.
-
-        team_id is always stamped from `self.team.id`, never trusted from the client.
-        """
+        # team_id is always stamped from self.team.id, never trusted from the client.
         raw = self.query.phantomFingerprintIssueStates or []
         if not raw:
             return []
@@ -169,53 +163,18 @@ class ErrorTrackingQueryRunner(AnalyticsQueryRunner[ErrorTrackingQueryResponse])
         return ctx
 
     def _calculate(self):
-        phantoms = self._sanitized_fingerprint_phantoms
-        if phantoms:
-            logger.warning(
-                "error_tracking_query_runner_phantoms_present",
-                phantom_count=len(phantoms),
-                phantom_sample=phantoms[:3],
-                team_id=self.team.id,
-                use_query_v3=bool(self.query.useQueryV3),
-            )
-
         with self.timings.measure("error_tracking_query_hogql_execute"):
-            try:
-                query_result = self.paginator.execute_hogql_query(
-                    query=self._builder.build_query(),
-                    team=self.team,
-                    query_type="ErrorTrackingQuery",
-                    timings=self.timings,
-                    modifiers=self.modifiers,
-                    limit_context=self.limit_context,
-                    filters=self._builder.hogql_filters(),
-                    user=self.user,
-                    context=self._hogql_context(),
-                )
-            except Exception as e:
-                # Surface the real CH / HogQL error along with the generated SQL so
-                # we can debug. Re-raise to keep default 500 behaviour.
-                try:
-                    from posthog.hogql.printer import print_ast
-                    from posthog.hogql.query import create_default_modifiers_for_team
-
-                    ctx = self._hogql_context()
-                    ctx.enable_select_queries = True
-                    debug_hogql = print_ast(
-                        self._builder.build_query(),
-                        context=ctx,
-                        dialect="hogql",
-                        modifiers=create_default_modifiers_for_team(self.team, self.modifiers),
-                    )
-                except Exception as print_err:
-                    debug_hogql = f"<failed to print: {print_err!r}>"
-                logger.exception(
-                    "error_tracking_query_runner_failed",
-                    error=repr(e),
-                    phantom_count=len(phantoms),
-                    hogql=debug_hogql[:10000],
-                )
-                raise
+            query_result = self.paginator.execute_hogql_query(
+                query=self._builder.build_query(),
+                team=self.team,
+                query_type="ErrorTrackingQuery",
+                timings=self.timings,
+                modifiers=self.modifiers,
+                limit_context=self.limit_context,
+                filters=self._builder.hogql_filters(),
+                user=self.user,
+                context=self._hogql_context(),
+            )
 
         columns: list[str] = query_result.columns or []
 

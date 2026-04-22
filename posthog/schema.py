@@ -6428,6 +6428,25 @@ class ErrorTrackingIssueFilter(BaseModel):
     value: list[str | float | bool] | str | float | bool | None = None
 
 
+class ErrorTrackingPhantomFingerprintIssueState(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    assigned_role_id: str | None = None
+    assigned_user_id: int | None = None
+    fingerprint: str
+    first_seen: str = Field(..., description="ISO 8601 datetime string.")
+    is_deleted: int
+    issue_description: str | None = None
+    issue_id: str
+    issue_name: str | None = None
+    issue_status: str
+    version: int = Field(
+        ...,
+        description=("Client-stamped monotonic version (`Date.now()` ms at mutation success)."),
+    )
+
+
 class EventMetadataPropertyFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -19855,22 +19874,6 @@ class ErrorTrackingIssueCorrelationQuery(BaseModel):
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
-class ErrorTrackingPhantomFingerprintIssueState(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    assigned_role_id: str | None
-    assigned_user_id: int | None
-    fingerprint: str
-    first_seen: str = Field(..., description="ISO 8601 datetime string.")
-    is_deleted: int
-    issue_description: str | None
-    issue_id: str
-    issue_name: str | None
-    issue_status: str
-    version: int = Field(..., description="Client-stamped monotonic version (`Date.now()` ms at mutation success).")
-
-
 class ErrorTrackingQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -19879,13 +19882,6 @@ class ErrorTrackingQuery(BaseModel):
     dateRange: DateRange = Field(..., description="Date range to filter results.")
     filterGroup: PropertyGroupFilter | None = None
     filterTestAccounts: bool | None = Field(default=None, description="Whether to filter out test accounts.")
-    phantomFingerprintIssueStates: list[ErrorTrackingPhantomFingerprintIssueState] | None = Field(
-        default=None,
-        description=(
-            "Client-side phantom rows to UNION into the denormalized fingerprint issue state subquery (V3 only)."
-            " Used to hide Kafka→ClickHouse sync lag after mutations."
-        ),
-    )
     groupKey: str | None = None
     groupTypeIndex: int | None = None
     issueId: str | None = Field(default=None, description="Filter to a specific error tracking issue by ID.")
@@ -19896,6 +19892,10 @@ class ErrorTrackingQuery(BaseModel):
     orderBy: ErrorTrackingOrderBy = Field(..., description="Field to sort results by.")
     orderDirection: OrderDirection2 | None = Field(default=None, description="Sort direction.")
     personId: str | None = None
+    phantomFingerprintIssueStates: list[ErrorTrackingPhantomFingerprintIssueState] | None = Field(
+        default=None,
+        description=("Phantom rows UNIONed into the fingerprint issue state subquery (V3 only)."),
+    )
     response: ErrorTrackingQueryResponse | None = None
     searchQuery: str | None = Field(
         default=None,

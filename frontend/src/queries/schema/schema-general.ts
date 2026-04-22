@@ -2565,13 +2565,7 @@ export type CachedRevenueExampleDataWarehouseTablesQueryResponse =
 /** @title ErrorTrackingOrderBy */
 export type ErrorTrackingOrderBy = 'last_seen' | 'first_seen' | 'occurrences' | 'users' | 'sessions'
 
-/**
- * Client-side phantom of a single denormalized fingerprint→issue state row. Used to hide
- * the Kafka→ClickHouse sync lag immediately after a mutation (assign/status/name/etc.). The
- * client sends one phantom row per affected fingerprint; the backend UNIONs these into the
- * argMax subquery with the provided version so argMax picks them. `team_id` is stamped
- * server-side.
- */
+/** Client-side phantom row UNIONed into the argMax subquery to hide Kafka→CH sync lag after mutations. */
 export interface ErrorTrackingPhantomFingerprintIssueState {
     fingerprint: string
     issue_id: string
@@ -2618,10 +2612,7 @@ export interface ErrorTrackingQuery extends DataNode<ErrorTrackingQueryResponse>
     useQueryV2?: boolean
     /** Use V3 query path (denormalized ClickHouse table, no Postgres joins) */
     useQueryV3?: boolean
-    /**
-     * Client-side phantom rows to UNION into the denormalized fingerprint issue state subquery (V3 only).
-     * Used to hide Kafka→ClickHouse sync lag after mutations.
-     */
+    /** Phantom rows UNIONed into the fingerprint issue state subquery (V3 only). */
     phantomFingerprintIssueStates?: ErrorTrackingPhantomFingerprintIssueState[]
 }
 
