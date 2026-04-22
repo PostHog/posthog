@@ -1582,6 +1582,10 @@ export class ApiRequest {
         return this.organizations().current().addPathComponent('integrations')
     }
 
+    public organizationIntegrationsDetail(id: IntegrationType['id']): ApiRequest {
+        return this.organizationIntegrations().addPathComponent(id)
+    }
+
     // # Organization OAuth Applications
     public organizationOAuthApplications(): ApiRequest {
         return this.organizations().current().addPathComponent('oauth_applications')
@@ -3225,10 +3229,6 @@ const api = {
 
         async get(id: number): Promise<DashboardType> {
             return new ApiRequest().dashboardsDetail(id).get()
-        },
-
-        async generateMetadata(id: number): Promise<{ name: string; description: string }> {
-            return await new ApiRequest().dashboardsDetail(id).withAction('generate_metadata').create({ data: {} })
         },
 
         async createUnlistedDashboard(tag: string): Promise<DashboardType> {
@@ -5209,6 +5209,24 @@ const api = {
         async refreshSchemas(sourceId: ExternalDataSource['id']): Promise<{ added: number; deleted: number }> {
             return await new ApiRequest().externalDataSource(sourceId).withAction('refresh_schemas').create()
         },
+        async bulkUpdateSchemas(
+            sourceId: ExternalDataSource['id'],
+            schemas: Pick<
+                ExternalDataSourceSchema,
+                | 'id'
+                | 'should_sync'
+                | 'sync_type'
+                | 'incremental_field'
+                | 'incremental_field_type'
+                | 'sync_frequency'
+                | 'sync_time_of_day'
+                | 'cdc_table_mode'
+            >[]
+        ): Promise<ExternalDataSourceSchema[]> {
+            return await new ApiRequest().externalDataSource(sourceId).withAction('bulk_update_schemas').update({
+                data: { schemas },
+            })
+        },
         async update(
             sourceId: ExternalDataSource['id'],
             data: Partial<ExternalDataSource>
@@ -5637,6 +5655,9 @@ const api = {
         async list(): Promise<PaginatedResponse<IntegrationType>> {
             return await new ApiRequest().organizationIntegrations().get()
         },
+        async delete(id: IntegrationType['id']): Promise<void> {
+            await new ApiRequest().organizationIntegrationsDetail(id).delete()
+        },
     },
 
     organizationOAuthApplications: {
@@ -5711,8 +5732,25 @@ const api = {
     },
 
     alerts: {
-        async get(alertId: AlertType['id']): Promise<AlertType> {
-            return await new ApiRequest().alert(alertId).get()
+        /**
+         * Retrieve includes check history; pass `checksLimit` / `checksOffset` for pagination (newest first).
+         *
+         * Only forwarded when explicitly provided — omitting both lets the backend skip the `COUNT(*)` it runs
+         * for "X of Y" totals (see `AlertViewSet.retrieve`), so callers that only need a chart window or the
+         * default slice shouldn't pay for pagination bookkeeping.
+         */
+        async get(
+            alertId: AlertType['id'],
+            options?: { checksLimit?: number; checksOffset?: number }
+        ): Promise<AlertType> {
+            const params: Record<string, number> = {}
+            if (options?.checksLimit !== undefined) {
+                params.checks_limit = options.checksLimit
+            }
+            if (options?.checksOffset !== undefined) {
+                params.checks_offset = options.checksOffset
+            }
+            return await new ApiRequest().alert(alertId).withQueryString(params).get()
         },
         async create(data: Partial<AlertTypeWrite>): Promise<AlertType> {
             return await new ApiRequest().alerts().create({ data })

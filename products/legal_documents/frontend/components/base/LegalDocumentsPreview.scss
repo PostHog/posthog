@@ -1,0 +1,121 @@
+@font-face {
+    font-family: Fairytale;
+    font-style: normal;
+    font-weight: normal;
+    src:
+        url('../../../../../frontend/public/fonts/fairytale_serif-webfont.woff2') format('woff2'),
+        url('../../../../../frontend/public/fonts/fairytale_serif-webfont.woff') format('woff');
+    font-display: swap;
+}
+
+@font-face {
+    font-family: 'Computer Modern';
+    font-style: normal;
+    font-weight: normal;
+    src: url('../../../../../frontend/public/fonts/cmunti-webfont.woff') format('woff');
+    font-display: swap;
+}
+
+.legal-document-preview {
+    &--lawyer {
+        font-family: 'Times New Roman', Times, serif;
+    }
+
+    &--fairytale {
+        font-family: 'Computer Modern', Georgia, serif;
+
+        .legal-document-preview__fairytale-title {
+            margin: 0 0 1.5rem;
+            font-family: Fairytale, 'Computer Modern', Georgia, serif;
+            font-size: 2.25rem;
+            line-height: 1.2;
+            text-align: center;
+        }
+
+        p {
+            margin-bottom: 1.25rem;
+            font-size: 19px;
+            line-height: 1.7;
+        }
+
+        .legal-document-preview__fairytale-float-right {
+            float: right;
+            width: 10rem;
+            margin: -1rem -0.5rem 0.5rem 1rem;
+
+            @media (min-width: 640px) {
+                width: 16rem;
+                margin: -2rem -1rem 1rem 2rem;
+            }
+        }
+
+        .legal-document-preview__fairytale-float-left {
+            float: left;
+            width: 10rem;
+            margin: -1rem 1rem 0.5rem -0.5rem;
+
+            @media (min-width: 640px) {
+                width: 16rem;
+                margin: -2rem 2rem 1rem -1rem;
+            }
+        }
+    }
+
+    &--tswift {
+        .legal-document-preview__tswift-portrait {
+            float: right;
+            width: 12rem;
+            margin: 0 0 1rem 1rem;
+
+            @media (min-width: 640px) {
+                width: 16rem;
+            }
+        }
+
+        h3 {
+            font-size: 1.75rem;
+            letter-spacing: 0.02em;
+        }
+
+        p {
+            margin-bottom: 1rem;
+            font-size: 16px;
+            line-height: 1.7;
+        }
+    }
+
+    &__placeholder {
+        padding: 0.05rem 0.25rem;
+        font: inherit;
+        font-weight: 600;
+        color: var(--color-text-warning);
+        cursor: pointer;
+        background-color: var(--color-bg-fill-warning-highlight);
+        border: 0;
+        border-radius: 0.125rem;
+        transition:
+            background-color 120ms ease,
+            color 120ms ease;
+
+        &:hover,
+        &:focus-visible {
+            color: var(--color-text-warning);
+            background-color: var(--color-bg-fill-warning-tertiary);
+            outline: 0;
+        }
+
+        &:focus-visible {
+            box-shadow: 0 0 0 2px var(--color-border-warning);
+        }
+
+        &--static {
+            cursor: default;
+        }
+
+        &--static:hover,
+        &--static:focus-visible {
+            background-color: var(--color-bg-fill-warning-highlight);
+            box-shadow: none;
+        }
+    }
+}

@@ -1,12 +1,11 @@
 import base64
 from typing import Any, Optional
 
-import dlt
 import requests
-from dlt.sources.helpers.requests import Request, Response
-from dlt.sources.helpers.rest_client.paginators import BasePaginator
+from requests import Request, Response
 
-from posthog.temporal.data_imports.sources.common.rest_source import RESTAPIConfig, rest_api_resources
+from posthog.temporal.data_imports.sources.common.rest_source import RESTAPIConfig, rest_api_resource
+from posthog.temporal.data_imports.sources.common.rest_source.paginators import BasePaginator
 from posthog.temporal.data_imports.sources.common.rest_source.typing import EndpointResource
 
 
@@ -23,7 +22,6 @@ def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResou
         "Customers": {
             "name": "Customers",
             "table_name": "customers",
-            "primary_key": "id",
             "write_disposition": {
                 "disposition": "merge",
                 "strategy": "upsert",
@@ -48,7 +46,6 @@ def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResou
         "Events": {
             "name": "Events",
             "table_name": "events",
-            "primary_key": "id",
             "write_disposition": {
                 "disposition": "merge",
                 "strategy": "upsert",
@@ -69,7 +66,6 @@ def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResou
         "Invoices": {
             "name": "Invoices",
             "table_name": "invoices",
-            "primary_key": "id",
             "write_disposition": {
                 "disposition": "merge",
                 "strategy": "upsert",
@@ -92,7 +88,6 @@ def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResou
         "Orders": {
             "name": "Orders",
             "table_name": "orders",
-            "primary_key": "id",
             "write_disposition": {
                 "disposition": "merge",
                 "strategy": "upsert",
@@ -115,7 +110,6 @@ def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResou
         "Subscriptions": {
             "name": "Subscriptions",
             "table_name": "subscriptions",
-            "primary_key": "id",
             "write_disposition": {
                 "disposition": "merge",
                 "strategy": "upsert",
@@ -138,7 +132,6 @@ def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResou
         "Transactions": {
             "name": "Transactions",
             "table_name": "transactions",
-            "primary_key": "id",
             "write_disposition": {
                 "disposition": "merge",
                 "strategy": "upsert",
@@ -185,7 +178,6 @@ class ChargebeePaginator(BasePaginator):
         request.params["offset"] = self._next_offset
 
 
-@dlt.source(max_table_nesting=0)
 def chargebee_source(
     api_key: str,
     site_name: str,
@@ -206,7 +198,6 @@ def chargebee_source(
             "paginator": ChargebeePaginator(),
         },
         "resource_defaults": {
-            "primary_key": "id",
             "write_disposition": {
                 "disposition": "merge",
                 "strategy": "upsert",
@@ -217,7 +208,7 @@ def chargebee_source(
         "resources": [get_resource(endpoint, should_use_incremental_field)],
     }
 
-    yield from rest_api_resources(config, team_id, job_id, db_incremental_field_last_value)
+    return rest_api_resource(config, team_id, job_id, db_incremental_field_last_value)
 
 
 def validate_credentials(api_key: str, site_name: str) -> bool:

@@ -7,6 +7,7 @@ import uuid
 from django.db import models
 
 from .facade.enums import (
+    ActorType,
     ClassificationReason,
     ReviewDecision,
     ReviewState,
@@ -121,7 +122,7 @@ class Run(models.Model):
     team_id = models.BigIntegerField(db_index=True)
 
     status = models.CharField(max_length=20, choices=[(s.value, s.value) for s in RunStatus], default=RunStatus.PENDING)
-    run_type = models.CharField(max_length=20, choices=[(t.value, t.value) for t in RunType], default=RunType.OTHER)
+    run_type = models.CharField(max_length=64, default=RunType.OTHER)
 
     # Git context
     commit_sha = models.CharField(max_length=40)
@@ -231,6 +232,9 @@ class RunSnapshot(models.Model):
         "ToleratedHash", on_delete=models.SET_NULL, null=True, blank=True, related_name="matched_snapshots"
     )
 
+    # Frozen at run finalization — reflects quarantine policy at that point in time
+    is_quarantined = models.BooleanField(default=False)
+
     # Diff metrics
     diff_percentage = models.FloatField(null=True, blank=True)
     diff_pixel_count = models.PositiveIntegerField(null=True, blank=True)
@@ -299,10 +303,10 @@ class ToleratedHash(models.Model):
 
     # Which run caused this toleration to be recorded
     source_run = models.ForeignKey(Run, on_delete=models.SET_NULL, null=True, blank=True)
-    # Who marked it (for human reason)
     created_by_id = models.BigIntegerField(null=True, blank=True)
 
     created_at = models.DateTimeField(auto_now_add=True)
+    expires_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         constraints = [
@@ -317,3 +321,45 @@ class ToleratedHash(models.Model):
 
     def __str__(self) -> str:
         return f"{self.identifier} {self.alternate_hash[:12]}... ({self.reason})"
+
+
+class QuarantinedIdentifier(models.Model):
+    """
+    Tracks quarantine events for snapshot identifiers.
+
+    Each row is a quarantine event — multiple rows per identifier form
+    a history. The active quarantine is the latest row where expires_at
+    is NULL or in the future. Unquarantining sets expires_at = now()
+    rather than deleting, preserving the audit trail.
+
+    Quarantined snapshots are still captured, classified, and diffed
+    (for metrics), but excluded from the gate at run finalization.
+    The decision is frozen on RunSnapshot.is_quarantined so historical
+    runs remain stable even if quarantine policy changes later.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    repo = models.ForeignKey(Repo, on_delete=models.CASCADE, related_name="quarantined_identifiers")
+    team_id = models.BigIntegerField(db_index=True)
+
+    identifier = models.CharField(max_length=512)
+    run_type = models.CharField(max_length=64)
+    reason = models.CharField(max_length=255)
+    source = models.CharField(
+        max_length=10,
+        choices=[(a.value, a.value) for a in ActorType],
+        default=ActorType.HUMAN,
+    )
+
+    expires_at = models.DateTimeField(null=True, blank=True)
+    created_by_id = models.BigIntegerField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=["repo", "run_type", "identifier"], name="quarantine_lookup"),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.identifier} ({self.reason[:40]})"

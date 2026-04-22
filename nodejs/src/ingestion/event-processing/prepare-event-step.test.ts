@@ -12,6 +12,7 @@ import { EventHeaders, Person, Team } from '../../types'
 import { parseEventTimestamp } from '../../worker/ingestion/timestamps'
 import { PipelineResultType } from '../pipelines/results'
 import { createPrepareEventStep } from './prepare-event-step'
+import { BLOAT_PROPERTIES } from './strip-bloat-properties'
 
 jest.mock('../../worker/ingestion/timestamps')
 
@@ -96,6 +97,61 @@ describe('createPrepareEventStep', () => {
         if (result.type === PipelineResultType.OK) {
             expect(result.value.preparedEvent.properties).not.toHaveProperty('$ip')
             expect(result.value.preparedEvent.properties).toHaveProperty('other', 'kept')
+        }
+    })
+
+    it.each([...BLOAT_PROPERTIES])(
+        'should strip bloat property %s while preserving unrelated properties',
+        async (bloatKey) => {
+            const event = createTestPluginEvent({
+                properties: { [bloatKey]: { heavy: 'cache-blob' }, other: 'kept' },
+            })
+
+            const step = createPrepareEventStep<TestInput>()
+            const result = await step(createInput({ normalizedEvent: event }))
+
+            expect(result.type).toBe(PipelineResultType.OK)
+            if (result.type === PipelineResultType.OK) {
+                expect(result.value.preparedEvent.properties).not.toHaveProperty(bloatKey)
+                expect(result.value.preparedEvent.properties).toHaveProperty('other', 'kept')
+            }
+        }
+    )
+
+    it('should strip all bloat properties present in a single event', async () => {
+        const bloat = Object.fromEntries([...BLOAT_PROPERTIES].map((key) => [key, { heavy: 'cache-blob' }]))
+        const event = createTestPluginEvent({
+            properties: { ...bloat, other: 'kept' },
+        })
+
+        const step = createPrepareEventStep<TestInput>()
+        const result = await step(createInput({ normalizedEvent: event }))
+
+        expect(result.type).toBe(PipelineResultType.OK)
+        if (result.type === PipelineResultType.OK) {
+            expect(result.value.preparedEvent.properties).toEqual({ other: 'kept' })
+        }
+    })
+
+    it('should only strip exact matches, not substring matches', async () => {
+        const event = createTestPluginEvent({
+            properties: {
+                ph_product_tours_foo: 'kept',
+                my_ph_product_tours: 'kept',
+                $product_tours_activated_at: 'kept',
+                my_$override_feature_flag_payloads: 'kept',
+            },
+        })
+
+        const step = createPrepareEventStep<TestInput>()
+        const result = await step(createInput({ normalizedEvent: event }))
+
+        expect(result.type).toBe(PipelineResultType.OK)
+        if (result.type === PipelineResultType.OK) {
+            expect(result.value.preparedEvent.properties).toHaveProperty('ph_product_tours_foo', 'kept')
+            expect(result.value.preparedEvent.properties).toHaveProperty('my_ph_product_tours', 'kept')
+            expect(result.value.preparedEvent.properties).toHaveProperty('$product_tours_activated_at', 'kept')
+            expect(result.value.preparedEvent.properties).toHaveProperty('my_$override_feature_flag_payloads', 'kept')
         }
     })
 

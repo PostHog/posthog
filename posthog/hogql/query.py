@@ -135,16 +135,27 @@ def postgres_error_to_message(error: Exception) -> str:
 
 
 def direct_postgres_session_setup_sql(
-    schema: str,
+    schema: str | None,
     connection_metadata: dict[str, object] | None = None,
     host: str | None = None,
-) -> str:
-    quoted_schema = escape_postgres_identifier(schema)
+) -> str | None:
     engine = connection_metadata.get("engine") if isinstance(connection_metadata, dict) else None
+    database = connection_metadata.get("database") if isinstance(connection_metadata, dict) else None
+    normalized_schema = schema.strip() if isinstance(schema, str) and schema.strip() else None
 
     if engine == "duckdb" or (host is not None and host.endswith(".postwh.com")):
-        return f"USE {quoted_schema}"
+        if normalized_schema:
+            quoted_schema = escape_postgres_identifier(normalized_schema)
+            return f"USE {quoted_schema}"
+        if isinstance(database, str) and database.strip():
+            quoted_database = escape_postgres_identifier(database.strip())
+            return f"USE {quoted_database}"
+        return None
 
+    if not normalized_schema:
+        return None
+
+    quoted_schema = escape_postgres_identifier(normalized_schema)
     return f"SET search_path TO {quoted_schema}"
 
 
@@ -179,6 +190,41 @@ class LenientDirectPostgresDateLoader(DateLoader):
                 return parse_lenient_direct_postgres_date(bytes(data).decode("utf8", "replace"))
             except ValueError:
                 raise exc from None
+
+
+def get_runtime_direct_postgres_connection_metadata(
+    connection: psycopg.Connection,
+    connection_metadata: dict[str, object] | None = None,
+) -> dict[str, object] | None:
+    runtime_connection_metadata = dict(connection_metadata) if isinstance(connection_metadata, dict) else {}
+    engine = runtime_connection_metadata.get("engine")
+    database = runtime_connection_metadata.get("database")
+
+    if engine is not None and isinstance(database, str) and database.strip():
+        return runtime_connection_metadata
+
+    metadata_cursor = connection.execute("SELECT current_database(), version()")
+    row = metadata_cursor.fetchone()
+    current_database = str(row[0]).strip() if row and row[0] is not None else None
+    version = str(row[1]) if row and len(row) > 1 and row[1] is not None else ""
+
+    if current_database and "database" not in runtime_connection_metadata:
+        runtime_connection_metadata["database"] = current_database
+
+    if "engine" not in runtime_connection_metadata:
+        runtime_connection_metadata["engine"] = (
+            "duckdb" if "duckdb" in version.lower() or "duckgres" in version.lower() else "postgres"
+        )
+
+    return runtime_connection_metadata or None
+
+
+def should_hydrate_runtime_direct_postgres_connection_metadata(
+    schema: str | None,
+    connection_metadata: dict[str, object] | None = None,
+) -> bool:
+    normalized_schema = schema.strip() if isinstance(schema, str) and schema.strip() else None
+    return normalized_schema is None
 
 
 @dataclasses.dataclass
@@ -499,6 +545,7 @@ class HogQLQueryExecutor:
             raise ExposedHogQLError("Connection not found or has been deleted") from e
 
         postgres_source, source_config = validate_direct_postgres_source_config(source, self.team)
+        source_schema = source_config.schema
         require_ssl = source_requires_ssl(source, source_config)
         settings = self._effective_direct_postgres_settings()
         statement_timeout_ms = (
@@ -534,13 +581,22 @@ class HogQLQueryExecutor:
                         connection_kwargs["sslmode"] = "require"
 
                     with psycopg.connect(**connection_kwargs) as connection:
-                        connection.execute(
-                            direct_postgres_session_setup_sql(
-                                source_config.schema,
-                                source.connection_metadata,
-                                host,
+                        runtime_connection_metadata = source.connection_metadata
+                        if should_hydrate_runtime_direct_postgres_connection_metadata(
+                            source_schema,
+                            runtime_connection_metadata,
+                        ):
+                            runtime_connection_metadata = get_runtime_direct_postgres_connection_metadata(
+                                connection,
+                                runtime_connection_metadata,
                             )
+                        session_setup_sql = direct_postgres_session_setup_sql(
+                            source_schema,
+                            runtime_connection_metadata,
+                            host,
                         )
+                        if session_setup_sql:
+                            connection.execute(session_setup_sql)
                         connection.adapters.register_loader("date", LenientDirectPostgresDateLoader)
                         with connection.cursor() as cursor:
                             cursor.execute(self.direct_postgres_sql, self.direct_postgres_values or None)

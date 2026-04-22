@@ -6,6 +6,7 @@ This module transforms those flat rows back into the insight-specific response s
 that users expect (matching what the non-materialized path produces).
 """
 
+import re
 from collections import defaultdict
 from datetime import datetime
 from typing import TYPE_CHECKING, Any, Union, cast
@@ -89,6 +90,56 @@ def _strip_hogql_fields(result: dict) -> None:
         result.pop(field, None)
 
 
+_TEMPORAL_TYPE_RE = re.compile(r"\b(?:Date|DateTime|DateTime64|Date32)\b")
+
+
+def _is_temporal_type(type_str: str) -> bool:
+    """True for any Date/DateTime variant, including Nullable/Array/LowCardinality wrappings."""
+    return bool(_TEMPORAL_TYPE_RE.search(type_str))
+
+
+def _extract_type_str(entry: Any) -> str | None:
+    """Accept both `[[col_name, type_str], ...]` (real API) and `[type_str, ...]` (mocks)."""
+    if isinstance(entry, str):
+        return entry
+    if isinstance(entry, list | tuple) and len(entry) >= 2 and isinstance(entry[1], str):
+        return entry[1]
+    return None
+
+
+def _coerce_temporal_columns(rows: list, types: list | None) -> None:
+    """Parse ISO strings into ``datetime`` objects for every Date/DateTime column.
+
+    HogQL's response pipeline stringifies all Date/DateTime values regardless of name,
+    but the insight runners call .strftime() on them. We use the ``types`` metadata to
+    find temporal columns so this works for any column name (``date``, ``timestamp``,
+    custom aliases), not just ``date``. Rows can be tuples, so we replace the row in
+    the outer list.
+    """
+    if not types:
+        return
+    temporal_indices = [i for i, entry in enumerate(types) if (t := _extract_type_str(entry)) and _is_temporal_type(t)]
+    if not temporal_indices:
+        return
+    for i, row in enumerate(rows):
+        new_row: list | None = None
+        for col_idx in temporal_indices:
+            if col_idx >= len(row):
+                continue
+            value = row[col_idx]
+            if isinstance(value, list):
+                coerced: Any = [datetime.fromisoformat(item) if isinstance(item, str) else item for item in value]
+            elif isinstance(value, str):
+                coerced = datetime.fromisoformat(value)
+            else:
+                continue
+            if new_row is None:
+                new_row = list(row)
+            new_row[col_idx] = coerced
+        if new_row is not None:
+            rows[i] = new_row
+
+
 def _transform_trends(result: dict, original_query: dict, team: Team, now: datetime | None = None) -> None:
     runner = cast("TrendsQueryRunner", _make_runner(original_query, team, now))
 
@@ -99,6 +150,8 @@ def _transform_trends(result: dict, original_query: dict, team: Team, now: datet
         result["results"] = []
         _strip_hogql_fields(result)
         return
+
+    _coerce_temporal_columns(rows, result.get("types"))
 
     # Group rows by __series_index (trends uses named column access in build_series_response)
     series_index_col = columns.index("__series_index") if "__series_index" in columns else None
@@ -147,6 +200,8 @@ def _transform_lifecycle(result: dict, original_query: dict, team: Team, now: da
         result["results"] = []
         _strip_hogql_fields(result)
         return
+
+    _coerce_temporal_columns(rows, result.get("types"))
 
     response = HogQLQueryResponse(results=rows, columns=columns)
     result["results"] = runner.format_results(response)
