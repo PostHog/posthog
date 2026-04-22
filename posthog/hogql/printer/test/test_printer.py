@@ -3851,11 +3851,31 @@ class TestPrinter(BaseTest):
             ("int", "event::int", "toInt64(events.event)"),
             ("integer", "event::integer", "toInt64(events.event)"),
             ("int_upper", "event::INT", "toInt64(events.event)"),
+            # ClickHouse-native signed integer aliases (case-insensitive)
+            ("int8", "event::int8", "toInt8(events.event)"),
+            ("int16", "event::int16", "toInt16(events.event)"),
+            ("int32", "event::int32", "toInt32(events.event)"),
+            ("int64", "event::int64", "toInt64(events.event)"),
+            ("int64_upper", "event::Int64", "toInt64(events.event)"),
+            ("int128", "event::int128", "toInt128(events.event)"),
+            ("int256", "event::int256", "toInt256(events.event)"),
+            # ClickHouse-native unsigned integer aliases
+            ("uint8", "event::uint8", "toUInt8(events.event)"),
+            ("uint16", "event::uint16", "toUInt16(events.event)"),
+            ("uint32", "event::uint32", "toUInt32(events.event)"),
+            ("uint64", "event::uint64", "toUInt64(events.event)"),
+            ("uint64_upper", "event::UInt64", "toUInt64(events.event)"),
+            ("uint128", "event::uint128", "toUInt128(events.event)"),
+            ("uint256", "event::uint256", "toUInt256(events.event)"),
             # Float types
             ("float", "event::float", "toFloat64(events.event)"),
             ("double", "event::double", "toFloat64(events.event)"),
             ("double_precision", 'event::"double precision"', "toFloat64(events.event)"),
             ("real", "event::real", "toFloat64(events.event)"),
+            # ClickHouse-native float aliases
+            ("float32", "event::float32", "toFloat32(events.event)"),
+            ("float64", "event::float64", "toFloat64(events.event)"),
+            ("float64_upper", "event::Float64", "toFloat64(events.event)"),
             # String types
             ("text", "event::text", "toString(events.event)"),
             ("varchar", "event::varchar", "toString(events.event)"),

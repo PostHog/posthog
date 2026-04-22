@@ -1679,7 +1679,35 @@ class BasePrinter(Visitor[str]):
         match node.type_name.lower():
             case "int" | "integer":
                 return f"toInt64({self.visit(node.expr)})"
+            case "int8":
+                return f"toInt8({self.visit(node.expr)})"
+            case "int16":
+                return f"toInt16({self.visit(node.expr)})"
+            case "int32":
+                return f"toInt32({self.visit(node.expr)})"
+            case "int64":
+                return f"toInt64({self.visit(node.expr)})"
+            case "int128":
+                return f"toInt128({self.visit(node.expr)})"
+            case "int256":
+                return f"toInt256({self.visit(node.expr)})"
+            case "uint8":
+                return f"toUInt8({self.visit(node.expr)})"
+            case "uint16":
+                return f"toUInt16({self.visit(node.expr)})"
+            case "uint32":
+                return f"toUInt32({self.visit(node.expr)})"
+            case "uint64":
+                return f"toUInt64({self.visit(node.expr)})"
+            case "uint128":
+                return f"toUInt128({self.visit(node.expr)})"
+            case "uint256":
+                return f"toUInt256({self.visit(node.expr)})"
             case "float" | "double" | "double precision" | "real":
+                return f"toFloat64({self.visit(node.expr)})"
+            case "float32":
+                return f"toFloat32({self.visit(node.expr)})"
+            case "float64":
                 return f"toFloat64({self.visit(node.expr)})"
             case "text" | "varchar" | "char" | "string":
                 return f"toString({self.visit(node.expr)})"
