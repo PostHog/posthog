@@ -802,6 +802,21 @@ class TestImpersonationReadOnlyMiddleware(APIBaseTest):
 
         assert response.status_code != 403 or response.json().get("code") != "impersonation_read_only"
 
+    def test_read_only_impersonation_allows_endpoint_materialization_preview(self):
+        """POST to /endpoints/<name>/materialization_preview/ must be allowlisted — it's a read-only preview."""
+        self.login_as_other_user_read_only()
+
+        assert self.client.get("/api/users/@me").json()["email"] == "other-user@posthog.com"
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/endpoints/some_endpoint/materialization_preview/",
+            data={},
+            content_type="application/json",
+        )
+
+        # Endpoint itself may 404 (no such endpoint), but it must not be blocked by the middleware
+        assert response.status_code != 403 or response.json().get("code") != "impersonation_read_only"
+
     def test_regular_impersonation_allows_write(self):
         """Verify regular (non-read-only) impersonation can still write."""
         dashboard = Dashboard.objects.create(team=self.team, name="Test Dashboard")
