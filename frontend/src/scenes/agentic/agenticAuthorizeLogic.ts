@@ -26,6 +26,7 @@ export const agenticAuthorizeLogic = kea<agenticAuthorizeLogicType>([
     actions({
         setScopes: (scopes: string[]) => ({ scopes }),
         setState: (state: string) => ({ state }),
+        setPartnerName: (partnerName: string) => ({ partnerName }),
         cancel: true,
     }),
     loaders({
@@ -49,6 +50,12 @@ export const agenticAuthorizeLogic = kea<agenticAuthorizeLogicType>([
             '' as string,
             {
                 setState: (_, { state }) => state,
+            },
+        ],
+        partnerName: [
+            'the requesting app' as string,
+            {
+                setPartnerName: (_, { partnerName }) => partnerName,
             },
         ],
     }),
@@ -120,9 +127,13 @@ export const agenticAuthorizeLogic = kea<agenticAuthorizeLogicType>([
             }
             const state = (searchParams['state'] as string) ?? ''
             const requestedScopes = searchParams['scope']?.split(' ')?.filter((scope: string) => scope.length) ?? []
+            const partnerName = (searchParams['partner_name'] as string) ?? ''
 
             actions.setState(state)
             actions.setScopes(requestedScopes)
+            if (partnerName) {
+                actions.setPartnerName(partnerName)
+            }
             actions.loadAllTeams()
         }
 

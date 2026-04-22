@@ -412,8 +412,25 @@ def _handle_existing_user(
                 },
                 status=400,
             )
+        validated_scopes = _validate_scopes(scopes)
+        if validated_scopes is None:
+            return Response(
+                {
+                    "id": request_id,
+                    "type": "error",
+                    "error": {"code": "invalid_scope", "message": "One or more requested scopes are not recognized"},
+                },
+                status=400,
+            )
         return _require_user_consent(
-            request_id, user, scopes, partner_account_id, region, partner, code_challenge, code_challenge_method
+            request_id,
+            user,
+            validated_scopes,
+            partner_account_id,
+            region,
+            partner,
+            code_challenge,
+            code_challenge_method,
         )
 
     team = _resolve_team_for_existing_user(user, team_id)
@@ -460,7 +477,16 @@ def _require_user_consent(
     code_challenge: str,
     code_challenge_method: str,
 ) -> Response:
+    # Dedup: overwrite any prior pending state for same partner+email so
+    # retries don't leave multiple live consent URLs.
+    dedup_key = f"pending_auth_state:{partner.id}:{user.email}"
+    old_state = cache.get(dedup_key)
+    if old_state:
+        cache.delete(f"{PENDING_AUTH_CACHE_PREFIX}{old_state}")
+
     state = secrets.token_urlsafe(32)
+    cache.set(dedup_key, state, timeout=PENDING_AUTH_TTL_SECONDS)
+
     pending_key = f"{PENDING_AUTH_CACHE_PREFIX}{state}"
     cache.set(
         pending_key,
@@ -469,6 +495,7 @@ def _require_user_consent(
             "scopes": scopes,
             "stripe_account_id": partner_account_id,
             "partner_id": str(partner.id),
+            "partner_name": partner.name,
             "region": region,
             "code_challenge": code_challenge,
             "code_challenge_method": code_challenge_method,
@@ -653,22 +680,24 @@ def agentic_authorize(request: Any) -> HttpResponseBase:
         non_demo_teams = [team]
         _capture_provisioning_event("authorize", "auto_created_project", team_id=team.id)
 
-    # Only trusted server-to-server partners can auto-redirect.
-    # All other partners (pkce, future methods) must see the consent page.
-    # No partner_id = legacy Stripe HMAC path (trusted).
+    # Re-check partner is still active (could have been deactivated since account_requests)
     TRUSTED_AUTH_METHODS = ("hmac", "bearer")
     partner_id = pending.get("partner_id", "")
     is_trusted_partner = not partner_id
+    partner_name = pending.get("partner_name", "")
     if partner_id:
         try:
             partner_app = OAuthApplication.objects.get(id=partner_id)
+            if not partner_app.provisioning_active:
+                cache.delete(pending_key)
+                _capture_provisioning_event("authorize", "partner_deactivated")
+                return HttpResponseRedirect(f"{settings.SITE_URL}?error=partner_deactivated")
             is_trusted_partner = partner_app.provisioning_auth_method in TRUSTED_AUTH_METHODS
+            partner_name = partner_app.name
         except OAuthApplication.DoesNotExist:
             pass
 
     if is_trusted_partner and len(memberships) == 1 and len(non_demo_teams) == 1:
-        cache.delete(pending_key)
-
         organization = memberships[0].organization
         team = non_demo_teams[0]
 
@@ -688,6 +717,7 @@ def agentic_authorize(request: Any) -> HttpResponseBase:
             },
             timeout=AUTH_CODE_TTL_SECONDS,
         )
+        cache.delete(pending_key)
 
         _capture_provisioning_event("authorize", "auto_redirect", team_id=team.id)
 
@@ -700,7 +730,10 @@ def agentic_authorize(request: Any) -> HttpResponseBase:
 
     base = settings.SITE_URL.rstrip("/")
     sanitized_state = re.sub(r"[^A-Za-z0-9_\-]", "", state)
-    params = urlencode({"state": sanitized_state, "scope": scope})
+    redirect_params: dict[str, str] = {"state": sanitized_state, "scope": scope}
+    if partner_name:
+        redirect_params["partner_name"] = partner_name
+    params = urlencode(redirect_params)
     return HttpResponseRedirect(f"{base}/agentic/authorize?{params}")
 
 
@@ -736,9 +769,20 @@ def agentic_authorize_confirm(request: Request) -> Response:
         _capture_provisioning_event("authorize_confirm", "team_not_accessible", team_id=team_id)
         return Response({"error": "team_not_accessible"}, status=403)
 
-    cache.delete(pending_key)
+    confirm_partner_id = pending.get("partner_id", "")
+    if confirm_partner_id:
+        try:
+            confirm_partner = OAuthApplication.objects.get(id=confirm_partner_id)
+            if not confirm_partner.provisioning_active:
+                cache.delete(pending_key)
+                _capture_provisioning_event("authorize_confirm", "partner_deactivated")
+                return Response({"error": "partner_deactivated"}, status=403)
+        except OAuthApplication.DoesNotExist:
+            pass
 
     code = secrets.token_urlsafe(32)
+    # Set auth code BEFORE deleting pending state so a cache hiccup
+    # between the two doesn't leave the user with no recovery path.
     cache.set(
         f"{AUTH_CODE_CACHE_PREFIX}{code}",
         {
@@ -754,6 +798,7 @@ def agentic_authorize_confirm(request: Request) -> Response:
         },
         timeout=AUTH_CODE_TTL_SECONDS,
     )
+    cache.delete(pending_key)
 
     callback_url = _get_callback_url(pending.get("partner_id", ""))
     sanitized_state = re.sub(r"[^A-Za-z0-9_\-]", "", state)
@@ -1665,6 +1710,35 @@ def _verify_hmac_if_present(request: Request) -> Response | None:
     if request.META.get("HTTP_STRIPE_SIGNATURE"):
         return verify_stripe_signature(request)
     return None
+
+
+ALLOWED_PROVISIONING_SCOPES = {
+    "customer_journey:read",
+    "query:read",
+    "conversation:read",
+    "conversation:write",
+    "experiment:read",
+    "feature_flag:read",
+    "insight:read",
+    "organization:read",
+    "person:read",
+    "project:read",
+    "ticket:read",
+    "ticket:write",
+    "user:read",
+    "hog_flow:read",
+    "hog_flow:write",
+}
+
+
+def _validate_scopes(scopes: list[str]) -> list[str] | None:
+    """Validate scopes against the allowlist. Returns filtered scopes or None if any are invalid."""
+    if not scopes:
+        return scopes
+    for scope in scopes:
+        if scope not in ALLOWED_PROVISIONING_SCOPES:
+            return None
+    return scopes
 
 
 def _error_response(code: str, message: str, resource_id: str = "", status: int = 400) -> Response:
