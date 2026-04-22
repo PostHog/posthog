@@ -37,7 +37,7 @@ def _build_response(
 
 
 def _install_handshake_mock(
-    mock_client_cls: MagicMock, *, tools_list_response: MagicMock, session_id: str = "sess-1"
+    mock_client_cls: MagicMock, *, tools_list_response: MagicMock, session_id: str | None = "sess-1"
 ) -> MagicMock:
     """Wire up the httpx.Client mock for the full MCP handshake.
 

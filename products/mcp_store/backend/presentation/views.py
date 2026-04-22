@@ -907,7 +907,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
         """
         try:
             installation = MCPServerInstallation.objects.get(
-                id=installation_id, team_id=self.team_id, user=request.user
+                id=installation_id, team_id=self.team_id, user=request.user.id
             )
         except MCPServerInstallation.DoesNotExist:
             return Response({"detail": "Installation not found"}, status=status.HTTP_404_NOT_FOUND)
