@@ -33,6 +33,8 @@ BLOCKED_IP_RANGES = [
     ipaddress.ip_network("fe80::/10"),
 ]
 
+NO_ACTIVE_SESSION_ERROR = "No active session for this run"
+
 
 @dataclass
 class CommandResult:
@@ -195,6 +197,19 @@ def send_agent_command(
         )
 
     if resp.status_code >= 400:
+        try:
+            error_data = resp.json()
+        except ValueError:
+            error_data = None
+
+        if isinstance(error_data, dict) and error_data.get("error") == NO_ACTIVE_SESSION_ERROR:
+            return CommandResult(
+                success=False,
+                status_code=resp.status_code,
+                data=error_data,
+                error=NO_ACTIVE_SESSION_ERROR,
+                retryable=True,
+            )
         return CommandResult(
             success=False,
             status_code=resp.status_code,
@@ -227,15 +242,22 @@ def send_agent_command(
 
 def send_user_message(
     task_run: Any,
-    message: str,
+    message: str | None = None,
+    *,
+    artifacts: list[dict[str, Any]] | None = None,
     auth_token: str | None = None,
     timeout: int = COMMAND_TIMEOUT_SECONDS,
 ) -> CommandResult:
     """Send a user_message command to the sandbox agent."""
+    params: dict[str, Any] = {}
+    if message:
+        params["content"] = message
+    if artifacts:
+        params["artifacts"] = artifacts
     return send_agent_command(
         task_run,
         method="user_message",
-        params={"content": message},
+        params=params,
         auth_token=auth_token,
         timeout=timeout,
     )
