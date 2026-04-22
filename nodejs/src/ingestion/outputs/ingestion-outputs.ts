@@ -23,6 +23,12 @@ export class IngestionOutputs<O extends string> {
         await this.outputs[output].queueMessages(messages)
     }
 
+    /** Return a single resolved output by name — for callers that need to pass an
+     *  individual `IngestionOutput` to a service that doesn't take the full registry. */
+    get(output: O): IngestionOutput {
+        return this.outputs[output]
+    }
+
     /**
      * Check that all producers can reach their brokers.
      *

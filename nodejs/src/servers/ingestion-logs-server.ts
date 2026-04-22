@@ -2,8 +2,11 @@ import { QuotaLimiting } from '~/common/services/quota-limiting.service'
 
 import { CommonConfig } from '../common/config'
 import { defaultConfig } from '../config/config'
+import { KAFKA_APP_METRICS_2 } from '../config/kafka-topics'
 import { createPosthogRedisConnectionConfig } from '../config/redis-pools'
+import { APP_METRICS_OUTPUT } from '../ingestion/common/outputs'
 import { DatabaseConnectionConfig, KafkaBrokerConfig, RedisConnectionsConfig } from '../ingestion/config'
+import { SingleIngestionOutput } from '../ingestion/outputs/single-ingestion-output'
 import { KafkaProducerWrapper } from '../kafka/producer'
 import { LogsIngestionConsumerConfig } from '../logs-ingestion/config'
 import { LogsIngestionConsumer } from '../logs-ingestion/logs-ingestion-consumer'
@@ -86,7 +89,12 @@ export class IngestionLogsServer implements NodeServer {
                 teamManager,
                 quotaLimiting,
                 kafkaProducer: this.kafkaProducer!,
-                mskProducer: this.mskProducer!,
+                appMetricsOutput: new SingleIngestionOutput(
+                    APP_METRICS_OUTPUT,
+                    KAFKA_APP_METRICS_2,
+                    this.mskProducer!,
+                    'msk'
+                ),
             })
             await consumer.start()
             return consumer.service
