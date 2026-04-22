@@ -25,6 +25,8 @@ DEFAULT_API_VERSION = "2024-10-21"
 # GA data-plane versions like 2024-10-21 are inference-only and 404 on /openai/deployments.
 # The deployments listing requires an authoring/preview version — pinned separately from the
 # user-configured api_version so changing the inference version doesn't break validation.
+# If this call starts 400-ing, Azure has retired the preview; bump to the latest authoring
+# version from https://learn.microsoft.com/en-us/azure/ai-services/openai/api-version-deprecation.
 DEPLOYMENTS_LIST_API_VERSION = "2023-03-15-preview"
 
 # Listing is a cheap call; don't inherit the long completion timeout.

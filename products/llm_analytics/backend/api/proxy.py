@@ -55,6 +55,11 @@ logger = structlog.get_logger(__name__)
 
 MODELS_CACHE_TIMEOUT_SECONDS = 60
 
+
+def models_cache_key(provider_key_id: str | uuid.UUID) -> str:
+    return f"llma:proxy:models:{provider_key_id}"
+
+
 PROVIDER_DISPLAY_NAMES: dict[str, str] = {
     "openai": "OpenAI",
     "anthropic": "Anthropic",
@@ -403,7 +408,7 @@ class LLMProxyViewSet(viewsets.ViewSet):
                 # Cache per provider key — list_models hits the provider's API, and the model picker
                 # can open many times per session. TTL is short enough that newly-added deployments
                 # surface within a minute.
-                cache_key = f"llma:proxy:models:{provider_key.id}"
+                cache_key = models_cache_key(provider_key.id)
                 models = cache.get(cache_key)
                 if models is None:
                     models = Client.list_models(provider_key.provider, api_key, **provider_key.provider_extra_kwargs())

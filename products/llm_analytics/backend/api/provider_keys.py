@@ -1,5 +1,6 @@
 import logging
 
+from django.core.cache import cache
 from django.db import transaction
 from django.db.models import Q, QuerySet
 
@@ -17,6 +18,7 @@ from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 
 from ..llm.client import Client
 from ..llm.providers.azure_openai import (
+    DEFAULT_API_VERSION,
     DISALLOWED_ENDPOINT_MESSAGE,
     error_field_for_validation_message,
     is_allowed_azure_endpoint,
@@ -26,6 +28,7 @@ from ..models.evaluations import Evaluation
 from ..models.model_configuration import LLMModelConfiguration
 from ..models.provider_keys import LLMProvider, LLMProviderKey
 from .metrics import llma_track_latency
+from .proxy import models_cache_key
 
 logger = logging.getLogger(__name__)
 
@@ -148,6 +151,21 @@ class LLMProviderKeySerializer(serializers.ModelSerializer):
             kwargs["api_version"] = api_version
         return kwargs
 
+    def _normalize_azure_config(self, provider: str, azure_kwargs: dict) -> dict:
+        """Persist the default api_version when an Azure endpoint is set without one.
+
+        Keeps the stored config self-describing: the read path falls back to DEFAULT_API_VERSION
+        when api_version is missing, which would retroactively change what a key points at
+        if the default is ever bumped.
+        """
+        if (
+            provider == LLMProvider.AZURE_OPENAI
+            and azure_kwargs.get("azure_endpoint")
+            and not azure_kwargs.get("api_version")
+        ):
+            return {**azure_kwargs, "api_version": DEFAULT_API_VERSION}
+        return azure_kwargs
+
     def create(self, validated_data):
         api_key = validated_data.pop("api_key", None)
         set_as_active = validated_data.pop("set_as_active", False)
@@ -156,6 +174,8 @@ class LLMProviderKeySerializer(serializers.ModelSerializer):
         validated_data["team"] = team
         validated_data["created_by"] = self.context["request"].user
         provider = validated_data.get("provider", LLMProvider.OPENAI)
+
+        azure_kwargs = self._normalize_azure_config(provider, azure_kwargs)
 
         if api_key:
             state, error_message = validate_provider_key(provider, api_key, **azure_kwargs)
@@ -177,7 +197,7 @@ class LLMProviderKeySerializer(serializers.ModelSerializer):
 
     def update(self, instance, validated_data):
         api_key = validated_data.pop("api_key", None)
-        azure_kwargs = self._pop_azure_kwargs(validated_data)
+        azure_kwargs = self._normalize_azure_config(instance.provider, self._pop_azure_kwargs(validated_data))
 
         if api_key:
             # Fall back to existing config for Azure fields not provided in the update.
@@ -234,6 +254,11 @@ class LLMProviderKeyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, v
 
     def perform_update(self, serializer):
         instance = serializer.save()
+
+        # Deployments are a property of the resource (azure_endpoint), not the key, so any
+        # config change can shift the available model list. Drop the cached list so the next
+        # picker request fetches fresh from the provider instead of serving stale entries.
+        cache.delete(models_cache_key(instance.id))
 
         changed_fields = []
         if "name" in serializer.validated_data:
