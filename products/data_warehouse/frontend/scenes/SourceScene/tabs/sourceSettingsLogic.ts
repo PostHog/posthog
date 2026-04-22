@@ -9,6 +9,7 @@ import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { objectsEqual } from 'lib/utils'
+import { sceneLogic } from 'scenes/sceneLogic'
 
 import { SourceConfig, SourceFieldConfig } from '~/queries/schema/schema-general'
 import {
@@ -583,13 +584,12 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                     return () => clearTimeout(timerId)
                 }, 'sourceRefreshTimeout')
 
-                const mountedSceneLogic =
-                    sourceSceneLogic.findMounted({ id: props.id, tabId: props.tabId }) ??
-                    sourceSceneLogic.findMounted({ id: `managed-${props.id}`, tabId: props.tabId }) ??
-                    sourceSceneLogic.findMounted({ id: props.id }) ??
-                    sourceSceneLogic.findMounted({ id: `managed-${props.id}` })
+                const tabId = props.tabId ?? sceneLogic.findMounted()?.values.activeTabId ?? undefined
+                const sceneLogicInstance =
+                    sourceSceneLogic.findMounted({ id: `managed-${props.id}`, tabId }) ??
+                    sourceSceneLogic.findMounted({ id: props.id, tabId })
 
-                mountedSceneLogic?.actions.setBreadcrumbName(breadcrumbName)
+                sceneLogicInstance?.actions.setBreadcrumbName(breadcrumbName)
             },
             loadSourceFailure: () => {
                 cache.disposables.add(() => {

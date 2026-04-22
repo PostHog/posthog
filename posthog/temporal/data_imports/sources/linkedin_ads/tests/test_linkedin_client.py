@@ -78,9 +78,29 @@ class TestLinkedinAdsClient:
         pages = list(client.get_campaigns(self.account_id))
 
         assert len(pages) == 2
-        assert pages[0] == [{"id": "camp1", "name": "Campaign 1"}]
-        assert pages[1] == [{"id": "camp2", "name": "Campaign 2"}]
+        assert pages[0] == ([{"id": "camp1", "name": "Campaign 1"}], "token123")
+        assert pages[1] == ([{"id": "camp2", "name": "Campaign 2"}], None)
         assert mock_client_instance.finder.call_count == 2
+
+    @mock.patch("posthog.temporal.data_imports.sources.linkedin_ads.client.RestliClient")
+    def test_get_campaigns_resumes_from_starting_page_token(self, mock_restli_client):
+        """Starting page token must be passed as pageToken on the first request."""
+        mock_response = mock.MagicMock()
+        mock_response.status_code = 200
+        mock_response.elements = [{"id": "camp2", "name": "Campaign 2"}]
+        mock_response.response.text = json.dumps({"metadata": {}})
+
+        mock_client_instance = mock_restli_client.return_value
+        mock_client_instance.finder.return_value = mock_response
+
+        client = LinkedinAdsClient(self.access_token)
+        pages = list(client.get_campaigns(self.account_id, starting_page_token="resume-token-abc"))
+
+        assert len(pages) == 1
+        assert pages[0] == ([{"id": "camp2", "name": "Campaign 2"}], None)
+        assert mock_client_instance.finder.call_count == 1
+        call_params = mock_client_instance.finder.call_args[1]["query_params"]
+        assert call_params["pageToken"] == "resume-token-abc"
 
     @mock.patch("posthog.temporal.data_imports.sources.linkedin_ads.client.RestliClient")
     def test_get_analytics_success(self, mock_restli_client):

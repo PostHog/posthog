@@ -6,6 +6,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { initKeaTests } from '~/test/init'
 import { ExternalDataSource, ExternalDataSourceSchema } from '~/types'
 
+import { sourceSceneLogic } from '../SourceScene'
 import { sourceSettingsLogic } from './sourceSettingsLogic'
 
 jest.mock('lib/api')
@@ -142,6 +143,20 @@ describe('sourceSettingsLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
 
         expect(loadJobsSpy).not.toHaveBeenCalled()
+    })
+
+    it('dispatches breadcrumb name to the sourceSceneLogic keyed with props.tabId', async () => {
+        const sceneLogicForTab = sourceSceneLogic({ id: 'managed-source-1', tabId: 'tab-a' })
+        sceneLogicForTab.mount()
+
+        logic = sourceSettingsLogic({ id: 'source-1', tabId: 'tab-a' })
+        logic.mount()
+
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(sceneLogicForTab.values.breadcrumbName).toEqual('Postgres')
+
+        sceneLogicForTab.unmount()
     })
 
     it.each([408, 502, 503, 504])(
