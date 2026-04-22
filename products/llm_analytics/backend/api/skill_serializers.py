@@ -161,10 +161,29 @@ class LLMSkillFileInputSerializer(serializers.Serializer):
         return value
 
 
+class LLMSkillEditOperationSerializer(serializers.Serializer):
+    old = serializers.CharField(
+        help_text="Text to find in the current skill body. Must match exactly once.",
+    )
+    new = serializers.CharField(
+        allow_blank=True,
+        help_text="Replacement text.",
+    )
+
+
 class LLMSkillPublishSerializer(serializers.Serializer):
     body = serializers.CharField(
         required=False,
-        help_text="Full skill body (SKILL.md instruction content) to publish as a new version.",
+        help_text="Full skill body (SKILL.md instruction content) to publish as a new version. Mutually exclusive with edits.",
+    )
+    edits = LLMSkillEditOperationSerializer(
+        many=True,
+        required=False,
+        help_text=(
+            "List of find/replace operations to apply to the current skill body. "
+            "Each edit's 'old' text must match exactly once. Edits are applied sequentially. "
+            "Mutually exclusive with body."
+        ),
     )
     description = serializers.CharField(
         max_length=4096,
@@ -205,8 +224,18 @@ class LLMSkillPublishSerializer(serializers.Serializer):
     def validate_body(self, value: str) -> str:
         return validate_skill_body_size(value)
 
+    def validate_edits(self, value: list[dict[str, str]]) -> list[dict[str, str]]:
+        if len(value) == 0:
+            raise serializers.ValidationError("At least one edit operation is required.")
+        return value
+
     def validate_files(self, value: list[dict[str, Any]]) -> list[dict[str, Any]]:
         return _validate_files(value)
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        if "body" in attrs and "edits" in attrs:
+            raise serializers.ValidationError("Provide either 'body' or 'edits', not both.")
+        return attrs
 
 
 class LLMSkillSerializer(serializers.ModelSerializer):

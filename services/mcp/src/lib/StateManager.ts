@@ -292,7 +292,11 @@ export class StateManager {
         ])
 
         return {
-            ...(orgId ? { organizationId: orgId } : project?.organization ? { organizationId: project.organization } : {}),
+            ...(orgId
+                ? { organizationId: orgId }
+                : project?.organization
+                  ? { organizationId: project.organization }
+                  : {}),
             ...(project?.id !== undefined ? { projectId: String(project.id) } : {}),
             ...(project?.uuid ? { projectUuid: project.uuid } : {}),
             ...(project?.name ? { projectName: project.name } : {}),
