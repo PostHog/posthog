@@ -1,7 +1,7 @@
 /**
  * OpenAPI schema preprocessing to fix known Orval code generation issues.
  *
- * Two patterns are handled before handing schemas to Orval:
+ * Three patterns are handled before handing schemas to Orval:
  *
  * 1. Named schemas with meaningless PascalCase keys (SCHEMAS_TO_INLINE)
  *    TimezoneEnum has 596 IANA identifiers like "Africa/Abidjan" that become
@@ -14,7 +14,19 @@
  *    where the second silently overwrites the first. We detect this pattern
  *    (any enum with both "x" and "-x" values) and drop the enum constraint
  *    so orval emits string[] instead.
+ *
+ * 3. Integer bounds exceeding JS safe-integer range (clampIntegerBounds)
+ *    drf-spectacular emits i64 bounds (±9223372036854775807) for BigAutoField
+ *    primary keys. JSON.parse silently rounds 2^63-1 up to 2^63 (losing
+ *    precision), and downstream consumers — including Anthropic's tool-schema
+ *    validator, which parses bounds as i64 — then reject the overflowed value.
+ *    We clamp any integer schema's min/max/exclusiveMin/exclusiveMax to int32
+ *    range, which is far more than enough for every PostHog identifier.
  */
+
+export const INT32_MIN = -2147483648
+export const INT32_MAX = 2147483647
+const INTEGER_BOUND_KEYS = ['minimum', 'maximum', 'exclusiveMinimum', 'exclusiveMaximum']
 
 /** Schema names that should be inlined as { type: 'string' } instead of referenced. */
 export const SCHEMAS_TO_INLINE = new Set(['TimezoneEnum'])
@@ -59,6 +71,42 @@ export function stripCollidingInlineEnums(obj) {
 }
 
 /**
+ * Clamp integer bounds that exceed int32 range.
+ *
+ * Applied in-place to any object shaped like `{ type: 'integer', ... }`, where
+ * "integer" is either the literal type or present in a `type` array. Bounds
+ * outside ±2^31-1 are rewritten to the nearest int32 limit; values already
+ * within range are left untouched.
+ */
+export function clampIntegerBounds(obj) {
+    if (!obj || typeof obj !== 'object') {
+        return
+    }
+    if (Array.isArray(obj)) {
+        obj.forEach(clampIntegerBounds)
+        return
+    }
+    const type = obj.type
+    const isInteger = type === 'integer' || (Array.isArray(type) && type.includes('integer'))
+    if (isInteger) {
+        for (const key of INTEGER_BOUND_KEYS) {
+            const value = obj[key]
+            if (typeof value !== 'number') {
+                continue
+            }
+            if (value > INT32_MAX) {
+                obj[key] = INT32_MAX
+            } else if (value < INT32_MIN) {
+                obj[key] = INT32_MIN
+            }
+        }
+    }
+    for (const value of Object.values(obj)) {
+        clampIntegerBounds(value)
+    }
+}
+
+/**
  * Run standard preprocessing on a full OpenAPI schema.
  * Mutates the schema in place, also returns it for convenience.
  */
@@ -68,5 +116,6 @@ export function preprocessSchema(schema) {
         delete schema.components?.schemas?.[name]
     }
     stripCollidingInlineEnums(schema)
+    clampIntegerBounds(schema)
     return schema
 }
