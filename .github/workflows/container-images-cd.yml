@@ -603,6 +603,32 @@ jobs:
                         "timestamp": "${{ github.event.head_commit.timestamp }}"
                       }
 
+            - name: Check for changes that affect warehouse-sources-load
+              id: check_changes_warehouse_sources_load
+              run: |
+                  echo "changed=$((git diff --name-only HEAD^ HEAD | grep -qE '^posthog/temporal/data_imports/pipelines/pipeline_v3/|^posthog/temporal/data_imports/pipelines/pipeline/|^posthog/management/commands/run_warehouse_sources_load\.py$|^posthog/warehouse/|^products/data_warehouse/backend/|^pyproject\.toml$|^Dockerfile$' && echo true) || echo false)" >> $GITHUB_OUTPUT
+
+            - name: Trigger Warehouse Sources Load Cloud deployment
+              if: steps.check_changes_warehouse_sources_load.outputs.changed == 'true'
+              uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
+              with:
+                  token: ${{ steps.deployer.outputs.token }}
+                  repository: PostHog/charts
+                  event-type: commit_state_update
+                  client-payload: |
+                      {
+                        "values": {
+                          "image": {
+                            "sha": "${{ github.sha }}@${{ steps.build.outputs.digest }}"
+                          }
+                        },
+                        "release": "warehouse-sources-load",
+                        "commit": ${{ toJson(github.event.head_commit) }},
+                        "repository": ${{ toJson(github.repository) }},
+                        "labels": ${{ steps.labels.outputs.labels }},
+                        "timestamp": "${{ github.event.head_commit.timestamp }}"
+                      }
+
             - name: Trigger Data Warehouse CDP Producer Temporal Worker Cloud deployment
               if: steps.check_changes_data_warehouse_temporal_worker.outputs.changed == 'true'
               uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
