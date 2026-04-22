@@ -574,6 +574,60 @@ mod tests {
         }
     }
 
+    /// `super_groups` are walked by `prepare_regexes_in_place`, so the weigher
+    /// must walk them too. Regression for the asymmetry where super_groups
+    /// filters were compiled but not counted, letting the cache silently
+    /// exceed its configured capacity for teams with non-trivial
+    /// early-access-enrollment flags.
+    #[test]
+    fn test_weigher_accounts_for_super_groups() {
+        use crate::flags::flag_models::FlagPropertyGroup;
+        use crate::properties::property_models::PropertyType;
+
+        let make_flag = |super_groups: Option<Vec<FlagPropertyGroup>>| {
+            let mut flag = mock!(FeatureFlag,
+                name: None,
+                key: "k".mock_into(),
+            );
+            flag.filters.super_groups = super_groups;
+            flag
+        };
+
+        let big_str = "x".repeat(10_000);
+        let big_group = FlagPropertyGroup {
+            properties: Some(vec![PropertyFilter {
+                key: "prop".to_string(),
+                value: Some(json!(big_str)),
+                operator: Some(OperatorType::Exact),
+                prop_type: PropertyType::Person,
+                group_type_index: None,
+                negation: None,
+                compiled_regex: None,
+            }]),
+            rollout_percentage: Some(100.0),
+            variant: None,
+            aggregation_group_type_index: None,
+        };
+
+        let without = Arc::new(PreparedFlagDefinitions {
+            flags: Arc::from([make_flag(None)]),
+            evaluation_metadata: EvaluationMetadata::default(),
+            cohorts: None,
+        });
+        let with = Arc::new(PreparedFlagDefinitions {
+            flags: Arc::from([make_flag(Some(vec![big_group]))]),
+            evaluation_metadata: EvaluationMetadata::default(),
+            cohorts: None,
+        });
+
+        let without_sz = without.estimated_size_bytes();
+        let with_sz = with.estimated_size_bytes();
+        assert!(
+            with_sz > without_sz + 9_000,
+            "weigher must count super_groups property bytes: without={without_sz}, with={with_sz}"
+        );
+    }
+
     /// Weigher must account for JSON-valued `PropertyFilter.value` bytes.
     /// Guards against the previous underreport that let the cache exceed
     /// its configured capacity for teams with large cohort-in-flag filters.

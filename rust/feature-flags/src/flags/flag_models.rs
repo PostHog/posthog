@@ -335,26 +335,31 @@ impl PreparedFlagDefinitions {
                 // Each PropertyFilter with a compiled regex costs ~2KB for the
                 // DFA/NFA automata inside fancy_regex::Regex. The `value` JSON
                 // payload can dominate for cohort/group filters, so walk it.
-                let filters_size: usize = f
-                    .filters
-                    .groups
-                    .iter()
-                    .map(|g| {
-                        g.properties.as_ref().map_or(0, |props| {
-                            props
-                                .iter()
-                                .map(|p| {
-                                    let prop_base = std::mem::size_of::<PropertyFilter>();
-                                    let prop_key = p.key.len();
-                                    let prop_value = p.value.as_ref().map_or(0, estimate_json_size);
-                                    let regex_overhead =
-                                        if p.compiled_regex.is_some() { 2048 } else { 0 };
-                                    prop_base + prop_key + prop_value + regex_overhead
-                                })
-                                .sum()
+                // Include `super_groups` alongside `groups` — `prepare_regexes_in_place`
+                // compiles regexes in both, so the weigher must account for both.
+                let group_size = |groups: &[FlagPropertyGroup]| -> usize {
+                    groups
+                        .iter()
+                        .map(|g| {
+                            g.properties.as_ref().map_or(0, |props| {
+                                props
+                                    .iter()
+                                    .map(|p| {
+                                        let prop_base = std::mem::size_of::<PropertyFilter>();
+                                        let prop_key = p.key.len();
+                                        let prop_value =
+                                            p.value.as_ref().map_or(0, estimate_json_size);
+                                        let regex_overhead =
+                                            if p.compiled_regex.is_some() { 2048 } else { 0 };
+                                        prop_base + prop_key + prop_value + regex_overhead
+                                    })
+                                    .sum()
+                            })
                         })
-                    })
-                    .sum();
+                        .sum()
+                };
+                let filters_size: usize = group_size(&f.filters.groups)
+                    + f.filters.super_groups.as_deref().map_or(0, group_size);
 
                 let payloads_size = f.filters.payloads.as_ref().map_or(0, estimate_json_size);
 
