@@ -1,16 +1,17 @@
-# Dockerfile for the pi coding agent sandbox image.
-# Builds on top of sandbox-base and adds the pi coding agent plus the
-# pi-autoresearch extension. Versions are pinned for reproducible builds.
+# pi coding agent sandbox image: sandbox-base + pi + pi-autoresearch + ClickHouse source.
 
 ARG BASE_IMAGE=posthog-sandbox-base
 FROM ${BASE_IMAGE}
 
-# pi coding agent (https://pi.dev)
 ARG PI_CODING_AGENT_VERSION=0.68.1
 RUN npm install -g "@mariozechner/pi-coding-agent@${PI_CODING_AGENT_VERSION}"
 
-# pi-autoresearch extension (https://github.com/davebcn87/pi-autoresearch)
 ARG PI_AUTORESEARCH_TAG=v1.0.1
 RUN pi install "git:github.com/davebcn87/pi-autoresearch@${PI_AUTORESEARCH_TAG}"
+
+# Keep CLICKHOUSE_SRC_TAG in sync with the prod image in .github/clickhouse-versions.json.
+ARG CLICKHOUSE_SRC_TAG=v25.12.8.9-stable
+RUN git clone --depth 1 --branch "${CLICKHOUSE_SRC_TAG}" --single-branch \
+    https://github.com/ClickHouse/ClickHouse.git /opt/clickhouse
 
 CMD ["/bin/bash"]
