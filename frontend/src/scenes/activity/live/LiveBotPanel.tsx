@@ -3,7 +3,7 @@ import { useMemo } from 'react'
 import { LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { IconRobot } from 'lib/lemon-ui/icons'
-import { CATEGORY_LABELS, detectBot } from 'lib/utils/botDetection'
+import { CATEGORY_LABELS } from 'lib/utils/botDetection'
 
 import { LiveEvent } from '~/types'
 
@@ -19,21 +19,11 @@ const aggregateBots = (events: LiveEvent[]): BotTotals => {
     let total = 0
 
     for (const event of events) {
-        // Prefer server-side classification from livestream, fall back to client-side
-        let botName: string | undefined
-        let botCategory: string | undefined
-
-        if (event.properties?.$virt_is_bot) {
-            botName = event.properties.$virt_bot_name as string | undefined
-            botCategory = event.properties.$virt_traffic_category as string | undefined
-        } else if (event.properties?.$virt_is_bot === undefined) {
-            const userAgent = event.properties?.$raw_user_agent || event.properties?.$user_agent
-            const bot = detectBot(userAgent)
-            if (bot) {
-                botName = bot.name
-                botCategory = bot.category
-            }
+        if (!event.properties?.$virt_is_bot) {
+            continue
         }
+        const botName = event.properties.$virt_bot_name as string | undefined
+        const botCategory = event.properties.$virt_traffic_category as string | undefined
 
         if (!botName) {
             continue
