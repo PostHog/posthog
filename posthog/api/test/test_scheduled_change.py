@@ -570,8 +570,10 @@ class TestScheduledChange(APIBaseTest):
                 data=patch_body,
             )
 
-        # Read-only fields may be silently dropped (200); validate() rejects the rest (400).
-        # The invariant is that state is unchanged either way.
+        # validate() rejects all mutations of a completed one-time schedule.
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert "already executed" in str(response.json())
+
         scheduled_change.refresh_from_db()
         assert scheduled_change.executed_at == original_executed_at, (
             f"executed_at changed to {scheduled_change.executed_at} (status={response.status_code})"

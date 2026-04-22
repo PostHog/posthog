@@ -77,7 +77,6 @@ class ScheduledChangeSerializer(serializers.ModelSerializer):
             "updated_at",
             "last_executed_at",
             "executed_at",
-            "failure_reason",
         ]
 
     def get_failure_reason(self, obj: ScheduledChange) -> str | None:
