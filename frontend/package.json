@@ -83,6 +83,7 @@
         "@posthog/products-feature-flags": "workspace:*",
         "@posthog/products-games": "workspace:*",
         "@posthog/products-groups": "workspace:*",
+        "@posthog/products-legal-documents": "workspace:*",
         "@posthog/products-links": "workspace:*",
         "@posthog/products-live-debugger": "workspace:*",
         "@posthog/products-llm-analytics": "workspace:*",
