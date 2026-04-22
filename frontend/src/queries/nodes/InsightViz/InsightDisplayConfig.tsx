@@ -1,35 +1,16 @@
-import { useActions, useValues } from 'kea'
-import posthog from 'posthog-js'
+import { useValues } from 'kea'
 import { ReactNode } from 'react'
-import { useDebouncedCallback } from 'use-debounce'
 
 import { IconInfo } from '@posthog/icons'
-import { LemonButton, LemonCheckbox, LemonInput, LemonSwitch, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, Tooltip } from '@posthog/lemon-ui'
 
 import { ChartFilter } from 'lib/components/ChartFilter'
-import { CompareFilter } from 'lib/components/CompareFilter/CompareFilter'
 import { IntervalFilter } from 'lib/components/IntervalFilter'
-import { SmoothingFilter } from 'lib/components/SmoothingFilter/SmoothingFilter'
-import { smoothingOptions } from 'lib/components/SmoothingFilter/smoothings'
-import { UnitPicker } from 'lib/components/UnitPicker/UnitPicker'
-import { FEATURE_FLAGS, NON_TIME_SERIES_DISPLAY_TYPES } from 'lib/constants'
+import { NON_TIME_SERIES_DISPLAY_TYPES } from 'lib/constants'
 import { LemonMenu, LemonMenuItems } from 'lib/lemon-ui/LemonMenu'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { DEFAULT_DECIMAL_PLACES } from 'lib/utils'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
-import { axisLabel } from 'scenes/insights/aggregationAxisFormat'
-import { HideWeekendsFilter } from 'scenes/insights/EditorFilters/HideWeekendsFilter'
-import { LifecycleStackingFilter } from 'scenes/insights/EditorFilters/LifecycleStackingFilter'
-import { PercentStackViewFilter } from 'scenes/insights/EditorFilters/PercentStackViewFilter'
 import { ResultCustomizationByPicker } from 'scenes/insights/EditorFilters/ResultCustomizationByPicker'
-import { ScalePicker } from 'scenes/insights/EditorFilters/ScalePicker'
-import { ShowAlertAnomalyPointsFilter } from 'scenes/insights/EditorFilters/ShowAlertAnomalyPointsFilter'
-import { ShowAlertThresholdLinesFilter } from 'scenes/insights/EditorFilters/ShowAlertThresholdLinesFilter'
-import { ShowLegendFilter } from 'scenes/insights/EditorFilters/ShowLegendFilter'
-import { ShowMultipleYAxesFilter } from 'scenes/insights/EditorFilters/ShowMultipleYAxesFilter'
-import { ShowPieTotalFilter } from 'scenes/insights/EditorFilters/ShowPieTotalFilter'
 import { ShowTrendLinesFilter } from 'scenes/insights/EditorFilters/ShowTrendLinesFilter'
-import { ValueOnSeriesFilter } from 'scenes/insights/EditorFilters/ValueOnSeriesFilter'
 import { InsightDateFilter } from 'scenes/insights/filters/InsightDateFilter'
 import { RetentionChartPicker } from 'scenes/insights/filters/RetentionChartPicker'
 import { RetentionDashboardDisplayPicker } from 'scenes/insights/filters/RetentionDashboardDisplayPicker'
@@ -38,21 +19,19 @@ import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { RetentionDatePicker } from 'scenes/insights/RetentionDatePicker'
 import { FunnelBinsPicker } from 'scenes/insights/views/Funnels/FunnelBinsPicker'
 import { FunnelDisplayLayoutPicker } from 'scenes/insights/views/Funnels/FunnelDisplayLayoutPicker'
-import { ConfidenceLevelInput } from 'scenes/insights/views/LineGraph/ConfidenceLevelInput'
-import { MovingAverageIntervalsInput } from 'scenes/insights/views/LineGraph/MovingAverageIntervalsInput'
 import { PathStepPicker } from 'scenes/insights/views/Paths/PathStepPicker'
 import { RetentionBreakdownFilter } from 'scenes/retention/RetentionBreakdownFilter'
-import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
+import { useTrendsOptions } from 'scenes/trends/useTrendsOptions'
 
-import { hasBreakdownFilter, isWebAnalyticsInsightQuery } from '~/queries/utils'
-import { isTrendsQuery } from '~/queries/utils'
-import { ChartDisplayType } from '~/types'
+import { hasBreakdownFilter } from '~/queries/utils'
+
+function ifShow<T>(condition: boolean | undefined, ...items: T[]): T[] {
+    return condition ? items : []
+}
 
 export function InsightDisplayConfig(): JSX.Element {
-    const { insightProps, canEditInsight, editingDisabledReason } = useValues(insightLogic)
-
+    const { insightProps, editingDisabledReason } = useValues(insightLogic)
     const {
-        querySource,
         isTrends,
         isFunnels,
         isRetention,
@@ -60,310 +39,63 @@ export function InsightDisplayConfig(): JSX.Element {
         isStickiness,
         isLifecycle,
         supportsDisplay,
+        supportsResultCustomizationBy,
         display,
         breakdownFilter,
-        trendsFilter,
-        hasLegend,
-        showLegend,
-        supportsValueOnSeries,
-        showPercentStackView,
-        supportsPercentStackView,
-        supportsResultCustomizationBy,
-        yAxisScaleType,
-        showMultipleYAxes,
         isNonTimeSeriesDisplay,
-        compareFilter,
-        supportsCompare,
-        interval,
     } = useValues(insightVizDataLogic(insightProps))
-    const { updateQuerySource, updateCompareFilter } = useActions(insightVizDataLogic(insightProps))
     const { isTrendsFunnel, isStepsFunnel, isTimeToConvertFunnel, isEmptyFunnel } = useValues(
         funnelDataLogic(insightProps)
     )
-    const { featureFlags } = useValues(featureFlagLogic)
-    const hideWeekendsEnabled = !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_HIDE_WEEKENDS]
 
-    const showCompare =
-        (isTrends &&
-            display !== ChartDisplayType.ActionsAreaGraph &&
-            display !== ChartDisplayType.CalendarHeatmap &&
-            display !== ChartDisplayType.BoxPlot) ||
-        isStickiness ||
-        isWebAnalyticsInsightQuery(querySource)
+    const {
+        displayItems: trendsDisplayItems,
+        dataItems: trendsDataItems,
+        displayActiveCount,
+        dataActiveCount,
+    } = useTrendsOptions()
+
     const showInterval =
         isTrendsFunnel ||
         isLifecycle ||
         ((isTrends || isStickiness) && !(display && NON_TIME_SERIES_DISPLAY_TYPES.includes(display)))
-    const showSmoothing =
-        isTrends &&
-        !hasBreakdownFilter(breakdownFilter) &&
-        (!display || display === ChartDisplayType.ActionsLineGraph || display === ChartDisplayType.ActionsAreaGraph) &&
-        (smoothingOptions[interval ?? 'day']?.length ?? 0) > 0
-    const showMultipleYAxesConfig = (isTrends || isStickiness) && !isNonTimeSeriesDisplay
-    const showAlertThresholdLinesConfig = isTrends && !isNonTimeSeriesDisplay
-    const isLineGraph =
-        display === ChartDisplayType.ActionsLineGraph ||
-        display === ChartDisplayType.ActionsAreaGraph ||
-        (!display && isTrendsQuery(querySource))
-    const isLinearScale = !yAxisScaleType || yAxisScaleType === 'linear'
 
-    const { showValuesOnSeries, mightContainFractionalNumbers, showConfidenceIntervals, showMovingAverage } = useValues(
-        trendsDataLogic(insightProps)
-    )
+    // Retention has a small Display section (trend lines only) and one Data section.
+    // TODO: extract to useRetentionOptions once other insight types are also extracted.
+    const retentionDisplayItems: LemonMenuItems = [
+        ...ifShow(isRetention && !isNonTimeSeriesDisplay, { label: () => <ShowTrendLinesFilter /> }),
+    ]
+    const retentionDataItems: LemonMenuItems = [
+        ...ifShow(isRetention, {
+            title: 'On dashboards',
+            items: [{ label: () => <RetentionDashboardDisplayPicker /> }],
+        }),
+    ]
 
-    const isBoxPlot = display === ChartDisplayType.BoxPlot
     const displayOptions: LemonMenuItems = [
-        ...((isTrends && display !== ChartDisplayType.CalendarHeatmap) ||
-        isRetention ||
-        isTrendsFunnel ||
-        isStickiness ||
-        isLifecycle
-            ? [
-                  {
-                      title: (
-                          <h5 className="mx-2 my-1" data-attr="options-display-section">
-                              Display
-                          </h5>
-                      ),
-                      items: isBoxPlot
-                          ? [
-                                ...(hasLegend ? [{ label: () => <ShowLegendFilter /> }] : []),
-                                {
-                                    label: () => (
-                                        <LemonCheckbox
-                                            label={
-                                                <span className="font-normal">
-                                                    Exclude outliers{' '}
-                                                    <Tooltip title="When enabled, whiskers are clipped to 1.5x the interquartile range, making it easier to see differences between the quartiles. When disabled, the y-axis extends to show the full range including extreme values.">
-                                                        <IconInfo className="relative top-0.5 text-lg text-secondary" />
-                                                    </Tooltip>
-                                                </span>
-                                            }
-                                            className="p-1 px-2"
-                                            size="small"
-                                            checked={trendsFilter?.excludeBoxPlotOutliers !== false}
-                                            onChange={(checked) => {
-                                                if (isTrendsQuery(querySource)) {
-                                                    const newQuery = { ...querySource }
-                                                    newQuery.trendsFilter = {
-                                                        ...trendsFilter,
-                                                        excludeBoxPlotOutliers: checked,
-                                                    }
-                                                    updateQuerySource(newQuery)
-                                                }
-                                            }}
-                                        />
-                                    ),
-                                },
-                            ]
-                          : [
-                                ...(isLifecycle ? [{ label: () => <LifecycleStackingFilter /> }] : []),
-                                ...(supportsValueOnSeries ? [{ label: () => <ValueOnSeriesFilter /> }] : []),
-                                ...(supportsPercentStackView ? [{ label: () => <PercentStackViewFilter /> }] : []),
-                                ...(hasLegend ? [{ label: () => <ShowLegendFilter /> }] : []),
-                                ...(display === ChartDisplayType.ActionsPie
-                                    ? [{ label: () => <ShowPieTotalFilter /> }]
-                                    : []),
-                                ...(showAlertThresholdLinesConfig
-                                    ? [
-                                          { label: () => <ShowAlertThresholdLinesFilter /> },
-                                          { label: () => <ShowAlertAnomalyPointsFilter /> },
-                                      ]
-                                    : []),
-                                ...(showMultipleYAxesConfig ? [{ label: () => <ShowMultipleYAxesFilter /> }] : []),
-                                ...((isTrends || isRetention || isTrendsFunnel) && !isNonTimeSeriesDisplay
-                                    ? [{ label: () => <ShowTrendLinesFilter /> }]
-                                    : []),
-                                ...(isTrends && !isNonTimeSeriesDisplay && hideWeekendsEnabled
-                                    ? [{ label: () => <HideWeekendsFilter /> }]
-                                    : []),
-                            ],
-                  },
-              ]
-            : []),
-        ...(supportsResultCustomizationBy
-            ? [
-                  {
-                      title: (
-                          <>
-                              <h5 className="mx-2 my-1">
-                                  Color customization by{' '}
-                                  <Tooltip title="You can customize the appearance of individual results in your insights. This can be done based on the result's name (e.g., customize the breakdown value 'pizza' for the first series) or based on the result's rank (e.g., customize the first dataset in the results).">
-                                      <IconInfo className="relative top-0.5 text-lg text-secondary" />
-                                  </Tooltip>
-                              </h5>
-                          </>
-                      ),
-                      items: [{ label: () => <ResultCustomizationByPicker /> }],
-                  },
-              ]
-            : []),
+        ...trendsDisplayItems,
+        ...ifShow(retentionDisplayItems.length > 0, {
+            title: (
+                <h5 className="mx-2 my-1" data-attr="options-display-section">
+                    Display
+                </h5>
+            ),
+            items: retentionDisplayItems,
+        }),
+        ...ifShow(supportsResultCustomizationBy, {
+            title: (
+                <h5 className="mx-2 my-1">
+                    Color customization by{' '}
+                    <Tooltip title="You can customize the appearance of individual results in your insights. This can be done based on the result's name (e.g., customize the breakdown value 'pizza' for the first series) or based on the result's rank (e.g., customize the first dataset in the results).">
+                        <IconInfo className="relative top-0.5 text-lg text-secondary" />
+                    </Tooltip>
+                </h5>
+            ),
+            items: [{ label: () => <ResultCustomizationByPicker /> }],
+        }),
     ]
-    const dataOptions: LemonMenuItems = [
-        ...(showCompare
-            ? [
-                  {
-                      title: 'Compare',
-                      items: [
-                          {
-                              label: () => (
-                                  <div className="mx-2 mb-2.5">
-                                      <CompareFilter
-                                          compareFilter={compareFilter}
-                                          updateCompareFilter={updateCompareFilter}
-                                          disabled={!canEditInsight || !supportsCompare}
-                                          disableReason={editingDisabledReason}
-                                          fullWidth
-                                      />
-                                  </div>
-                              ),
-                          },
-                      ],
-                  },
-              ]
-            : []),
-        ...(showSmoothing
-            ? [
-                  {
-                      title: 'Smoothing',
-                      items: [
-                          {
-                              label: () => (
-                                  <div className="mx-2 mb-2.5">
-                                      <SmoothingFilter fullWidth />
-                                  </div>
-                              ),
-                          },
-                      ],
-                  },
-              ]
-            : []),
-        ...(!showPercentStackView && isTrends && display !== ChartDisplayType.CalendarHeatmap
-            ? [
-                  {
-                      title: axisLabel(display || ChartDisplayType.ActionsLineGraph),
-                      items: [{ label: () => <UnitPicker /> }],
-                  },
-              ]
-            : []),
-        ...(!isNonTimeSeriesDisplay && isTrends && display !== ChartDisplayType.CalendarHeatmap
-            ? [
-                  {
-                      title: 'Y-axis scale',
-                      items: [{ label: () => <ScalePicker /> }],
-                  },
-                  ...(display === ChartDisplayType.BoxPlot
-                      ? []
-                      : [
-                            {
-                                title: 'Statistical analysis',
-                                items: [
-                                    {
-                                        label: () => (
-                                            <LemonSwitch
-                                                label="Show confidence intervals"
-                                                className="pb-2"
-                                                fullWidth
-                                                checked={showConfidenceIntervals}
-                                                disabledReason={
-                                                    !isLineGraph
-                                                        ? 'Confidence intervals are only available for line graphs'
-                                                        : !isLinearScale
-                                                          ? 'Confidence intervals are only supported for linear scale.'
-                                                          : undefined
-                                                }
-                                                onChange={(checked) => {
-                                                    if (isTrendsQuery(querySource)) {
-                                                        const newQuery = { ...querySource }
-                                                        newQuery.trendsFilter = {
-                                                            ...trendsFilter,
-                                                            showConfidenceIntervals: checked,
-                                                        }
-                                                        updateQuerySource(newQuery)
-                                                    }
-                                                }}
-                                            />
-                                        ),
-                                    },
-                                    ...(showConfidenceIntervals
-                                        ? [
-                                              {
-                                                  label: () => <ConfidenceLevelInput />,
-                                              },
-                                          ]
-                                        : []),
-                                    {
-                                        label: () => (
-                                            <LemonSwitch
-                                                label="Show moving average"
-                                                className="pb-2"
-                                                fullWidth
-                                                checked={showMovingAverage}
-                                                disabledReason={
-                                                    !isLineGraph
-                                                        ? 'Moving average is only available for line and area graphs'
-                                                        : !isLinearScale
-                                                          ? 'Moving average is only supported for linear scale.'
-                                                          : undefined
-                                                }
-                                                onChange={(checked) => {
-                                                    if (isTrendsQuery(querySource)) {
-                                                        const newQuery = { ...querySource }
-                                                        newQuery.trendsFilter = {
-                                                            ...trendsFilter,
-                                                            showMovingAverage: checked,
-                                                        }
-                                                        updateQuerySource(newQuery)
-                                                    }
-                                                }}
-                                            />
-                                        ),
-                                    },
-                                    ...(showMovingAverage
-                                        ? [
-                                              {
-                                                  label: () => <MovingAverageIntervalsInput />,
-                                              },
-                                          ]
-                                        : []),
-                                ],
-                            },
-                        ]),
-              ]
-            : []),
-        ...(mightContainFractionalNumbers && isTrends && display !== ChartDisplayType.CalendarHeatmap
-            ? [
-                  {
-                      title: 'Decimal places',
-                      items: [{ label: () => <DecimalPrecisionInput /> }],
-                  },
-              ]
-            : []),
-        ...(isRetention
-            ? [
-                  {
-                      title: 'On dashboards',
-                      items: [{ label: () => <RetentionDashboardDisplayPicker /> }],
-                  },
-              ]
-            : []),
-    ]
-    const displayOptionsCount: number =
-        (supportsValueOnSeries && showValuesOnSeries ? 1 : 0) +
-        (showPercentStackView ? 1 : 0) +
-        (hasLegend && showLegend ? 1 : 0) +
-        (showMultipleYAxes ? 1 : 0) +
-        (trendsFilter?.hideWeekends && hideWeekendsEnabled ? 1 : 0)
-    const dataOptionsCount: number =
-        (!showPercentStackView &&
-        isTrends &&
-        trendsFilter?.aggregationAxisFormat &&
-        trendsFilter.aggregationAxisFormat !== 'numeric'
-            ? 1
-            : 0) +
-        (!!yAxisScaleType && yAxisScaleType !== 'linear' ? 1 : 0) +
-        (showCompare && !!compareFilter?.compare ? 1 : 0) +
-        (showSmoothing && !!trendsFilter?.smoothingIntervals && trendsFilter.smoothingIntervals > 1 ? 1 : 0)
+
+    const dataOptions: LemonMenuItems = [...trendsDataItems, ...retentionDataItems]
 
     return (
         <div
@@ -376,20 +108,17 @@ export function InsightDisplayConfig(): JSX.Element {
                         <InsightDateFilter disabled={isFunnels && !!isEmptyFunnel} />
                     </ConfigFilter>
                 )}
-
                 {showInterval && (
                     <ConfigFilter>
                         <IntervalFilter />
                     </ConfigFilter>
                 )}
-
                 {!!isRetention && (
                     <ConfigFilter>
                         <RetentionDatePicker />
                         {hasBreakdownFilter(breakdownFilter) && <RetentionBreakdownFilter />}
                     </ConfigFilter>
                 )}
-
                 {!!isPaths && (
                     <ConfigFilter>
                         <PathStepPicker />
@@ -406,10 +135,8 @@ export function InsightDisplayConfig(): JSX.Element {
                         <LemonButton size="small" disabledReason={editingDisabledReason}>
                             <span className="font-medium whitespace-nowrap">
                                 Display
-                                {displayOptionsCount ? (
-                                    <span className="ml-0.5 text-secondary ligatures-none">
-                                        ({displayOptionsCount})
-                                    </span>
+                                {displayActiveCount ? (
+                                    <span className="ml-0.5 text-secondary ligatures-none">({displayActiveCount})</span>
                                 ) : null}
                             </span>
                         </LemonButton>
@@ -424,8 +151,8 @@ export function InsightDisplayConfig(): JSX.Element {
                         <LemonButton size="small" disabledReason={editingDisabledReason}>
                             <span className="font-medium whitespace-nowrap">
                                 Data
-                                {dataOptionsCount ? (
-                                    <span className="ml-0.5 text-secondary ligatures-none">({dataOptionsCount})</span>
+                                {dataActiveCount ? (
+                                    <span className="ml-0.5 text-secondary ligatures-none">({dataActiveCount})</span>
                                 ) : null}
                             </span>
                         </LemonButton>
@@ -458,35 +185,4 @@ export function InsightDisplayConfig(): JSX.Element {
 
 function ConfigFilter({ children }: { children: ReactNode }): JSX.Element {
     return <span className="deprecated-space-x-2 flex items-center text-sm">{children}</span>
-}
-
-function DecimalPrecisionInput(): JSX.Element {
-    const { insightProps } = useValues(insightLogic)
-    const { trendsFilter } = useValues(insightVizDataLogic(insightProps))
-    const { updateInsightFilter } = useActions(insightVizDataLogic(insightProps))
-
-    const reportChange = useDebouncedCallback(() => {
-        posthog.capture('decimal places changed', {
-            decimal_places: trendsFilter?.decimalPlaces,
-        })
-    }, 500)
-
-    return (
-        <LemonInput
-            type="number"
-            size="small"
-            step={1}
-            min={0}
-            max={9}
-            defaultValue={DEFAULT_DECIMAL_PLACES}
-            value={trendsFilter?.decimalPlaces}
-            onChange={(value) => {
-                updateInsightFilter({
-                    decimalPlaces: value,
-                })
-                reportChange()
-            }}
-            className="mx-2 mb-1.5"
-        />
-    )
 }
