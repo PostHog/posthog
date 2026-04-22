@@ -22,6 +22,7 @@ import shlex
 import asyncio
 import traceback
 import subprocess
+from pathlib import Path
 
 from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
@@ -46,6 +47,10 @@ _IDLE_TICK_INTERVAL_S = 20.0
 
 
 _DEFAULT_POSTHOG_URL = "http://host.docker.internal:8000"
+# Default SQL file, relative to the repo root. Checked into the repo so the
+# query under test travels with the code — iterating the smoke means editing
+# this file (or passing ``--sql-file`` with a throwaway path).
+_DEFAULT_SMOKE_SQL_RELPATH = "products/query_performance_ai/data/smoke_test.sql"
 # Docker sandboxes reach the host via host.docker.internal. Port 8000 is the
 # direct Django dev server — NOT 8010, which is Caddy. Caddy returns empty
 # bodies for from-sandbox requests (see products/tasks/backend/services/docker_sandbox.py:
@@ -94,12 +99,12 @@ class Command(BaseCommand):
             help="Stream raw log lines instead of only agent messages.",
         )
         parser.add_argument(
-            "--sql",
-            default=None,
+            "--sql-file",
+            default=_DEFAULT_SMOKE_SQL_RELPATH,
             help=(
-                "SQL for the campaign. Handed to run_campaign.py as CAMPAIGN_SQL. "
-                "Defaults to SELECT 1 (smoke test). Try 'SELECT sleep(0.5), 1' to exercise "
-                "the campaign loop: pi should drop the sleep and show a real win."
+                "Path (relative to the repo root or absolute) to a .sql file whose contents "
+                "are handed to run_campaign.py as CAMPAIGN_SQL. Defaults to %(default)s. "
+                "The default file is checked into the repo so its content lives with the smoke."
             ),
         )
         parser.add_argument(
@@ -126,13 +131,15 @@ class Command(BaseCommand):
         self.stdout.write(f"Minting OAuth token for user={user.id} team={team.id} scope={scope}")
         token = create_oauth_access_token_for_user(user, team.id, scopes=[scope])
 
+        sql = _load_sql_from_file(options["sql_file"])
+
         anthropic_base_url = _resolve_anthropic_base_url(self.stdout.write)
         prompt = _build_prompt(
             posthog_url=posthog_url,
             token=token,
             cluster=cluster,
             anthropic_base_url=anthropic_base_url,
-            sql=options["sql"],
+            sql=sql,
             query_id=options["query_id"],
         )
 
@@ -299,6 +306,27 @@ def _check_branch_on_remote(branch: str, log) -> None:
         pass
 
 
+def _load_sql_from_file(path_str: str) -> str:
+    """Resolve ``path_str`` against the repo root (if relative) and read it.
+
+    The smoke command runs from the host; ``run_campaign.py`` runs inside the
+    sandbox and never sees this path. So we always resolve locally and pass
+    the file's contents through as ``CAMPAIGN_SQL`` — no need to worry about
+    whether the file exists inside the sandbox clone.
+    """
+    path = Path(path_str)
+    if not path.is_absolute():
+        path = Path(settings.BASE_DIR) / path
+    if not path.is_file():
+        raise CommandError(
+            f"--sql-file does not exist: {path}. Create the file or pass --sql-file with a different path."
+        )
+    content = path.read_text().strip()
+    if not content:
+        raise CommandError(f"--sql-file is empty: {path}. The campaign needs some SQL to optimize.")
+    return content
+
+
 def _resolve_team_and_user() -> tuple[Team, object]:
     team = Team.objects.select_related("organization").first()
     if not team:
@@ -335,7 +363,7 @@ def _build_prompt(
     token: str,
     cluster: str,
     anthropic_base_url: str | None,
-    sql: str | None,
+    sql: str,
     query_id: str | None,
 ) -> str:
     """The prompt is intentionally directive.
@@ -358,8 +386,7 @@ def _build_prompt(
     ]
     if anthropic_base_url:
         env_block.append(f"ANTHROPIC_BASE_URL={anthropic_base_url}")
-    if sql is not None:
-        env_block.append(f"CAMPAIGN_SQL={shlex.quote(sql)}")
+    env_block.append(f"CAMPAIGN_SQL={shlex.quote(sql)}")
     if query_id is not None:
         env_block.append(f"CAMPAIGN_QUERY_ID={shlex.quote(query_id)}")
     env_line = "env " + " ".join(env_block)
