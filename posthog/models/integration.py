@@ -2612,6 +2612,7 @@ class GitHubIntegration:
         cached = self._get_branch_cache(repo)
         cached_default_branch = None if cached is None else cast(str | None, cached["default_branch"])
 
+        default_branch: str | None
         try:
             default_branch = self.get_default_branch(repo)
         except Exception:
