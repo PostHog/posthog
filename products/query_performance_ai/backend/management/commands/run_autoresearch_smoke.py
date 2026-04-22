@@ -18,6 +18,7 @@ Task mode will inject the token via the sandbox env instead.
 from __future__ import annotations
 
 import time
+import shlex
 import asyncio
 import traceback
 import subprocess
@@ -92,6 +93,23 @@ class Command(BaseCommand):
             action="store_true",
             help="Stream raw log lines instead of only agent messages.",
         )
+        parser.add_argument(
+            "--sql",
+            default=None,
+            help=(
+                "SQL for the campaign. Handed to run_campaign.py as CAMPAIGN_SQL. "
+                "Defaults to SELECT 1 (smoke test). Try 'SELECT sleep(0.5), 1' to exercise "
+                "the campaign loop: pi should drop the sleep and show a real win."
+            ),
+        )
+        parser.add_argument(
+            "--query-id",
+            default=None,
+            help=(
+                "Campaign identifier. Passed as CAMPAIGN_QUERY_ID. "
+                "Defaults to run_campaign.py's fallback ('smoke-select-one')."
+            ),
+        )
 
     def handle(self, *args, **options):
         repository = options["repository"]
@@ -114,6 +132,8 @@ class Command(BaseCommand):
             token=token,
             cluster=cluster,
             anthropic_base_url=anthropic_base_url,
+            sql=options["sql"],
+            query_id=options["query_id"],
         )
 
         context = CustomPromptSandboxContext(
@@ -309,7 +329,15 @@ def _resolve_anthropic_base_url(log) -> str | None:
     return f"{gateway.rstrip('/')}/{LLM_GATEWAY_PRODUCT_SLUG}"
 
 
-def _build_prompt(*, posthog_url: str, token: str, cluster: str, anthropic_base_url: str | None) -> str:
+def _build_prompt(
+    *,
+    posthog_url: str,
+    token: str,
+    cluster: str,
+    anthropic_base_url: str | None,
+    sql: str | None,
+    query_id: str | None,
+) -> str:
     """The prompt is intentionally directive.
 
     We want the agent to run exactly one command and report its output. There
@@ -320,12 +348,20 @@ def _build_prompt(*, posthog_url: str, token: str, cluster: str, anthropic_base_
     gateway's Anthropic route authenticates via ``x-api-key`` (see
     ``services/llm-gateway/src/llm_gateway/auth/service.py::extract_token``),
     and ``llm_gateway:read`` is in ``INTERNAL_SCOPES`` so it's auto-added.
+
+    ``sql`` and ``query_id`` are forwarded as env vars the run_campaign.py
+    driver already recognises (``CAMPAIGN_SQL``, ``CAMPAIGN_QUERY_ID``) —
+    shell-escaped so multi-word or punctuated queries survive the trip.
     """
     env_block = [
         f"ANTHROPIC_API_KEY={token}",
     ]
     if anthropic_base_url:
         env_block.append(f"ANTHROPIC_BASE_URL={anthropic_base_url}")
+    if sql is not None:
+        env_block.append(f"CAMPAIGN_SQL={shlex.quote(sql)}")
+    if query_id is not None:
+        env_block.append(f"CAMPAIGN_QUERY_ID={shlex.quote(query_id)}")
     env_line = "env " + " ".join(env_block)
 
     return f"""\
