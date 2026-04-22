@@ -830,6 +830,24 @@ class TestTable(BaseTest):
                 499,
                 "The provided file doesn't exist in the bucket",
             ),
+            (
+                "invalid_access_key_id",
+                "DB::Exception: InvalidAccessKeyId: something",
+                499,
+                "The Access Key ID you provided is invalid",
+            ),
+            (
+                "signature_mismatch",
+                "DB::Exception: SignatureDoesNotMatch: blah",
+                499,
+                "The Access Secret you provided is incorrect",
+            ),
+            (
+                "generic_cannot_extract_structure",
+                "DB::Exception: Cannot extract table structure from JSONEachRow format file: column types are unknown",
+                636,
+                "Could not determine the columns of your file",
+            ),
         ]
     )
     def test_safe_expose_ch_error(self, _name, error_message, error_code, expected_message):
@@ -845,3 +863,57 @@ class TestTable(BaseTest):
 
         with pytest.raises(Exception, match=expected_message):
             table._safe_expose_ch_error(ServerException(message=error_message, code=error_code))
+
+    def test_safe_expose_ch_error_falls_through_with_underlying_message(self):
+        credential = DataWarehouseCredential.objects.create(access_key="test", access_secret="test", team=self.team)
+        table = DataWarehouseTable.objects.create(
+            name="test_table",
+            url_pattern="https://example.com/test.parquet",
+            format=DataWarehouseTable.TableFormat.Parquet,
+            team=self.team,
+            columns={"id": {"clickhouse": "String", "hogql": "StringDatabaseField"}},
+            credential=credential,
+        )
+
+        err = ServerException(
+            message="DB::Exception: Some brand new ClickHouse failure mode. Stack trace: do not leak",
+            code=1234,
+        )
+        with pytest.raises(Exception) as exc_info:
+            table._safe_expose_ch_error(err)
+
+        message = str(exc_info.value)
+        assert message.startswith("Could not get columns:")
+        assert "[ClickHouse error 1234]" in message
+        assert "Some brand new ClickHouse failure mode" in message
+        assert "Stack trace" not in message
+
+    def test_safe_expose_ch_error_sanitizes_aws_access_key(self):
+        credential = DataWarehouseCredential.objects.create(
+            access_key="AKIAIOSFODNN7EXAMPLE",
+            access_secret="wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
+            team=self.team,
+        )
+        table = DataWarehouseTable.objects.create(
+            name="test_table",
+            url_pattern="https://example.com/test.parquet",
+            format=DataWarehouseTable.TableFormat.Parquet,
+            team=self.team,
+            columns={"id": {"clickhouse": "String", "hogql": "StringDatabaseField"}},
+            credential=credential,
+        )
+
+        err = ServerException(
+            message=(
+                "DB::Exception: Unexpected failure for key AKIAIOSFODNN7EXAMPLE "
+                "with secret wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
+            ),
+            code=500,
+        )
+        with pytest.raises(Exception) as exc_info:
+            table._safe_expose_ch_error(err)
+
+        message = str(exc_info.value)
+        assert "AKIAIOSFODNN7EXAMPLE" not in message
+        assert "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY" not in message
+        assert "[REDACTED" in message

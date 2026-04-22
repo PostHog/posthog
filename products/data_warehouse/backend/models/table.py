@@ -1,3 +1,4 @@
+import re
 import csv
 import time
 from datetime import datetime
@@ -65,21 +66,36 @@ SERIALIZED_FIELD_TO_CLICKHOUSE_MAPPING: dict[DatabaseSerializedFieldType, str] =
     DatabaseSerializedFieldType.JSON: "Map",
 }
 
+# Ordered: more specific matches MUST come before generic fallbacks, since we
+# iterate in insertion order and return on the first match.
 ExtractErrors = {
     "The AWS Access Key Id you provided does not exist": "The Access Key you provided does not exist",
+    "InvalidAccessKeyId": "The Access Key ID you provided is invalid",
+    "The request signature we calculated does not match the signature you provided": "The Access Secret you provided is incorrect",
+    "SignatureDoesNotMatch": "The Access Secret you provided is incorrect",
     "Access Denied: while reading key:": "Access was denied when reading the provided file",
     "Could not list objects in bucket": "Access was denied to the provided bucket",
+    "AccessDenied": "Access was denied. Check that the provided credentials have read permission on the bucket and key.",
     "file is empty": "The provided file contains no data",
     "The specified key does not exist": "The provided file doesn't exist in the bucket",
+    "NoSuchKey": "The provided file doesn't exist in the bucket",
     "Cannot extract table structure from CSV format file, because there are no files with provided path in S3 or all files are empty": "The provided file doesn't exist in the bucket",
     "Cannot extract table structure from Parquet format file, because there are no files with provided path in S3 or all files are empty": "The provided file doesn't exist in the bucket",
     "Cannot extract table structure from JSONEachRow format file, because there are no files with provided path in S3 or all files are empty": "The provided file doesn't exist in the bucket",
     "Bucket or key name are invalid in S3 URI": "The provided file or bucket doesn't exist",
     "S3 exception: `NoSuchBucket`, message: 'The specified bucket does not exist.'": "The provided bucket doesn't exist",
+    "NoSuchBucket": "The provided bucket doesn't exist",
     "Either the file is corrupted or this is not a parquet file": "The provided file is not in Parquet format",
     "Rows have different amount of values": "The provided file has rows with different amount of values",
     "The operation is not valid for the object's storage class": "Some files in the bucket are archived (e.g. Glacier or S3 Intelligent-Tiering archive). Restore them to Standard storage or narrow the URL pattern to exclude archived files.",
+    # Generic fallback for format/structure mismatches not matched above.
+    "Cannot extract table structure": "Could not determine the columns of your file. Make sure the selected format matches the actual file format and the URL points to valid data.",
 }
+
+# AWS access key IDs follow known prefixes and are 20 chars total. Strip any
+# that surface in ClickHouse error messages before exposing them to users.
+_AWS_ACCESS_KEY_RE = re.compile(r"\b(?:AKIA|ASIA|AROA|AIDA|AGPA|AIPA|ANPA|ANVA|APKA|AKNA)[A-Z0-9]{16}\b")
+_MAX_EXPOSED_ERROR_LEN = 500
 
 type DataWarehouseTableColumn = str | dict[str, Any]
 type DataWarehouseTableColumns = dict[str, DataWarehouseTableColumn]
@@ -604,15 +620,42 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
                 )
             raise
 
+    def _sanitize_ch_error_message(self, message: str) -> str:
+        sanitized = _AWS_ACCESS_KEY_RE.sub("[REDACTED_AWS_KEY]", message)
+        if self.credential is not None:
+            if self.credential.access_key:
+                sanitized = sanitized.replace(self.credential.access_key, "[REDACTED]")
+            if self.credential.access_secret:
+                sanitized = sanitized.replace(self.credential.access_secret, "[REDACTED]")
+        try:
+            start = sanitized.index("DB::Exception:") + len("DB::Exception:")
+        except ValueError:
+            start = 0
+        try:
+            end = sanitized.index("Stack trace:")
+        except ValueError:
+            end = len(sanitized)
+        sanitized = sanitized[start:end].strip()
+        if len(sanitized) > _MAX_EXPOSED_ERROR_LEN:
+            sanitized = sanitized[:_MAX_EXPOSED_ERROR_LEN].rstrip() + "…"
+        return sanitized
+
     def _safe_expose_ch_error(self, err):
         err = wrap_clickhouse_query_error(err)
+        message = getattr(err, "message", None) or str(err)
         for key, value in ExtractErrors.items():
-            if key in err.message:
+            if key in message:
                 raise Exception(value)
 
         if isinstance(err, CHQueryErrorTooManySimultaneousQueries):
             raise err
 
+        sanitized = self._sanitize_ch_error_message(message)
+        code = getattr(err, "code", None)
+        if sanitized and code:
+            raise Exception(f"Could not get columns: [ClickHouse error {code}] {sanitized}")
+        if sanitized:
+            raise Exception(f"Could not get columns: {sanitized}")
         raise Exception("Could not get columns")
 
 
