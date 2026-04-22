@@ -12,7 +12,7 @@ use uuid::Uuid;
 
 use crate::config::CaptureMode;
 use crate::v1::context::Context;
-use crate::v1::sinks::event::{build_context_headers, Event};
+use crate::v1::sinks::event::Event;
 use crate::v1::sinks::sink::Sink;
 use crate::v1::sinks::types::{BatchSummary, Outcome, SinkResult};
 use crate::v1::sinks::{Config, SinkName};
@@ -111,9 +111,6 @@ impl<P: KafkaProducerTrait + 'static> Sink for KafkaSink<P> {
             return reject_publishable(events, sink_str, mode, &path, &attempt);
         }
 
-        // Pre-compute context-level headers once for the batch.
-        let ctx_headers = build_context_headers(ctx);
-
         let enqueued_at = Utc::now();
         let mut results: Vec<Box<dyn SinkResult>> = Vec::new();
         // FuturesUnordered polls ack futures inline — no per-event tokio::spawn.
@@ -159,20 +156,10 @@ impl<P: KafkaProducerTrait + 'static> Sink for KafkaSink<P> {
                 continue;
             }
 
-            // Build OwnedHeaders from scratch per event (avoids cloning a base).
-            let mut headers = rdkafka::message::OwnedHeaders::new();
-            for (k, v) in &ctx_headers {
-                headers = headers.insert(rdkafka::message::Header {
-                    key: k,
-                    value: Some(v.as_bytes()),
-                });
-            }
-            for (k, v) in &event.headers() {
-                headers = headers.insert(rdkafka::message::Header {
-                    key: k,
-                    value: Some(v.as_bytes()),
-                });
-            }
+            // Resolve the full header set from the event (context + per-event
+            // fields) and convert to OwnedHeaders via the From impl in
+            // common_types — same conversion legacy capture uses.
+            let headers: rdkafka::message::OwnedHeaders = event.headers(ctx).into();
 
             key_buf.clear();
             event.write_partition_key(ctx, &mut key_buf);

@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
+use common_types::CapturedEventHeaders;
 use rdkafka::error::RDKafkaErrorCode;
 use uuid::Uuid;
 
@@ -16,6 +17,26 @@ use super::mock::MockProducer;
 use super::producer::ProduceError;
 use super::sink::KafkaSink;
 
+/// All-None CapturedEventHeaders for stubbing FakeEvent. `CapturedEventHeaders`
+/// does not derive `Default` in common_types; keep the literal here so the
+/// stub doesn't leak unrelated fields into sink_tests.
+fn empty_captured_headers() -> CapturedEventHeaders {
+    CapturedEventHeaders {
+        token: None,
+        distinct_id: None,
+        session_id: None,
+        timestamp: None,
+        event: None,
+        uuid: None,
+        now: None,
+        force_disable_person_processing: None,
+        historical_migration: None,
+        dlq_reason: None,
+        dlq_step: None,
+        dlq_timestamp: None,
+    }
+}
+
 // ---------------------------------------------------------------------------
 // FakeEvent
 // ---------------------------------------------------------------------------
@@ -26,7 +47,7 @@ struct FakeEvent {
     destination: Destination,
     partition_key: String,
     payload: Result<String, String>,
-    event_headers: Vec<(String, String)>,
+    event_headers: CapturedEventHeaders,
 }
 
 impl FakeEvent {
@@ -37,7 +58,7 @@ impl FakeEvent {
             destination: Destination::AnalyticsMain,
             partition_key: format!("phc_test:{uuid}"),
             payload: Ok(r#"{"event":"test"}"#.to_string()),
-            event_headers: vec![],
+            event_headers: empty_captured_headers(),
         }
     }
 
@@ -70,7 +91,7 @@ impl Event for FakeEvent {
         &self.destination
     }
 
-    fn headers(&self) -> Vec<(String, String)> {
+    fn headers(&self, _ctx: &Context) -> CapturedEventHeaders {
         self.event_headers.clone()
     }
 
