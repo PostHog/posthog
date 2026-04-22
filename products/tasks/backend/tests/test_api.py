@@ -3245,6 +3245,131 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
         self.assertNotIn("DNS", response.json()["error"])
         self.assertEqual(response.json()["error"], "Failed to send command to agent server")
 
+    @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
+    @patch("products.tasks.backend.api.http_requests.post")
+    def test_command_proxies_sandbox_git_changed_files(self, mock_post):
+        get_sandbox_jwt_public_key.cache_clear()
+        self._mock_agent_response(
+            mock_post,
+            {
+                "jsonrpc": "2.0",
+                "id": "req-sandbox",
+                "result": {"files": [{"path": "test.py", "status": "modified"}]},
+            },
+        )
+
+        task = self.create_task()
+        run = self._create_run_with_sandbox(task)
+
+        response = self.client.post(
+            self._command_url(task, run),
+            {"jsonrpc": "2.0", "method": "git/changed_files", "id": "req-sandbox"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual(data["result"]["files"][0]["path"], "test.py")
+
+        mock_post.assert_called_once()
+        call_kwargs = mock_post.call_args
+        self.assertEqual(call_kwargs[1]["json"]["method"], "git/changed_files")
+
+    @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
+    @patch("products.tasks.backend.api.http_requests.post")
+    def test_command_proxies_sandbox_fs_read_file(self, mock_post):
+        get_sandbox_jwt_public_key.cache_clear()
+        self._mock_agent_response(
+            mock_post,
+            {"jsonrpc": "2.0", "id": "req-fs", "result": {"content": "hello"}},
+        )
+
+        task = self.create_task()
+        run = self._create_run_with_sandbox(task)
+
+        response = self.client.post(
+            self._command_url(task, run),
+            {
+                "jsonrpc": "2.0",
+                "method": "fs/read_file",
+                "params": {"filePath": "test.txt"},
+                "id": "req-fs",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    @parameterized.expand(
+        [
+            (
+                "fs_read_file_missing_path",
+                {"jsonrpc": "2.0", "method": "fs/read_file", "params": {}},
+            ),
+            (
+                "git_file_at_head_missing_path",
+                {"jsonrpc": "2.0", "method": "git/file_at_head", "params": {}},
+            ),
+            (
+                "git_stage_files_empty_paths",
+                {"jsonrpc": "2.0", "method": "git/stage_files", "params": {"paths": []}},
+            ),
+            (
+                "git_discard_file_missing_status",
+                {"jsonrpc": "2.0", "method": "git/discard_file", "params": {"filePath": "a.txt"}},
+            ),
+            (
+                "git_discard_file_invalid_status",
+                {
+                    "jsonrpc": "2.0",
+                    "method": "git/discard_file",
+                    "params": {"filePath": "a.txt", "fileStatus": "invalid"},
+                },
+            ),
+        ]
+    )
+    def test_command_rejects_invalid_sandbox_params(self, _name, payload):
+        task = self.create_task()
+        run = self._create_run_with_sandbox(task)
+
+        response = self.client.post(
+            self._command_url(task, run),
+            payload,
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
+    @patch("products.tasks.backend.api.http_requests.post")
+    def test_command_proxies_sandbox_git_no_params_methods(self, mock_post):
+        """Sandbox query methods that require no params should pass through."""
+        get_sandbox_jwt_public_key.cache_clear()
+        self._mock_agent_response(
+            mock_post,
+            {"jsonrpc": "2.0", "id": "req-1", "result": {"branch": "main"}},
+        )
+
+        task = self.create_task()
+        run = self._create_run_with_sandbox(task)
+
+        for method in [
+            "git/changed_files",
+            "git/diff_cached",
+            "git/diff_unstaged",
+            "git/diff_head",
+            "git/diff_stats",
+            "git/current_branch",
+            "git/sync_status",
+            "git/repo_info",
+        ]:
+            response = self.client.post(
+                self._command_url(task, run),
+                {"jsonrpc": "2.0", "method": method, "id": "req-1"},
+                format="json",
+            )
+            self.assertEqual(response.status_code, status.HTTP_200_OK, f"Failed for method {method}: {response.json()}")
+
 
 class TestSandboxEnvironmentAPI(BaseTaskAPITest):
     base_url = "/api/projects/@current/sandbox_environments/"

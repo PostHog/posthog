@@ -749,6 +749,20 @@ class TaskRunCommandRequestSerializer(serializers.Serializer):
         "close",
         "permission_response",
         "set_config_option",
+        # Sandbox commands — operate on the sandbox filesystem/git directly
+        "git/changed_files",
+        "git/diff_cached",
+        "git/diff_unstaged",
+        "git/diff_head",
+        "git/diff_stats",
+        "git/current_branch",
+        "git/file_at_head",
+        "git/stage_files",
+        "git/unstage_files",
+        "git/discard_file",
+        "git/sync_status",
+        "git/repo_info",
+        "fs/read_file",
     ]
 
     jsonrpc = serializers.ChoiceField(
@@ -781,6 +795,21 @@ class TaskRunCommandRequestSerializer(serializers.Serializer):
         if not value or not isinstance(value, str) or not value.strip():
             raise serializers.ValidationError({"params": f"{key} is required and must be a non-empty string"})
 
+    @staticmethod
+    def _require_nonempty_string_list(params: dict, key: str) -> None:
+        value = params.get(key)
+        if not isinstance(value, list) or len(value) == 0:
+            raise serializers.ValidationError({"params": f"{key} is required and must be a non-empty list"})
+        if not all(isinstance(v, str) and v.strip() for v in value):
+            raise serializers.ValidationError({"params": f"{key} must contain only non-empty strings"})
+
+    @staticmethod
+    def _require_file_status(params: dict, key: str) -> None:
+        value = params.get(key)
+        allowed = ("modified", "added", "deleted", "renamed", "untracked")
+        if not isinstance(value, str) or value not in allowed:
+            raise serializers.ValidationError({"params": f"{key} must be one of: {', '.join(allowed)}"})
+
     def validate(self, attrs):
         method = attrs["method"]
         params = attrs.get("params", {})
@@ -792,6 +821,17 @@ class TaskRunCommandRequestSerializer(serializers.Serializer):
         elif method == "set_config_option":
             self._require_nonempty_string(params, "configId")
             self._require_nonempty_string(params, "value")
+        elif method == "git/file_at_head":
+            self._require_nonempty_string(params, "filePath")
+        elif method == "git/stage_files":
+            self._require_nonempty_string_list(params, "paths")
+        elif method == "git/unstage_files":
+            self._require_nonempty_string_list(params, "paths")
+        elif method == "git/discard_file":
+            self._require_nonempty_string(params, "filePath")
+            self._require_file_status(params, "fileStatus")
+        elif method == "fs/read_file":
+            self._require_nonempty_string(params, "filePath")
         return attrs
 
 
