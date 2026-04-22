@@ -21713,6 +21713,7 @@ class VisualizationItem(BaseModel):
         | PathsQuery
         | LifecycleQuery
         | HogQLQuery
+        | DataVisualizationNode
         | RevenueAnalyticsGrossRevenueQuery
         | RevenueAnalyticsMetricsQuery
         | RevenueAnalyticsMRRQuery
@@ -21742,6 +21743,7 @@ class VisualizationMessage(BaseModel):
         | PathsQuery
         | LifecycleQuery
         | HogQLQuery
+        | DataVisualizationNode
         | RevenueAnalyticsGrossRevenueQuery
         | RevenueAnalyticsMetricsQuery
         | RevenueAnalyticsMRRQuery
