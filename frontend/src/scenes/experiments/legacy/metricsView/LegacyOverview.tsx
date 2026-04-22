@@ -4,14 +4,17 @@ import {
     CachedExperimentFunnelsQueryResponse,
     CachedExperimentTrendsQueryResponse,
     CachedLegacyExperimentQueryResponse,
+    ExperimentFunnelsQuery,
+    ExperimentTrendsQuery,
 } from '~/queries/schema/schema-general'
 import { experimentLogic } from '~/scenes/experiments/experimentLogic'
-
 import {
     legacyGetHighestProbabilityVariant,
     legacyGetIndexForVariant,
-} from '../calculations/legacyExperimentCalculations'
-import { LegacyVariantTag } from '../components/LegacyVariantTag'
+    getInsightType,
+    LegacyVariantTag,
+    legacyExperimentLogic,
+} from '~/scenes/experiments/legacy'
 
 /**
  * @deprecated
@@ -26,13 +29,13 @@ export function LegacyWinningVariantText({
         | CachedExperimentFunnelsQueryResponse
         | CachedExperimentTrendsQueryResponse
 }): JSX.Element {
-    const { getInsightType, experiment } = useValues(experimentLogic)
+    const { experiment } = useValues(legacyExperimentLogic)
 
     const highestProbabilityVariant = legacyGetHighestProbabilityVariant(result)
     const index = legacyGetIndexForVariant(
         result,
         highestProbabilityVariant || '',
-        getInsightType(experiment.metrics[0])
+        getInsightType(experiment.metrics[0] as ExperimentTrendsQuery | ExperimentFunnelsQuery)
     )
     if (highestProbabilityVariant && index !== null && result) {
         const { probability } = result

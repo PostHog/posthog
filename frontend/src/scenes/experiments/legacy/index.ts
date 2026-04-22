@@ -32,6 +32,9 @@ export { LegacyFunnelAggregationSelect } from './components/LegacyFunnelAggregat
 // Calculations
 export * from './calculations/legacyExperimentCalculations'
 
+// Functions
+export * from './legacyUtils'
+
 // Modals
 export { LegacyChartModal } from './metricsView/LegacyChartModal'
 

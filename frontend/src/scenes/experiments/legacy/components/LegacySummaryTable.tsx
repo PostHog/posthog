@@ -19,6 +19,7 @@ import {
     legacyExposureCountDataForVariant,
     legacyGetHighestProbabilityVariant,
     LegacyVariantTag,
+    getInsightType,
 } from '~/scenes/experiments/legacy'
 import { getViewRecordingFiltersLegacy } from '~/scenes/experiments/utils'
 import { FilterLogicalOperator, InsightType, RecordingUniversalFilters, TrendExperimentVariant } from '~/types'
@@ -42,7 +43,6 @@ export function LegacySummaryTable({
         legacyPrimaryMetricsResults,
         legacySecondaryMetricsResults,
         tabularExperimentResults,
-        getInsightType,
         experimentMathAggregationForTrends,
     } = useValues(experimentLogic)
     const insightType = getInsightType(metric)

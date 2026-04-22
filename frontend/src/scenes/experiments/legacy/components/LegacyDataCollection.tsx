@@ -10,13 +10,12 @@ import { humanFriendlyNumber } from 'lib/utils'
 import {
     ExperimentTrendsQuery,
     ExperimentFunnelsQuery,
-    NodeKind,
     CachedExperimentTrendsQueryResponse,
     CachedExperimentFunnelsQueryResponse,
     CachedLegacyExperimentQueryResponse,
 } from '~/queries/schema/schema-general'
 import { DEFAULT_MDE } from '~/scenes/experiments/experimentLogic'
-import { legacyExperimentLogic } from '~/scenes/experiments/legacy'
+import { legacyExperimentLogic, getInsightType } from '~/scenes/experiments/legacy'
 import { formatUnitByQuantity } from '~/scenes/experiments/utils'
 import { Experiment, InsightType } from '~/types'
 
@@ -29,10 +28,6 @@ const getFirstPrimaryMetric = (experiment: Experiment): ExperimentTrendsQuery | 
         return primaryMetric.query as ExperimentTrendsQuery | ExperimentFunnelsQuery
     }
     return null
-}
-
-const getInsightType = (metric: ExperimentTrendsQuery | ExperimentFunnelsQuery): InsightType => {
-    return metric.kind === NodeKind.ExperimentTrendsQuery ? InsightType.TRENDS : InsightType.FUNNELS
 }
 
 const getActualRunningTime = (experiment: Experiment): number => {
