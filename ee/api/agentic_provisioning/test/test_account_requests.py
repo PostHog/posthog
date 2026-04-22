@@ -351,3 +351,17 @@ class TestPKCEPartnerExistingUserConsent(StripeProvisioningTestBase):
         res = self._post_as_pkce_partner(payload)
         assert res.status_code == 400
         assert res.json()["error"]["code"] == "invalid_request"
+
+    @parameterized.expand(
+        [
+            ("too_short", "abc"),
+            ("too_long", "A" * 129),
+            ("invalid_chars", "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw!cM"),
+        ]
+    )
+    def test_pkce_partner_malformed_code_challenge_returns_400(self, _name, challenge):
+        payload = self._account_request_payload(code_challenge=challenge)
+        res = self._post_as_pkce_partner(payload)
+        assert res.status_code == 400
+        assert res.json()["error"]["code"] == "invalid_request"
+        assert "code_challenge" in res.json()["error"]["message"]

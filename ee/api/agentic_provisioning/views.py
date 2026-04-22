@@ -349,6 +349,14 @@ def account_requests(request: Request) -> Response:
             },
             status=400,
         )
+    if code_challenge and (len(code_challenge) < 43 or len(code_challenge) > 128 or not re.fullmatch(r"[A-Za-z0-9_\-]+", code_challenge)):
+        return Response(
+            {
+                "type": "error",
+                "error": {"code": "invalid_request", "message": "code_challenge must be 43-128 characters using base64url charset"},
+            },
+            status=400,
+        )
 
     region = (configuration.get("region") or "US").upper()
 
