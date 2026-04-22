@@ -47,7 +47,15 @@ import { MatchingEventsMatchType } from 'scenes/session-recordings/playlist/sess
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { AvailableFeature, ExporterFormat, RecordingSegment, SessionPlayerData, SessionPlayerState } from '~/types'
+import {
+    AvailableFeature,
+    ExporterFormat,
+    RecordingSegment,
+    SessionPlayerData,
+    SessionPlayerState,
+    SessionRecordingType,
+    SessionRecordingUpdateType,
+} from '~/types'
 
 import { deletedRecordingsLogic } from '../deletedRecordingsLogic'
 import { ExportedSessionRecordingFileV2 } from '../file-playback/types'
@@ -140,6 +148,24 @@ export interface SessionRecordingPlayerLogicProps extends SessionRecordingDataCo
     pinned?: boolean
     setPinned?: (pinned: boolean) => void
     playNextRecording?: (automatic: boolean) => void
+}
+
+// markViewed is a fire-and-forget background update — best-effort persistence of
+// viewed/analyzed flags that the user never awaits. Swallow transient fetch failures
+// (user navigating away, network blip, ad blocker) to avoid polluting error tracking,
+// but still report unexpected errors so real backend regressions aren't hidden.
+async function safeMarkRecordingUpdate(
+    recordingId: SessionRecordingType['id'],
+    data: Partial<SessionRecordingUpdateType>
+): Promise<void> {
+    try {
+        await api.recordings.update(recordingId, data)
+    } catch (error) {
+        if (error instanceof TypeError || (error instanceof Error && error.name === 'AbortError')) {
+            return
+        }
+        posthog.captureException(error, { feature: 'session-recording-mark-viewed', recordingId })
+    }
 }
 
 const ReplayIframeDatakeyPrefix = 'ph_replay_fixed_heatmap_'
@@ -1669,12 +1695,12 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             actions.setWasMarkedViewed(true) // this prevents us from calling the function multiple times
 
             await breakpoint(IS_TEST_MODE ? 1 : (delay ?? 3000))
-            await api.recordings.update(props.sessionRecordingId, {
+            await safeMarkRecordingUpdate(props.sessionRecordingId, {
                 viewed: true,
                 player_metadata: values.sessionPlayerMetaData,
             })
             await breakpoint(IS_TEST_MODE ? 1 : 10000)
-            await api.recordings.update(props.sessionRecordingId, {
+            await safeMarkRecordingUpdate(props.sessionRecordingId, {
                 analyzed: true,
                 player_metadata: values.sessionPlayerMetaData,
             })
