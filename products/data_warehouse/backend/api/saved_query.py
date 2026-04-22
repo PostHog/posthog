@@ -770,7 +770,9 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
             team_id=self.team_id, name=request.data.get("name")
         ).first()
         if saved_query:
-            # Update logic
+            # The UPSERT branch updates an existing row without going through get_object(),
+            # so run object-level permission checks explicitly to honor per-object access controls.
+            self.check_object_permissions(request, saved_query)
             serializer = self.get_serializer(saved_query, data=request.data, partial=True)
             serializer.is_valid(raise_exception=True)
             self.perform_update(serializer)

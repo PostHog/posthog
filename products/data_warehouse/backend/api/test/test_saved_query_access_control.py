@@ -1,12 +1,12 @@
 import pytest
-from posthog.test.base import APIBaseTest
 
+from parameterized import parameterized
 from rest_framework import status
 
-from posthog.constants import AvailableFeature
 from posthog.models.organization import OrganizationMembership
 from posthog.models.user import User
 
+from products.data_warehouse.backend.api.test._access_control_base import WarehouseAccessControlTestMixin
 from products.data_warehouse.backend.models import DataWarehouseSavedQuery, DataWarehouseSavedQueryFolder
 
 try:
@@ -16,26 +16,11 @@ except ImportError:
 
 
 @pytest.mark.ee
-class TestDataWarehouseSavedQueryAccessControl(APIBaseTest):
+class TestDataWarehouseSavedQueryAccessControl(WarehouseAccessControlTestMixin):
+    resource = "warehouse_view"
+
     def setUp(self):
         super().setUp()
-
-        self.organization.available_product_features = [
-            {
-                "key": AvailableFeature.ADVANCED_PERMISSIONS,
-                "name": AvailableFeature.ADVANCED_PERMISSIONS,
-            },
-            {
-                "key": AvailableFeature.ROLE_BASED_ACCESS,
-                "name": AvailableFeature.ROLE_BASED_ACCESS,
-            },
-        ]
-        self.organization.save()
-
-        self.viewer_user = User.objects.create_and_join(self.organization, "viewer@posthog.com", "testtest")
-        self.editor_user = User.objects.create_and_join(self.organization, "editor@posthog.com", "testtest")
-        self.no_access_user = User.objects.create_and_join(self.organization, "noaccess@posthog.com", "testtest")
-
         self.saved_query = DataWarehouseSavedQuery.objects.create(
             team=self.team,
             name="my_view",
@@ -43,78 +28,57 @@ class TestDataWarehouseSavedQueryAccessControl(APIBaseTest):
             created_by=self.user,
         )
 
-    def _create_access_control(self, user, resource="warehouse_view", resource_id=None, access_level="viewer"):
-        membership = OrganizationMembership.objects.get(user=user, organization=self.organization)
-        return AccessControl.objects.create(
-            team=self.team,
-            resource=resource,
-            resource_id=resource_id,
-            access_level=access_level,
-            organization_member=membership,
-        )
+    def _list_url(self) -> str:
+        return f"/api/environments/{self.team.pk}/warehouse_saved_queries/"
 
-    def _create_project_default(self, resource="warehouse_view", access_level="none"):
-        return AccessControl.objects.create(
-            team=self.team,
-            resource=resource,
-            resource_id=None,
-            access_level=access_level,
-            organization_member=None,
-            role=None,
+    def _detail_url(self) -> str:
+        return f"/api/environments/{self.team.pk}/warehouse_saved_queries/{self.saved_query.id}/"
+
+    @parameterized.expand(
+        [
+            # (access_level, method, expected_status, patch_body)
+            ("viewer", "GET", status.HTTP_200_OK, None),
+            ("viewer", "PATCH", status.HTTP_403_FORBIDDEN, {"name": "updated"}),
+            ("viewer", "DELETE", status.HTTP_403_FORBIDDEN, None),
+            ("editor", "GET", status.HTTP_200_OK, None),
+            ("editor", "PATCH", status.HTTP_200_OK, {"name": "updated_name"}),
+            ("none", "GET", status.HTTP_403_FORBIDDEN, None),
+        ]
+    )
+    def test_access_level_matrix(self, access_level, method, expected_status, patch_body):
+        user = (
+            self.viewer_user
+            if access_level == "viewer"
+            else self.editor_user
+            if access_level == "editor"
+            else self.no_access_user
         )
+        self._create_access_control(user, access_level=access_level)
+        self.client.force_login(user)
+
+        if method == "GET":
+            response = self.client.get(self._detail_url())
+        elif method == "PATCH":
+            response = self.client.patch(self._detail_url(), data=patch_body)
+        elif method == "DELETE":
+            response = self.client.delete(self._detail_url())
+        else:
+            raise AssertionError(f"Unsupported method {method}")
+
+        self.assertEqual(response.status_code, expected_status)
 
     def test_viewer_can_list(self):
         self._create_access_control(self.viewer_user, access_level="viewer")
         self.client.force_login(self.viewer_user)
-        response = self.client.get(f"/api/environments/{self.team.pk}/warehouse_saved_queries/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-
-    def test_viewer_can_retrieve(self):
-        self._create_access_control(self.viewer_user, access_level="viewer")
-        self.client.force_login(self.viewer_user)
-        response = self.client.get(f"/api/environments/{self.team.pk}/warehouse_saved_queries/{self.saved_query.id}/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-
-    def test_viewer_cannot_update(self):
-        self._create_access_control(self.viewer_user, access_level="viewer")
-        self.client.force_login(self.viewer_user)
-        response = self.client.patch(
-            f"/api/environments/{self.team.pk}/warehouse_saved_queries/{self.saved_query.id}/",
-            data={"name": "updated"},
-        )
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-
-    def test_viewer_cannot_delete(self):
-        self._create_access_control(self.viewer_user, access_level="viewer")
-        self.client.force_login(self.viewer_user)
-        response = self.client.delete(
-            f"/api/environments/{self.team.pk}/warehouse_saved_queries/{self.saved_query.id}/"
-        )
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-
-    def test_editor_can_update(self):
-        self._create_access_control(self.editor_user, access_level="editor")
-        self.client.force_login(self.editor_user)
-        response = self.client.patch(
-            f"/api/environments/{self.team.pk}/warehouse_saved_queries/{self.saved_query.id}/",
-            data={"name": "updated_name"},
-        )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-
-    def test_none_access_cannot_retrieve(self):
-        self._create_access_control(self.no_access_user, access_level="none")
-        self.client.force_login(self.no_access_user)
-        response = self.client.get(f"/api/environments/{self.team.pk}/warehouse_saved_queries/{self.saved_query.id}/")
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(self.client.get(self._list_url()).status_code, status.HTTP_200_OK)
 
     def test_project_default_none_blocks_non_creator_retrieve(self):
         self._create_project_default(access_level="none")
         self.client.force_login(self.viewer_user)
-        response = self.client.get(f"/api/environments/{self.team.pk}/warehouse_saved_queries/{self.saved_query.id}/")
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(self.client.get(self._detail_url()).status_code, status.HTTP_403_FORBIDDEN)
 
     def test_creator_list_filters_to_own_queries_when_explicit_viewer(self):
-        # Creator has baseline viewer via explicit AC; the filter_queryset_by_access_level path still honors creator.
+        # Creator sees their own query; an object-level 'none' on another user's query excludes it.
         other_user = User.objects.create_and_join(self.organization, "otheruser@posthog.com", "testtest")
         other_query = DataWarehouseSavedQuery.objects.create(
             team=self.team,
@@ -122,7 +86,6 @@ class TestDataWarehouseSavedQueryAccessControl(APIBaseTest):
             query={"kind": "HogQLQuery", "query": "select 1"},
             created_by=other_user,
         )
-        # Block other_query specifically at object-level for the creator (self.user)
         membership = OrganizationMembership.objects.get(user=self.user, organization=self.organization)
         AccessControl.objects.create(
             team=self.team,
@@ -132,78 +95,123 @@ class TestDataWarehouseSavedQueryAccessControl(APIBaseTest):
             organization_member=membership,
         )
         self.client.force_login(self.user)
-        response = self.client.get(f"/api/environments/{self.team.pk}/warehouse_saved_queries/")
+        response = self.client.get(self._list_url())
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         ids = [q["id"] for q in response.json()["results"]]
-        # Own query still visible; the blocked other_query excluded
         self.assertIn(str(self.saved_query.id), ids)
         self.assertNotIn(str(other_query.id), ids)
 
     def test_non_creator_list_blocked_with_project_default_none(self):
         self._create_project_default(access_level="none")
         self.client.force_login(self.viewer_user)
-        response = self.client.get(f"/api/environments/{self.team.pk}/warehouse_saved_queries/")
-        # With project-default none and no explicit access, the list endpoint returns 403.
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(self.client.get(self._list_url()).status_code, status.HTTP_403_FORBIDDEN)
 
     def test_explicit_viewer_access_allows_list_with_project_default_none(self):
         self._create_project_default(access_level="none")
         self._create_access_control(self.viewer_user, access_level="viewer")
         self.client.force_login(self.viewer_user)
-        response = self.client.get(f"/api/environments/{self.team.pk}/warehouse_saved_queries/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(self.client.get(self._list_url()).status_code, status.HTTP_200_OK)
 
     def test_object_level_access_blocks_specific_query(self):
-        # Give viewer project-level viewer, but set object-level none for this specific query.
         self._create_access_control(self.viewer_user, access_level="viewer")
         self._create_access_control(self.viewer_user, resource_id=str(self.saved_query.id), access_level="none")
         self.client.force_login(self.viewer_user)
-        response = self.client.get(f"/api/environments/{self.team.pk}/warehouse_saved_queries/{self.saved_query.id}/")
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(self.client.get(self._detail_url()).status_code, status.HTTP_403_FORBIDDEN)
 
     def test_user_access_level_field_is_present_in_response(self):
         self._create_access_control(self.viewer_user, access_level="viewer")
         self.client.force_login(self.viewer_user)
-        response = self.client.get(f"/api/environments/{self.team.pk}/warehouse_saved_queries/{self.saved_query.id}/")
+        response = self.client.get(self._detail_url())
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json().get("user_access_level"), "viewer")
 
+    def test_upsert_create_respects_object_level_none(self):
+        # Regression: POST with an existing query's name performs an UPSERT-update.
+        # Object-level access controls must still apply even though get_object() isn't called.
+        self._create_access_control(self.editor_user, access_level="editor")  # resource-level editor
+        self._create_access_control(
+            self.editor_user, resource_id=str(self.saved_query.id), access_level="none"
+        )  # but object-level none for this specific view
+        self.client.force_login(self.editor_user)
+        response = self.client.post(
+            self._list_url(),
+            data={"name": self.saved_query.name, "query": {"kind": "HogQLQuery", "query": "select 2"}},
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        # Confirm the query was NOT overwritten
+        self.saved_query.refresh_from_db()
+        self.assertEqual(self.saved_query.query, {"kind": "HogQLQuery", "query": "select 1"})
+
 
 @pytest.mark.ee
-class TestDataWarehouseSavedQueryFolderAccessControl(APIBaseTest):
+class TestDataWarehouseSavedQueryFolderAccessControl(WarehouseAccessControlTestMixin):
+    resource = "warehouse_view"
+
     def setUp(self):
         super().setUp()
-
-        self.organization.available_product_features = [
-            {"key": AvailableFeature.ADVANCED_PERMISSIONS, "name": AvailableFeature.ADVANCED_PERMISSIONS},
-            {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
-        ]
-        self.organization.save()
-
-        self.viewer_user = User.objects.create_and_join(self.organization, "viewer@posthog.com", "testtest")
-
         self.folder = DataWarehouseSavedQueryFolder.objects.create(
             team=self.team, name="Marketing", created_by=self.user
         )
 
-    def _create_project_default(self, access_level="none"):
-        return AccessControl.objects.create(
-            team=self.team,
-            resource="warehouse_view",
-            resource_id=None,
-            access_level=access_level,
-            organization_member=None,
-            role=None,
-        )
+    def _list_url(self) -> str:
+        return f"/api/environments/{self.team.pk}/warehouse_saved_query_folders/"
 
-    def test_folder_retrieve_respects_warehouse_view_default(self):
-        # Folders share the warehouse_view resource; project-default none should block non-creators.
-        self._create_project_default(access_level="none")
-        self.client.force_login(self.viewer_user)
-        response = self.client.get(f"/api/environments/{self.team.pk}/warehouse_saved_query_folders/{self.folder.id}/")
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+    def _detail_url(self) -> str:
+        return f"/api/environments/{self.team.pk}/warehouse_saved_query_folders/{self.folder.id}/"
 
     def test_folder_list_works_without_restrictions(self):
         self.client.force_login(self.user)
-        response = self.client.get(f"/api/environments/{self.team.pk}/warehouse_saved_query_folders/")
+        self.assertEqual(self.client.get(self._list_url()).status_code, status.HTTP_200_OK)
+
+    def test_folder_retrieve_respects_warehouse_view_default(self):
+        self._create_project_default(access_level="none")
+        self.client.force_login(self.viewer_user)
+        self.assertEqual(self.client.get(self._detail_url()).status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_folder_viewer_can_retrieve(self):
+        self._create_access_control(self.viewer_user, access_level="viewer")
+        self.client.force_login(self.viewer_user)
+        response = self.client.get(self._detail_url())
         self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_folder_viewer_cannot_update(self):
+        self._create_access_control(self.viewer_user, access_level="viewer")
+        self.client.force_login(self.viewer_user)
+        response = self.client.patch(self._detail_url(), data={"name": "renamed"})
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_folder_user_access_level_field_is_present(self):
+        self._create_access_control(self.viewer_user, access_level="viewer")
+        self.client.force_login(self.viewer_user)
+        response = self.client.get(self._detail_url())
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json().get("user_access_level"), "viewer")
+
+    def test_folder_object_level_none_blocks_specific_folder(self):
+        self._create_access_control(self.viewer_user, access_level="viewer")
+        self._create_access_control(self.viewer_user, resource_id=str(self.folder.id), access_level="none")
+        self.client.force_login(self.viewer_user)
+        self.assertEqual(self.client.get(self._detail_url()).status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_folder_creator_list_filters_out_blocked_other_folder(self):
+        # Creator has resource access, but an object-level 'none' on another user's folder excludes it from their list.
+        # Creator bypass applies at the queryset filter layer, not at has_permission — so the creator needs
+        # at least resource-level access for the list endpoint to return 200.
+        other_user = User.objects.create_and_join(self.organization, "otheruser@posthog.com", "testtest")
+        other_folder = DataWarehouseSavedQueryFolder.objects.create(team=self.team, name="Other", created_by=other_user)
+        membership = OrganizationMembership.objects.get(user=self.user, organization=self.organization)
+        AccessControl.objects.create(
+            team=self.team,
+            resource="warehouse_view",
+            resource_id=str(other_folder.id),
+            access_level="none",
+            organization_member=membership,
+        )
+        self.client.force_login(self.user)
+        response = self.client.get(self._list_url())
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        # Folder endpoint is unpaginated - response is a flat list of folder dicts
+        ids = [f["id"] for f in response.json()]
+        self.assertIn(str(self.folder.id), ids)
+        self.assertNotIn(str(other_folder.id), ids)
