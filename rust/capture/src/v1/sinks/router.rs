@@ -114,6 +114,7 @@ mod tests {
     use std::sync::Arc;
     use std::time::Duration;
 
+    use common_types::CapturedEventHeaders;
     use uuid::Uuid;
 
     use crate::config::CaptureMode;
@@ -161,8 +162,21 @@ mod tests {
         fn destination(&self) -> &Destination {
             &self.destination
         }
-        fn headers(&self) -> Vec<(String, String)> {
-            vec![]
+        fn headers(&self, _ctx: &Context) -> CapturedEventHeaders {
+            CapturedEventHeaders {
+                token: None,
+                distinct_id: None,
+                session_id: None,
+                timestamp: None,
+                event: None,
+                uuid: None,
+                now: None,
+                force_disable_person_processing: None,
+                historical_migration: None,
+                dlq_reason: None,
+                dlq_step: None,
+                dlq_timestamp: None,
+            }
         }
         fn write_partition_key(&self, _ctx: &Context, buf: &mut String) {
             buf.push_str(&format!("key:{}", self.uuid()));
