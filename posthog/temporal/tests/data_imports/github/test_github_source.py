@@ -204,6 +204,26 @@ class TestIsOlderThanCutoff:
         assert _is_older_than_cutoff(datetime(2026, 1, 15, 0, 0, 0, tzinfo=UTC), cutoff) is True
         assert _is_older_than_cutoff(datetime(2026, 1, 25, 0, 0, 0, tzinfo=UTC), cutoff) is False
 
+    @parameterized.expand(
+        [
+            # aware value vs naive cutoff — naive treated as UTC, older wins
+            ("aware_str_naive_cutoff_older", "2026-01-15T10:00:00Z", datetime(2026, 1, 20, 0, 0, 0), True),
+            ("aware_str_naive_cutoff_newer", "2026-01-25T10:00:00Z", datetime(2026, 1, 20, 0, 0, 0), False),
+            # naive datetime value vs aware cutoff — naive treated as UTC
+            (
+                "naive_datetime_aware_cutoff_older",
+                datetime(2026, 1, 15, 0, 0, 0),
+                datetime(2026, 1, 20, 0, 0, 0, tzinfo=UTC),
+                True,
+            ),
+            # naive string vs aware cutoff — naive treated as UTC
+            ("naive_str_aware_cutoff_older", "2026-01-15T10:00:00", datetime(2026, 1, 20, 0, 0, 0, tzinfo=UTC), True),
+        ]
+    )
+    def test_mixed_aware_and_naive(self, _name: str, value: Any, cutoff: datetime, expected: bool) -> None:
+        """Mixing aware and naive datetimes must not raise — naive is treated as UTC."""
+        assert _is_older_than_cutoff(value, cutoff) is expected
+
 
 class TestShouldStopDesc:
     def test_asc_mode_never_stops(self) -> None:

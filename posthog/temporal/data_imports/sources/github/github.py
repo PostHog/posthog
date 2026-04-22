@@ -1,7 +1,7 @@
 import re
 import dataclasses
 from collections.abc import Callable, Iterator
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 from typing import Any, Optional
 from urllib.parse import urlencode
 
@@ -102,18 +102,25 @@ def _parse_next_url(link_header: str) -> str | None:
     return None
 
 
+def _as_utc(dt: datetime) -> datetime:
+    """Treat naive datetimes as UTC so tz-aware values (GitHub returns ISO 8601
+    with `Z`) can be safely compared against naive cutoffs from the DB."""
+    return dt.replace(tzinfo=UTC) if dt.tzinfo is None else dt.astimezone(UTC)
+
+
 def _is_older_than_cutoff(value: Any, cutoff: datetime) -> bool:
     if value is None:
         return False
     if isinstance(value, str):
         try:
             parsed_value = dateutil_parser.parse(value)
-            return parsed_value <= cutoff
         except (ValueError, TypeError):
             return False
-    if isinstance(value, datetime):
-        return value <= cutoff
-    return False
+    elif isinstance(value, datetime):
+        parsed_value = value
+    else:
+        return False
+    return _as_utc(parsed_value) <= _as_utc(cutoff)
 
 
 def _should_stop_desc(
