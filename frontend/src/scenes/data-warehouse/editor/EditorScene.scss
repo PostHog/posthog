@@ -15,12 +15,7 @@
 }
 
 .active-subquery-highlight-invalid {
-    background-color: rgb(54 130 246 / 22%);
-}
-
-.active-subquery-underline-invalid {
-    text-decoration: underline wavy var(--warning) 1.5px;
-    text-underline-offset: 3px;
+    background-color: var(--warning-highlight);
 }
 
 .active-query-highlight-flash {

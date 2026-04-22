@@ -2610,7 +2610,6 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     },
                     options: {
                         className,
-                        inlineClassName: errorMessage ? 'active-subquery-underline-invalid' : undefined,
                         hoverMessage: errorMessage ? { value: errorMessage } : undefined,
                     },
                 }
