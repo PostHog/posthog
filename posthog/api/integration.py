@@ -25,6 +25,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.integration import (
     ERROR_TOKEN_REFRESH_FAILED,
+    ApplePushIntegration,
     AzureBlobIntegration,
     AzureBlobIntegrationError,
     ClickUpIntegration,
@@ -150,10 +151,15 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
             return instance
 
         elif validated_data["kind"] == "firebase":
+            # Support both file upload and JSON config
             key_file = request.FILES.get("key")
-            if not key_file:
-                raise ValidationError("Firebase service account key file not provided")
-            key_info = json.loads(key_file.read().decode("utf-8"))
+            if key_file:
+                key_info = json.loads(key_file.read().decode("utf-8"))
+            else:
+                config = validated_data.get("config", {})
+                key_info = config.get("key_info")
+                if not key_info:
+                    raise ValidationError("Firebase service account key must be provided")
             instance = FirebaseIntegration.integration_from_key(key_info, team_id, request.user)
             return instance
 
@@ -311,6 +317,26 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
                 )
             except AzureBlobIntegrationError as e:
                 raise ValidationError(str(e))
+            return instance
+
+        elif validated_data["kind"] == "apns":
+            config = validated_data.get("config", {})
+            signing_key = config.get("signing_key")
+            key_id = config.get("key_id")
+            team_id_apple = config.get("team_id_apple")
+            bundle_id = config.get("bundle_id")
+
+            if not all([signing_key, key_id, team_id_apple, bundle_id]):
+                raise ValidationError("All APNS fields are required: signing_key, key_id, team_id_apple, bundle_id")
+
+            instance = ApplePushIntegration.integration_from_key(
+                signing_key=signing_key,
+                key_id=key_id,
+                team_id_apple=team_id_apple,
+                bundle_id=bundle_id,
+                team_id=team_id,
+                created_by=request.user,
+            )
             return instance
 
         elif validated_data["kind"] in OauthIntegration.supported_kinds:

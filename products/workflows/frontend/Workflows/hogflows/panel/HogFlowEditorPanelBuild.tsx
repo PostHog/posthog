@@ -195,7 +195,7 @@ const customFilterFunction = (template: HogFunctionTemplateType): boolean => {
         return false
     }
 
-    if (template.status === 'coming_soon') {
+    if (['hidden', 'coming_soon'].includes(template.status)) {
         return false
     }
 

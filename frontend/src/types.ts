@@ -5027,6 +5027,7 @@ export const INTEGRATION_KINDS = [
     'customerio-app',
     'customerio-webhook',
     'customerio-track',
+    'apns',
 ] as const
 
 export type IntegrationKind = (typeof INTEGRATION_KINDS)[number]

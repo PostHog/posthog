@@ -1,12 +1,14 @@
 import { actions, kea, path, props, reducers, selectors, useActions, useValues } from 'kea'
 
-import { IconLetter, IconPlusSmall } from '@posthog/icons'
+import { IconApple, IconAndroid, IconLetter, IconPlusSmall } from '@posthog/icons'
 import { LemonButton, LemonMenu, LemonMenuItems } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { IconSlack, IconTwilio } from 'lib/lemon-ui/icons'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
 import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
 import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
@@ -99,6 +101,7 @@ export const scene: SceneExport<WorkflowsSceneProps> = {
 
 export function WorkflowsScene(props: WorkflowsSceneProps = {}): JSX.Element {
     const { currentTab } = useValues(workflowsSceneLogic(props))
+    const { featureFlags } = useValues(featureFlagLogic)
     const { openSetupModal } = useActions(integrationsLogic)
     const { openNewCategoryModal } = useActions(optOutCategoriesLogic)
     const { showNewWorkflowModal } = useActions(newWorkflowLogic)
@@ -133,6 +136,26 @@ export function WorkflowsScene(props: WorkflowsSceneProps = {}): JSX.Element {
             ),
             onClick: () => openSetupModal(undefined, 'twilio'),
         },
+        ...(featureFlags[FEATURE_FLAGS.WORKFLOWS_PUSH_NOTIFICATIONS]
+            ? [
+                  {
+                      label: (
+                          <div className="flex gap-1 items-center">
+                              <IconAndroid /> Firebase Cloud Messaging
+                          </div>
+                      ),
+                      onClick: () => openSetupModal(undefined, 'firebase'),
+                  },
+                  {
+                      label: (
+                          <div className="flex gap-1 items-center">
+                              <IconApple /> Apple Push Notifications
+                          </div>
+                      ),
+                      onClick: () => openSetupModal(undefined, 'apns'),
+                  },
+              ]
+            : []),
     ]
 
     const tabs: LemonTab<WorkflowsSceneTab>[] = [
