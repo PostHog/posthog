@@ -347,8 +347,7 @@ class TestUserCostSustainedThrottle:
         key = throttle._get_cache_key(context)
         assert key == "cost:user:user_cost_sustained:posthog_code:42:period:1"
 
-    @pytest.mark.asyncio
-    async def test_cache_key_uses_billing_period_start_over_seat_created_at(self) -> None:
+    def test_cache_key_uses_billing_period_start_over_seat_created_at(self) -> None:
         from datetime import UTC, datetime, timedelta
 
         from llm_gateway.rate_limiting.cost_throttles import UserCostSustainedThrottle
@@ -367,8 +366,7 @@ class TestUserCostSustainedThrottle:
         key = throttle._get_cache_key(context)
         assert key == "cost:user:user_cost_sustained:posthog_code:42:period:0"
 
-    @pytest.mark.asyncio
-    async def test_cache_key_falls_back_to_seat_created_at_without_billing_period(self) -> None:
+    def test_cache_key_falls_back_to_seat_created_at_without_billing_period(self) -> None:
         from datetime import UTC, datetime, timedelta
 
         from llm_gateway.rate_limiting.cost_throttles import UserCostSustainedThrottle
