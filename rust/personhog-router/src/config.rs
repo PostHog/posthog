@@ -55,11 +55,6 @@ pub struct Config {
     #[envconfig(default = "4")]
     pub replica_channels: usize,
 
-    /// Interval in seconds between channel recycling (re-establishing all connections).
-    /// Picks up new pods after scaling events or deploys. 0 = disabled.
-    #[envconfig(default = "300")]
-    pub channel_recycle_interval_secs: u64,
-
     /// Timeout for backend requests in milliseconds
     #[envconfig(default = "5000")]
     pub backend_timeout_ms: u64,
@@ -182,14 +177,6 @@ impl Config {
             None
         } else {
             Some(Duration::from_secs(self.backend_keepalive_interval_secs))
-        }
-    }
-
-    pub fn channel_recycle_interval(&self) -> Option<Duration> {
-        if self.channel_recycle_interval_secs == 0 {
-            None
-        } else {
-            Some(Duration::from_secs(self.channel_recycle_interval_secs))
         }
     }
 

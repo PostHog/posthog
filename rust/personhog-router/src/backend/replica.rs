@@ -20,9 +20,7 @@ use personhog_proto::personhog::types::v1::{
     PersonsResponse, UpsertHashKeyOverridesRequest, UpsertHashKeyOverridesResponse,
 };
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::RwLock;
 use tonic::transport::{Channel, Endpoint};
 use tonic::{Request, Status};
 use tracing::info;
@@ -35,8 +33,12 @@ use crate::config::RetryConfig;
 
 /// Backend implementation that forwards requests to a personhog-replica service
 /// using multiple gRPC channels with round-robin selection.
+///
+/// Connection lifecycle is managed server-side via `max_connection_age` on the
+/// replica's gRPC server, which sends GOAWAY to trigger transparent client
+/// reconnects — no client-side recycling needed.
 pub struct ReplicaBackend {
-    clients: Arc<RwLock<Vec<PersonHogReplicaClient<Channel>>>>,
+    clients: Vec<PersonHogReplicaClient<Channel>>,
     next_idx: AtomicUsize,
     retry_config: RetryConfig,
 }
@@ -52,7 +54,6 @@ pub struct ReplicaBackendConfig {
     pub max_send_message_size: usize,
     pub max_recv_message_size: usize,
     pub num_channels: usize,
-    pub recycle_interval: Option<Duration>,
 }
 
 fn build_endpoint(config: &ReplicaBackendConfig) -> Endpoint {
@@ -85,36 +86,18 @@ fn create_clients(config: &ReplicaBackendConfig) -> Vec<PersonHogReplicaClient<C
 impl ReplicaBackend {
     pub fn new(config: ReplicaBackendConfig) -> Self {
         let retry_config = config.retry_config;
+        let num_channels = config.num_channels.max(1);
         let config = ReplicaBackendConfig {
-            num_channels: config.num_channels.max(1),
+            num_channels,
             ..config
         };
 
         let clients = create_clients(&config);
         info!(
-            num_channels = config.num_channels,
+            num_channels,
             url = config.url,
             "created replica backend channels"
         );
-
-        let clients = Arc::new(RwLock::new(clients));
-
-        if let Some(interval) = config.recycle_interval {
-            let clients = Arc::clone(&clients);
-            tokio::spawn(async move {
-                loop {
-                    tokio::time::sleep(interval).await;
-                    let new_clients = create_clients(&config);
-                    let mut guard = clients.write().await;
-                    *guard = new_clients;
-                    drop(guard);
-                    info!(
-                        num_channels = config.num_channels,
-                        "recycled replica backend channels"
-                    );
-                }
-            });
-        }
 
         Self {
             clients,
@@ -123,12 +106,9 @@ impl ReplicaBackend {
         }
     }
 
-    fn next_client(
-        &self,
-        clients: &[PersonHogReplicaClient<Channel>],
-    ) -> PersonHogReplicaClient<Channel> {
-        let idx = self.next_idx.fetch_add(1, Ordering::Relaxed) % clients.len();
-        clients[idx].clone()
+    fn next_client(&self) -> PersonHogReplicaClient<Channel> {
+        let idx = self.next_idx.fetch_add(1, Ordering::Relaxed) % self.clients.len();
+        self.clients[idx].clone()
     }
 }
 
@@ -138,13 +118,10 @@ impl ReplicaBackend {
 macro_rules! retry_call {
     ($self:expr, $method:ident, $request:expr) => {{
         with_retry(&$self.retry_config, stringify!($method), || {
-            let clients = $self.clients.read();
+            let mut client = $self.next_client();
             let req = $request.clone();
             let client_name = current_client_name();
             async move {
-                let guard = clients.await;
-                let mut client = $self.next_client(&guard);
-                drop(guard);
                 let mut request = Request::new(req);
                 if let Ok(val) = client_name.parse() {
                     request.metadata_mut().insert("x-client-name", val);
@@ -349,5 +326,57 @@ impl PersonHogBackend for ReplicaBackend {
         request: GetGroupTypeMappingsByProjectIdsRequest,
     ) -> Result<GroupTypeMappingsBatchResponse, Status> {
         retry_call!(self, get_group_type_mappings_by_project_ids, request)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn make_backend(num_channels: usize) -> ReplicaBackend {
+        ReplicaBackend::new(ReplicaBackendConfig {
+            url: "http://localhost:50051".to_string(),
+            timeout: Duration::from_secs(1),
+            retry_config: RetryConfig {
+                max_retries: 0,
+                initial_backoff_ms: 1,
+                max_backoff_ms: 1,
+            },
+            keepalive_interval: None,
+            keepalive_timeout: None,
+            max_send_message_size: 4 * 1024 * 1024,
+            max_recv_message_size: 4 * 1024 * 1024,
+            num_channels,
+        })
+    }
+
+    #[tokio::test]
+    async fn next_client_round_robins_across_channels() {
+        let backend = make_backend(4);
+        for round in 0..3u64 {
+            for ch in 0..4u64 {
+                backend.next_client();
+                let expected = round * 4 + ch + 1;
+                assert_eq!(backend.next_idx.load(Ordering::Relaxed), expected as usize);
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn next_client_wraps_around() {
+        let backend = make_backend(3);
+        for _ in 0..3 {
+            backend.next_client();
+        }
+        // 4th call should wrap to index 0
+        backend.next_client();
+        let idx = backend.next_idx.load(Ordering::Relaxed) % backend.clients.len();
+        assert_eq!(idx, 1);
+    }
+
+    #[tokio::test]
+    async fn num_channels_floors_to_one() {
+        let backend = make_backend(0);
+        assert_eq!(backend.clients.len(), 1);
     }
 }
