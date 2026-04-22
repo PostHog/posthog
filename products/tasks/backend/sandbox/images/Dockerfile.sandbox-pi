@@ -4,20 +4,32 @@ FROM ${BASE_IMAGE}
 ARG PI_CODING_AGENT_VERSION=0.68.1
 RUN npm install -g "@mariozechner/pi-coding-agent@${PI_CODING_AGENT_VERSION}"
 
-# Pinned by tag (pi's install grammar) AND SHA (catches tag force-moves from the personal upstream).
+# Pinned by tag (pi's install grammar) AND SHA (catches tag force-moves).
+# refs/tags/X^{} resolves annotated tags to their commit; fallback handles lightweight tags.
 ARG PI_AUTORESEARCH_TAG=v1.0.1
 ARG PI_AUTORESEARCH_SHA=56e9f2ec6f0dc6f9997126e4f1d8a4223de2a534
 RUN set -eux; \
-    actual="$(git ls-remote https://github.com/davebcn87/pi-autoresearch.git "refs/tags/${PI_AUTORESEARCH_TAG}" | cut -f1)"; \
+    repo=https://github.com/davebcn87/pi-autoresearch.git; \
+    actual=$(git ls-remote "$repo" "refs/tags/${PI_AUTORESEARCH_TAG}^{}" | cut -f1); \
+    [ -n "$actual" ] || actual=$(git ls-remote "$repo" "refs/tags/${PI_AUTORESEARCH_TAG}" | cut -f1); \
     [ "$actual" = "$PI_AUTORESEARCH_SHA" ] || { echo "pi-autoresearch tag ${PI_AUTORESEARCH_TAG} moved: expected ${PI_AUTORESEARCH_SHA}, got ${actual}"; exit 1; }; \
     pi install "git:github.com/davebcn87/pi-autoresearch@${PI_AUTORESEARCH_TAG}"
 
-# Source tag is read from the same file the CI workflows use as the single source of truth.
+# production_us is the canonical source for this image; US/EU/oldest share the same pin today,
+# but if they ever diverge we want the tree that matches what US prod actually runs.
 COPY .github/clickhouse-versions.json /tmp/clickhouse-versions.json
 RUN set -eux; \
-    tag=$(jq -r '.source_tags.production_us' /tmp/clickhouse-versions.json); \
-    git clone --depth 1 --branch "$tag" --single-branch \
-        https://github.com/ClickHouse/ClickHouse.git /opt/clickhouse; \
+    tag=$(jq -r '.source_tags.production_us // empty' /tmp/clickhouse-versions.json); \
+    expected_sha=$(jq -r '.source_shas.production_us // empty' /tmp/clickhouse-versions.json); \
+    [ -n "$tag" ] && [ -n "$expected_sha" ] || { echo "source_tags.production_us or source_shas.production_us missing"; exit 1; }; \
+    repo=https://github.com/ClickHouse/ClickHouse.git; \
+    actual_sha=$(git ls-remote "$repo" "refs/tags/${tag}^{}" | cut -f1); \
+    [ -n "$actual_sha" ] || actual_sha=$(git ls-remote "$repo" "refs/tags/${tag}" | cut -f1); \
+    [ "$actual_sha" = "$expected_sha" ] || { echo "ClickHouse tag ${tag} moved: expected ${expected_sha}, got ${actual_sha}"; exit 1; }; \
+    git clone --depth 1 --branch "$tag" --single-branch "$repo" /opt/clickhouse; \
+    find /opt/clickhouse -maxdepth 2 -type d \
+        \( -name tests -o -name docs -o -name website -o -name contrib \) \
+        -prune -exec rm -rf {} +; \
     rm -rf /opt/clickhouse/.git /tmp/clickhouse-versions.json
 
 CMD ["/bin/bash"]
