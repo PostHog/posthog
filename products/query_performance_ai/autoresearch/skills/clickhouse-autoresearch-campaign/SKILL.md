@@ -64,13 +64,11 @@ Only fall back to the interactive Setup sequence below when the workspace is emp
 
 Campaign queries flow through the adapter configured in `adapter.json`. Every campaign script (`ch_capture_baseline.py`, `ch_run_candidate.py`, any ad-hoc probe) ultimately submits SQL through this adapter, and the adapter enforces what ClickHouse sees.
 
-When `adapter.json` has `type: "posthog_proxy"` (the automated-campaign case), the proxy enforces the following. Treat it as the authoritative surface for everything you do during experiments:
+When `adapter.json` has `type: "posthog_proxy"` (the automated-campaign case), the cluster behind the proxy runs your SQL under a ClickHouse user with `readonly = 2` pinned in its profile and grants limited to a small set of tables. Writes (INSERT, ALTER, CREATE, OPTIMIZE, SYSTEM, TRUNCATE, DROP, ATTACH, DETACH) will fail with a ClickHouse error. For experiments you should treat every read-only statement form as available and use them aggressively:
 
-**Allowed statement forms** (first keyword after whitespace/comments):
-
-- `SELECT …` — including arbitrary subqueries, CTEs, joins
+- `SELECT …` — arbitrary subqueries, CTEs, joins
 - `WITH … SELECT …`
-- `EXPLAIN …` — every variant ClickHouse supports is available. Use them aggressively to understand plans before proposing rewrites:
+- `EXPLAIN …` — every variant ClickHouse supports. Use them before proposing rewrites:
   - `EXPLAIN SELECT …` (default: PLAN)
   - `EXPLAIN AST SELECT …`
   - `EXPLAIN SYNTAX SELECT …`
@@ -81,8 +79,6 @@ When `adapter.json` has `type: "posthog_proxy"` (the automated-campaign case), t
   - `EXPLAIN TABLE OVERRIDE …`
 - `SHOW …` — `SHOW CREATE TABLE events`, `SHOW COLUMNS FROM events`, `SHOW INDEX FROM events`, `SHOW SETTINGS ILIKE '%mark_cache%'`, etc.
 - `DESCRIBE` / `DESC …`
-
-**Disallowed**: anything whose first keyword isn't in the list above (no INSERT, ALTER, CREATE, OPTIMIZE, SYSTEM, TRUNCATE, DROP, ATTACH, DETACH, etc.). The server also runs with `readonly = 2`, so writes are blocked defense-in-depth.
 
 **Timeout**: every submission is wrapped with `SETTINGS max_execution_time = 60`. Keep ad-hoc probes short. If the target query itself routinely exceeds 60s, use range narrowing (see Setup step 6) and only then start the campaign.
 

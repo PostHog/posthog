@@ -62,12 +62,12 @@ all four numbers: `elapsed_ms`, `rows_read`, `bytes_read`, `query_id`.
 
 ## Error cases and what they mean
 
-| status | meaning                                           | action                                                                      |
-| ------ | ------------------------------------------------- | --------------------------------------------------------------------------- |
-| 400    | `sql must begin with a read-only statement`       | Only SELECT / WITH / EXPLAIN / SHOW / DESCRIBE are allowed. Rewrite.        |
-| 403    | Wrong scope                                       | The token lacks `clickhouse_perf:test_read`. Check how the Task was minted. |
-| 502    | `clickhouse unreachable`                          | Cluster down. Retry once, then report and move on to the next candidate.    |
-| 503    | `CLICKHOUSE_PERF_TEST_HTTP_URL is not configured` | Deploy-time config is missing. Not recoverable from the sandbox — escalate. |
+| status | meaning                                                     | action                                                                                                                       |
+| ------ | ----------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| 403    | Wrong scope                                                 | The token lacks `clickhouse_perf:test_read`. Check how the Task was minted.                                                  |
+| 502    | `clickhouse responded <code>` with `detail: "… readonly …"` | You tried to write to a read-only cluster. The ClickHouse user enforces `readonly = 2`; write-shaped queries are impossible. |
+| 502    | `clickhouse unreachable`                                    | Cluster down. Retry once, then report and move on to the next candidate.                                                     |
+| 503    | `CLICKHOUSE_PERF_TEST_HTTP_URL is not configured`           | Deploy-time config is missing. Not recoverable from the sandbox — escalate.                                                  |
 
 ## The PR threshold
 

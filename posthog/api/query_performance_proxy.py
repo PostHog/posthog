@@ -7,28 +7,32 @@ cluster that contains only data the caller is authorized to see (today: team 2,
 "PostHog, the company"), or against a ClickHouse user whose row policies
 enforce the same restriction.
 
-We deliberately do not expose a prod-cluster endpoint from this proxy: server-
-side row-policy enforcement is the right place to gate cross-team reads, and a
-regex-based SQL check at the Django layer is both fragile (trivially bypassed
-via ``OR``, comments, string literals) and gives false confidence about what
-the agent can read. If production traffic ever needs to be queried through
-this flow, the correct path is a dedicated ClickHouse user with a row policy
-plus a profile that pins ``readonly = 2`` as non-overridable.
+What this proxy enforces:
 
-Defence-in-depth here:
 - ``scope_object = "INTERNAL"`` plus explicit OAuth scope ``clickhouse_perf:test_read``
-- SQL must start with SELECT/WITH/EXPLAIN/SHOW/DESCRIBE/DESC (first-token check)
-- Every submission is wrapped in ``SETTINGS max_execution_time = 60, readonly = 2``
+  — gates who can reach the endpoint.
+- ``SETTINGS max_execution_time = 60, readonly = 2`` appended to every submission
+  — bounds runtime and keeps reads read-only.
+
+What the ClickHouse user behind ``CLICKHOUSE_PERF_TEST_HTTP_URL`` must enforce:
+
+- ``readonly = 2`` pinned in the user's profile via ``<constraints>`` so a
+  query-level ``SETTINGS`` clause can't override it.
+- Row policies restricting the user to the team slice we're OK exposing.
+- Grants limited to the tables the autoresearch agent is allowed to read.
+
+We deliberately don't try to parse and validate SQL here. A regex-based
+readonly / statement-kind check gives false confidence — the only honest
+enforcement is the ClickHouse user profile plus the server-side settings we
+append.
 """
 
 from __future__ import annotations
 
-import re
 import json
 import time
 import urllib.error
 import urllib.request
-from dataclasses import dataclass
 
 from django.conf import settings
 
@@ -44,11 +48,6 @@ from posthog.permissions import APIScopePermission
 
 class ExecuteRequestSerializer(serializers.Serializer):
     sql = serializers.CharField()
-
-
-@dataclass(frozen=True)
-class _ValidationError:
-    message: str
 
 
 _ACTION_SCOPES: dict[str, list[str]] = {
@@ -87,38 +86,7 @@ class QueryPerformanceProxyViewSet(viewsets.ViewSet):
         serializer = ExecuteRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         sql: str = serializer.validated_data["sql"]
-
-        if err := _validate_readonly_sql(sql):
-            return Response({"error": err.message}, status=status.HTTP_400_BAD_REQUEST)
-
         return _proxy_to_clickhouse(cluster_url, sql)
-
-
-# -------------------------------------------------------------- validation --
-
-_READ_ONLY_KEYWORDS = frozenset({"SELECT", "WITH", "EXPLAIN", "SHOW", "DESCRIBE", "DESC"})
-_COMMENT_RE = re.compile(r"/\*.*?\*/|--[^\n]*", re.DOTALL)
-_FIRST_TOKEN_RE = re.compile(r"^\s*(\w+)")
-
-
-def _validate_readonly_sql(sql: str) -> _ValidationError | None:
-    """Reject anything that isn't a SELECT/WITH/EXPLAIN/SHOW statement.
-
-    Intentionally simple: strips comments, checks the first token. ClickHouse
-    will also enforce ``readonly=2`` server-side (see :func:`_proxy_to_clickhouse`)
-    — this layer is defense-in-depth plus a nicer error message.
-    """
-    stripped = _COMMENT_RE.sub("", sql)
-    match = _FIRST_TOKEN_RE.match(stripped)
-    if not match:
-        return _ValidationError("sql is empty or does not start with a statement keyword")
-    keyword = match.group(1).upper()
-    if keyword not in _READ_ONLY_KEYWORDS:
-        return _ValidationError(
-            f"sql must begin with a read-only statement (one of: "
-            f"{', '.join(sorted(_READ_ONLY_KEYWORDS))}); got: {keyword}"
-        )
-    return None
 
 
 # ------------------------------------------------------------------- proxy --

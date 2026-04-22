@@ -1,60 +1,15 @@
+import urllib.error
 from datetime import timedelta
 
 from posthog.test.base import APIBaseTest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.test import override_settings
 from django.utils import timezone
 
-from posthog.api.query_performance_proxy import _validate_readonly_sql
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 
 TEST_HTTP_URL = "http://clickhouse-test.internal:8123"
-
-
-class TestValidateReadonlySql(APIBaseTest):
-    def test_accepts_select(self):
-        assert _validate_readonly_sql("SELECT 1") is None
-
-    def test_accepts_with_cte(self):
-        assert _validate_readonly_sql("WITH x AS (SELECT 1) SELECT * FROM x") is None
-
-    def test_accepts_explain(self):
-        assert _validate_readonly_sql("EXPLAIN SELECT 1") is None
-
-    def test_accepts_lower_case(self):
-        assert _validate_readonly_sql("select 1") is None
-
-    def test_strips_comments_and_leading_whitespace(self):
-        sql = """
-        -- a leading comment
-        /* block
-           comment */
-        SELECT 1
-        """
-        assert _validate_readonly_sql(sql) is None
-
-    def test_rejects_insert(self):
-        err = _validate_readonly_sql("INSERT INTO t VALUES (1)")
-        assert err is not None
-        assert "read-only" in err.message
-
-    def test_rejects_update(self):
-        err = _validate_readonly_sql("UPDATE t SET x = 1")
-        assert err is not None
-
-    def test_rejects_delete(self):
-        err = _validate_readonly_sql("DELETE FROM t WHERE id = 1")
-        assert err is not None
-
-    def test_rejects_empty(self):
-        err = _validate_readonly_sql("   \n  ")
-        assert err is not None
-
-    def test_rejects_statement_hidden_behind_comments(self):
-        # `-- SELECT 1` is stripped; the remainder must still be a SELECT/WITH/EXPLAIN.
-        err = _validate_readonly_sql("-- SELECT 1\nDROP TABLE t")
-        assert err is not None
 
 
 @override_settings(CLICKHOUSE_PERF_TEST_HTTP_URL=TEST_HTTP_URL)
@@ -111,19 +66,6 @@ class TestQueryPerformanceProxyViewSet(APIBaseTest):
         )
         assert resp.status_code == 403
 
-    # --- validation --------------------------------------------------------
-
-    def test_rejects_insert_with_400_and_no_upstream_call(self):
-        token = self._make_token(["clickhouse_perf:test_read"])
-        with patch("posthog.api.query_performance_proxy.urllib.request.urlopen") as mocked:
-            resp = self._post(
-                "/api/query_performance_proxy/execute-test/",
-                token=token,
-                body={"sql": "INSERT INTO t VALUES (1)"},
-            )
-        assert resp.status_code == 400
-        assert mocked.call_count == 0
-
     # --- config handling ---------------------------------------------------
 
     def test_returns_503_when_url_unset(self):
@@ -140,17 +82,105 @@ class TestQueryPerformanceProxyViewSet(APIBaseTest):
         assert resp.status_code == 503
         assert mocked.call_count == 0
 
-    # --- happy path (proxy call mocked) ------------------------------------
+    # --- settings suffix is the real guardrail -----------------------------
+    #
+    # The proxy appends `SETTINGS max_execution_time = 60, readonly = 2` to
+    # every submission. Server-side enforcement (readonly=2 pinned in the
+    # ClickHouse user's profile + row policies) is what actually keeps writes
+    # out — the proxy's job is to make sure those settings always travel
+    # with the query. The tests below verify the suffix, and that
+    # write-shaped queries are forwarded rather than filtered at the Django
+    # layer (so the server can reject them).
+
+    def test_appends_readonly_settings_to_every_request(self):
+        token = self._make_token(["clickhouse_perf:test_read"])
+
+        with patch("posthog.api.query_performance_proxy.urllib.request.urlopen") as mocked:
+            reader = MagicMock()
+            reader.read.return_value = b"1\n"
+            reader.headers = {
+                "X-ClickHouse-Summary": '{"read_rows":"1","read_bytes":"1"}',
+                "X-ClickHouse-Query-Id": "qid-test-123",
+            }
+            mocked.return_value.__enter__.return_value = reader
+
+            resp = self._post(
+                "/api/query_performance_proxy/execute-test/",
+                token=token,
+                body={"sql": "SELECT 1"},
+            )
+
+        assert resp.status_code == 200, resp.content
+        called_req = mocked.call_args.args[0]
+        assert called_req.full_url.startswith(TEST_HTTP_URL)
+        assert b"readonly = 2" in called_req.data
+        assert b"max_execution_time = 60" in called_req.data
+
+    def test_write_is_forwarded_and_clickhouse_rejection_becomes_502(self):
+        # INSERT / ALTER / DROP / etc. are not filtered by the proxy; the
+        # ClickHouse user runs with `readonly = 2` and will reject writes.
+        # We assert the server's rejection arrives back to the caller as a
+        # 502 with the upstream detail intact, proving the proxy stays out of
+        # the way and the enforcement is server-side.
+        token = self._make_token(["clickhouse_perf:test_read"])
+
+        for write_sql in ("INSERT INTO t VALUES (1)", "ALTER TABLE t DELETE WHERE 1 = 1", "DROP TABLE t"):
+            err = urllib.error.HTTPError(
+                url=TEST_HTTP_URL,
+                code=403,
+                msg="Forbidden",
+                hdrs=None,  # type: ignore[arg-type]
+                fp=None,
+            )
+            err.read = lambda: b"Cannot execute query in readonly mode"  # type: ignore[method-assign] # ty: ignore[invalid-assignment]
+
+            with patch(
+                "posthog.api.query_performance_proxy.urllib.request.urlopen",
+                side_effect=err,
+            ) as mocked:
+                resp = self._post(
+                    "/api/query_performance_proxy/execute-test/",
+                    token=token,
+                    body={"sql": write_sql},
+                )
+
+            # The write was forwarded (not filtered at Django).
+            assert mocked.call_count == 1, f"{write_sql!r} was not forwarded"
+            # And the forwarded body carried the readonly=2 suffix.
+            called_req = mocked.call_args.args[0]
+            assert b"readonly = 2" in called_req.data
+            # And the upstream 403 surfaces as 502 so the caller sees CH's reason.
+            assert resp.status_code == 502, f"{write_sql!r} did not 502 ({resp.status_code})"
+            assert "readonly" in (resp.json().get("detail") or "")
+
+    def test_clickhouse_unreachable_becomes_502(self):
+        token = self._make_token(["clickhouse_perf:test_read"])
+        with patch(
+            "posthog.api.query_performance_proxy.urllib.request.urlopen",
+            side_effect=urllib.error.URLError("connection refused"),
+        ):
+            resp = self._post(
+                "/api/query_performance_proxy/execute-test/",
+                token=token,
+                body={"sql": "SELECT 1"},
+            )
+        assert resp.status_code == 502
+        assert "unreachable" in resp.json()["error"]
+
+    # --- happy path --------------------------------------------------------
 
     def test_test_endpoint_proxies_select(self):
         token = self._make_token(["clickhouse_perf:test_read"])
 
         with patch("posthog.api.query_performance_proxy.urllib.request.urlopen") as mocked:
-            mocked.return_value.__enter__.return_value.read.return_value = b"1\n"
-            mocked.return_value.__enter__.return_value.headers = {
+            reader = MagicMock()
+            reader.read.return_value = b"1\n"
+            reader.headers = {
                 "X-ClickHouse-Summary": '{"read_rows":"1","read_bytes":"1"}',
                 "X-ClickHouse-Query-Id": "qid-test-123",
             }
+            mocked.return_value.__enter__.return_value = reader
+
             resp = self._post(
                 "/api/query_performance_proxy/execute-test/",
                 token=token,
@@ -164,8 +194,3 @@ class TestQueryPerformanceProxyViewSet(APIBaseTest):
         assert payload["bytes_read"] == 1
         assert payload["query_id"] == "qid-test-123"
         assert isinstance(payload["elapsed_ms"], int | float)
-
-        # Verify we dispatched to the test cluster URL.
-        called_req = mocked.call_args.args[0]
-        assert called_req.full_url.startswith(TEST_HTTP_URL)
-        assert b"readonly = 2" in called_req.data
