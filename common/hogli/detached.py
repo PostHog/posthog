@@ -1,5 +1,5 @@
 """`hogli start:wait` and `hogli start:stop` — thin wrappers around the
-phrocs daemon's subcommands. The heavy lifting (polling, signal fallback,
+detached phrocs's subcommands. The heavy lifting (polling, signal fallback,
 log tailing) lives in the phrocs binary so the logic is single-sourced;
 hogli delegates and propagates exit codes.
 """
@@ -18,7 +18,7 @@ def _phrocs_bin() -> str | None:
     return shutil.which("phrocs")
 
 
-@cli.command(name="start:wait", help="Wait for the headless dev stack to become ready")
+@cli.command(name="start:wait", help="Wait for the detached dev stack to become ready")
 @click.option("--timeout", default=300, type=int, show_default=True, help="Fail with exit 2 after this many seconds")
 @click.option("--json", "as_json", is_flag=True, help="Emit a single JSON verdict line on stdout")
 def wait_ready(timeout: int, as_json: bool) -> None:
@@ -30,7 +30,7 @@ def wait_ready(timeout: int, as_json: bool) -> None:
     0  all processes ready
     1  one or more processes crashed (tail logs printed)
     2  timeout elapsed while processes still starting
-    3  daemon unreachable (phrocs not running, or socket path mismatch)
+    3  detached phrocs unreachable (not running, or socket path mismatch)
     """
     phrocs = _phrocs_bin()
     if phrocs is None:
@@ -42,15 +42,15 @@ def wait_ready(timeout: int, as_json: bool) -> None:
     sys.exit(subprocess.run(args, check=False).returncode)
 
 
-@cli.command(name="start:stop", help="Stop the headless dev stack")
+@cli.command(name="start:stop", help="Stop the detached dev stack")
 @click.option(
     "--timeout", default=15, type=int, show_default=True, help="Seconds to wait for graceful exit before SIGKILL"
 )
-def stop_headless(timeout: int) -> None:
+def stop_detached(timeout: int) -> None:
     """Request a graceful shutdown via the IPC socket, then fall back to
-    SIGTERM and finally SIGKILL if the daemon doesn't exit in time.
+    SIGTERM and finally SIGKILL if the detached phrocs doesn't exit in time.
 
-    Idempotent: exits 0 even when no daemon is running.
+    Idempotent: exits 0 even when no detached phrocs is running.
     """
     phrocs = _phrocs_bin()
     if phrocs is None:

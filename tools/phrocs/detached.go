@@ -17,7 +17,7 @@ import (
 )
 
 // generatedDir returns the repository-local path for generated artifacts
-// (pidfile, per-process logs, daemon stdio log). Relative to CWD, which for
+// (pidfile, per-process logs, detached stdio log). Relative to CWD, which for
 // bin/start is always the repo root.
 func generatedDir() string {
 	return filepath.Join(".posthog", ".generated")
@@ -26,37 +26,37 @@ func generatedDir() string {
 func logDir() string      { return filepath.Join(generatedDir(), "logs") }
 func pidFilePath() string { return filepath.Join(generatedDir(), "phrocs.pid") }
 
-// runDaemon either forks into a detached child (when run from the user's shell)
-// or becomes the daemon main loop (when re-exec'd with PHROCS_DAEMON_CHILD=1).
+// runDetached either forks into a detached child (when run from the user's shell)
+// or becomes the detached main loop (when re-exec'd with PHROCS_DETACHED_CHILD=1).
 //
 // Fork protocol:
-//   - Parent: spawn self with Setsid, PHROCS_DAEMON_CHILD=1, stdio redirected
+//   - Parent: spawn self with Setsid, PHROCS_DETACHED_CHILD=1, stdio redirected
 //     to <logDir>/phrocs.log. Wait up to 5s for child to bind the IPC socket.
 //   - Child: write pidfile, bind IPC socket, start all procs, block on
 //     SIGTERM/SIGHUP or {"cmd":"quit"}, clean up.
-func runDaemon(configPath string) int {
-	if os.Getenv(daemonChildEnv) != "1" {
-		return spawnDaemon(configPath)
+func runDetached(configPath string) int {
+	if os.Getenv(detachedChildEnv) != "1" {
+		return spawnDetached(configPath)
 	}
-	return daemonMain(configPath)
+	return detachedMain(configPath)
 }
 
-// spawnDaemon re-execs the current binary with Setsid + env marker so the
+// spawnDetached re-execs the current binary with Setsid + env marker so the
 // child detaches from our session. The parent returns as soon as the child's
 // IPC socket is reachable (or 5s elapses with a failure).
-func spawnDaemon(configPath string) int {
+func spawnDetached(configPath string) int {
 	wd, err := os.Getwd()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "phrocs: getwd: %v\n", err)
 		return 1
 	}
 
-	// Quick liveness check: if a daemon is already bound at our socket path,
-	// refuse to start a second one so we don't leave orphans.
+	// Quick liveness check: if a detached phrocs is already bound at our socket
+	// path, refuse to start a second one so we don't leave orphans.
 	socketPath := ipc.SocketPathFor(wd)
 	if conn, err := net.DialTimeout("unix", socketPath, 200*time.Millisecond); err == nil {
 		_ = conn.Close()
-		fmt.Fprintf(os.Stderr, "phrocs: daemon already running (socket %s is live)\n", socketPath)
+		fmt.Fprintf(os.Stderr, "phrocs: detached phrocs already running (socket %s is live)\n", socketPath)
 		return 1
 	}
 
@@ -67,7 +67,7 @@ func spawnDaemon(configPath string) int {
 	logPath := filepath.Join(logDir(), "phrocs.log")
 	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "phrocs: open daemon log: %v\n", err)
+		fmt.Fprintf(os.Stderr, "phrocs: open detached log: %v\n", err)
 		return 1
 	}
 
@@ -78,19 +78,19 @@ func spawnDaemon(configPath string) int {
 		return 1
 	}
 
-	childArgs := []string{"--daemon"}
+	childArgs := []string{"--detach"}
 	if configPath != "" {
 		childArgs = append(childArgs, "--config", configPath)
 	}
 
 	cmd := exec.Command(exe, childArgs...)
-	cmd.Env = append(os.Environ(), daemonChildEnv+"=1")
+	cmd.Env = append(os.Environ(), detachedChildEnv+"=1")
 	cmd.Stdin = nil
 	cmd.Stdout = logFile
 	cmd.Stderr = logFile
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 	if err := cmd.Start(); err != nil {
-		fmt.Fprintf(os.Stderr, "phrocs: spawn daemon: %v\n", err)
+		fmt.Fprintf(os.Stderr, "phrocs: spawn detached: %v\n", err)
 		_ = logFile.Close()
 		return 1
 	}
@@ -102,24 +102,24 @@ func spawnDaemon(configPath string) int {
 	// this keeps ps output clean if the exit is delayed).
 	go func() { _ = cmd.Wait() }()
 
-	// Poll the socket so we only return success when the daemon is reachable.
+	// Poll the socket so we only return success when the child is reachable.
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
 		if conn, err := net.DialTimeout("unix", socketPath, 100*time.Millisecond); err == nil {
 			_ = conn.Close()
-			fmt.Printf("phrocs daemon started (pid %d, socket %s, log %s)\n",
+			fmt.Printf("phrocs detached (pid %d, socket %s, log %s)\n",
 				cmd.Process.Pid, socketPath, logPath)
 			return 0
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
-	fmt.Fprintf(os.Stderr, "phrocs: daemon did not bind socket within 5s; check %s\n", logPath)
+	fmt.Fprintf(os.Stderr, "phrocs: detached child did not bind socket within 5s; check %s\n", logPath)
 	return 1
 }
 
-// daemonMain is what the re-exec'd child runs: pidfile, IPC, processes, signals.
+// detachedMain is what the re-exec'd child runs: pidfile, IPC, processes, signals.
 // Returns exit code.
-func daemonMain(configPath string) int {
+func detachedMain(configPath string) int {
 	resolved, err := config.ResolveConfigPath(configPath)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "phrocs: %v\n", err)
@@ -138,16 +138,16 @@ func daemonMain(configPath string) int {
 	pidPath := pidFilePath()
 
 	// Take an exclusive flock on the pidfile before binding the socket so two
-	// racing `phrocs --daemon` invocations can't both succeed. The kernel
-	// releases the lock on process exit, so a SIGKILLed daemon doesn't leave
-	// the lock stranded. The fd stays open for the daemon's lifetime.
+	// racing `phrocs --detach` invocations can't both succeed. The kernel
+	// releases the lock on process exit, so a SIGKILLed child doesn't leave
+	// the lock stranded. The fd stays open for the child's lifetime.
 	lockFile, err := os.OpenFile(pidPath+".lock", os.O_CREATE|os.O_RDWR, 0o600)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "phrocs: open lock: %v\n", err)
 		return 1
 	}
 	if err := syscall.Flock(int(lockFile.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
-		fmt.Fprintf(os.Stderr, "phrocs: another daemon is already running\n")
+		fmt.Fprintf(os.Stderr, "phrocs: another detached phrocs is already running\n")
 		_ = lockFile.Close()
 		return 1
 	}
@@ -192,7 +192,7 @@ func daemonMain(configPath string) int {
 	go mgr.StartAll()
 
 	sigCh := make(chan os.Signal, 1)
-	// SIGINT normally won't reach a Setsid-detached daemon, but handle it so
+	// SIGINT normally won't reach a Setsid-detached process, but handle it so
 	// that explicit `kill -INT <pid>` still runs StopAll and doesn't orphan
 	// child processes.
 	signal.Notify(sigCh, syscall.SIGTERM, syscall.SIGHUP, syscall.SIGINT)

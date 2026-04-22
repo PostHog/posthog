@@ -112,9 +112,9 @@ func TestRemoveOwnedSocket_guardAgainstReplacedFile(t *testing.T) {
 		t.Fatal("SocketInode returned 0 for bound socket")
 	}
 
-	// Simulate a crashed daemon's stale defer calling RemoveOwnedSocket with
-	// an inode that doesn't match the file currently at `path` (a replacement
-	// bound by a later daemon). The guard must refuse to remove the file.
+	// Simulate a crashed detached phrocs's stale defer calling RemoveOwnedSocket
+	// with an inode that doesn't match the file currently at `path` (a replacement
+	// bound by a later detached phrocs). The guard must refuse to remove the file.
 	// We pass actualInode+1 directly rather than rebind-at-same-path, because
 	// on Linux tmpfs the freed inode often gets reused, which would defeat
 	// the simulation (the "replacement" would have the same inode).
@@ -549,11 +549,11 @@ func TestServe_quit_idempotent(t *testing.T) {
 	}
 }
 
-// TestServe_quit_replyBeforeShutdown guards against the daemon closing
-// QuitCh before the quit reply is flushed. The race was real: `dispatch`
-// used to call `mgr.Quit()` inline, so the daemon main loop could tear
-// down before `writeJSON` returned. Regression test: read the quit reply
-// and assert it arrived before QuitCh was observed closed.
+// TestServe_quit_replyBeforeShutdown guards against the detached main loop
+// closing QuitCh before the quit reply is flushed. The race was real:
+// `dispatch` used to call `mgr.Quit()` inline, so the detached main loop
+// could tear down before `writeJSON` returned. Regression test: read the
+// quit reply and assert it arrived before QuitCh was observed closed.
 func TestServe_quit_replyBeforeShutdown(t *testing.T) {
 	mgr := testManager(t, "web")
 	path := startServe(t, mgr)

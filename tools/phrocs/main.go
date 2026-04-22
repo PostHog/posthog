@@ -7,10 +7,10 @@
 // Usage:
 //
 //	phrocs [--debug] [--config <config.yaml>]          # interactive TUI
-//	phrocs -D | --daemon [--config <config.yaml>]      # detached daemon (no TUI)
+//	phrocs -d | --detach [--config <config.yaml>]      # detached mode (no TUI)
 //	phrocs wait [--timeout N] [--json]                 # block on readiness
-//	phrocs stop [--timeout N]                          # stop daemon via IPC
-//	phrocs attach                                      # polling TUI against daemon
+//	phrocs stop [--timeout N]                          # stop detached process via IPC
+//	phrocs attach                                      # polling TUI against a detached process
 //	phrocs --version
 //
 // Flags:
@@ -42,18 +42,18 @@ var (
 	BuildDate = "unknown"
 )
 
-// daemonChildEnv is set on the re-exec'd child so it knows to skip the fork
-// and run the daemon main loop instead.
-const daemonChildEnv = "PHROCS_DAEMON_CHILD"
+// detachedChildEnv is set on the re-exec'd child so it knows to skip the fork
+// and run the detached main loop instead.
+const detachedChildEnv = "PHROCS_DETACHED_CHILD"
 
 // parsedArgs captures flags common to every mode. `subcommand` is the first
-// non-flag token if it matches a known name; empty means "interactive or daemon
+// non-flag token if it matches a known name; empty means "interactive or detached
 // based on flag presence".
 type parsedArgs struct {
 	subcommand string
 	configPath string
 	debug      bool
-	daemon     bool
+	detach     bool
 	timeout    int
 	asJSON     bool
 }
@@ -63,10 +63,10 @@ func printUsage() {
 
 Usage:
   phrocs [--config PATH] [--debug]          interactive TUI (default)
-  phrocs -D | --daemon [--config PATH]      detached daemon (no TUI)
+  phrocs -d | --detach [--config PATH]      detached mode (no TUI)
   phrocs wait [--timeout N] [--json]        block until ready, crashed, or timeout
-  phrocs stop [--timeout N]                 stop the daemon gracefully
-  phrocs attach                             polling status client against a daemon
+  phrocs stop [--timeout N]                 stop the detached process gracefully
+  phrocs attach                             polling status client against a detached process
   phrocs --version`)
 }
 
@@ -76,7 +76,7 @@ func parseArgs(args []string) (parsedArgs, error) {
 	// First pass: if the first arg is a known subcommand, consume it.
 	if len(args) > 0 {
 		switch args[0] {
-		case "wait", "stop", "attach", "daemon":
+		case "wait", "stop", "attach", "detach":
 			pa.subcommand = args[0]
 			i = 1
 		}
@@ -97,8 +97,8 @@ func parseArgs(args []string) (parsedArgs, error) {
 			i++
 		case "--debug":
 			pa.debug = true
-		case "-D", "--daemon":
-			pa.daemon = true
+		case "-d", "--detach":
+			pa.detach = true
 		case "--timeout":
 			if i+1 >= len(args) {
 				return pa, fmt.Errorf("--timeout requires a value")
@@ -132,15 +132,15 @@ func main() {
 		os.Exit(runStop(pa.timeout))
 	case "attach":
 		os.Exit(runAttach())
-	case "daemon":
-		// `phrocs daemon` is an alias for `phrocs -D`
-		pa.daemon = true
+	case "detach":
+		// `phrocs detach` is an alias for `phrocs -d`
+		pa.detach = true
 	}
 
-	// Daemon mode: either the user passed -D explicitly, or the re-exec'd
-	// child landed here with PHROCS_DAEMON_CHILD set.
-	if pa.daemon || os.Getenv(daemonChildEnv) == "1" {
-		os.Exit(runDaemon(pa.configPath))
+	// Detached mode: either the user passed -d explicitly, or the re-exec'd
+	// child landed here with PHROCS_DETACHED_CHILD set.
+	if pa.detach || os.Getenv(detachedChildEnv) == "1" {
+		os.Exit(runDetached(pa.configPath))
 	}
 
 	os.Exit(runInteractive(pa.configPath, pa.debug))

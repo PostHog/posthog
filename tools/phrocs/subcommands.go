@@ -12,8 +12,9 @@ import (
 	"time"
 )
 
-// socketGracePeriod gives the daemon a chance to come up after `bin/start
-// --headless` returns — useful when `hogli wait` is run immediately after.
+// socketGracePeriod gives the detached phrocs a chance to come up after
+// `bin/start --detach` returns — useful when `hogli wait` is run immediately
+// after.
 const socketGracePeriod = 30 * time.Second
 
 // runWait polls status_all on an interval until every process is ready
@@ -29,17 +30,18 @@ func runWait(timeoutSec int, asJSON bool) int {
 	for {
 		resp, err := query(map[string]any{"cmd": "status_all"}, 2*time.Second)
 		if err != nil {
-			// Daemon may not have bound yet — allow a grace period before failing.
+			// The detached process may not have bound yet — allow a grace
+			// period before failing.
 			if time.Now().After(notReachableUntil) {
 				return notReachable(asJSON, err.Error())
 			}
 			// Short --timeout (< socketGracePeriod) means the deadline can fire
-			// before we ever reach the daemon. Treat that as not_reachable, not
-			// timeout — the former is semantically correct and keeps --json
-			// callers from seeing an empty notReady list.
+			// before we ever reach the detached process. Treat that as
+			// not_reachable, not timeout — the former is semantically correct
+			// and keeps --json callers from seeing an empty notReady list.
 			if time.Now().After(deadline) {
 				if !sawResponse {
-					return notReachable(asJSON, "deadline exceeded before daemon bound")
+					return notReachable(asJSON, "deadline exceeded before detached phrocs bound")
 				}
 				return waitTimeout(asJSON, lastNotReady)
 			}
@@ -125,7 +127,7 @@ func notReachable(asJSON bool, reason string) int {
 	if asJSON {
 		printJSON(map[string]any{"verdict": "not_reachable", "error": reason})
 	} else {
-		fmt.Fprintf(os.Stderr, "phrocs: daemon not reachable: %s\n", reason)
+		fmt.Fprintf(os.Stderr, "phrocs: detached phrocs not reachable: %s\n", reason)
 	}
 	return 3
 }
@@ -152,10 +154,10 @@ func printJSON(v any) {
 	_ = json.NewEncoder(os.Stdout).Encode(v)
 }
 
-// runStop sends a quit command to the daemon, waits for the socket to
-// disappear, and falls back to SIGTERM → SIGKILL via the pidfile if needed.
+// runStop sends a quit command to the detached phrocs, waits for the socket
+// to disappear, and falls back to SIGTERM → SIGKILL via the pidfile if needed.
 func runStop(timeoutSec int) int {
-	sock, err := daemonSocketPath()
+	sock, err := detachedSocketPath()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "phrocs: %v\n", err)
 		return 1
@@ -172,33 +174,33 @@ func runStop(timeoutSec int) int {
 		// Wait for the socket to actually disappear.
 		for time.Now().Before(deadline) {
 			if _, err := net.DialTimeout("unix", sock, 100*time.Millisecond); err != nil {
-				// No longer reachable — daemon has torn down.
+				// No longer reachable — detached phrocs has torn down.
 				_ = os.Remove(pidFilePath())
-				fmt.Println("phrocs daemon stopped")
+				fmt.Println("phrocs stopped")
 				return 0
 			}
 			time.Sleep(100 * time.Millisecond)
 		}
 		// Deadline reached with socket still present. Before escalating,
-		// check whether the daemon finished its graceful shutdown between
-		// our last dial and this check — its defer removes the pidfile on
-		// a clean exit, so ENOENT here means "done, just slow".
+		// check whether the detached phrocs finished its graceful shutdown
+		// between our last dial and this check — its defer removes the
+		// pidfile on a clean exit, so ENOENT here means "done, just slow".
 		if _, err := os.Stat(pidFilePath()); errors.Is(err, os.ErrNotExist) {
 			_ = os.Remove(sock)
-			fmt.Println("phrocs daemon stopped")
+			fmt.Println("phrocs stopped")
 			return 0
 		}
-		fmt.Fprintln(os.Stderr, "phrocs: daemon did not exit in time; escalating")
+		fmt.Fprintln(os.Stderr, "phrocs: detached phrocs did not exit in time; escalating")
 	}
 
 	// Fallback: SIGTERM via pidfile.
 	pid, err := readPidfile()
 	if errors.Is(err, os.ErrNotExist) {
-		// Pidfile vanished after we committed to escalating — daemon has
-		// already exited cleanly. Clean up any leftover socket and report
-		// success rather than a confusing "file not found".
+		// Pidfile vanished after we committed to escalating — detached
+		// phrocs has already exited cleanly. Clean up any leftover socket
+		// and report success rather than a confusing "file not found".
 		_ = os.Remove(sock)
-		fmt.Println("phrocs daemon stopped")
+		fmt.Println("phrocs stopped")
 		return 0
 	}
 	if err != nil {
@@ -216,7 +218,7 @@ func runStop(timeoutSec int) int {
 		if !pidAlive(pid) {
 			_ = os.Remove(pidFilePath())
 			_ = os.Remove(sock)
-			fmt.Println("phrocs daemon stopped (SIGTERM)")
+			fmt.Println("phrocs stopped (SIGTERM)")
 			return 0
 		}
 		time.Sleep(100 * time.Millisecond)
@@ -227,12 +229,13 @@ func runStop(timeoutSec int) int {
 	time.Sleep(200 * time.Millisecond)
 	_ = os.Remove(pidFilePath())
 	_ = os.Remove(sock)
-	fmt.Fprintln(os.Stderr, "phrocs daemon killed (SIGKILL)")
+	fmt.Fprintln(os.Stderr, "phrocs killed (SIGKILL)")
 	return 0
 }
 
 // cleanupIfStalePidfile handles the case where the socket is gone: either no
-// daemon is running (exit 0), or there's a stale pidfile we should remove.
+// detached phrocs is running (exit 0), or there's a stale pidfile we should
+// remove.
 func cleanupIfStalePidfile() int {
 	pid, err := readPidfile()
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
@@ -244,7 +247,7 @@ func cleanupIfStalePidfile() int {
 		_ = syscall.Kill(pid, syscall.SIGTERM)
 	}
 	_ = os.Remove(pidFilePath())
-	fmt.Println("no daemon running")
+	fmt.Println("no detached phrocs running")
 	return 0
 }
 
@@ -277,7 +280,7 @@ func runAttach() int {
 		}
 		procs, _ := resp["processes"].(map[string]any)
 		fmt.Print("\033[H\033[2J") // clear screen
-		fmt.Printf("phrocs daemon — %d procs — Ctrl+C to detach\n\n", len(procs))
+		fmt.Printf("phrocs (detached) — %d procs — Ctrl+C to exit\n\n", len(procs))
 		for name, v := range procs {
 			snap, _ := v.(map[string]any)
 			status, _ := snap["status"].(string)

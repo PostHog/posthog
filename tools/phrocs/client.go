@@ -11,9 +11,9 @@ import (
 	"github.com/posthog/posthog/phrocs/internal/ipc"
 )
 
-// daemonSocketPath returns the IPC socket path for the current working
-// directory — same computation the daemon uses when binding.
-func daemonSocketPath() (string, error) {
+// detachedSocketPath returns the IPC socket path for the current working
+// directory — same computation the detached process uses when binding.
+func detachedSocketPath() (string, error) {
 	wd, err := os.Getwd()
 	if err != nil {
 		return "", fmt.Errorf("getwd: %w", err)
@@ -21,11 +21,11 @@ func daemonSocketPath() (string, error) {
 	return ipc.SocketPathFor(wd), nil
 }
 
-// query sends a single JSON command to the running daemon and returns the
-// decoded response. Returns an error distinguishable from a protocol error if
-// the socket is simply not reachable (daemon not running).
+// query sends a single JSON command to the running detached process and returns
+// the decoded response. Returns an error distinguishable from a protocol error
+// if the socket is simply not reachable (no detached phrocs running).
 func query(cmd map[string]any, timeout time.Duration) (map[string]any, error) {
-	sock, err := daemonSocketPath()
+	sock, err := detachedSocketPath()
 	if err != nil {
 		return nil, err
 	}

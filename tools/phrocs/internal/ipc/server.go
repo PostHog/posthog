@@ -165,7 +165,7 @@ func handle(conn net.Conn, mgr *process.Manager) {
 		}
 		writeJSON(conn, dispatch(req, mgr))
 		// Quit is the one command whose side effect (teardown) must run
-		// after the reply is flushed, otherwise the daemon main loop can
+		// after the reply is flushed, otherwise the detached main loop can
 		// exit before the client reads {"ok":true}.
 		if req.Cmd == "quit" {
 			mgr.Quit()
@@ -310,7 +310,7 @@ func dispatch(req request, mgr *process.Manager) any {
 
 	case "quit":
 		// Caller (handle) triggers mgr.Quit() after writing the reply so the
-		// daemon main loop can't tear down before the client reads the response.
+		// detached main loop can't tear down before the client reads the response.
 		return map[string]any{"ok": true}
 
 	default:

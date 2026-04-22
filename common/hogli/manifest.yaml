@@ -193,7 +193,7 @@ health_checks:
 start:
     start:
         bin_script: start
-        description: Launch all dev services via phrocs (interactive TUI, or `-d` for headless daemon)
+        description: Launch all dev services via phrocs (interactive TUI, or `-d` for detached mode)
         services:
             - phrocs
             - mprocs
@@ -208,8 +208,8 @@ start:
             - kafka
             - clickhouse
             - temporal
-    start:wait: null # Click-defined in hogli/headless.py — block until the headless stack is ready
-    start:stop: null # Click-defined in hogli/headless.py — stop the headless stack gracefully
+    start:wait: null # Click-defined in hogli/detached.py — block until the detached stack is ready
+    start:stop: null # Click-defined in hogli/detached.py — stop the detached stack gracefully
     start:backend:
         bin_script: start-backend
         description: Run Django development server on port 8000 with auto-reload

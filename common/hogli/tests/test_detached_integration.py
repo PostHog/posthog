@@ -1,8 +1,8 @@
-"""End-to-end phrocs daemon tests.
+"""End-to-end detached phrocs tests.
 
-These exercise the real `phrocs` binary: spawn daemon → wait → stop. Skipped
-when phrocs isn't on PATH so local and CI runs where only Python code is
-available don't fail.
+These exercise the real `phrocs` binary: spawn detached → wait → stop.
+Skipped when phrocs isn't on PATH so local and CI runs where only Python
+code is available don't fail.
 """
 
 from __future__ import annotations
@@ -29,8 +29,8 @@ requires_phrocs = pytest.mark.skipif(
 
 
 def _phrocs_supports_subcommands() -> bool:
-    """Return True if the resolved phrocs understands the new wait/stop/daemon
-    subcommands. Older phrocs builds (pre-headless) will error or hang."""
+    """Return True if the resolved phrocs understands the new wait/stop/detach
+    subcommands. Older phrocs builds will error or hang."""
     bin_path = _phrocs_bin()
     if bin_path is None:
         return False
@@ -47,9 +47,9 @@ def _phrocs_supports_subcommands() -> bool:
     return "wait" in text and "stop" in text
 
 
-requires_daemon_phrocs = pytest.mark.skipif(
+requires_detached_phrocs = pytest.mark.skipif(
     not _phrocs_supports_subcommands(),
-    reason="phrocs on PATH doesn't support daemon subcommands",
+    reason="phrocs on PATH doesn't support detached subcommands",
 )
 
 
@@ -79,7 +79,7 @@ def _write_crash_config(path: Path) -> None:
     )
 
 
-def _wait_for_daemon_exit(cwd: Path, timeout: float = 10.0) -> bool:
+def _wait_for_detached_exit(cwd: Path, timeout: float = 10.0) -> bool:
     """Poll until the IPC socket disappears. Returns True on clean exit."""
     sock_path = phrocs_client.socket_path(cwd)
     deadline = time.monotonic() + timeout
@@ -91,7 +91,7 @@ def _wait_for_daemon_exit(cwd: Path, timeout: float = 10.0) -> bool:
 
 
 @requires_phrocs
-@requires_daemon_phrocs
+@requires_detached_phrocs
 def test_happy_path(tmp_path: Path) -> None:
     config = tmp_path / "config.yaml"
     _write_happy_config(config)
@@ -99,7 +99,7 @@ def test_happy_path(tmp_path: Path) -> None:
     assert phrocs is not None
 
     start = subprocess.run(
-        [phrocs, "--daemon", "--config", str(config)],
+        [phrocs, "--detach", "--config", str(config)],
         cwd=tmp_path,
         capture_output=True,
         text=True,
@@ -120,19 +120,19 @@ def test_happy_path(tmp_path: Path) -> None:
     finally:
         subprocess.run([phrocs, "stop"], cwd=tmp_path, capture_output=True, text=True, timeout=10)
 
-    assert _wait_for_daemon_exit(tmp_path)
+    assert _wait_for_detached_exit(tmp_path)
     assert not phrocs_client.pidfile_path(tmp_path).exists()
 
 
 @requires_phrocs
-@requires_daemon_phrocs
+@requires_detached_phrocs
 def test_crashed_process_reports_exit_1(tmp_path: Path) -> None:
     config = tmp_path / "config.yaml"
     _write_crash_config(config)
     phrocs = _phrocs_bin()
     assert phrocs is not None
 
-    subprocess.run([phrocs, "--daemon", "--config", str(config)], cwd=tmp_path, check=True, timeout=10)
+    subprocess.run([phrocs, "--detach", "--config", str(config)], cwd=tmp_path, check=True, timeout=10)
     try:
         wait = subprocess.run(
             [phrocs, "wait", "--timeout", "10"],
@@ -146,16 +146,16 @@ def test_crashed_process_reports_exit_1(tmp_path: Path) -> None:
     finally:
         subprocess.run([phrocs, "stop"], cwd=tmp_path, capture_output=True, text=True, timeout=10)
 
-    assert _wait_for_daemon_exit(tmp_path)
+    assert _wait_for_detached_exit(tmp_path)
 
 
 @requires_phrocs
-@requires_daemon_phrocs
+@requires_detached_phrocs
 def test_stop_is_idempotent(tmp_path: Path) -> None:
     phrocs = _phrocs_bin()
     assert phrocs is not None
 
-    # No daemon running at all — stop should still succeed.
+    # No detached phrocs running at all — stop should still succeed.
     first = subprocess.run([phrocs, "stop"], cwd=tmp_path, capture_output=True, text=True, timeout=5)
     assert first.returncode == 0
     second = subprocess.run([phrocs, "stop"], cwd=tmp_path, capture_output=True, text=True, timeout=5)
@@ -163,7 +163,7 @@ def test_stop_is_idempotent(tmp_path: Path) -> None:
 
 
 @requires_phrocs
-@requires_daemon_phrocs
+@requires_detached_phrocs
 def test_second_instance_refused(tmp_path: Path) -> None:
     config = tmp_path / "config.yaml"
     _write_happy_config(config)
@@ -171,7 +171,7 @@ def test_second_instance_refused(tmp_path: Path) -> None:
     assert phrocs is not None
 
     first = subprocess.run(
-        [phrocs, "--daemon", "--config", str(config)],
+        [phrocs, "--detach", "--config", str(config)],
         cwd=tmp_path,
         capture_output=True,
         text=True,
@@ -180,7 +180,7 @@ def test_second_instance_refused(tmp_path: Path) -> None:
     assert first.returncode == 0
     try:
         second = subprocess.run(
-            [phrocs, "--daemon", "--config", str(config)],
+            [phrocs, "--detach", "--config", str(config)],
             cwd=tmp_path,
             capture_output=True,
             text=True,
@@ -191,4 +191,4 @@ def test_second_instance_refused(tmp_path: Path) -> None:
     finally:
         subprocess.run([phrocs, "stop"], cwd=tmp_path, capture_output=True, text=True, timeout=10)
 
-    assert _wait_for_daemon_exit(tmp_path)
+    assert _wait_for_detached_exit(tmp_path)

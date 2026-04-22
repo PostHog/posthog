@@ -1,4 +1,4 @@
-"""Shared path derivations for the phrocs daemon.
+"""Shared path derivations for the detached phrocs process.
 
 Used by hogli tests and (eventually) the MCP server to compute the IPC
 socket path and pidfile location without duplicating the hashing logic that

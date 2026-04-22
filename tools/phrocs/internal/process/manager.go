@@ -142,7 +142,7 @@ func (m *Manager) AddShell(name, shell string) *Process {
 }
 
 // QuitCh returns a channel that is closed when Quit is invoked.
-// Intended for the daemon main loop to block on, then tear down cleanly.
+// Intended for the detached main loop to block on, then tear down cleanly.
 func (m *Manager) QuitCh() <-chan struct{} {
 	return m.quitCh
 }

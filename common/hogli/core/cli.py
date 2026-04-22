@@ -169,7 +169,7 @@ def quickstart() -> None:
     click.echo("  Opens http://localhost:8010 when ready.")
     click.echo("")
     click.echo("Optional:")
-    click.echo("  hogli start -d                headless daemon (pair with start:wait / start:stop)")
+    click.echo("  hogli start -d                detached mode (pair with start:wait / start:stop)")
     click.echo("  hogli dev:setup               configure which services to run")
     click.echo("  hogli dev:demo-data           generate test data")
     click.echo("  hogli dev:reset               full reset & reload")

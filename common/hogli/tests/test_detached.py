@@ -17,36 +17,36 @@ def _invoke(*args: str) -> tuple[int, str, str]:
 def test_wait_command_registered() -> None:
     code, out, err = _invoke("start:wait", "--help")
     assert code == 0
-    assert "Wait for the headless dev stack" in out
+    assert "Wait for the detached dev stack" in out
 
 
 def test_stop_command_registered() -> None:
     code, out, err = _invoke("start:stop", "--help")
     assert code == 0
-    assert "Stop the headless dev stack" in out
+    assert "Stop the detached dev stack" in out
 
 
 def test_wait_reports_missing_phrocs(monkeypatch: pytest.MonkeyPatch) -> None:
     # Force shutil.which to return None so the "not installed" path runs.
-    from hogli import headless
+    from hogli import detached
 
-    monkeypatch.setattr(headless, "_phrocs_bin", lambda: None)
+    monkeypatch.setattr(detached, "_phrocs_bin", lambda: None)
     code, out, err = _invoke("start:wait")
     assert code == 127
     assert "phrocs binary not found" in err
 
 
 def test_stop_reports_missing_phrocs(monkeypatch: pytest.MonkeyPatch) -> None:
-    from hogli import headless
+    from hogli import detached
 
-    monkeypatch.setattr(headless, "_phrocs_bin", lambda: None)
+    monkeypatch.setattr(detached, "_phrocs_bin", lambda: None)
     code, out, err = _invoke("start:stop")
     assert code == 127
     assert "phrocs binary not found" in err
 
 
 def test_wait_propagates_exit_code(monkeypatch: pytest.MonkeyPatch) -> None:
-    from hogli import headless
+    from hogli import detached
 
     fake_bin = "/usr/bin/true"  # ignored; we're stubbing subprocess.run below
 
@@ -59,14 +59,14 @@ def test_wait_propagates_exit_code(monkeypatch: pytest.MonkeyPatch) -> None:
         assert "--timeout" in args
         return _FakeResult()
 
-    monkeypatch.setattr(headless, "_phrocs_bin", lambda: fake_bin)
-    monkeypatch.setattr(headless.subprocess, "run", fake_run)
+    monkeypatch.setattr(detached, "_phrocs_bin", lambda: fake_bin)
+    monkeypatch.setattr(detached.subprocess, "run", fake_run)
     code, _, _ = _invoke("start:wait", "--timeout", "10")
     assert code == 2
 
 
 def test_wait_forwards_json_flag(monkeypatch: pytest.MonkeyPatch) -> None:
-    from hogli import headless
+    from hogli import detached
 
     captured: dict[str, list[str]] = {}
 
@@ -77,14 +77,14 @@ def test_wait_forwards_json_flag(monkeypatch: pytest.MonkeyPatch) -> None:
         captured["args"] = args
         return _FakeResult()
 
-    monkeypatch.setattr(headless, "_phrocs_bin", lambda: "/bin/phrocs")
-    monkeypatch.setattr(headless.subprocess, "run", fake_run)
+    monkeypatch.setattr(detached, "_phrocs_bin", lambda: "/bin/phrocs")
+    monkeypatch.setattr(detached.subprocess, "run", fake_run)
     _invoke("start:wait", "--json")
     assert "--json" in captured["args"]
 
 
 def test_stop_forwards_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
-    from hogli import headless
+    from hogli import detached
 
     captured: dict[str, list[str]] = {}
 
@@ -95,7 +95,7 @@ def test_stop_forwards_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
         captured["args"] = args
         return _FakeResult()
 
-    monkeypatch.setattr(headless, "_phrocs_bin", lambda: "/bin/phrocs")
-    monkeypatch.setattr(headless.subprocess, "run", fake_run)
+    monkeypatch.setattr(detached, "_phrocs_bin", lambda: "/bin/phrocs")
+    monkeypatch.setattr(detached.subprocess, "run", fake_run)
     _invoke("start:stop", "--timeout", "42")
     assert captured["args"][-2:] == ["--timeout", "42"]
