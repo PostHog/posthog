@@ -2,16 +2,11 @@ import type { GroupType } from '@/api/client'
 import { formatPrompt } from '@/lib/utils'
 import type { CachedOrg, CachedProject, CachedUser } from '@/tools/types'
 
-export function buildGroupTypesBlock(groupTypes?: GroupType[]): string {
+export function buildDefinedGroupsBlock(groupTypes?: GroupType[]): string {
     if (!groupTypes || groupTypes.length === 0) {
         return ''
     }
-    const lines = groupTypes.map((gt) => {
-        const names = [gt.name_singular, gt.name_plural].filter(Boolean)
-        const suffix = names.length > 0 ? ` (${names.join(' / ')})` : ''
-        return `- Index ${gt.group_type_index}: "${gt.group_type}"${suffix}`
-    })
-    return `### Group type mapping\n\nGroups aggregate events based on entities, such as organizations or sellers. This project has the following group types. Instead of a group's name, always use its numeric index.\n\n${lines.join('\n')}`
+    return groupTypes.map((gt) => gt.group_type).join(', ')
 }
 
 export function buildActiveEnvironmentContextPrompt(
@@ -59,15 +54,198 @@ export function buildInstructionsV1(template: string, metadata?: string): string
     return `${template}\n\n${metadata}`
 }
 
+export interface ToolInfo {
+    name: string
+    category: string
+}
+
+/**
+ * Extracts unique tool domain prefixes from a list of tools, collapsing CRUD
+ * variations into their shared domain while keeping standalone/meta tools as-is.
+ *
+ * For example: experiment-create, experiment-get, experiment-delete → "experiment"
+ * But: execute-sql, read-data-schema → listed individually (no action to strip)
+ * And: query-* tools are excluded (documented separately in the prompt).
+ */
+export class ToolDomainExtractor {
+    private static readonly PREFIX_ACTIONS = new Set(['create', 'update', 'delete', 'get'])
+
+    private static readonly ACTION_SUFFIXES = new Set([
+        'get',
+        'get-all',
+        'get-definition',
+        'list',
+        'create',
+        'update',
+        'delete',
+        'retrieve',
+        'destroy',
+        'partial-update',
+    ])
+
+    private static readonly SKIP_CATEGORIES = new Set(['Query wrappers', 'Debug'])
+    private static readonly MAX_DOMAIN_HYPHENS = 2
+
+    private readonly standaloneTools = new Set<string>()
+    private readonly derivedDomains = new Set<string>()
+
+    constructor(tools: ToolInfo[]) {
+        const byCategory = this.groupByCategory(tools)
+        this.extractDomainsPerCategory(byCategory)
+    }
+
+    getDomains(): string[] {
+        const collapsed = this.collapseDomains()
+        const final = new Set(collapsed)
+
+        for (const s of this.standaloneTools) {
+            const covered = [...collapsed].some((d) => s.startsWith(d + '-') || s.startsWith(d + 's-'))
+            if (!covered) {
+                final.add(s)
+            }
+        }
+
+        return [...final].sort()
+    }
+
+    toMarkdown(): string {
+        return this.getDomains()
+            .map((d) => `- ${d}`)
+            .join('\n')
+    }
+
+    private groupByCategory(tools: ToolInfo[]): Map<string, string[]> {
+        const byCategory = new Map<string, string[]>()
+        for (const { name, category } of tools) {
+            if (name.startsWith('query-') || ToolDomainExtractor.SKIP_CATEGORIES.has(category)) {
+                continue
+            }
+            const names = byCategory.get(category) ?? []
+            names.push(name)
+            byCategory.set(category, names)
+        }
+        return byCategory
+    }
+
+    private extractDomainsPerCategory(byCategory: Map<string, string[]>): void {
+        for (const [, names] of byCategory) {
+            const standalones = names.filter((n) => ToolDomainExtractor.stripAction(n) === n)
+
+            if (standalones.length === names.length) {
+                for (const n of names) {
+                    this.standaloneTools.add(n)
+                }
+                continue
+            }
+
+            for (const n of standalones) {
+                this.standaloneTools.add(n)
+            }
+
+            const stems = [
+                ...new Set(
+                    names
+                        .filter((n) => ToolDomainExtractor.stripAction(n) !== n)
+                        .map((n) => ToolDomainExtractor.stripAction(n))
+                ),
+            ].sort()
+
+            if (stems.length === 1 && stems[0]) {
+                this.derivedDomains.add(stems[0])
+            } else if (stems.length > 1) {
+                const cp = ToolDomainExtractor.commonPrefix(stems)
+                if (cp && cp.length >= 3) {
+                    this.derivedDomains.add(cp)
+                } else {
+                    for (const s of stems) {
+                        this.derivedDomains.add(s)
+                    }
+                }
+            }
+        }
+    }
+
+    private collapseDomains(): Set<string> {
+        const collapsed = new Set<string>()
+        for (const d of [...this.derivedDomains].sort((a, b) => a.length - b.length)) {
+            if ((d.match(/-/g) ?? []).length > ToolDomainExtractor.MAX_DOMAIN_HYPHENS) {
+                continue
+            }
+            const dominated = [...collapsed].some(
+                (ex) => ToolDomainExtractor.isPlural(d, ex) || d.startsWith(ex + '-') || d.startsWith(ex + 's-')
+            )
+            if (!dominated) {
+                collapsed.add(d)
+            }
+        }
+        return collapsed
+    }
+
+    static stripAction(name: string): string {
+        let parts = name.split('-')
+
+        if (parts[0] && ToolDomainExtractor.PREFIX_ACTIONS.has(parts[0]) && parts.length > 1) {
+            parts = parts.slice(1)
+        }
+
+        for (const len of [4, 3, 2, 1]) {
+            if (parts.length > len) {
+                const suffix = parts.slice(-len).join('-')
+                if (ToolDomainExtractor.ACTION_SUFFIXES.has(suffix)) {
+                    return parts.slice(0, -len).join('-')
+                }
+            }
+        }
+
+        return parts.join('-')
+    }
+
+    private static commonPrefix(strings: string[]): string {
+        if (strings.length === 0 || !strings[0]) {
+            return ''
+        }
+        let prefix: string = strings[0]
+        for (const s of strings.slice(1)) {
+            while (prefix && !s.startsWith(prefix)) {
+                prefix = prefix.slice(0, -1)
+            }
+            if (!prefix) {
+                return ''
+            }
+        }
+        const allAtBoundary = strings.every(
+            (s) =>
+                s.length === prefix.length ||
+                s[prefix.length] === '-' ||
+                (s[prefix.length] === 's' && s[prefix.length + 1] === '-')
+        )
+        if (!allAtBoundary) {
+            const idx = prefix.lastIndexOf('-')
+            return idx > 0 ? prefix.slice(0, idx) : prefix
+        }
+        return prefix
+    }
+
+    private static isPlural(a: string, b: string): boolean {
+        return a + 's' === b || b + 's' === a
+    }
+}
+
+export function buildToolDomainsBlock(tools: ToolInfo[]): string {
+    return new ToolDomainExtractor(tools).toMarkdown()
+}
+
 export function buildInstructionsV2(
     template: string,
     guidelines: string,
     groupTypes?: GroupType[],
-    metadata?: string
+    metadata?: string,
+    tools?: ToolInfo[]
 ): string {
     return formatPrompt(template, {
         guidelines: guidelines.trim(),
-        group_types: buildGroupTypesBlock(groupTypes),
+        defined_groups: buildDefinedGroupsBlock(groupTypes),
         metadata: metadata?.trim() ?? '',
+        tool_domains: tools ? buildToolDomainsBlock(tools) : '',
     })
 }

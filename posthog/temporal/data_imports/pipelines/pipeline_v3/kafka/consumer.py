@@ -103,6 +103,7 @@ class KafkaConsumerService:
             "enable.auto.commit": False,
             "security.protocol": self._kafka_security_protocol or _KafkaSecurityProtocol.PLAINTEXT,
             "partition.assignment.strategy": "cooperative-sticky",
+            "max.poll.interval.ms": self._config.max_poll_interval_ms,
         }
         consumer = ConfluentConsumer(config)
         consumer.subscribe(

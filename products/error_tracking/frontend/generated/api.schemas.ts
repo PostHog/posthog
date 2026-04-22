@@ -924,6 +924,17 @@ export interface PaginatedErrorTrackingSuppressionRuleListApi {
     results: ErrorTrackingSuppressionRuleApi[]
 }
 
+export interface ErrorTrackingSuppressionRuleCreateRequestApi {
+    /** Optional property-group filters that define which incoming error events should be suppressed. Omit this field or provide an empty `values` array to create a match-all suppression rule. */
+    filters?: PropertyGroupFilterValueApi
+    /**
+     * Fraction of matching events to suppress. Use `1.0` to suppress all matching events.
+     * @minimum 0
+     * @maximum 1
+     */
+    sampling_rate?: number
+}
+
 export interface PatchedErrorTrackingSuppressionRuleApi {
     readonly id?: string
     filters?: unknown
