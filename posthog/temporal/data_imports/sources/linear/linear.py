@@ -90,7 +90,7 @@ def _make_paginated_request(
     if updated_at_gte:
         variables["filter"] = {"updatedAt": {"gt": updated_at_gte}}
 
-    resume_config = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+    resume_config = resumable_source_manager.load_state()
     if resume_config is not None:
         variables["cursor"] = resume_config.cursor
         logger.debug(f"Linear: resuming {endpoint_name} from saved cursor")
@@ -109,12 +109,10 @@ def _make_paginated_request(
             if has_next_page:
                 end_cursor = page_info.get("endCursor")
                 if not end_cursor:
-                    # Defensive: if the API ever reports hasNextPage=True with a missing/null
-                    # endCursor we'd loop forever on the first page. Stop instead.
-                    logger.warning(
-                        f"Linear: hasNextPage=True but endCursor is empty for {endpoint_name}, stopping pagination"
-                    )
-                    break
+                    # If the API reports hasNextPage=True with a missing/null endCursor the
+                    # paginator would loop forever on the same page. Fail the run instead of
+                    # silently returning partial results, so the issue is visible.
+                    raise Exception(f"Linear: hasNextPage=True but endCursor is empty for {endpoint_name}")
                 variables["cursor"] = end_cursor
                 # Checkpoint points at the next page to fetch. On resume the first request
                 # re-fetches that page; full-refresh appends and incremental merges on the

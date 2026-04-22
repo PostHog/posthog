@@ -2,6 +2,7 @@ import copy
 from collections.abc import Iterable
 from typing import Any, cast
 
+import pytest
 from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
@@ -47,9 +48,8 @@ def _capture_post_calls(session: MagicMock, responses: list[MagicMock]) -> list[
     return snapshots
 
 
-def _make_resumable_manager(*, can_resume: bool = False, saved: LinearResumeConfig | None = None) -> MagicMock:
+def _make_resumable_manager(*, saved: LinearResumeConfig | None = None) -> MagicMock:
     manager = MagicMock()
-    manager.can_resume.return_value = can_resume
     manager.load_state.return_value = saved
     return manager
 
@@ -62,15 +62,14 @@ class TestMakePaginatedRequest:
     @parameterized.expand(
         [
             # Fresh runs
-            ("fresh_multi_page", False, None, [(True, "c1"), (True, "c2"), (False, None)], None, ["c1", "c2"], False),
-            ("fresh_single_empty", False, None, [(False, None)], None, [], False),
-            ("fresh_with_filter", False, None, [(True, "c1"), (False, None)], "2026-01-01T00:00:00Z", ["c1"], False),
+            ("fresh_multi_page", None, [(True, "c1"), (True, "c2"), (False, None)], None, ["c1", "c2"], False),
+            ("fresh_single_empty", None, [(False, None)], None, [], False),
+            ("fresh_with_filter", None, [(True, "c1"), (False, None)], "2026-01-01T00:00:00Z", ["c1"], False),
             # Resume runs
-            ("resume_final_page_only", True, "saved-c", [(False, None)], None, [], True),
-            ("resume_then_more_pages", True, "saved-c", [(True, "c1"), (False, None)], None, ["c1"], True),
+            ("resume_final_page_only", "saved-c", [(False, None)], None, [], True),
+            ("resume_then_more_pages", "saved-c", [(True, "c1"), (False, None)], None, ["c1"], True),
             (
                 "resume_with_filter",
-                True,
                 "saved-c",
                 [(True, "c1"), (False, None)],
                 "2026-01-01T00:00:00Z",
@@ -83,7 +82,6 @@ class TestMakePaginatedRequest:
     def test_pagination_state(
         self,
         _name: str,
-        can_resume: bool,
         saved_cursor: str | None,
         page_specs: list[PageSpec],
         filter_gte: str | None,
@@ -97,7 +95,7 @@ class TestMakePaginatedRequest:
         mock_session_cls.return_value = session
 
         saved_config = LinearResumeConfig(cursor=saved_cursor) if saved_cursor is not None else None
-        manager = _make_resumable_manager(can_resume=can_resume, saved=saved_config)
+        manager = _make_resumable_manager(saved=saved_config)
         logger = MagicMock()
 
         list(
@@ -126,7 +124,7 @@ class TestMakePaginatedRequest:
 
     @parameterized.expand([("null_end_cursor", None), ("empty_end_cursor", "")])
     @patch("posthog.temporal.data_imports.sources.linear.linear.requests.Session")
-    def test_stops_when_has_next_page_but_cursor_missing(
+    def test_raises_when_has_next_page_but_cursor_missing(
         self,
         _name: str,
         bad_cursor: str | None,
@@ -136,27 +134,26 @@ class TestMakePaginatedRequest:
         session.post.side_effect = [_make_response([{"id": "a"}], True, bad_cursor)]
         mock_session_cls.return_value = session
 
-        manager = _make_resumable_manager(can_resume=False)
+        manager = _make_resumable_manager()
         logger = MagicMock()
 
-        pages = list(
-            _make_paginated_request(
-                access_token="tok",
-                endpoint_name="issues",
-                logger=logger,
-                resumable_source_manager=manager,
+        with pytest.raises(Exception, match="endCursor is empty"):
+            list(
+                _make_paginated_request(
+                    access_token="tok",
+                    endpoint_name="issues",
+                    logger=logger,
+                    resumable_source_manager=manager,
+                )
             )
-        )
 
-        assert pages == [[{"id": "a"}]]
         manager.save_state.assert_not_called()
-        logger.warning.assert_called_once()
         assert session.post.call_count == 1
 
 
 class TestLinearSource:
     def test_source_response_wires_primary_key_and_items(self) -> None:
-        manager = _make_resumable_manager(can_resume=False)
+        manager = _make_resumable_manager()
         logger = MagicMock()
 
         response = linear_source(
@@ -179,7 +176,7 @@ class TestLinearSource:
         ]
         mock_session_cls.return_value = session
 
-        manager = _make_resumable_manager(can_resume=False)
+        manager = _make_resumable_manager()
         logger = MagicMock()
 
         response = linear_source(
