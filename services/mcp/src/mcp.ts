@@ -16,7 +16,7 @@ import {
 } from '@/lib/analytics'
 import { buildToolResultPayload, isToolCallPayload } from '@/lib/build-tool-result'
 import { DurableObjectCache } from '@/lib/cache/DurableObjectCache'
-import { isCodingAgentClient, isPostHogAgentConsumer } from '@/lib/client-detection'
+import { isCodingAgentClient, isPostHogCodeConsumer } from '@/lib/client-detection'
 import {
     CUSTOM_API_BASE_URL,
     POSTHOG_EU_BASE_URL,
@@ -478,7 +478,7 @@ export class MCP extends McpAgent<Env> {
         // wrapped client's reported name.
         const useSingleExec =
             singleExecFlagOn &&
-            (isCodingAgentClient(this._mcpClientName) || isPostHogAgentConsumer(this.requestProperties.mcpConsumer))
+            (isCodingAgentClient(this._mcpClientName) || isPostHogCodeConsumer(this.requestProperties.mcpConsumer))
         const version = useSingleExec ? 2 : (flagVersion ?? clientVersion ?? 1)
 
         // Fetch group types and metadata in parallel (cache is now seeded)

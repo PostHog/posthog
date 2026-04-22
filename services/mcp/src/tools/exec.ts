@@ -1,7 +1,7 @@
 import { z } from 'zod'
 
 import { buildToolResultPayload } from '@/lib/build-tool-result'
-import { isPostHogAgentConsumer } from '@/lib/client-detection'
+import { isPostHogCodeConsumer } from '@/lib/client-detection'
 import { formatResponse } from '@/lib/response'
 
 import { TOKEN_CHAR_LIMIT, listAvailablePaths, resolveSchemaPath, summarizeSchema } from './schema-utils'
@@ -172,13 +172,13 @@ export function createExecTool(
                     const result = await tool.handler(context, input)
 
                     // If the inner tool has a UI app attached AND the caller self-identifies as
-                    // PostHog's agent wrapper (the UI-apps host), emit a full `CallToolResult`
-                    // payload carrying `structuredContent` + `_meta.ui.resourceUri`. Clients only
-                    // see the `exec` tool registered in single-exec mode, so the UI metadata has
-                    // to ride on the per-call response. Gated on the consumer because other
-                    // single-exec callers (direct Claude Code, cline, etc.) don't render UI
-                    // apps — they should see plain text.
-                    if (tool._meta?.ui?.resourceUri && isPostHogAgentConsumer(mcpConsumer)) {
+                    // PostHog Code (the UI-apps host), emit a full `CallToolResult` payload
+                    // carrying `structuredContent` + `_meta.ui.resourceUri`. Clients only see
+                    // the `exec` tool registered in single-exec mode, so the UI metadata has to
+                    // ride on the per-call response. Gated on the consumer because other
+                    // single-exec callers (direct Claude Code, cline, Slack-launched runs, etc.)
+                    // don't render UI apps — they should see plain text.
+                    if (tool._meta?.ui?.resourceUri && isPostHogCodeConsumer(mcpConsumer)) {
                         const isStringResult = typeof result === 'string'
                         const distinctId = isStringResult ? undefined : await context.getDistinctId()
                         return buildToolResultPayload({

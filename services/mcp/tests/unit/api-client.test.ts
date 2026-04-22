@@ -86,7 +86,7 @@ describe('ApiClient', () => {
         const client = new ApiClient({
             apiToken: 'test-token-123',
             baseUrl: 'https://example.com',
-            mcpConsumer: 'posthog_agent',
+            mcpConsumer: 'posthog_code',
         })
 
         await (client as any).fetch('https://example.com/api/test', {
@@ -101,7 +101,7 @@ describe('ApiClient', () => {
             'Content-Type': 'application/json',
             'User-Agent': USER_AGENT,
             'X-PostHog-Client': 'mcp',
-            'x-posthog-mcp-consumer': 'posthog_agent',
+            'x-posthog-mcp-consumer': 'posthog_code',
         })
 
         vi.unstubAllGlobals()
