@@ -378,6 +378,8 @@ async def _execute_run(workflow_id: str, inputs: ExternalDataWorkflowInputs, moc
         paginator: Optional[Any] = None,
         data_selector: Optional[Any] = None,
         hooks: Optional[Any] = None,
+        resume_hook: Optional[Any] = None,
+        initial_paginator_state: Optional[dict[str, Any]] = None,
     ):
         return iter(mock_data_response)
 
@@ -391,6 +393,8 @@ async def _execute_run(workflow_id: str, inputs: ExternalDataWorkflowInputs, moc
         paginator: Optional[Any] = None,
         data_selector: Optional[Any] = None,
         hooks: Optional[Any] = None,
+        resume_hook: Optional[Any] = None,
+        initial_paginator_state: Optional[dict[str, Any]] = None,
     ):
         # Yield each record as its own page so tests that probe chunking
         # by record size still see one call per record.

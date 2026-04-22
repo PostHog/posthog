@@ -512,28 +512,28 @@ describe('rename_params', () => {
 })
 
 describe('QueryWrapperToolConfigSchema validation', () => {
-    it('accepts response_format: json', () => {
+    it.each([true, false] as const)('accepts use_optimized_output: %s', (value) => {
         const result = QueryWrapperToolConfigSchema.safeParse({
             schema_ref: 'AssistantTrendsQuery',
             enabled: true,
             scopes: ['query:read'],
             annotations: { readOnly: true, destructive: false, idempotent: true },
-            response_format: 'json',
+            use_optimized_output: value,
         })
         expect(result.success).toBe(true)
     })
 
-    it('rejects unknown response_format values', () => {
+    it('rejects non-boolean use_optimized_output values', () => {
         const result = QueryWrapperToolConfigSchema.safeParse({
             schema_ref: 'AssistantTrendsQuery',
             enabled: true,
-            response_format: 'xml',
+            use_optimized_output: 'optimized',
         })
         expect(result.success).toBe(false)
     })
 })
 
-describe('generateQueryWrapperFile with response_format', () => {
+describe('generateQueryWrapperFile with use_optimized_output', () => {
     const minimalQuerySchema = {
         definitions: {
             AssistantTestQuery: {
@@ -546,7 +546,7 @@ describe('generateQueryWrapperFile with response_format', () => {
         },
     }
 
-    it('emits responseFormat in createQueryWrapper call when response_format is set', () => {
+    it('emits outputFormat: optimized when use_optimized_output is true', () => {
         const { code } = generateQueryWrapperFile(
             {
                 category: 'Test',
@@ -557,7 +557,7 @@ describe('generateQueryWrapperFile with response_format', () => {
                         enabled: true,
                         scopes: ['query:read'],
                         annotations: { readOnly: true, destructive: false, idempotent: true },
-                        response_format: 'json',
+                        use_optimized_output: true,
                     },
                 },
             },
@@ -565,10 +565,57 @@ describe('generateQueryWrapperFile with response_format', () => {
             minimalQuerySchema
         )
 
-        expect(code).toContain("responseFormat: 'json'")
+        expect(code).toContain("outputFormat: 'optimized'")
     })
 
-    it('omits responseFormat when response_format is not set', () => {
+    it.each([false, undefined] as const)('emits outputFormat: json when use_optimized_output is %s', (value) => {
+        const { code } = generateQueryWrapperFile(
+            {
+                category: 'Test',
+                feature: 'test',
+                wrappers: {
+                    'query-test': {
+                        schema_ref: 'AssistantTestQuery',
+                        enabled: true,
+                        scopes: ['query:read'],
+                        annotations: { readOnly: true, destructive: false, idempotent: true },
+                        ...(value === undefined ? {} : { use_optimized_output: value }),
+                    },
+                },
+            },
+            'test.yaml',
+            minimalQuerySchema
+        )
+
+        expect(code).toContain("outputFormat: 'json'")
+    })
+
+    it('extends the wrapper schema with an output_format input when use_optimized_output is true', () => {
+        const { code } = generateQueryWrapperFile(
+            {
+                category: 'Test',
+                feature: 'test',
+                wrappers: {
+                    'query-test': {
+                        schema_ref: 'AssistantTestQuery',
+                        enabled: true,
+                        scopes: ['query:read'],
+                        annotations: { readOnly: true, destructive: false, idempotent: true },
+                        use_optimized_output: true,
+                    },
+                },
+            },
+            'test.yaml',
+            minimalQuerySchema
+        )
+
+        expect(code).toContain('QueryTestSchema = AssistantTestQuery.extend({')
+        expect(code).toContain('output_format: z')
+        expect(code).toContain(".enum(['optimized', 'json'])")
+        expect(code).toContain(".default('optimized')")
+    })
+
+    it('does not expose an output_format input when use_optimized_output is false', () => {
         const { code } = generateQueryWrapperFile(
             {
                 category: 'Test',
@@ -586,7 +633,7 @@ describe('generateQueryWrapperFile with response_format', () => {
             minimalQuerySchema
         )
 
-        expect(code).not.toContain('responseFormat')
+        expect(code).not.toContain('output_format: z')
     })
 })
 

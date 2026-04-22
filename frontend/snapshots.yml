@@ -197,9 +197,9 @@ snapshots:
     components-cards-insight-details--trends-horizontal-bar--light:
         hash: v1.k794b7964.eb8b4e2da8c9ec22e0373b869d322462732d25da0a9c1ae92f40323b9b55d650.k5Cz4Lqet-1ykT5wUYh6RMGv3IcjIYUD-jOw4sKV5Fw
     components-cards-insight-details--trends-multi--dark:
-        hash: v1.k794b7964.9bd59da209ef002614d75cc140ef32ff24a36a6fd061cb70c2a7f6b127f177db.wVJ3Q68Tkjw670e0QPFHcGTTlyxzNbSTa_HRQoDaa7k
+        hash: v1.k794b7964.78df834f0b20a316667ad73c8d35bed184ac478af5dbb058a2309450d42ea617.bUTkvG4Mn6bxKHdWzMhXWEBAPENV_TDKCO2SWHt7wmc
     components-cards-insight-details--trends-multi--light:
-        hash: v1.k794b7964.a5681bb1eab2d0b16e6121710168635180a032faa4cd05dcc3103943b6a2ab9d.8O1JWNRFfr6JkvYWy3ILzLurOAr0QCJqFocksDvkiLE
+        hash: v1.k794b7964.4f5b573d92d9fd8d5807bf59f58a198944cfb99f846b7ff372c004867b4400d7.QfkAPM2yhi4SmYDeT26wXt87mfrkl1Dthwd-bIzqYHY
     components-cards-insight-details--trends-pie--dark:
         hash: v1.k794b7964.15dca2f44b1f412c45005ec60b5a7c2bd272842016ba1d2f8fd5ff940a01cefb.NVI3CwSyp9PGwqZVsTMCkEWCm0ChqpyfoMYjyzxKdUU
     components-cards-insight-details--trends-pie--light:
@@ -3491,9 +3491,9 @@ snapshots:
     scenes-app-dashboards--list--light:
         hash: v1.k794b7964.220d7ac72cc9dfd74652109e8c1bd4c04b886b58b0d959ce622d2b4b97128a70.iOIqIcqJ9ZuELxrSRZylmXs5iZw_g88YqfWCobSnk4s
     scenes-app-dashboards--new--dark:
-        hash: v1.k794b7964.08ee710f39c3d54a1b012c8bcac7a0219470e7757fd76a4609900fb295465d44.ZMvbzWvnQ0OSH4U2s6B_c7BKD8a_NI-b_yujAK3eQ6Y
+        hash: v1.k794b7964.8fe607706938623e72a082076093fc8f92fe9bf9203f6d1f58380543fd675835.LWrCs9gTB7BGAGfKpgS-IncY8436r7kDlzbiRcLoBUQ
     scenes-app-dashboards--new--light:
-        hash: v1.k794b7964.a0adf73e0a102b795e5e3ed4ff48ad508e11ee0b7884974ef4e10f0b26e3e6e2.Ixm9ar6_ohVxdxoJCwLddmprt6jB3PfoJ6WrOLmeY24
+        hash: v1.k794b7964.ecfdf63c59e527079acab345e0d0a40acc8e68e59e6f70531f07edaca8a14f43.CGjm1QAOiQf2h5OpF_l5SiXfjyirXQVLZmJOKi4wGNY
     scenes-app-dashboards--new-select-variables--dark:
         hash: v1.k794b7964.50927ee907c91401cdedf4031ccdd6c3dbfff1d437b476fdb547853176516b21.EFG50qwV584hXRSIKJ_2KGY8XuDqH0FvZ4kx9UtiOsw
     scenes-app-dashboards--new-select-variables--light:
@@ -3518,6 +3518,18 @@ snapshots:
         hash: v1.k794b7964.3ef8fdec77a31e9262b99e502fed61e86fba657ace14bbbdd58ea2bc773de700.WrA7wFosW1QOQrrt7c0dA-q0UjOLpB1Icidd-rOOQJY
     scenes-app-dashboards-add-insight-to-dashboard-modal--with-more-insight-types--light:
         hash: v1.k794b7964.20566916ba402092327c25e65eb021be974a0803cd450b1ec269bb8b7d43f380.T6hfU5Ghij65Kw8n54JUa4ZHzptVsPZoEYldcI2_d-4
+    scenes-app-dashboards-templates-dashboard-template-copy--default--dark:
+        hash: v1.k794b7964.2f8db77fd22c2a09feaba5cd2f82aba277bdfac31f34cae43c3015e1891c9dea.TKorWc2TMRapf91aSM5RBEDWrK_fK3KIb4xNKuXgR4k
+    scenes-app-dashboards-templates-dashboard-template-copy--default--light:
+        hash: v1.k794b7964.99fa7a4e56d8219ac903e0369023eb7d90e62e93101db1f97605eecbf3ce4661.IllK50aKp-BMj3kjMCHc2Zb_g9tBlOzGvKKbKW3gGLE
+    scenes-app-dashboards-templates-dashboard-template-copy--load-error--dark:
+        hash: v1.k794b7964.67f2dda29ed493a94e33dd338460d1a292f8c34e2178e316c690e1851fb9828d.W-1zzEGytX_XsU2dH475QATpOoQ80aq75PZxrPfn1oA
+    scenes-app-dashboards-templates-dashboard-template-copy--load-error--light:
+        hash: v1.k794b7964.cf73ea29bb12fbc2e90ba39ecfb6adbcd2e0e9009528806fb8285a52388673e9.VGpnCUb9_XXWmWtjyzkapz-hKGe1ZpKdMuU5bmoT91o
+    scenes-app-dashboards-templates-dashboard-template-copy--no-other-projects-in-organization--dark:
+        hash: v1.k794b7964.e634c1e4b8c3bb908a7f84cd5b8057e60bcc81f70cd5e9a224fc41588dadee42.i3X1xwcXVwH3ApLK7XkaXlauCwiyJJqDyUHztm-WAZs
+    scenes-app-dashboards-templates-dashboard-template-copy--no-other-projects-in-organization--light:
+        hash: v1.k794b7964.8d4cd29cef2f26f584fb54d8b66c4876ae47ad47c2c66d64df84e5fd39729a1b.07RDbDS_E-gMcaMuHJ_R9xJQB3iSqPEFC3Evki06JKs
     scenes-app-dashboards-templates-dashboard-template-item--all-versions--dark:
         hash: v1.k794b7964.f47171fd3ca31f74f12783eac03ef4dddd84ab59769d40de18ce85b0c24cfe3e.UapVhkghncNi81EDuobiEF6EnA6oDSC01C_ouOTxcuA
     scenes-app-dashboards-templates-dashboard-template-item--all-versions--light:

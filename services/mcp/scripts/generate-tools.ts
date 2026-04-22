@@ -1306,7 +1306,8 @@ function generateQueryWrapperFile(
     const perToolSchemaNames = new Map<string, string>()
     for (const [name, toolConfig] of enabledWrappers) {
         const hasDefaults = toolConfig.property_defaults && Object.keys(toolConfig.property_defaults).length > 0
-        if (!hasDefaults) {
+        const useOptimizedOutput = !!toolConfig.use_optimized_output
+        if (!hasDefaults && !useOptimizedOutput) {
             continue
         }
         const baseVarName = getEntryVarName(toolConfig.schema_ref)
@@ -1315,6 +1316,16 @@ function generateQueryWrapperFile(
         for (const [prop, defaultValue] of Object.entries(toolConfig.property_defaults ?? {})) {
             overrides.push(
                 `    ${prop}: ${baseVarName}.shape.${prop}.default(${JSON.stringify(defaultValue)}).optional(),`
+            )
+        }
+        if (useOptimizedOutput) {
+            // When the wrapper has a server-side formatter, expose an `output_format` per-call input
+            // so the agent can override the default (`optimized`) and request raw JSON. The factory
+            // strips this field before building the query body so it never leaks to the backend.
+            const outputFormatDescription =
+                'Output format. "optimized" returns a human-readable summary from server-side formatters (recommended for analysis). "json" returns the raw query results as JSON.'
+            overrides.push(
+                `    output_format: z.enum(['optimized', 'json']).default('optimized').optional().describe(${JSON.stringify(outputFormatDescription)}),`
             )
         }
         const extendExpr = `.extend({\n${overrides.join('\n')}\n})`
@@ -1333,9 +1344,10 @@ function generateQueryWrapperFile(
             if (toolConfig.ui_resource_uri) {
                 configParts.push(`uiResourceUri: '${toolConfig.ui_resource_uri}'`)
             }
-            if (toolConfig.response_format) {
-                configParts.push(`responseFormat: '${toolConfig.response_format}'`)
-            }
+            // The factory's `outputFormat` drives both the default text encoding and whether the
+            // wrapper surfaces `formatted_results`. `use_optimized_output` in YAML maps to `'optimized'`;
+            // everything else falls back to raw JSON.
+            configParts.push(`outputFormat: '${toolConfig.use_optimized_output ? 'optimized' : 'json'}'`)
 
             if (toolConfig.url_prefix) {
                 configParts.push(`urlPrefix: '${toolConfig.url_prefix}'`)

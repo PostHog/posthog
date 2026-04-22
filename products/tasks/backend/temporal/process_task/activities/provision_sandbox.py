@@ -187,9 +187,9 @@ def _build_environment_variables(
 
 def _emit_image_source_log(ctx: TaskProcessingContext, prepared: PrepareSandboxForRepositoryOutput) -> None:
     if prepared.image_source == "resume_snapshot":
-        emit_agent_log(ctx.run_id, "info", f"Resuming environment from snapshot for {prepared.repository}")
+        emit_agent_log(ctx.run_id, "debug", f"Resuming environment from snapshot for {prepared.repository}")
     elif prepared.image_source == "repository_snapshot":
-        emit_agent_log(ctx.run_id, "info", f"Found existing environment for {prepared.repository}")
+        emit_agent_log(ctx.run_id, "debug", f"Found existing environment for {prepared.repository}")
     elif prepared.repository:
         emit_agent_log(
             ctx.run_id, "debug", f"Creating environment from {prepared.image_source_label} for {prepared.repository}"
@@ -220,7 +220,7 @@ def prepare_sandbox_for_repository(input: PrepareSandboxForRepositoryInput) -> P
                 snapshot_lookup_timer.set_used_snapshot(used_snapshot)
             increment_snapshot_usage(used_snapshot)
         elif not has_repo:
-            emit_agent_log(ctx.run_id, "info", "Creating environment without repository")
+            emit_agent_log(ctx.run_id, "debug", "Creating environment without repository")
 
         task = _load_task(ctx)
         shallow_clone = task.origin_product != Task.OriginProduct.SIGNAL_REPORT
@@ -347,7 +347,7 @@ def clone_repository_in_sandbox(input: CloneRepositoryInSandboxInput) -> None:
         sandbox_id=input.sandbox_id,
         **ctx.to_log_context(),
     ):
-        emit_agent_log(ctx.run_id, "info", f"Cloning {input.repository} into sandbox")
+        emit_agent_log(ctx.run_id, "debug", f"Cloning {input.repository} into sandbox")
         sandbox = Sandbox.get_by_id(input.sandbox_id)
 
         with StepTimer("repository_clone", used_snapshot=False):
@@ -372,7 +372,7 @@ def checkout_branch_in_sandbox(input: CheckoutBranchInSandboxInput) -> None:
         branch=input.branch,
         **ctx.to_log_context(),
     ):
-        emit_agent_log(ctx.run_id, "info", f"Checking out branch {input.branch}")
+        emit_agent_log(ctx.run_id, "debug", f"Checking out branch {input.branch}")
         sandbox = Sandbox.get_by_id(input.sandbox_id)
 
         org, repo = input.repository.lower().split("/")
