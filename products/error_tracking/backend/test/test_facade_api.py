@@ -1,18 +1,21 @@
 from datetime import timedelta
 
 from posthog.test.base import BaseTest
+from unittest.mock import patch
 
 from django.utils.timezone import now
 
 from parameterized import parameterized
 
 from posthog.models import Team
+from posthog.models.integration import Integration
 
 from products.error_tracking.backend.facade import (
     api,
     types as contracts,
 )
 from products.error_tracking.backend.models import (
+    ErrorTrackingExternalReference,
     ErrorTrackingIssue,
     ErrorTrackingIssueAssignment,
     ErrorTrackingIssueFingerprintV2,
@@ -125,6 +128,102 @@ class TestErrorTrackingFacadeAPI(BaseTest):
         assert symbol_set_counts[other_team.id] == 1
         assert resolved_symbol_set_counts[self.team.id] == 1
         assert resolved_symbol_set_counts[other_team.id] == 1
+
+    @parameterized.expand(
+        [
+            ("linear", {"id": "LIN-1"}, "https://linear.app/ph/issue/LIN-1"),
+            ("github", {"repository": "posthog", "number": 42}, "https://github.com/posthog-org/posthog/issues/42"),
+            ("gitlab", {"issue_id": 7}, "https://gitlab.com/posthog/posthog/issues/7"),
+            ("jira", {"key": "ET-9"}, "https://posthog.atlassian.net/browse/ET-9"),
+        ]
+    )
+    def test_create_external_reference_persists_when_integration_returns_required_keys(
+        self, kind: str, external_context: dict, expected_url: str
+    ):
+        issue = self._create_issue(team=self.team, name="External reference persists")
+        integration = Integration.objects.create(
+            team=self.team,
+            kind=kind,
+            config={
+                "data": {"viewer": {"organization": {"urlKey": "ph"}}},  # linear
+                "path_with_namespace": "posthog/posthog",  # gitlab
+                "hostname": "https://gitlab.com",  # gitlab
+                "site_url": "https://posthog.atlassian.net",  # jira
+                "account": {"name": "posthog-org"},  # github org fallback
+            },
+        )
+
+        patch_targets = {
+            "linear": "posthog.models.integration.LinearIntegration.create_issue",
+            "github": "posthog.models.integration.GitHubIntegration.create_issue",
+            "gitlab": "posthog.models.integration.GitLabIntegration.create_issue",
+            "jira": "posthog.models.integration.JiraIntegration.create_issue",
+        }
+
+        with (
+            patch(patch_targets[kind], return_value=external_context),
+            patch("posthog.models.integration.GitHubIntegration.organization", return_value="posthog-org"),
+            patch("products.error_tracking.backend.facade.api.posthoganalytics.capture"),
+        ):
+            result = api.create_external_reference(
+                team_id=self.team.id,
+                issue_id=issue.id,
+                integration_id=integration.id,
+                config={},
+            )
+
+        assert isinstance(result, contracts.ErrorTrackingExternalReference)
+        assert result.external_url == expected_url
+        assert ErrorTrackingExternalReference.objects.filter(issue=issue).count() == 1
+
+    @parameterized.expand(
+        [
+            ("linear", {}),
+            ("linear", {"id": ""}),
+            ("github", {"repository": "posthog"}),
+            ("github", {"number": 42}),
+            ("gitlab", {}),
+            ("jira", {}),
+        ]
+    )
+    def test_create_external_reference_rejects_incomplete_external_context(self, kind: str, external_context: dict):
+        issue = self._create_issue(team=self.team, name="Incomplete context")
+        integration = Integration.objects.create(team=self.team, kind=kind, config={})
+
+        patch_targets = {
+            "linear": "posthog.models.integration.LinearIntegration.create_issue",
+            "github": "posthog.models.integration.GitHubIntegration.create_issue",
+            "gitlab": "posthog.models.integration.GitLabIntegration.create_issue",
+            "jira": "posthog.models.integration.JiraIntegration.create_issue",
+        }
+
+        with patch(patch_targets[kind], return_value=external_context):
+            with self.assertRaises(api.ExternalReferenceValidationError):
+                api.create_external_reference(
+                    team_id=self.team.id,
+                    issue_id=issue.id,
+                    integration_id=integration.id,
+                    config={},
+                )
+
+        # The reference row must not have been persisted.
+        assert ErrorTrackingExternalReference.objects.filter(issue=issue).count() == 0
+
+    def test_list_external_references_tolerates_orphaned_rows(self):
+        # Simulates a pre-existing orphaned row from before validation was added —
+        # the row must still serialize so the UI can list it without raising a 400.
+        issue = self._create_issue(team=self.team, name="Orphaned reference")
+        integration = Integration.objects.create(team=self.team, kind="linear", config={})
+        ErrorTrackingExternalReference.objects.create(
+            issue=issue,
+            integration=integration,
+            external_context={},
+        )
+
+        references = api.list_external_references(team_id=self.team.id)
+
+        assert len(references) == 1
+        assert references[0].external_url == ""
 
     @parameterized.expand(
         [

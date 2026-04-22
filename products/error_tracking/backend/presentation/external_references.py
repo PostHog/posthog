@@ -16,7 +16,6 @@ from products.error_tracking.backend.facade.api import (
     ExternalReferenceValidationError,
     create_external_reference,
     get_external_reference,
-    is_supported_external_issue_provider,
     list_external_references,
 )
 
@@ -40,13 +39,10 @@ class ErrorTrackingExternalReferenceSerializer(serializers.Serializer):
     external_url = serializers.SerializerMethodField()
 
     def get_external_url(self, reference: contracts.ErrorTrackingExternalReference) -> str:
-        if reference.external_url:
-            return reference.external_url
-
-        if is_supported_external_issue_provider(reference.integration.kind):
-            raise ValidationError("Missing required external context fields")
-
-        raise ValidationError("Provider not supported")
+        # Returns an empty string when the stored external_context can't resolve to a URL
+        # (e.g. legacy orphaned rows from before validation was added). The create path
+        # now rejects incomplete responses up front, so new rows always have a URL.
+        return reference.external_url or ""
 
 
 @extend_schema(tags=[ProductKey.ERROR_TRACKING])

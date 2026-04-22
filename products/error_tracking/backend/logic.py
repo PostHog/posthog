@@ -38,9 +38,27 @@ SUPPORTED_EXTERNAL_ISSUE_PROVIDERS = frozenset(
     }
 )
 
+# Keys each provider must return from `create_issue` for us to later build an external URL.
+# Missing these would leave an orphaned `ErrorTrackingExternalReference` row pointing at nothing.
+REQUIRED_EXTERNAL_CONTEXT_KEYS: dict[str, tuple[str, ...]] = {
+    Integration.IntegrationKind.LINEAR: ("id",),
+    Integration.IntegrationKind.GITHUB: ("repository", "number"),
+    Integration.IntegrationKind.GITLAB: ("issue_id",),
+    Integration.IntegrationKind.JIRA: ("key",),
+}
+
 
 def is_supported_external_issue_provider(kind: str) -> bool:
     return kind in SUPPORTED_EXTERNAL_ISSUE_PROVIDERS
+
+
+def _has_required_external_context(kind: str, external_context: dict[str, Any] | None) -> bool:
+    required_keys = REQUIRED_EXTERNAL_CONTEXT_KEYS.get(kind)
+    if not required_keys:
+        return False
+    if not external_context:
+        return False
+    return all(external_context.get(key) for key in required_keys)
 
 
 def get_issue_list_queryset(team_id: int) -> QuerySet[ErrorTrackingIssue]:
@@ -124,6 +142,11 @@ def create_external_reference(
         external_context = JiraIntegration(integration).create_issue(config)
     else:
         raise ErrorTrackingExternalReferenceValidationError("Provider not supported")
+
+    # Validate before persisting so a provider that returned an incomplete response doesn't
+    # leave an orphaned reference row that can never resolve to a URL.
+    if not _has_required_external_context(integration.kind, external_context):
+        raise ErrorTrackingExternalReferenceValidationError("Missing required external context fields")
 
     return ErrorTrackingExternalReference.objects.create(
         issue=issue,
