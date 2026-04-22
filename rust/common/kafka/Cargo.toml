@@ -8,6 +8,7 @@ workspace = true
 
 [dependencies]
 chrono = { workspace = true }
+common-liveness = { path = "../liveness" }
 envconfig = { workspace = true }
 health = { path = "../health" }
 rdkafka = { workspace = true }

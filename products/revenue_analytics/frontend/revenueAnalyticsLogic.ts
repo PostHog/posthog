@@ -9,11 +9,11 @@ import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
 import { getDefaultInterval, objectsEqual } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { dataWarehouseViewsLogic } from 'scenes/data-warehouse/saved_queries/dataWarehouseViewsLogic'
-import { dataWarehouseSettingsLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsLogic'
 import { MaxContextInput, createMaxContextHelpers } from 'scenes/max/maxTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
+// eslint-disable-next-line import/no-cycle
 import { isRevenueAnalyticsPropertyFilters } from '~/queries/schema-guards'
 import {
     DataTableNode,
@@ -24,6 +24,8 @@ import {
     RevenueAnalyticsTopCustomersGroupBy,
 } from '~/queries/schema/schema-general'
 import { Breadcrumb, DataWarehouseSavedQuery, InsightLogicProps, InsightShortId, SimpleIntervalType } from '~/types'
+
+import { sourceManagementLogic } from 'products/data_warehouse/frontend/shared/logics/sourceManagementLogic'
 
 import type { revenueAnalyticsLogicType } from './revenueAnalyticsLogicType'
 import { revenueAnalyticsSettingsLogic } from './settings/revenueAnalyticsSettingsLogic'
@@ -121,7 +123,7 @@ export const revenueAnalyticsLogic = kea<revenueAnalyticsLogicType>([
             ['dataWarehouseSavedQueries'],
         ],
         actions: [
-            dataWarehouseSettingsLogic,
+            sourceManagementLogic,
             ['loadSourcesSuccess'],
             dataWarehouseViewsLogic,
             ['loadDataWarehouseSavedQueries'],

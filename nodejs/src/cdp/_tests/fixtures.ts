@@ -125,6 +125,7 @@ export const createClickhousePerson = (teamId: number, data: Partial<ClickHouseP
         is_deleted: 0,
         timestamp: new Date().toISOString(),
         version: 1,
+        last_seen_at: null,
         ...data,
     }
 }
@@ -339,4 +340,33 @@ export const insertCohortMemberships = async (
         results.push(await insertCohortMembership(db, membership))
     }
     return results
+}
+
+export const insertBatchExport = async (postgres: PostgresRouter, team_id: Team['id'], id: string): Promise<any> => {
+    const destination = await insertBatchExportDestination(postgres)
+    const res = await insertRow(postgres, 'posthog_batchexport', {
+        id: id,
+        team_id: team_id,
+        destination_id: destination.id,
+        name: 'test-batch-export',
+        interval: 'hour',
+        paused: false,
+        deleted: false,
+        created_at: new Date().toISOString(),
+        last_updated_at: new Date().toISOString(),
+        timezone: 'UTC',
+    })
+    return res
+}
+
+export const insertBatchExportDestination = async (postgres: PostgresRouter): Promise<any> => {
+    const res = await insertRow(postgres, 'posthog_batchexportdestination', {
+        id: new UUIDT().toString(),
+        type: 'S3',
+        config: {},
+        integration_id: null,
+        created_at: new Date().toISOString(),
+        last_updated_at: new Date().toISOString(),
+    })
+    return res
 }

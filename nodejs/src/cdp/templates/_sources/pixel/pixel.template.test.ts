@@ -14,7 +14,8 @@ describe('pixel template', () => {
     const GOOD_RESPONSE = {
         httpResponse: {
             contentType: 'image/gif',
-            body: expect.stringContaining('GIF'),
+            body: 'R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==',
+            isBase64Encoded: true,
             status: 200,
         },
     }

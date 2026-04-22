@@ -48,7 +48,7 @@ def _get_billing_config_payload() -> dict | None:
         }
     }
     """
-    payload: dict | None = posthoganalytics.get_feature_flag_payload(  # type: ignore[assignment]
+    payload: dict | None = posthoganalytics.get_feature_flag_payload(  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
         "posthog-ai-billing-free-tier-credits", "internal_billing_events"
     )
 
@@ -110,6 +110,7 @@ def get_ga_launch_date() -> datetime:
 def get_conversation_start_time(conversation_id: UUID) -> Optional[datetime]:
     """Get the start time of a conversation."""
     try:
+        # nosemgrep: idor-lookup-without-team (internal AI pipeline, IDs from team-scoped context)
         conversation = Conversation.objects.get(id=conversation_id)
         return conversation.created_at
     except Conversation.DoesNotExist:
@@ -238,7 +239,7 @@ def get_ai_credits(
         WHERE t.is_billable = 1 OR t.trace_id IS NULL
         """
 
-        params = {
+        params: dict[str, int | datetime | float | list[str] | str] = {
             "team_id": team_id,
             "team_to_query": team_to_query,
             "begin": begin,

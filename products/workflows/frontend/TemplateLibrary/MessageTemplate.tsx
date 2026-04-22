@@ -111,6 +111,7 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
                         <LemonField
                             name="description"
                             label="Description"
+                            showOptional
                             info="Add a description to share context with other team members"
                         >
                             <LemonTextArea disabled={messageLoading} />

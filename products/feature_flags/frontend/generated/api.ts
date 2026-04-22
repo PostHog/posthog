@@ -1,3 +1,4 @@
+import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 /**
  * Auto-generated from the Django backend OpenAPI schema.
  * To modify these types, update the Django serializers or views, then run:
@@ -7,10 +8,17 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
-import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 import type {
     ActivityLogPaginatedResponseApi,
+    BulkUpdateTagsRequestApi,
+    BulkUpdateTagsResponseApi,
+    CopyFlagsRequestApi,
+    CopyFlagsResponseApi,
+    DependentFlagApi,
     FeatureFlagApi,
+    FeatureFlagCreateRequestSchemaApi,
+    FeatureFlagStatusResponseApi,
+    FeatureFlagVersionResponseApi,
     FeatureFlagsActivityRetrieve2Params,
     FeatureFlagsActivityRetrieveParams,
     FeatureFlagsEvaluationReasonsRetrieveParams,
@@ -20,7 +28,13 @@ import type {
     LocalEvaluationResponseApi,
     MyFlagsResponseApi,
     PaginatedFeatureFlagListApi,
-    PatchedFeatureFlagApi,
+    PaginatedScheduledChangeListApi,
+    PatchedFeatureFlagPartialUpdateRequestSchemaApi,
+    PatchedScheduledChangeApi,
+    ScheduledChangeApi,
+    ScheduledChangesListParams,
+    UserBlastRadiusRequestApi,
+    UserBlastRadiusResponseApi,
 } from './api.schemas'
 
 // https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
@@ -59,10 +73,16 @@ export const getFeatureFlagsCopyFlagsCreateUrl = (organizationId: string) => {
     return `/api/organizations/${organizationId}/feature_flags/copy_flags/`
 }
 
-export const featureFlagsCopyFlagsCreate = async (organizationId: string, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getFeatureFlagsCopyFlagsCreateUrl(organizationId), {
+export const featureFlagsCopyFlagsCreate = async (
+    organizationId: string,
+    copyFlagsRequestApi: CopyFlagsRequestApi,
+    options?: RequestInit
+): Promise<CopyFlagsResponseApi> => {
+    return apiMutator<CopyFlagsResponseApi>(getFeatureFlagsCopyFlagsCreateUrl(organizationId), {
         ...options,
         method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(copyFlagsRequestApi),
     })
 }
 
@@ -109,14 +129,14 @@ export const getFeatureFlagsCreateUrl = (projectId: string) => {
 
 export const featureFlagsCreate = async (
     projectId: string,
-    featureFlagApi: NonReadonly<FeatureFlagApi>,
+    featureFlagCreateRequestSchemaApi: FeatureFlagCreateRequestSchemaApi,
     options?: RequestInit
 ): Promise<FeatureFlagApi> => {
     return apiMutator<FeatureFlagApi>(getFeatureFlagsCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(featureFlagApi),
+        body: JSON.stringify(featureFlagCreateRequestSchemaApi),
     })
 }
 
@@ -175,14 +195,14 @@ export const getFeatureFlagsPartialUpdateUrl = (projectId: string, id: number) =
 export const featureFlagsPartialUpdate = async (
     projectId: string,
     id: number,
-    patchedFeatureFlagApi: NonReadonly<PatchedFeatureFlagApi>,
+    patchedFeatureFlagPartialUpdateRequestSchemaApi: PatchedFeatureFlagPartialUpdateRequestSchemaApi,
     options?: RequestInit
 ): Promise<FeatureFlagApi> => {
     return apiMutator<FeatureFlagApi>(getFeatureFlagsPartialUpdateUrl(projectId, id), {
         ...options,
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(patchedFeatureFlagApi),
+        body: JSON.stringify(patchedFeatureFlagPartialUpdateRequestSchemaApi),
     })
 }
 
@@ -286,16 +306,16 @@ export const featureFlagsDashboardCreate = async (
 /**
  * Get other active flags that depend on this flag.
  */
-export const getFeatureFlagsDependentFlagsRetrieveUrl = (projectId: string, id: number) => {
+export const getFeatureFlagsDependentFlagsListUrl = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/feature_flags/${id}/dependent_flags/`
 }
 
-export const featureFlagsDependentFlagsRetrieve = async (
+export const featureFlagsDependentFlagsList = async (
     projectId: string,
     id: number,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getFeatureFlagsDependentFlagsRetrieveUrl(projectId, id), {
+): Promise<DependentFlagApi[]> => {
+    return apiMutator<DependentFlagApi[]>(getFeatureFlagsDependentFlagsListUrl(projectId, id), {
         ...options,
         method: 'GET',
     })
@@ -357,8 +377,29 @@ export const featureFlagsStatusRetrieve = async (
     projectId: string,
     id: number,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getFeatureFlagsStatusRetrieveUrl(projectId, id), {
+): Promise<FeatureFlagStatusResponseApi> => {
+    return apiMutator<FeatureFlagStatusResponseApi>(getFeatureFlagsStatusRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+/**
+ * Create, read, update and delete feature flags. [See docs](https://posthog.com/docs/feature-flags) for more information on feature flags.
+
+If you're looking to use feature flags on your application, you can either use our JavaScript Library or our dedicated endpoint to check if feature flags are enabled for a given user.
+ */
+export const getFeatureFlagsVersionsRetrieveUrl = (projectId: string, id: number, versionNumber: number) => {
+    return `/api/projects/${projectId}/feature_flags/${id}/versions/${versionNumber}/`
+}
+
+export const featureFlagsVersionsRetrieve = async (
+    projectId: string,
+    id: number,
+    versionNumber: number,
+    options?: RequestInit
+): Promise<FeatureFlagVersionResponseApi> => {
+    return apiMutator<FeatureFlagVersionResponseApi>(getFeatureFlagsVersionsRetrieveUrl(projectId, id, versionNumber), {
         ...options,
         method: 'GET',
     })
@@ -397,6 +438,35 @@ export const featureFlagsActivityRetrieve = async (
 }
 
 /**
+ * Bulk delete feature flags by filter criteria or explicit IDs.
+
+Accepts either:
+- {"filters": {...}} - Same filter params as list endpoint (search, active, type, etc.)
+- {"ids": [...]} - Explicit list of flag IDs (no limit)
+
+Returns same format as bulk_delete for UI compatibility.
+
+Uses bulk operations for efficiency: database updates are batched and cache
+invalidation happens once at the end rather than per-flag.
+ */
+export const getFeatureFlagsBulkDeleteCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/feature_flags/bulk_delete/`
+}
+
+export const featureFlagsBulkDeleteCreate = async (
+    projectId: string,
+    featureFlagApi: NonReadonly<FeatureFlagApi>,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getFeatureFlagsBulkDeleteCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(featureFlagApi),
+    })
+}
+
+/**
  * Get feature flag keys by IDs.
 Accepts a list of feature flag IDs and returns a mapping of ID to key.
  */
@@ -414,6 +484,34 @@ export const featureFlagsBulkKeysCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(featureFlagApi),
+    })
+}
+
+/**
+ * Bulk update tags on multiple objects.
+
+Accepts:
+- {"ids": [...], "action": "add"|"remove"|"set", "tags": ["tag1", "tag2"]}
+
+Actions:
+- "add": Add tags to existing tags on each object
+- "remove": Remove specific tags from each object
+- "set": Replace all tags on each object with the provided list
+ */
+export const getFeatureFlagsBulkUpdateTagsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/feature_flags/bulk_update_tags/`
+}
+
+export const featureFlagsBulkUpdateTagsCreate = async (
+    projectId: string,
+    bulkUpdateTagsRequestApi: BulkUpdateTagsRequestApi,
+    options?: RequestInit
+): Promise<BulkUpdateTagsResponseApi> => {
+    return apiMutator<BulkUpdateTagsResponseApi>(getFeatureFlagsBulkUpdateTagsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(bulkUpdateTagsRequestApi),
     })
 }
 
@@ -488,6 +586,22 @@ export const featureFlagsLocalEvaluationRetrieve = async (
 }
 
 /**
+ * Get IDs of all feature flags matching the current filters.
+Uses the same filtering logic as the list endpoint.
+Returns only IDs that the user has permission to edit.
+ */
+export const getFeatureFlagsMatchingIdsRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/feature_flags/matching_ids/`
+}
+
+export const featureFlagsMatchingIdsRetrieve = async (projectId: string, options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getFeatureFlagsMatchingIdsRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+/**
  * Create, read, update and delete feature flags. [See docs](https://posthog.com/docs/feature-flags) for more information on feature flags.
 
 If you're looking to use feature flags on your application, you can either use our JavaScript Library or our dedicated endpoint to check if feature flags are enabled for a given user.
@@ -530,13 +644,137 @@ export const getFeatureFlagsUserBlastRadiusCreateUrl = (projectId: string) => {
 
 export const featureFlagsUserBlastRadiusCreate = async (
     projectId: string,
-    featureFlagApi: NonReadonly<FeatureFlagApi>,
+    userBlastRadiusRequestApi: UserBlastRadiusRequestApi,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getFeatureFlagsUserBlastRadiusCreateUrl(projectId), {
+): Promise<UserBlastRadiusResponseApi> => {
+    return apiMutator<UserBlastRadiusResponseApi>(getFeatureFlagsUserBlastRadiusCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(featureFlagApi),
+        body: JSON.stringify(userBlastRadiusRequestApi),
+    })
+}
+
+/**
+ * Create, read, update and delete scheduled changes.
+ */
+export const getScheduledChangesListUrl = (projectId: string, params?: ScheduledChangesListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/scheduled_changes/?${stringifiedParams}`
+        : `/api/projects/${projectId}/scheduled_changes/`
+}
+
+export const scheduledChangesList = async (
+    projectId: string,
+    params?: ScheduledChangesListParams,
+    options?: RequestInit
+): Promise<PaginatedScheduledChangeListApi> => {
+    return apiMutator<PaginatedScheduledChangeListApi>(getScheduledChangesListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+/**
+ * Create, read, update and delete scheduled changes.
+ */
+export const getScheduledChangesCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/scheduled_changes/`
+}
+
+export const scheduledChangesCreate = async (
+    projectId: string,
+    scheduledChangeApi: NonReadonly<ScheduledChangeApi>,
+    options?: RequestInit
+): Promise<ScheduledChangeApi> => {
+    return apiMutator<ScheduledChangeApi>(getScheduledChangesCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(scheduledChangeApi),
+    })
+}
+
+/**
+ * Create, read, update and delete scheduled changes.
+ */
+export const getScheduledChangesRetrieveUrl = (projectId: string, id: number) => {
+    return `/api/projects/${projectId}/scheduled_changes/${id}/`
+}
+
+export const scheduledChangesRetrieve = async (
+    projectId: string,
+    id: number,
+    options?: RequestInit
+): Promise<ScheduledChangeApi> => {
+    return apiMutator<ScheduledChangeApi>(getScheduledChangesRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+/**
+ * Create, read, update and delete scheduled changes.
+ */
+export const getScheduledChangesUpdateUrl = (projectId: string, id: number) => {
+    return `/api/projects/${projectId}/scheduled_changes/${id}/`
+}
+
+export const scheduledChangesUpdate = async (
+    projectId: string,
+    id: number,
+    scheduledChangeApi: NonReadonly<ScheduledChangeApi>,
+    options?: RequestInit
+): Promise<ScheduledChangeApi> => {
+    return apiMutator<ScheduledChangeApi>(getScheduledChangesUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(scheduledChangeApi),
+    })
+}
+
+/**
+ * Create, read, update and delete scheduled changes.
+ */
+export const getScheduledChangesPartialUpdateUrl = (projectId: string, id: number) => {
+    return `/api/projects/${projectId}/scheduled_changes/${id}/`
+}
+
+export const scheduledChangesPartialUpdate = async (
+    projectId: string,
+    id: number,
+    patchedScheduledChangeApi: NonReadonly<PatchedScheduledChangeApi>,
+    options?: RequestInit
+): Promise<ScheduledChangeApi> => {
+    return apiMutator<ScheduledChangeApi>(getScheduledChangesPartialUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedScheduledChangeApi),
+    })
+}
+
+/**
+ * Create, read, update and delete scheduled changes.
+ */
+export const getScheduledChangesDestroyUrl = (projectId: string, id: number) => {
+    return `/api/projects/${projectId}/scheduled_changes/${id}/`
+}
+
+export const scheduledChangesDestroy = async (projectId: string, id: number, options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getScheduledChangesDestroyUrl(projectId, id), {
+        ...options,
+        method: 'DELETE',
     })
 }

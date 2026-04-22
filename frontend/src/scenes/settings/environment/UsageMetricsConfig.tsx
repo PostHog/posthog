@@ -15,8 +15,11 @@ import {
 } from '@posthog/lemon-ui'
 
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
+import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { TaxonomicStringPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
 import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch'
+import { TeamMembershipLevel } from 'lib/constants'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -26,7 +29,9 @@ import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFil
 
 import { AnyPropertyFilter, EntityTypes, FilterType } from '~/types'
 
-import { UsageMetric, usageMetricsConfigLogic } from './usageMetricsConfigLogic'
+import type { GroupUsageMetricApi } from 'products/customer_analytics/frontend/generated/api.schemas'
+
+import { usageMetricsConfigLogic } from './usageMetricsConfigLogic'
 
 function sanitizeFilters(filters?: FilterType): FilterType {
     if (!filters) {
@@ -51,8 +56,12 @@ function UsageMetricsTable(): JSX.Element {
     const { usageMetrics, usageMetricsLoading } = useValues(usageMetricsConfigLogic)
     const { removeUsageMetric, openModal, setUsageMetricValues } = useActions(usageMetricsConfigLogic)
     const { reportUsageMetricsUpdateButtonClicked } = useActions(eventUsageLogic)
+    const restrictedReason = useRestrictedArea({
+        scope: RestrictionScope.Project,
+        minimumAccessLevel: TeamMembershipLevel.Admin,
+    })
 
-    const columns: LemonTableColumns<UsageMetric> = [
+    const columns: LemonTableColumns<GroupUsageMetricApi> = [
         {
             title: 'Name',
             key: 'name',
@@ -69,9 +78,14 @@ function UsageMetricsTable(): JSX.Element {
             dataIndex: 'interval',
         },
         {
-            title: 'Display',
-            key: 'display',
-            dataIndex: 'display',
+            title: 'Calculation',
+            key: 'math',
+            render: function Render(_, metric) {
+                if (metric.math === 'sum') {
+                    return `Sum of ${metric.math_property ?? '(unknown)'}`
+                }
+                return 'Count'
+            },
         },
         {
             title: '',
@@ -85,9 +99,10 @@ function UsageMetricsTable(): JSX.Element {
                                 label: 'Edit',
                                 onClick: () => {
                                     openModal()
-                                    setUsageMetricValues(metric)
+                                    setUsageMetricValues({ ...metric, filters: (metric.filters ?? {}) as FilterType })
                                     reportUsageMetricsUpdateButtonClicked()
                                 },
+                                disabledReason: restrictedReason,
                             },
                             {
                                 label: 'Delete',
@@ -102,12 +117,14 @@ function UsageMetricsTable(): JSX.Element {
                                             onClick: () => {
                                                 removeUsageMetric(metric.id)
                                             },
+                                            disabledReason: restrictedReason,
                                         },
                                         secondaryButton: {
                                             children: 'Cancel',
                                         },
                                     })
                                 },
+                                disabledReason: restrictedReason,
                             },
                         ]}
                     >
@@ -122,6 +139,8 @@ function UsageMetricsTable(): JSX.Element {
 }
 
 function UsageMetricsForm(): JSX.Element {
+    const { usageMetric } = useValues(usageMetricsConfigLogic)
+    const { setUsageMetricValue } = useActions(usageMetricsConfigLogic)
     const taxonomicGroupTypes = [
         TaxonomicFilterGroupType.EventProperties,
         TaxonomicFilterGroupType.EventMetadata,
@@ -155,15 +174,37 @@ function UsageMetricsForm(): JSX.Element {
                         />
                     </LemonField>
 
-                    {/*Commenting this out as sparkline display is not supported yet*/}
-                    {/*<LemonField name="display" label="Display">
-                        <LemonSelect
-                            options={[
-                                { value: 'number', label: 'Number' },
-                                { value: 'sparkline', label: 'Sparkline' },
-                            ]}
-                        />
-                    </LemonField>*/}
+                    <LemonField name="math" label="Calculation">
+                        {({ value, onChange }) => (
+                            <LemonSelect
+                                value={value}
+                                options={[
+                                    { value: 'count', label: 'Count of events' },
+                                    { value: 'sum', label: 'Sum of property' },
+                                ]}
+                                onChange={(newValue) => {
+                                    onChange(newValue)
+                                    if (newValue === 'count') {
+                                        setUsageMetricValue('math_property', null)
+                                    }
+                                }}
+                            />
+                        )}
+                    </LemonField>
+
+                    {usageMetric.math === 'sum' && (
+                        <LemonField name="math_property" label="Property to sum">
+                            {({ value, onChange }) => (
+                                <TaxonomicStringPopover
+                                    groupType={TaxonomicFilterGroupType.NumericalEventProperties}
+                                    value={value}
+                                    onChange={onChange}
+                                    placeholder="Select property"
+                                    data-attr="usage-metric-math-property"
+                                />
+                            )}
+                        </LemonField>
+                    )}
                 </div>
 
                 <div className="grid grid-cols-1 gap-2">
@@ -237,6 +278,10 @@ export function UsageMetricsConfig(): JSX.Element {
     const { openModal } = useActions(usageMetricsConfigLogic)
     const { groupsEnabled } = useValues(groupsAccessLogic)
     const { reportUsageMetricsSettingsViewed } = useActions(eventUsageLogic)
+    const restrictedReason = useRestrictedArea({
+        scope: RestrictionScope.Project,
+        minimumAccessLevel: TeamMembershipLevel.Admin,
+    })
 
     useOnMountEffect(() => {
         reportUsageMetricsSettingsViewed()
@@ -250,7 +295,13 @@ export function UsageMetricsConfig(): JSX.Element {
                 Usage metrics are displayed in the person {groupsEnabled ? 'and group profiles' : 'profile'}.
             </p>
             <div className="flex flex-col gap-2 items-start">
-                <LemonButton type="primary" size="small" onClick={openModal} icon={<IconPlusSmall />}>
+                <LemonButton
+                    type="primary"
+                    size="small"
+                    onClick={openModal}
+                    icon={<IconPlusSmall />}
+                    disabledReason={restrictedReason}
+                >
                     Add metric
                 </LemonButton>
                 <UsageMetricsTable />

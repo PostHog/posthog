@@ -8,10 +8,15 @@ from posthog.schema import (
     SourceFieldInputConfigType,
     SourceFieldOauthConfig,
     SourceFieldSwitchGroupConfig,
+    SuggestedTable,
 )
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
-from posthog.temporal.data_imports.sources.common.base import FieldType, SimpleSource
+from posthog.temporal.data_imports.sources.common.base import (
+    MARKETING_ANALYTICS_SUGGESTED_TABLE_TOOLTIP,
+    FieldType,
+    SimpleSource,
+)
 from posthog.temporal.data_imports.sources.common.mixins import OAuthMixin
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
@@ -55,6 +60,7 @@ class GoogleAdsSource(SimpleSource[GoogleAdsSourceConfig | GoogleAdsServiceAccou
         config: GoogleAdsSourceConfig | GoogleAdsServiceAccountSourceConfig,
         team_id: int,
         with_counts: bool = False,
+        names: list[str] | None = None,
     ) -> list[SourceSchema]:
         google_ads_schemas = get_google_ads_schemas(
             config,
@@ -63,7 +69,7 @@ class GoogleAdsSource(SimpleSource[GoogleAdsSourceConfig | GoogleAdsServiceAccou
 
         ads_incremental_fields = get_google_ads_incremental_fields()
 
-        return [
+        schemas = [
             SourceSchema(
                 name=endpoint,
                 supports_incremental=ads_incremental_fields.get(endpoint, None) is not None,
@@ -72,9 +78,17 @@ class GoogleAdsSource(SimpleSource[GoogleAdsSourceConfig | GoogleAdsServiceAccou
                     {"label": column_name, "type": column_type, "field": column_name, "field_type": column_type}
                     for column_name, column_type in ads_incremental_fields.get(endpoint, [])
                 ],
+                description=endpoint_config.description,
+                should_sync_default=endpoint_config.should_sync_default,
             )
-            for endpoint in google_ads_schemas.keys()
+            for endpoint, endpoint_config in google_ads_schemas.items()
         ]
+
+        if names is not None:
+            names_set = set(names)
+            schemas = [s for s in schemas if s.name in names_set]
+
+        return schemas
 
     def source_for_pipeline(
         self, config: GoogleAdsSourceConfig | GoogleAdsServiceAccountSourceConfig, inputs: SourceInputs
@@ -133,6 +147,16 @@ class GoogleAdsSource(SimpleSource[GoogleAdsSourceConfig | GoogleAdsServiceAccou
                     ),
                 ],
             ),
+            suggestedTables=[
+                SuggestedTable(
+                    table="campaign",
+                    tooltip=MARKETING_ANALYTICS_SUGGESTED_TABLE_TOOLTIP,
+                ),
+                SuggestedTable(
+                    table="campaign_overview_stats",
+                    tooltip=MARKETING_ANALYTICS_SUGGESTED_TABLE_TOOLTIP,
+                ),
+            ],
         )
 
     def validate_config(self, job_inputs: dict) -> tuple[bool, list[str]]:

@@ -19,6 +19,7 @@ export const keyBinds: Record<string, string[]> = {
     search: ['command', 'k'],
     new: [...baseModifier, 'n'],
     edit: ['e'],
+    escape: ['escape'],
     save: [...baseModifier, 's'],
     dashboardAddTextTile: [...baseModifier, 'a'],
     filter: [...baseModifier, 'f'],
@@ -40,4 +41,5 @@ export const keyBinds: Record<string, string[]> = {
     allChats: ['g', 'then', '1'],
     allApps: ['g', 'then', '2'],
     theme: ['g', 'then', 't'],
+    jumpToTimestamp: ['j', 'then', 't'],
 }

@@ -46,9 +46,9 @@
                                                           step_1,
                                                           min(latest_1) over (PARTITION by aggregation_target
                                                                               ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1,
-                                                                             step_2,
-                                                                             min(latest_2) over (PARTITION by aggregation_target
-                                                                                                 ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2
+                                                          step_2,
+                                                          min(latest_2) over (PARTITION by aggregation_target
+                                                                              ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2
                     FROM
                       (SELECT e.timestamp as timestamp,
                               if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as aggregation_target,
@@ -71,7 +71,7 @@
                                WHERE team_id = 99999
                                  AND event IN ['step one', 'step three', 'step two']
                                  AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-04-30 00:00:00', 'UTC')
-                                 AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC') )
+                                 AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC'))
                           GROUP BY distinct_id
                           HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                        WHERE team_id = 99999
@@ -80,8 +80,8 @@
                          AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC')
                          AND (step_0 = 1
                               OR step_1 = 1
-                              OR step_2 = 1) ))))
-           WHERE step_0 = 1 )
+                              OR step_2 = 1)))))
+           WHERE step_0 = 1)
         GROUP BY aggregation_target,
                  entrance_period_start)
      GROUP BY entrance_period_start) data
@@ -138,9 +138,9 @@
                                                           step_1,
                                                           min(latest_1) over (PARTITION by aggregation_target
                                                                               ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1,
-                                                                             step_2,
-                                                                             min(latest_2) over (PARTITION by aggregation_target
-                                                                                                 ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2
+                                                          step_2,
+                                                          min(latest_2) over (PARTITION by aggregation_target
+                                                                              ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2
                     FROM
                       (SELECT e.timestamp as timestamp,
                               if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as aggregation_target,
@@ -163,7 +163,7 @@
                                WHERE team_id = 99999
                                  AND event IN ['step one', 'step three', 'step two']
                                  AND toTimeZone(timestamp, 'US/Pacific') >= toDateTime('2021-04-30 00:00:00', 'US/Pacific')
-                                 AND toTimeZone(timestamp, 'US/Pacific') <= toDateTime('2021-05-07 23:59:59', 'US/Pacific') )
+                                 AND toTimeZone(timestamp, 'US/Pacific') <= toDateTime('2021-05-07 23:59:59', 'US/Pacific'))
                           GROUP BY distinct_id
                           HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                        WHERE team_id = 99999
@@ -172,8 +172,8 @@
                          AND toTimeZone(timestamp, 'US/Pacific') <= toDateTime('2021-05-07 23:59:59', 'US/Pacific')
                          AND (step_0 = 1
                               OR step_1 = 1
-                              OR step_2 = 1) ))))
-           WHERE step_0 = 1 )
+                              OR step_2 = 1)))))
+           WHERE step_0 = 1)
         GROUP BY aggregation_target,
                  entrance_period_start)
      GROUP BY entrance_period_start) data
@@ -230,9 +230,9 @@
                                                           step_1,
                                                           min(latest_1) over (PARTITION by aggregation_target
                                                                               ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1,
-                                                                             step_2,
-                                                                             min(latest_2) over (PARTITION by aggregation_target
-                                                                                                 ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2
+                                                          step_2,
+                                                          min(latest_2) over (PARTITION by aggregation_target
+                                                                              ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2
                     FROM
                       (SELECT e.timestamp as timestamp,
                               if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as aggregation_target,
@@ -255,7 +255,7 @@
                                WHERE team_id = 99999
                                  AND event IN ['step one', 'step three', 'step two']
                                  AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-05-01 00:00:00', 'UTC')
-                                 AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC') )
+                                 AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC'))
                           GROUP BY distinct_id
                           HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                        WHERE team_id = 99999
@@ -264,8 +264,8 @@
                          AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC')
                          AND (step_0 = 1
                               OR step_1 = 1
-                              OR step_2 = 1) ))))
-           WHERE step_0 = 1 )
+                              OR step_2 = 1)))))
+           WHERE step_0 = 1)
         GROUP BY aggregation_target,
                  entrance_period_start)
      GROUP BY entrance_period_start) data
@@ -315,9 +315,9 @@
                                                        step_1,
                                                        min(latest_1) over (PARTITION by aggregation_target
                                                                            ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1,
-                                                                          step_2,
-                                                                          min(latest_2) over (PARTITION by aggregation_target
-                                                                                              ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2
+                                                       step_2,
+                                                       min(latest_2) over (PARTITION by aggregation_target
+                                                                           ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2
                  FROM
                    (SELECT e.timestamp as timestamp,
                            if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as aggregation_target,
@@ -340,7 +340,7 @@
                             WHERE team_id = 99999
                               AND event IN ['step one', 'step three', 'step two']
                               AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-05-01 00:00:00', 'UTC')
-                              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC') )
+                              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC'))
                        GROUP BY distinct_id
                        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                     WHERE team_id = 99999
@@ -349,8 +349,8 @@
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC')
                       AND (step_0 = 1
                            OR step_1 = 1
-                           OR step_2 = 1) ))))
-        WHERE step_0 = 1 )
+                           OR step_2 = 1)))))
+        WHERE step_0 = 1)
      WHERE toDateTime(entrance_period_start) = '2021-04-25 00:00:00'
      GROUP BY aggregation_target,
               entrance_period_start)

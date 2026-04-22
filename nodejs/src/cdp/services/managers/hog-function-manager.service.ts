@@ -1,12 +1,12 @@
-import { Hub, Team } from '../../../types'
-import { PostgresUse } from '../../../utils/db/postgres'
+import { Team } from '../../../types'
+import { PostgresRouter, PostgresUse } from '../../../utils/db/postgres'
 import { parseJSON } from '../../../utils/json-parse'
 import { LazyLoader } from '../../../utils/lazy-loader'
 import { logger } from '../../../utils/logger'
 import { captureException } from '../../../utils/posthog'
+import { PubSub } from '../../../utils/pubsub'
 import { HogFunctionType, HogFunctionTypeType } from '../../types'
-
-export type HogFunctionManagerHub = Pick<Hub, 'postgres' | 'pubSub' | 'encryptedFields'>
+import { EncryptedFields } from '../../utils/encryption-utils'
 
 const HOG_FUNCTION_FIELDS = [
     'id',
@@ -66,7 +66,11 @@ export class HogFunctionManagerService {
     private lazyLoader: LazyLoader<HogFunctionType>
     private lazyLoaderByTeam: LazyLoader<HogFunctionTeamInfo[]>
 
-    constructor(private hub: HogFunctionManagerHub) {
+    constructor(
+        private postgres: PostgresRouter,
+        private pubSub: PubSub,
+        private encryptedFields: EncryptedFields
+    ) {
         this.lazyLoaderByTeam = new LazyLoader({
             name: 'hog_function_manager_by_team',
             loader: async (teamIds) => await this.fetchTeamHogFunctions(teamIds),
@@ -77,7 +81,7 @@ export class HogFunctionManagerService {
             loader: async (ids) => await this.fetchHogFunctions(ids),
         })
 
-        this.hub.pubSub.on<{ teamId: Team['id']; hogFunctionIds: HogFunctionType['id'][] }>(
+        this.pubSub.on<{ teamId: Team['id']; hogFunctionIds: HogFunctionType['id'][] }>(
             'reload-hog-functions',
             ({ teamId, hogFunctionIds }) => {
                 logger.debug('⚡', '[PubSub] Reloading hog functions!', { teamId, hogFunctionIds })
@@ -160,7 +164,7 @@ export class HogFunctionManagerService {
 
     public async fetchHogFunction(id: HogFunctionType['id']): Promise<HogFunctionType | null> {
         const items: HogFunctionType[] = (
-            await this.hub.postgres.query(
+            await this.postgres.query(
                 PostgresUse.COMMON_READ,
                 `SELECT ${HOG_FUNCTION_FIELDS.join(', ')}
                 FROM posthog_hogfunction
@@ -181,7 +185,7 @@ export class HogFunctionManagerService {
 
     private async fetchTeamHogFunctions(teamIds: string[]): Promise<Record<string, HogFunctionTeamInfo[]>> {
         logger.debug('[HogFunctionManager]', 'Fetching team hog functions', { teamIds })
-        const response = await this.hub.postgres.query<Pick<HogFunctionType, 'id' | 'team_id' | 'type'>>(
+        const response = await this.postgres.query<Pick<HogFunctionType, 'id' | 'team_id' | 'type'>>(
             PostgresUse.COMMON_READ,
             `SELECT id, team_id, type FROM posthog_hogfunction WHERE enabled = TRUE AND deleted = FALSE AND team_id = ANY($1)`,
             [teamIds],
@@ -204,7 +208,7 @@ export class HogFunctionManagerService {
     private async fetchHogFunctions(ids: string[]): Promise<Record<string, HogFunctionType | undefined>> {
         logger.debug('[HogFunctionManager]', 'Fetching hog functions', { ids })
 
-        const response = await this.hub.postgres.query<HogFunctionType>(
+        const response = await this.postgres.query<HogFunctionType>(
             PostgresUse.COMMON_READ,
             `SELECT ${HOG_FUNCTION_FIELDS.join(', ')} FROM posthog_hogfunction WHERE id = ANY($1)`,
             [ids],
@@ -239,7 +243,7 @@ export class HogFunctionManagerService {
             // Handle case where encrypted_inputs is a string that needs decryption
             if (typeof encryptedInputs === 'string') {
                 try {
-                    const decrypted = this.hub.encryptedFields.decrypt(encryptedInputs)
+                    const decrypted = this.encryptedFields.decrypt(encryptedInputs)
                     if (decrypted) {
                         item.encrypted_inputs = parseJSON(decrypted)
                     }

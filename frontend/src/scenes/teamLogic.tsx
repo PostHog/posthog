@@ -1,13 +1,14 @@
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import posthog from 'posthog-js'
 
 import api, { ApiConfig } from 'lib/api'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { OrganizationMembershipLevel } from 'lib/constants'
-import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { IconSwapHoriz } from 'lib/lemon-ui/icons'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { identifierToHuman, isUserLoggedIn, resolveWebhookService } from 'lib/utils'
+import { identifierToHuman, isUserLoggedIn } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { DEFAULT_CURRENCY } from 'lib/utils/geography/currency'
 import { getAppContext } from 'lib/utils/getAppContext'
@@ -28,9 +29,6 @@ import type { teamLogicType } from './teamLogicType'
 import { userLogic } from './userLogic'
 
 const parseUpdatedAttributeName = (attr: keyof TeamType | null): string => {
-    if (attr === 'slack_incoming_webhook') {
-        return 'Webhook'
-    }
     if (attr === 'app_urls') {
         return 'Authorized URLs'
     }
@@ -133,13 +131,7 @@ export const teamLogic = kea<teamLogicType>([
                         Object.keys(payload).length === 1 ? (Object.keys(payload)[0] as keyof TeamType) : null
 
                     let message: string
-                    if (updatedAttribute === 'slack_incoming_webhook') {
-                        message = payload.slack_incoming_webhook
-                            ? `Webhook integration enabled – you should be seeing a message on ${resolveWebhookService(
-                                  payload.slack_incoming_webhook
-                              )}`
-                            : 'Webhook integration disabled'
-                    } else if (updatedAttribute === 'feature_flag_confirmation_enabled') {
+                    if (updatedAttribute === 'feature_flag_confirmation_enabled') {
                         message = payload.feature_flag_confirmation_enabled
                             ? 'Feature flag confirmation enabled'
                             : 'Feature flag confirmation disabled'
@@ -257,6 +249,40 @@ export const teamLogic = kea<teamLogicType>([
         currentTeamId: [
             (selectors) => [selectors.currentTeam],
             (currentTeam): number | null => (currentTeam ? currentTeam.id : null),
+        ],
+        // currentTeamIdStrict is currentTeamId with throwing an error to be consistent with the
+        // newly introduced currentProjectId and currentOrganizationId. To not cause a breaking change
+        // we kept currentTeamId as is for now. Ultimately throwing an error should be migrated to
+        // currentTeamId and so that currentTeamIdStrict can be removed.
+        currentTeamIdStrict: [
+            (selectors) => [selectors.currentTeam],
+            (currentTeam): number | string => {
+                if (!currentTeam || !currentTeam.id) {
+                    // TODO: Fix callers that access currentTeamIdStrict before the team is loaded,
+                    // then restore the throw. Temporarily falling back to "@current" to avoid crashes.
+                    posthog.captureException(new Error('currentTeamId accessed before team loaded'), {
+                        severity: 'warning',
+                        tag: 'selector_accessed_before_loaded',
+                    })
+                    return '@current'
+                }
+                return currentTeam.id
+            },
+        ],
+        currentProjectId: [
+            (selectors) => [selectors.currentTeam],
+            (currentTeam): number | string => {
+                if (!currentTeam || !currentTeam.project_id) {
+                    // TODO: Fix callers that access currentProjectId before the team is loaded,
+                    // then restore the throw. Temporarily falling back to "@current" to avoid crashes.
+                    posthog.captureException(new Error('currentProjectId accessed before team loaded'), {
+                        severity: 'warning',
+                        tag: 'selector_accessed_before_loaded',
+                    })
+                    return '@current'
+                }
+                return currentTeam.project_id
+            },
         ],
         isCurrentTeamUnavailable: [
             (selectors) => [selectors.currentTeam, selectors.currentTeamLoading],

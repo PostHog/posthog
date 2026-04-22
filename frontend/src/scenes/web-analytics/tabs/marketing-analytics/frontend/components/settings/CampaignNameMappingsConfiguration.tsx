@@ -4,6 +4,9 @@ import { useEffect, useMemo, useState } from 'react'
 import { IconInfo, IconPlusSmall, IconTrash, IconWarning } from '@posthog/icons'
 import { LemonButton, LemonInputSelect, LemonSelect, LemonTag, LemonTextArea, Tooltip } from '@posthog/lemon-ui'
 
+import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
+import { TeamMembershipLevel } from 'lib/constants'
+
 import { MatchField, VALID_NATIVE_MARKETING_SOURCES, externalDataSources } from '~/queries/schema/schema-general'
 
 import { marketingAnalyticsSettingsLogic } from '../../logic/marketingAnalyticsSettingsLogic'
@@ -18,12 +21,14 @@ export interface CampaignNameMappingsConfigurationProps {
     sourceFilter?: string
     compact?: boolean
     initialUtmValue?: string
+    initialCampaignName?: string
 }
 
 export function CampaignNameMappingsConfiguration({
     sourceFilter,
     compact = false,
     initialUtmValue,
+    initialCampaignName,
 }: CampaignNameMappingsConfigurationProps): JSX.Element {
     const { marketingAnalyticsConfig, integrationCampaigns, integrationCampaignsLoading } = useValues(
         marketingAnalyticsSettingsLogic
@@ -33,14 +38,24 @@ export function CampaignNameMappingsConfiguration({
     const campaignMappings = marketingAnalyticsConfig?.campaign_name_mappings || {}
     const fieldPreferences = marketingAnalyticsConfig?.campaign_field_preferences || {}
     const [selectedSource, setSelectedSource] = useState<string>(sourceFilter || '')
-    const [newCleanName, setNewCleanName] = useState('')
+    const [newCleanName, setNewCleanName] = useState(initialCampaignName || '')
     const [newRawValues, setNewRawValues] = useState(initialUtmValue || '')
+    const restrictedReason = useRestrictedArea({
+        scope: RestrictionScope.Project,
+        minimumAccessLevel: TeamMembershipLevel.Admin,
+    })
 
     useEffect(() => {
         if (initialUtmValue) {
             setNewRawValues(initialUtmValue)
         }
     }, [initialUtmValue])
+
+    useEffect(() => {
+        if (initialCampaignName) {
+            setNewCleanName(initialCampaignName)
+        }
+    }, [initialCampaignName])
 
     const currentIntegration = sourceFilter || selectedSource
 
@@ -199,6 +214,7 @@ export function CampaignNameMappingsConfiguration({
                                                   icon={<IconTrash />}
                                                   onClick={() => removeMapping(source, cleanName)}
                                                   tooltip="Remove mapping"
+                                                  disabledReason={restrictedReason}
                                               />
                                           </td>
                                       </tr>
@@ -217,6 +233,7 @@ export function CampaignNameMappingsConfiguration({
                                         ]}
                                         size="small"
                                         fullWidth
+                                        disabledReason={restrictedReason}
                                     />
                                 </td>
                             )}
@@ -235,6 +252,7 @@ export function CampaignNameMappingsConfiguration({
                                         allowCustomValues
                                         size="small"
                                         loading={integrationCampaignsLoading[currentIntegration]}
+                                        disabled={!!restrictedReason}
                                     />
                                     {newCleanName && (
                                         <div className="text-xs text-muted break-all">
@@ -266,6 +284,7 @@ export function CampaignNameMappingsConfiguration({
                                                 <Tooltip
                                                     title="Suggestions are based on string similarity (Levenshtein distance) between your utm_campaign value and campaign names from the integration."
                                                     placement="top"
+                                                    delayMs={0}
                                                 >
                                                     <IconInfo className="w-3 h-3 cursor-help" />
                                                 </Tooltip>
@@ -288,6 +307,7 @@ export function CampaignNameMappingsConfiguration({
                                                                 ? `${suggestion.name} (${Math.round(suggestion.score * 100)}% match)`
                                                                 : `ID: ${suggestion.id} (${Math.round(suggestion.score * 100)}% match)`
                                                         }
+                                                        disabledReason={restrictedReason}
                                                     >
                                                         {matchField === MatchField.CAMPAIGN_ID
                                                             ? `${suggestion.id} (${suggestion.name})`
@@ -308,6 +328,7 @@ export function CampaignNameMappingsConfiguration({
                                         minRows={1}
                                         maxRows={4}
                                         className="text-sm"
+                                        disabled={!!restrictedReason}
                                     />
                                     {hasAlreadyMappedValues && (
                                         <div className="flex items-start gap-1 text-warning text-xs">
@@ -340,6 +361,7 @@ export function CampaignNameMappingsConfiguration({
                                             !newRawValues.trim() ||
                                             hasAlreadyMappedValues
                                         }
+                                        disabledReason={restrictedReason}
                                     />
                                 </Tooltip>
                             </td>

@@ -1,19 +1,56 @@
-import os
+from __future__ import annotations
+
+import json
 import uuid
+import shlex
+import shutil
 import logging
+import tempfile
 from collections.abc import Iterable
 from functools import lru_cache
-from typing import Any, cast
+from io import StringIO
+from pathlib import Path
+from typing import TYPE_CHECKING, Any, cast
 
 from django.conf import settings
+
+if TYPE_CHECKING:
+    from products.tasks.backend.temporal.process_task.utils import McpServerConfig
 
 import modal
 import requests
 
 from posthog.exceptions_capture import capture_exception
+from posthog.settings import CLOUD_DEPLOYMENT
 
-from products.tasks.backend.constants import SETUP_REPOSITORY_PROMPT
 from products.tasks.backend.models import SandboxSnapshot
+from products.tasks.backend.services.agentsh import (
+    ENV_FILE,
+    ENV_WRAPPER_SCRIPT,
+    SESSION_ID_FILE,
+    build_exec_prefix,
+    build_setup_script,
+    generate_config_yaml,
+    generate_env_wrapper,
+    generate_policy_yaml,
+)
+from products.tasks.backend.services.local_packages import get_local_posthog_code_packages
+from products.tasks.backend.services.local_skills import (
+    BUILT_SKILLS_RELATIVE_PATH as LOCAL_BUILT_SKILLS_PATH,
+    LocalSkillsCache,
+    populate_skills_directory,
+)
+from products.tasks.backend.services.modal_provision_diagnostics import (
+    SandboxProvisionDiagnostics,
+    capture_modal_output_if_debug,
+    summarize_modal_output,
+)
+from products.tasks.backend.services.sandbox import (
+    WORKING_DIR,
+    SandboxBase,
+    build_agent_runtime_env_prefix,
+    wait_for_health_check,
+)
 from products.tasks.backend.temporal.exceptions import (
     SandboxCleanupError,
     SandboxExecutionError,
@@ -23,17 +60,34 @@ from products.tasks.backend.temporal.exceptions import (
     SnapshotCreationError,
 )
 
-from .sandbox import ExecutionResult, ExecutionStream, SandboxConfig, SandboxStatus, SandboxTemplate
+from .sandbox import AgentServerResult, ExecutionResult, ExecutionStream, SandboxConfig, SandboxStatus, SandboxTemplate
 
 logger = logging.getLogger(__name__)
 
-WORKING_DIR = "/tmp/workspace"
-DEFAULT_TASK_TIMEOUT_SECONDS = 20 * 60  # 20 minutes
 DEFAULT_MODAL_APP_NAME = "posthog-sandbox-default"
 NOTEBOOK_MODAL_APP_NAME = "posthog-sandbox-notebook"
 SANDBOX_BASE_IMAGE = "ghcr.io/posthog/posthog-sandbox-base"
 SANDBOX_NOTEBOOK_IMAGE = "ghcr.io/posthog/posthog-sandbox-notebook"
 SANDBOX_IMAGE = SANDBOX_BASE_IMAGE
+AGENT_SERVER_PORT = 8080  # Modal connect tokens require port 8080
+
+# Modal region mapping based on cloud deployment
+MODAL_REGION_BY_DEPLOYMENT: dict[str | None, str] = {
+    "EU": "eu-west",
+    "US": "us-east",
+}
+DEFAULT_MODAL_REGION = "us-east"
+
+
+def _get_modal_region() -> str:
+    return MODAL_REGION_BY_DEPLOYMENT.get(CLOUD_DEPLOYMENT, DEFAULT_MODAL_REGION)
+
+
+LOCAL_MODAL_DOCKERFILES = {
+    SandboxTemplate.DEFAULT_BASE: Path("products/tasks/backend/sandbox/images/Dockerfile.sandbox-base"),
+    SandboxTemplate.NOTEBOOK_BASE: Path("products/tasks/backend/sandbox/images/Dockerfile.sandbox-notebook"),
+}
+LOCAL_MODAL_INSTALL_SKILLS_SCRIPT = Path("products/tasks/backend/sandbox/images/install-skills.sh")
 
 
 @lru_cache(maxsize=2)
@@ -76,37 +130,77 @@ def _get_sandbox_image_reference(image: str = SANDBOX_IMAGE) -> str:
     return f"{image}:master"
 
 
+def _attach_local_package_mounts(image: modal.Image, template: SandboxTemplate) -> modal.Image:
+    """Overlay each local package's built `dist/` dir onto the installed package
+    via add_local_dir(copy=False). No-op unless `template` is DEFAULT_BASE and
+    local packages are available.
+
+    Transitive deps are resolved from the baked /scripts/node_modules/ tree;
+    only compiled output is swapped live.
+    """
+    if template != SandboxTemplate.DEFAULT_BASE:
+        return image
+    packages = get_local_posthog_code_packages()
+    if not packages:
+        return image
+    for package in packages:
+        image = image.add_local_dir(
+            str(package.build_output_path),
+            package.sandbox_build_output_path,
+            copy=False,
+        )
+    return image
+
+
+@lru_cache(maxsize=2)
 def _get_template_image(template: SandboxTemplate) -> modal.Image:
+    registry_image = {
+        SandboxTemplate.DEFAULT_BASE: SANDBOX_BASE_IMAGE,
+        SandboxTemplate.NOTEBOOK_BASE: SANDBOX_NOTEBOOK_IMAGE,
+    }.get(template)
+    if registry_image is None:
+        raise ValueError(f"Unknown template: {template}")
+
+    if settings.DEBUG:
+        dockerfile_path, context_dir = _prepare_local_modal_build_context(template)
+        image = modal.Image.from_dockerfile(dockerfile_path, context_dir=context_dir, ignore=[])
+    else:
+        image = modal.Image.from_registry(_get_sandbox_image_reference(registry_image))
+
+    return _attach_local_package_mounts(image, template)
+
+
+@lru_cache(maxsize=2)
+def _prepare_local_modal_build_context(template: SandboxTemplate) -> tuple[str, str]:
+    dockerfile_relative_path = LOCAL_MODAL_DOCKERFILES.get(template)
+    if dockerfile_relative_path is None:
+        raise ValueError(f"Unknown template: {template}")
+
+    base_dir = Path(settings.BASE_DIR)
+    source_dockerfile_path = base_dir / dockerfile_relative_path
+    if not source_dockerfile_path.exists():
+        raise FileNotFoundError(f"Dockerfile not found at {source_dockerfile_path}")
+
+    context_dir = Path(tempfile.mkdtemp(prefix=f"posthog-modal-build-{template.value}-"))
+    destination_dockerfile_path = context_dir / dockerfile_relative_path
+    destination_dockerfile_path.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(source_dockerfile_path, destination_dockerfile_path)
+
     if template == SandboxTemplate.DEFAULT_BASE:
-        if settings.DEBUG:
-            dockerfile_path = os.path.join(
-                settings.BASE_DIR, "products/tasks/backend/sandbox/images/Dockerfile.sandbox-base"
-            )
+        source_install_script_path = base_dir / LOCAL_MODAL_INSTALL_SKILLS_SCRIPT
+        destination_install_script_path = context_dir / LOCAL_MODAL_INSTALL_SKILLS_SCRIPT
+        destination_install_script_path.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source_install_script_path, destination_install_script_path)
 
-            if not os.path.exists(dockerfile_path):
-                raise FileNotFoundError(f"Dockerfile not found at {dockerfile_path}")
+        # Refresh dist/skills if out of date so the context picks up the
+        # latest rendered output.
+        LocalSkillsCache(base_dir).ensure_built()
+        populate_skills_directory(context_dir / LOCAL_BUILT_SKILLS_PATH, base_dir=base_dir)
 
-            return modal.Image.from_dockerfile(dockerfile_path, force_build=True)
-        else:
-            return modal.Image.from_registry(_get_sandbox_image_reference(SANDBOX_BASE_IMAGE))
-
-    if template == SandboxTemplate.NOTEBOOK_BASE:
-        if settings.DEBUG:
-            dockerfile_path = os.path.join(
-                settings.BASE_DIR, "products/tasks/backend/sandbox/images/Dockerfile.sandbox-notebook"
-            )
-
-            if not os.path.exists(dockerfile_path):
-                raise FileNotFoundError(f"Dockerfile not found at {dockerfile_path}")
-
-            return modal.Image.from_dockerfile(dockerfile_path, force_build=True)
-        else:
-            return modal.Image.from_registry(_get_sandbox_image_reference(SANDBOX_NOTEBOOK_IMAGE))
-
-    raise ValueError(f"Unknown template: {template}")
+    return str(destination_dockerfile_path), str(context_dir)
 
 
-class ModalSandbox:
+class ModalSandbox(SandboxBase):
     """
     Modal-based sandbox for production use.
     A box in the cloud. Sand optional.
@@ -116,34 +210,57 @@ class ModalSandbox:
     config: SandboxConfig
     _sandbox: modal.Sandbox
     _app: modal.App
+    _sandbox_url: str | None
+    provision_diagnostics: SandboxProvisionDiagnostics | None
+    DEFAULT_APP_NAME = DEFAULT_MODAL_APP_NAME
+    NOTEBOOK_APP_NAME = NOTEBOOK_MODAL_APP_NAME
 
-    def __init__(self, sandbox: modal.Sandbox, config: SandboxConfig):
+    def __init__(self, sandbox: modal.Sandbox, config: SandboxConfig, sandbox_url: str | None = None):
         self.id = sandbox.object_id
         self.config = config
         self._sandbox = sandbox
-        self._app = ModalSandbox._get_app_for_template(config.template)
+        self._app = type(self)._get_app_for_template(config.template)
+        self._sandbox_url = sandbox_url
+        self.provision_diagnostics = None
 
-    @staticmethod
-    def _get_default_app() -> modal.App:
-        return modal.App.lookup(DEFAULT_MODAL_APP_NAME, create_if_missing=True)
+    @property
+    def sandbox_url(self) -> str | None:
+        """Return the URL for connecting to the agent server, or None if not available."""
+        return self._sandbox_url
 
-    @staticmethod
-    def _get_app_for_template(template: SandboxTemplate) -> modal.App:
+    @classmethod
+    def _get_default_app(cls) -> modal.App:
+        return modal.App.lookup(cls.DEFAULT_APP_NAME, create_if_missing=True)
+
+    @classmethod
+    def _get_app_for_template(cls, template: SandboxTemplate) -> modal.App:
         if template == SandboxTemplate.NOTEBOOK_BASE:
-            return modal.App.lookup(NOTEBOOK_MODAL_APP_NAME, create_if_missing=True)
-        return ModalSandbox._get_default_app()
+            return modal.App.lookup(cls.NOTEBOOK_APP_NAME, create_if_missing=True)
+        return cls._get_default_app()
 
-    @staticmethod
-    def create(config: SandboxConfig) -> "ModalSandbox":
+    @classmethod
+    def create(cls, config: SandboxConfig) -> ModalSandbox:
         try:
-            app = ModalSandbox._get_app_for_template(config.template)
-            image = _get_template_image(config.template)
+            app = cls._get_app_for_template(config.template)
+            base_image = _get_template_image(config.template)
+            image = base_image
+            used_snapshot_image = False
 
-            if config.snapshot_id:
+            if config.snapshot_external_id:
+                try:
+                    image = _attach_local_package_mounts(
+                        modal.Image.from_id(config.snapshot_external_id), config.template
+                    )
+                    used_snapshot_image = True
+                except Exception as e:
+                    logger.warning(f"Failed to load resume snapshot image {config.snapshot_external_id}: {e}")
+                    capture_exception(e)
+            elif config.snapshot_id:
                 snapshot = SandboxSnapshot.objects.get(id=config.snapshot_id)
                 if snapshot.status == SandboxSnapshot.Status.COMPLETE:
                     try:
-                        image = modal.Image.from_id(snapshot.external_id)
+                        image = _attach_local_package_mounts(modal.Image.from_id(snapshot.external_id), config.template)
+                        used_snapshot_image = True
                     except Exception as e:
                         logger.warning(f"Failed to load snapshot image {snapshot.external_id}: {e}")
                         capture_exception(e)
@@ -156,6 +273,8 @@ class ModalSandbox:
 
             sandbox_name = f"{config.name}-{uuid.uuid4().hex[:6]}"
 
+            region = _get_modal_region()
+
             create_kwargs: dict[str, object] = {
                 "app": app,
                 "name": sandbox_name,
@@ -163,18 +282,32 @@ class ModalSandbox:
                 "timeout": config.ttl_seconds,
                 "cpu": float(config.cpu_cores),
                 "memory": int(config.memory_gb * 1024),
+                "region": region,
                 "verbose": True,
             }
 
             if secrets:
                 create_kwargs["secrets"] = secrets
 
-            sb = modal.Sandbox.create(**create_kwargs)  # type: ignore[arg-type]
+            try:
+                modal_output: StringIO | None
+                with capture_modal_output_if_debug() as modal_output:
+                    sb = modal.Sandbox.create(**create_kwargs)  # type: ignore[arg-type]
+            except Exception as e:
+                if not used_snapshot_image:
+                    raise
+                logger.warning(f"Failed to create sandbox with snapshot image, falling back to base image: {e}")
+                capture_exception(e)
+                create_kwargs["image"] = base_image
+                with capture_modal_output_if_debug() as modal_output:
+                    sb = modal.Sandbox.create(**create_kwargs)  # type: ignore[arg-type]
 
             if config.metadata:
                 sb.set_tags(config.metadata)
 
-            sandbox = ModalSandbox(sandbox=sb, config=config)
+            sandbox = cls(sandbox=sb, config=config)
+            if modal_output is not None:
+                sandbox.provision_diagnostics = summarize_modal_output(modal_output.getvalue())
 
             logger.info(f"Created sandbox {sandbox.id} for {config.name}")
 
@@ -187,7 +320,7 @@ class ModalSandbox:
             )
 
     @staticmethod
-    def get_by_id(sandbox_id: str) -> "ModalSandbox":
+    def get_by_id(sandbox_id: str) -> ModalSandbox:
         try:
             sb = modal.Sandbox.from_id(sandbox_id)
 
@@ -317,46 +450,37 @@ class ModalSandbox:
 
         return _ModalExecutionStream(process)
 
-    def clone_repository(self, repository: str, github_token: str | None = "") -> ExecutionResult:
+    def write_file(self, path: str, payload: bytes) -> ExecutionResult:
         if not self.is_running():
-            raise RuntimeError(f"Sandbox not in running state.")
+            raise SandboxExecutionError(
+                "Sandbox not in running state.",
+                {"sandbox_id": self.id},
+                cause=RuntimeError(f"Sandbox {self.id} is not running"),
+            )
 
-        org, repo = repository.lower().split("/")
-        repo_url = (
-            f"https://x-access-token:{github_token}@github.com/{org}/{repo}.git"
-            if github_token
-            else f"https://github.com/{org}/{repo}.git"
-        )
-
-        target_path = f"/tmp/workspace/repos/{org}/{repo}"
-
-        clone_command = (
-            f"rm -rf {target_path} && "
-            f"mkdir -p /tmp/workspace/repos/{org} && "
-            f"cd /tmp/workspace/repos/{org} && "
-            f"git clone {repo_url} {repo}"
-        )
-
-        logger.info(f"Cloning repository {repository} to {target_path} in sandbox {self.id}")
-        return self.execute(clone_command, timeout_seconds=5 * 60)
+        temp_path = f"{path}.tmp-{uuid.uuid4().hex}"
+        try:
+            self._sandbox.filesystem.write_bytes(payload, temp_path)
+            mv_command = f"mv {shlex.quote(temp_path)} {shlex.quote(path)}"
+            result = self.execute(mv_command, timeout_seconds=self.config.default_execution_timeout_seconds)
+            if result.exit_code != 0:
+                logger.warning(
+                    "sandbox_write_failed",
+                    extra={"stdout": result.stdout, "stderr": result.stderr, "sandbox_id": self.id},
+                )
+            return result
+        except Exception as e:
+            capture_exception(e)
+            logger.exception(f"Failed to write file to sandbox: {e}")
+            raise SandboxExecutionError(
+                "Failed to write file",
+                {"sandbox_id": self.id, "path": path, "error": str(e)},
+                cause=e,
+            )
 
     def setup_repository(self, repository: str) -> ExecutionResult:
-        if not self.is_running():
-            raise RuntimeError(f"Sandbox not in running state.")
-
-        org, repo = repository.lower().split("/")
-        repo_path = f"/tmp/workspace/repos/{org}/{repo}"
-
-        check_result = self.execute(f"test -d {repo_path} && echo 'exists' || echo 'missing'")
-        if "missing" in check_result.stdout:
-            raise RuntimeError(f"Repository path {repo_path} does not exist. Clone the repository first.")
-
-        agent_setup_command = self._get_setup_command(repo_path)
-        setup_command = f"cd {repo_path} && {agent_setup_command}"
-
-        result = self.execute(setup_command, timeout_seconds=15 * 60)
-
-        return result
+        """No-op: Repository setup is now handled by agent-server."""
+        return ExecutionResult(stdout="", stderr="", exit_code=0, error=None)
 
     def is_git_clean(self, repository: str) -> tuple[bool, str]:
         if not self.is_running():
@@ -365,42 +489,196 @@ class ModalSandbox:
         org, repo = repository.lower().split("/")
         repo_path = f"/tmp/workspace/repos/{org}/{repo}"
 
-        result = self.execute(f"cd {repo_path} && git status --porcelain")
+        result = self.execute(f"cd {shlex.quote(repo_path)} && git status --porcelain")
         is_clean = not result.stdout.strip()
 
         return is_clean, result.stdout
 
-    def execute_task(self, task_id: str, run_id: str, repository: str, create_pr: bool = True) -> ExecutionResult:
+    def execute_task(
+        self, task_id: str, run_id: str, repository: str | None = None, create_pr: bool = True
+    ) -> ExecutionResult:
+        """No-op: Task execution is now handled by agent-server."""
+        return ExecutionResult(stdout="", stderr="", exit_code=0, error=None)
+
+    def get_connect_credentials(self) -> AgentServerResult:
+        """Get connect credentials (URL and token) for this sandbox.
+
+        Modal connect tokens provide authenticated HTTP access to port 8080 in the sandbox.
+        Should be called after sandbox creation to get the URL and token needed for connection.
+        """
         if not self.is_running():
-            raise RuntimeError(f"Sandbox not in running state.")
+            raise RuntimeError("Sandbox not in running state.")
 
-        org, repo = repository.lower().split("/")
-        repo_path = f"/tmp/workspace/repos/{org}/{repo}"
+        credentials = self._sandbox.create_connect_token()
+        self._sandbox_url = credentials.url
 
-        task_command = self._get_task_command(task_id, run_id, repo_path, create_pr)
-        command = f"cd {repo_path} && {task_command}"
+        logger.info(f"Got connect credentials for sandbox {self.id}: {credentials.url}")
+        return AgentServerResult(url=credentials.url, token=credentials.token)
 
-        logger.info(f"Executing task {task_id} for run {run_id} in {repo_path} in sandbox {self.id}")
-        logger.info(f"Task command: {task_command}")
-        logger.info(f"Full command: {command}")
+    def _build_agent_server_command(
+        self,
+        repo_path: str | None,
+        task_id: str,
+        run_id: str,
+        mode: str,
+        create_pr: bool,
+        interaction_origin: str | None = None,
+        branch: str | None = None,
+        runtime_adapter: str | None = None,
+        provider: str | None = None,
+        model: str | None = None,
+        reasoning_effort: str | None = None,
+        mcp_servers_arg: str = "",
+        allowed_domains: list[str] | None = None,
+    ) -> str:
+        env_prefix = build_agent_runtime_env_prefix(
+            interaction_origin=interaction_origin,
+            runtime_adapter=runtime_adapter,
+            provider=provider,
+            model=model,
+            reasoning_effort=reasoning_effort,
+        )
+        create_pr_flag = f" --createPr {shlex.quote('true' if create_pr else 'false')}"
+        repo_flag = f" --repositoryPath {shlex.quote(repo_path)}" if repo_path else ""
+        branch_flag = f" --baseBranch {shlex.quote(branch)}" if branch else ""
+        domains_flag = f" --allowedDomains {shlex.quote(','.join(allowed_domains))}" if allowed_domains else ""
+        server_cmd = (
+            f"{env_prefix}./node_modules/.bin/agent-server --port {AGENT_SERVER_PORT}{repo_flag} "
+            f"--taskId {shlex.quote(task_id)} --runId {shlex.quote(run_id)} --mode {shlex.quote(mode)}"
+            f"{create_pr_flag}{branch_flag}{mcp_servers_arg}{domains_flag}"
+        )
 
-        result = self.execute(command, timeout_seconds=DEFAULT_TASK_TIMEOUT_SECONDS)
+        inner = f"cd /scripts && {server_cmd} > /tmp/agent-server.log 2>&1"
 
-        logger.info(f"Task execution completed: exit_code={result.exit_code}")
-        logger.info(f"Task stdout length: {len(result.stdout)} chars")
-        logger.info(f"Task stderr length: {len(result.stderr)} chars")
+        if allowed_domains:
+            return (
+                f"cd /scripts && env -0 > {ENV_FILE} && "
+                f"{build_exec_prefix()} {ENV_WRAPPER_SCRIPT} bash -c {shlex.quote(inner)} &"
+            )
+        else:
+            return f"cd /scripts && nohup {server_cmd} > /tmp/agent-server.log 2>&1 &"
+
+    def _launch_and_check(self, command: str) -> bool:
+        result = self.execute(command, timeout_seconds=30)
         if result.exit_code != 0:
-            logger.warning(f"Task stdout preview: {result.stdout[:500]}")
-            logger.warning(f"Task stderr preview: {result.stderr[:500]}")
+            logger.warning(f"Agent-server process failed to launch in sandbox {self.id}: {result.stderr}")
+            return False
+        return self._wait_for_health_check()
 
-        return result
+    def start_agent_server(
+        self,
+        repository: str | None,
+        task_id: str,
+        run_id: str,
+        mode: str = "background",
+        create_pr: bool = True,
+        interaction_origin: str | None = None,
+        branch: str | None = None,
+        runtime_adapter: str | None = None,
+        provider: str | None = None,
+        model: str | None = None,
+        reasoning_effort: str | None = None,
+        mcp_configs: list[McpServerConfig] | None = None,
+        allowed_domains: list[str] | None = None,
+    ) -> None:
+        """Start the agent-server HTTP server in the sandbox.
 
-    def _get_task_command(self, task_id: str, run_id: str, repo_path: str, create_pr: bool = True) -> str:
-        create_pr_flag = "true" if create_pr else "false"
-        return f"git reset --hard HEAD && IS_SANDBOX=True node /scripts/runAgent.mjs --taskId {task_id} --runId {run_id} --repositoryPath {repo_path} --createPR {create_pr_flag}"
+        The sandbox URL and token should be obtained via get_connect_credentials()
+        before calling this method. The agent-server runs on port 8080 which is
+        exposed via Modal's connect token mechanism.
+        """
+        if not self.is_running():
+            raise RuntimeError("Sandbox not in running state.")
 
-    def _get_setup_command(self, repo_path: str) -> str:
-        return f"git reset --hard HEAD && IS_SANDBOX=True && node /scripts/runAgent.mjs --repositoryPath {repo_path} --prompt '{SETUP_REPOSITORY_PROMPT.format(cwd=repo_path, repository=repo_path)}' --max-turns 20"
+        repo_path: str | None = None
+        if repository:
+            org, repo = repository.lower().split("/")
+            repo_path = f"/tmp/workspace/repos/{org}/{repo}"
+
+        if allowed_domains:
+            self._setup_agentsh(WORKING_DIR, allowed_domains)
+
+        mcp_servers_arg = ""
+        if mcp_configs:
+            mcp_json = json.dumps([c.to_dict() for c in mcp_configs])
+            mcp_servers_arg = f" --mcpServers {shlex.quote(mcp_json)}"
+
+        command = self._build_agent_server_command(
+            repo_path,
+            task_id,
+            run_id,
+            mode,
+            create_pr,
+            interaction_origin,
+            branch,
+            runtime_adapter,
+            provider,
+            model,
+            reasoning_effort,
+            mcp_servers_arg,
+            allowed_domains=allowed_domains,
+        )
+
+        logger.info(f"Starting agent-server in sandbox {self.id} for {repository or 'no-repo'}")
+        if not self._launch_and_check(command):
+            log_result = self.execute("cat /tmp/agent-server.log 2>/dev/null || echo 'No log file'", timeout_seconds=5)
+            raise SandboxExecutionError(
+                "Agent-server failed to start",
+                {"sandbox_id": self.id, "log": log_result.stdout},
+                cause=RuntimeError("Health check failed after retries"),
+            )
+
+        logger.info(f"Agent-server started in sandbox {self.id}")
+
+    def _setup_agentsh(self, workspace_path: str, allowed_domains: list[str] | None = None) -> None:
+        if allowed_domains:
+            logger.info("Configuring agentsh in sandbox %s for %d allowed domain(s)", self.id, len(allowed_domains))
+        else:
+            logger.info("Configuring agentsh in sandbox %s (allow-all mode)", self.id)
+
+        config_yaml = generate_config_yaml(enable_ptrace=True, full_trace=True)
+        policy_yaml = generate_policy_yaml(allowed_domains)
+
+        self.execute("pkill -f 'agentsh server' || true", timeout_seconds=5)
+        self.execute("mkdir -p /etc/agentsh/policies /var/log/agentsh /var/lib/agentsh/sessions", timeout_seconds=5)
+        self.write_file("/etc/agentsh/config.yaml", config_yaml.encode())
+        self.write_file("/etc/agentsh/policies/default.yaml", policy_yaml.encode())
+        self.write_file(ENV_WRAPPER_SCRIPT, generate_env_wrapper().encode())
+        self.execute(f"chmod +x {ENV_WRAPPER_SCRIPT}", timeout_seconds=5)
+
+        setup_script = build_setup_script(workspace_path)
+        result = self.execute(setup_script, timeout_seconds=30)
+        if result.exit_code != 0:
+            agentsh_log = self.execute("cat /var/log/agentsh/agentsh.log 2>/dev/null || true", timeout_seconds=5)
+            raise SandboxExecutionError(
+                "Failed to start agentsh daemon",
+                {
+                    "sandbox_id": self.id,
+                    "stderr": result.stderr,
+                    "stdout": result.stdout,
+                    "agentsh_log": agentsh_log.stdout,
+                },
+                cause=RuntimeError(result.stderr),
+            )
+
+        session_check = self.execute(f"cat {SESSION_ID_FILE}", timeout_seconds=5)
+        if session_check.exit_code != 0 or not session_check.stdout.strip():
+            agentsh_log = self.execute("cat /var/log/agentsh/agentsh.log 2>/dev/null || true", timeout_seconds=5)
+            raise SandboxExecutionError(
+                "Failed to create agentsh session",
+                {
+                    "sandbox_id": self.id,
+                    "stderr": session_check.stderr,
+                    "agentsh_log": agentsh_log.stdout,
+                },
+                cause=RuntimeError("agentsh session create failed"),
+            )
+
+        logger.info("agentsh daemon started and session created in sandbox %s", self.id)
+
+    def _wait_for_health_check(self, max_attempts: int = 60, poll_interval: float = 0.5) -> bool:
+        """Poll health endpoint until server is ready (single remote call)."""
+        return wait_for_health_check(self.execute, self.id, AGENT_SERVER_PORT, max_attempts, poll_interval)
 
     def create_snapshot(self) -> str:
         if not self.is_running():
@@ -442,12 +720,6 @@ class ModalSandbox:
             raise SandboxCleanupError(
                 f"Failed to destroy sandbox: {e}", {"sandbox_id": self.id, "error": str(e)}, cause=e
             )
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        self.destroy()
 
     def is_running(self) -> bool:
         return self.get_status() == SandboxStatus.RUNNING

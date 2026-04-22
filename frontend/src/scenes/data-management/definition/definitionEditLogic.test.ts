@@ -19,11 +19,11 @@ describe('definitionEditLogic', () => {
             get: {
                 '/api/projects/:team/event_definitions/:id': mockEventDefinitions[0],
                 '/api/projects/:team/property_definitions/:id': mockEventPropertyDefinition,
-                '/api/projects/@current/event_definitions/': {
+                '/api/projects/:team_id/event_definitions/': {
                     results: mockEventDefinitions,
                     count: mockEventDefinitions.length,
                 },
-                '/api/projects/@current/property_definitions/': {
+                '/api/projects/:team_id/property_definitions/': {
                     results: [mockEventPropertyDefinition],
                     count: 1,
                 },

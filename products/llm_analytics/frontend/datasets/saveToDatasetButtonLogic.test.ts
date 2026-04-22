@@ -71,7 +71,7 @@ describe('saveToDatasetButtonLogic', () => {
     const mockApi = api as jest.Mocked<typeof api>
 
     beforeEach(() => {
-        jest.clearAllMocks()
+        jest.resetAllMocks()
 
         // Clear localStorage to ensure persistent state doesn't leak between tests
         window.localStorage.clear()
@@ -80,17 +80,13 @@ describe('saveToDatasetButtonLogic', () => {
         ;(lemonToast.success as jest.Mock) = jest.fn()
         ;(lemonToast.error as jest.Mock) = jest.fn()
 
-        mockApi.datasets = {
-            create: jest.fn(),
-            update: jest.fn(),
-            get: jest.fn(),
-            list: jest.fn().mockResolvedValue(mockDatasetsResponse),
-        } as any
+        jest.spyOn(mockApi.datasets, 'create').mockResolvedValue(undefined as any)
+        jest.spyOn(mockApi.datasets, 'update').mockResolvedValue(undefined as any)
+        jest.spyOn(mockApi.datasets, 'get').mockResolvedValue(undefined as any)
+        jest.spyOn(mockApi.datasets, 'list').mockResolvedValue(mockDatasetsResponse as any)
 
-        mockApi.datasetItems = {
-            create: jest.fn().mockResolvedValue({}),
-            update: jest.fn(),
-        } as any
+        jest.spyOn(mockApi.datasetItems, 'create').mockResolvedValue({} as any)
+        jest.spyOn(mockApi.datasetItems, 'update').mockResolvedValue(undefined as any)
     })
 
     describe('getStorageKey', () => {

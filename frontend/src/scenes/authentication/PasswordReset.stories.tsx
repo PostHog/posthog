@@ -1,4 +1,4 @@
-import { Meta } from '@storybook/react'
+import { Meta, StoryObj } from '@storybook/react'
 import { router } from 'kea-router'
 
 import { useDelayedOnMountEffect } from 'lib/hooks/useOnMountEffect'
@@ -19,104 +19,145 @@ const meta: Meta = {
     },
 }
 export default meta
+
+type Story = StoryObj<{}>
+
 // export more stories with different state
-export const NoSMTP = (): JSX.Element => {
-    useStorybookMocks({
-        get: {
-            '/_preflight': {
-                ...preflightJson,
-                cloud: false,
-                realm: 'hosted-clickhouse',
-                available_social_auth_providers: { github: false, gitlab: false, 'google-oauth2': false, saml: false },
-                email_service_available: false,
+export const NoSMTP: Story = {
+    render: () => {
+        useStorybookMocks({
+            get: {
+                '/_preflight': {
+                    ...preflightJson,
+                    cloud: false,
+                    realm: 'hosted-clickhouse',
+                    available_social_auth_providers: {
+                        github: false,
+                        gitlab: false,
+                        'google-oauth2': false,
+                        saml: false,
+                    },
+                    email_service_available: false,
+                },
             },
-        },
-    })
+        })
 
-    return <PasswordReset />
-}
-export const Initial = (): JSX.Element => {
-    useStorybookMocks({
-        get: {
-            '/_preflight': {
-                ...preflightJson,
-                cloud: false,
-                realm: 'hosted-clickhouse',
-                available_social_auth_providers: { github: false, gitlab: false, 'google-oauth2': false, saml: false },
-                email_service_available: true,
-            },
-        },
-        post: {
-            '/api/reset': {},
-        },
-    })
-
-    return <PasswordReset />
-}
-export const Success = (): JSX.Element => {
-    useStorybookMocks({
-        get: {
-            '/_preflight': {
-                ...preflightJson,
-                cloud: false,
-                realm: 'hosted-clickhouse',
-                available_social_auth_providers: { github: false, gitlab: false, 'google-oauth2': false, saml: false },
-                email_service_available: true,
-            },
-        },
-        post: {
-            '/api/reset': {},
-        },
-    })
-
-    useDelayedOnMountEffect(() => {
-        passwordResetLogic.actions.setRequestPasswordResetValues({ email: 'test@posthog.com' })
-        passwordResetLogic.actions.submitRequestPasswordResetSuccess({ email: 'test@posthog.com' })
-    })
-
-    return <PasswordReset />
-}
-export const Throttled = (): JSX.Element => {
-    useStorybookMocks({
-        get: {
-            '/_preflight': {
-                ...preflightJson,
-                cloud: false,
-                realm: 'hosted-clickhouse',
-                available_social_auth_providers: { github: false, gitlab: false, 'google-oauth2': false, saml: false },
-                email_service_available: true,
-            },
-        },
-        post: {
-            '/api/reset': {},
-        },
-    })
-
-    useDelayedOnMountEffect(() => {
-        passwordResetLogic.actions.setRequestPasswordResetValues({ email: 'test@posthog.com' })
-        passwordResetLogic.actions.setRequestPasswordResetManualErrors({ code: 'throttled' })
-    })
-
-    return <PasswordReset />
+        return <PasswordReset />
+    },
 }
 
-export const WithEmailFromQuery = (): JSX.Element => {
-    useStorybookMocks({
-        get: {
-            '/_preflight': {
-                ...preflightJson,
-                cloud: false,
-                realm: 'hosted-clickhouse',
-                available_social_auth_providers: { github: false, gitlab: false, 'google-oauth2': false, saml: false },
-                email_service_available: true,
+export const Initial: Story = {
+    render: () => {
+        useStorybookMocks({
+            get: {
+                '/_preflight': {
+                    ...preflightJson,
+                    cloud: false,
+                    realm: 'hosted-clickhouse',
+                    available_social_auth_providers: {
+                        github: false,
+                        gitlab: false,
+                        'google-oauth2': false,
+                        saml: false,
+                    },
+                    email_service_available: true,
+                },
             },
-        },
-        post: {
-            '/api/reset': {},
-        },
-    })
+            post: {
+                '/api/reset': {},
+            },
+        })
 
-    useDelayedOnMountEffect(() => router.actions.push(urls.passwordReset(), { email: 'user@example.com' }))
+        return <PasswordReset />
+    },
+}
 
-    return <PasswordReset />
+export const Success: Story = {
+    render: () => {
+        useStorybookMocks({
+            get: {
+                '/_preflight': {
+                    ...preflightJson,
+                    cloud: false,
+                    realm: 'hosted-clickhouse',
+                    available_social_auth_providers: {
+                        github: false,
+                        gitlab: false,
+                        'google-oauth2': false,
+                        saml: false,
+                    },
+                    email_service_available: true,
+                },
+            },
+            post: {
+                '/api/reset': {},
+            },
+        })
+
+        useDelayedOnMountEffect(() => {
+            passwordResetLogic.actions.setRequestPasswordResetValues({ email: 'test@posthog.com' })
+            passwordResetLogic.actions.submitRequestPasswordResetSuccess({ email: 'test@posthog.com' })
+        })
+
+        return <PasswordReset />
+    },
+}
+
+export const Throttled: Story = {
+    render: () => {
+        useStorybookMocks({
+            get: {
+                '/_preflight': {
+                    ...preflightJson,
+                    cloud: false,
+                    realm: 'hosted-clickhouse',
+                    available_social_auth_providers: {
+                        github: false,
+                        gitlab: false,
+                        'google-oauth2': false,
+                        saml: false,
+                    },
+                    email_service_available: true,
+                },
+            },
+            post: {
+                '/api/reset': {},
+            },
+        })
+
+        useDelayedOnMountEffect(() => {
+            passwordResetLogic.actions.setRequestPasswordResetValues({ email: 'test@posthog.com' })
+            passwordResetLogic.actions.setRequestPasswordResetManualErrors({ code: 'throttled' })
+        })
+
+        return <PasswordReset />
+    },
+}
+
+export const WithEmailFromQuery: Story = {
+    render: () => {
+        useStorybookMocks({
+            get: {
+                '/_preflight': {
+                    ...preflightJson,
+                    cloud: false,
+                    realm: 'hosted-clickhouse',
+                    available_social_auth_providers: {
+                        github: false,
+                        gitlab: false,
+                        'google-oauth2': false,
+                        saml: false,
+                    },
+                    email_service_available: true,
+                },
+            },
+            post: {
+                '/api/reset': {},
+            },
+        })
+
+        useDelayedOnMountEffect(() => router.actions.push(urls.passwordReset(), { email: 'user@example.com' }))
+
+        return <PasswordReset />
+    },
 }

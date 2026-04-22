@@ -1,5 +1,5 @@
 import { JSONContent } from '@tiptap/core'
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import { IconLock } from '@posthog/icons'
 import { LemonButton, LemonCheckbox, Tooltip } from '@posthog/lemon-ui'
@@ -16,6 +16,16 @@ export interface MessageInputProps {
     minRows?: number
     /** Whether to show the "Send as private" checkbox */
     showPrivateOption?: boolean
+    /** Draft content to restore (from parent logic for tab persistence) */
+    draftContent?: JSONContent | null
+    /** Called when draft content changes */
+    onDraftChange?: (content: JSONContent | null) => void
+    /** Whether the private note checkbox is checked (from parent logic for tab persistence) */
+    isPrivate?: boolean
+    /** Called when private checkbox changes */
+    onPrivateChange?: (isPrivate: boolean) => void
+    /** Extra actions rendered next to the send button */
+    extraActions?: React.ReactNode
 }
 
 export function MessageInput({
@@ -25,11 +35,24 @@ export function MessageInput({
     buttonText = 'Send',
     minRows = 3,
     showPrivateOption = false,
+    draftContent,
+    onDraftChange,
+    isPrivate: controlledIsPrivate,
+    onPrivateChange,
+    extraActions,
 }: MessageInputProps): JSX.Element {
-    const [isEmpty, setIsEmpty] = useState(true)
+    const [isEmpty, setIsEmpty] = useState(!draftContent)
     const [isUploading, setIsUploading] = useState(false)
-    const [isPrivate, setIsPrivate] = useState(false)
+    const [localIsPrivate, setLocalIsPrivate] = useState(false)
     const editorRef = useRef<RichContentEditorType | null>(null)
+
+    useEffect(() => {
+        setIsEmpty(!draftContent)
+    }, [draftContent])
+
+    // Support controlled or uncontrolled isPrivate
+    const isPrivate = controlledIsPrivate ?? localIsPrivate
+    const setIsPrivate = onPrivateChange ?? setLocalIsPrivate
 
     const handleSubmit = (): void => {
         if (editorRef.current && !isEmpty) {
@@ -38,18 +61,35 @@ export function MessageInput({
             onSendMessage(content, richContent, isPrivate, () => {
                 editorRef.current?.clear()
                 setIsEmpty(true)
+                onDraftChange?.(null)
+                if (onPrivateChange) {
+                    onPrivateChange(false)
+                } else {
+                    setLocalIsPrivate(false)
+                }
             })
+        }
+    }
+
+    const handleUpdate = (empty: boolean): void => {
+        setIsEmpty(empty)
+        if (onDraftChange && editorRef.current) {
+            onDraftChange(empty ? null : editorRef.current.getJSON())
         }
     }
 
     return (
         <div>
             <SupportEditor
+                initialContent={draftContent}
                 placeholder={placeholder}
                 onCreate={(editor) => {
                     editorRef.current = editor
+                    if (draftContent) {
+                        setIsEmpty(false)
+                    }
                 }}
-                onUpdate={(empty) => setIsEmpty(empty)}
+                onUpdate={handleUpdate}
                 onPressCmdEnter={handleSubmit}
                 onUploadingChange={setIsUploading}
                 disabled={messageSending}
@@ -58,7 +98,7 @@ export function MessageInput({
             />
             <div className="flex justify-between items-center mt-2">
                 {showPrivateOption ? (
-                    <Tooltip title="Private messages are only visible to your team, not to the customer">
+                    <Tooltip title="Private notes are only visible to your team, not to the customer.">
                         <span>
                             <LemonCheckbox
                                 checked={isPrivate}
@@ -66,7 +106,7 @@ export function MessageInput({
                                 label={
                                     <span className="inline-flex items-center gap-1">
                                         <IconLock className="text-sm" />
-                                        Send as private
+                                        Attach as private note
                                     </span>
                                 }
                             />
@@ -75,14 +115,17 @@ export function MessageInput({
                 ) : (
                     <div />
                 )}
-                <LemonButton
-                    type="primary"
-                    onClick={handleSubmit}
-                    loading={messageSending}
-                    disabledReason={isEmpty ? 'No message' : isUploading ? 'Uploading image...' : undefined}
-                >
-                    {buttonText}
-                </LemonButton>
+                <div className="flex items-center gap-2">
+                    {extraActions}
+                    <LemonButton
+                        type="primary"
+                        onClick={handleSubmit}
+                        loading={messageSending}
+                        disabledReason={isEmpty ? 'No message' : isUploading ? 'Uploading image...' : undefined}
+                    >
+                        {isPrivate ? 'Attach' : buttonText}
+                    </LemonButton>
+                </div>
             </div>
         </div>
     )

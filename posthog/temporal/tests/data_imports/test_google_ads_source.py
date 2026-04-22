@@ -1,5 +1,6 @@
 import os
 import json
+from collections.abc import Iterable
 
 import pytest
 from unittest import mock
@@ -189,10 +190,16 @@ def test_google_ads_source(customer_id: str, developer_token: str, service_accou
         "geographic_stats",
         "campaign_overview_stats",
         "video_performance_stats",
+        "asset_group",
+        "asset_group_stats",
+        "shopping_performance_view",
+        "conversion_action",
     ):
         source = google_ads_source(cfg, resource_name=resource, team_id=team.id)
 
-        _ = list(source.items())
+        items = source.items()
+        assert isinstance(items, Iterable)
+        list(items)
 
 
 class TestGoogleAdsSourceValidation:

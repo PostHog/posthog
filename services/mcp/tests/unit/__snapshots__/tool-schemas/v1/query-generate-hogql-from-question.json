@@ -1,0 +1,12 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "question": {
+            "description": "Your natural language query describing the SQL insight (max 1000 characters).",
+            "maxLength": 1000,
+            "type": "string"
+        }
+    },
+    "required": ["question"],
+    "type": "object"
+}

@@ -1,18 +1,24 @@
-import Fuse from 'fuse.js'
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { encodeParams } from 'kea-router'
 import type { PostHog } from 'posthog-js'
 
+import { createFuse } from 'lib/utils/fuseSearch'
 import { permanentlyMount } from 'lib/utils/kea-logic-builders'
 
 import { toolbarConfigLogic, toolbarFetch } from '~/toolbar/toolbarConfigLogic'
-import { toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
+import { toolbarLogger } from '~/toolbar/toolbarLogger'
+import { captureToolbarException, toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
 import { CombinedFeatureFlagAndValueType } from '~/types'
 
 import type { flagsToolbarLogicType } from './flagsToolbarLogicType'
 
 export type PayloadOverrides = Record<string, any>
+
+type EvaluationReasonsResponse = Record<
+    string,
+    { value: boolean | string; evaluation: { reason: string; condition_index: number | null } }
+>
 
 export const flagsToolbarLogic = kea<flagsToolbarLogicType>([
     path(['toolbar', 'flags', 'flagsToolbarLogic']),
@@ -45,6 +51,12 @@ export const flagsToolbarLogic = kea<flagsToolbarLogicType>([
         setPayloadError: (flagKey: string, error: string | null) => ({ flagKey, error }),
         setPayloadEditorOpen: (flagKey: string, isOpen: boolean) => ({ flagKey, isOpen }),
         clearAllOverrides: true,
+        // Impersonation: view flags as a different user
+        loadFlagsForDistinctId: (distinctId: string) => ({ distinctId }),
+        setImpersonatedFlagValues: (flagValues: Record<string, string | boolean>) => ({ flagValues }),
+        clearImpersonation: true,
+        setDraftDistinctId: (draftDistinctId: string) => ({ draftDistinctId }),
+        setImpersonationOpen: (isOpen: boolean) => ({ isOpen }),
     }),
     loaders(({ values }) => ({
         userFlags: [
@@ -143,18 +155,56 @@ export const flagsToolbarLogic = kea<flagsToolbarLogicType>([
                 },
             },
         ],
+        impersonatedDistinctId: [
+            null as string | null,
+            {
+                loadFlagsForDistinctId: (_, { distinctId }) => distinctId,
+                clearImpersonation: () => null,
+                clearAllOverrides: () => null,
+            },
+        ],
+        impersonatedFlagValues: [
+            null as Record<string, string | boolean> | null,
+            {
+                setImpersonatedFlagValues: (_, { flagValues }) => flagValues,
+                clearImpersonation: () => null,
+                clearAllOverrides: () => null,
+            },
+        ],
+        draftDistinctId: [
+            '',
+            {
+                setDraftDistinctId: (_, { draftDistinctId }) => draftDistinctId,
+                loadFlagsForDistinctId: () => '',
+            },
+        ],
+        impersonationOpen: [
+            false,
+            {
+                setImpersonationOpen: (_, { isOpen }) => isOpen,
+                clearImpersonation: () => false,
+            },
+        ],
     }),
     selectors({
         userFlagsWithOverrideInfo: [
-            (s) => [s.userFlags, s.localOverrides, s.posthogClientFlagValues, s.payloadOverrides],
-            (userFlags, localOverrides, posthogClientFlagValues, payloadOverrides) => {
+            (s) => [
+                s.userFlags,
+                s.localOverrides,
+                s.posthogClientFlagValues,
+                s.payloadOverrides,
+                s.impersonatedFlagValues,
+            ],
+            (userFlags, localOverrides, posthogClientFlagValues, payloadOverrides, impersonatedFlagValues) => {
                 return userFlags.map((flag) => {
                     const hasVariants = (flag.feature_flag.filters?.multivariate?.variants?.length || 0) > 0
 
+                    const baseValue = impersonatedFlagValues
+                        ? (impersonatedFlagValues[flag.feature_flag.key] ?? false)
+                        : (posthogClientFlagValues[flag.feature_flag.key] ?? flag.value)
+
                     const currentValue =
-                        flag.feature_flag.key in localOverrides
-                            ? localOverrides[flag.feature_flag.key]
-                            : (posthogClientFlagValues[flag.feature_flag.key] ?? flag.value)
+                        flag.feature_flag.key in localOverrides ? localOverrides[flag.feature_flag.key] : baseValue
 
                     return {
                         ...flag,
@@ -170,8 +220,7 @@ export const flagsToolbarLogic = kea<flagsToolbarLogicType>([
             (s) => [s.searchTerm, s.userFlagsWithOverrideInfo],
             (searchTerm, userFlagsWithOverrideInfo) => {
                 return searchTerm
-                    ? new Fuse(userFlagsWithOverrideInfo, {
-                          threshold: 0.3,
+                    ? createFuse(userFlagsWithOverrideInfo, {
                           keys: ['feature_flag.key', 'feature_flag.name'],
                       })
                           .search(searchTerm)
@@ -247,8 +296,38 @@ export const flagsToolbarLogic = kea<flagsToolbarLogicType>([
                     actions.setPayloadEditorOpen(flagKey, false)
                 } catch (e) {
                     actions.setPayloadError(flagKey, 'Invalid JSON')
-                    console.error('Invalid JSON:', e)
+                    toolbarLogger.error('flags', 'Invalid JSON payload', { flag_key: flagKey })
+                    captureToolbarException(e, 'flag_payload_parse', { flag_key: flagKey })
                 }
+            },
+            loadFlagsForDistinctId: async ({ distinctId }, breakpoint) => {
+                const params = { distinct_id: distinctId }
+                const response = await toolbarFetch(
+                    `/api/projects/@current/feature_flags/evaluation_reasons${encodeParams(params, '?')}`
+                )
+                breakpoint()
+
+                if (!response.ok) {
+                    return
+                }
+
+                const data: EvaluationReasonsResponse = await response.json()
+                const flagValues: Record<string, string | boolean> = {}
+                for (const [key, entry] of Object.entries(data)) {
+                    flagValues[key] = entry.value
+                }
+                actions.setImpersonatedFlagValues(flagValues)
+
+                // Apply as overrides so the page actually re-renders with these flags
+                const clientPostHog = values.posthog
+                if (clientPostHog) {
+                    clientPostHog.featureFlags.overrideFeatureFlags({ flags: flagValues })
+                    actions.checkLocalOverrides()
+                }
+                toolbarPosthogJS.capture('toolbar flags impersonated', { distinct_id: distinctId })
+            },
+            clearImpersonation: () => {
+                clearFeatureFlagOverrides()
             },
             clearAllOverrides: () => {
                 clearFeatureFlagOverrides()

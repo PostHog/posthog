@@ -5,12 +5,13 @@ import { Link } from '@posthog/lemon-ui'
 import { FEATURE_FLAGS, type FeatureFlagKey } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { humanizeBatchExportName } from 'scenes/data-pipelines/batch-exports/utils'
-import { sourceWizardLogic } from 'scenes/data-warehouse/new/sourceWizardLogic'
-import { DATA_WAREHOUSE_SOURCE_ICON_MAP } from 'scenes/data-warehouse/settings/DataWarehouseSourceIcon'
 import { userLogic } from 'scenes/userLogic'
 
 import { SourceConfig } from '~/queries/schema/schema-general'
 import { BATCH_EXPORT_SERVICE_NAMES, HogFunctionTemplateStatus, HogFunctionTemplateType } from '~/types'
+
+import { sourceWizardLogic } from 'products/data_warehouse/frontend/scenes/NewSourceScene/sourceWizardLogic'
+import { DATA_WAREHOUSE_SOURCE_ICON_MAP } from 'products/data_warehouse/frontend/shared/components/SourceIcon'
 
 import { BATCH_EXPORT_ICON_MAP } from '../batch-exports/BatchExportIcon'
 import type { nonHogFunctionTemplatesLogicType } from './nonHogFunctionTemplatesLogicType'
@@ -139,13 +140,9 @@ export const nonHogFunctionTemplatesLogic = kea<nonHogFunctionTemplatesLogicType
                 // HTTP is currently only used for Cloud to Cloud migrations and shouldn't be accessible to users
                 const httpEnabled =
                     featureFlags[FEATURE_FLAGS.BATCH_EXPORTS_POSTHOG_HTTP] || user?.is_impersonated || user?.is_staff
-                // Databricks is currently behind a feature flag
-                const databricksEnabled = featureFlags[FEATURE_FLAGS.BATCH_EXPORTS_DATABRICKS]
 
-                const services = BATCH_EXPORT_SERVICE_NAMES.filter(
-                    (service) =>
-                        (httpEnabled ? true : service !== ('HTTP' as const)) &&
-                        (databricksEnabled ? true : service !== ('Databricks' as const))
+                const services = BATCH_EXPORT_SERVICE_NAMES.filter((service) =>
+                    httpEnabled ? true : service !== ('HTTP' as const)
                 )
 
                 return services.map(

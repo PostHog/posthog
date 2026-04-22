@@ -1,6 +1,6 @@
 # Feature flag billing
 
-This document explains how the Rust feature flags service tracks usage for billing purposes, including Redis counter management, scheduled aggregation, and event processing.
+This document explains how the Rust feature flags service tracks usage for billing purposes, including Redis counter management, scheduled aggregation, event processing, and quota enforcement.
 
 ## Architecture overview
 
@@ -39,8 +39,9 @@ When a feature flag request is processed, the Rust service increments Redis coun
 
 **Source files:**
 
-- `rust/feature-flags/src/flags/flag_analytics.rs` - Counter increment logic
-- `rust/feature-flags/src/handler/billing.rs` - Billable flag detection
+- `rust/feature-flags/src/flags/flag_analytics.rs` - Counter increment logic, shared `is_billable_flag_key` predicate
+- `rust/feature-flags/src/handler/billing.rs` - Billable flag detection for `/decide`
+- `rust/feature-flags/src/api/flag_definitions.rs` - Billable flag detection and quota enforcement for `/flags/definitions`
 
 ### Redis key structure
 
@@ -76,6 +77,23 @@ Not all flag evaluations are billable. The following flags are excluded:
 - **Inactive flags**: Flags where `active = false`
 
 A request is only counted for billing if it contains at least one active, non-survey, non-product-tour flag.
+
+The billable flag key check is implemented as a shared predicate (`is_billable_flag_key` in `flag_analytics.rs`) used by both the `/decide` handler (`contains_billable_flags`) and the `/flags/definitions` handler (`has_billable_flags`). This ensures the filtering logic stays consistent across endpoints.
+
+### Quota enforcement
+
+Both Django's `/api/feature_flag/local_evaluation` and Rust's `/flags/definitions` endpoints enforce billing quotas. When a team exceeds their feature flag request quota, either endpoint returns **HTTP 402** with a JSON body:
+
+```json
+{
+  "type": "quota_limited",
+  "code": "payment_required",
+  "detail": "You have exceeded your feature flag request quota",
+  "attr": null
+}
+```
+
+The Rust endpoint checks `FeatureFlagsLimiter.is_limited(token)` before the ETag comparison and cache fetch. If the quota is exceeded, all requests (including conditional ones) return HTTP 402 — no 304 is issued while a team is over quota. Requests that pass the quota check but result in a 304 (ETag match) are not counted toward billing usage, matching Django's behavior.
 
 ### SDK tracking
 

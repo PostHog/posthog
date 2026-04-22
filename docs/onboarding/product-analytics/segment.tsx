@@ -22,14 +22,14 @@ export const getSegmentSteps = (ctx: OnboardingComponentsContext): StepDefinitio
             badge: 'required',
             content: (
                 <>
-                    <Markdown>Enter your PostHog project API key:</Markdown>
+                    <Markdown>Enter your PostHog project token:</Markdown>
                     <CodeBlock
                         blocks={[
                             {
                                 language: 'text',
                                 file: 'API Key',
                                 code: dedent`
-                                <ph_project_api_key>
+                                <ph_project_token>
                             `,
                             },
                         ]}

@@ -1,8 +1,8 @@
 import { BindLogic, kea, path, selectors } from 'kea'
 import { router } from 'kea-router'
 
-import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { sceneConfigurations } from 'scenes/scenes'
+import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { Settings } from 'scenes/settings/Settings'
 import { urls } from 'scenes/urls'
 

@@ -9,19 +9,24 @@ from django.utils import timezone
 import structlog
 import posthoganalytics
 from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import OpenApiParameter
+from drf_spectacular.utils import OpenApiParameter, extend_schema_view
 from loginas.utils import is_impersonated_session
+from opentelemetry import trace
 from requests import HTTPError
 from rest_framework import mixins, request, response, serializers, status, viewsets
 from rest_framework.exceptions import NotFound, ValidationError
 from rest_framework.pagination import CursorPagination
 
+from posthog.schema import ProductKey
+
 from posthog.api.capture import capture_internal
 from posthog.api.documentation import extend_schema
+from posthog.api.property_value_metrics import PROPERTY_VALUES_DURATION
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.kafka_engine import trim_quotes_expr
+from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.helpers.dashboard_templates import create_group_type_mapping_detail_dashboard
 from posthog.models import GroupUsageMetric, PropertyDefinition
 from posthog.models.activity_logging.activity_log import Change, Detail, load_activity, log_activity
@@ -29,10 +34,17 @@ from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.filters.utils import GroupTypeIndex
 from posthog.models.group import Group
 from posthog.models.group.util import create_group, raw_create_group_ch
-from posthog.models.group_type_mapping import GROUP_TYPE_MAPPING_SERIALIZER_FIELDS, GroupTypeMapping
-from posthog.models.property_definition import PropertyType
+from posthog.models.group_type_mapping import (
+    GROUP_TYPE_MAPPING_SERIALIZER_FIELDS,
+    GroupTypeMapping,
+    invalidate_group_types_cache,
+)
 from posthog.models.user import User
+from posthog.personhog_client.converters import GroupTypeMappingResult
+from posthog.personhog_client.metrics import PERSONHOG_ROUTING_ERRORS_TOTAL, PERSONHOG_ROUTING_TOTAL, get_client_name
+from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 
+from products.event_definitions.backend.models.property_definition import PropertyType
 from products.notebooks.backend.models import Notebook, ResourceNotebook
 from products.notebooks.backend.util import (
     create_bullet_list,
@@ -45,6 +57,7 @@ from ee.clickhouse.queries.related_actors_query import RelatedActorsQuery
 from ee.clickhouse.views.exceptions import TriggerGroupIdentifyException
 
 logger = structlog.get_logger(__name__)
+tracer = trace.get_tracer(__name__)
 
 
 def detect_group_property_type(value):
@@ -78,7 +91,7 @@ def create_property_definition(team_id: int, group_type_index: int, property_nam
     )
 
 
-class GroupTypeSerializer(serializers.ModelSerializer):
+class GroupTypeSerializer(serializers.ModelSerializer, UserAccessControlSerializerMixin):
     class Meta:
         model = GroupTypeMapping
         fields = GROUP_TYPE_MAPPING_SERIALIZER_FIELDS
@@ -105,10 +118,13 @@ class GroupsTypesViewSet(
             instance = GroupTypeMapping.objects.get(
                 project_id=self.team.project_id, group_type_index=row["group_type_index"]
             )
+            # Pre-populate the team FK cache so serializer access control checks
+            instance.team = self.team
             serializer = self.get_serializer(instance, data=row)
             serializer.is_valid(raise_exception=True)
             serializer.save()
 
+        invalidate_group_types_cache(self.team.project_id)
         return self.list(request, *args, **kwargs)
 
     @action(methods=["PUT"], detail=False)
@@ -129,7 +145,12 @@ class GroupsTypesViewSet(
         dashboard = create_group_type_mapping_detail_dashboard(group_type_mapping, request.user)
         group_type_mapping.detail_dashboard_id = dashboard.id
         group_type_mapping.save()
+        invalidate_group_types_cache(self.team.project_id)
         return response.Response(self.get_serializer(group_type_mapping).data)
+
+    def perform_destroy(self, instance):
+        super().perform_destroy(instance)
+        invalidate_group_types_cache(self.team.project_id)
 
     @action(methods=["PUT"], detail=False)
     def set_default_columns(self, request: request.Request, **kw):
@@ -142,6 +163,7 @@ class GroupsTypesViewSet(
 
         group_type_mapping.default_columns = request.data["default_columns"]
         group_type_mapping.save()
+        invalidate_group_types_cache(self.team.project_id)
         return response.Response(self.get_serializer(group_type_mapping).data)
 
 
@@ -189,23 +211,67 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
     def get_serializer_class(self):
         return self.serializer_classes.get(self.action, self.serializer_classes["default"])
 
+    def _safely_get_query_params(self, require_group_key: bool = False) -> tuple[str, str | None]:
+        group_type_index = self.request.GET.get("group_type_index")
+        if not group_type_index:
+            raise ValidationError({"group_type_index": ["This query parameter is required."]})
+        group_key = self.request.GET.get("group_key")
+        if require_group_key and not group_key:
+            raise ValidationError({"group_key": ["This query parameter is required."]})
+        return group_type_index, group_key
+
     def safely_get_queryset(self, queryset):
+        group_type_index, _ = self._safely_get_query_params()
         return queryset.filter(
-            group_type_index=self.request.GET["group_type_index"],
+            group_type_index=group_type_index,
             group_key__icontains=self.request.GET.get("group_key", ""),
         )
 
     def safely_get_object(self, queryset):
+        group_type_index, group_key = self._safely_get_query_params(require_group_key=True)
+
         queryset = queryset.filter(
-            group_type_index=self.request.GET["group_type_index"],
-            group_key=self.request.GET.get("group_key", ""),
+            group_type_index=group_type_index,
+            group_key=group_key,
         )
 
         return get_object_or_404(queryset)
 
-    def get_group_type_mapping_or_404(self, group_type_index: GroupTypeIndex) -> GroupTypeMapping:
+    def get_group_type_mapping_or_404(self, group_type_index: GroupTypeIndex) -> GroupTypeMappingResult:
+        from posthog.personhog_client.converters import fetch_group_type_mapping_result
+        from posthog.personhog_client.gate import use_personhog
+
+        if use_personhog():
+            try:
+                result = fetch_group_type_mapping_result(self.team.project_id, group_type_index)
+                if result is not None:
+                    PERSONHOG_ROUTING_TOTAL.labels(
+                        operation="get_group_type_mapping_or_404", source="personhog", client_name=get_client_name()
+                    ).inc()
+                    return result
+                raise NotFound()
+            except NotFound:
+                raise
+            except Exception:
+                PERSONHOG_ROUTING_ERRORS_TOTAL.labels(
+                    operation="get_group_type_mapping_or_404",
+                    source="personhog",
+                    error_type="grpc_error",
+                    client_name=get_client_name(),
+                ).inc()
+                logger.warning(
+                    "personhog_group_type_mapping_failure",
+                    project_id=self.team.project_id,
+                    group_type_index=group_type_index,
+                    exc_info=True,
+                )
+
         try:
-            return GroupTypeMapping.objects.get(project_id=self.team.project_id, group_type_index=group_type_index)
+            obj = GroupTypeMapping.objects.get(project_id=self.team.project_id, group_type_index=group_type_index)
+            PERSONHOG_ROUTING_TOTAL.labels(
+                operation="get_group_type_mapping_or_404", source="django_orm", client_name=get_client_name()
+            ).inc()
+            return GroupTypeMappingResult(group_type=obj.group_type, group_type_index=obj.group_type_index)
         except GroupTypeMapping.DoesNotExist:
             raise NotFound()
 
@@ -367,8 +433,9 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
     )
     @action(methods=["GET"], detail=False, required_scopes=["group:read"])
     def find(self, request: request.Request, **kw) -> response.Response:
+        _, group_key = self._safely_get_query_params(require_group_key=True)
         try:
-            group = self.get_queryset().get(group_key=request.GET["group_key"])
+            group = self.get_queryset().get(group_key=group_key)
             if (
                 self._is_crm_enabled(cast(User, request.user))
                 and not ResourceNotebook.objects.filter(group=group.id).exists()
@@ -409,27 +476,22 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
     def update_property(self, request: request.Request, **_kw) -> response.Response:
         try:
             group = self.get_object()
-            for key in ["value", "key"]:
-                if request.data.get(key) is None:
-                    return response.Response(
-                        {
-                            "attr": key,
-                            "code": "This field is required.",
-                            "detail": "required",
-                            "type": "validation_error",
-                        },
-                        status=400,
-                    )
-            create_or_update = "update" if request.data["key"] in group.group_properties.keys() else "create"
-            original_value = group.group_properties.get(request.data["key"], None)
-            group.group_properties[request.data["key"]] = request.data["value"]
+            property_key = request.data.get("key")
+            property_value = request.data.get("value")
+            if not property_key:
+                raise ValidationError({"key": ["This field is required."]})
+            if property_value is None:
+                raise ValidationError({"value": ["This field is required."]})
+            create_or_update = "update" if property_key in group.group_properties else "create"
+            original_value = group.group_properties.get(property_key, None)
+            group.group_properties[property_key] = property_value
             group.save()
 
             create_property_definition(
                 team_id=self.team.pk,
                 group_type_index=group.group_type_index,
-                property_name=request.data["key"],
-                property_value=request.data["value"],
+                property_name=property_key,
+                property_value=property_value,
             )
 
             # Need to update ClickHouse too
@@ -447,7 +509,7 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
                 self.trigger_group_identify(
                     group=group,
                     operation=f"group property {create_or_update}",
-                    group_properties={request.data["key"]: request.data["value"]},
+                    group_properties={property_key: property_value},
                 )
             except TriggerGroupIdentifyException as exc:
                 return response.Response(data=exc.exception_data, status=exc.status_code)
@@ -461,13 +523,13 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
                 scope="Group",
                 activity=f"{create_or_update}_property",
                 detail=Detail(
-                    name=str(request.data["key"]),
+                    name=str(property_key),
                     changes=[
                         Change(
                             type="Group",
-                            action=f"created" if create_or_update == "create" else "changed",
+                            action="created" if create_or_update == "create" else "changed",
                             before=original_value,
-                            after=request.data["value"],
+                            after=property_value,
                         )
                     ],
                 ),
@@ -496,25 +558,16 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
     def delete_property(self, request: request.Request, **_kw) -> response.Response:
         try:
             group = self.get_object()
-            for key in ["$unset"]:
-                if request.data.get(key) is None:
-                    return response.Response(
-                        {
-                            "attr": key,
-                            "code": "This field is required.",
-                            "detail": "required",
-                            "type": "validation_error",
-                        },
-                        status=400,
-                    )
-            try:
-                group_type_mapping = GroupTypeMapping.objects.get(
-                    project_id=self.team.project_id, group_type_index=group.group_type_index
+            property_key = request.data.get("$unset")
+            if not isinstance(property_key, str):
+                raise ValidationError(
+                    {"$unset": ["This field is required and must be a string (the property name to delete)."]}
                 )
-            except GroupTypeMapping.DoesNotExist:
-                raise NotFound()
-            original_value = group.group_properties[request.data["$unset"]]
-            del group.group_properties[request.data["$unset"]]
+            if property_key not in group.group_properties:
+                raise ValidationError({"$unset": [f"Property '{property_key}' does not exist on this group."]})
+            group_type_mapping = self.get_group_type_mapping_or_404(cast(GroupTypeIndex, group.group_type_index))
+            original_value = group.group_properties[property_key]
+            del group.group_properties[property_key]
             group.save()
 
             # Need to update ClickHouse too
@@ -534,7 +587,7 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
             properties = {
                 "$group_type": group_type_mapping.group_type,
                 "$group_key": group.group_key,
-                "$group_unset": [request.data["$unset"]],
+                "$group_unset": [property_key],
             }
 
             try:
@@ -552,7 +605,7 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
             except HTTPError as e:
                 return response.Response(
                     {
-                        "attr": key,
+                        "attr": "$unset",
                         "code": "Failed to submit group property deletion event.",
                         "detail": "capture_http_error",
                         "type": "capture_http_error",
@@ -562,7 +615,7 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
             except Exception:
                 return response.Response(
                     {
-                        "attr": key,
+                        "attr": "$unset",
                         "code": "Failed to submit group property deletion event.",
                         "detail": "capture_error",
                         "type": "capture_error",
@@ -579,7 +632,7 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
                 scope="Group",
                 activity="update_property",
                 detail=Detail(
-                    name=str(request.data["$unset"]),
+                    name=str(property_key),
                     changes=[Change(type="Group", action="deleted", before=original_value)],
                 ),
             )
@@ -641,13 +694,16 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
     @action(methods=["GET"], detail=False, required_scopes=["group:read"])
     def related(self, request: request.Request, pk=None, **kw) -> response.Response:
         group_type_index = request.GET.get("group_type_index")
-        id = request.GET["id"]
+        actor_id = request.GET.get("id")
+        if not actor_id:
+            raise ValidationError({"id": ["This query parameter is required."]})
 
-        results = RelatedActorsQuery(self.team, group_type_index, id).run()
+        results = RelatedActorsQuery(self.team, group_type_index, actor_id).run()
         return response.Response(results)
 
     @action(methods=["GET"], detail=False, required_scopes=["group:read"])
     def property_definitions(self, request: request.Request, **kw):
+        tag_queries(product=ProductKey.GROUP_ANALYTICS, feature=Feature.QUERY)
         rows = sync_execute(
             f"""
             SELECT group_type_index, tupleElement(keysAndValues, 1) as key, count(*) as count
@@ -668,33 +724,52 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
 
     @action(methods=["GET"], detail=False, required_scopes=["group:read"])
     def property_values(self, request: request.Request, **kw):
-        value_filter = request.GET.get("value")
+        with (
+            PROPERTY_VALUES_DURATION.labels(endpoint_type="group").time(),
+            tracer.start_as_current_span("groups_api_property_values") as span,
+        ):
+            value_filter = request.GET.get("value")
+            group_type_index = request.GET.get("group_type_index")
+            if not group_type_index:
+                raise ValidationError({"group_type_index": ["This query parameter is required."]})
+            key = request.GET.get("key")
+            if not key:
+                raise ValidationError({"key": ["This query parameter is required."]})
 
-        query = f"""
-            SELECT {trim_quotes_expr("tupleElement(keysAndValues, 2)")} as value, count(*) as count
-            FROM groups
-            ARRAY JOIN JSONExtractKeysAndValuesRaw(group_properties) as keysAndValues
-            WHERE team_id = %(team_id)s
-              AND group_type_index = %(group_type_index)s
-              AND tupleElement(keysAndValues, 1) = %(key)s
-              {f"AND {trim_quotes_expr('tupleElement(keysAndValues, 2)')} ILIKE %(value_filter)s" if value_filter else ""}
-            GROUP BY value
-            ORDER BY count DESC, value ASC
-            LIMIT 20
-        """
+            span.set_attribute("team_id", self.team.pk)
+            span.set_attribute("group_type_index", group_type_index)
+            span.set_attribute("property_key", key)
+            span.set_attribute("has_value_filter", value_filter is not None)
 
-        params = {
-            "team_id": self.team.pk,
-            "group_type_index": request.GET["group_type_index"],
-            "key": request.GET["key"],
-        }
+            query = f"""
+                    SELECT {trim_quotes_expr("tupleElement(keysAndValues, 2)")} as value, count(*) as count
+                    FROM groups
+                    ARRAY JOIN JSONExtractKeysAndValuesRaw(group_properties) as keysAndValues
+                    WHERE team_id = %(team_id)s
+                      AND group_type_index = %(group_type_index)s
+                      AND tupleElement(keysAndValues, 1) = %(key)s
+                      {f"AND {trim_quotes_expr('tupleElement(keysAndValues, 2)')} ILIKE %(value_filter)s" if value_filter else ""}
+                    GROUP BY value
+                    ORDER BY count DESC, value ASC
+                    LIMIT 20
+                """
 
-        if value_filter:
-            params["value_filter"] = f"%{value_filter}%"
+            params = {
+                "team_id": self.team.pk,
+                "group_type_index": group_type_index,
+                "key": key,
+            }
 
-        rows = sync_execute(query, params)
+            if value_filter:
+                params["value_filter"] = f"%{value_filter}%"
 
-        return response.Response([{"name": name, "count": count} for name, count in rows])
+            tag_queries(product=ProductKey.GROUP_ANALYTICS, feature=Feature.QUERY)
+            rows = sync_execute(query, params)
+
+            span.set_attribute("result_count", len(rows))
+            return response.Response(
+                {"results": [{"name": name, "count": count} for name, count in rows], "refreshing": False}
+            )
 
     def _is_crm_enabled(self, user: User) -> bool:
         return posthoganalytics.feature_enabled(
@@ -732,12 +807,33 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
         ResourceNotebook.objects.create(notebook=notebook, group=group.id)
 
 
-class GroupUsageMetricSerializer(serializers.ModelSerializer):
+class GroupUsageMetricSerializer(serializers.ModelSerializer, UserAccessControlSerializerMixin):
     class Meta:
         model = GroupUsageMetric
-        fields = ("id", "name", "format", "interval", "display", "filters")
+        fields = ("id", "name", "format", "interval", "display", "filters", "math", "math_property")
+
+    def validate(self, data):
+        data = super().validate(data)
+
+        math = data.get("math", self.instance.math if self.instance else GroupUsageMetric.Math.COUNT)
+        math_property = data.get("math_property", self.instance.math_property if self.instance else None)
+
+        if math == GroupUsageMetric.Math.SUM and not math_property:
+            raise serializers.ValidationError({"math_property": "math_property is required when math is 'sum'."})
+        if math == GroupUsageMetric.Math.COUNT and math_property:
+            raise serializers.ValidationError({"math_property": "math_property must be empty when math is 'count'."})
+
+        return data
 
 
+@extend_schema_view(
+    list=extend_schema(tags=["customer_analytics"]),
+    create=extend_schema(tags=["customer_analytics"]),
+    retrieve=extend_schema(tags=["customer_analytics"]),
+    update=extend_schema(tags=["customer_analytics"]),
+    partial_update=extend_schema(tags=["customer_analytics"]),
+    destroy=extend_schema(tags=["customer_analytics"]),
+)
 class GroupUsageMetricViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "group"
     queryset = GroupUsageMetric.objects.all()

@@ -34,6 +34,7 @@ class DataWarehouseSavedQueryDraftSerializer(serializers.ModelSerializer):
                 team_id=validated_data["team_id"],
                 created_by=validated_data["created_by"],
             ).count()
+            # nosemgrep: idor-lookup-without-team (internal endpoint; only reads name for draft naming)
             saved_query = DataWarehouseSavedQuery.objects.get(id=saved_query_id)
             name = f"({count + 1}) {saved_query.name}"
 

@@ -18,6 +18,8 @@ pub struct MockRedisClient {
     del_ret: HashMap<String, Result<(), CustomRedisError>>,
     hget_ret: HashMap<String, Result<String, CustomRedisError>>,
     scard_ret: HashMap<String, Result<u64, CustomRedisError>>,
+    sadd_ret: HashMap<String, Result<(), CustomRedisError>>,
+    expire_ret: HashMap<String, Result<bool, CustomRedisError>>,
     mget_ret: HashMap<String, Option<Vec<u8>>>,
     mget_error: Option<CustomRedisError>,
     calls: Arc<Mutex<Vec<MockRedisCall>>>,
@@ -37,6 +39,8 @@ impl Default for MockRedisClient {
             del_ret: HashMap::new(),
             hget_ret: HashMap::new(),
             scard_ret: HashMap::new(),
+            sadd_ret: HashMap::new(),
+            expire_ret: HashMap::new(),
             mget_ret: HashMap::new(),
             mget_error: None,
             calls: Arc::new(Mutex::new(Vec::new())),
@@ -125,6 +129,16 @@ impl MockRedisClient {
         self.clone()
     }
 
+    pub fn sadd_ret(&mut self, key: &str, ret: Result<(), CustomRedisError>) -> Self {
+        self.sadd_ret.insert(key.to_owned(), ret);
+        self.clone()
+    }
+
+    pub fn expire_ret(&mut self, key: &str, ret: Result<bool, CustomRedisError>) -> Self {
+        self.expire_ret.insert(key.to_owned(), ret);
+        self.clone()
+    }
+
     pub fn get_calls(&self) -> Vec<MockRedisCall> {
         self.lock_calls().clone()
     }
@@ -168,6 +182,7 @@ pub enum MockRedisValue {
     StringWithFormat(String, RedisValueFormat),
     StringWithTTLAndFormat(String, u64, RedisValueFormat),
     Bytes(Vec<u8>, Option<u64>),
+    MemberScore(String, i64),
 }
 
 #[derive(Debug, Clone)]
@@ -197,6 +212,16 @@ impl Client for MockRedisClient {
             Some(val) => Ok(val.clone()),
             None => Err(CustomRedisError::NotFound),
         }
+    }
+
+    async fn zadd(&self, key: String, member: String, score: i64) -> Result<(), CustomRedisError> {
+        let mut calls = self.lock_calls();
+        calls.push(MockRedisCall {
+            op: "zadd".to_string(),
+            key,
+            value: MockRedisValue::MemberScore(member, score),
+        });
+        Ok(())
     }
 
     async fn hincrby(
@@ -330,6 +355,22 @@ impl Client for MockRedisClient {
             op: "setex".to_string(),
             key: key.clone(),
             value: MockRedisValue::StringWithTTL(value.clone(), seconds),
+        });
+
+        self.set_ret.get(&key).cloned().unwrap_or(Ok(()))
+    }
+
+    async fn setex_with_format(
+        &self,
+        key: String,
+        value: String,
+        seconds: u64,
+        format: RedisValueFormat,
+    ) -> Result<(), CustomRedisError> {
+        self.lock_calls().push(MockRedisCall {
+            op: "setex_with_format".to_string(),
+            key: key.clone(),
+            value: MockRedisValue::StringWithTTLAndFormat(value.clone(), seconds, format),
         });
 
         self.set_ret.get(&key).cloned().unwrap_or(Ok(()))
@@ -501,10 +542,9 @@ impl Client for MockRedisClient {
 
     async fn batch_set_nx_ex(
         &self,
-        items: Vec<(String, String)>,
-        _ttl_seconds: usize,
+        items: Vec<(String, String, usize)>,
     ) -> Result<Vec<bool>, CustomRedisError> {
-        let keys: Vec<String> = items.iter().map(|(k, _)| k.clone()).collect();
+        let keys: Vec<String> = items.iter().map(|(k, _, _)| k.clone()).collect();
         self.lock_calls().push(MockRedisCall {
             op: "batch_set_nx_ex".to_string(),
             key: format!("items={}", items.len()),
@@ -620,6 +660,15 @@ impl MockRedisClient {
             PipelineCommand::Scard { key } => {
                 self.record_call("pipeline_scard", &key, MockRedisValue::None);
                 Self::lookup_or_not_found(&self.scard_ret, &key).map(PipelineResult::Count)
+            }
+            PipelineCommand::SAdd { key, member } => {
+                self.record_call("pipeline_sadd", &key, MockRedisValue::String(member));
+                Self::lookup_or_ok(&self.sadd_ret, &key).map(|_| PipelineResult::Count(1))
+            }
+            PipelineCommand::Expire { key, seconds } => {
+                let ttl_i64 = i64::try_from(seconds).unwrap_or(i64::MAX);
+                self.record_call("pipeline_expire", &key, MockRedisValue::I64(ttl_i64));
+                Self::lookup_or_not_found(&self.expire_ret, &key).map(PipelineResult::Bool)
             }
             PipelineCommand::ZRangeByScore { key, min, max } => {
                 self.record_call(

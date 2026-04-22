@@ -2,12 +2,13 @@ from freezegun import freeze_time
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
-from posthog.models.dashboard import Dashboard
 from posthog.models.exported_asset import ExportedAsset
 from posthog.models.insight import Insight
 from posthog.models.instance_setting import set_instance_setting
 from posthog.models.subscription import Subscription
 from posthog.tasks.test.utils_email_tests import mock_email_messages
+
+from products.dashboards.backend.models.dashboard import Dashboard
 
 from ee.tasks.subscriptions.email_subscriptions import send_email_subscription_report
 from ee.tasks.test.subscriptions.subscriptions_test_factory import create_subscription
@@ -47,8 +48,12 @@ class TestEmailSubscriptionsTasks(APIBaseTest):
 
         assert len(mocked_email_messages) == 1
         assert mocked_email_messages[0].send.call_count == 1
+        assert str(self.subscription.pk) in mocked_email_messages[0].campaign_key
         assert "is ready!" in mocked_email_messages[0].html_body
-        assert f"/exporter/export-my-test-subscription.png?token=ey" in mocked_email_messages[0].html_body
+        assert (
+            f"/exporter/export-my-test-subscription-2022-02-02-085500.png?token=ey"
+            in mocked_email_messages[0].html_body
+        )
 
     def test_new_subscription_delivery(self, MockEmailMessage: MagicMock) -> None:
         mocked_email_messages = mock_ee_email_messages(MockEmailMessage)
@@ -63,9 +68,17 @@ class TestEmailSubscriptionsTasks(APIBaseTest):
         assert len(mocked_email_messages) == 1
         assert mocked_email_messages[0].send.call_count == 1
 
-        assert f"has subscribed you" in mocked_email_messages[0].html_body
+        assert "has subscribed you" in mocked_email_messages[0].html_body
         assert "Someone subscribed you to a PostHog Insight" == mocked_email_messages[0].subject
-        assert "This subscription is sent every day. The next subscription will be sent on Wednesday February 02, 2022"
+        self.subscription.refresh_from_db()
+        next_delivery_date = self.subscription.next_delivery_date
+        assert next_delivery_date is not None
+        expected_schedule_summary = (
+            f"This subscription is {self.subscription.summary}. "
+            f"The next subscription will be sent on "
+            f"{next_delivery_date.strftime('%A %B %d, %Y')}"
+        )
+        assert expected_schedule_summary in mocked_email_messages[0].html_body
         assert "My invite message" in mocked_email_messages[0].html_body
 
     def test_should_have_different_text_for_self(self, MockEmailMessage: MagicMock) -> None:
@@ -101,3 +114,18 @@ class TestEmailSubscriptionsTasks(APIBaseTest):
         assert "You have been subscribed" in mocked_email_messages[0].html_body
         assert "You have been subscribed to a PostHog Dashboard" == mocked_email_messages[0].subject
         assert f"SHOWING 1 OF 10 DASHBOARD INSIGHTS" in mocked_email_messages[0].html_body
+
+    def test_same_recipient_gets_distinct_campaign_per_subscription(self, MockEmailMessage: MagicMock) -> None:
+        mocked_email_messages = mock_ee_email_messages(MockEmailMessage)
+
+        insight_b = Insight.objects.create(team=self.team, short_id="789abc", name="Second insight")
+        subscription_b = create_subscription(team=self.team, insight=insight_b, created_by=self.user)
+        shared = "shared@posthog.com"
+
+        send_email_subscription_report(shared, self.subscription, [self.asset])
+        send_email_subscription_report(shared, subscription_b, [self.asset])
+
+        assert len(mocked_email_messages) == 2
+        assert mocked_email_messages[0].campaign_key != mocked_email_messages[1].campaign_key
+        assert str(self.subscription.pk) in mocked_email_messages[0].campaign_key
+        assert str(subscription_b.pk) in mocked_email_messages[1].campaign_key

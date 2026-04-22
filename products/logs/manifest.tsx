@@ -1,8 +1,8 @@
 import { urls } from 'scenes/urls'
 
-import { FileSystemIconType, ProductKey } from '~/queries/schema/schema-general'
+import { FileSystemIconType, ProductItemCategory, ProductKey } from '~/queries/schema/schema-general'
 
-import { FileSystemIconColor, ProductManifest } from '../../frontend/src/types'
+import { ActivityScope, FileSystemIconColor, ProductManifest } from '../../frontend/src/types'
 
 export const manifest: ProductManifest = {
     name: 'Logs',
@@ -11,26 +11,45 @@ export const manifest: ProductManifest = {
             import: () => import('./frontend/LogsScene'),
             projectBased: true,
             name: 'Logs',
-            activityScope: 'Logs',
+            activityScope: ActivityScope.LOG,
             layout: 'app-container',
             iconType: 'logs',
             description: 'Monitor and analyze your logs to understand and fix issues.',
-            defaultDocsPath: '/docs/logs',
-            changelogTeamSlug: 'Logs',
+        },
+        LogsAlertNew: {
+            import: () => import('./frontend/scenes/LogsAlertNewScene/LogsAlertNewScene'),
+            projectBased: true,
+            name: 'New alert',
+            activityScope: ActivityScope.LOG,
+            layout: 'app-container',
+        },
+        LogsAlertDetail: {
+            import: () => import('./frontend/scenes/LogsAlertDetailScene/LogsAlertDetailScene'),
+            projectBased: true,
+            name: 'Alert',
+            activityScope: ActivityScope.LOG,
+            layout: 'app-container',
         },
     },
     routes: {
         '/logs': ['Logs', 'logs'],
+        '/logs/alerts/new': ['LogsAlertNew', 'logsAlertNew'],
+        '/logs/alerts/:id': ['LogsAlertDetail', 'logsAlertDetail'],
     },
     redirects: {},
-    urls: { logs: (): string => '/logs' },
+    urls: {
+        logs: (): string => '/logs',
+        logsAlertNew: (): string => '/logs/alerts/new',
+        logsAlertDetail: (id: string, tab?: string): string =>
+            tab ? `/logs/alerts/${id}?tab=${tab}` : `/logs/alerts/${id}`,
+    },
     fileSystemTypes: {},
     treeItemsNew: [],
     treeItemsProducts: [
         {
             path: 'Logs',
             intents: [ProductKey.LOGS],
-            category: 'Behavior',
+            category: ProductItemCategory.BEHAVIOR,
             iconType: 'logs' as FileSystemIconType,
             iconColor: ['var(--color-product-logs-light)'] as FileSystemIconColor,
             href: urls.logs(),

@@ -51,7 +51,7 @@ export const getNuxtClientSteps = (ctx: OnboardingComponentsContext): StepDefini
             badge: 'required',
             content: (
                 <>
-                    <Markdown>Add your PostHog API key and host to your `nuxt.config.js` file:</Markdown>
+                    <Markdown>Add your PostHog project token and host to your `nuxt.config.js` file:</Markdown>
                     <CodeBlock
                         blocks={[
                             {
@@ -61,9 +61,9 @@ export const getNuxtClientSteps = (ctx: OnboardingComponentsContext): StepDefini
                                     export default defineNuxtConfig({
                                       runtimeConfig: {
                                         public: {
-                                          posthogPublicKey: '<ph_project_api_key>',
+                                          posthogPublicKey: '<ph_project_token>',
                                           posthogHost: '<ph_client_api_host>',
-                                          posthogDefaults: '2025-11-30'
+                                          posthogDefaults: '2026-01-30'
                                         }
                                       }
                                     })

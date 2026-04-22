@@ -9,7 +9,7 @@ const PERSON_COLUMN = 'person'
  * Replaces the person column with a coalesce expression using personDisplayNameProperties for performance reasons
  */
 export function transformColumnsForExport(columns: string[], personDisplayNameProperties: string[]): string[] {
-    const props = personDisplayNameProperties.map((key) => `person.properties.${key}`)
+    const props = personDisplayNameProperties.map((key) => `toString(person.properties.${key})`)
     const expr = `coalesce(${[...props, 'distinct_id'].join(', ')})`
     return columns.map((column) => {
         const cleanColumn = removeExpressionComment(column)

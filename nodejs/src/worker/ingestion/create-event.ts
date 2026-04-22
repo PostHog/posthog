@@ -1,15 +1,13 @@
-import { DateTime } from 'luxon'
 import { Counter } from 'prom-client'
 
-import { Properties } from '@posthog/plugin-scaffold'
+import { Properties } from '~/plugin-scaffold'
 
-import { Element, Person, PersonMode, PreIngestionEvent, RawKafkaEvent, TimestampFormat } from '../../types'
-import { safeClickhouseString } from '../../utils/db/utils'
+import { Element, Person, PersonMode, PreIngestionEvent, ProcessedEvent } from '../../types'
 import { elementsToString, extractElements } from '../../utils/elements-chain'
 import { logger } from '../../utils/logger'
 import { captureException } from '../../utils/posthog'
-import { castTimestampOrNow, castTimestampToClickhouseFormat } from '../../utils/utils'
 import { MAX_GROUP_TYPES_PER_TEAM } from './group-type-manager'
+import { uuidFromDistinctId } from './person-uuid'
 
 const elementsOrElementsChainCounter = new Counter({
     name: 'events_pipeline_elements_or_elements_chain_total',
@@ -45,11 +43,11 @@ export function getElementsChain(properties: Properties): string {
 
 export function createEvent(
     preIngestionEvent: PreIngestionEvent,
-    person: Person,
+    person: Person | undefined,
     processPerson: boolean,
     historicalMigration: boolean,
     capturedAt: Date | null
-): RawKafkaEvent {
+): ProcessedEvent {
     const { eventUuid: uuid, event, teamId, projectId, distinctId, properties, timestamp } = preIngestionEvent
 
     let elementsChain = ''
@@ -65,15 +63,15 @@ export function createEvent(
         })
     }
 
-    let eventPersonProperties = '{}'
-    if (processPerson) {
-        eventPersonProperties = JSON.stringify({
+    let eventPersonProperties: Record<string, unknown> = {}
+    if (processPerson && person) {
+        eventPersonProperties = {
             ...person.properties,
             // For consistency, we'd like events to contain the properties that they set, even if those were changed
             // before the event is ingested.
             ...(properties.$set || {}),
-        })
-    } else {
+        }
+    } else if (!processPerson) {
         // TODO: Move this into `normalizeEventStep` where it belongs, but the code structure
         // and tests demand this for now.
         for (let groupTypeIndex = 0; groupTypeIndex < MAX_GROUP_TYPES_PER_TEAM; ++groupTypeIndex) {
@@ -83,33 +81,33 @@ export function createEvent(
     }
 
     let personMode: PersonMode = 'full'
-    if (person.force_upgrade) {
+    if (person?.force_upgrade) {
         personMode = 'force_upgrade'
     } else if (!processPerson) {
         personMode = 'propertyless'
     }
 
-    const rawEvent: RawKafkaEvent = {
+    // Use person UUID if available, otherwise generate deterministic UUID from distinct_id
+    const personId = person?.uuid ?? uuidFromDistinctId(teamId, distinctId)
+
+    const processedEvent: ProcessedEvent = {
         uuid,
-        event: safeClickhouseString(event),
-        properties: JSON.stringify(properties ?? {}),
-        timestamp: castTimestampOrNow(timestamp, TimestampFormat.ClickHouse),
+        event,
+        properties: properties ?? {},
+        timestamp,
         team_id: teamId,
         project_id: projectId,
-        distinct_id: safeClickhouseString(distinctId),
-        elements_chain: safeClickhouseString(elementsChain),
-        created_at: castTimestampOrNow(null, TimestampFormat.ClickHouse),
-        captured_at:
-            capturedAt !== null
-                ? castTimestampToClickhouseFormat(DateTime.fromJSDate(capturedAt), TimestampFormat.ClickHouse)
-                : null,
-        person_id: person.uuid,
+        distinct_id: distinctId,
+        elements_chain: elementsChain,
+        created_at: null,
+        captured_at: capturedAt,
+        person_id: personId,
         person_properties: eventPersonProperties,
-        person_created_at: castTimestampOrNow(person.created_at, TimestampFormat.ClickHouseSecondPrecision),
+        person_created_at: person?.created_at ?? null,
         person_mode: personMode,
         // Only include historical_migration when true to avoid bloating messages
         ...(historicalMigration ? { historical_migration: true } : {}),
     }
 
-    return rawEvent
+    return processedEvent
 }

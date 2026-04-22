@@ -405,7 +405,7 @@ impl EndpointYaml {
                     .query
                     .get("query")
                     .and_then(|q| q.as_str())
-                    .map(|s| s.to_string());
+                    .map(|s| s.replace("\r\n", "\n").replace("\r", "\n"));
                 (query_str, None)
             } else {
                 // Complex query - store the full definition
@@ -1122,6 +1122,40 @@ materialization:
         let summary = format_change_summary(&change);
         assert!(summary.contains("Old"));
         assert!(summary.contains("New"));
+    }
+
+    #[test]
+    fn test_from_api_response_normalizes_crlf() {
+        let response = EndpointResponse {
+            id: "123".to_string(),
+            name: "test".to_string(),
+            description: String::new(),
+            query: serde_json::json!({
+                "kind": "HogQLQuery",
+                "query": "SELECT\r\n  count()\r\nFROM events\r\nWHERE event = '$pageview'"
+            }),
+            parameters: HashMap::new(),
+            is_active: true,
+            cache_age_seconds: None,
+            endpoint_path: "test".to_string(),
+            url: None,
+            ui_url: None,
+            created_at: "2024-01-01".to_string(),
+            updated_at: "2024-01-01".to_string(),
+            is_materialized: false,
+            current_version: 1,
+            versions_count: 1,
+            materialization: None,
+        };
+
+        let yaml = EndpointYaml::from_api_response(&response);
+        let query = yaml.query.unwrap();
+        assert!(!query.contains("\r\n"), "query should not contain \\r\\n");
+        assert!(query.contains('\n'), "query should contain \\n");
+        assert_eq!(
+            query,
+            "SELECT\n  count()\nFROM events\nWHERE event = '$pageview'"
+        );
     }
 
     #[test]

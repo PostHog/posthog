@@ -32,6 +32,13 @@ export const getCodeName = (name: string): string => {
     )
 }
 
+export const sanitizeCodeName = (name: string): string => {
+    return name
+        .trim()
+        .replace(/[^a-zA-Z0-9\s_]/g, '')
+        .replace(/\s/g, '_')
+}
+
 export const formatVariableReference = (codeName: string): string => {
     return `{variables.${codeName}}`
 }
@@ -89,7 +96,7 @@ export const ListDefaultField = ({ variable, updateVariable }: DirectFieldProps<
         className="w-full"
         placeholder="Select default value"
         value={variable.default_value}
-        options={variable.values.map((n: string) => ({ label: n, value: n }))}
+        options={(variable.values ?? []).map((n: string) => ({ label: n, value: n }))}
         onChange={(value) => updateVariable({ ...variable, default_value: value ?? '' })}
         allowClear
         dropdownMaxContentWidth
@@ -99,6 +106,7 @@ export const ListDefaultField = ({ variable, updateVariable }: DirectFieldProps<
 export const DateField = ({ variable, updateVariable, onSave }: DirectFieldProps<DateVariable>): JSX.Element => (
     <VariableCalendar
         value={dayjs(variable.default_value)}
+        rawValue={variable.default_value}
         updateVariable={(date) => {
             updateVariable({ ...variable, default_value: date })
             // calendar is a special case to reuse LemonCalendarSelect

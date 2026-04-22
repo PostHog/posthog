@@ -96,20 +96,6 @@ export function TableVisualizer({ results }: TableVisualizerProps): ReactElement
     const columns = results?.columns || []
     const rows = results?.results || []
 
-    if (columns.length === 0 && rows.length === 0) {
-        return (
-            <div
-                style={{
-                    padding: '2rem',
-                    textAlign: 'center',
-                    color: 'var(--color-text-secondary, #6b7280)',
-                }}
-            >
-                No data available
-            </div>
-        )
-    }
-
     const format = detectResultFormat(columns, rows)
 
     if (format.type === 'single-number' && format.value !== undefined) {

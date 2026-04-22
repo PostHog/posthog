@@ -1,12 +1,11 @@
-import { IconEye, IconTrash } from '@posthog/icons'
-import { LemonColorPicker } from '@posthog/lemon-ui'
+import { IconGear, IconTrash } from '@posthog/icons'
+import { LemonColorGlyph, LemonColorPicker, LemonLabel, LemonMenu, LemonSegmentedButton } from '@posthog/lemon-ui'
 
-import { getSeriesColor, getSeriesColorPalette } from 'lib/colors'
-import { SeriesLetter } from 'lib/components/SeriesGlyph'
+import { getSeriesColorPalette } from 'lib/colors'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
-import { LemonSegmentedButton } from 'lib/lemon-ui/LemonSegmentedButton'
-import { IconEyeHidden } from 'lib/lemon-ui/icons'
+import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
 import { GoalLine } from '~/queries/schema/schema-general'
 
@@ -25,9 +24,8 @@ export function GoalLinesList({ goalLines, updateGoalLine, removeGoalLine }: Goa
     return (
         <>
             {goalLines.map(({ label, value = 0, displayLabel = true, position, borderColor }, goalLineIndex) => {
-                const currentColor = borderColor || getSeriesColor(goalLineIndex)
                 return (
-                    <div className="flex flex-1 gap-1 mb-1 items-center" key={`${goalLineIndex}`}>
+                    <div className="flex flex-1 gap-1 items-center mb-1.5" key={`${goalLineIndex}`}>
                         <LemonColorPicker
                             colors={seriesColor}
                             selectedColor={borderColor || undefined}
@@ -35,38 +33,21 @@ export function GoalLinesList({ goalLines, updateGoalLine, removeGoalLine }: Goa
                             showCustomColor
                             customButton={
                                 <div className="cursor-pointer">
-                                    <SeriesLetter
-                                        className="self-center"
-                                        hasBreakdown={false}
-                                        seriesIndex={goalLineIndex}
-                                        seriesColor={currentColor}
-                                    />
+                                    <LemonColorGlyph color={borderColor} size="small" />
                                 </div>
                             }
                         />
                         <LemonInput
                             placeholder="Label"
-                            className="grow-2"
+                            className="grow mx-0.5"
                             value={label}
-                            suffix={
-                                <LemonButton
-                                    size="small"
-                                    noPadding
-                                    icon={displayLabel ? <IconEye /> : <IconEyeHidden />}
-                                    tooltip={displayLabel ? 'Display label' : 'Hide label'}
-                                    onClick={(e) => {
-                                        e.stopPropagation()
-                                        updateGoalLine(goalLineIndex, 'displayLabel', !displayLabel)
-                                    }}
-                                />
-                            }
                             onChange={(value) => updateGoalLine(goalLineIndex, 'label', value)}
                         />
                         <LemonInput
                             type="number"
                             step="any"
                             placeholder="Value"
-                            className="grow"
+                            className="w-25 mr-0.5"
                             value={value}
                             onChange={(value) =>
                                 updateGoalLine(
@@ -76,22 +57,95 @@ export function GoalLinesList({ goalLines, updateGoalLine, removeGoalLine }: Goa
                                 )
                             }
                         />
-                        <LemonSegmentedButton
-                            value={position ?? 'end'}
-                            onChange={(value) => updateGoalLine(goalLineIndex, 'position', value as 'start' | 'end')}
-                            options={[
-                                { value: 'start', label: 'Start' },
-                                { value: 'end', label: 'End' },
+                        <LemonMenu
+                            items={[
+                                {
+                                    title: 'Label settings',
+                                    items: [
+                                        {
+                                            key: 'display-label',
+                                            label: () => (
+                                                <LemonSwitch
+                                                    label="Show label"
+                                                    className="pb-2"
+                                                    fullWidth
+                                                    checked={displayLabel}
+                                                    onChange={(checked) =>
+                                                        updateGoalLine(goalLineIndex, 'displayLabel', checked)
+                                                    }
+                                                    data-attr="goal-line-show-label-switch"
+                                                />
+                                            ),
+                                        },
+                                        {
+                                            key: 'label-placement',
+                                            label: () => {
+                                                const disabledReason = displayLabel
+                                                    ? undefined
+                                                    : 'Enable the label to change its position first.'
+
+                                                const label = (
+                                                    <LemonLabel
+                                                        className={`font-medium mr-1 ${displayLabel ? 'cursor-pointer' : 'cursor-not-allowed opacity-65'}`}
+                                                        onClick={() =>
+                                                            displayLabel
+                                                                ? updateGoalLine(
+                                                                      goalLineIndex,
+                                                                      'position',
+                                                                      position === 'start' ? 'end' : 'start'
+                                                                  )
+                                                                : undefined
+                                                        }
+                                                    >
+                                                        Label position
+                                                    </LemonLabel>
+                                                )
+
+                                                return (
+                                                    <div className="flex gap-1 mx-2 mb-2">
+                                                        {disabledReason ? (
+                                                            <Tooltip title={disabledReason}>
+                                                                <span>{label}</span>
+                                                            </Tooltip>
+                                                        ) : (
+                                                            label
+                                                        )}
+                                                        <LemonSegmentedButton
+                                                            value={position ?? 'end'}
+                                                            onChange={(value) =>
+                                                                updateGoalLine(
+                                                                    goalLineIndex,
+                                                                    'position',
+                                                                    value as 'start' | 'end'
+                                                                )
+                                                            }
+                                                            options={[
+                                                                { value: 'start', label: 'Start' },
+                                                                { value: 'end', label: 'End' },
+                                                            ]}
+                                                            size="xsmall"
+                                                            data-attr="goal-line-position-selector"
+                                                            disabledReason={disabledReason}
+                                                        />
+                                                    </div>
+                                                )
+                                            },
+                                        },
+                                    ],
+                                },
                             ]}
-                            size="xsmall"
-                            data-attr="goal-line-position-selector"
-                        />
+                            placement="bottom-end"
+                            closeOnClickInside={false}
+                        >
+                            <LemonButton icon={<IconGear />} title="Goal line settings" noPadding size="small" />
+                        </LemonMenu>
                         <LemonButton
                             key="delete"
                             icon={<IconTrash />}
                             status="danger"
                             title="Delete goal line"
                             noPadding
+                            size="small"
                             onClick={() => removeGoalLine(goalLineIndex)}
                         />
                     </div>

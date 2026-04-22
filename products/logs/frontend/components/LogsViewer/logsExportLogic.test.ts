@@ -5,43 +5,11 @@ import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
 import { initKeaTests } from '~/test/init'
 
-import { ParsedLogMessage } from 'products/logs/frontend/types'
-
 import { getExportColumns, logsExportLogic } from './logsExportLogic'
 import { logsViewerLogic } from './logsViewerLogic'
 
 jest.mock('lib/api')
 jest.mock('lib/utils/copyToClipboard')
-
-const createMockParsedLog = (uuid: string, body: string = `Log ${uuid}`): ParsedLogMessage => {
-    const baseLog = {
-        uuid,
-        trace_id: 'trace-1',
-        span_id: 'span-1',
-        body,
-        attributes: { 'service.name': 'test-service', custom: 'value' },
-        timestamp: '2024-01-01T00:00:00Z',
-        observed_timestamp: '2024-01-01T00:00:00Z',
-        severity_text: 'info' as const,
-        severity_number: 9,
-        level: 'info' as const,
-        resource_attributes: { 'host.name': 'localhost' },
-        instrumentation_scope: 'test',
-        event_name: 'log',
-    }
-    return {
-        ...baseLog,
-        cleanBody: body,
-        parsedBody: null,
-        originalLog: baseLog,
-    }
-}
-
-const mockLogs = [
-    createMockParsedLog('log-1', 'First log message'),
-    createMockParsedLog('log-2', 'Second log message'),
-    createMockParsedLog('log-3', 'Third log message'),
-]
 
 describe('logsExportLogic', () => {
     describe('getExportColumns', () => {
@@ -76,10 +44,10 @@ describe('logsExportLogic', () => {
             initKeaTests()
             jest.clearAllMocks()
 
-            viewerLogic = logsViewerLogic({ tabId: 'test-tab', logs: mockLogs, orderBy: 'latest' })
+            viewerLogic = logsViewerLogic({ id: 'test-tab' })
             viewerLogic.mount()
 
-            exportLogic = logsExportLogic({ tabId: 'test-tab', orderBy: 'latest' })
+            exportLogic = logsExportLogic({ id: 'test-tab' })
             exportLogic.mount()
         })
 

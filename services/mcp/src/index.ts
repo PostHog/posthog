@@ -1,10 +1,19 @@
 import { MCP_DOCS_URL, OAUTH_SCOPES_SUPPORTED, getAuthorizationServerUrl } from '@/lib/constants'
-import { ErrorCode } from '@/lib/errors'
+import {
+    buildInsufficientScopeChallenge,
+    ErrorCode,
+    findPostHogPermissionError,
+    formatPermissionErrorMessage,
+} from '@/lib/errors'
 import { RequestLogger, withLogging } from '@/lib/logging'
-import { hash } from '@/lib/utils'
+import { buildRedirectUrl, matchAuthServerRedirect } from '@/lib/routing'
+import { hash, sanitizeHeaderValue } from '@/lib/utils'
 import type { CloudRegion } from '@/tools/types'
 
 import { MCP, RequestProperties } from './mcp'
+import RAW_LANDING_HTML from './static/landing.html'
+
+const PARSED_LANDING_HTML = RAW_LANDING_HTML.replace('{{DOCS_URL}}', MCP_DOCS_URL)
 
 // Helper to get the public-facing URL, respecting reverse proxy headers
 // This is needed for local development with ngrok/cloudflared where request.url
@@ -38,23 +47,63 @@ function getPublicUrl(request: Request): URL {
 // allowing us to redirect to the correct EU OAuth server.
 function getRegionFromHostname(request: Request): CloudRegion | undefined {
     const publicUrl = getPublicUrl(request)
+
     // DNS hostnames are case-insensitive, so normalize to lowercase
     if (publicUrl.hostname.toLowerCase() === 'mcp-eu.posthog.com') {
         return 'eu'
     }
+
     return undefined
 }
 
+// Detect region from hostname (mcp-eu.posthog.com) or query param (?region=eu)
+// Hostname takes precedence as it's the workaround for Claude Code's OAuth bug
+function getRegionFromRequest(request: Request): CloudRegion | null {
+    const hostnameRegion = getRegionFromHostname(request)
+    if (hostnameRegion) {
+        return hostnameRegion
+    }
+
+    const url = new URL(request.url)
+    const queryRegion = url.searchParams.get('region') as CloudRegion | null
+    return queryRegion
+}
+
 // Detect error codes and return appropriate responses
-const errorHandler = async (response: Response): Promise<Response> => {
+const onThenErrorHandler = async (response: Response): Promise<Response> => {
     if (!response.ok) {
         const body = await response.clone().text()
-        if (body.includes(ErrorCode.INACTIVE_OAUTH_TOKEN)) {
-            return new Response('OAuth token is inactive', { status: 401 })
+        const errorResponse = generateErrorResponseFromMessage(body)
+        if (errorResponse) {
+            return errorResponse
         }
     }
 
     return response
+}
+
+const onCatchErrorHandler = async (error: Error): Promise<Response> => {
+    const permissionError = findPostHogPermissionError(error)
+    if (permissionError) {
+        return new Response(formatPermissionErrorMessage(permissionError), {
+            status: 403,
+            headers: {
+                'Content-Type': 'text/plain; charset=utf-8',
+                'WWW-Authenticate': buildInsufficientScopeChallenge(permissionError),
+            },
+        })
+    }
+    return generateErrorResponseFromMessage(error.message) || new Response('Internal server error', { status: 500 })
+}
+
+const generateErrorResponseFromMessage = (message: string): Response | null => {
+    if (message.includes(ErrorCode.INACTIVE_OAUTH_TOKEN)) {
+        return new Response('OAuth token is inactive', { status: 401 })
+    } else if (message.includes(ErrorCode.INVALID_API_KEY)) {
+        return new Response('Invalid API key', { status: 401 })
+    }
+
+    return null
 }
 
 const handleRequest = async (
@@ -67,31 +116,36 @@ const handleRequest = async (
     log.extend({ route: url.pathname })
 
     if (url.pathname === '/') {
-        return new Response(
-            `<p>Welcome to the PostHog MCP Server. For setup and usage instructions, see: <a href="${MCP_DOCS_URL}">${MCP_DOCS_URL}</a></p>`,
-            { headers: { 'content-type': 'text/html' } }
-        )
+        return new Response(PARSED_LANDING_HTML, {
+            headers: { 'content-type': 'text/html; charset=utf-8' },
+        })
+    }
+
+    // OpenAI ChatGPT App Directory domain verification
+    if (url.pathname === '/.well-known/openai-apps-challenge') {
+        return new Response('pRLV9JYbPOF5Dy039v3Rn3-qrMuKqZ2_4SsX9GoL9aU', {
+            headers: { 'content-type': 'text/plain' },
+        })
     }
 
     // Detect region from hostname (mcp-eu.posthog.com) or query param (?region=eu)
     // Hostname takes precedence as it's the workaround for Claude Code's OAuth bug
-    const hostnameRegion = getRegionFromHostname(request)
-    const queryRegion = url.searchParams.get('region')
-    const effectiveRegion = hostnameRegion || queryRegion
+    const effectiveRegion = getRegionFromRequest(request)
     log.extend({ region: effectiveRegion })
 
-    // OAuth Authorization Server Metadata (RFC 8414)
-    // Claude Code fetches this endpoint directly from the MCP server URL instead of
-    // following the authorization_servers from the protected resource metadata.
-    // See: https://github.com/anthropics/claude-code/issues/2267
+    // Authorization server redirects
     //
-    // We redirect to the correct PostHog region's OAuth metadata endpoint.
-    if (url.pathname === '/.well-known/oauth-authorization-server') {
-        const authServer = getAuthorizationServerUrl(effectiveRegion)
-        const redirectTo = `${authServer}/.well-known/oauth-authorization-server`
+    // MCP clients sometimes hit OAuth endpoints directly on this server instead of
+    // following URLs from the authorization server metadata. We redirect these to
+    // the correct PostHog authorization server for the user's region.
+    // See: https://github.com/anthropics/claude-code/issues/2267
+    const redirect = matchAuthServerRedirect(url.pathname)
+    if (redirect) {
+        const authServer = getAuthorizationServerUrl()
+        const redirectTo = buildRedirectUrl(authServer, url.pathname, url.search, redirect)
 
         log.extend({ redirectTo })
-        return Response.redirect(redirectTo, 302)
+        return Response.redirect(redirectTo, redirect.status)
     }
 
     // OAuth Protected Resource Metadata (RFC 9728)
@@ -117,9 +171,9 @@ const handleRequest = async (
         resourceUrl.pathname = resourcePath
         resourceUrl.search = ''
 
-        // Determine authorization server based on hostname or region param.
-        // POSTHOG_API_BASE_URL takes precedence for self-hosted, otherwise routes to US/EU.
-        const authorizationServer = getAuthorizationServerUrl(effectiveRegion)
+        // Determine authorization server for OAuth.
+        // POSTHOG_API_BASE_URL takes precedence for self-hosted, otherwise routes to oauth.posthog.com.
+        const authorizationServer = getAuthorizationServerUrl()
 
         return new Response(
             JSON.stringify({
@@ -172,10 +226,23 @@ const handleRequest = async (
         )
     }
 
+    // Organization and project IDs can be provided via headers or query params.
+    // When set, they pin the MCP session to a specific org/project and remove the switch tools.
+    const organizationId =
+        request.headers.get('x-posthog-organization-id') || url.searchParams.get('organization_id') || undefined
+    const projectId = request.headers.get('x-posthog-project-id') || url.searchParams.get('project_id') || undefined
+
+    const rawUserAgent = request.headers.get('User-Agent') || undefined
+    const clientUserAgent = sanitizeHeaderValue(rawUserAgent)
+
     Object.assign(ctx.props, {
         apiToken: token,
         userHash: hash(token),
         sessionId: sessionId || undefined,
+        organizationId,
+        projectId,
+        clientUserAgent,
+        requestStartTime: Date.now(),
     })
 
     // Search params are used to build up the list of available tools. If no features are provided, all tools are available.
@@ -185,19 +252,33 @@ const handleRequest = async (
     const featuresParam = url.searchParams.get('features')
     const features = featuresParam ? featuresParam.split(',').filter(Boolean) : undefined
 
+    const toolsParam = url.searchParams.get('tools')
+    const tools = toolsParam ? toolsParam.split(',').filter(Boolean) : undefined
+
     // Region param is used to route API calls to the correct PostHog instance (US or EU).
     // This is set by the wizard based on user's cloud region selection during MCP setup.
     const regionParam = url.searchParams.get('region') || undefined
 
-    Object.assign(ctx.props, { features, region: regionParam })
-    log.extend({ features })
+    const version = Number(request.headers.get('x-posthog-mcp-version') || url.searchParams.get('v')) || 1
 
+    const readOnlyRaw = request.headers.get('x-posthog-readonly') || url.searchParams.get('readonly')
+    const readOnly = readOnlyRaw === 'true' || readOnlyRaw === '1' || undefined
+
+    const extraContextProps = { features, tools, region: regionParam, version, readOnly }
+    Object.assign(ctx.props, extraContextProps)
+    log.extend(extraContextProps)
+
+    let server: Promise<Response> | null = null
     if (url.pathname.startsWith('/mcp')) {
-        return MCP.serve('/mcp').fetch(request, env, ctx).then(errorHandler)
+        Object.assign(ctx.props, { transport: 'streamable-http' })
+        server = MCP.serve('/mcp').fetch(request, env, ctx)
+    } else if (url.pathname.startsWith('/sse')) {
+        Object.assign(ctx.props, { transport: 'sse' })
+        server = MCP.serveSSE('/sse').fetch(request, env, ctx)
     }
 
-    if (url.pathname.startsWith('/sse')) {
-        return MCP.serveSSE('/sse').fetch(request, env, ctx).then(errorHandler)
+    if (server !== null) {
+        return server.then(onThenErrorHandler).catch(onCatchErrorHandler)
     }
 
     log.extend({ error: 'route_not_found' })

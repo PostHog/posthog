@@ -1,14 +1,14 @@
 import json
 from typing import get_args
 
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
 from posthog.api.documentation import (
     FilterActionSerializer,
     FilterEventSerializer,
-    OpenApiTypes,
     PropertySerializer,
-    extend_schema_field,
     property_help_text,
 )
 from posthog.constants import (

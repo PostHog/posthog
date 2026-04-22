@@ -5,10 +5,13 @@ import { IconBolt } from '@posthog/icons'
 
 import { LiveUserCount } from 'lib/components/LiveUserCount'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { IconLink } from 'lib/lemon-ui/icons'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { teamLogic } from 'scenes/teamLogic'
 import { WebAnalyticsMenu } from 'scenes/web-analytics/WebAnalyticsMenu'
 
@@ -22,6 +25,12 @@ export function WebAnalyticsHeaderButtons(): JSX.Element {
     const isUsingNewEngine = currentTeam?.modifiers?.useWebAnalyticsPreAggregatedTables
     const showLiveUserCount =
         featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_FILTERS_V2] || featureFlags[FEATURE_FLAGS.CONDENSED_FILTER_BAR]
+    const showShareButton =
+        !featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_FILTERS_V2] && !featureFlags[FEATURE_FLAGS.CONDENSED_FILTER_BAR]
+
+    const handleShare = (): void => {
+        void copyToClipboard(window.location.href, 'link')
+    }
 
     const handleToggleEngine = (checked: boolean): void => {
         updateCurrentTeam({
@@ -38,6 +47,17 @@ export function WebAnalyticsHeaderButtons(): JSX.Element {
                 <LiveUserCount
                     docLink="https://posthog.com/docs/web-analytics/faq#i-am-online-but-the-online-user-count-is-not-reflecting-my-user"
                     dataAttr="web-analytics-live-user-count"
+                />
+            )}
+            {showShareButton && (
+                <LemonButton
+                    type="secondary"
+                    size="small"
+                    icon={<IconLink fontSize="16" />}
+                    tooltip="Share"
+                    tooltipPlacement="top"
+                    onClick={handleShare}
+                    data-attr="web-analytics-share-button"
                 />
             )}
             {hasFeatureFlag && (

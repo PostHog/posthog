@@ -166,8 +166,10 @@ def get_query_specific_instructions(kind: str) -> str:
         )
     elif kind == "FunnelsQuery":
         return (
-            "Focus on conversion rates between steps. Identify the specific step with the largest drop-off (the bottleneck). "
-            "Compare conversion performance across breakdown segments if available."
+            "Focus on conversion rates between steps. When there are three or more steps, name the step-to-step "
+            "transition with the largest loss. When there are only two steps (one transition), describe the single "
+            "drop-off directly without superlatives like 'the biggest' or 'the main bottleneck' — there is nothing "
+            "to compare it against. Compare conversion across breakdown segments if available."
         )
     elif kind == "RetentionQuery":
         return (
@@ -237,7 +239,7 @@ def get_insight_analysis(
         content, _, _ = hit_openai(
             messages,
             f"team/{team.id}/analysis",
-            posthog_properties={"ai_product": "product-analytics", "ai_feature": "insight-ai-analysis"},
+            posthog_properties={"ai_product": "product_analytics", "ai_feature": "insight-ai-analysis"},
         )
         return content
 
@@ -286,7 +288,7 @@ def get_ai_suggestions(
         content, _, _ = hit_openai(
             messages,
             f"team/{team.id}/suggestions",
-            posthog_properties={"ai_product": "product-analytics", "ai_feature": "insight-ai-suggestions"},
+            posthog_properties={"ai_product": "product_analytics", "ai_feature": "insight-ai-suggestions"},
         )
 
         # Parse JSON from content

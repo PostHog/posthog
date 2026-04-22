@@ -6,9 +6,9 @@ from django.conf import settings
 
 import gspread
 from cachetools import Cache, TTLCache, cached
-from dlt.common.normalizers.naming.snake_case import NamingConvention
 from google.oauth2 import service_account
 
+from posthog.temporal.data_imports.naming_convention import NamingConvention
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from posthog.temporal.data_imports.pipelines.pipeline.utils import table_from_py_list
 from posthog.temporal.data_imports.sources.generated_configs import GoogleSheetsSourceConfig
@@ -69,7 +69,7 @@ def get_schemas(config: GoogleSheetsSourceConfig) -> list[tuple[str, int]]:
     spreadsheet = client.open_by_url(config.spreadsheet_url)
     worksheets = spreadsheet.worksheets()
 
-    return [(NamingConvention().normalize_identifier(worksheet.title), worksheet.id) for worksheet in worksheets]
+    return [(NamingConvention.normalize_identifier(worksheet.title), worksheet.id) for worksheet in worksheets]
 
 
 def get_schema_incremental_fields(config: GoogleSheetsSourceConfig, worksheet_name: str) -> list[IncrementalField]:

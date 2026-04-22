@@ -4,7 +4,9 @@ from datetime import datetime, timedelta
 from django.utils.timezone import now
 
 from posthog.clickhouse.client import sync_execute
-from posthog.models import Survey
+
+from products.surveys.backend.models import Survey
+from products.surveys.backend.util import SurveyEventProperties, get_survey_property_string_expr
 
 
 def _update_survey_adaptive_sampling(survey: Survey) -> None:
@@ -27,8 +29,10 @@ def _update_survey_adaptive_sampling(survey: Survey) -> None:
     if total_response_count < today_entry.get("daily_response_limit", 0) and survey.internal_response_sampling_flag:
         # Update the internal_response_sampling_flag's rollout percentage
         internal_response_sampling_flag = survey.internal_response_sampling_flag
-        internal_response_sampling_flag.rollout_percentage = today_entry["rollout_percentage"]
-        internal_response_sampling_flag.save()
+        # groups[0] is guaranteed to exist — survey flags are always created with groups in filters
+        # (see SurveySerializer._add_internal_response_sampling_filters)
+        internal_response_sampling_flag.filters["groups"][0]["rollout_percentage"] = today_entry["rollout_percentage"]
+        internal_response_sampling_flag.save(update_fields=["filters"])
 
     # this also doubles as a way to check that we're processing the final entry in the current sequence.
     if today_entry["rollout_percentage"] == 100:
@@ -38,12 +42,14 @@ def _update_survey_adaptive_sampling(survey: Survey) -> None:
 
 
 def _get_survey_responses_count(survey_id: int) -> int:
+    survey_id_expr = get_survey_property_string_expr(SurveyEventProperties.SURVEY_ID)
+
     # nosemgrep: clickhouse-fstring-param-audit - no interpolation, only parameterized values
     data = sync_execute(
         f"""
-                SELECT JSONExtractString(properties, '$survey_id') as survey_id, count()
+                SELECT {survey_id_expr} as survey_id, count()
                 FROM events
-                WHERE event = 'survey sent' AND survey_id = %(survey_id)s
+                WHERE event = 'survey sent' AND {survey_id_expr} = %(survey_id)s
             """,
         {"survey_id": survey_id},
     )

@@ -9,6 +9,7 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { PaginationManual } from 'lib/lemon-ui/PaginationControl'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { dateStringToDayJs, objectClean } from 'lib/utils'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { ActivityScope } from '~/types'
 
@@ -32,6 +33,7 @@ export interface AdvancedActivityLogFilters {
     users?: string[]
     scopes?: ActivityScope[]
     activities?: string[]
+    clients?: string[]
     detail_filters?: Record<string, DetailFilter>
     was_impersonated?: boolean
     is_system?: boolean
@@ -53,6 +55,7 @@ export interface AvailableFilters {
         users: Array<{ label: string; value: string }>
         scopes: Array<{ value: string }>
         activities: Array<{ value: string }>
+        clients: Array<{ value: string }>
     }
     detail_fields?: Record<string, ScopeFields>
 }
@@ -69,22 +72,32 @@ export interface ExportedAsset {
 }
 
 // Constants
+export const DEFAULT_START_DATE = '-30d'
+
 const DEFAULT_FILTERS: AdvancedActivityLogFilters = {
-    start_date: '-30d',
+    start_date: DEFAULT_START_DATE,
     users: [],
     scopes: [],
     activities: [],
+    clients: [],
     detail_filters: {},
     item_ids: [],
     page: 1,
 }
 
-const ADVANCED_FILTERS = ['was_impersonated', 'is_system', 'item_ids', 'detail_filters'] as const
+const ADVANCED_FILTERS = ['was_impersonated', 'is_system', 'item_ids', 'clients', 'detail_filters'] as const
 
 export const advancedActivityLogsLogic = kea<advancedActivityLogsLogicType>([
     path(['scenes', 'audit-logs', 'advancedActivityLogsLogic']),
     connect(() => ({
-        values: [featureFlagLogic, ['featureFlags'], userLogic, ['hasAvailableFeature']],
+        values: [
+            featureFlagLogic,
+            ['featureFlags'],
+            userLogic,
+            ['hasAvailableFeature'],
+            teamLogic,
+            ['currentTeamIdStrict', 'currentProjectId'],
+        ],
     })),
 
     actions({
@@ -183,6 +196,7 @@ export const advancedActivityLogsLogic = kea<advancedActivityLogsLogicType>([
                     values.filters.users?.forEach((user) => params.append('users', user))
                     values.filters.scopes?.forEach((scope) => params.append('scopes', scope))
                     values.filters.activities?.forEach((activity) => params.append('activities', activity))
+                    values.filters.clients?.forEach((client) => params.append('clients', client))
                     values.filters.item_ids?.forEach((item_id) => params.append('item_ids', item_id))
 
                     if (values.filters.was_impersonated !== undefined) {
@@ -198,7 +212,9 @@ export const advancedActivityLogsLogic = kea<advancedActivityLogsLogicType>([
                     params.append('page', (values.filters.page || 1).toString())
                     params.append('page_size', ADVANCED_ACTIVITY_PAGE_SIZE.toString())
 
-                    const response = await api.get(`api/projects/@current/advanced_activity_logs/?${params}`)
+                    const response = await api.get(
+                        `api/projects/${values.currentProjectId}/advanced_activity_logs/?${params}`
+                    )
                     return response
                 },
             },
@@ -208,7 +224,9 @@ export const advancedActivityLogsLogic = kea<advancedActivityLogsLogicType>([
             null as AvailableFilters | null,
             {
                 loadAvailableFilters: async () => {
-                    const response = await api.get('api/projects/@current/advanced_activity_logs/available_filters/')
+                    const response = await api.get(
+                        `api/projects/${values.currentProjectId}/advanced_activity_logs/available_filters/`
+                    )
                     return response
                 },
             },
@@ -220,7 +238,7 @@ export const advancedActivityLogsLogic = kea<advancedActivityLogsLogicType>([
                 loadExports: async () => {
                     const params = new URLSearchParams()
                     params.append('context_path', '/advanced_activity_logs/')
-                    const response = await api.get(`api/environments/@current/exports/?${params}`)
+                    const response = await api.get(`api/environments/${values.currentTeamIdStrict}/exports/?${params}`)
                     return response.results || []
                 },
             },
@@ -233,14 +251,15 @@ export const advancedActivityLogsLogic = kea<advancedActivityLogsLogicType>([
             (filters: AdvancedActivityLogFilters): boolean => {
                 return Boolean(
                     filters.start_date ||
-                        filters.end_date ||
-                        filters.users?.length ||
-                        filters.scopes?.length ||
-                        filters.activities?.length ||
-                        filters.item_ids?.length ||
-                        filters.was_impersonated !== undefined ||
-                        filters.is_system !== undefined ||
-                        (filters.detail_filters && Object.keys(filters.detail_filters).length > 0)
+                    filters.end_date ||
+                    filters.users?.length ||
+                    filters.scopes?.length ||
+                    filters.activities?.length ||
+                    filters.clients?.length ||
+                    filters.item_ids?.length ||
+                    filters.was_impersonated !== undefined ||
+                    filters.is_system !== undefined ||
+                    (filters.detail_filters && Object.keys(filters.detail_filters).length > 0)
                 )
             },
         ],
@@ -271,6 +290,9 @@ export const advancedActivityLogsLogic = kea<advancedActivityLogsLogicType>([
                 if (filters.item_ids && filters.item_ids.length > 0) {
                     count++
                 }
+                if (filters.clients && filters.clients.length > 0) {
+                    count++
+                }
                 if (filters.detail_filters && Object.keys(filters.detail_filters).length > 0) {
                     count++
                 }
@@ -289,6 +311,7 @@ export const advancedActivityLogsLogic = kea<advancedActivityLogsLogicType>([
                     users: filters.users?.length ? filters.users.join(',') : undefined,
                     scopes: filters.scopes?.length ? filters.scopes.join(',') : undefined,
                     activities: filters.activities?.length ? filters.activities.join(',') : undefined,
+                    clients: filters.clients?.length ? filters.clients.join(',') : undefined,
                     item_ids: filters.item_ids?.length ? filters.item_ids.join(',') : undefined,
                     was_impersonated: filters.was_impersonated?.toString(),
                     is_system: filters.is_system?.toString(),
@@ -448,13 +471,14 @@ export const advancedActivityLogsLogic = kea<advancedActivityLogsLogicType>([
                     users: values.filters.users,
                     scopes: values.filters.scopes,
                     activities: values.filters.activities,
+                    clients: values.filters.clients,
                     detail_filters: values.filters.detail_filters,
                     was_impersonated: values.filters.was_impersonated,
                     is_system: values.filters.is_system,
                     item_ids: values.filters.item_ids,
                 }
 
-                await api.create('api/projects/@current/advanced_activity_logs/export/', {
+                await api.create(`api/projects/${values.currentProjectId}/advanced_activity_logs/export/`, {
                     format,
                     filters: filtersToExport,
                 })
@@ -515,6 +539,11 @@ export const advancedActivityLogsLogic = kea<advancedActivityLogsLogicType>([
                 urlFilters.activities = Array.isArray(searchParams.activities)
                     ? searchParams.activities
                     : searchParams.activities?.split(',') || []
+            }
+            if (searchParams.clients) {
+                urlFilters.clients = Array.isArray(searchParams.clients)
+                    ? searchParams.clients
+                    : searchParams.clients?.split(',') || []
             }
             if (searchParams.item_ids) {
                 urlFilters.item_ids = searchParams.item_ids.split?.(',') || [searchParams.item_ids]

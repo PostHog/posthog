@@ -12,6 +12,8 @@ import {
     BatchExportServiceSnowflake,
 } from '~/types'
 
+export type BatchExportContext = 'batch_export' | 'hog_function'
+
 export type BatchExportConfigurationForm = Omit<
     BatchExportConfiguration,
     'id' | 'destination' | 'start_at' | 'end_at'

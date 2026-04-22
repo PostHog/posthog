@@ -6,9 +6,10 @@ import { useRef } from 'react'
 
 import { MatchingEventsMatchType } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
 
-import { PlayerSidebar } from './PlayerSidebar'
-import { PurePlayer } from './PurePlayer'
 import { playerSettingsLogic } from './playerSettingsLogic'
+import { PlayerSidebar } from './PlayerSidebar'
+import { PlayerSummaryDock } from './PlayerSummaryDock'
+import { PurePlayer } from './PurePlayer'
 import {
     SessionRecordingPlayerLogicProps,
     SessionRecordingPlayerMode,
@@ -85,6 +86,9 @@ function SessionRecordingPlayerInternal({
     playerRef: React.RefObject<HTMLDivElement>
 }): JSX.Element {
     const { isVerticallyStacked, sidebarOpen } = useValues(playerSettingsLogic)
+    const { logicProps } = useValues(sessionRecordingPlayerLogic)
+    const showSummaryDock =
+        !noMeta && (logicProps.mode ?? SessionRecordingPlayerMode.Standard) === SessionRecordingPlayerMode.Standard
 
     return (
         <div
@@ -93,7 +97,10 @@ function SessionRecordingPlayerInternal({
                 'SessionRecordingPlayerWrapper--stacked-vertically': withSidebar && sidebarOpen && isVerticallyStacked,
             })}
         >
-            <PurePlayer noMeta={noMeta} noBorder={noBorder} />
+            <div className="flex flex-col flex-1 min-w-0 min-h-0">
+                <PurePlayer noMeta={noMeta} noBorder={noBorder} />
+                {showSummaryDock && <PlayerSummaryDock />}
+            </div>
             {withSidebar && <PlayerSidebar />}
         </div>
     )

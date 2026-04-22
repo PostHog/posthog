@@ -12,5 +12,5 @@ DROP TABLE IF EXISTS kafka_{LOG_ENTRIES_TABLE}
 
 operations = [
     run_sql_with_exceptions(DROP_KAFKA_LOG_ENTRIES_SQL, node_roles=[NodeRole.DATA]),
-    run_sql_with_exceptions(DROP_LOG_ENTRIES_SQL, node_roles=[NodeRole.DATA, NodeRole.COORDINATOR]),
+    run_sql_with_exceptions(DROP_LOG_ENTRIES_SQL, node_roles=[NodeRole.DATA]),
 ]

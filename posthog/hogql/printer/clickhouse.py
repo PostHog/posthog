@@ -1,24 +1,61 @@
+import re
 from datetime import date, datetime
-from typing import Literal, Union, cast
+from typing import ClassVar, Literal, Union, cast
 from uuid import UUID
+
+from django.conf import settings as django_settings
 
 from posthog.schema import PropertyGroupsMode
 
 from posthog.hogql import ast
-from posthog.hogql.ast import AST
-from posthog.hogql.constants import HogQLGlobalSettings
+from posthog.hogql.ast import AST, Constant, StringType
+from posthog.hogql.constants import HogQLDialect, HogQLGlobalSettings
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import DANGEROUS_NoTeamIdCheckTable, DatabaseField, SavedQuery
 from posthog.hogql.database.s3_table import DataWarehouseTable, S3Table
 from posthog.hogql.errors import ImpossibleASTError, InternalHogQLError, QueryError
 from posthog.hogql.escape_sql import escape_clickhouse_identifier, escape_clickhouse_string, safe_identifier
-from posthog.hogql.printer.base import HogQLPrinter, resolve_field_type
+from posthog.hogql.functions import ADD_OR_NULL_DATETIME_FUNCTIONS, FIRST_ARG_DATETIME_FUNCTIONS
+from posthog.hogql.functions.embed_text import resolve_embed_text
+from posthog.hogql.printer.base import BasePrinter, get_channel_definition_dict, resolve_field_type
+from posthog.hogql.printer.hogql import HogQLPrinter
 from posthog.hogql.printer.types import PrintableMaterializedColumn, PrintableMaterializedPropertyGroupItem
 from posthog.hogql.utils import ilike_matches, like_matches
-from posthog.hogql.visitor import clone_expr
+from posthog.hogql.visitor import GetFieldsTraverser, TraversingVisitor, clone_expr
 
 from posthog.clickhouse.property_groups import property_groups
+from posthog.models.exchange_rate.sql import EXCHANGE_RATE_DICTIONARY_NAME
+from posthog.models.team.team import WeekStartDay
 from posthog.models.utils import UUIDT
+
+# Compare operators that require enable_analyzer=1 for JOIN ON conditions
+_NON_EQUALITY_JOIN_OPS = frozenset(
+    {
+        ast.CompareOperationOp.Gt,
+        ast.CompareOperationOp.GtEq,
+        ast.CompareOperationOp.Lt,
+        ast.CompareOperationOp.LtEq,
+        ast.CompareOperationOp.NotEq,
+    }
+)
+
+
+class _HasNonEqualityComparison(TraversingVisitor):
+    """Traverses an expression tree to detect non-equality comparisons (>, >=, <, <=, !=)."""
+
+    found: bool = False
+
+    def visit_compare_operation(self, node: ast.CompareOperation):
+        if node.op in _NON_EQUALITY_JOIN_OPS:
+            self.found = True
+            return  # no need to keep traversing
+        super().visit_compare_operation(node)
+
+
+def _join_constraint_has_non_equality(expr: ast.Expr) -> bool:
+    checker = _HasNonEqualityComparison()
+    checker.visit(expr)
+    return checker.found
 
 
 def team_id_guard_for_table(table_type: ast.TableOrSelectType, context: HogQLContext) -> ast.Expr:
@@ -48,16 +85,220 @@ COLUMNS_WITH_HACKY_OPTIMIZED_NULL_HANDLING = {
 }
 
 
-class ClickHousePrinter(HogQLPrinter):
-    def __init__(
-        self,
-        context: HogQLContext,
-        dialect: Literal["clickhouse"],
-        stack: list[AST] | None = None,
-        settings: HogQLGlobalSettings | None = None,
-        pretty: bool = False,
-    ):
-        super().__init__(context=context, dialect=dialect, stack=stack, settings=settings, pretty=pretty)
+class ClickHousePrinter(BasePrinter):
+    DIALECT_NAME: ClassVar[HogQLDialect] = "clickhouse"
+
+    def _render_set_query_limit_percent(self, limit: ast.Expr, limit_str: str) -> str:
+        return str(self._limit_percent_constant_value(limit))
+
+    def _render_select_query_limit_clause(self, limit: ast.Expr, is_percent: bool) -> str:
+        if not is_percent:
+            return f"LIMIT {self.visit(limit)}"
+        return f"LIMIT {self._limit_percent_constant_value(limit)}"
+
+    def _limit_percent_constant_value(self, limit: ast.Expr) -> float:
+        if not isinstance(limit, ast.Constant) or not isinstance(limit.value, (int, float)):
+            raise QueryError("LIMIT percent with expressions is not supported in clickhouse dialect")
+        return limit.value / 100
+
+    def _validate_within_group_for_aggregation(self, node: ast.Call, func_meta) -> None:
+        if node.within_group is not None:
+            raise QueryError(f"Aggregation '{node.name}' with WITHIN GROUP is not supported in ClickHouse dialect")
+
+    def _yield_property_group_columns(self, field_type, table_name: str, field_name: str, property_name: str):
+        if self.context.modifiers.propertyGroupsMode not in (
+            PropertyGroupsMode.ENABLED,
+            PropertyGroupsMode.OPTIMIZED,
+        ):
+            return
+        # For now, we're assuming that properties are in either no groups or one group, so just using the
+        # first group returned is fine. If we start putting properties in multiple groups, this should be
+        # revisited to find the optimal set (i.e. smallest set) of groups to read from.
+        for property_group_column in property_groups.get_property_group_columns(table_name, field_name, property_name):
+            yield PrintableMaterializedPropertyGroupItem(
+                self.visit(field_type.table_type),
+                self._print_identifier(property_group_column),
+                self.context.add_value(property_name),
+            )
+
+    def _render_function_call(self, node: ast.Call, func_meta) -> str:
+        args_count = len(node.args) - func_meta.passthrough_suffix_args_count
+        node_args, passthrough_suffix_args = node.args[:args_count], node.args[args_count:]
+
+        if node.name in FIRST_ARG_DATETIME_FUNCTIONS:
+            args: list[str] = []
+            for idx, arg in enumerate(node_args):
+                if idx == 0:
+                    if isinstance(arg, ast.Call) and arg.name in ADD_OR_NULL_DATETIME_FUNCTIONS:
+                        args.append(f"assumeNotNull(toDateTime({self.visit(arg)}))")
+                    else:
+                        args.append(f"toDateTime({self.visit(arg)}, 'UTC')")
+                else:
+                    args.append(self.visit(arg))
+        elif node.name == "concat":
+            args = []
+            for arg in node_args:
+                if isinstance(arg, ast.Constant):
+                    if arg.value is None:
+                        args.append("''")
+                    elif isinstance(arg.value, str):
+                        args.append(self.visit(arg))
+                    else:
+                        args.append(f"toString({self.visit(arg)})")
+                elif isinstance(arg, ast.Call) and arg.name == "toString":
+                    if len(arg.args) == 1 and isinstance(arg.args[0], ast.Constant):
+                        if arg.args[0].value is None:
+                            args.append("''")
+                        else:
+                            args.append(self.visit(arg))
+                    else:
+                        args.append(f"ifNull({self.visit(arg)}, '')")
+                else:
+                    args.append(f"ifNull(toString({self.visit(arg)}), '')")
+        else:
+            args = [self.visit(arg) for arg in node_args]
+
+        # Some of these `isinstance` checks are here just to make our type system happy
+        # We have some guarantees in place to ensure that the arguments are string/constants anyway
+        # Here's to hoping Python's type system gets as smart as TS's one day
+        if func_meta.suffix_args:
+            for suffix_arg in func_meta.suffix_args:
+                if len(passthrough_suffix_args) > 0:
+                    if not all(isinstance(arg, ast.Constant) for arg in passthrough_suffix_args):
+                        raise QueryError(
+                            f"Suffix argument '{suffix_arg.value}' expects ast.Constant arguments, but got {', '.join([type(arg).__name__ for arg in passthrough_suffix_args])}"
+                        )
+
+                    suffix_arg_args_values = [
+                        arg.value for arg in passthrough_suffix_args if isinstance(arg, ast.Constant)
+                    ]
+
+                    if isinstance(suffix_arg.value, str):
+                        suffix_arg.value = suffix_arg.value.format(*suffix_arg_args_values)
+                    else:
+                        raise QueryError(
+                            f"Suffix argument '{suffix_arg.value}' expects a string, but got {type(suffix_arg.value).__name__}"
+                        )
+                args.append(self.visit(suffix_arg))
+
+        relevant_clickhouse_name = func_meta.clickhouse_name
+        if func_meta.overloads:
+            first_arg_constant_type = (
+                node.args[0].type.resolve_constant_type(self.context)
+                if len(node.args) > 0 and node.args[0].type is not None
+                else None
+            )
+
+            if first_arg_constant_type is not None:
+                for (
+                    overload_types,
+                    overload_clickhouse_name,
+                ) in func_meta.overloads:
+                    if isinstance(first_arg_constant_type, overload_types):
+                        relevant_clickhouse_name = overload_clickhouse_name
+                        break  # Found an overload matching the first function org
+
+        if func_meta.tz_aware:
+            has_tz_override = len(node.args) == func_meta.max_args
+
+            if not has_tz_override:
+                args.append(self.visit(ast.Constant(value=self._get_timezone())))
+
+            # If the datetime is in correct format, use optimal toDateTime, it's stricter but faster
+            # and it allows CH to use index efficiently.
+            if (
+                relevant_clickhouse_name == "parseDateTime64BestEffortOrNull"
+                and len(node.args) == 1
+                and isinstance(node.args[0], Constant)
+                and isinstance(node.args[0].type, StringType)
+            ):
+                relevant_clickhouse_name = "parseDateTime64BestEffort"
+                pattern_with_microseconds_str = r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{1,6}$"
+                pattern_mysql_str = r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$"
+                if re.match(pattern_with_microseconds_str, node.args[0].value):
+                    relevant_clickhouse_name = "toDateTime64"
+                elif re.match(pattern_mysql_str, node.args[0].value) or re.match(
+                    r"^\d{4}-\d{2}-\d{2}$", node.args[0].value
+                ):
+                    relevant_clickhouse_name = "toDateTime"
+            if (
+                relevant_clickhouse_name == "now64"
+                and (len(node.args) == 0 or (has_tz_override and len(node.args) == 1))
+            ) or (
+                relevant_clickhouse_name
+                in (
+                    "parseDateTime64BestEffortOrNull",
+                    "parseDateTime64BestEffortUSOrNull",
+                    "parseDateTime64BestEffort",
+                    "toDateTime64",
+                )
+                and (len(node.args) == 1 or (has_tz_override and len(node.args) == 2))
+            ):
+                # These two CH functions require a precision argument before timezone
+                args = [*args[:-1], "6", *args[-1:]]
+
+        if node.name == "toStartOfWeek" and len(node.args) == 1:
+            # If week mode hasn't been specified, use the project's default.
+            # For Monday-based weeks mode 3 is used (which is ISO 8601), for Sunday-based mode 0 (CH default)
+            args.insert(1, WeekStartDay(self._get_week_start_day()).clickhouse_mode)
+
+        if node.name == "trimLeft" and len(args) == 2:
+            return f"trim(LEADING {args[1]} FROM {args[0]})"
+        elif node.name == "trimRight" and len(args) == 2:
+            return f"trim(TRAILING {args[1]} FROM {args[0]})"
+        elif node.name == "trim" and len(args) == 2:
+            return f"trim(BOTH {args[1]} FROM {args[0]})"
+
+        params = [self.visit(param) for param in node.params] if node.params is not None else None
+        params_part = f"({', '.join(params)})" if params is not None else ""
+        order_by_part = f" ORDER BY {', '.join(self.visit(o) for o in node.order_by)}" if node.order_by else ""
+        args_part = f"({', '.join(args)}{order_by_part})"
+        filter_part = f" FILTER (WHERE {self.visit(node.filter_expr)})" if node.filter_expr else ""
+        return f"{relevant_clickhouse_name}{params_part}{args_part}{filter_part}"
+
+    def _render_posthog_function_call(self, node: ast.Call, func_meta) -> str:
+        args = [self.visit(arg) for arg in node.args]
+
+        if node.name == "embedText":
+            return self.visit_constant(resolve_embed_text(self.context.team, node))
+        elif node.name == "lookupDomainType":
+            channel_dict = get_channel_definition_dict()
+            return f"coalesce(dictGetOrNull('{channel_dict}', 'domain_type', (coalesce({args[0]}, ''), 'source')), dictGetOrNull('{channel_dict}', 'domain_type', (cutToFirstSignificantSubdomain(coalesce({args[0]}, '')), 'source')))"
+        elif node.name == "lookupPaidSourceType":
+            channel_dict = get_channel_definition_dict()
+            return f"coalesce(dictGetOrNull('{channel_dict}', 'type_if_paid', (coalesce({args[0]}, ''), 'source')) , dictGetOrNull('{channel_dict}', 'type_if_paid', (cutToFirstSignificantSubdomain(coalesce({args[0]}, '')), 'source')))"
+        elif node.name == "lookupPaidMediumType":
+            channel_dict = get_channel_definition_dict()
+            return f"dictGetOrNull('{channel_dict}', 'type_if_paid', (coalesce({args[0]}, ''), 'medium'))"
+        elif node.name == "lookupOrganicSourceType":
+            channel_dict = get_channel_definition_dict()
+            return f"coalesce(dictGetOrNull('{channel_dict}', 'type_if_organic', (coalesce({args[0]}, ''), 'source')), dictGetOrNull('{channel_dict}', 'type_if_organic', (cutToFirstSignificantSubdomain(coalesce({args[0]}, '')), 'source')))"
+        elif node.name == "lookupOrganicMediumType":
+            channel_dict = get_channel_definition_dict()
+            return f"dictGetOrNull('{channel_dict}', 'type_if_organic', (coalesce({args[0]}, ''), 'medium'))"
+        elif node.name == "convertCurrency":
+            # convertCurrency(from_currency, to_currency, amount, timestamp?)
+            from_currency, to_currency, amount, *_rest = args
+            date = args[3] if len(args) > 3 and args[3] else "today()"
+            db = django_settings.CLICKHOUSE_DATABASE
+            # Build rate lookup expressions
+            from_rate = f"dictGetOrDefault(`{db}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', {from_currency}, {date}, toDecimal64(0, 10))"
+            to_rate = f"dictGetOrDefault(`{db}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', {to_currency}, {date}, toDecimal64(0, 10))"
+            # Use if() around divisor to avoid division by zero with enable_analyzer=0
+            # (old analyzer evaluates all branches regardless of condition)
+            safe_from_rate = f"if({from_rate} = 0, toDecimal64(1, 10), {from_rate})"
+            return f"if(equals({from_currency}, {to_currency}), toDecimal64({amount}, 10), if({from_rate} = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64({amount}, 10), {safe_from_rate}), {to_rate})))"
+
+        relevant_clickhouse_name = func_meta.clickhouse_name
+        if "{}" in relevant_clickhouse_name:
+            if len(args) != 1:
+                raise QueryError(f"Function '{node.name}' requires exactly one argument")
+            return relevant_clickhouse_name.format(args[0])
+
+        params = [self.visit(param) for param in node.params] if node.params is not None else None
+        params_part = f"({', '.join(params)})" if params is not None else ""
+        args_part = f"({', '.join(args)})"
+        return f"{relevant_clickhouse_name}{params_part}{args_part}"
 
     def visit(self, node: AST | None):
         if node is None:
@@ -67,9 +308,10 @@ class ClickHousePrinter(HogQLPrinter):
         if len(self.stack) == 0 and self.settings:
             if not isinstance(node, ast.SelectQuery) and not isinstance(node, ast.SelectSetQuery):
                 raise QueryError("Settings can only be applied to SELECT queries")
-            settings = self._print_settings(self.settings)
-            if settings is not None:
-                response += " " + settings
+            merged = self._merge_table_top_level_settings(self.settings)
+            printed = self._print_settings(merged)
+            if printed is not None:
+                response += " " + printed
 
         return response
 
@@ -84,7 +326,23 @@ class ClickHousePrinter(HogQLPrinter):
     def visit_join_expr(self, node: ast.JoinExpr):
         if node.type is None:
             raise InternalHogQLError("Printing queries with a FROM clause is not permitted before type resolution")
+
+        # ClickHouse requires enable_analyzer=1 for non-equality JOIN ON conditions (e.g. >=, <=, >, <, !=).
+        # Without it, queries with such conditions fail with INVALID_JOIN_ON_EXPRESSION.
+        if (
+            node.constraint is not None
+            and node.constraint.constraint_type == "ON"
+            and _join_constraint_has_non_equality(node.constraint.expr)
+        ):
+            if self.settings is None:
+                self.settings = HogQLGlobalSettings(enable_analyzer=True)
+            elif self.settings.enable_analyzer is None:
+                self.settings = self.settings.model_copy(update={"enable_analyzer": True})
+
         return super().visit_join_expr(node)
+
+    def visit_values_query(self, node: ast.ValuesQuery):
+        raise QueryError("VALUES clause is not supported in ClickHouse dialect")
 
     def visit_and(self, node: ast.And):
         """
@@ -165,6 +423,14 @@ class ClickHousePrinter(HogQLPrinter):
             # Strings, lists, tuples, and any other random datatype printed in ClickHouse.
             return self.context.add_value(node.value)
 
+    def visit_interpolate_expr(self, node: ast.InterpolateExpr):
+        # ClickHouse requires backtick-quoted column references in INTERPOLATE clauses
+        printed_expr = self.visit(node.expr)
+        quoted_expr = escape_clickhouse_identifier(printed_expr)
+        if node.value is not None:
+            return f"{quoted_expr} AS {self.visit(node.value)}"
+        return quoted_expr
+
     def visit_field(self, node: ast.Field):
         if node.type is None:
             field = ".".join([self._print_hogql_identifier_or_index(identifier) for identifier in node.chain])
@@ -191,7 +457,7 @@ class ClickHousePrinter(HogQLPrinter):
 
         field = field_type.resolve_database_field(self.context)
         table = field_type.table_type
-        while isinstance(table, ast.TableAliasType) or isinstance(table, ast.VirtualTableType):
+        while isinstance(table, (ast.TableAliasType, ast.ColumnAliasedTableType, ast.VirtualTableType)):
             table = table.table_type
 
         if not isinstance(table, ast.TableType):
@@ -684,6 +950,39 @@ class ClickHousePrinter(HogQLPrinter):
 
         return None  # nothing to optimize
 
+    def _is_events_table_timestamp_field(self, node: ast.Expr) -> bool:
+        traverser = GetFieldsTraverser(node)
+
+        for field in traverser.fields:
+            if isinstance(field.type, ast.FieldType):
+                field_name = str(field.chain[-1]) if field.chain else ""
+
+                # Check if field name is timestamp-like
+                if not (field_name == "timestamp" or field_name.endswith("_timestamp")):
+                    continue
+
+                table_type = field.type.table_type
+                while True:
+                    if isinstance(table_type, ast.TableType):
+                        table_name = table_type.table.to_printed_hogql()
+                        if table_name in (
+                            "events",
+                            "raw_sessions",
+                            "raw_sessions_v3",
+                            "session_replay_events",
+                            "raw_session_replay_events",
+                        ):
+                            return True
+                        break
+                    elif isinstance(table_type, (ast.LazyJoinType, ast.VirtualTableType)):
+                        table_type = table_type.table_type
+                    elif isinstance(table_type, (ast.TableAliasType, ast.ColumnAliasedTableType)):
+                        table_type = table_type.table_type
+                    else:
+                        break
+
+        return False
+
     def visit_compare_operation(self, node: ast.CompareOperation):
         # If either side of the operation is a property that is part of a property group, special optimizations may
         # apply here to ensure that data skipping indexes can be used when possible.
@@ -702,6 +1001,9 @@ class ClickHousePrinter(HogQLPrinter):
             return optimized_materialized_in
 
         in_join_constraint = any(isinstance(item, ast.JoinConstraint) for item in self.stack)
+        # indexHint() is purely an optimizer directive — its result is always true,
+        # so ifNull wrapping inside it is unnecessary and prevents index usage.
+        in_index_hint = any(isinstance(item, ast.Call) and item.name == "indexHint" for item in self.stack)
         left = self.visit(node.left)
         right = self.visit(node.right)
         nullable_left = self._is_nullable(node.left)
@@ -710,10 +1012,10 @@ class ClickHousePrinter(HogQLPrinter):
 
         # :HACK: until the new type system is out: https://github.com/PostHog/posthog/pull/17267
         # If we add a ifNull() around `events.timestamp`, we lose on the performance of the index.
-        if ("toTimeZone(" in left and (".timestamp" in left or "_timestamp" in left)) or (
-            "toTimeZone(" in right and (".timestamp" in right or "_timestamp" in right)
-        ):
+        # Only apply this optimization to actual table timestamp fields, not CTE fields.
+        if self._is_events_table_timestamp_field(node.left) or self._is_events_table_timestamp_field(node.right):
             not_nullable = True
+
         hack_sessions_timestamp = (
             "fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000))",
             "raw_sessions_v3.session_timestamp",
@@ -789,7 +1091,7 @@ class ClickHousePrinter(HogQLPrinter):
             return "1" if constant_lambda(node.left.value, node.right.value) else "0"
 
         # Special cases when we should not add any null checks
-        if in_join_constraint or self.dialect == "hogql" or not_nullable:
+        if in_join_constraint or not_nullable or in_index_hint:
             return op
 
         # Special optimization for "Eq" operator
@@ -858,6 +1160,16 @@ class ClickHousePrinter(HogQLPrinter):
 
         return super().visit_call(node)
 
+    def visit_array_slice(self, node: ast.ArraySlice):
+        array_str = self.visit(node.array)
+        start_str = self.visit(node.start_expr) if node.start_expr is not None else "1"
+        if node.end_expr is None:
+            return f"arraySlice({array_str}, {start_str})"
+
+        end_str = self.visit(node.end_expr)
+        length_str = f"plus(minus({end_str}, {start_str}), 1)"
+        return f"arraySlice({array_str}, {start_str}, {length_str})"
+
     def visit_hogqlx_tag(self, node: ast.HogQLXTag):
         raise QueryError("Printing HogQLX tags is only supported in HogQL queries")
 
@@ -905,6 +1217,16 @@ class ClickHousePrinter(HogQLPrinter):
         return sql
 
     def _print_select_columns(self, columns):
+        def _alias_from_column_type(column: ast.Expr) -> str | None:
+            column_type = getattr(column, "type", None)
+            if isinstance(column_type, ast.FieldAliasType):
+                return column_type.alias
+            if isinstance(column_type, ast.FieldType):
+                return column_type.name
+            if isinstance(column_type, ast.ExpressionFieldType):
+                return column_type.name
+            return None
+
         # Gather all visible aliases, and/or the last hidden alias for each unique alias name.
         found_aliases: dict[str, ast.Alias] = {}
         for alias in reversed(columns):
@@ -913,7 +1235,10 @@ class ClickHousePrinter(HogQLPrinter):
                     found_aliases[alias.alias] = alias
 
         columns_sql = []
+        used_aliases: set[str] = set()
         for column in columns:
+            printed_alias: str | None = None
+            dropped_hidden_alias = False
             if isinstance(column, ast.Alias):
                 # It's either a visible alias, or the last hidden alias with this name.
                 if found_aliases.get(column.alias) == column:
@@ -924,19 +1249,29 @@ class ClickHousePrinter(HogQLPrinter):
                     else:
                         # Always print visible aliases.
                         pass
+                    printed_alias = column.alias
                 else:
                     # Non-unique hidden alias. Skip.
+                    dropped_hidden_alias = True
                     column = column.expr
-            elif isinstance(column, ast.Call):
+
+            if printed_alias is None:
+                printed_alias = _alias_from_column_type(column)
+
+            if isinstance(column, ast.Call) and not dropped_hidden_alias:
                 with self.context.timings.measure("printer"):
-                    column_alias = safe_identifier(
-                        HogQLPrinter(
-                            context=self.context,
-                            dialect="hogql",
-                        ).visit(column)
-                    )
-                column = ast.Alias(alias=column_alias, expr=column)
+                    column_alias = safe_identifier(HogQLPrinter(context=self.context).visit(column))
+                # ClickHouse rejects duplicate aliases for different expressions in the
+                # same SELECT. This can happen after "*" expansion if a subquery already
+                # exposes a generated expression name like `toDate(period_end)`.
+                if column_alias not in used_aliases:
+                    column = ast.Alias(alias=column_alias, expr=column)
+                    printed_alias = column_alias
+                else:
+                    printed_alias = None
             columns_sql.append(self.visit(column))
+            if printed_alias is not None:
+                used_aliases.add(printed_alias)
 
         return columns_sql
 
@@ -953,10 +1288,16 @@ class ClickHousePrinter(HogQLPrinter):
         if self.context.output_format and is_top_level_query and (not part_of_select_union or is_last_query_in_union):
             clauses.append(f"FORMAT{space}{self.context.output_format}")
 
-        if node.settings is not None:
-            settings = self._print_settings(node.settings)
-            if settings is not None:
-                clauses.append(settings)
+        # When self.settings exists, table-level settings are merged in visit() instead
+        merged = (
+            self._merge_table_top_level_settings(node.settings)
+            if is_top_level_query and not self.settings
+            else node.settings
+        )
+        if merged is not None:
+            printed = self._print_settings(merged)
+            if printed is not None:
+                clauses.append(printed)
 
         return clauses
 

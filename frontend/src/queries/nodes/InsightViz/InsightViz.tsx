@@ -4,8 +4,8 @@ import clsx from 'clsx'
 import { BindLogic, BuiltLogic, LogicWrapper } from 'kea'
 import { useState } from 'react'
 
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
+import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
@@ -13,7 +13,6 @@ import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { AnyResponseType, DashboardFilter, HogQLVariable, InsightVizNode } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
-import { isFunnelsQuery, isRetentionQuery } from '~/queries/utils'
 import { InsightLogicProps } from '~/types'
 
 import { DataNodeLogicProps, dataNodeLogic } from '../DataNode/dataNodeLogic'
@@ -89,11 +88,8 @@ export function InsightViz({
         dataNodeCollectionId: insightVizDataCollectionId(insightProps, vizKey),
         filtersOverride,
         variablesOverride,
+        limitContext: context?.limitContext,
     }
-
-    const isFunnels = isFunnelsQuery(query.source)
-    const isHorizontalAlways = useFeatureFlag('PRODUCT_ANALYTICS_INSIGHT_HORIZONTAL_CONTROLS')
-    const isRetention = isRetentionQuery(query.source)
 
     const showIfFull = !!query.full
     const disableHeader = embedded || !(query.showHeader ?? showIfFull)
@@ -122,27 +118,38 @@ export function InsightViz({
 
     useAttachedLogic(dataNodeLogic(dataNodeLogicProps), attachTo)
     useAttachedLogic(insightLogic(insightProps as InsightLogicProps) as BuiltLogic, attachTo)
+    useAttachedLogic(insightDataLogic(insightProps as InsightLogicProps), attachTo)
     useAttachedLogic(insightVizDataLogic(insightProps as InsightLogicProps), attachTo)
 
     return (
         <ErrorBoundary exceptionProps={{ feature: 'InsightViz' }}>
             <BindLogic logic={insightLogic} props={insightProps}>
-                <BindLogic logic={dataNodeLogic} props={dataNodeLogicProps}>
-                    <BindLogic logic={insightVizDataLogic} props={insightProps}>
-                        <div
-                            className={
-                                !isEmbedded
-                                    ? clsx('InsightViz', {
-                                          'InsightViz--horizontal': isFunnels || isRetention || isHorizontalAlways,
-                                      })
-                                    : 'InsightCard__viz'
-                            }
-                        >
-                            {!readOnly && (
-                                <EditorFilters query={query.source} showing={showingFilters} embedded={isEmbedded} />
-                            )}
-                            {!isEmbedded ? <div className="flex-1 h-full overflow-auto">{display}</div> : display}
-                        </div>
+                <BindLogic logic={insightDataLogic} props={insightProps}>
+                    <BindLogic logic={dataNodeLogic} props={dataNodeLogicProps}>
+                        <BindLogic logic={insightVizDataLogic} props={insightProps}>
+                            <div
+                                className={
+                                    !isEmbedded
+                                        ? clsx('InsightViz InsightViz--horizontal', {
+                                              '!gap-4': editMode,
+                                              '!gap-0': !editMode,
+                                              'flex-1': editMode,
+                                          })
+                                        : 'InsightCard__viz'
+                                }
+                            >
+                                <EditorFilters
+                                    query={query.source}
+                                    showing={!readOnly && showingFilters}
+                                    embedded={isEmbedded}
+                                />
+                                {!isEmbedded ? (
+                                    <div className="flex-1 max-h-full overflow-auto">{display}</div>
+                                ) : (
+                                    display
+                                )}
+                            </div>
+                        </BindLogic>
                     </BindLogic>
                 </BindLogic>
             </BindLogic>

@@ -5,13 +5,13 @@ import { instrumentFn, instrumented } from '~/common/tracing/tracing-utils'
 import { convertToHogFunctionInvocationGlobals } from '../../cdp/utils'
 import { KAFKA_EVENTS_JSON } from '../../config/kafka-topics'
 import { KafkaConsumer } from '../../kafka/consumer'
-import { HealthCheckResult, Hub, PluginsServerConfig, RawClickHouseEvent } from '../../types'
+import { HealthCheckResult, PluginsServerConfig, RawClickHouseEvent } from '../../types'
 import { parseJSON } from '../../utils/json-parse'
 import { logger } from '../../utils/logger'
 import { captureException } from '../../utils/posthog'
 import { shouldBlockHogFlowDueToQuota } from '../services/hogflows/hogflow-quota-limiting'
 import { CyclotronJobQueue } from '../services/job-queue/job-queue'
-import { HogRateLimiterService, HogRateLimiterServiceHub } from '../services/monitoring/hog-rate-limiter.service'
+import { HogRateLimiterService } from '../services/monitoring/hog-rate-limiter.service'
 import { HogWatcherState } from '../services/monitoring/hog-watcher.service'
 import {
     CyclotronJobInvocation,
@@ -21,20 +21,13 @@ import {
     HogFunctionTypeType,
     MinimalAppMetric,
 } from '../types'
-import { CdpConsumerBase, CdpConsumerBaseHub } from './cdp-base.consumer'
+import { CdpConsumerBase, CdpConsumerBaseDeps } from './cdp-base.consumer'
 import { counterHogFunctionStateOnEvent, counterParseError, counterRateLimited } from './metrics'
 import { shouldBlockInvocationDueToQuota } from './quota-limiting-helper'
 
-/**
- * Hub type for CdpEventsConsumer.
- * Extends CdpConsumerBaseHub with event consumer-specific fields.
- */
-export type CdpEventsConsumerHub = CdpConsumerBaseHub &
-    HogRateLimiterServiceHub &
-    PluginsServerConfig & // For CyclotronJobQueue (to be narrowed later)
-    Pick<Hub, 'teamManager' | 'SITE_URL'>
-
-export class CdpEventsConsumer<THub extends CdpEventsConsumerHub = CdpEventsConsumerHub> extends CdpConsumerBase<THub> {
+export class CdpEventsConsumer<
+    TConfig extends PluginsServerConfig = PluginsServerConfig,
+> extends CdpConsumerBase<TConfig> {
     protected name = 'CdpEventsConsumer'
     protected hogTypes: HogFunctionTypeType[] = ['destination']
     private cyclotronJobQueue: CyclotronJobQueue
@@ -42,11 +35,23 @@ export class CdpEventsConsumer<THub extends CdpEventsConsumerHub = CdpEventsCons
 
     private hogRateLimiter: HogRateLimiterService
 
-    constructor(hub: THub, topic: string = KAFKA_EVENTS_JSON, groupId: string = 'cdp-processed-events-consumer') {
-        super(hub)
-        this.cyclotronJobQueue = new CyclotronJobQueue(hub, 'hog')
+    constructor(
+        config: TConfig,
+        deps: CdpConsumerBaseDeps,
+        topic: string = KAFKA_EVENTS_JSON,
+        groupId: string = 'cdp-processed-events-consumer'
+    ) {
+        super(config, deps)
+        this.cyclotronJobQueue = new CyclotronJobQueue(config.CONSUMER_BATCH_SIZE, config.KAFKA_CLIENT_RACK, config)
         this.kafkaConsumer = new KafkaConsumer({ groupId, topic })
-        this.hogRateLimiter = new HogRateLimiterService(hub, this.redis)
+        this.hogRateLimiter = new HogRateLimiterService(
+            {
+                bucketSize: config.CDP_RATE_LIMITER_BUCKET_SIZE,
+                refillRate: config.CDP_RATE_LIMITER_REFILL_RATE,
+                ttl: config.CDP_RATE_LIMITER_TTL,
+            },
+            this.redis
+        )
     }
 
     public async processBatch(
@@ -88,7 +93,7 @@ export class CdpEventsConsumer<THub extends CdpEventsConsumerHub = CdpEventsCons
         invocationGlobals: HogFunctionInvocationGlobals[]
     ): Promise<CyclotronJobInvocation[]> {
         // TODO: Add a helper to hog functions to determine if they require groups or not and then only load those
-        await this.groupsManager.enrichGroups(invocationGlobals)
+        await this.groupsManager.addGroupsToGlobalsList(invocationGlobals)
 
         const teamsToLoad = [...new Set(invocationGlobals.map((x) => x.project.id))]
         const hogFunctionsByTeam = await this.hogFunctionManager.getHogFunctionsForTeams(
@@ -151,7 +156,7 @@ export class CdpEventsConsumer<THub extends CdpEventsConsumerHub = CdpEventsCons
                 }
 
                 const isQuotaLimited = await shouldBlockInvocationDueToQuota(item, {
-                    hub: this.hub,
+                    quotaLimiting: this.deps.quotaLimiting,
                     hogFunctionMonitoringService: this.hogFunctionMonitoringService,
                 })
 
@@ -184,7 +189,7 @@ export class CdpEventsConsumer<THub extends CdpEventsConsumerHub = CdpEventsCons
 
                 if (state === HogWatcherState.degraded) {
                     item.queuePriority = 2
-                    if (this.hub.CDP_OVERFLOW_QUEUE_ENABLED) {
+                    if (this.config.CDP_OVERFLOW_QUEUE_ENABLED) {
                         item.queue = 'hogoverflow'
                     }
                 }
@@ -251,9 +256,6 @@ export class CdpEventsConsumer<THub extends CdpEventsConsumerHub = CdpEventsCons
     protected async createHogFlowInvocations(
         invocationGlobals: HogFunctionInvocationGlobals[]
     ): Promise<CyclotronJobInvocation[]> {
-        // TODO: Add back in group enrichment if necessary
-        // await this.groupsManager.enrichGroups(invocationGlobals)
-
         const teamsToLoad = [...new Set(invocationGlobals.map((x) => x.project.id))]
         const hogFlowsByTeam = await this.hogFlowManager.getHogFlowsForTeams(teamsToLoad)
 
@@ -310,7 +312,7 @@ export class CdpEventsConsumer<THub extends CdpEventsConsumerHub = CdpEventsCons
 
                 // Check quota limits for workflow actions
                 const isQuotaLimited = await shouldBlockHogFlowDueToQuota(item, {
-                    hub: this.hub,
+                    quotaLimiting: this.deps.quotaLimiting,
                     hogFunctionMonitoringService: this.hogFunctionMonitoringService,
                 })
 
@@ -384,14 +386,14 @@ export class CdpEventsConsumer<THub extends CdpEventsConsumerHub = CdpEventsCons
                     const [teamHogFunctions, teamHogFlows, team] = await Promise.all([
                         this.hogFunctionManager.getHogFunctionsForTeam(clickHouseEvent.team_id, this.hogTypes),
                         this.hogFlowManager.getHogFlowsForTeam(clickHouseEvent.team_id),
-                        this.hub.teamManager.getTeam(clickHouseEvent.team_id),
+                        this.deps.teamManager.getTeam(clickHouseEvent.team_id),
                     ])
 
                     if ((!teamHogFunctions.length && !teamHogFlows.length) || !team) {
                         return
                     }
 
-                    events.push(convertToHogFunctionInvocationGlobals(clickHouseEvent, team, this.hub.SITE_URL))
+                    events.push(convertToHogFunctionInvocationGlobals(clickHouseEvent, team, this.config.SITE_URL))
                 } catch (e) {
                     logger.error('Error parsing message', e)
                     counterParseError.labels({ error: e.message }).inc()
@@ -402,7 +404,7 @@ export class CdpEventsConsumer<THub extends CdpEventsConsumerHub = CdpEventsCons
         return events
     }
 
-    public async start(): Promise<void> {
+    public override async start(): Promise<void> {
         await super.start()
         // Make sure we are ready to produce to cyclotron first
         await this.cyclotronJobQueue.startAsProducer()
@@ -421,7 +423,7 @@ export class CdpEventsConsumer<THub extends CdpEventsConsumerHub = CdpEventsCons
         })
     }
 
-    public async stop(): Promise<void> {
+    public override async stop(): Promise<void> {
         logger.info('💤', 'Stopping consumer...')
         await this.kafkaConsumer.disconnect()
         logger.info('💤', 'Stopping cyclotron job queue...')

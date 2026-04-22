@@ -21,7 +21,7 @@
  * - **Batching**: Results returned together (not streamed)
  */
 import { newBatchPipelineBuilder } from '../builders'
-import { createContext } from '../helpers'
+import { createOkContext } from '../helpers'
 import { isOkResult, ok } from '../results'
 import { ProcessingStep } from '../steps'
 import { consumeAll } from './helpers'
@@ -54,7 +54,7 @@ describe('Sequential Processing', () => {
             .sequentially((builder) => builder.pipe(createOrderTrackingStep()))
             .build()
 
-        const batch = [1, 2, 3].map((n) => createContext(ok(n)))
+        const batch = [1, 2, 3].map((n) => createOkContext(n, {}))
         pipeline.feed(batch)
 
         // Sequential: need to advance time for each item (3 items x 10ms = 30ms)
@@ -82,7 +82,7 @@ describe('Sequential Processing', () => {
             .sequentially((builder) => builder.pipe(createSlowStep()))
             .build()
 
-        const batch = [1, 2, 3].map((n) => createContext(ok(n)))
+        const batch = [1, 2, 3].map((n) => createOkContext(n, {}))
         pipeline.feed(batch)
 
         // Collect batches as they arrive
@@ -123,7 +123,7 @@ describe('Sequential Processing', () => {
             .sequentially((builder) => builder.pipe(createTrackingStep()))
             .build()
 
-        const batch = [3, 1, 2].map((n) => createContext(ok(n)))
+        const batch = [3, 1, 2].map((n) => createOkContext(n, {}))
         pipeline.feed(batch)
 
         const allValues = await consumeAll(pipeline, 30)

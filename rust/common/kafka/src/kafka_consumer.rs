@@ -56,6 +56,14 @@ impl SingleTopicConsumer {
                 &consumer_config.kafka_consumer_offset_reset,
             );
 
+        if !common_config.kafka_client_rack.is_empty() {
+            client_config.set("client.rack", &common_config.kafka_client_rack);
+        }
+
+        if !common_config.kafka_client_id.is_empty() {
+            client_config.set("client.id", &common_config.kafka_client_id);
+        }
+
         // IMPORTANT: this means *by default* all consumers are
         // responsible for storing their own offsets, regardless
         // of whether automatic offset commit is enabled or disabled!
@@ -74,6 +82,16 @@ impl SingleTopicConsumer {
                     .kafka_consumer_auto_commit_interval_ms
                     .to_string(),
             );
+        }
+
+        if let Some(v) = consumer_config.kafka_consumer_fetch_wait_max_ms {
+            client_config.set("fetch.wait.max.ms", v.to_string());
+        }
+        if let Some(v) = consumer_config.kafka_consumer_fetch_min_bytes {
+            client_config.set("fetch.min.bytes", v.to_string());
+        }
+        if let Some(v) = consumer_config.kafka_consumer_fetch_max_bytes {
+            client_config.set("fetch.max.bytes", v.to_string());
         }
 
         let consumer: StreamConsumer = client_config.create()?;

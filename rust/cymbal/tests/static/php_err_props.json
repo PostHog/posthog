@@ -1,0 +1,34 @@
+{
+  "$exception_list": [
+    {
+      "type": "RuntimeException",
+      "value": "boom",
+      "stacktrace": {
+        "type": "raw",
+        "frames": [
+          {
+            "platform": "php",
+            "filename": "ExceptionCapture.php",
+            "abs_path": "/app/lib/ExceptionCapture.php",
+            "lineno": 42,
+            "function": "PostHog\\ExceptionCapture::buildParsedException",
+            "in_app": true,
+            "context_line": "throw new \\RuntimeException('boom');",
+            "pre_context": [
+              "try {",
+              "    $throwLine = __LINE__ + 1;"
+            ],
+            "post_context": [
+              "} catch (\\RuntimeException $e) {",
+              "    return [$e, $throwLine];"
+            ]
+          },
+          {
+            "platform": "php",
+            "in_app": false
+          }
+        ]
+      }
+    }
+  ]
+}

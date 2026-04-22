@@ -1,10 +1,11 @@
-use std::sync::{atomic::Ordering, Arc};
+use std::sync::Arc;
 
 use anyhow::{Context, Error};
 use uuid::Uuid;
 
 use crate::metrics as metric_emit;
 use common_types::InternallyCapturedEvent;
+use lifecycle::Handle;
 use model::{JobModel, JobState, PartState};
 use tokio::sync::Mutex;
 use tracing::{debug, error, info, warn};
@@ -12,11 +13,13 @@ use tracing::{debug, error, info, warn};
 use crate::{
     context::AppContext,
     emit::Emitter,
-    error::{extract_retry_after_from_error, get_user_message, is_rate_limited_error, UserError},
-    job::backoff::format_backoff_messages,
+    error::{
+        extract_retry_after_from_error, get_user_message, is_rate_limited_error, is_timeout_error,
+        UserError,
+    },
+    job::{backoff::format_backoff_messages, config::SinkConfig},
     parse::{format::ParserFn, Parsed},
     source::DataSource,
-    spawn_liveness_loop,
 };
 
 pub mod backoff;
@@ -48,7 +51,17 @@ fn decide_on_error(
         if let Some(ra) = extract_retry_after_from_error(err) {
             delay = std::cmp::min(ra, policy.max_delay);
         }
-        let (status_msg, display_msg) = format_backoff_messages(current_date_range, delay);
+        let (status_msg, display_msg) =
+            format_backoff_messages(current_date_range, delay, "Rate limited (429)");
+        ErrorHandlingDecision::Backoff {
+            delay,
+            status_msg,
+            display_msg,
+        }
+    } else if is_timeout_error(err) {
+        let delay = policy.next_delay(current_attempt);
+        let (status_msg, display_msg) =
+            format_backoff_messages(current_date_range, delay, "Request timed out");
         ErrorHandlingDecision::Backoff {
             delay,
             status_msg,
@@ -84,9 +97,15 @@ async fn reset_backoff_after_success(
 
 pub struct Job {
     pub context: Arc<AppContext>,
+    handle: Handle,
 
     // Once created the job id doesn't change, store it on the Job struct for easy access, to avoid contention/locking on the model
     pub job_id: Uuid,
+
+    // How many bytes to fetch from the source per iteration. Varies by sink
+    // type: the capture sink uses a smaller value to stay within the capture
+    // service's HTTP body size limit.
+    pub chunk_size: usize,
 
     // The job maintains a copy of the job state, outside of the model,
     // because process in a pipelined fashion, and to do that we need to
@@ -114,7 +133,11 @@ struct Checkpoint {
 }
 
 impl Job {
-    pub async fn new(mut model: JobModel, context: Arc<AppContext>) -> Result<Self, Error> {
+    pub async fn new(
+        mut model: JobModel,
+        context: Arc<AppContext>,
+        handle: Handle,
+    ) -> Result<Self, Error> {
         let is_restarting = model.state.is_some();
 
         let source = model
@@ -175,10 +198,16 @@ impl Job {
         }
 
         let job_id = model.id;
+        let chunk_size = match &model.import_config.sink {
+            SinkConfig::Capture(_) => context.config.capture_chunk_size,
+            _ => context.config.chunk_size,
+        };
 
         Ok(Self {
             context,
+            handle,
             job_id,
+            chunk_size,
             model: Mutex::new(model),
             state: Mutex::new(state),
             source,
@@ -261,7 +290,7 @@ impl Job {
                                     self.context.clone(),
                                     msg,
                                     Some(
-                                        "Rate limit persisted. Job paused after maximum retries."
+                                        "Transient error persisted. Job paused after maximum retries."
                                             .to_string(),
                                     ),
                                 )
@@ -273,7 +302,8 @@ impl Job {
                             job_id = %self.model.lock().await.id,
                             attempt = next_attempt,
                             delay_secs = delay.as_secs(),
-                            "rate limited (429): scheduling retry"
+                            "transient error, scheduling retry: {:#}",
+                            e
                         );
                         metric_emit::backoff_event(delay.as_secs_f64());
 
@@ -375,7 +405,7 @@ impl Job {
             .get_chunk(
                 &next_part.key,
                 next_part.current_offset,
-                self.context.config.chunk_size as u64,
+                self.chunk_size as u64,
             )
             .await
             .context(format!("Fetching part chunk {next_part:?}"))?;
@@ -439,13 +469,12 @@ impl Job {
     }
 
     async fn do_commit(&self) -> Result<(), Error> {
-        let liveness_loop_flag = spawn_liveness_loop(self.context.worker_liveness.clone());
         self.shutdown_guard()?;
         let mut checkpoint_lock = self.checkpoint.lock().await;
 
         let Some(checkpoint) = checkpoint_lock.take() else {
             info!(job_id = %self.job_id, "No checkpointed data to commit, returning");
-            return Ok(()); // We've got no checkpointed data to commit, so we're done
+            return Ok(());
         };
 
         let (key, parsed) = (checkpoint.key, checkpoint.data);
@@ -455,19 +484,15 @@ impl Job {
 
         let mut sink = self.sink.lock().await;
         self.shutdown_guard()?;
-        // If this fails, we just bail out, and then eventually someone else will pick up the job again and re-process this chunk
         let txn = sink.begin_write().await?;
         info!(job_id = %self.job_id, "Writing {} events", parsed.data.len());
-        // If this fails, as above
         self.shutdown_guard()?;
         txn.emit(&parsed.data).await?;
-        // This is where things get tricky - if we fail to commit the chunk to the sink in the next step, and we've told PG we've
-        // committed the chunk, we'll bail out, and whoever comes next will end up skipping this chunk. To prevent this, we do a two
-        // stage commit, where we pause the job before committing the chunk to the sink, and then only unpause it after the sink commit,
-        // such that if we get interrupted between the two, the job will be paused, and manual intervention will be required to resume it.
-        // This operator can then confirm whether the sink commit succeeded or not (by looking at the last event written, or by
-        // looking at logs, or both). The jobs status message is set to enable this kind of debugging.
-        self.shutdown_guard()?; // This is the last time we call this during the commit - if we get this far, we want to commit fully if at all possible
+        // Two-stage commit: pause the job in PG before committing to the sink, so that if we
+        // crash between the two, the job is paused and requires manual intervention rather than
+        // silently skipping a chunk. The operator can confirm whether the sink commit succeeded
+        // by looking at the last event written or the logs.
+        self.shutdown_guard()?;
         info!(job_id = %self.job_id, "Beginning PG part commit");
         self.begin_part_commit(&key, parsed.consumed).await?;
         info!(job_id = %self.job_id, "Beginning emitter part commit");
@@ -477,8 +502,10 @@ impl Job {
         self.complete_commit().await?;
         info!(job_id = %self.job_id, "Committed part {} consumed {} bytes", key, parsed.consumed);
         info!(job_id = %self.job_id, "Sleeping for {:?}", to_sleep);
-        tokio::time::sleep(to_sleep).await;
-        liveness_loop_flag.store(false, Ordering::Relaxed);
+        tokio::select! {
+            _ = tokio::time::sleep(to_sleep) => {},
+            _ = self.handle.shutdown_recv() => {},
+        }
 
         Ok(())
     }
@@ -527,13 +554,10 @@ impl Job {
         model.unpause(self.context.clone()).await
     }
 
-    // Used during the commit operations as a shorthand way to bail before an operation if we get a shutdown signal
     fn shutdown_guard(&self) -> Result<(), Error> {
-        if !self.context.is_running() {
-            warn!("Running flag set to flase during job processing, bailing");
-            Err(Error::msg(
-                "Running flag set to flase during job processing, bailing",
-            ))
+        if self.handle.is_shutting_down() {
+            warn!("Shutdown signaled during job processing, bailing");
+            Err(Error::msg("Shutdown signaled during job processing"))
         } else {
             Ok(())
         }
@@ -833,6 +857,60 @@ mod tests {
         );
     }
 
+    #[tokio::test]
+    async fn test_decide_on_error_backoff_for_timeout() {
+        // Create a TCP listener that accepts but never responds, triggering a client timeout
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+
+        let client = Client::builder()
+            .timeout(std::time::Duration::from_millis(50))
+            .build()
+            .unwrap();
+
+        let err = client
+            .get(format!("http://{addr}/export"))
+            .send()
+            .await
+            .unwrap_err();
+        let err = anyhow::Error::from(err);
+
+        let decision = decide_on_error(
+            &err,
+            Some("2026-01-01 10:00 UTC to 2026-01-01 11:00 UTC"),
+            crate::job::backoff::BackoffPolicy::new(
+                std::time::Duration::from_secs(60),
+                2.0,
+                std::time::Duration::from_secs(3600),
+            ),
+            0,
+            "Request timed out",
+        );
+
+        match decision {
+            ErrorHandlingDecision::Backoff {
+                delay,
+                status_msg,
+                display_msg,
+            } => {
+                assert_eq!(delay.as_secs(), 60);
+                assert!(
+                    status_msg.contains("Request timed out"),
+                    "status_msg should mention timeout: {status_msg}"
+                );
+                assert!(
+                    display_msg.contains("Date range"),
+                    "display_msg should include date range: {display_msg}"
+                );
+                assert!(
+                    display_msg.contains("Request timed out"),
+                    "display_msg should mention timeout: {display_msg}"
+                );
+            }
+            _ => panic!("expected backoff for timeout error"),
+        }
+    }
+
     #[test]
     fn test_should_pause_due_to_max_attempts() {
         assert!(!should_pause_due_to_max_attempts(0, 0)); // unlimited
@@ -885,6 +963,38 @@ mod tests {
                 );
             }
             _ => panic!("Expected Pause decision"),
+        }
+    }
+
+    mod shutdown_guard_tests {
+        use tokio_util::sync::CancellationToken;
+
+        fn make_handle(token: CancellationToken) -> lifecycle::Handle {
+            let mut manager = lifecycle::Manager::builder("test")
+                .with_trap_signals(false)
+                .with_prestop_check(false)
+                .with_shutdown_token(token)
+                .build();
+            manager.register("test-component", lifecycle::ComponentOptions::new())
+        }
+
+        /// shutdown_guard delegates to handle.is_shutting_down(); verify the
+        /// underlying predicate returns false before cancellation.
+        #[test]
+        fn handle_not_shutting_down_before_cancel() {
+            let token = CancellationToken::new();
+            let handle = make_handle(token);
+            assert!(!handle.is_shutting_down());
+        }
+
+        /// After the token is cancelled, is_shutting_down() returns true --
+        /// which is what shutdown_guard uses to bail out of commit phases.
+        #[test]
+        fn handle_shutting_down_after_cancel() {
+            let token = CancellationToken::new();
+            let handle = make_handle(token.clone());
+            token.cancel();
+            assert!(handle.is_shutting_down());
         }
     }
 }

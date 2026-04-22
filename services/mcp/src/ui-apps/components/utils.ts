@@ -1,7 +1,7 @@
 import type { ChartDisplayType, FunnelResult, TrendsQuery } from './types'
 
-export function getDisplayType(query: TrendsQuery): ChartDisplayType {
-    return query.trendsFilter?.display || 'ActionsLineGraph'
+export function getDisplayType(query: TrendsQuery | undefined): ChartDisplayType {
+    return query?.trendsFilter?.display || 'ActionsLineGraph'
 }
 
 export function isBarChart(displayType: ChartDisplayType): boolean {
@@ -24,6 +24,9 @@ export function formatPercent(value: number): string {
 
 export function formatDate(dateStr: string): string {
     const date = new Date(dateStr)
+    if (isNaN(date.getTime())) {
+        return dateStr
+    }
     return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
 }
 

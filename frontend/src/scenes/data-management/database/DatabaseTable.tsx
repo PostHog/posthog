@@ -8,13 +8,14 @@ import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { LemonTag, LemonTagType } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Link } from 'lib/lemon-ui/Link'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
-import { dataWarehouseJoinsLogic } from 'scenes/data-warehouse/external/dataWarehouseJoinsLogic'
 import { dataWarehouseSettingsSceneLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsSceneLogic'
 import { viewLinkLogic } from 'scenes/data-warehouse/viewLinkLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { DatabaseSchemaTable, DatabaseSerializedFieldType } from '~/queries/schema/schema-general'
+
+import { joinsLogic } from 'products/data_warehouse/frontend/shared/logics/joinsLogic'
 
 interface DatabaseTableProps {
     table: string
@@ -32,7 +33,8 @@ const nonEditableSchemaTypes = [
     'materialized_view',
 ] as const
 type NonEditableSchemaTypes = Extract<DatabaseSerializedFieldType, (typeof nonEditableSchemaTypes)[number]>
-const editSchemaOptions: Record<Exclude<DatabaseSerializedFieldType, NonEditableSchemaTypes>, string> = {
+type EditableSerializedFieldTypes = Exclude<DatabaseSerializedFieldType, NonEditableSchemaTypes>
+const editSchemaOptions: Record<EditableSerializedFieldTypes, string> = {
     integer: 'Integer',
     float: 'Float',
     decimal: 'Decimal',
@@ -44,7 +46,8 @@ const editSchemaOptions: Record<Exclude<DatabaseSerializedFieldType, NonEditable
     json: 'JSON',
     unknown: 'Unknown',
 }
-const editSchemaOptionsAsArray = Object.keys(editSchemaOptions).map((n) => ({ value: n, label: editSchemaOptions[n] }))
+const editSchemaOptionsKeys = Object.keys(editSchemaOptions) as Array<EditableSerializedFieldTypes>
+const editSchemaOptionsAsArray = editSchemaOptionsKeys.map((n) => ({ value: n, label: editSchemaOptions[n] }))
 
 const isNonEditableSchemaType = (schemaType: unknown): schemaType is NonEditableSchemaTypes => {
     return typeof schemaType === 'string' && nonEditableSchemaTypes.includes(schemaType as NonEditableSchemaTypes)
@@ -52,8 +55,8 @@ const isNonEditableSchemaType = (schemaType: unknown): schemaType is NonEditable
 const JoinsMoreMenu = ({ tableName, fieldName }: { tableName: string; fieldName: string }): JSX.Element => {
     const { currentTeamId } = useValues(teamLogic)
     const { toggleEditJoinModal } = useActions(viewLinkLogic)
-    const { joins, joinsLoading } = useValues(dataWarehouseJoinsLogic)
-    const { loadJoins } = useActions(dataWarehouseJoinsLogic)
+    const { joins, joinsLoading } = useValues(joinsLogic)
+    const { loadJoins } = useActions(joinsLogic)
     const { loadDatabase } = useActions(dataWarehouseSettingsSceneLogic)
 
     const join =
@@ -174,7 +177,15 @@ export function DatabaseTable({ table, tables, inEditSchemaMode, schemaOnChange 
                         if (type === 'virtual_table' || type === 'view') {
                             return (
                                 <>
-                                    Fields: <code>{(field as any).fields.join(', ')}</code>
+                                    {(field as any).fields ? (
+                                        <>
+                                            Fields: <code>{(field as any).fields.join(', ')}</code>
+                                        </>
+                                    ) : (
+                                        <>
+                                            To table: <code>{String((field as any).table)}</code>
+                                        </>
+                                    )}
                                 </>
                             )
                         } else if (type === 'lazy_table') {

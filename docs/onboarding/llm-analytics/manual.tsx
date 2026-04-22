@@ -51,7 +51,7 @@ export const getManualSteps = (ctx: OnboardingComponentsContext): StepDefinition
                                                     code={dedent`
                                                         import { PostHog } from 'posthog-node'
 
-                                                        const client = new PostHog('<ph_project_api_key>', {
+                                                        const client = new PostHog('<ph_project_token>', {
                                                             host: '<ph_client_api_host>'
                                                         })
                                                     `}
@@ -67,7 +67,7 @@ export const getManualSteps = (ctx: OnboardingComponentsContext): StepDefinition
                                                             event: '$ai_generation',
                                                             properties: {
                                                                 $ai_trace_id: 'trace_id_here',
-                                                                $ai_model: 'gpt-4o-mini',
+                                                                $ai_model: 'gpt-5-mini',
                                                                 $ai_provider: 'openai',
                                                                 $ai_input: [{ role: 'user', content: 'Tell me a fun fact about hedgehogs' }],
                                                                 $ai_input_tokens: 10,
@@ -97,7 +97,7 @@ export const getManualSteps = (ctx: OnboardingComponentsContext): StepDefinition
                                                     code={dedent`
                                                         from posthog import Posthog
 
-                                                        posthog = Posthog("<ph_project_api_key>", host="<ph_client_api_host>")
+                                                        posthog = Posthog("<ph_project_token>", host="<ph_client_api_host>")
                                                     `}
                                                 />
 
@@ -111,7 +111,7 @@ export const getManualSteps = (ctx: OnboardingComponentsContext): StepDefinition
                                                             event='$ai_generation',
                                                             properties={
                                                                 '$ai_trace_id': 'trace_id_here',
-                                                                '$ai_model': 'gpt-4o-mini',
+                                                                '$ai_model': 'gpt-5-mini',
                                                                 '$ai_provider': 'openai',
                                                                 '$ai_input': [{'role': 'user', 'content': 'Tell me a fun fact about hedgehogs'}],
                                                                 '$ai_input_tokens': 10,
@@ -142,7 +142,7 @@ export const getManualSteps = (ctx: OnboardingComponentsContext): StepDefinition
                                                     code={dedent`
                                                         import "github.com/posthog/posthog-go"
 
-                                                        client, _ := posthog.NewWithConfig("<ph_project_api_key>", posthog.Config{
+                                                        client, _ := posthog.NewWithConfig("<ph_project_token>", posthog.Config{
                                                             Endpoint: "<ph_client_api_host>",
                                                         })
                                                         defer client.Close()
@@ -159,7 +159,7 @@ export const getManualSteps = (ctx: OnboardingComponentsContext): StepDefinition
                                                             Event:      "$ai_generation",
                                                             Properties: map[string]interface{}{
                                                                 "$ai_trace_id":        "trace_id_here",
-                                                                "$ai_model":           "gpt-4o-mini",
+                                                                "$ai_model":           "gpt-5-mini",
                                                                 "$ai_provider":        "openai",
                                                                 "$ai_input_tokens":    10,
                                                                 "$ai_output_tokens":   20,
@@ -186,7 +186,7 @@ export const getManualSteps = (ctx: OnboardingComponentsContext): StepDefinition
                                                         require 'posthog-ruby'
 
                                                         posthog = PostHog::Client.new({
-                                                            api_key: '<ph_project_api_key>',
+                                                            api_key: '<ph_project_token>',
                                                             host: '<ph_client_api_host>'
                                                         })
                                                     `}
@@ -202,7 +202,7 @@ export const getManualSteps = (ctx: OnboardingComponentsContext): StepDefinition
                                                             event: '$ai_generation',
                                                             properties: {
                                                             '$ai_trace_id' => 'trace_id_here',
-                                                            '$ai_model' => 'gpt-4o-mini',
+                                                            '$ai_model' => 'gpt-5-mini',
                                                             '$ai_provider' => 'openai',
                                                             '$ai_input_tokens' => 10,
                                                             '$ai_output_tokens' => 20,
@@ -233,7 +233,7 @@ export const getManualSteps = (ctx: OnboardingComponentsContext): StepDefinition
                                                         require_once __DIR__ . '/vendor/autoload.php';
                                                         use PostHog\\PostHog;
 
-                                                        PostHog::init('<ph_project_api_key>', [
+                                                        PostHog::init('<ph_project_token>', [
                                                             'host' => '<ph_client_api_host>'
                                                         ]);
                                                     `}
@@ -249,7 +249,7 @@ export const getManualSteps = (ctx: OnboardingComponentsContext): StepDefinition
                                                             'event' => '$ai_generation',
                                                             'properties' => [
                                                                 '$ai_trace_id' => 'trace_id_here',
-                                                                '$ai_model' => 'gpt-4o-mini',
+                                                                '$ai_model' => 'gpt-5-mini',
                                                                 '$ai_provider' => 'openai',
                                                                 '$ai_input_tokens' => 10,
                                                                 '$ai_output_tokens' => 20,
@@ -273,12 +273,12 @@ export const getManualSteps = (ctx: OnboardingComponentsContext): StepDefinition
                                                         curl -X POST "<ph_client_api_host>/i/v0/e/" \\
                                                                 -H "Content-Type: application/json" \\
                                                                 -d '{
-                                                                    "api_key": "<ph_project_api_key>",
+                                                                    "api_key": "<ph_project_token>",
                                                                     "event": "$ai_generation",
                                                                     "properties": {
                                                                         "distinct_id": "user_123",
                                                                         "$ai_trace_id": "trace_id_here",
-                                                                        "$ai_model": "gpt-4o-mini",
+                                                                        "$ai_model": "gpt-5-mini",
                                                                         "$ai_provider": "openai",
                                                                         "$ai_input": [{"role": "user", "content": "Tell me a fun fact about hedgehogs"}],
                                                                         "$ai_input_tokens": 10,
@@ -298,13 +298,16 @@ export const getManualSteps = (ctx: OnboardingComponentsContext): StepDefinition
                             ))}
                         </Tab.Panels>
                     </Tab.Group>
-
+                </>
+            ),
+        },
+        {
+            title: 'Event properties',
+            content: (
+                <>
                     <Markdown>
-                        {dedent`
-                            ### Event Properties
-
-                            Each event type has specific properties. See the tabs below for detailed property documentation for each event type.
-                        `}
+                        Each event type has specific properties. See the tabs below for detailed property documentation
+                        for each event type.
                     </Markdown>
 
                     <Tab.Group tabs={['Generation', 'Trace', 'Span', 'Embedding']}>

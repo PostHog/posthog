@@ -8,7 +8,7 @@ from azure.ai.inference.models import EmbeddingsResult, EmbeddingsUsage
 from azure.core.credentials import AzureKeyCredential
 from pydantic import BaseModel
 
-from posthog.schema import AssistantEventType
+from posthog.schema import AssistantEventType, AssistantToolCallMessage
 
 from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer
 from ee.hogai.utils.types import AssistantOutput
@@ -53,8 +53,42 @@ class BaseAssistantTest(NonAtomicBaseTest):
         self.embed_query_mock.stop()
         super().tearDown()
 
+    def _assert_message_equal(self, output_msg: Any, expected_msg: Any, context: str):
+        msg_dict = expected_msg.model_dump(exclude_none=True) if isinstance(expected_msg, BaseModel) else expected_msg
+        msg_dict.pop("id", None)
+        output_msg_dict = cast(BaseModel, output_msg).model_dump(exclude_none=True)
+        output_msg_dict.pop("id", None)
+        self.assertLessEqual(
+            msg_dict.items(),
+            output_msg_dict.items(),
+            context,
+        )
+
     def assertConversationEqual(self, output: list[AssistantOutput], expected_output: list[tuple[Any, Any]]):
         self.assertEqual(len(output), len(expected_output), output)
+
+        # Sort consecutive runs of tool call messages by tool_call_id so that
+        # the comparison is order-agnostic (parallel tool calls can resolve in
+        # any order).
+        def _sort_tool_call_runs(items: list) -> list:
+            result: list = []
+            run: list = []
+            for item in items:
+                msg = item[1]
+                if isinstance(msg, AssistantToolCallMessage):
+                    run.append(item)
+                else:
+                    if run:
+                        result.extend(sorted(run, key=lambda x: x[1].tool_call_id))
+                        run = []
+                    result.append(item)
+            if run:
+                result.extend(sorted(run, key=lambda x: x[1].tool_call_id))
+            return result
+
+        output = _sort_tool_call_runs(output)
+        expected_output = _sort_tool_call_runs(expected_output)
+
         for i, ((output_msg_type, output_msg), (expected_msg_type, expected_msg)) in enumerate(
             zip(output, expected_output)
         ):
@@ -66,17 +100,7 @@ class BaseAssistantTest(NonAtomicBaseTest):
             elif (
                 output_msg_type == AssistantEventType.MESSAGE and expected_msg_type == AssistantEventType.MESSAGE
             ) or (output_msg_type == AssistantEventType.UPDATE and expected_msg_type == AssistantEventType.UPDATE):
-                msg_dict = (
-                    expected_msg.model_dump(exclude_none=True) if isinstance(expected_msg, BaseModel) else expected_msg
-                )
-                msg_dict.pop("id", None)
-                output_msg_dict = cast(BaseModel, output_msg).model_dump(exclude_none=True)
-                output_msg_dict.pop("id", None)
-                self.assertLessEqual(
-                    msg_dict.items(),
-                    output_msg_dict.items(),
-                    f"Message content mismatch at index {i}",
-                )
+                self._assert_message_equal(output_msg, expected_msg, f"Message content mismatch at index {i}")
             else:
                 raise ValueError(f"Unexpected message type: {output_msg_type} and {expected_msg_type}")
 

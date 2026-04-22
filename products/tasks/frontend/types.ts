@@ -1,4 +1,4 @@
-import { Optional } from '~/types'
+import { Optional } from 'lib/utils/types'
 
 export enum OriginProduct {
     ERROR_TRACKING = 'error_tracking',
@@ -23,8 +23,10 @@ export enum TaskRunEnvironment {
 }
 
 export interface TaskRunArtifact {
+    id?: string
     name: string
     type: string
+    source?: string
     size?: number
     content_type?: string
     storage_path: string

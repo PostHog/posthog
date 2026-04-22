@@ -1,37 +1,38 @@
 import re
-from datetime import timedelta
+from datetime import datetime, timedelta
 from functools import cached_property
-from typing import TYPE_CHECKING, cast
+from typing import cast
 
-from django.db.models import Prefetch
 from django.utils.timezone import now
 
 import orjson
 import structlog
-import posthoganalytics
 
 from posthog.schema import CachedEventsQueryResponse, DashboardFilter, EventsQuery, EventsQueryResponse
 
 from posthog.hogql import ast
 from posthog.hogql.ast import Alias
 from posthog.hogql.parser import parse_expr, parse_order_expr, parse_select
-from posthog.hogql.property import action_to_expr, has_aggregation, map_virtual_properties, property_to_expr
+from posthog.hogql.property import (
+    action_to_expr,
+    has_aggregation,
+    map_virtual_properties,
+    property_to_expr,
+    steps_to_expr,
+)
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.api.element import ElementSerializer
 from posthog.api.person import PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES
-from posthog.api.utils import get_pk_or_uuid
 from posthog.hogql_queries.insights.insight_actors_query_runner import InsightActorsQueryRunner
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner, get_query_runner
 from posthog.models import Action, Person
+from posthog.models.action.action import ActionStepJSON
 from posthog.models.element import chain_to_elements
-from posthog.models.person.person import READ_DB_FOR_PERSONS, PersonDistinctId, get_distinct_ids_for_subquery
-from posthog.models.person.util import get_persons_by_distinct_ids
+from posthog.models.person.person import get_distinct_ids_for_subquery
+from posthog.models.person.util import get_person_by_pk_or_uuid, get_persons_by_distinct_ids
 from posthog.utils import relative_date_parse
-
-if TYPE_CHECKING:
-    from posthog.models import Team
 
 logger = structlog.get_logger(__name__)
 
@@ -52,25 +53,6 @@ SELECT_STAR_FROM_EVENTS_FIELDS = [
 WIDE_COLUMNS = {"elements_chain", "properties"}
 
 
-def use_presorted_events_query(team: "Team") -> bool:
-    return posthoganalytics.feature_enabled(
-        "presorted-events-query",
-        str(team.uuid),
-        groups={
-            "organization": str(team.organization_id),
-            "project": str(team.id),
-        },
-        group_properties={
-            "organization": {
-                "id": str(team.organization_id),
-            },
-            "project": {
-                "id": str(team.id),
-            },
-        },
-    )
-
-
 class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
     query: EventsQuery
     cached_response: CachedEventsQueryResponse
@@ -80,6 +62,7 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
         self.paginator = HogQLHasMorePaginator.from_limit_context(
             limit_context=self.limit_context, limit=self.query.limit, offset=self.query.offset
         )
+        self._cursor_eligible = False
 
     @cached_property
     def source_runner(self) -> InsightActorsQueryRunner:
@@ -90,6 +73,11 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
             InsightActorsQueryRunner,
             get_query_runner(self.query.source, self.team, self.timings, self.limit_context, self.modifiers),
         )
+
+    def validate(self) -> None:
+        super().validate()
+        if self.query.source is not None:
+            self.source_runner.validate()
 
     def select_cols(self) -> tuple[list[str], list[ast.Expr]]:
         select_input: list[str] = []
@@ -141,6 +129,36 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
                     return False
 
         return True
+
+    def apply_pagination_cursor(self, cursor: str) -> None:
+        # NB: This uses the last row's timestamp as the cursor, so events sharing
+        # the exact same timestamp as the page boundary may be skipped. In practice
+        # this is rare since the events table uses DateTime64(6) (microsecond precision).
+        order: str = "DESC"
+        if self.query.orderBy:
+            order = parse_order_expr(self.query.orderBy[0]).order
+        if order == "ASC":
+            self.query.after = cursor
+        else:
+            self.query.before = cursor
+
+    def _extract_last_timestamp(self, row: list) -> str | None:
+        select_input = self.select_input_raw()
+        val = None
+        if "*" in select_input:
+            star_idx = select_input.index("*")
+            if isinstance(row[star_idx], dict):
+                val = row[star_idx].get("timestamp")
+        if val is None:
+            for i, col in enumerate(select_input):
+                if col.split("--")[0].strip() == "timestamp":
+                    val = row[i]
+                    break
+        if val is None:
+            return None
+        if isinstance(val, datetime):
+            return val.isoformat()
+        return str(val)
 
     def to_query(self) -> ast.SelectQuery:
         # Note: This code is inefficient and problematic, see https://github.com/PostHog/posthog/issues/13485 for details.
@@ -195,11 +213,27 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
                         if not action.steps:
                             raise Exception("Action does not have any match groups")
                         where_exprs.append(action_to_expr(action))
+                elif self.query.actionSteps:
+                    with self.timings.measure("action_steps"):
+                        steps = [
+                            ActionStepJSON(
+                                event=s.event,
+                                tag_name=s.tag_name,
+                                text=s.text,
+                                text_matching=s.text_matching.value if s.text_matching else None,
+                                href=s.href,
+                                href_matching=s.href_matching.value if s.href_matching else None,
+                                selector=s.selector,
+                                url=s.url,
+                                url_matching=s.url_matching.value if s.url_matching else None,
+                                properties=[p.model_dump() for p in s.properties] if s.properties else None,
+                            )
+                            for s in self.query.actionSteps
+                        ]
+                        where_exprs.append(steps_to_expr(steps, self.team))
                 if self.query.personId:
                     with self.timings.measure("person_id"):
-                        person: Person | None = get_pk_or_uuid(
-                            Person.objects.db_manager(READ_DB_FOR_PERSONS).filter(team=self.team), self.query.personId
-                        ).first()
+                        person: Person | None = get_person_by_pk_or_uuid(self.team.pk, self.query.personId)
                         where_exprs.append(
                             ast.CompareOperation(
                                 left=ast.Call(name="cityHash64", args=[ast.Field(chain=["distinct_id"])]),
@@ -280,6 +314,14 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
                 else:
                     order_by = []
 
+                first_order = order_by[0].expr if order_by else None
+                self._cursor_eligible = (
+                    self.query.source is None
+                    and not has_any_aggregation
+                    and isinstance(first_order, ast.Field)
+                    and first_order.chain == ["timestamp"]
+                )
+
             with self.timings.measure("select"):
                 if self.query.source is not None:
                     # Kludge: If the events_query has logic in select that the where clauses depends on, this will potentially error.
@@ -311,11 +353,7 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
 
                 # Presorted optimization: sort narrow data (uuid) first, then fetch wide data for matched rows.
                 # Avoids sorting giant rows with properties and elements_chain cols - instead sorts uuids.
-                if (
-                    self._can_use_presorted_optimization(order_by)
-                    and not has_any_aggregation
-                    and use_presorted_events_query(self.team)
-                ):
+                if self._can_use_presorted_optimization(order_by) and not has_any_aggregation:
                     logger.info(
                         "events_query_runner_presorted_optimization",
                         team_id=self.team.pk,
@@ -324,7 +362,7 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
                     assert isinstance(inner_query, ast.SelectQuery)
                     inner_query.where = where
                     inner_query.order_by = order_by
-                    self.paginator.paginate(inner_query)
+                    inner_query.limit = ast.Constant(value=self.paginator.limit + self.paginator.offset + 1)
 
                     prefilter_sorted = parse_expr("uuid in ({inner_query})", {"inner_query": inner_query})
 
@@ -400,18 +438,13 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
                 batch_size = 1000
                 for i in range(0, len(distinct_ids), batch_size):
                     batch_distinct_ids = distinct_ids[i : i + batch_size]
+                    requested_batch = set(batch_distinct_ids)
                     persons = get_persons_by_distinct_ids(self.team.pk, batch_distinct_ids)
-                    persons = persons.prefetch_related(
-                        Prefetch(
-                            "persondistinctid_set",
-                            queryset=PersonDistinctId.objects.filter(team_id=self.team.pk).order_by("id"),
-                            to_attr="distinct_ids_cache",
-                        )
-                    )
-                    for person in persons.iterator(chunk_size=1000):
+                    for person in persons:
                         if person:
                             for person_distinct_id in person.distinct_ids:
-                                distinct_to_person[person_distinct_id] = person
+                                if person_distinct_id in requested_batch:
+                                    distinct_to_person[person_distinct_id] = person
 
                 # Loop over all columns in case there is more than one "person" column
                 for column_index in person_indices:
@@ -431,6 +464,11 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
                                 "distinct_id": distinct_id,
                             }
 
+        next_cursor = None
+        if self._cursor_eligible and self.paginator.has_more() and self.paginator.results:
+            last_row = self.paginator.results[-1]
+            next_cursor = self._extract_last_timestamp(last_row)
+
         return EventsQueryResponse(
             results=self.paginator.results,
             columns=self.columns(query_result.columns),
@@ -438,6 +476,7 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
             timings=self.timings.to_list(),
             hogql=query_result.hogql,
             modifiers=self.modifiers,
+            nextCursor=next_cursor,
             **self.paginator.response_params(),
         )
 

@@ -90,9 +90,11 @@ class PersonDBRouter:
             # GroupTypeMapping -> Team: GroupTypeMapping.team has db_constraint=False
             # GroupTypeMapping -> Project: GroupTypeMapping.project has db_constraint=False
             # GroupTypeMapping -> Dashboard: GroupTypeMapping.detail_dashboard has db_constraint=False
-            from posthog.models import Dashboard, Person, Project, Team
+            from posthog.models import Person, Project, Team
             from posthog.models.cohort import Cohort, CohortPeople
             from posthog.models.group_type_mapping import GroupTypeMapping
+
+            from products.dashboards.backend.models.dashboard import Dashboard
 
             # Allow any persons_db model -> Team relation
             # (Person, PersonDistinctId, Group, CohortPeople, etc. all have team FK)

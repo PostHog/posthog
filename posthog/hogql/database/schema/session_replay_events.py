@@ -208,6 +208,10 @@ SESSION_REPLAY_EVENTS_COMMON_FIELDS: dict[str, FieldOrTable] = {
     "snapshot_source": StringDatabaseField(name="snapshot_source", nullable=True),
     "snapshot_library": StringDatabaseField(name="snapshot_library", nullable=True),
     "retention_period_days": IntegerDatabaseField(name="retention_period_days", nullable=True),
+    "is_deleted": IntegerDatabaseField(name="is_deleted", nullable=False),
+    "ai_tags_fixed": DatabaseField(name="ai_tags_fixed", nullable=True),
+    "ai_tags_freeform": DatabaseField(name="ai_tags_freeform", nullable=True),
+    "ai_highlighted": IntegerDatabaseField(name="ai_highlighted", nullable=False),
     "events": LazyJoin(
         from_field=["session_id"],
         join_table=EventsTable(),
@@ -242,6 +246,7 @@ class RawSessionReplayEventsTable(Table):
         "max_last_timestamp": DateTimeDatabaseField(name="max_last_timestamp", nullable=False),
         "first_url": DatabaseField(name="first_url", nullable=True),
         "_timestamp": DateTimeDatabaseField(name="_timestamp", nullable=False),
+        "is_deleted": IntegerDatabaseField(name="is_deleted", nullable=False),
     }
 
     def avoid_asterisk_fields(self) -> list[str]:
@@ -275,6 +280,12 @@ def select_from_session_replay_events_table(requested_fields: dict[str, list[str
         "size": ast.Call(name="sum", args=[ast.Field(chain=[table_name, "size"])]),
         "event_count": ast.Call(name="sum", args=[ast.Field(chain=[table_name, "event_count"])]),
         "message_count": ast.Call(name="sum", args=[ast.Field(chain=[table_name, "message_count"])]),
+        "is_deleted": ast.Call(name="max", args=[ast.Field(chain=[table_name, "is_deleted"])]),
+        "ai_tags_fixed": ast.Call(name="groupUniqArrayArray", args=[ast.Field(chain=[table_name, "ai_tags_fixed"])]),
+        "ai_tags_freeform": ast.Call(
+            name="groupUniqArrayArray", args=[ast.Field(chain=[table_name, "ai_tags_freeform"])]
+        ),
+        "ai_highlighted": ast.Call(name="max", args=[ast.Field(chain=[table_name, "ai_highlighted"])]),
     }
 
     select_fields: list[ast.Expr] = []
@@ -304,6 +315,7 @@ class SessionReplayEventsTable(LazyTable):
         "start_time": DateTimeDatabaseField(name="start_time", nullable=False),
         "end_time": DateTimeDatabaseField(name="end_time", nullable=False),
         "first_url": StringDatabaseField(name="first_url", nullable=True),
+        "is_deleted": IntegerDatabaseField(name="is_deleted", nullable=False),
     }
 
     def lazy_select(self, table_to_add: LazyTableToAdd, context, node):

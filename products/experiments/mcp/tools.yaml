@@ -1,0 +1,326 @@
+# MCP tool definition — tool entries are scaffolded from the OpenAPI schema.
+# The tool list and operation IDs are kept in sync automatically:
+#   pnpm --filter=@posthog/mcp run scaffold-yaml -- --sync-all
+#
+# To enable a tool, set enabled: true and add required scopes + annotations.
+# All other fields (title, description, enrich_url, etc.) are yours to configure.
+category: Experiments
+feature: experiments
+url_prefix: /experiments
+ui_apps:
+    experiment:
+        type: detail
+        view_prop: experiment
+    experiment-list:
+        type: list
+        detail_tool: experiment-get
+        detail_args: '{ id: item.id }'
+    experiment-results:
+        type: detail
+        view_prop: data
+tools:
+    experiment-get-all:
+        operation: experiments_list
+        enabled: true
+        scopes:
+            - experiment:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        enrich_url: '{id}'
+        title: Get all experiments
+        description: >
+            Get all experiments in the project.
+        ui_app: experiment-list
+        response:
+            include:
+                - id
+                - name
+                - description
+                - feature_flag_key
+                - start_date
+                - end_date
+                - archived
+                - type
+                - status
+                - created_at
+                - updated_at
+
+    experiment-get:
+        operation: experiments_retrieve
+        enabled: true
+        scopes:
+            - experiment:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        enrich_url: '{id}'
+        title: Get experiment details
+        description: >
+            Get details of a specific experiment by ID.
+        ui_app: experiment
+
+    experiment-create:
+        operation: experiments_create
+        enabled: true
+        scopes:
+            - experiment:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        enrich_url: '{id}'
+        title: Create experiment
+        description: >
+            Create a comprehensive A/B test experiment. PROCESS: 1) Understand experiment goal and hypothesis
+            2) Search existing feature flags with 'feature-flags-get-all' tool first and suggest reuse or new key
+            3) Help user define success metrics by asking what they want to optimize
+            4) MOST IMPORTANT: Use 'event-definitions-list' tool to find available events in their project
+            5) For funnel metrics, provide the series array with EventsNode entries for each step
+            6) Configure variants (default 50/50 control/test unless they specify otherwise)
+            7) Set targeting criteria if needed.
+        include_params:
+            - name
+            - description
+            - feature_flag_key
+            - type
+            - parameters
+            - metrics
+            - metrics_secondary
+            - holdout_id
+            - exposure_criteria
+            - allow_unknown_events
+        ui_app: experiment
+
+    experiment-update:
+        operation: experiments_partial_update
+        enabled: true
+        scopes:
+            - experiment:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        enrich_url: '{id}'
+        title: Update experiment
+        description: >
+            Update an existing experiment by ID. Can update name, description, variants, metrics,
+            and other properties. Use lifecycle tools for state transitions: experiment-launch to start,
+            experiment-end to stop, experiment-reset to return to draft, experiment-pause/experiment-resume
+            to temporarily halt. NOTE: feature_flag_key cannot be changed after creation.
+        include_params:
+            - name
+            - description
+            - parameters
+            - metrics
+            - metrics_secondary
+            - exposure_criteria
+            - conclusion
+            - conclusion_comment
+            - archived
+        ui_app: experiment
+
+    experiment-delete:
+        operation: experiments_destroy
+        enabled: true
+        scopes:
+            - experiment:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Delete experiment
+        description: >
+            Delete an experiment by ID.
+        soft_delete: true
+        response:
+            include:
+                - id
+                - name
+                - deleted
+
+    # ── Lifecycle tools ────────────────────────────────────────────
+    experiment-launch:
+        operation: experiments_launch_create
+        enabled: true
+        scopes:
+            - experiment:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        enrich_url: '{id}'
+        title: Launch experiment
+        description: >
+            Launch a draft experiment. Activates the linked feature flag,
+            sets start_date to now, and transitions the experiment to running.
+            Returns 400 if the experiment has already been launched.
+        ui_app: experiment
+
+    experiment-end:
+        operation: experiments_end_create
+        enabled: true
+        scopes:
+            - experiment:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        enrich_url: '{id}'
+        title: End experiment
+        description: >
+            End a running experiment. Sets end_date to now but does NOT modify
+            the feature flag. Optionally provide a conclusion and comment.
+            Returns 400 if the experiment is not running.
+        ui_app: experiment
+
+    experiment-archive:
+        operation: experiments_archive_create
+        enabled: true
+        scopes:
+            - experiment:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        enrich_url: '{id}'
+        title: Archive experiment
+        description: >
+            Archive an ended experiment to hide it from the default list view.
+            Returns 400 if the experiment is already archived or has not ended.
+        ui_app: experiment
+
+    experiment-ship-variant:
+        operation: experiments_ship_variant_create
+        enabled: true
+        scopes:
+            - experiment:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        enrich_url: '{id}'
+        title: Ship experiment variant
+        description: >
+            Ship a variant to 100% of users and optionally end the experiment.
+            Requires variant_key. Can include conclusion and conclusion_comment.
+            Returns 400 if the experiment is in draft state.
+        ui_app: experiment
+
+    experiment-pause:
+        operation: experiments_pause_create
+        enabled: true
+        scopes:
+            - experiment:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        enrich_url: '{id}'
+        title: Pause experiment
+        description: >
+            Pause a running experiment by deactivating its feature flag. Users
+            fall back to the default experience and no new exposures are recorded.
+            Returns 400 if the experiment is not running or is already paused.
+        ui_app: experiment
+
+    experiment-resume:
+        operation: experiments_resume_create
+        enabled: true
+        scopes:
+            - experiment:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        enrich_url: '{id}'
+        title: Resume experiment
+        description: >
+            Resume a paused experiment by reactivating its feature flag.
+            Returns 400 if the experiment is not paused.
+        ui_app: experiment
+
+    experiment-reset:
+        operation: experiments_reset_create
+        enabled: true
+        scopes:
+            - experiment:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        enrich_url: '{id}'
+        title: Reset experiment
+        description: >
+            Reset an experiment back to draft state. Clears start/end dates,
+            conclusion, and archived flag. The feature flag is left unchanged.
+            Returns 400 if the experiment is already in draft state.
+        ui_app: experiment
+
+    # ── Disabled tools (scaffolded, not agent-accessible) ──────────
+    experiment-holdouts-list:
+        operation: experiment_holdouts_list
+        enabled: false
+    experiment-holdouts-create:
+        operation: experiment_holdouts_create
+        enabled: false
+    experiment-holdouts-retrieve:
+        operation: experiment_holdouts_retrieve
+        enabled: false
+    experiment-holdouts-update:
+        operation: experiment_holdouts_update
+        enabled: false
+    experiment-holdouts-partial-update:
+        operation: experiment_holdouts_partial_update
+        enabled: false
+    experiment-holdouts-destroy:
+        operation: experiment_holdouts_destroy
+        enabled: false
+    experiments-update:
+        operation: experiments_update
+        enabled: false
+    experiments-create-exposure-cohort-for-experiment-create:
+        operation: experiments_create_exposure_cohort_for_experiment_create
+        enabled: false
+    experiments-duplicate-create:
+        operation: experiments_duplicate_create
+        enabled: false
+    experiments-recalculate-timeseries-create:
+        operation: experiments_recalculate_timeseries_create
+        enabled: false
+    experiments-timeseries-results-retrieve:
+        operation: experiments_timeseries_results_retrieve
+        enabled: false
+    experiments-eligible-feature-flags-retrieve:
+        operation: experiments_eligible_feature_flags_retrieve
+        enabled: false
+    experiments-requires-flag-implementation-retrieve:
+        operation: experiments_requires_flag_implementation_retrieve
+        enabled: false
+    experiments-stats-retrieve:
+        operation: experiments_stats_retrieve
+        enabled: false
+    experiment-saved-metrics-list:
+        operation: experiment_saved_metrics_list
+        enabled: false
+    experiment-saved-metrics-create:
+        operation: experiment_saved_metrics_create
+        enabled: false
+    experiment-saved-metrics-retrieve:
+        operation: experiment_saved_metrics_retrieve
+        enabled: false
+    experiment-saved-metrics-update:
+        operation: experiment_saved_metrics_update
+        enabled: false
+    experiment-saved-metrics-partial-update:
+        operation: experiment_saved_metrics_partial_update
+        enabled: false
+    experiment-saved-metrics-destroy:
+        operation: experiment_saved_metrics_destroy
+        enabled: false
+    experiments-copy-to-project-create:
+        operation: experiments_copy_to_project_create
+        enabled: false

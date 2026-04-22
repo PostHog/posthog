@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+cd "$REPO_ROOT/services/stripe-mock"
+
+unset VIRTUAL_ENV
+export UV_PROJECT_ENVIRONMENT="$PWD/.venv"
+
+uv sync --quiet
+
+exec .venv/bin/uvicorn stripe_mock.main:app \
+    --host 0.0.0.0 \
+    --port "${STRIPE_MOCK_PORT:-12111}" \
+    --reload \
+    --reload-include "*.yaml"

@@ -8,10 +8,13 @@ from django.utils.timezone import now
 from dateutil.relativedelta import relativedelta
 
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS
-from posthog.models import Action, Dashboard, DashboardTile, Insight, Person, PropertyDefinition
+from posthog.models import Action, Insight, Person, PropertyDefinition
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.utils import UUIDT
 from posthog.utils import get_absolute_path
+
+from products.dashboards.backend.models.dashboard import Dashboard
+from products.dashboards.backend.models.dashboard_tile import DashboardTile
 
 from .data_generator import DataGenerator
 

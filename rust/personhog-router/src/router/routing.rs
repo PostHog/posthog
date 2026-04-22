@@ -6,8 +6,8 @@ use tonic::Status;
 pub enum DataCategory {
     /// Person table data (person, persondistinctid)
     /// - Reads with EVENTUAL consistency → replica
-    /// - Reads with STRONG consistency → leader (Phase 2)
-    /// - Writes → leader (Phase 2)
+    /// - Reads with STRONG consistency → leader
+    /// - Writes → leader
     PersonData,
 
     /// Non-person data (hash key overrides, cohorts, groups, group type mappings)
@@ -28,23 +28,8 @@ pub enum OperationType {
 pub enum RouteDecision {
     /// Route to personhog-replica (Postgres replicas, or primary for strong consistency on non-person data)
     Replica,
-    /// Route to personhog-leader (Kafka-backed cache, Phase 2)
+    /// Route to personhog-leader (Kafka-backed cache)
     Leader,
-}
-
-/// Errors that can occur during routing.
-#[derive(Debug, Clone)]
-pub enum RoutingError {
-    /// The requested operation requires a backend that isn't available yet
-    BackendNotAvailable { message: String },
-}
-
-impl From<RoutingError> for Status {
-    fn from(err: RoutingError) -> Self {
-        match err {
-            RoutingError::BackendNotAvailable { message } => Status::unimplemented(message),
-        }
-    }
 }
 
 /// Determine which backend should handle this request.
@@ -53,22 +38,13 @@ impl From<RoutingError> for Status {
 ///
 /// ## Person Data (person, persondistinctid tables)
 /// - EVENTUAL consistency reads → Replica
-/// - STRONG consistency reads → Leader (Phase 2, returns error now)
-/// - Writes → Leader (Phase 2, returns error now)
+/// - STRONG consistency reads → Leader
+/// - Writes → Leader
 ///
 /// ## Non-Person Data (hash_key_overrides, cohort_membership, groups, group_type_mappings)
 /// - All reads → Replica (consistency is handled internally by replica)
 /// - All writes → Replica
-///
-/// # Phase 2 Evolution
-///
-/// When personhog-leader is implemented:
-/// 1. Add leader_backend to PersonHogRouter
-/// 2. Update this function to return RouteDecision::Leader for:
-///    - Person data with STRONG consistency
-///    - Person data writes
-/// 3. Add vnode-based routing for sharded person data
-#[allow(clippy::result_large_err)] // tonic::Status is large but we can't change it
+#[allow(clippy::unnecessary_wraps, clippy::result_large_err)]
 pub fn route_request(
     category: DataCategory,
     operation: OperationType,
@@ -82,26 +58,10 @@ pub fn route_request(
                 ConsistencyLevel::Unspecified | ConsistencyLevel::Eventual => {
                     Ok(RouteDecision::Replica)
                 }
-                ConsistencyLevel::Strong => {
-                    // Phase 2: Return RouteDecision::Leader when available
-                    Err(RoutingError::BackendNotAvailable {
-                        message: "Strong consistency for person data requires personhog-leader \
-                                  (Phase 2). Use EVENTUAL consistency or wait for leader support."
-                            .to_string(),
-                    }
-                    .into())
-                }
+                ConsistencyLevel::Strong => Ok(RouteDecision::Leader),
             }
         }
-        (DataCategory::PersonData, OperationType::Write) => {
-            // Phase 2: Return RouteDecision::Leader when available
-            Err(RoutingError::BackendNotAvailable {
-                message: "Person data writes require personhog-leader (Phase 2). \
-                          Write operations are not yet supported through the router."
-                    .to_string(),
-            }
-            .into())
-        }
+        (DataCategory::PersonData, OperationType::Write) => Ok(RouteDecision::Leader),
 
         // Non-person data always goes to replica
         // The replica handles consistency internally (primary vs replica pool)
@@ -146,24 +106,19 @@ mod tests {
     }
 
     #[test]
-    fn test_person_data_strong_returns_error() {
+    fn test_person_data_strong_routes_to_leader() {
         let result = route_request(
             DataCategory::PersonData,
             OperationType::Read,
             Some(ConsistencyLevel::Strong),
         );
-        assert!(result.is_err());
-        let status = result.unwrap_err();
-        assert_eq!(status.code(), tonic::Code::Unimplemented);
-        assert!(status.message().contains("personhog-leader"));
+        assert_eq!(result.unwrap(), RouteDecision::Leader);
     }
 
     #[test]
-    fn test_person_data_write_returns_error() {
+    fn test_person_data_write_routes_to_leader() {
         let result = route_request(DataCategory::PersonData, OperationType::Write, None);
-        assert!(result.is_err());
-        let status = result.unwrap_err();
-        assert_eq!(status.code(), tonic::Code::Unimplemented);
+        assert_eq!(result.unwrap(), RouteDecision::Leader);
     }
 
     #[test]

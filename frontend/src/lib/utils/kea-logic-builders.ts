@@ -8,7 +8,7 @@ export function permanentlyMount(): (logic: BuiltLogic) => void {
         afterMount(() => {
             if (!logic.cache._permanentMount) {
                 logic.cache._permanentMount = true
-                logic.wrapper.mount()
+                logic.mount()
             }
         })(logic)
     }

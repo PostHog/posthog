@@ -1,16 +1,13 @@
 import { aiSummaryMock } from './ai-summary.mock'
 
-import { createParser } from 'eventsource-parser'
 import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import posthog from 'posthog-js'
 import React from 'react'
 
 import { IconClock, IconCursorClick, IconHourglass, IconKeyboard, IconWarning } from '@posthog/icons'
 
-import api from 'lib/api'
 import { PropertyFilterIcon } from 'lib/components/PropertyFilters/components/PropertyFilterIcon'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import {
     capitalizeFirstLetter,
     ceilMsToClosestSecond,
@@ -32,10 +29,13 @@ import { PersonType, PropertyFilterType, SessionRecordingType } from '~/types'
 
 import { SimpleTimeLabel } from '../../components/SimpleTimeLabel'
 import { sessionRecordingsListPropertiesLogic } from '../../playlist/sessionRecordingsListPropertiesLogic'
+import { SeekbarSegmentRange } from '../controller/SeekbarSegments'
+import { playerInspectorLogic } from '../inspector/playerInspectorLogic'
 import type { playerMetaLogicType } from './playerMetaLogicType'
 import { sessionRecordingPinnedPropertiesLogic } from './sessionRecordingPinnedPropertiesLogic'
 import { HARDCODED_DISPLAY_LABELS } from './sessionRecordingPinnedPropertiesLogic'
-import { SessionSummaryContent } from './types'
+import { sessionSummaryProgressLogic } from './sessionSummaryProgressLogic'
+import { SessionSummaryContent, SummarizationProgress } from './types'
 
 const recordingPropertyKeys = ['click_count', 'keypress_count', 'console_error_count'] as const
 
@@ -117,6 +117,17 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
             ['recordingPropertiesById'],
             sessionRecordingPinnedPropertiesLogic,
             ['pinnedProperties'],
+            sessionSummaryProgressLogic,
+            [
+                'loadingBySessionId',
+                'progressBySessionId',
+                'summaryBySessionId',
+                'feedbackBySessionId',
+                'errorBySessionId',
+                'retryStateBySessionId',
+            ],
+            playerInspectorLogic(props),
+            ['allItemsByMiniFilterKey'],
         ],
         actions: [
             sessionRecordingDataCoordinatorLogic(props),
@@ -125,34 +136,21 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
             ['maybeLoadPropertiesForSessions', 'loadPropertiesForSessionsSuccess'],
             sessionRecordingPinnedPropertiesLogic,
             ['setPinnedProperties', 'togglePropertyPin'],
+            sessionSummaryProgressLogic,
+            ['startSummarization', 'setSummary', 'markFeedbackGiven'],
         ],
     })),
     actions({
         sessionSummaryFeedback: (feedback: 'good' | 'bad') => ({ feedback }),
-        setSessionSummaryContent: (content: SessionSummaryContent) => ({ content }),
         summarizeSession: () => ({}),
-        setSessionSummaryLoading: (isLoading: boolean) => ({ isLoading }),
         setIsPropertyPopoverOpen: (isOpen: boolean) => ({ isOpen }),
+        setShowFeedbackSurvey: (show: boolean) => ({ show }),
     }),
     reducers(() => ({
-        summaryHasHadFeedback: [
+        showFeedbackSurvey: [
             false,
             {
-                sessionSummaryFeedback: () => true,
-            },
-        ],
-        sessionSummary: [
-            null as SessionSummaryContent | null,
-            {
-                setSessionSummaryContent: (_, { content }) => content,
-            },
-        ],
-        sessionSummaryLoading: [
-            false,
-            {
-                summarizeSession: () => true,
-                setSessionSummaryContent: () => false,
-                setSessionSummaryLoading: (_, { isLoading }) => isLoading,
+                setShowFeedbackSurvey: (_, { show }) => show,
             },
         ],
         isPropertyPopoverOpen: [
@@ -162,7 +160,51 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
             },
         ],
     })),
-    selectors(() => ({
+    selectors(({ props }) => ({
+        sessionSummary: [
+            (s) => [s.summaryBySessionId],
+            (summaryBySessionId): SessionSummaryContent | null => summaryBySessionId[props.sessionRecordingId] ?? null,
+        ],
+        sessionSummaryLoading: [
+            (s) => [s.loadingBySessionId],
+            (loadingBySessionId): boolean => !!loadingBySessionId[props.sessionRecordingId],
+        ],
+        summarizationProgress: [
+            (s) => [s.progressBySessionId],
+            (progressBySessionId): SummarizationProgress | null =>
+                progressBySessionId[props.sessionRecordingId] ?? null,
+        ],
+        sessionSummaryError: [
+            (s) => [s.errorBySessionId],
+            (errorBySessionId): string | null => errorBySessionId[props.sessionRecordingId] ?? null,
+        ],
+        sessionSummaryHasRetried: [
+            (s) => [s.retryStateBySessionId],
+            (retryStateBySessionId): boolean => !!retryStateBySessionId[props.sessionRecordingId]?.hasRetried,
+        ],
+        summaryHasHadFeedback: [
+            (s) => [s.feedbackBySessionId],
+            (feedbackBySessionId): boolean => !!feedbackBySessionId[props.sessionRecordingId],
+        ],
+        summaryDisabledReason: [
+            (s) => [s.allItemsByMiniFilterKey],
+            (allItemsByMiniFilterKey): string | undefined => {
+                const hasAutocapture = !!allItemsByMiniFilterKey['events-autocapture']?.length
+                if (hasAutocapture) {
+                    return undefined
+                }
+                const hasAnyEvents = [
+                    'events-posthog',
+                    'events-custom',
+                    'events-pageview',
+                    'events-autocapture',
+                    'events-exceptions',
+                ].some((key) => allItemsByMiniFilterKey[key]?.length > 0)
+                return hasAnyEvents
+                    ? 'This session has no autocapture events. Enable autocapture in your project settings to use AI summaries.'
+                    : 'Session events are not available yet. Try again in a few minutes.'
+            },
+        ],
         loading: [
             (s) => [s.sessionPlayerMetaData, s.recordingPropertiesById],
             (sessionPlayerMetaData, recordingPropertiesById) => {
@@ -391,11 +433,49 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
                 })
             },
         ],
+        sessionSummarySegmentRanges: [
+            (s) => [s.sessionSummary],
+            (sessionSummary: SessionSummaryContent | null) => {
+                if (!sessionSummary?.segments || !sessionSummary?.key_actions) {
+                    return null
+                }
+                const ranges: SeekbarSegmentRange[] = []
+                for (const segment of sessionSummary.segments) {
+                    if (segment.index == null || !segment.name) {
+                        continue
+                    }
+                    const segmentKeyActions = sessionSummary.key_actions.filter(
+                        (ka) => ka.segment_index === segment.index
+                    )
+                    const allEvents = segmentKeyActions.flatMap((ka) => ka.events ?? [])
+                    const validEvents = allEvents.filter(
+                        (e) => e.milliseconds_since_start != null && e.milliseconds_since_start >= 0
+                    )
+                    if (validEvents.length === 0) {
+                        continue
+                    }
+                    const startMs = Math.min(...validEvents.map((e) => e.milliseconds_since_start!))
+                    const endMs = Math.max(...validEvents.map((e) => e.milliseconds_since_start!))
+                    const outcome = sessionSummary.segment_outcomes?.find((o) => o.segment_index === segment.index)
+                    ranges.push({
+                        index: segment.index,
+                        name: segment.name,
+                        startMs,
+                        endMs: endMs > startMs ? endMs : startMs + 1000,
+                        success: outcome?.success ?? null,
+                    })
+                }
+                return ranges.length > 0 ? ranges : null
+            },
+        ],
     })),
     listeners(({ actions, values, props }) => ({
         loadRecordingMetaSuccess: () => {
             if (values.sessionPlayerMetaData) {
                 actions.maybeLoadPropertiesForSessions([values.sessionPlayerMetaData])
+            }
+            if (values.sessionPlayerMetaData?.has_summary && !values.sessionSummary && !values.sessionSummaryLoading) {
+                actions.summarizeSession()
             }
         },
         sessionSummaryFeedback: ({ feedback }) => {
@@ -404,61 +484,22 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
                 session_summary: values.sessionSummary,
                 summarized_session_id: props.sessionRecordingId,
             })
+            actions.markFeedbackGiven(props.sessionRecordingId)
         },
-        // Using listener instead of loader to be able to stream the summary chunks (as loaders wait for the whole response)
-        summarizeSession: async () => {
+        summarizeSession: () => {
             // TODO: Remove after testing
             const local = false
             if (local) {
-                actions.setSessionSummaryContent(aiSummaryMock)
+                actions.setSummary(props.sessionRecordingId, aiSummaryMock)
                 return
             }
-            // TODO: Stop loading/reset the state when failing to avoid endless "thinking" state
             const id = props.sessionRecordingId || props.sessionRecordingData?.sessionRecordingId
             if (!id) {
                 return
             }
-            try {
-                const response = await api.recordings.summarizeStream(id)
-                const reader = response.body?.getReader()
-                if (!reader) {
-                    throw new Error('No reader available')
-                }
-                const decoder = new TextDecoder()
-                const parser = createParser({
-                    onEvent: ({ event, data }) => {
-                        try {
-                            // Stop loading and show error if encountered an error event
-                            if (event === 'session-summary-error') {
-                                lemonToast.error(data)
-                                actions.setSessionSummaryLoading(false)
-                                return
-                            }
-                            const parsedData = JSON.parse(data)
-                            if (parsedData) {
-                                actions.setSessionSummaryContent(parsedData)
-                            }
-                        } catch {
-                            // Don't handle errors as we can afford to fail some chunks silently.
-                            // However, there should not be any unparseable chunks coming from the server as they are validated before being sent.
-                        }
-                    },
-                })
-                // Consume stream until exhausted
-                while (true) {
-                    const { done, value } = await reader.read()
-                    if (done) {
-                        break
-                    }
-                    const decodedValue = decoder.decode(value)
-                    parser.feed(decodedValue)
-                }
-            } catch (err) {
-                lemonToast.error('Failed to load session summary. Please, contact us, and try again in a few minutes.')
-                throw err
-            } finally {
-                actions.setSessionSummaryLoading(false)
-            }
+            // Delegates the SSE stream + per-session state to the singleton so that
+            // progress survives navigation away from and back to a recording mid-stream.
+            actions.startSummarization(id)
         },
     })),
 ])

@@ -1,128 +1,101 @@
 import { OnboardingComponentsContext, createInstallation } from 'scenes/onboarding/OnboardingDocsContentWrapper'
+
 import { StepDefinition } from '../steps'
 
 export const getVercelAISteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
-    const { CodeBlock, CalloutBox, Markdown, Blockquote, dedent, snippets } = ctx
+    const { CodeBlock, Markdown, Blockquote, dedent, snippets } = ctx
 
     const NotableGenerationProperties = snippets?.NotableGenerationProperties
 
     return [
         {
-            title: 'Install the PostHog SDK',
+            title: 'Install dependencies',
             badge: 'required',
             content: (
                 <>
-                    <Markdown>
-                        Setting up analytics starts with installing the PostHog SDK.
-                    </Markdown>
+                    <Markdown>Install the PostHog AI package, the Vercel AI SDK, and the OpenTelemetry SDK.</Markdown>
 
                     <CodeBlock
                         language="bash"
                         code={dedent`
-                            npm install @posthog/ai posthog-node
+                            npm install @posthog/ai @ai-sdk/openai ai @opentelemetry/sdk-node @opentelemetry/resources
                         `}
                     />
                 </>
             ),
         },
         {
-            title: 'Install the Vercel AI SDK',
+            title: 'Set up the OpenTelemetry exporter',
             badge: 'required',
             content: (
                 <>
                     <Markdown>
-                        Install the Vercel AI SDK. The PostHog SDK instruments your LLM calls by wrapping the Vercel AI client.
-                        The PostHog SDK **does not** proxy your calls.
+                        Initialize the OpenTelemetry SDK with PostHog's `PostHogSpanProcessor`. This sends `gen_ai.*`
+                        spans directly to PostHog's OTLP ingestion endpoint. PostHog converts these into
+                        `$ai_generation` events automatically.
                     </Markdown>
 
                     <CodeBlock
-                        language="bash"
+                        language="typescript"
                         code={dedent`
-                            npm install ai @ai-sdk/openai
+                            import { NodeSDK } from '@opentelemetry/sdk-node'
+                            import { resourceFromAttributes } from '@opentelemetry/resources'
+                            import { PostHogSpanProcessor } from '@posthog/ai/otel'
+
+                            const sdk = new NodeSDK({
+                              resource: resourceFromAttributes({
+                                'service.name': 'my-app',
+                              }),
+                              spanProcessors: [
+                                new PostHogSpanProcessor({
+                                  apiKey: '<ph_project_token>',
+                                  host: '<ph_client_api_host>',
+                                }),
+                              ],
+                            })
+                            sdk.start()
                         `}
                     />
-
-                    <CalloutBox type="fyi" icon="IconInfo" title="Proxy note">
-                        <Markdown>
-                            These SDKs **do not** proxy your calls. They only fire off an async call to PostHog in the background to send the data.
-
-                            You can also use LLM analytics with other SDKs or our API, but you will need to capture the data in the right format. See the schema in the [manual capture section](https://posthog.com/docs/llm-analytics/installation/manual-capture) for more details.
-                        </Markdown>
-                    </CalloutBox>
                 </>
             ),
         },
         {
-            title: 'Initialize PostHog and Vercel AI',
+            title: 'Call Vercel AI with telemetry enabled',
             badge: 'required',
             content: (
                 <>
                     <Markdown>
-                        Initialize PostHog with your project API key and host from [your project settings](https://app.posthog.com/settings/project), then pass the Vercel AI OpenAI client and the PostHog client to the `withTracing` wrapper.
+                        Pass `experimental_telemetry` to your Vercel AI SDK calls. The `posthog_distinct_id` metadata
+                        field links events to a specific user in PostHog.
                     </Markdown>
 
                     <CodeBlock
-                        language="ts"
+                        language="typescript"
                         code={dedent`
-                            import { PostHog } from "posthog-node";
-                            import { withTracing } from "@posthog/ai"
-                            import { generateText } from "ai"
-                            import { createOpenAI } from "@ai-sdk/openai"
+                            import { generateText } from 'ai'
+                            import { openai } from '@ai-sdk/openai'
 
-                            const phClient = new PostHog(
-                              '<ph_project_api_key>',
-                              { host: '<ph_client_api_host>' }
-                            );
+                            const result = await generateText({
+                              model: openai('gpt-5-mini'),
+                              prompt: 'Tell me a fun fact about hedgehogs.',
+                              experimental_telemetry: {
+                                isEnabled: true,
+                                functionId: 'my-ai-function',
+                                metadata: {
+                                  posthog_distinct_id: 'user_123', // optional
+                                },
+                              },
+                            })
 
-                            const openaiClient = createOpenAI({
-                              apiKey: 'your_openai_api_key',
-                              compatibility: 'strict'
-                            });
-
-                            const model = withTracing(openaiClient("gpt-4-turbo"), phClient, {
-                              posthogDistinctId: "user_123", // optional
-                              posthogTraceId: "trace_123", // optional
-                              posthogProperties: { conversationId: "abc123", paid: true }, // optional
-                              posthogPrivacyMode: false, // optional
-                              posthogGroups: { company: "companyIdInYourDb" }, // optional
-                            });
-
-                            phClient.shutdown()
-                        `}
-                    />
-
-                    <Markdown>
-                        You can enrich LLM events with additional data by passing parameters such as the trace ID, distinct ID, custom properties, groups, and privacy mode options.
-                    </Markdown>
-                </>
-            ),
-        },
-        {
-            title: 'Call Vercel AI',
-            badge: 'required',
-            content: (
-                <>
-                    <Markdown>
-                        Now, when you use the Vercel AI SDK to call LLMs, PostHog automatically captures an `$ai_generation` event.
-
-                        This works for both `text` and `image` message types.
-                    </Markdown>
-
-                    <CodeBlock
-                        language="ts"
-                        code={dedent`
-                            const { text } = await generateText({
-                              model: model,
-                              prompt: message
-                            });
-
-                            console.log(text)
+                            console.log(result.text)
                         `}
                     />
 
                     <Blockquote>
                         <Markdown>
-                            **Note:** If you want to capture LLM events anonymously, **don't** pass a distinct ID to the request. See our docs on [anonymous vs identified events](https://posthog.com/docs/data/anonymous-vs-identified-events) to learn more.
+                            **Note:** If you want to capture LLM events anonymously, omit the `posthog_distinct_id`
+                            metadata field. See our docs on [anonymous vs identified
+                            events](https://posthog.com/docs/data/anonymous-vs-identified-events) to learn more.
                         </Markdown>
                     </Blockquote>
 

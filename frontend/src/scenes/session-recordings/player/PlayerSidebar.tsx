@@ -7,22 +7,19 @@ import { LemonButton, LemonTabs } from '@posthog/lemon-ui'
 
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { capitalizeFirstLetter, splitKebabCase } from 'lib/utils'
 
-import { IntegrationKind, SessionRecordingSidebarStacking, SessionRecordingSidebarTab } from '~/types'
+import { SessionRecordingSidebarStacking, SessionRecordingSidebarTab } from '~/types'
 
 import { playerSettingsLogic } from './playerSettingsLogic'
 import { sessionRecordingPlayerLogic } from './sessionRecordingPlayerLogic'
-import { PlayerSidebarTab } from './sidebar/PlayerSidebarTab'
 import { playerSidebarLogic } from './sidebar/playerSidebarLogic'
+import { PlayerSidebarTab } from './sidebar/PlayerSidebarTab'
 
 export function PlayerSidebar(): JSX.Element {
     const ref = useRef<HTMLDivElement>(null)
 
-    const { featureFlags } = useValues(featureFlagLogic)
     const { activeTab } = useValues(playerSidebarLogic)
     const { setTab } = useActions(playerSidebarLogic)
     const { sidebarOpen, preferredSidebarStacking, isVerticallyStacked } = useValues(playerSettingsLogic)
@@ -50,18 +47,8 @@ export function PlayerSidebar(): JSX.Element {
         SessionRecordingSidebarTab.NETWORK_WATERFALL,
     ]
 
-    // Show AI summary tab in the second position if the flag is enabled
-    if (featureFlags[FEATURE_FLAGS.AI_SESSION_SUMMARY] || featureFlags[FEATURE_FLAGS.MAX_SESSION_SUMMARIZATION]) {
-        sidebarTabs.splice(1, 0, SessionRecordingSidebarTab.SESSION_SUMMARY)
-    }
-
     // Show linked issues tab if there are integrations or existing references
-    // Jira is gated behind the REPLAY_JIRA_INTEGRATION flag
-    const jiraIntegrationEnabled = featureFlags[FEATURE_FLAGS.REPLAY_JIRA_INTEGRATION]
-    const integrationKinds: IntegrationKind[] = jiraIntegrationEnabled
-        ? ['linear', 'github', 'gitlab', 'jira']
-        : ['linear', 'github', 'gitlab']
-    const sessionReplayIntegrations = getIntegrationsByKind(integrationKinds)
+    const sessionReplayIntegrations = getIntegrationsByKind(['linear', 'github', 'gitlab', 'jira'])
     const externalReferences = sessionPlayerMetaData?.external_references ?? []
 
     if (sessionReplayIntegrations.length > 0 || externalReferences.length > 0) {
@@ -98,22 +85,13 @@ export function PlayerSidebar(): JSX.Element {
                         <LemonTabs
                             activeKey={activeTab}
                             onChange={(tabId) => setTab(tabId)}
-                            tabs={sidebarTabs.map((tabId) => {
-                                if (tabId === SessionRecordingSidebarTab.SESSION_SUMMARY) {
-                                    return {
-                                        key: tabId,
-                                        label: 'AI summary',
-                                    }
-                                }
-
-                                return {
-                                    key: tabId,
-                                    label: capitalizeFirstLetter(splitKebabCase(tabId)),
-                                }
-                            })}
+                            tabs={sidebarTabs.map((tabId) => ({
+                                key: tabId,
+                                label: capitalizeFirstLetter(splitKebabCase(tabId)),
+                            }))}
                             barClassName="!mb-0"
                             size="small"
-                            className="overflow-x-auto"
+                            className="overflow-x-auto hide-scrollbar"
                         />
                         <div className="flex flex-1 border-b shrink-0" />
                         <div className="flex gap-1 border-b end">

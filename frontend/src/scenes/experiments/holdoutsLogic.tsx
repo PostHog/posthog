@@ -4,6 +4,7 @@ import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { ExperimentHoldoutType } from '~/types'
 
@@ -36,6 +37,7 @@ export const holdoutsLogic = kea<holdoutsLogicType>([
     }),
     connect(() => ({
         actions: [eventUsageLogic, ['reportExperimentHoldoutCreated']],
+        values: [teamLogic, ['currentProjectId']],
     })),
     reducers({
         holdout: [
@@ -50,20 +52,26 @@ export const holdoutsLogic = kea<holdoutsLogicType>([
             [] as ExperimentHoldoutType[],
             {
                 loadHoldouts: async () => {
-                    const response = await api.get(`api/projects/@current/experiment_holdouts/`)
+                    const response = await api.get(`api/projects/${values.currentProjectId}/experiment_holdouts/`)
                     return response.results as ExperimentHoldoutType[]
                 },
                 createHoldout: async () => {
-                    const response = await api.create(`api/projects/@current/experiment_holdouts/`, values.holdout)
+                    const response = await api.create(
+                        `api/projects/${values.currentProjectId}/experiment_holdouts/`,
+                        values.holdout
+                    )
                     actions.reportExperimentHoldoutCreated(response)
                     return [...values.holdouts, response] as ExperimentHoldoutType[]
                 },
                 updateHoldout: async ({ id, holdout }) => {
-                    const response = await api.update(`api/projects/@current/experiment_holdouts/${id}/`, holdout)
+                    const response = await api.update(
+                        `api/projects/${values.currentProjectId}/experiment_holdouts/${id}/`,
+                        holdout
+                    )
                     return values.holdouts.map((h) => (h.id === id ? response : h)) as ExperimentHoldoutType[]
                 },
                 deleteHoldout: async ({ id }) => {
-                    await api.delete(`api/projects/@current/experiment_holdouts/${id}/`)
+                    await api.delete(`api/projects/${values.currentProjectId}/experiment_holdouts/${id}/`)
                     return values.holdouts.filter((h) => h.id !== id)
                 },
             },

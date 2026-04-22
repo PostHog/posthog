@@ -4,9 +4,9 @@ import { resolve } from 'path'
 import { defineConfig } from 'vite'
 
 // import { toolbarDenylistPlugin } from './vite-toolbar-plugin'
-import { htmlGenerationPlugin } from './vite-html-plugin'
-import { posthogJsPlugin } from './vite-posthog-js-plugin'
-import { publicAssetsPlugin } from './vite-public-assets-plugin'
+import { htmlGenerationPlugin } from './plugins/vite-html-plugin'
+import { posthogJsPlugin } from './plugins/vite-posthog-js-plugin'
+import { publicAssetsPlugin } from './plugins/vite-public-assets-plugin'
 
 // https://vitejs.dev/config/
 export default defineConfig(({ mode }) => {
@@ -100,11 +100,14 @@ export default defineConfig(({ mode }) => {
         server: {
             port: 8234,
             host: process.argv.includes('--host') ? '0.0.0.0' : 'localhost',
-            // this is just used in dev
+            allowedHosts: process.env.VITE_ALLOWED_HOSTS?.split(',')
+                .map((s) => s.trim())
+                .filter(Boolean),
             // nosemgrep: trailofbits.javascript.apollo-graphql.v3-cors-audit.v3-potentially-bad-cors
-            cors: true, // This disables CORS in dev, key for using ngrok (e.g. for testing Slack integration)
-            // Configure origin for proper asset URL generation
-            origin: 'http://localhost:8234',
+            cors: true,
+            // JS_URL overrides for sandbox environments where Vite is exposed on a different port.
+            origin: process.env.JS_URL || 'http://localhost:8234',
+            hmr: process.env.JS_URL ? { clientPort: parseInt(process.env.JS_URL.split(':').pop()!) } : undefined,
             proxy: {
                 '/static': {
                     target: 'http://localhost:8000',

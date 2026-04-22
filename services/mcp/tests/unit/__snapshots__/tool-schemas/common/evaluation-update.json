@@ -1,0 +1,122 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "conditions": {
+            "description": "Optional trigger conditions to filter which events are evaluated. OR between condition sets, AND within each."
+        },
+        "deleted": {
+            "description": "Set to true to soft-delete the evaluation.",
+            "type": "boolean"
+        },
+        "description": {
+            "description": "Optional description of what this evaluation checks.",
+            "type": "string"
+        },
+        "enabled": {
+            "description": "Whether the evaluation runs automatically on new $ai_generation events.",
+            "type": "boolean"
+        },
+        "evaluation_config": {
+            "anyOf": [
+                {
+                    "properties": {
+                        "prompt": {
+                            "description": "Evaluation criteria for the LLM judge. Describe what makes a good vs bad response.",
+                            "minLength": 1,
+                            "type": "string"
+                        }
+                    },
+                    "required": ["prompt"],
+                    "type": "object"
+                },
+                {
+                    "properties": {
+                        "source": {
+                            "description": "Hog source code. Must return true (pass), false (fail), or null for N/A.",
+                            "minLength": 1,
+                            "type": "string"
+                        }
+                    },
+                    "required": ["source"],
+                    "type": "object"
+                }
+            ],
+            "description": "Configuration dict. For 'llm_judge': {prompt}. For 'hog': {source}."
+        },
+        "evaluation_type": {
+            "description": "'llm_judge' uses an LLM to score outputs against a prompt; 'hog' runs deterministic Hog code.\n\n* `llm_judge` - LLM as a judge\n* `hog` - Hog",
+            "enum": ["llm_judge", "hog"],
+            "type": "string"
+        },
+        "id": {
+            "description": "A UUID string identifying this evaluation.",
+            "type": "string"
+        },
+        "model_configuration": {
+            "anyOf": [
+                {
+                    "description": "Nested serializer for model configuration.",
+                    "properties": {
+                        "model": {
+                            "maxLength": 100,
+                            "type": "string"
+                        },
+                        "provider": {
+                            "description": "* `openai` - Openai\n* `anthropic` - Anthropic\n* `gemini` - Gemini\n* `openrouter` - Openrouter\n* `fireworks` - Fireworks",
+                            "enum": ["openai", "anthropic", "gemini", "openrouter", "fireworks"],
+                            "type": "string"
+                        },
+                        "provider_key_id": {
+                            "anyOf": [
+                                {
+                                    "type": "string"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ]
+                        },
+                        "provider_key_name": {
+                            "anyOf": [
+                                {
+                                    "type": "string"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ]
+                        }
+                    },
+                    "required": ["provider", "model"],
+                    "type": "object"
+                },
+                {
+                    "type": "null"
+                }
+            ]
+        },
+        "name": {
+            "description": "Name of the evaluation.",
+            "maxLength": 400,
+            "type": "string"
+        },
+        "output_config": {
+            "description": "Output config. For 'boolean' output_type: {allows_na} to permit N/A results.",
+            "properties": {
+                "allows_na": {
+                    "default": false,
+                    "description": "Whether the evaluation can return N/A for non-applicable generations.",
+                    "type": "boolean"
+                }
+            },
+            "type": "object"
+        },
+        "output_type": {
+            "description": "Output format. Currently only 'boolean' is supported.\n\n* `boolean` - Boolean (Pass/Fail)",
+            "enum": ["boolean"],
+            "type": "string"
+        }
+    },
+    "required": ["id"],
+    "type": "object"
+}

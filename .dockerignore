@@ -1,10 +1,14 @@
 *
+!.github/clickhouse-versions.json
+!Dockerfile.recording-rasterizer
 !.devcontainer
 !.kearc
 !bin
 !common/hogvm
 !common/esbuilder
 !common/migration_utils
+!common/replay-headless
+!common/replay-shared
 !common/plugin_transpiler/*.*
 !common/plugin_transpiler/src
 !common/tailwind

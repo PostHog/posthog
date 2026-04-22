@@ -8,8 +8,8 @@ import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { membersLogic } from 'scenes/organization/membersLogic'
 import { userLogic } from 'scenes/userLogic'
 
-import { TwoFactorSetup } from './TwoFactorSetup'
 import { twoFactorLogic } from './twoFactorLogic'
+import { TwoFactorSetup } from './TwoFactorSetup'
 
 export function TwoFactorSetupModal(): JSX.Element {
     const { isTwoFactorSetupModalOpen, forceOpenTwoFactorSetupModal, startSetup, canSwitchOrg } =

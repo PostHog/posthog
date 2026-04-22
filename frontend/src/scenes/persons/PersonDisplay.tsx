@@ -12,12 +12,14 @@ import { ProfilePicture, ProfilePictureProps } from 'lib/lemon-ui/ProfilePicture
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { useNotebookNode } from 'scenes/notebooks/Nodes/NotebookNodeContext'
 
-import { PersonPreview } from './PersonPreview'
 import { PersonPropType, asDisplay, asLink, getPersonColorIndex } from './person-utils'
+import { PersonPreview } from './PersonPreview'
 
 export interface PersonDisplayProps {
     person?: PersonPropType | null
     displayName?: string
+    /** Max display name length before mid-ellipsis truncation. Passed to `asDisplay`. */
+    maxLength?: number
     withIcon?: boolean | ProfilePictureProps['size']
     href?: string
     noLink?: boolean
@@ -69,6 +71,7 @@ export function PersonIcon({
 export function PersonDisplay({
     person,
     displayName,
+    maxLength,
     withIcon,
     noEllipsis,
     noPopover,
@@ -82,7 +85,7 @@ export function PersonDisplay({
     className,
     muted,
 }: PersonDisplayProps): JSX.Element {
-    const display = displayName || asDisplay(person)
+    const display = displayName || asDisplay(person, maxLength)
     const [visible, setVisible] = useState(false)
 
     const notebookNode = useNotebookNode()
@@ -158,8 +161,8 @@ export function PersonDisplay({
             showArrow
         >
             {withCopyButton ? (
-                <div className="flex flex-row items-center justify-between gap-2 min-w-0">
-                    <span className="min-w-0 flex-1">{content}</span>
+                <div className="flex flex-row items-center gap-1 min-w-0">
+                    <span className="min-w-0 truncate">{content}</span>
                     <IconCopy
                         className="text-lg cursor-pointer shrink-0"
                         onClick={() => void copyToClipboard(display)}

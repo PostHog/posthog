@@ -68,9 +68,9 @@ Best for: Large teams with millions of persons where a single query would OOM.
     │  ┌────────────────────────────────────────────────────────────┐  │
     │  │ get_affected_person_ids_from_clickhouse()                  │  │
     │  │                                                             │  │
-    │  │ • Scans events from bug_window_start to bug_window_end     │  │
-    │  │ • Returns ONLY distinct person_ids (not full data)         │  │
-    │  │ • Bounded query = predictable result size                  │  │
+    │  │ • Aggregates event properties within the bug window        │  │
+    │  │ • Compares against current person state in CH              │  │
+    │  │ • Returns ONLY person_ids with actual diffs                │  │
     │  └────────────────────────────────────────────────────────────┘  │
     └──────────────────────────────────────────────────────────────────┘
                                     │
@@ -113,9 +113,12 @@ Best for: Large teams with millions of persons where a single query would OOM.
 
 ### Why Windowed Batched Mode?
 
-The key insight is that Step 1 uses `bug_window_end` to bound the set of affected persons, while Step 2 still reads events up to `now()` to capture all property updates for those persons.
+Step 1 aggregates event properties within the bug window and compares against current person state,
+returning only person_ids with actual diffs.
+Step 2 then reads events up to `now()` to capture all property updates for those persons.
 
-This prevents the problem where the original windowed implementation accumulated ALL persons with events from `bug_window_start` to `now()` (potentially millions), causing OOM.
+This prevents the problem where the original windowed implementation returned ALL persons
+with property-setting events (regardless of whether they had diffs), causing 100x over-selection and OOM.
 
 ## Parameter Reference
 

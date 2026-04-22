@@ -26,6 +26,13 @@ class DuckLakeCatalog(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
         on_delete=models.CASCADE,
         related_name="ducklake_catalog",
     )
+    organization = models.OneToOneField(
+        "posthog.Organization",
+        on_delete=models.CASCADE,
+        related_name="ducklake_catalog",
+        null=True,
+        blank=True,
+    )
 
     # Database connection settings
     db_host = models.CharField(max_length=255)
@@ -76,3 +83,60 @@ class DuckLakeCatalog(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
             external_id=self.cross_account_external_id,
             region=self.bucket_region or None,
         )
+
+
+class DuckgresServer(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
+    """Per-team duckgres query server connection details.
+
+    Duckgres is a Postgres-protocol-compatible DuckDB server, separate from
+    the DuckLake catalog Postgres database. Each team that uses duckgres for
+    copy workflows needs its own connection entry.
+    """
+
+    team = models.OneToOneField(
+        "posthog.Team",
+        on_delete=models.CASCADE,
+        related_name="duckgres_server",
+    )
+    organization = models.OneToOneField(
+        "posthog.Organization",
+        on_delete=models.CASCADE,
+        related_name="duckgres_server",
+        null=True,
+        blank=True,
+    )
+    host = models.CharField(max_length=255)
+    port = models.IntegerField(default=5432)
+    flight_port = models.IntegerField(default=8815)
+    database = models.CharField(max_length=255, default="ducklake")
+    username = models.CharField(max_length=255)
+    password = EncryptedTextField(max_length=500)
+
+    class Meta:
+        db_table = "posthog_duckgresserver"
+        verbose_name = "Duckgres server"
+        verbose_name_plural = "Duckgres servers"
+
+
+class DuckLakeBackfill(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
+    """Per-team enablement of DuckLake warehouse backfills.
+
+    Controls which teams should be backfilled by the Dagster duckling sensors.
+    Catalog credentials are resolved from the team's organization via
+    DuckLakeCatalog/DuckgresServer — this model only tracks enablement.
+    """
+
+    team = models.OneToOneField(
+        "posthog.Team",
+        on_delete=models.CASCADE,
+        related_name="ducklake_backfill",
+    )
+    enabled = models.BooleanField(
+        default=True,
+        help_text="Whether warehouse backfills are enabled for this team",
+    )
+
+    class Meta:
+        db_table = "posthog_ducklakebackfill"
+        verbose_name = "DuckLake backfill"
+        verbose_name_plural = "DuckLake backfills"

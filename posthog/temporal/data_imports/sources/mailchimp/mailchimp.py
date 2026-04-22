@@ -3,11 +3,11 @@ from datetime import date, datetime
 from typing import Any, Optional
 
 import requests
-from dlt.sources.helpers.requests import Request, Response
-from dlt.sources.helpers.rest_client.paginators import BasePaginator
+from requests import Request, Response
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
-from posthog.temporal.data_imports.sources.common.rest_source import RESTAPIConfig, rest_api_resources
+from posthog.temporal.data_imports.sources.common.rest_source import RESTAPIConfig, rest_api_resource
+from posthog.temporal.data_imports.sources.common.rest_source.paginators import BasePaginator
 from posthog.temporal.data_imports.sources.common.rest_source.typing import EndpointResource
 from posthog.temporal.data_imports.sources.mailchimp.settings import MAILCHIMP_ENDPOINTS
 
@@ -20,7 +20,10 @@ def extract_data_center(api_key: str) -> str:
     """
     if "-" not in api_key:
         raise ValueError("Invalid Mailchimp API key format. Expected format: key-dc")
-    return api_key.split("-")[-1]
+    dc = api_key.split("-")[-1]
+    if not dc.isalnum():
+        raise ValueError("Invalid Mailchimp API key format. Expected format: key-dc")
+    return dc
 
 
 def _format_incremental_value(value: Any) -> str:
@@ -89,7 +92,6 @@ def get_resource(
     return {
         "name": config.name,
         "table_name": config.name,
-        "primary_key": "id",
         "write_disposition": {
             "disposition": "merge",
             "strategy": "upsert",
@@ -284,7 +286,6 @@ def mailchimp_source(
             "paginator": MailchimpPaginator(page_size=endpoint_config.page_size),
         },
         "resource_defaults": {
-            "primary_key": "id",
             "write_disposition": "replace",
             "endpoint": {
                 "params": {
@@ -302,9 +303,7 @@ def mailchimp_source(
         ],
     }
 
-    resources = rest_api_resources(config, team_id, job_id, db_incremental_field_last_value)
-    assert len(resources) == 1
-    resource = resources[0]
+    resource = rest_api_resource(config, team_id, job_id, db_incremental_field_last_value)
 
     return SourceResponse(
         name=endpoint,

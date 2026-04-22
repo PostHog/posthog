@@ -64,7 +64,8 @@ class TestFindPythonDependencies(unittest.TestCase):
         [
             # Direct dependencies - should trigger rebuild
             ("entrypoint_init", "posthog/temporal/subscriptions/__init__.py", True),
-            ("entrypoint_workflow", "posthog/temporal/subscriptions/subscription_scheduling_workflow.py", True),
+            ("entrypoint_activities", "posthog/temporal/subscriptions/activities.py", True),
+            ("entrypoint_workflows", "posthog/temporal/subscriptions/workflows.py", True),
             # Transitive dependencies (the bug that caused issue https://github.com/PostHog/posthog/pull/42307) - should trigger rebuild
             ("transitive_utils", "posthog/utils.py", True),
             ("transitive_query_runner", "posthog/hogql_queries/query_runner.py", True),
@@ -124,7 +125,8 @@ class TestFindPythonDependencies(unittest.TestCase):
         [
             # Entrypoint - should trigger rebuild
             ("entrypoint_init", "posthog/temporal/subscriptions/__init__.py", True),
-            ("entrypoint_workflow", "posthog/temporal/subscriptions/subscription_scheduling_workflow.py", True),
+            ("entrypoint_activities", "posthog/temporal/subscriptions/activities.py", True),
+            ("entrypoint_workflows", "posthog/temporal/subscriptions/workflows.py", True),
             # posthog/temporal/common - should trigger rebuild
             ("temporal_common_base", "posthog/temporal/common/base.py", True),
             ("temporal_common_client", "posthog/temporal/common/client.py", True),

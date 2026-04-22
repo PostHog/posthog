@@ -1,7 +1,6 @@
-import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
-import { ProductKey } from '~/queries/schema/schema-general'
+import { ProductItemCategory, ProductKey } from '~/queries/schema/schema-general'
 import { ProductManifest } from '~/types'
 
 export const manifest: ProductManifest = {
@@ -14,7 +13,6 @@ export const manifest: ProductManifest = {
             description:
                 'Transformations let you modify, filter, and enrich event data to improve data quality, privacy, and consistency.',
             activityScope: 'HogFunction',
-            defaultDocsPath: '/docs/cdp/transformations',
             iconType: 'data_pipeline',
         },
     },
@@ -47,38 +45,24 @@ export const manifest: ProductManifest = {
             sceneKeys: ['HogFunction'],
         },
         {
-            path: `Data/Site app`,
+            path: `Data/Web script`,
             type: 'hog_function/site_app',
-            href: urls.appsNew(),
+            href: urls.webScriptsNew(),
             iconColor: ['var(--color-product-data-pipeline-light)'],
             sceneKeys: ['HogFunction'],
         },
     ],
     treeItemsProducts: [
         {
-            path: 'Site Apps',
+            path: 'Web scripts',
             intents: [ProductKey.SITE_APPS],
-            category: 'Tools',
+            category: ProductItemCategory.TOOLS,
             type: 'hog_function',
             iconType: 'data_pipeline',
             iconColor: ['var(--color-product-data-pipeline-light)'],
-            href: urls.apps(),
-            sceneKey: 'Apps',
-            sceneKeys: ['Apps'],
-        },
-        {
-            path: `Data pipelines`,
-            intents: [
-                ProductKey.PIPELINE_BATCH_EXPORTS,
-                ProductKey.PIPELINE_DESTINATIONS,
-                ProductKey.PIPELINE_TRANSFORMATIONS,
-                ProductKey.SITE_APPS,
-            ],
-            category: 'Tools',
-            type: 'hog_function',
-            iconType: 'data_pipeline',
-            iconColor: ['var(--color-product-data-pipeline-light)'],
-            flag: FEATURE_FLAGS.SHOW_DATA_PIPELINES_NAV_ITEM,
+            href: urls.webScripts(),
+            sceneKey: 'WebScripts',
+            sceneKeys: ['WebScripts'],
         },
     ],
     treeItemsMetadata: [

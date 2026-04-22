@@ -1,4 +1,4 @@
-import { BatchPipeline, BatchPipelineResultWithContext } from './batch-pipeline.interface'
+import { BatchPipeline, BatchPipelineResultWithContext, OkResultWithContext } from './batch-pipeline.interface'
 import { Pipeline, PipelineContext, PipelineResultWithContext } from './pipeline.interface'
 import { isOkResult } from './results'
 
@@ -8,32 +8,36 @@ export class ConcurrentBatchProcessingPipeline<
     TOutput,
     CInput = PipelineContext,
     COutput = CInput,
-> implements BatchPipeline<TInput, TOutput, CInput, COutput>
+    RPrev extends string = never,
+    RStep extends string = never,
+> implements BatchPipeline<TInput, TOutput, CInput, COutput, RPrev | RStep>
 {
-    private promiseQueue: Promise<PipelineResultWithContext<TOutput, COutput>>[] = []
+    private promiseQueue: Promise<PipelineResultWithContext<TOutput, COutput, RPrev | RStep>>[] = []
 
     constructor(
-        private processor: Pipeline<TIntermediate, TOutput, COutput>,
-        private previousPipeline: BatchPipeline<TInput, TIntermediate, CInput, COutput>
+        private processor: Pipeline<TIntermediate, TOutput, COutput, RStep>,
+        private previousPipeline: BatchPipeline<TInput, TIntermediate, CInput, COutput, RPrev>
     ) {}
 
-    feed(elements: BatchPipelineResultWithContext<TInput, CInput>): void {
+    feed(elements: OkResultWithContext<TInput, CInput>[]): void {
         this.previousPipeline.feed(elements)
     }
 
-    async next(): Promise<BatchPipelineResultWithContext<TOutput, COutput> | null> {
+    async next(): Promise<BatchPipelineResultWithContext<TOutput, COutput, RPrev | RStep> | null> {
         const previousResults = await this.previousPipeline.next()
 
         if (previousResults !== null) {
             previousResults.forEach((resultWithContext) => {
-                const result = resultWithContext.result
-                if (isOkResult(result)) {
-                    const promise = this.processor.process(resultWithContext)
+                if (isOkResult(resultWithContext.result)) {
+                    const promise = this.processor.process({
+                        result: resultWithContext.result,
+                        context: resultWithContext.context,
+                    })
                     this.promiseQueue.push(promise)
                 } else {
                     this.promiseQueue.push(
                         Promise.resolve({
-                            result: result,
+                            result: resultWithContext.result,
                             context: resultWithContext.context,
                         })
                     )

@@ -5,6 +5,7 @@ from typing import Optional
 from langchain_core.messages import HumanMessage, SystemMessage
 from pydantic import BaseModel, Field
 
+from posthog.hogql import errors as hogql_errors
 from posthog.hogql.ai import (
     DESTINATION_LIMITATIONS_MESSAGE,
     EVENT_PROPERTY_TAXONOMY_MESSAGE,
@@ -19,6 +20,7 @@ from posthog.hogql.ai import (
     PERSON_TAXONOMY_MESSAGE,
     TRANSFORMATION_LIMITATIONS_MESSAGE,
 )
+from posthog.hogql.parser import parse_program
 
 from posthog.cdp.validation import compile_hog
 
@@ -82,7 +84,7 @@ class CreateHogTransformationFunctionTool(MaxTool):
 
         messages = [SystemMessage(content=system_content), HumanMessage(content=user_content)]
 
-        final_error: Optional[Exception] = None
+        final_error: Optional[BaseException] = None
         for _ in range(3):
             try:
                 result = self._model.invoke(messages)
@@ -94,6 +96,7 @@ class CreateHogTransformationFunctionTool(MaxTool):
                 messages[0] = SystemMessage(content=system_content)
                 final_error = e
         else:
+            assert final_error is not None
             raise final_error
 
         return "```hog\n" + parsed_result.hog_code + "\n```", parsed_result.hog_code
@@ -127,9 +130,18 @@ class CreateHogTransformationFunctionTool(MaxTool):
 
         try:
             compile_hog(hog_code, "transformation")
-        except Exception as e:
+        except Exception:
+            # Try to get a more specific error by parsing directly
+            try:
+                parse_program(hog_code)
+            except hogql_errors.SyntaxError as parse_err:
+                raise PydanticOutputParserException(
+                    llm_output=hog_code,
+                    validation_message=f"The Hog code failed to compile: {parse_err}",
+                )
             raise PydanticOutputParserException(
-                llm_output=hog_code, validation_message=f"The Hog code failed to compile: {str(e)}"
+                llm_output=hog_code,
+                validation_message="The Hog code failed to compile.",
             )
 
         return HogTransformationOutput(hog_code=hog_code)
@@ -169,7 +181,7 @@ class CreateHogFunctionFiltersTool(MaxTool):
 
         messages = [SystemMessage(content=system_content), HumanMessage(content=user_content)]
 
-        final_error: Optional[Exception] = None
+        final_error: Optional[BaseException] = None
         for _ in range(3):
             try:
                 result = self._model.invoke(messages)
@@ -181,6 +193,7 @@ class CreateHogFunctionFiltersTool(MaxTool):
                 messages[0] = SystemMessage(content=system_content)
                 final_error = e
         else:
+            assert final_error is not None
             raise final_error
 
         return f"```json\n{json.dumps(parsed_result.filters, indent=2)}\n```", json.dumps(parsed_result.filters)
@@ -247,7 +260,7 @@ class CreateHogFunctionInputsTool(MaxTool):
 
         messages = [SystemMessage(content=system_content), HumanMessage(content=user_content)]
 
-        final_error: Optional[Exception] = None
+        final_error: Optional[BaseException] = None
         for _ in range(3):
             try:
                 result = self._model.invoke(messages)
@@ -258,6 +271,7 @@ class CreateHogFunctionInputsTool(MaxTool):
                 messages[0] = SystemMessage(content=system_content)
                 final_error = e
         else:
+            assert final_error is not None
             raise final_error
 
         # Format the output for display

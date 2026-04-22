@@ -3,20 +3,24 @@ import { useActions, useValues } from 'kea'
 import { IconArchive, IconExternal, IconGithub, IconPlay } from '@posthog/icons'
 import { LemonButton, Spinner } from '@posthog/lemon-ui'
 
+import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
+import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
+import { humanFriendlyDuration } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
+import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import {
     ScenePanel,
     ScenePanelActionsSection,
     ScenePanelDivider,
     ScenePanelInfoSection,
 } from '~/layout/scenes/SceneLayout'
-import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { taskDetailSceneLogic } from '../logics/taskDetailSceneLogic'
+import { CollapsibleContent } from './CollapsibleContent'
 import { TaskRunItem } from './TaskRunItem'
 import { TaskSessionView } from './TaskSessionView'
 
@@ -26,7 +30,8 @@ export interface TaskDetailPageProps {
 
 export function TaskDetailPage({ taskId }: TaskDetailPageProps): JSX.Element {
     const sceneLogic = taskDetailSceneLogic({ taskId })
-    const { task, runs, selectedRunId, selectedRun, runsLoading, logs, shouldPoll } = useValues(sceneLogic)
+    const { task, runs, selectedRunId, selectedRun, runsLoading, logs, shouldPoll, streamEntries, isStreaming } =
+        useValues(sceneLogic)
     const { setSelectedRunId, runTask, deleteTask } = useActions(sceneLogic)
 
     if (!task) {
@@ -98,7 +103,7 @@ export function TaskDetailPage({ taskId }: TaskDetailPageProps): JSX.Element {
 
             <SceneTitleSection
                 name={task?.title}
-                description={task?.description}
+                description={null}
                 resourceType={{ type: 'task' }}
                 isLoading={false}
                 canEdit={false}
@@ -113,9 +118,9 @@ export function TaskDetailPage({ taskId }: TaskDetailPageProps): JSX.Element {
                             type="secondary"
                             size="small"
                             icon={<IconExternal />}
-                            onClick={() => window.open(`twig://task/${task.id}`, '_blank')}
+                            onClick={() => window.open(`posthog-code://task/${task.id}`, '_blank')}
                         >
-                            Open in Twig
+                            Open in PostHog Code
                         </LemonButton>
                         {prUrl && (
                             <LemonButton
@@ -136,6 +141,37 @@ export function TaskDetailPage({ taskId }: TaskDetailPageProps): JSX.Element {
                 }
             />
 
+            {selectedRun && (
+                <div className="flex items-center gap-4 -mt-2 mb-2 px-2 text-xs text-muted">
+                    <span>
+                        Created: <TZLabel time={selectedRun.created_at} showSeconds />
+                    </span>
+                    {selectedRun.completed_at && (
+                        <span>
+                            Completed: <TZLabel time={selectedRun.completed_at} showSeconds />
+                        </span>
+                    )}
+                    {selectedRun.completed_at && (
+                        <span>
+                            Duration:{' '}
+                            {humanFriendlyDuration(
+                                dayjs(selectedRun.completed_at).diff(selectedRun.created_at, 'second')
+                            )}
+                        </span>
+                    )}
+                </div>
+            )}
+
+            {task.description && (
+                <div className="relative -mt-2 mb-2 px-2">
+                    <CollapsibleContent>
+                        <LemonMarkdown lowKeyHeadings className="text-sm">
+                            {task.description}
+                        </LemonMarkdown>
+                    </CollapsibleContent>
+                </div>
+            )}
+
             {runsLoading ? (
                 <div className="flex items-center justify-center h-32">
                     <Spinner />
@@ -146,7 +182,14 @@ export function TaskDetailPage({ taskId }: TaskDetailPageProps): JSX.Element {
                 </div>
             ) : selectedRun ? (
                 <div className="flex-1 overflow-hidden">
-                    <TaskSessionView logs={logs} isPolling={shouldPoll} run={selectedRun} />
+                    <TaskSessionView
+                        logs={logs}
+                        streamEntries={streamEntries}
+                        isPolling={shouldPoll}
+                        isStreaming={isStreaming}
+                        initialPrompt={task.description}
+                        run={selectedRun}
+                    />
                 </div>
             ) : null}
         </SceneContent>

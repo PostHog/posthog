@@ -1,9 +1,11 @@
 import { URL } from 'url'
 
-import { Hub, PreIngestionEvent, RawClickhouseHeatmapEvent, TimestampFormat } from '../../types'
+import { PreIngestionEvent, RawClickhouseHeatmapEvent, TimestampFormat } from '../../types'
 import { logger } from '../../utils/logger'
 import { castTimestampOrNow } from '../../utils/utils'
 import { isDistinctIdIllegal } from '../../worker/ingestion/persons/person-merge-service'
+import { HEATMAPS_OUTPUT, HeatmapsOutput } from '../analytics/outputs'
+import { IngestionOutputs } from '../outputs/ingestion-outputs'
 import { PipelineWarning } from '../pipelines/pipeline.interface'
 import { PipelineResult, drop, isOkResult, ok } from '../pipelines/results'
 import { ProcessingStep } from '../pipelines/steps'
@@ -17,7 +19,7 @@ export type ExtractHeatmapDataStepResult<TInput> = TInput & {
 }
 
 export function createExtractHeatmapDataStep<TInput extends ExtractHeatmapDataStepInput>(
-    hub: Pick<Hub, 'CLICKHOUSE_HEATMAPS_KAFKA_TOPIC' | 'kafkaProducer'>
+    outputs: IngestionOutputs<HeatmapsOutput>
 ): ProcessingStep<TInput, ExtractHeatmapDataStepResult<TInput>> {
     return async function extractHeatmapDataStep(
         input: TInput
@@ -39,16 +41,16 @@ export function createExtractHeatmapDataStep<TInput extends ExtractHeatmapDataSt
 
             if (heatmapEvents.length > 0) {
                 acks.push(
-                    hub.kafkaProducer.queueMessages({
-                        topic: hub.CLICKHOUSE_HEATMAPS_KAFKA_TOPIC,
-                        messages: heatmapEvents.map((rawEvent) => ({
+                    outputs.queueMessages(
+                        HEATMAPS_OUTPUT,
+                        heatmapEvents.map((rawEvent) => ({
                             key: eventUuid,
-                            value: JSON.stringify(rawEvent),
-                        })),
-                    })
+                            value: Buffer.from(JSON.stringify(rawEvent)),
+                        }))
+                    )
                 )
             }
-        } catch (e) {
+        } catch {
             warnings.push({
                 type: 'invalid_heatmap_data',
                 details: {

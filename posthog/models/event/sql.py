@@ -5,9 +5,8 @@ from posthog.clickhouse.cluster import ON_CLUSTER_CLAUSE
 from posthog.clickhouse.indexes import index_by_kafka_timestamp
 from posthog.clickhouse.kafka_engine import (
     CONSUMER_GROUP_EVENTS_JSON,
+    CONSUMER_GROUP_EVENTS_JSON_WS,
     KAFKA_COLUMNS,
-    KAFKA_COLUMNS_WITH_PARTITION,
-    KAFKA_TIMESTAMP_MS_COLUMN,
     STORAGE_POLICY,
     kafka_engine,
     trim_quotes_expr,
@@ -25,29 +24,12 @@ def WRITABLE_EVENTS_DATA_TABLE():
     return "writable_events"
 
 
-def EVENTS_RECENT_DATA_TABLE():
-    return "events_recent"
-
-
 def TRUNCATE_EVENTS_TABLE_SQL():
     return f"TRUNCATE TABLE IF EXISTS {EVENTS_DATA_TABLE()} {ON_CLUSTER_CLAUSE()}"
 
 
-TRUNCATE_EVENTS_RECENT_TABLE_SQL = (
-    lambda: f"TRUNCATE TABLE IF EXISTS {EVENTS_RECENT_DATA_TABLE()} {ON_CLUSTER_CLAUSE()}"
-)
-
-
 def DROP_EVENTS_TABLE_SQL():
     return f"DROP TABLE IF EXISTS {EVENTS_DATA_TABLE()} {ON_CLUSTER_CLAUSE()}"
-
-
-def DROP_KAFKA_EVENTS_RECENT_TABLE_SQL():
-    return f"DROP TABLE IF EXISTS kafka_events_recent_json"
-
-
-def DROP_EVENTS_RECENT_MV_TABLE_SQL():
-    return f"DROP TABLE IF EXISTS events_recent_json_mv"
 
 
 DROP_DISTRIBUTED_EVENTS_TABLE_SQL = f"DROP TABLE IF EXISTS events {ON_CLUSTER_CLAUSE()}"
@@ -168,6 +150,7 @@ EVENTS_TABLE_MATERIALIZED_COLUMNS = f"""
     , INDEX `minmax_$group_4` `$group_4` TYPE minmax GRANULARITY 1
     , INDEX `minmax_$window_id` `$window_id` TYPE minmax GRANULARITY 1
     , INDEX `minmax_$session_id` `$session_id` TYPE minmax GRANULARITY 1
+    , INDEX `minmax_$session_id_uuid` `$session_id_uuid` TYPE minmax GRANULARITY 1
     , {", ".join(property_groups.get_create_table_pieces("sharded_events"))}
 """
 
@@ -217,7 +200,7 @@ ORDER BY (team_id, toDate(timestamp), event, cityHash64(distinct_id), cityHash64
 
 EVENTS_TABLE_INSERTED_AT_INDEX_SQL = """
 ALTER TABLE {table_name} ON CLUSTER {cluster}
-ADD INDEX `minmax_inserted_at` COALESCE(`inserted_at`, `_timestamp`)
+ADD INDEX IF NOT EXISTS `minmax_inserted_at` COALESCE(`inserted_at`, `_timestamp`)
 TYPE minmax
 GRANULARITY 1
 """.format(table_name=EVENTS_DATA_TABLE(), cluster=settings.CLICKHOUSE_CLUSTER)
@@ -250,9 +233,28 @@ def KAFKA_EVENTS_TABLE_JSON_SQL():
     )
 
 
-EVENTS_TABLE_JSON_MV_SQL = (
-    lambda: """
-CREATE MATERIALIZED VIEW IF NOT EXISTS events_json_mv ON CLUSTER '{cluster}'
+# NOTE: All parameters must have defaults - zero-argument calls must remain valid.
+# 8+ frozen migrations and schema.py reference this function without parameters.
+#
+# Override parameters to create separate pipelines that reuse the events schema:
+# - mv_name: unique MV name to avoid conflicts with the main events_json_mv
+# - kafka_table: different Kafka table consuming from a different topic
+# - target_table: different target table for the MV to write to
+# - on_cluster: False when running on specific node roles (e.g., ingestion layer)
+#
+# Example: error_tracking_events_test uses custom values to create a parallel
+# pipeline for validating Node.js ingestion output against the Python pipeline.
+def EVENTS_TABLE_JSON_MV_SQL(
+    mv_name="events_json_mv",
+    kafka_table="kafka_events_json",
+    target_table=None,
+    on_cluster=True,
+):
+    if target_table is None:
+        target_table = WRITABLE_EVENTS_DATA_TABLE()
+
+    return """
+CREATE MATERIALIZED VIEW IF NOT EXISTS {mv_name} {on_cluster_clause}
 TO {database}.{target_table}
 AS SELECT
 uuid,
@@ -288,128 +290,128 @@ arrayMap(
         arrayEnumerate(_headers.name)
     )
 ) as consumer_breadcrumbs
-FROM {database}.kafka_events_json
+FROM {database}.{kafka_table}
 """.format(
-        target_table=WRITABLE_EVENTS_DATA_TABLE(),
+        mv_name=mv_name,
+        kafka_table=kafka_table,
+        target_table=target_table,
         dynamically_materialized_columns=MV_DYNAMICALLY_MATERIALIZED_COLUMNS(),
-        cluster=settings.CLICKHOUSE_CLUSTER,
+        on_cluster_clause=f"ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'" if on_cluster else "",
         database=settings.CLICKHOUSE_DATABASE,
     )
-)
 
 
-def KAFKA_EVENTS_RECENT_TABLE_JSON_SQL(on_cluster=True):
+# WarpStream Kafka engine tables (coexist alongside MSK tables, same target)
+
+KAFKA_EVENTS_JSON_WS_TABLE = "kafka_events_json_ws"
+EVENTS_JSON_WS_MV = "events_json_ws_mv"
+
+DROP_KAFKA_EVENTS_JSON_WS_TABLE_SQL = f"DROP TABLE IF EXISTS {KAFKA_EVENTS_JSON_WS_TABLE}"
+DROP_EVENTS_JSON_WS_MV_SQL = f"DROP TABLE IF EXISTS {EVENTS_JSON_WS_MV}"
+
+
+def KAFKA_EVENTS_TABLE_JSON_WS_SQL():
     return (
         EVENTS_TABLE_BASE_SQL
         + """
-    SETTINGS kafka_skip_broken_messages = 100,  kafka_num_consumers = 2, kafka_thread_per_consumer = 1
+    SETTINGS kafka_skip_broken_messages = 100, kafka_thread_per_consumer = 1, kafka_num_consumers = 1
 """
     ).format(
-        table_name="kafka_events_recent_json",
-        on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
-        engine=kafka_engine(topic=KAFKA_EVENTS_JSON, group="group1_recent"),
+        table_name=KAFKA_EVENTS_JSON_WS_TABLE,
+        on_cluster_clause=ON_CLUSTER_CLAUSE(False),
+        engine=kafka_engine(
+            topic=KAFKA_EVENTS_JSON,
+            group=CONSUMER_GROUP_EVENTS_JSON_WS,
+            named_collection=settings.CLICKHOUSE_KAFKA_WARPSTREAM_INGESTION_NAMED_COLLECTION,
+        ),
         extra_fields="",
-        dynamically_materialized_columns="",
+        dynamically_materialized_columns=EVENTS_TABLE_DYNAMICALLY_MATERIALIZED_COLUMNS(),
         materialized_columns="",
         indexes="",
     )
 
 
-EVENTS_RECENT_TABLE_JSON_MV_SQL = (
-    lambda target_table="writable_events_recent": """
-CREATE MATERIALIZED VIEW IF NOT EXISTS events_recent_json_mv
-TO {database}.{target_table}
-AS SELECT
-uuid,
-event,
-properties,
-timestamp,
-team_id,
-distinct_id,
-elements_chain,
-created_at,
-person_id,
-person_created_at,
-person_properties,
-group0_properties,
-group1_properties,
-group2_properties,
-group3_properties,
-group4_properties,
-group0_created_at,
-group1_created_at,
-group2_created_at,
-group3_created_at,
-group4_created_at,
-person_mode,
-_timestamp,
-_timestamp_ms,
-_offset,
-_partition
-FROM {database}.kafka_events_recent_json
-""".format(
-        target_table=target_table,
-        database=settings.CLICKHOUSE_DATABASE,
+def EVENTS_TABLE_JSON_WS_MV_SQL():
+    return EVENTS_TABLE_JSON_MV_SQL(
+        mv_name=EVENTS_JSON_WS_MV,
+        kafka_table=KAFKA_EVENTS_JSON_WS_TABLE,
+        on_cluster=False,
     )
-)
 
 
-def EVENTS_RECENT_TABLE_SQL(on_cluster=True):
-    return (
-        EVENTS_TABLE_BASE_SQL
-        + """PARTITION BY toStartOfHour(inserted_at)
-ORDER BY (team_id, toStartOfHour(inserted_at), event, cityHash64(distinct_id), cityHash64(uuid))
-TTL toDateTime(inserted_at) + INTERVAL 7 DAY
-{storage_policy}
-"""
-    ).format(
+# Events recent tables
+
+
+def WRITABLE_EVENTS_RECENT_TABLE():
+    return "writable_events_recent"
+
+
+def EVENTS_RECENT_DATA_TABLE():
+    return "events_recent"
+
+
+def SHARDED_EVENTS_RECENT_DATA_TABLE():
+    return "sharded_events_recent"
+
+
+def DROP_KAFKA_EVENTS_RECENT_TABLE_SQL():
+    return f"DROP TABLE IF EXISTS kafka_events_recent_json"
+
+
+def DROP_EVENTS_RECENT_MV_TABLE_SQL():
+    return f"DROP TABLE IF EXISTS events_recent_json_mv"
+
+
+def TRUNCATE_EVENTS_RECENT_TABLE_SQL():
+    return f"TRUNCATE TABLE IF EXISTS {EVENTS_RECENT_DATA_TABLE()} {ON_CLUSTER_CLAUSE()}"
+
+
+def EVENTS_RECENT_TABLE_SQL(on_cluster=False):
+    return EVENTS_TABLE_BASE_SQL.format(
         table_name=EVENTS_RECENT_DATA_TABLE(),
         on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
-        engine=ReplacingMergeTree(EVENTS_RECENT_DATA_TABLE(), ver="_timestamp"),
-        extra_fields=KAFKA_COLUMNS_WITH_PARTITION + INSERTED_AT_NOT_NULLABLE_COLUMN + f", {KAFKA_TIMESTAMP_MS_COLUMN}",
+        engine=Distributed(
+            data_table=SHARDED_EVENTS_RECENT_DATA_TABLE(),
+            sharding_key="sipHash64(distinct_id)",
+            cluster=settings.CLICKHOUSE_PRIMARY_REPLICA_CLUSTER,
+        ),
+        extra_fields=KAFKA_COLUMNS + INSERTED_AT_COLUMN,
         dynamically_materialized_columns="",
         materialized_columns="",
         indexes="",
-        storage_policy=STORAGE_POLICY(),
     )
 
 
-def DISTRIBUTED_EVENTS_RECENT_TABLE_SQL(on_cluster=True):
+def DISTRIBUTED_EVENTS_RECENT_TABLE_SQL(on_cluster=False):
     return EVENTS_TABLE_BASE_SQL.format(
         table_name="distributed_events_recent",
         on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
         engine=Distributed(
-            data_table=EVENTS_RECENT_DATA_TABLE(),
+            data_table=SHARDED_EVENTS_RECENT_DATA_TABLE(),
             sharding_key="sipHash64(distinct_id)",
-            cluster=settings.CLICKHOUSE_SINGLE_SHARD_CLUSTER,
+            cluster=settings.CLICKHOUSE_PRIMARY_REPLICA_CLUSTER,
         ),
-        extra_fields=KAFKA_COLUMNS_WITH_PARTITION + INSERTED_AT_COLUMN + f", {KAFKA_TIMESTAMP_MS_COLUMN}",
+        extra_fields=KAFKA_COLUMNS + INSERTED_AT_COLUMN,
         dynamically_materialized_columns="",
         materialized_columns="",
         indexes="",
     )
 
 
-def WRITABLE_EVENTS_RECENT_TABLE_SQL(on_cluster=True):
+def WRITABLE_EVENTS_RECENT_TABLE_SQL(on_cluster=False):
     return EVENTS_TABLE_BASE_SQL.format(
-        table_name="writable_events_recent",
+        table_name=WRITABLE_EVENTS_RECENT_TABLE(),
         on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
         engine=Distributed(
-            data_table=EVENTS_RECENT_DATA_TABLE(),
-            cluster=settings.CLICKHOUSE_BATCH_EXPORTS_CLUSTER,
+            data_table=SHARDED_EVENTS_RECENT_DATA_TABLE(),
+            sharding_key="sipHash64(distinct_id)",
+            cluster=settings.CLICKHOUSE_WRITABLE_CLUSTER,
         ),
-        extra_fields=KAFKA_COLUMNS_WITH_PARTITION + f", {KAFKA_TIMESTAMP_MS_COLUMN}",
+        extra_fields=KAFKA_COLUMNS,
         dynamically_materialized_columns="",
         materialized_columns="",
         indexes="",
     )
-
-
-# New sharded events_recent pipeline: sources data from sharded_events via MV
-# instead of directly from Kafka. These tables run in parallel with the old
-# Kafka-based events_recent pipeline until the old one is shut down.
-
-SHARDED_EVENTS_RECENT_DATA_TABLE = "sharded_events_recent"
 
 
 def SHARDED_EVENTS_RECENT_TABLE_SQL():
@@ -422,7 +424,7 @@ TTL toDateTime(inserted_at) + INTERVAL 7 DAY
 SETTINGS ttl_only_drop_parts = 1
 """
     ).format(
-        table_name=SHARDED_EVENTS_RECENT_DATA_TABLE,
+        table_name=SHARDED_EVENTS_RECENT_DATA_TABLE(),
         on_cluster_clause=ON_CLUSTER_CLAUSE(False),
         engine=ReplacingMergeTree(
             "sharded_events_recent", ver="_timestamp", replication_scheme=ReplicationScheme.SHARDED
@@ -435,41 +437,10 @@ SETTINGS ttl_only_drop_parts = 1
     )
 
 
-def DISTRIBUTED_SHARDED_EVENTS_RECENT_TABLE_SQL():
-    return EVENTS_TABLE_BASE_SQL.format(
-        table_name="distributed_sharded_events_recent",
-        on_cluster_clause=ON_CLUSTER_CLAUSE(False),
-        engine=Distributed(
-            data_table=SHARDED_EVENTS_RECENT_DATA_TABLE,
-            sharding_key="sipHash64(distinct_id)",
-        ),
-        extra_fields=KAFKA_COLUMNS + INSERTED_AT_COLUMN,
-        dynamically_materialized_columns="",
-        materialized_columns="",
-        indexes="",
-    )
-
-
-def WRITABLE_SHARDED_EVENTS_RECENT_TABLE_SQL():
-    return EVENTS_TABLE_BASE_SQL.format(
-        table_name="writable_events_recent",
-        on_cluster_clause=ON_CLUSTER_CLAUSE(False),
-        engine=Distributed(
-            data_table=SHARDED_EVENTS_RECENT_DATA_TABLE,
-            sharding_key="sipHash64(distinct_id)",
-            cluster=settings.CLICKHOUSE_WRITABLE_CLUSTER,
-        ),
-        extra_fields=KAFKA_COLUMNS,
-        dynamically_materialized_columns="",
-        materialized_columns="",
-        indexes="",
-    )
-
-
-SHARDED_EVENTS_RECENT_MV_SQL = (
-    lambda: """
+def SHARDED_EVENTS_RECENT_MV_SQL():
+    return """
 CREATE MATERIALIZED VIEW IF NOT EXISTS events_recent_json_mv
-TO {database}.writable_events_recent
+TO {database}.{target_table}
 AS SELECT
 uuid,
 event,
@@ -499,15 +470,14 @@ FROM {database}.{source_table}
 """.format(
         source_table=EVENTS_DATA_TABLE(),
         database=settings.CLICKHOUSE_DATABASE,
+        target_table=WRITABLE_EVENTS_RECENT_TABLE(),
     )
-)
 
 
 # Distributed engine tables are only created if CLICKHOUSE_REPLICATED
 
+
 # This table is responsible for writing to sharded_events based on a sharding key.
-
-
 def WRITABLE_EVENTS_TABLE_SQL():
     return EVENTS_TABLE_BASE_SQL.format(
         table_name="writable_events",

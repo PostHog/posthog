@@ -12,6 +12,8 @@ export interface CommonProps {
     hasPlaceholderText: boolean
     selectedPageIndex?: number
     setSelectedPageIndex?: (pageIndex: number) => void
+    /** When provided, disables all styling controls with this reason (e.g. from access control). */
+    disabledReason?: string
 }
 
 export interface CustomizationProps extends CommonProps {

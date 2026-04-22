@@ -307,7 +307,10 @@ export const DraggableWithSnapZones = forwardRef<DraggableWithSnapZonesRef, Drag
             const height = elementSize?.height ?? 0
 
             if (freePosition) {
-                return freePosition
+                return {
+                    x: Math.max(padding, Math.min(freePosition.x, windowSize.width - width - padding)),
+                    y: Math.max(padding, Math.min(freePosition.y, windowSize.height - height - padding)),
+                }
             }
 
             if (snapPosition) {

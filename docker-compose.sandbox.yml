@@ -1,0 +1,502 @@
+#
+# Self-contained compose file for isolated dev sandboxes.
+# Each sandbox is a complete PostHog stack with its own infra.
+#
+# Extends service definitions from docker-compose.base.yml to stay in sync
+# with image versions, healthchecks, and environment defaults.
+#
+# Managed by bin/sandbox — not intended for direct invocation.
+# See `sandbox help` for usage.
+#
+
+services:
+    # Caddy reverse proxy — routes capture/flags/replay traffic to the
+    # appropriate service inside the app container, mirroring the dev proxy
+    # in docker-compose.dev.yml. Can't extend base because sandbox routes
+    # to a single `app` container (not separate service containers).
+    proxy:
+        extends:
+            file: docker-compose.base.yml
+            service: proxy
+        restart: on-failure
+        ports:
+            - '${SANDBOX_PORT:-48001}:8000'
+        volumes: []
+        environment:
+            CADDYFILE: |
+                http://localhost:8000 {
+                    @replay-capture {
+                        path /s
+                        path /s/*
+                    }
+
+                    @capture-ai {
+                        path /i/v0/ai
+                        path /i/v0/ai/*
+                    }
+
+                    @capture {
+                        path /e
+                        path /e/*
+                        path /i/v0/*
+                        path /batch
+                        path /batch*
+                        path /capture
+                        path /capture*
+                    }
+
+                    @capture-logs {
+                        path /i/v1/logs
+                        path /i/v1/logs/*
+                    }
+
+                    @capture-traces {
+                        path /i/v1/traces
+                        path /i/v1/traces/*
+                    }
+
+                    @flags {
+                        path /flags
+                        path /flags*
+                    }
+
+                    @webhooks {
+                        path /public/webhooks
+                        path /public/webhooks/*
+                        path /public/m
+                        path /public/m/*
+                    }
+
+                    handle @capture-ai {
+                        reverse_proxy app:3309
+                    }
+
+                    handle @capture {
+                        reverse_proxy app:3307
+                    }
+
+                    handle @capture-logs {
+                        reverse_proxy capture-logs:4318
+                    }
+
+                    handle @capture-traces {
+                        reverse_proxy capture-logs:4318
+                    }
+
+                    handle @replay-capture {
+                        reverse_proxy app:3306
+                    }
+
+                    handle @flags {
+                        reverse_proxy app:3001
+                    }
+
+                    handle @webhooks {
+                        reverse_proxy app:6738
+                    }
+
+                    handle {
+                        reverse_proxy app:8000
+                    }
+                }
+        depends_on:
+            - app
+
+    app:
+        build:
+            context: .
+            dockerfile: Dockerfile.sandbox
+        restart: on-failure
+        init: true
+        # mprocs (used by bin/start) requires a TTY
+        tty: true
+        stdin_open: true
+        # VSCode reads this label when attaching to configure extensions and settings
+        labels:
+            devcontainer.metadata: >-
+                [{"customizations":{"vscode":{"extensions":["ms-python.python","ms-python.vscode-pylance","charliermarsh.ruff","oxc.oxc-vscode","bradlc.vscode-tailwindcss"],"settings":{"python.defaultInterpreterPath":"/cache/python/bin/python"}}}}]
+        ports:
+            # Vite dev server exposed directly (not proxied)
+            - '${SANDBOX_VITE_PORT:-49001}:8234'
+            # SSH for IDE remote interpreters (IntelliJ, VSCode Remote-SSH, etc.)
+            - '${SANDBOX_SSH_PORT:-50001}:2222'
+        volumes:
+            # Per-sandbox workspace — populated by bin/sandbox before `compose up`.
+            # Destroyed with `sandbox rm`, so unpushed commits die with it.
+            - workspace:/workspace
+            - ${SANDBOX_CLAUDE_AUTH}:/tmp/claude-auth:ro
+            - ${SANDBOX_CLAUDE_JSON:-/dev/null}:/tmp/claude-auth.json:ro
+            - ${SANDBOX_HOST_GITCONFIG:-/dev/null}:/tmp/host-gitconfig:ro
+            - ${SANDBOX_HOST_GIT_SIGNINGKEY:-/dev/null}:/tmp/host-git-signingkey:ro
+            - ${SANDBOX_HOST_ALLOWED_SIGNERS:-/dev/null}:/tmp/host-allowed-signers:ro
+            - ${SANDBOX_SSH_AUTHORIZED_KEYS:-/dev/null}:/tmp/sandbox-authorized-keys:ro
+            # Forwarded SSH agent. Host path resolved by bin/sandbox.
+            - ${SSH_AUTH_SOCK:-/dev/null}:/ssh-agent
+            # Shared caches — persist across sandboxes so the second one is fast.
+            # uv and pnpm download packages here; subsequent sandboxes get cache hits.
+            - uv-cache:/cache/uv
+            - pnpm-store:/cache/pnpm
+            - cargo-target:/cache/cargo-target
+            - python-env:/cache/python
+            # JetBrains IDE backend for Gateway (populated by bin/sandbox)
+            - jetbrains:/opt/idea
+        # Shared service defaults (Postgres, ClickHouse, Redis, etc.) come from
+        # the same env file used by docker-compose.base.yml.
+        env_file: dev-services.env
+        environment:
+            # --- Sandbox identity ---
+            SANDBOX_UID: '${SANDBOX_UID:-1000}'
+            SANDBOX_GID: '${SANDBOX_GID:-1000}'
+            POSTHOG_SANDBOX: '1'
+            SANDBOX_INTENTS: '${SANDBOX_INTENTS:-product_analytics}'
+            DEBUG: '1'
+            HOST_BIND: '0.0.0.0'
+            AUTO_LOGIN: '1'
+            # Unique session cookie per sandbox so multiple sandboxes on localhost
+            # don't overwrite each other's login sessions.
+            # (CSRF cookie is NOT varied — frontend hardcodes 'posthog_csrftoken'.)
+            SESSION_COOKIE_NAME: 'sessionid_${SANDBOX_PORT:-48001}'
+            JS_URL: 'http://localhost:${SANDBOX_VITE_PORT:-49001}'
+        depends_on:
+            db:
+                condition: service_healthy
+            redis7:
+                condition: service_healthy
+            clickhouse:
+                condition: service_healthy
+            kafka:
+                condition: service_healthy
+            objectstorage:
+                condition: service_started
+
+    db:
+        # Not using extends — base mounts volumes that merge with ours,
+        # causing duplicate /docker-entrypoint-initdb.d mounts.
+        image: postgres:15.12-alpine
+        restart: on-failure
+        environment:
+            POSTGRES_USER: posthog
+            POSTGRES_DB: posthog
+            POSTGRES_PASSWORD: posthog
+        healthcheck:
+            test: ['CMD-SHELL', 'pg_isready -U posthog']
+            interval: 5s
+            timeout: 30s
+            retries: 30
+            start_period: 10s
+        volumes:
+            - postgres-data:/var/lib/postgresql/data
+            - type: volume
+              source: workspace
+              target: /docker-entrypoint-initdb.d
+              read_only: true
+              volume:
+                  subpath: docker/postgres-init-scripts
+        command: postgres -c max_connections=1000 -c idle_in_transaction_session_timeout=300000
+
+    redis7:
+        extends:
+            file: docker-compose.base.yml
+            service: redis7
+
+    clickhouse:
+        extends:
+            file: docker-compose.base.yml
+            service: clickhouse
+        mem_limit: 8g
+        cpus: 2
+        environment:
+            AWS_ACCESS_KEY_ID: object_storage_root_user
+            AWS_SECRET_ACCESS_KEY: object_storage_root_password
+        volumes:
+            - clickhouse-data:/var/lib/clickhouse
+            # Shared cache volume for ClickHouse BACKUP/RESTORE
+            - db-cache:/cache/chbackup
+            # Directory subpath mounts (supported). Populated before compose up.
+            - type: volume
+              source: workspace
+              target: /idl
+              read_only: true
+              volume:
+                  subpath: posthog/idl
+            - type: volume
+              source: workspace
+              target: /docker-entrypoint-initdb.d
+              read_only: true
+              volume:
+                  subpath: docker/clickhouse/docker-entrypoint-initdb.d
+            - type: volume
+              source: workspace
+              target: /var/lib/clickhouse/user_scripts
+              read_only: true
+              volume:
+                  subpath: posthog/user_scripts
+            # Individual ClickHouse config files can't be volume-subpath mounted:
+            # volume subpaths must be directories (files are undocumented and
+            # fail for targets that already exist in the image — e.g. config.xml
+            # and users.xml). Instead, mount docker/clickhouse as a directory
+            # and copy the files into place in an entrypoint wrapper below.
+            - type: volume
+              source: workspace
+              target: /sandbox-configs
+              read_only: true
+              volume:
+                  subpath: docker/clickhouse
+        entrypoint:
+            - /bin/sh
+            - -c
+            - |
+                set -e
+                cp /sandbox-configs/config.xml                   /etc/clickhouse-server/config.xml
+                cp /sandbox-configs/users-dev.xml                /etc/clickhouse-server/users.xml
+                cp /sandbox-configs/user_defined_function.xml   /etc/clickhouse-server/user_defined_function.xml
+                cp /sandbox-configs/config.d/default.xml         /etc/clickhouse-server/config.d/default.xml
+                cp /sandbox-configs/config.d/dev-memory.xml      /etc/clickhouse-server/config.d/dev-memory.xml
+                cp /sandbox-configs/config.d/sandbox-backup.xml  /etc/clickhouse-server/config.d/sandbox-backup.xml
+                exec /entrypoint.sh "$@"
+            - --
+        depends_on:
+            - kafka
+            - zookeeper
+
+    zookeeper:
+        extends:
+            file: docker-compose.base.yml
+            service: zookeeper
+
+    kafka:
+        extends:
+            file: docker-compose.base.yml
+            service: kafka
+        # Lighter resources than dev (1 core, 1G RAM vs 2 cores, 3G)
+        command:
+            - redpanda
+            - start
+            - --kafka-addr internal://0.0.0.0:9092,external://0.0.0.0:19092
+            - --advertise-kafka-addr internal://kafka:9092,external://localhost:19092
+            - --pandaproxy-addr internal://0.0.0.0:8082,external://0.0.0.0:18082
+            - --advertise-pandaproxy-addr internal://kafka:8082,external://localhost:18082
+            - --schema-registry-addr internal://0.0.0.0:8081,external://0.0.0.0:18081
+            - --rpc-addr kafka:33145
+            - --advertise-rpc-addr kafka:33145
+            - --mode dev-container
+            - --smp 1
+            - --memory 1G
+            - --reserve-memory 200M
+            - --overprovisioned
+            - --set redpanda.empty_seed_starts_cluster=false
+            - --seeds kafka:33145
+            - --set redpanda.auto_create_topics_enabled=true
+
+    objectstorage:
+        extends:
+            file: docker-compose.base.yml
+            service: objectstorage
+
+    seaweedfs:
+        extends:
+            file: docker-compose.base.yml
+            service: seaweedfs
+        command: ['server', '-s3', '-s3.port=8333', '-filer', '-dir=/data']
+        volumes:
+            - seaweedfs-data:/data
+
+    elasticsearch:
+        extends:
+            file: docker-compose.base.yml
+            service: elasticsearch
+
+    temporal:
+        extends:
+            file: docker-compose.base.yml
+            service: temporal
+        volumes:
+            - type: volume
+              source: workspace
+              target: /etc/temporal/config/dynamicconfig
+              read_only: true
+              volume:
+                  subpath: docker/temporal/dynamicconfig
+
+    temporal-admin-tools:
+        extends:
+            file: docker-compose.base.yml
+            service: temporal-admin-tools
+        depends_on:
+            - temporal
+
+    temporal-ui:
+        extends:
+            file: docker-compose.base.yml
+            service: temporal-ui
+        restart: on-failure
+        # No host ports — avoid conflicts between sandboxes
+        depends_on:
+            temporal:
+                condition: service_started
+            db:
+                condition: service_healthy
+
+    otel-collector:
+        extends:
+            file: docker-compose.base.yml
+            service: otel-collector
+        restart: on-failure
+        environment:
+            # Scope container log collection to this sandbox's compose project
+            COMPOSE_PROJECT: '${COMPOSE_PROJECT_NAME}'
+        volumes:
+            - type: volume
+              source: workspace
+              target: /etc/otel-collector-config.yaml
+              read_only: true
+              volume:
+                  subpath: otel-collector-config.dev.yaml
+        depends_on:
+            - capture-logs
+        networks:
+            - default
+
+    jaeger:
+        extends:
+            file: docker-compose.base.yml
+            service: jaeger
+        restart: on-failure
+        # No host ports — avoid conflicts between sandboxes
+        networks:
+            - default
+
+    capture-logs:
+        extends:
+            file: docker-compose.base.yml
+            service: capture-logs
+        depends_on:
+            - kafka
+        networks:
+            - otel_network
+            - default
+
+    kafka_ui:
+        extends:
+            file: docker-compose.base.yml
+            service: kafka_ui
+        # No host ports — avoid conflicts between sandboxes
+        depends_on:
+            - kafka
+
+    flower:
+        extends:
+            file: docker-compose.base.yml
+            service: flower
+        # No host ports — avoid conflicts between sandboxes
+
+    maildev:
+        extends:
+            file: docker-compose.base.yml
+            service: maildev
+        # No host ports — avoid conflicts between sandboxes
+
+    webhook-tester:
+        image: tarampampam/webhook-tester:2.2.6
+        restart: on-failure
+        environment:
+            - AUTO_CREATE_SESSIONS=true
+
+    etcd:
+        image: quay.io/coreos/etcd:v3.6.8
+        restart: on-failure
+        environment:
+            ETCD_NAME: etcd0
+            ETCD_ADVERTISE_CLIENT_URLS: http://etcd:2379
+            ETCD_LISTEN_CLIENT_URLS: http://0.0.0.0:2379
+        # No host ports — avoid conflicts between sandboxes
+        healthcheck:
+            test: ['CMD', 'etcdctl', 'endpoint', 'health']
+            interval: 5s
+            timeout: 5s
+            retries: 10
+
+    localstack:
+        extends:
+            file: docker-compose.base.yml
+            service: localstack
+        restart: on-failure
+        # No host ports — avoid conflicts between sandboxes
+
+    objectstorage-azure:
+        extends:
+            file: docker-compose.base.yml
+            service: objectstorage-azure
+        # No host ports — avoid conflicts between sandboxes
+
+    duckgres:
+        extends:
+            file: docker-compose.base.yml
+            service: duckgres
+        # No host ports — avoid conflicts between sandboxes
+        volumes:
+            - type: volume
+              source: workspace
+              target: /app/config.yaml
+              read_only: true
+              volume:
+                  subpath: devenv/duckgres.yaml
+            - duckgres-data:/app/data
+
+    redis-cluster:
+        image: redis:7.2
+        restart: on-failure
+        # No host ports — avoid conflicts between sandboxes
+        command: >
+            bash -c "
+            redis-server
+            --port 6379
+            --cluster-enabled yes
+            --cluster-config-file /data/nodes.conf
+            --cluster-node-timeout 5000
+            --cluster-announce-ip 127.0.0.1
+            --cluster-announce-port 6379
+            --appendonly yes &
+            sleep 1 &&
+            redis-cli -p 6379 cluster addslots $$(seq 0 16383) &&
+            tail -f /dev/null
+            "
+        volumes:
+            - redis-cluster-data:/data
+        healthcheck:
+            test: ['CMD', 'redis-cli', '-p', '6379', 'cluster', 'info']
+            interval: 2s
+            timeout: 3s
+            retries: 10
+
+networks:
+    otel_network:
+        driver: bridge
+
+volumes:
+    # Per-sandbox workspace holding the cloned git tree. Lifecycle ties to the
+    # compose project — `compose down -v` removes it, taking any unpushed work
+    # with it. Populated by bin/sandbox before `compose up`.
+    workspace:
+    postgres-data:
+    redpanda-data:
+    clickhouse-data:
+    seaweedfs-data:
+    redis-cluster-data:
+    duckgres-data:
+    python-env:
+    uv-cache:
+        name: sandbox-uv-cache
+        external: true
+    pnpm-store:
+        name: sandbox-pnpm-store
+        external: true
+    db-cache:
+        name: sandbox-db-cache
+        external: true
+    cargo-target:
+        name: sandbox-cargo-target
+        external: true
+    jetbrains:
+        name: ${SANDBOX_IDE_VOLUME:-sandbox-intellij}
+        external: true

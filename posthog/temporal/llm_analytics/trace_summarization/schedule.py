@@ -51,7 +51,7 @@ async def create_batch_trace_summarization_schedule(client: Client):
             execution_timeout=timedelta(minutes=COORDINATOR_EXECUTION_TIMEOUT_MINUTES),
         ),
         spec=ScheduleSpec(intervals=[ScheduleIntervalSpec(every=timedelta(hours=SCHEDULE_INTERVAL_HOURS))]),
-        policy=SchedulePolicy(overlap=ScheduleOverlapPolicy.BUFFER_ONE),
+        policy=SchedulePolicy(overlap=ScheduleOverlapPolicy.SKIP),
     )
 
     if await a_schedule_exists(client, COORDINATOR_SCHEDULE_ID):
@@ -94,7 +94,7 @@ async def create_batch_generation_summarization_schedule(client: Client):
                 )
             ]
         ),
-        policy=SchedulePolicy(overlap=ScheduleOverlapPolicy.BUFFER_ONE),
+        policy=SchedulePolicy(overlap=ScheduleOverlapPolicy.SKIP),
     )
 
     if await a_schedule_exists(client, GENERATION_COORDINATOR_SCHEDULE_ID):

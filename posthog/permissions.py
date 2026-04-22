@@ -1,3 +1,4 @@
+import os
 import time
 from typing import Optional, cast
 
@@ -22,7 +23,7 @@ from posthog.auth import (
 )
 from posthog.cloud_utils import is_cloud
 from posthog.constants import AvailableFeature
-from posthog.exceptions import Conflict, EnterpriseFeatureException
+from posthog.exceptions import Conflict, EnterpriseFeatureException, PaidFeatureException
 from posthog.models import Organization, OrganizationMembership, Team, User
 from posthog.rbac.user_access_control import AccessControlLevel, UserAccessControl, ordered_access_levels
 from posthog.scopes import APIScopeObject, APIScopeObjectOrNotSupported
@@ -279,20 +280,40 @@ class IsStaffUserOrImpersonating(BasePermission):
 class PremiumFeaturePermission(BasePermission):
     """
     Requires the user to have proper permission for the feature.
-    `premium_feature` must be defined as a view attribute.
     Permission class requires a user in context, should generally be used in conjunction with IsAuthenticated.
+
+    Two modes via view attributes:
+    - `premium_feature`: always enforced, raises EnterpriseFeatureException when missing.
+    - `premium_feature_on_cloud`: only enforced on Cloud, raises PaidFeatureException when missing.
+      Self-hosted instances are not gated.
+
+    Exactly one of the two attributes must be set on the view.
     """
 
     def has_permission(self, request: Request, view: APIView) -> bool:
-        assert hasattr(view, "premium_feature"), (
-            "this permission class requires the `premium_feature` attribute to be set in the view."
+        cloud_only_feature = getattr(view, "premium_feature_on_cloud", None)
+        always_feature = getattr(view, "premium_feature", None)
+
+        assert bool(cloud_only_feature) != bool(always_feature), (
+            "this permission class requires exactly one of `premium_feature` or `premium_feature_on_cloud` to be set in the view."
         )
 
-        if not request.user or not request.user.organization:  # type: ignore
+        if cloud_only_feature:
+            if not is_cloud():
+                return True
+            feature = cloud_only_feature
+        else:
+            feature = always_feature
+
+        try:
+            organization = get_organization_from_view(view)
+        except ValueError:
             return True
 
-        if not request.user.organization.is_feature_available(view.premium_feature):  # type: ignore
-            raise EnterpriseFeatureException()
+        if not organization.is_feature_available(feature):
+            if cloud_only_feature:
+                raise PaidFeatureException(feature)
+            raise EnterpriseFeatureException(feature)
 
         return True
 
@@ -337,14 +358,20 @@ class TimeSensitiveActionPermission(BasePermission):
     """
 
     message = "This action requires you to be recently authenticated."
+    code = "sensitive_action_required_reauth"
 
     def has_permission(self, request, view) -> bool:
         if not isinstance(request.successful_authenticator, SessionAuthentication):
             return True
 
+        exclude_actions = getattr(view, "time_sensitive_exclude_actions", [])
+        if getattr(view, "action", None) in exclude_actions:
+            return True
+
         allow_safe_methods = getattr(view, "time_sensitive_allow_safe_methods", True)
 
         allow_if_only_fields = getattr(view, "time_sensitive_allow_if_only_fields", None)
+        allow_actions = getattr(view, "time_sensitive_allow_actions", None)
         if allow_if_only_fields and request.method not in SAFE_METHODS:
             data = getattr(request, "data", None)
             data_keys: set[str] = set()
@@ -353,6 +380,9 @@ class TimeSensitiveActionPermission(BasePermission):
 
             if data_keys and data_keys.issubset(set(allow_if_only_fields)):
                 return True
+
+        if allow_actions and view.action in allow_actions:
+            return True
 
         if allow_safe_methods and request.method in SAFE_METHODS:
             return True
@@ -444,9 +474,6 @@ class APIScopePermission(ScopeBasePermission):
 
         if isinstance(request.successful_authenticator, PersonalAPIKeyAuthentication):
             key_scopes = request.successful_authenticator.personal_api_key.scopes
-            # TRICKY: Legacy Personal API keys have no scopes and are allowed to do anything
-            if not key_scopes:
-                return True
         elif isinstance(request.successful_authenticator, OAuthAccessTokenAuthentication):
             # OAuth tokens store scopes as space-separated string
             token_scope_string = request.successful_authenticator.access_token.scope
@@ -504,7 +531,7 @@ class APIScopePermission(ScopeBasePermission):
                 if team.id not in scoped_teams:
                     raise PermissionDenied(f"API key does not have access to the requested project: ID {team.id}.")
             except (KeyError, AttributeError):
-                raise PermissionDenied(f"API keys with scoped projects are only supported on project-based endpoints.")
+                raise PermissionDenied("API keys with scoped projects are only supported on project-based endpoints.")
 
         if scoped_organizations:
             try:
@@ -522,6 +549,10 @@ class APIScopePermission(ScopeBasePermission):
         Check if the organization being accessed allows personal API keys.
         Admins can always use personal API keys regardless of the organization setting.
         """
+        # Only applies to personal API keys — OAuth tokens are exempt.
+        if not isinstance(request.successful_authenticator, PersonalAPIKeyAuthentication):
+            return
+
         try:
             org = get_organization_from_view(view)
         except ValueError:
@@ -669,6 +700,10 @@ class AccessControlPermission(ScopeBasePermission):
         return False
 
 
+_raw = os.environ.get("POSTHOG_FEATURE_FLAGS_FORCE_ENABLED", "")
+_FORCE_ENABLED_FLAGS: frozenset[str] = frozenset(f.strip() for f in _raw.split(",") if f.strip())
+
+
 class PostHogFeatureFlagPermission(BasePermission):
     def has_permission(self, request, view) -> bool:
         user = cast(User, request.user)
@@ -689,11 +724,14 @@ class PostHogFeatureFlagPermission(BasePermission):
 
         for required_flag, actions in config.items():
             if "*" in actions or view.action in actions:
+                if required_flag in _FORCE_ENABLED_FLAGS:
+                    return True
+
                 org_id = str(organization.id)
 
                 enabled = posthoganalytics.feature_enabled(
                     required_flag,
-                    user.distinct_id,
+                    str(user.distinct_id),
                     groups={"organization": org_id},
                     group_properties={"organization": {"id": org_id}},
                     only_evaluate_locally=False,
@@ -737,35 +775,25 @@ class UserCanInvitePermission(BasePermission):
     """
 
     def has_permission(self, request: Request, view) -> bool:
-        user = cast(User, request.user)
-        org_invite_settings_available = user.organization and user.organization.is_feature_available(
-            AvailableFeature.ORGANIZATION_INVITE_SETTINGS
-        )
+        try:
+            organization = get_organization_from_view(view)
+        except ValueError:
+            return True
+
+        org_invite_settings_available = organization.is_feature_available(AvailableFeature.ORGANIZATION_INVITE_SETTINGS)
 
         if not org_invite_settings_available:
             return True
 
         try:
-            membership = OrganizationMembership.objects.get(user=cast(User, user), organization=user.organization)
+            membership = OrganizationMembership.objects.get(user=cast(User, request.user), organization=organization)
         except OrganizationMembership.DoesNotExist:
             raise NotFound("Organization not found.")
 
-        members_can_invite = bool(user.organization and user.organization.members_can_invite)
+        members_can_invite = bool(organization.members_can_invite)
         user_is_admin = membership.level >= OrganizationMembership.Level.ADMIN
 
         if user_is_admin:
             return True
 
         return members_can_invite
-
-
-class OrganizationInviteSettingsPermission(BasePermission):
-    """
-    Only Admins+ can update org invite settings
-    """
-
-    def has_permission(self, request: Request, view) -> bool:
-        user = cast(User, request.user)
-        membership = user.organization_memberships.get(organization=user.organization)
-
-        return membership.level >= OrganizationMembership.Level.ADMIN

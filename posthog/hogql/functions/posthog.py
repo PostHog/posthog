@@ -62,6 +62,31 @@ HOGQL_POSTHOG_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
         "getSurveyResponse", 1, 3, signatures=[((IntegerType(), StringType(), BooleanType()), StringType())]
     ),
     "uniqueSurveySubmissionsFilter": HogQLFunctionMeta(
-        "uniqueSurveySubmissionsFilter", 1, 1, signatures=[((StringType(),), StringType())]
+        "uniqueSurveySubmissionsFilter",
+        1,
+        3,
+        signatures=[
+            ((StringType(),), StringType()),
+            ((StringType(), StringType()), StringType()),
+            ((StringType(), DateTimeType()), StringType()),
+            ((StringType(), StringType(), StringType()), StringType()),
+            ((StringType(), StringType(), DateTimeType()), StringType()),
+            ((StringType(), DateTimeType(), StringType()), StringType()),
+            ((StringType(), DateTimeType(), DateTimeType()), StringType()),
+        ],
+    ),
+    # traffic type classification functions (experimental)
+    "__preview_getTrafficType": HogQLFunctionMeta(
+        "__preview_getTrafficType", 1, 1, signatures=[((StringType(),), StringType())]
+    ),
+    "__preview_getTrafficCategory": HogQLFunctionMeta(
+        "__preview_getTrafficCategory", 1, 1, signatures=[((StringType(),), StringType())]
+    ),
+    "__preview_isBot": HogQLFunctionMeta("__preview_isBot", 1, 1, signatures=[((StringType(),), BooleanType())]),
+    "__preview_getBotType": HogQLFunctionMeta(
+        "__preview_getBotType", 1, 1, signatures=[((StringType(),), StringType())]
+    ),
+    "__preview_getBotName": HogQLFunctionMeta(
+        "__preview_getBotName", 1, 1, signatures=[((StringType(),), StringType())]
     ),
 }

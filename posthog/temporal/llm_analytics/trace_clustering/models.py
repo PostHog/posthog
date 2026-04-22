@@ -51,7 +51,13 @@ class ClusteringWorkflowInputs:
     visualization_method: str = "umap"  # "umap", "pca", or "tsne" - method for 2D scatter plot visualization
     # Optional property filters to scope which traces are included in clustering
     # Uses PostHog's standard property filter format (same as evaluations, feature flags, etc.)
-    trace_filters: list[dict[str, Any]] = field(default_factory=list)
+    event_filters: list[dict[str, Any]] = field(default_factory=list)
+    job_id: str = ""  # empty = no job (legacy/manual run without a job)
+    job_name: str = ""
+
+    @property
+    def properties_to_log(self) -> dict[str, Any]:
+        return {"team_id": self.team_id}
 
 
 @dataclass
@@ -76,7 +82,13 @@ class ClusteringActivityInputs:
     clustering_method_params: dict[str, Any] = field(default_factory=dict)
     visualization_method: str = "umap"  # "umap", "pca", or "tsne" - method for 2D scatter plot visualization
     # Optional property filters to scope which traces are included in clustering
-    trace_filters: list[dict[str, Any]] = field(default_factory=list)
+    event_filters: list[dict[str, Any]] = field(default_factory=list)
+    job_id: str = ""
+    job_name: str = ""
+
+    @property
+    def properties_to_log(self) -> dict[str, Any]:
+        return {"team_id": self.team_id}
 
 
 @dataclass
@@ -105,6 +117,30 @@ class TraceClusterMetadata:
 
 
 @dataclass
+class ClusterSentiment:
+    """Aggregate sentiment for a cluster."""
+
+    label: str  # "positive", "neutral", "negative"
+    score: float  # 0-1
+    counts: dict[str, int]  # {"positive": N, "neutral": N, "negative": N}
+    total: int  # number of items with sentiment data
+
+
+@dataclass
+class ClusterAggregateMetrics:
+    """Pre-computed aggregate metrics for a cluster, baked into the event."""
+
+    avg_cost: float | None = None
+    avg_latency: float | None = None
+    avg_tokens: float | None = None
+    total_cost: float | None = None
+    error_rate: float | None = None
+    error_count: int = 0
+    item_count: int = 0
+    sentiment: ClusterSentiment | None = None
+
+
+@dataclass
 class ClusterData:
     """Data structure for a cluster to be emitted in events."""
 
@@ -116,6 +152,7 @@ class ClusterData:
     centroid: list[float]
     centroid_x: float  # UMAP 2D x coordinate for scatter plot visualization
     centroid_y: float  # UMAP 2D y coordinate for scatter plot visualization
+    metrics: ClusterAggregateMetrics | None = None
 
 
 @dataclass
@@ -231,6 +268,10 @@ class GenerateLabelsActivityInputs:
     analysis_level: AnalysisLevel = "trace"  # "trace" or "generation"
     batch_run_ids: dict[str, str] = field(default_factory=dict)  # item_id -> batch_run_id for linking to summaries
 
+    @property
+    def properties_to_log(self) -> dict[str, Any]:
+        return {"team_id": self.team_id}
+
 
 @dataclass
 class GenerateLabelsActivityOutputs:
@@ -271,3 +312,26 @@ class EmitEventsActivityInputs:
     analysis_level: AnalysisLevel = "trace"  # "trace" or "generation"
     batch_run_ids: dict[str, str] = field(default_factory=dict)  # item_id -> batch_run_id for linking to summaries
     clustering_params: ClusteringParams | None = None  # Params used for this run
+    job_id: str = ""  # empty = no job (legacy/manual run without a job)
+    job_name: str = ""
+    cluster_metrics: dict[int, ClusterAggregateMetrics] = field(default_factory=dict)
+
+    @property
+    def properties_to_log(self) -> dict[str, Any]:
+        return {"team_id": self.team_id}
+
+
+@dataclass
+class ComputeAggregatesActivityInputs:
+    """Input for the aggregate metrics activity."""
+
+    team_id: int
+    window_start: str
+    window_end: str
+    items: list[ClusterItem]
+    labels: list[int]
+    analysis_level: AnalysisLevel = "trace"
+
+    @property
+    def properties_to_log(self) -> dict[str, Any]:
+        return {"team_id": self.team_id}

@@ -10,6 +10,5 @@ export type PreCalculatedPersonProperties = {
 }
 
 export type ProducedPersonPropertiesEvent = {
-    key: string // distinct_id
     payload: PreCalculatedPersonProperties
 }

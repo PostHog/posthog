@@ -1,8 +1,8 @@
 import '../../lib/components/Cards/InsightCard/InsightCard.scss'
 
 import posthog from 'posthog-js'
+import { Fragment } from 'react'
 
-import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
 import {
     ActivityChange,
     ActivityLogItem,
@@ -13,6 +13,7 @@ import {
     detectBoolean,
     userNameForLogItem,
 } from 'lib/components/ActivityLog/humanizeActivity'
+import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
 import {
     InsightBreakdownSummary,
     PropertiesSummary,
@@ -26,7 +27,7 @@ import { urls } from 'scenes/urls'
 import { filtersToQueryNode } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
 import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
 import { InsightQueryNode, QuerySchema, TrendsQuery } from '~/queries/schema/schema-general'
-import { isInsightQueryNode, isValidBreakdown } from '~/queries/utils'
+import { isInsightQueryNode, hasBreakdownFilter } from '~/queries/utils'
 import { FilterType, InsightModel, InsightShortId } from '~/types'
 
 const nameOrLinkToInsight = (short_id?: InsightShortId | null, name?: string | null): string | JSX.Element => {
@@ -194,7 +195,7 @@ const insightActionsMapping: Record<
                     </>
                 }
                 listParts={addedDashboards.map((d) => (
-                    <>{linkToDashboard(d)}</>
+                    <Fragment key={d.id}>{linkToDashboard(d)}</Fragment>
                 ))}
             />
         ) : null
@@ -208,7 +209,7 @@ const insightActionsMapping: Record<
                     </>
                 }
                 listParts={removedDashboards.map((d) => (
-                    <>{linkToDashboard(d)}</>
+                    <Fragment key={d.id}>{linkToDashboard(d)}</Fragment>
                 ))}
             />
         ) : null
@@ -238,10 +239,15 @@ const insightActionsMapping: Record<
     user_access_level: () => null,
     _create_in_folder: () => null,
     last_viewed_at: () => null,
+    viewers: () => null,
+    view_count: () => null,
+    is_cached: () => null,
 }
 
 function summarizeChanges(filtersAfter: Partial<FilterType>): ChangeMapping | null {
-    const query = filtersToQueryNode(filtersAfter)
+    const query = filtersToQueryNode(filtersAfter, {
+        source: 'saved_insights_activity_descriptions',
+    })
     const trendsQuery = query as TrendsQuery
 
     return {
@@ -250,7 +256,7 @@ function summarizeChanges(filtersAfter: Partial<FilterType>): ChangeMapping | nu
             <div className="ActivityDescription">
                 <SeriesSummary query={query} />
                 <PropertiesSummary properties={query.properties} />
-                {isValidBreakdown(trendsQuery?.breakdownFilter) && <InsightBreakdownSummary query={query} />}
+                {hasBreakdownFilter(trendsQuery?.breakdownFilter) && <InsightBreakdownSummary query={query} />}
             </div>
         ),
     }
@@ -329,14 +335,15 @@ export function insightActivityDescriber(logItem: ActivityLogItem, asNotificatio
 
         try {
             for (const change of logItem.detail.changes || []) {
-                if (!change?.field || !insightActionsMapping[change.field]) {
+                const insightAction = insightActionsMapping[change.field as keyof InsightModel]
+                if (!change?.field || !insightAction) {
                     continue // insight updates have to have a "field" to be described
                 }
 
-                const actionHandler = insightActionsMapping[change.field]
+                const actionHandler = insightAction
                 const processedChange = actionHandler(change, logItem, asNotification)
                 if (processedChange === null) {
-                    continue // // unexpected log from backend is indescribable
+                    continue // unexpected log from backend is indescribable
                 }
 
                 const { description, extendedDescription: _extendedDescription, suffix } = processedChange

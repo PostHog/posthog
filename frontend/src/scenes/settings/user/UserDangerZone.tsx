@@ -28,9 +28,11 @@ export function DeleteUserModal({
     const { push } = useActions(router)
     const { updateCurrentOrganization, deleteUser } = useActions(userLogic)
     const { userLoading } = useValues(userLogic)
-    const { organizationToDelete, isUserDeletionConfirmed } = useValues(userDangerZoneLogic)
+    const { organizationToDelete, isUserDeletionConfirmed, deletedOrganizationIds } = useValues(userDangerZoneLogic)
     const { leaveOrganization, setOrganizationToDelete, setIsUserDeletionConfirmed } = useActions(userDangerZoneLogic)
-    const organizations = (user?.organizations ?? []).filter(isNotNil)
+    const organizations = (user?.organizations ?? [])
+        .filter(isNotNil)
+        .filter((org) => !deletedOrganizationIds.includes(org.id))
     const { keys } = useValues(personalAPIKeysLogic)
     const { loadKeys } = useActions(personalAPIKeysLogic)
 
@@ -223,6 +225,7 @@ export function DeleteUserModal({
                 isOpen={organizationToDelete !== null}
                 setIsOpen={() => setOrganizationToDelete(null)}
                 organization={organizationToDelete}
+                redirectPath={urls.settings('user-danger-zone')}
             />
         </>
     )

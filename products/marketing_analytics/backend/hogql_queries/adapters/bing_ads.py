@@ -95,7 +95,6 @@ class BingAdsAdapter(MarketingSourceAdapter[BingAdsConfig]):
 
     def _get_cost_field(self) -> ast.Expr:
         stats_table_name = self.config.stats_table.name
-        base_currency = self.context.base_currency
 
         # Get cost - use ifNull(toFloat(...), 0) to handle both numeric types and NULLs
         spend_field = ast.Field(chain=[stats_table_name, "spend"])
@@ -104,26 +103,12 @@ class BingAdsAdapter(MarketingSourceAdapter[BingAdsConfig]):
             args=[ast.Call(name="toFloat", args=[spend_field]), ast.Constant(value=0)],
         )
 
-        # Check if currency column exists in campaign_performance_report table
-        try:
-            columns = getattr(self.config.stats_table, "columns", None)
-            if columns and hasattr(columns, "__contains__") and "currency_code" in columns:
-                # Convert each row's spend, then sum
-                # Use coalesce to handle NULL currency values - fallback to base_currency
-                currency_field = ast.Field(chain=[stats_table_name, "currency_code"])
-                currency_with_fallback = ast.Call(
-                    name="coalesce", args=[currency_field, ast.Constant(value=base_currency)]
-                )
-                convert_currency = ast.Call(
-                    name="convertCurrency",
-                    args=[currency_with_fallback, ast.Constant(value=base_currency), spend_float],
-                )
-                convert_to_float = ast.Call(name="toFloat", args=[convert_currency])
-                return ast.Call(name="SUM", args=[convert_to_float])
-        except (TypeError, AttributeError, KeyError):
-            pass
+        converted = self._apply_currency_conversion(
+            self.config.stats_table, stats_table_name, "currency_code", spend_float
+        )
+        if converted:
+            return ast.Call(name="SUM", args=[converted])
 
-        # Currency column doesn't exist, return cost without conversion
         return ast.Call(name="SUM", args=[spend_float])
 
     def _get_reported_conversion_field(self) -> ast.Expr:
@@ -140,6 +125,7 @@ class BingAdsAdapter(MarketingSourceAdapter[BingAdsConfig]):
 
     def _get_reported_conversion_value_field(self) -> ast.Expr:
         stats_table_name = self.config.stats_table.name
+
         field_as_float = ast.Call(
             name="ifNull",
             args=[
@@ -147,6 +133,13 @@ class BingAdsAdapter(MarketingSourceAdapter[BingAdsConfig]):
                 ast.Constant(value=0),
             ],
         )
+
+        converted = self._apply_currency_conversion(
+            self.config.stats_table, stats_table_name, "currency_code", field_as_float
+        )
+        if converted:
+            return ast.Call(name="SUM", args=[converted])
+
         sum = ast.Call(name="SUM", args=[field_as_float])
         return ast.Call(name="toFloat", args=[sum])
 

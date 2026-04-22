@@ -1,91 +1,106 @@
-import { Meta, StoryFn } from '@storybook/react'
+import type { Meta, StoryObj } from '@storybook/react'
 
 import { QueryBasedInsightModel } from '~/types'
 
 import { InsightDetails as InsightDetailsComponent } from './InsightDetails'
 
-const meta: Meta = {
+type Story = StoryObj<{ insight: QueryBasedInsightModel }>
+const meta: Meta<{ insight: QueryBasedInsightModel }> = {
     title: 'Components/Cards/Insight Details',
-    component: InsightDetailsComponent,
+    component: InsightDetailsComponent as any,
     parameters: {
         mockDate: '2025-12-10',
+    },
+    render: ({ insight }) => {
+        return (
+            <div className="bg-surface-primary w-[24rem] p-4 rounded">
+                <InsightDetailsComponent query={insight.query} footerInfo={insight} />
+            </div>
+        )
     },
 }
 export default meta
 
-const Template: StoryFn<{ insight: QueryBasedInsightModel }> = ({ insight }) => {
-    return (
-        <div className="bg-surface-primary w-[24rem] p-4 rounded">
-            <InsightDetailsComponent query={insight.query} footerInfo={insight} />
-        </div>
-    )
+export const Trends: Story = {
+    args: {
+        insight: require('../../../../mocks/fixtures/api/projects/team_id/insights/trendsLine.json'),
+    },
 }
 
-export const Trends = Template.bind({})
-Trends.args = {
-    insight: require('../../../../mocks/fixtures/api/projects/team_id/insights/trendsLine.json'),
+export const TrendsMulti: Story = {
+    args: {
+        insight: require('../../../../mocks/fixtures/api/projects/team_id/insights/trendsLineMulti.json'),
+    },
 }
 
-export const TrendsMulti = Template.bind({})
-TrendsMulti.args = {
-    insight: require('../../../../mocks/fixtures/api/projects/team_id/insights/trendsLineMulti.json'),
+export const TrendsHorizontalBar: Story = {
+    args: {
+        insight: require('../../../../mocks/fixtures/api/projects/team_id/insights/trendsValue.json'),
+    },
 }
 
-export const TrendsHorizontalBar = Template.bind({})
-TrendsHorizontalBar.args = {
-    insight: require('../../../../mocks/fixtures/api/projects/team_id/insights/trendsValue.json'),
+export const TrendsTable: Story = {
+    args: { insight: require('../../../../mocks/fixtures/api/projects/team_id/insights/trendsTable.json') },
 }
 
-export const TrendsTable = Template.bind({})
-TrendsTable.args = { insight: require('../../../../mocks/fixtures/api/projects/team_id/insights/trendsTable.json') }
-
-export const TrendsPie = Template.bind({})
-TrendsPie.args = { insight: require('../../../../mocks/fixtures/api/projects/team_id/insights/trendsPie.json') }
-
-export const TrendsWorldMap = Template.bind({})
-TrendsWorldMap.args = {
-    insight: require('../../../../mocks/fixtures/api/projects/team_id/insights/trendsWorldMap.json'),
+export const TrendsPie: Story = {
+    args: { insight: require('../../../../mocks/fixtures/api/projects/team_id/insights/trendsPie.json') },
 }
 
-export const TrendsFormulas = Template.bind({})
-TrendsFormulas.args = {
-    insight: require('../../../../mocks/fixtures/api/projects/team_id/insights/trendsFormulas.json'),
+export const TrendsWorldMap: Story = {
+    args: {
+        insight: require('../../../../mocks/fixtures/api/projects/team_id/insights/trendsWorldMap.json'),
+    },
 }
 
-export const Funnel = Template.bind({})
-Funnel.args = {
-    insight: require('../../../../mocks/fixtures/api/projects/team_id/insights/funnelLeftToRight.json'),
+export const TrendsFormulas: Story = {
+    args: {
+        insight: require('../../../../mocks/fixtures/api/projects/team_id/insights/trendsFormulas.json'),
+    },
 }
 
-export const Retention = Template.bind({})
-Retention.args = {
-    insight: require('../../../../mocks/fixtures/api/projects/team_id/insights/retention.json'),
+export const Funnel: Story = {
+    args: {
+        insight: require('../../../../mocks/fixtures/api/projects/team_id/insights/funnelLeftToRight.json'),
+    },
 }
 
-export const Paths = Template.bind({})
-Paths.args = {
-    insight: require('../../../../mocks/fixtures/api/projects/team_id/insights/userPaths.json'),
+export const Retention: Story = {
+    args: {
+        insight: require('../../../../mocks/fixtures/api/projects/team_id/insights/retention.json'),
+    },
 }
 
-export const Stickiness = Template.bind({})
-Stickiness.args = { insight: require('../../../../mocks/fixtures/api/projects/team_id/insights/stickiness.json') }
-
-export const Lifecycle = Template.bind({})
-Lifecycle.args = {
-    insight: require('../../../../mocks/fixtures/api/projects/team_id/insights/lifecycle.json'),
+export const Paths: Story = {
+    args: {
+        insight: require('../../../../mocks/fixtures/api/projects/team_id/insights/userPaths.json'),
+    },
 }
 
-export const DataTableHogQLQuery = Template.bind({})
-DataTableHogQLQuery.args = {
-    insight: require('../../../../mocks/fixtures/api/projects/team_id/insights/dataTableHogQL.json'),
+export const Stickiness: Story = {
+    args: { insight: require('../../../../mocks/fixtures/api/projects/team_id/insights/stickiness.json') },
 }
 
-export const DataVisualizationHogQLQuery = Template.bind({})
-DataVisualizationHogQLQuery.args = {
-    insight: require('../../../../mocks/fixtures/api/projects/team_id/insights/dataVisualizationHogQL.json'),
+export const Lifecycle: Story = {
+    args: {
+        insight: require('../../../../mocks/fixtures/api/projects/team_id/insights/lifecycle.json'),
+    },
 }
 
-export const DataTableEventsQuery = Template.bind({})
-DataTableEventsQuery.args = {
-    insight: require('../../../../mocks/fixtures/api/projects/team_id/insights/dataTableEvents.json'),
+export const DataTableHogQLQuery: Story = {
+    args: {
+        insight: require('../../../../mocks/fixtures/api/projects/team_id/insights/dataTableHogQL.json'),
+    },
+}
+
+export const DataVisualizationHogQLQuery: Story = {
+    args: {
+        insight: require('../../../../mocks/fixtures/api/projects/team_id/insights/dataVisualizationHogQL.json'),
+    },
+}
+
+export const DataTableEventsQuery: Story = {
+    args: {
+        insight: require('../../../../mocks/fixtures/api/projects/team_id/insights/dataTableEvents.json'),
+    },
 }

@@ -1,18 +1,20 @@
 import '../ErrorTrackingIssueScene/ErrorTrackingIssueScene.scss'
 
+import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
-import { useEffect } from 'react'
-import { useRef } from 'react'
+import { useEffect, useRef } from 'react'
 
-import { IconFilter, IconList, IconSearch } from '@posthog/icons'
-import { LemonDivider } from '@posthog/lemon-ui'
+import { IconFilter, IconList, IconSearch, IconX } from '@posthog/icons'
+import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
 
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
+import { TZLabel } from 'lib/components/TZLabel'
 import ViewRecordingsPlaylistButton from 'lib/components/ViewRecordingButton/ViewRecordingsPlaylistButton'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { useWindowSize } from 'lib/hooks/useWindowSize'
 import { IconRobot } from 'lib/lemon-ui/icons'
 import {
     TabsPrimitive,
@@ -42,9 +44,6 @@ import { IssueTasks } from '../../components/IssueTasks'
 import { ErrorTrackingSetupPrompt } from '../../components/SetupPrompt/SetupPrompt'
 import { StyleVariables } from '../../components/StyleVariables'
 import { useErrorTagRenderer } from '../../hooks/use-error-tag-renderer'
-import { ErrorTrackingIssueScenePanel } from './ScenePanel'
-import { IssueAssigneeSelect } from './ScenePanel/IssueAssigneeSelect'
-import { SimilarIssuesList } from './ScenePanel/SimilarIssuesList'
 import {
     ErrorTrackingIssueSceneCategory,
     errorTrackingIssueSceneConfigurationLogic,
@@ -54,6 +53,9 @@ import {
     ErrorTrackingIssueSceneLogicProps,
     errorTrackingIssueSceneLogic,
 } from './errorTrackingIssueSceneLogic'
+import { ErrorTrackingIssueScenePanel } from './ScenePanel'
+import { IssueAssigneeSelect } from './ScenePanel/IssueAssigneeSelect'
+import { SimilarIssuesList } from './ScenePanel/SimilarIssuesList'
 
 export const scene: SceneExport<ErrorTrackingIssueSceneLogicProps> = {
     component: ErrorTrackingIssueScene,
@@ -62,11 +64,17 @@ export const scene: SceneExport<ErrorTrackingIssueSceneLogicProps> = {
 }
 
 export function ErrorTrackingIssueScene(): JSX.Element {
-    const { issue, issueId } = useValues(errorTrackingIssueSceneLogic)
-    const { updateAssignee, updateStatus, updateName } = useActions(errorTrackingIssueSceneLogic)
+    const { issue, issueId, mobileDetailOpen } = useValues(errorTrackingIssueSceneLogic)
+    const { updateAssignee, updateStatus, updateName, setMobileDetailOpen } = useActions(errorTrackingIssueSceneLogic)
+    const { isWindowLessThan } = useWindowSize()
+    const isMobile = isWindowLessThan('md')
 
     useEffect(() => {
-        posthog.capture('error_tracking_issue_viewed', { issue_id: issueId })
+        const utmSource = new URLSearchParams(window.location.search).get('utm_source')
+        posthog.capture('error_tracking_issue_viewed', {
+            issue_id: issueId,
+            ...(utmSource ? { utm_source: utmSource } : {}),
+        })
     }, [issueId])
 
     return (
@@ -75,56 +83,88 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                 <BindLogic logic={issueFiltersLogic} props={{ logicKey: ERROR_TRACKING_ISSUE_SCENE_LOGIC_KEY }}>
                     <BindLogic logic={miniBreakdownsLogic} props={{ issueId }}>
                         {issue && (
-                            <div className="flex flex-col h-[calc(var(--scene-layout-rect-height)-var(--scene-layout-header-height))]">
+                            <div className="flex flex-col h-[calc(var(--scene-layout-rect-height))]">
                                 <SceneTitleSection
                                     canEdit
-                                    name={issue.name}
+                                    name={issue.name ?? undefined}
                                     onNameChange={updateName}
                                     description={null}
                                     resourceType={{ type: 'error_tracking' }}
-                                    className="px-2 h-[50px] @2xl/main-content:relative top-[0px] mt-0 mx-0"
+                                    className={clsx(
+                                        'pl-4 pr-2 h-[50px] @2xl/main-content:relative top-[0px] mt-0 mx-0 mb-0',
+                                        isMobile
+                                            ? '[&>.scene-title-section]:flex-row [&>.scene-title-section]:items-center [&>.scene-title-section>*:last-child]:order-last'
+                                            : undefined
+                                    )}
                                     actions={
-                                        <div className="flex items-center gap-1">
-                                            <StatusIndicator status={issue.status} withTooltip />
-                                            <IssueAssigneeSelect
-                                                assignee={issue.assignee}
-                                                onChange={updateAssignee}
-                                                disabled={issue.status != 'active'}
-                                            />
-                                            <ViewRecordingsPlaylistButton
-                                                filters={{
-                                                    filter_group: {
-                                                        type: FilterLogicalOperator.And,
-                                                        values: [
-                                                            {
-                                                                type: FilterLogicalOperator.And,
-                                                                values: [
-                                                                    {
-                                                                        key: '$exception_issue_id',
-                                                                        type: PropertyFilterType.Event,
-                                                                        operator: PropertyOperator.Exact,
-                                                                        value: [issue.id],
-                                                                    },
-                                                                ],
-                                                            },
-                                                        ],
-                                                    },
-                                                }}
-                                                size="small"
-                                                type="secondary"
-                                                data-attr="error-tracking-issue-view-recordings"
-                                            />
-                                            <IssueStatusButton status={issue.status} onChange={updateStatus} />
-                                        </div>
+                                        isMobile ? undefined : (
+                                            <div className="flex items-center gap-1">
+                                                <StatusIndicator status={issue.status} withTooltip />
+                                                <IssueAssigneeSelect
+                                                    assignee={issue.assignee}
+                                                    onChange={updateAssignee}
+                                                    disabled={issue.status != 'active'}
+                                                />
+                                                <ViewRecordingsPlaylistButton
+                                                    filters={{
+                                                        filter_group: {
+                                                            type: FilterLogicalOperator.And,
+                                                            values: [
+                                                                {
+                                                                    type: FilterLogicalOperator.And,
+                                                                    values: [
+                                                                        {
+                                                                            key: '$exception_issue_id',
+                                                                            type: PropertyFilterType.Event,
+                                                                            operator: PropertyOperator.Exact,
+                                                                            value: [issue.id],
+                                                                        },
+                                                                    ],
+                                                                },
+                                                            ],
+                                                        },
+                                                    }}
+                                                    size="small"
+                                                    type="secondary"
+                                                    data-attr="error-tracking-issue-view-recordings"
+                                                />
+                                                <IssueStatusButton status={issue.status} onChange={updateStatus} />
+                                            </div>
+                                        )
                                     }
                                 />
 
+                                {isMobile && (
+                                    <div className="flex items-center gap-1.5 px-2 py-1.5 border-b flex-wrap">
+                                        <StatusIndicator status={issue.status} withTooltip />
+                                        <IssueAssigneeSelect
+                                            assignee={issue.assignee}
+                                            onChange={updateAssignee}
+                                            disabled={issue.status != 'active'}
+                                        />
+                                        <IssueStatusButton status={issue.status} onChange={updateStatus} />
+                                        {!mobileDetailOpen && (
+                                            <LemonButton
+                                                size="small"
+                                                type="secondary"
+                                                onClick={() => setMobileDetailOpen(true)}
+                                            >
+                                                Details
+                                            </LemonButton>
+                                        )}
+                                    </div>
+                                )}
+
                                 <ErrorTrackingIssueScenePanel issue={issue} />
 
-                                <div className="ErrorTrackingIssue flex flex-grow">
-                                    <div className="flex flex-1 h-full w-full">
-                                        <LeftHandColumn />
-                                        <RightHandColumn />
+                                <div className="ErrorTrackingIssue flex flex-grow min-h-0 overflow-hidden">
+                                    <div className="relative flex flex-1 h-full w-full min-h-0">
+                                        <LeftHandColumn isMobile={isMobile} />
+                                        <RightHandColumn
+                                            isMobile={isMobile}
+                                            isOpen={mobileDetailOpen}
+                                            onClose={() => setMobileDetailOpen(false)}
+                                        />
                                     </div>
                                 </div>
                             </div>
@@ -136,28 +176,59 @@ export function ErrorTrackingIssueScene(): JSX.Element {
     )
 }
 
-const RightHandColumn = (): JSX.Element => {
+const RightHandColumn = ({
+    isMobile,
+    isOpen,
+    onClose,
+}: {
+    isMobile: boolean
+    isOpen: boolean
+    onClose: () => void
+}): JSX.Element | null => {
     const { issue, issueLoading, selectedEvent, initialEventLoading } = useValues(errorTrackingIssueSceneLogic)
     const tagRenderer = useErrorTagRenderer()
 
+    if (isMobile && !isOpen) {
+        return null
+    }
+
     return (
-        <div className="flex flex-1 gap-y-1 overflow-y-auto min-w-[375px]">
+        <div
+            className={clsx(
+                'flex flex-col flex-1 gap-1 min-h-0',
+                isMobile ? 'absolute inset-0 z-20 bg-surface-primary' : 'min-w-[375px]'
+            )}
+        >
+            {isMobile && (
+                <div className="flex items-center justify-between p-1 shrink-0">
+                    <div className="flex items-center gap-1 pl-1">
+                        {selectedEvent?.timestamp && (
+                            <TZLabel className="text-muted text-xs" time={selectedEvent.timestamp} />
+                        )}
+                        {tagRenderer(selectedEvent)}
+                    </div>
+                    <LemonButton icon={<IconX />} size="small" onClick={onClose} aria-label="Close detail" />
+                </div>
+            )}
             <PostHogSDKIssueBanner event={selectedEvent} />
-            <ExceptionCard
-                issueId={issue?.id ?? 'no-issue'}
-                issueName={issue?.name ?? null}
-                loading={issueLoading || initialEventLoading}
-                event={selectedEvent ?? undefined}
-                label={tagRenderer(selectedEvent)}
-                renderStackTraceActions={() => {
-                    return issue ? <StackTraceActions issue={issue} /> : null
-                }}
-            />
+            <div className="flex-1 min-h-0 flex flex-col">
+                <ExceptionCard
+                    issueId={issue?.id ?? 'no-issue'}
+                    issueName={issue?.name ?? null}
+                    loading={issueLoading || initialEventLoading}
+                    event={selectedEvent ?? undefined}
+                    label={tagRenderer(selectedEvent)}
+                    hideEventMeta={isMobile}
+                    renderStackTraceActions={() => {
+                        return issue ? <StackTraceActions issue={issue} /> : null
+                    }}
+                />
+            </div>
         </div>
     )
 }
 
-const LeftHandColumn = (): JSX.Element => {
+const LeftHandColumn = ({ isMobile }: { isMobile: boolean }): JSX.Element => {
     const { category } = useValues(errorTrackingIssueSceneConfigurationLogic)
     const { setCategory } = useActions(errorTrackingIssueSceneConfigurationLogic)
 
@@ -167,19 +238,25 @@ const LeftHandColumn = (): JSX.Element => {
         logicKey: 'error-tracking-issue',
         persistent: true,
         placement: 'right',
+        persistPrefix: 'error-tracking-issue-view-columns-ratio',
     }
     const { desiredSize } = useValues(resizerLogic(resizerLogicProps))
     const hasTasks = useFeatureFlag('TASKS')
+    const hasSimilarIssues = useFeatureFlag('ERROR_TRACKING_RELATED_ISSUES')
 
     return (
         <div
             ref={ref}
             // eslint-disable-next-line react/forbid-dom-props
-            style={{
-                width: desiredSize ?? '30%',
-                minWidth: 320,
-            }}
-            className="flex flex-col h-full relative bg-surface-primary"
+            style={
+                isMobile
+                    ? undefined
+                    : {
+                          width: desiredSize ?? '40%',
+                          minWidth: 320,
+                      }
+            }
+            className={clsx('flex flex-col h-full relative bg-surface-primary', isMobile && 'flex-1 max-w-full')}
         >
             <TabsPrimitive
                 value={category}
@@ -188,7 +265,7 @@ const LeftHandColumn = (): JSX.Element => {
             >
                 <div>
                     <ScrollableShadows direction="horizontal" className="border-b" hideScrollbars>
-                        <TabsPrimitiveList className="flex justify-between space-x-0.5">
+                        <TabsPrimitiveList className="flex space-x-0.5 gap-2">
                             <TabsPrimitiveTrigger className="flex items-center px-2 py-1.5" value="exceptions">
                                 <IconList className="mr-1" />
                                 <span className="text-nowrap">Exceptions</span>
@@ -203,10 +280,12 @@ const LeftHandColumn = (): JSX.Element => {
                                     <span className="text-nowrap">Autofix</span>
                                 </TabsPrimitiveTrigger>
                             )}
-                            <TabsPrimitiveTrigger className="flex items-center px-2 py-1.5" value="similar_issues">
-                                <IconSearch className="mr-1" />
-                                <span className="text-nowrap">Similar issues</span>
-                            </TabsPrimitiveTrigger>
+                            {hasSimilarIssues && (
+                                <TabsPrimitiveTrigger className="flex items-center px-2 py-1.5" value="similar_issues">
+                                    <IconSearch className="mr-1" />
+                                    <span className="text-nowrap">Similar issues</span>
+                                </TabsPrimitiveTrigger>
+                            )}
                         </TabsPrimitiveList>
                     </ScrollableShadows>
                 </div>
@@ -223,23 +302,26 @@ const LeftHandColumn = (): JSX.Element => {
                         </div>
                     </TabsPrimitiveContent>
                 )}
-                <TabsPrimitiveContent value="similar_issues">
-                    <SimilarIssuesList />
-                </TabsPrimitiveContent>
+                {hasSimilarIssues && (
+                    <TabsPrimitiveContent value="similar_issues" className="flex-1 min-h-0">
+                        <SimilarIssuesList />
+                    </TabsPrimitiveContent>
+                )}
             </TabsPrimitive>
 
-            <Resizer {...resizerLogicProps} />
+            {!isMobile && <Resizer {...resizerLogicProps} />}
         </div>
     )
 }
 
 const ExceptionsTab = (): JSX.Element => {
-    const { eventsQuery, eventsQueryKey, selectedEvent } = useValues(errorTrackingIssueSceneLogic)
+    const { eventsQuery, eventsQueryKey, selectedEvent, issueFingerprints, issueFingerprintsLoading } =
+        useValues(errorTrackingIssueSceneLogic)
     const { selectEvent } = useActions(errorTrackingIssueSceneLogic)
 
     return (
-        <div className="flex flex-col h-full">
-            <div className="px-2 py-3">
+        <div className="flex flex-col h-full min-h-0">
+            <div className="px-2 py-3 shrink-0">
                 <ErrorFilters.Root>
                     <div className="flex gap-2 justify-between flex-wrap">
                         <ErrorFilters.DateRange />
@@ -248,18 +330,24 @@ const ExceptionsTab = (): JSX.Element => {
                     <ErrorFilters.FilterGroup />
                 </ErrorFilters.Root>
             </div>
-            <LemonDivider className="my-0" />
-            <Metadata className="flex flex-col overflow-y-auto">
-                <EventsTable
-                    query={eventsQuery}
-                    queryKey={eventsQueryKey}
-                    selectedEvent={selectedEvent}
-                    onEventSelect={(selectedEvent) => {
-                        if (selectedEvent) {
-                            selectEvent(selectedEvent)
-                        }
-                    }}
-                />
+            <LemonDivider className="my-0 shrink-0" />
+            <Metadata className="flex flex-col flex-1 min-h-0">
+                {issueFingerprintsLoading ? (
+                    <div className="text-muted text-sm px-2 py-3">Loading exceptions...</div>
+                ) : issueFingerprints.length === 0 ? (
+                    <div className="text-muted text-sm px-2 py-3">No exceptions found for this issue.</div>
+                ) : (
+                    <EventsTable
+                        query={eventsQuery}
+                        queryKey={eventsQueryKey}
+                        selectedEvent={selectedEvent}
+                        onEventSelect={(selectedEvent) => {
+                            if (selectedEvent) {
+                                selectEvent(selectedEvent)
+                            }
+                        }}
+                    />
+                )}
             </Metadata>
         </div>
     )

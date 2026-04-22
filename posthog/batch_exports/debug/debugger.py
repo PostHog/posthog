@@ -16,17 +16,17 @@ import pyarrow.fs as fs
 import pyarrow.ipc as ipc
 from rich.console import Console
 
-from posthog.batch_exports.service import (
+from posthog.models import BatchExport, BatchExportDestination, BatchExportRun
+from posthog.models.integration import DatabricksIntegration
+from posthog.temporal.common.clickhouse import ClickHouseClient
+
+from products.batch_exports.backend.service import (
     DESTINATION_WORKFLOWS,
     BaseBatchExportInputs,
     BatchExportModel,
     BigQueryBatchExportInputs,
     DatabricksBatchExportInputs,
 )
-from posthog.models import BatchExport, BatchExportDestination, BatchExportRun
-from posthog.models.integration import DatabricksIntegration
-from posthog.temporal.common.clickhouse import ClickHouseClient
-
 from products.batch_exports.backend.temporal.destinations.bigquery_batch_export import (
     BigQueryClient,
     bigquery_default_fields,
@@ -524,6 +524,15 @@ class BatchExportsDebugger:
             case BatchExportDestination.Destination.BIGQUERY:
                 console.print("[bold green]Getting BigQuery client...[/bold green]")
                 bigquery_inputs = cast(BigQueryBatchExportInputs, self.batch_export_inputs)
+                if (
+                    bigquery_inputs.private_key is None
+                    or bigquery_inputs.private_key_id is None
+                    or bigquery_inputs.token_uri is None
+                    or bigquery_inputs.client_email is None
+                    or bigquery_inputs.project_id is None
+                ):
+                    # TODO: Support integration model/service account impersonation.
+                    raise ValueError("Missing required values")
                 async with BigQueryClient.from_service_account_inputs(
                     private_key=bigquery_inputs.private_key,
                     private_key_id=bigquery_inputs.private_key_id,

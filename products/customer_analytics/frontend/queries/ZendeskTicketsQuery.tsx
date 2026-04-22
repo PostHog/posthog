@@ -4,6 +4,8 @@ import { DataTableNode, NodeKind } from '~/queries/schema/schema-general'
 import { QueryContext, QueryContextColumn } from '~/queries/types'
 import { hogql } from '~/queries/utils'
 
+import { CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS } from '../constants'
+
 const DEFAULT_COLUMN_CONFIG: QueryContextColumn = {
     width: '60px',
     align: 'center',
@@ -36,6 +38,7 @@ export const zendeskPersonTicketsQuery = ({
         kind: NodeKind.DataTableNode,
         source: {
             kind: NodeKind.HogQLQuery,
+            tags: CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS,
             query: hogql`
               with
                 person as (
@@ -86,6 +89,7 @@ export const zendeskGroupTicketsQuery = ({
         kind: NodeKind.DataTableNode,
         source: {
             kind: NodeKind.HogQLQuery,
+            tags: CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS,
             query: hogql`
             select t.id, t.url, t.subject, t.status, t.priority, t.created_at as created_at, t.updated_at as updated_at
             from zendesk_organizations o

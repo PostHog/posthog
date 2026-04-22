@@ -1,6 +1,7 @@
 import { useActions } from 'kea'
+import { useState } from 'react'
 
-import { IconGear, IconLetter, IconTrash } from '@posthog/icons'
+import { IconCollapse, IconExpand, IconGear, IconLetter, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { EmailIntegrationDomainGroupedType, IntegrationType } from '~/types'
@@ -31,16 +32,23 @@ export function IntegrationEmailDomainView({
     const { domain, integrations } = integration
     const verified = integrations.every(isVerified)
     const verificationRequired = integrations.some(isVerificationRequired)
+    const [isExpanded, setIsExpanded] = useState(false)
 
     return (
         <div className="rounded border bg-surface-primary">
-            <div className="flex flex-1 justify-between items-center p-2">
+            <div
+                className="flex flex-1 justify-between items-center p-2 cursor-pointer"
+                onClick={() => setIsExpanded(!isExpanded)}
+            >
                 <div className="flex flex-1 gap-4 items-center ml-2">
                     <IconLetter className="w-8 h-8" />
                     <div className="flex-1">
-                        <div className="flex gap-2">
+                        <div className="flex gap-2 items-center">
                             <span>
                                 <strong>{domain}</strong>
+                            </span>
+                            <span className="text-xs text-secondary">
+                                {integrations.length} {integrations.length === 1 ? 'sender' : 'senders'}
                             </span>
                             {verificationRequired && (
                                 <Tooltip
@@ -57,39 +65,44 @@ export function IntegrationEmailDomainView({
                             )}
                         </div>
                     </div>
+                    <div className="text-secondary">
+                        {isExpanded ? <IconCollapse className="text-lg" /> : <IconExpand className="text-lg" />}
+                    </div>
                 </div>
             </div>
 
-            <div className="flex flex-col">
-                {integrations.map((integration) => (
-                    <div key={integration.id} className="flex items-center px-4 py-2 border-t gap-2">
-                        <span className="flex-1">
-                            {integration.config.name} &lt;{integration.config.email}&gt;
-                        </span>
-                        <LemonButton
-                            type="primary"
-                            size="small"
-                            onClick={() => {
-                                openSetupModal(integration, integration.kind as ChannelType)
-                            }}
-                            icon={<IconGear />}
-                        >
-                            Configure
-                        </LemonButton>
-                        <LemonButton
-                            type="primary"
-                            size="small"
-                            status="danger"
-                            onClick={() => {
-                                deleteIntegration(integration.id)
-                            }}
-                            icon={<IconTrash />}
-                        >
-                            Disconnect
-                        </LemonButton>
-                    </div>
-                ))}
-            </div>
+            {isExpanded && (
+                <div className="flex flex-col">
+                    {integrations.map((integration) => (
+                        <div key={integration.id} className="flex items-center px-4 py-2 border-t gap-2">
+                            <span className="flex-1">
+                                {integration.config.name} &lt;{integration.config.email}&gt;
+                            </span>
+                            <LemonButton
+                                type="primary"
+                                size="small"
+                                onClick={() => {
+                                    openSetupModal(integration, integration.kind as ChannelType)
+                                }}
+                                icon={<IconGear />}
+                            >
+                                Configure
+                            </LemonButton>
+                            <LemonButton
+                                type="primary"
+                                size="small"
+                                status="danger"
+                                onClick={() => {
+                                    deleteIntegration(integration.id)
+                                }}
+                                icon={<IconTrash />}
+                            >
+                                Disconnect
+                            </LemonButton>
+                        </div>
+                    ))}
+                </div>
+            )}
         </div>
     )
 }

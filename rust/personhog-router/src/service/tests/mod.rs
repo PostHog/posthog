@@ -5,7 +5,8 @@ use std::sync::Arc;
 use mocks::MockBackend;
 use personhog_proto::personhog::service::v1::person_hog_service_server::PersonHogService;
 use personhog_proto::personhog::types::v1::{
-    ConsistencyLevel, GetPersonByDistinctIdRequest, GetPersonRequest, Person, ReadOptions,
+    ConsistencyLevel, DeletePersonsRequest, GetPersonByDistinctIdRequest, GetPersonRequest, Person,
+    ReadOptions,
 };
 use tonic::{Request, Status};
 
@@ -24,7 +25,8 @@ fn create_test_person() -> Person {
         created_at: 0,
         version: 1,
         is_identified: true,
-        is_user_id: false,
+        is_user_id: None,
+        last_seen_at: None,
     }
 }
 
@@ -123,7 +125,7 @@ async fn test_get_person_with_strong_consistency_returns_unimplemented() {
     assert!(result.is_err());
     let status = result.unwrap_err();
     assert_eq!(status.code(), tonic::Code::Unimplemented);
-    assert!(status.message().contains("personhog-leader"));
+    assert!(status.message().contains("leader"));
 }
 
 #[tokio::test]
@@ -143,4 +145,40 @@ async fn test_get_person_with_explicit_eventual_consistency_succeeds() {
 
     let response = service.get_person(request).await.unwrap();
     assert!(response.get_ref().person.is_some());
+}
+
+// ============================================================
+// DeletePersons tests
+// ============================================================
+
+#[tokio::test]
+async fn test_delete_persons_routes_to_replica() {
+    let mock = MockBackend::new();
+    let service = create_service_with_mock(mock);
+
+    let request = Request::new(DeletePersonsRequest {
+        team_id: 1,
+        person_uuids: vec!["00000000-0000-0000-0000-000000000001".to_string()],
+    });
+
+    let response = service.delete_persons(request).await.unwrap();
+    assert_eq!(response.get_ref().deleted_count, 0);
+}
+
+#[tokio::test]
+async fn test_delete_persons_error_passthrough() {
+    let mock = MockBackend::new();
+    mock.set_error(Status::unavailable("backend unavailable"));
+
+    let service = create_service_with_mock(mock);
+
+    let request = Request::new(DeletePersonsRequest {
+        team_id: 1,
+        person_uuids: vec!["00000000-0000-0000-0000-000000000001".to_string()],
+    });
+
+    let result = service.delete_persons(request).await;
+    assert!(result.is_err());
+    let status = result.unwrap_err();
+    assert_eq!(status.code(), tonic::Code::Unavailable);
 }

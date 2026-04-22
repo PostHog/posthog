@@ -28,14 +28,14 @@ export const feedbackViewLogic = kea<feedbackViewLogicType>([
             null as LLMTraceEvent[] | null,
             {
                 loadSurveyEvents: async (createdAt: string) => {
-                    const formattedDate = dayjs.utc(createdAt).format('YYYY-MM-DDTHH:mm:ss')
+                    const date = dayjs(createdAt)
                     const response = await api.queryHogQL(
                         hogql`
                             SELECT uuid, event, timestamp, properties
                             FROM events
                             WHERE (event = 'survey sent' OR event = 'survey shown')
                                 AND properties.$ai_trace_id = ${props.traceId}
-                                AND timestamp >= ${formattedDate}
+                                AND timestamp >= ${date}
                             ORDER BY if(event = 'survey sent', 0, 1)
                             LIMIT 1 BY properties.$survey_id
                         `,

@@ -121,6 +121,7 @@ class ChatAgentWorkflowInputs:
     billing_context: Optional[MaxBillingContext] = None
     agent_mode: AgentMode | None = None
     is_agent_billable: bool = True
+    is_impersonated: bool = False
     resume_payload: Optional[dict[str, Any]] = None
 
 
@@ -198,6 +199,7 @@ async def process_chat_agent_activity(inputs: ChatAgentWorkflowInputs) -> None:
             use_checkpointer=inputs.use_checkpointer,
             contextual_tools=inputs.contextual_tools,
             is_agent_billable=inputs.is_agent_billable,
+            is_impersonated=inputs.is_impersonated,
             resume_payload=inputs.resume_payload,
         )
 
@@ -268,6 +270,7 @@ async def process_chat_agent_activity(inputs: ChatAgentWorkflowInputs) -> None:
                 billing_context=billing_context,
                 agent_mode=agent_mode,
                 is_agent_billable=inputs.is_agent_billable,
+                is_impersonated=inputs.is_impersonated,
                 resume_payload=None,
             )
 

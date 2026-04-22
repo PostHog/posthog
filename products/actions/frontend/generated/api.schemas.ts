@@ -8,6 +8,387 @@
  * OpenAPI spec version: 1.0.0
  */
 /**
+ * * `event` - event
+ * `event_metadata` - event_metadata
+ * `feature` - feature
+ * `person` - person
+ * `cohort` - cohort
+ * `element` - element
+ * `static-cohort` - static-cohort
+ * `dynamic-cohort` - dynamic-cohort
+ * `precalculated-cohort` - precalculated-cohort
+ * `group` - group
+ * `recording` - recording
+ * `log_entry` - log_entry
+ * `behavioral` - behavioral
+ * `session` - session
+ * `hogql` - hogql
+ * `data_warehouse` - data_warehouse
+ * `data_warehouse_person_property` - data_warehouse_person_property
+ * `error_tracking_issue` - error_tracking_issue
+ * `log` - log
+ * `log_attribute` - log_attribute
+ * `log_resource_attribute` - log_resource_attribute
+ * `span` - span
+ * `span_attribute` - span_attribute
+ * `span_resource_attribute` - span_resource_attribute
+ * `revenue_analytics` - revenue_analytics
+ * `flag` - flag
+ * `workflow_variable` - workflow_variable
+ */
+export type TypeE27EnumApi = (typeof TypeE27EnumApi)[keyof typeof TypeE27EnumApi]
+
+export const TypeE27EnumApi = {
+    Event: 'event',
+    EventMetadata: 'event_metadata',
+    Feature: 'feature',
+    Person: 'person',
+    Cohort: 'cohort',
+    Element: 'element',
+    StaticCohort: 'static-cohort',
+    DynamicCohort: 'dynamic-cohort',
+    PrecalculatedCohort: 'precalculated-cohort',
+    Group: 'group',
+    Recording: 'recording',
+    LogEntry: 'log_entry',
+    Behavioral: 'behavioral',
+    Session: 'session',
+    Hogql: 'hogql',
+    DataWarehouse: 'data_warehouse',
+    DataWarehousePersonProperty: 'data_warehouse_person_property',
+    ErrorTrackingIssue: 'error_tracking_issue',
+    Log: 'log',
+    LogAttribute: 'log_attribute',
+    LogResourceAttribute: 'log_resource_attribute',
+    Span: 'span',
+    SpanAttribute: 'span_attribute',
+    SpanResourceAttribute: 'span_resource_attribute',
+    RevenueAnalytics: 'revenue_analytics',
+    Flag: 'flag',
+    WorkflowVariable: 'workflow_variable',
+} as const
+
+/**
+ * * `exact` - exact
+ * `is_not` - is_not
+ * `icontains` - icontains
+ * `not_icontains` - not_icontains
+ * `regex` - regex
+ * `not_regex` - not_regex
+ */
+export type DeviceTypesMatchTypeEnumApi = (typeof DeviceTypesMatchTypeEnumApi)[keyof typeof DeviceTypesMatchTypeEnumApi]
+
+export const DeviceTypesMatchTypeEnumApi = {
+    Exact: 'exact',
+    IsNot: 'is_not',
+    Icontains: 'icontains',
+    NotIcontains: 'not_icontains',
+    Regex: 'regex',
+    NotRegex: 'not_regex',
+} as const
+
+/**
+ * Matches string values with text-oriented operators.
+ */
+export interface StringPropertyFilterApi {
+    /** Key of the property you're filtering on. For example `email` or `$current_url`. */
+    key: string
+    /** Property type (event, person, session, etc.).
+
+* `event` - event
+* `event_metadata` - event_metadata
+* `feature` - feature
+* `person` - person
+* `cohort` - cohort
+* `element` - element
+* `static-cohort` - static-cohort
+* `dynamic-cohort` - dynamic-cohort
+* `precalculated-cohort` - precalculated-cohort
+* `group` - group
+* `recording` - recording
+* `log_entry` - log_entry
+* `behavioral` - behavioral
+* `session` - session
+* `hogql` - hogql
+* `data_warehouse` - data_warehouse
+* `data_warehouse_person_property` - data_warehouse_person_property
+* `error_tracking_issue` - error_tracking_issue
+* `log` - log
+* `log_attribute` - log_attribute
+* `log_resource_attribute` - log_resource_attribute
+* `span` - span
+* `span_attribute` - span_attribute
+* `span_resource_attribute` - span_resource_attribute
+* `revenue_analytics` - revenue_analytics
+* `flag` - flag
+* `workflow_variable` - workflow_variable */
+    type?: TypeE27EnumApi
+    /** String value to match against. */
+    value: string
+    /** String comparison operator.
+
+* `exact` - exact
+* `is_not` - is_not
+* `icontains` - icontains
+* `not_icontains` - not_icontains
+* `regex` - regex
+* `not_regex` - not_regex */
+    operator?: DeviceTypesMatchTypeEnumApi
+}
+
+/**
+ * * `exact` - exact
+ * `is_not` - is_not
+ * `gt` - gt
+ * `lt` - lt
+ * `gte` - gte
+ * `lte` - lte
+ */
+export type NumericPropertyFilterOperatorEnumApi =
+    (typeof NumericPropertyFilterOperatorEnumApi)[keyof typeof NumericPropertyFilterOperatorEnumApi]
+
+export const NumericPropertyFilterOperatorEnumApi = {
+    Exact: 'exact',
+    IsNot: 'is_not',
+    Gt: 'gt',
+    Lt: 'lt',
+    Gte: 'gte',
+    Lte: 'lte',
+} as const
+
+/**
+ * Matches numeric values with comparison operators.
+ */
+export interface NumericPropertyFilterApi {
+    /** Key of the property you're filtering on. For example `email` or `$current_url`. */
+    key: string
+    /** Property type (event, person, session, etc.).
+
+* `event` - event
+* `event_metadata` - event_metadata
+* `feature` - feature
+* `person` - person
+* `cohort` - cohort
+* `element` - element
+* `static-cohort` - static-cohort
+* `dynamic-cohort` - dynamic-cohort
+* `precalculated-cohort` - precalculated-cohort
+* `group` - group
+* `recording` - recording
+* `log_entry` - log_entry
+* `behavioral` - behavioral
+* `session` - session
+* `hogql` - hogql
+* `data_warehouse` - data_warehouse
+* `data_warehouse_person_property` - data_warehouse_person_property
+* `error_tracking_issue` - error_tracking_issue
+* `log` - log
+* `log_attribute` - log_attribute
+* `log_resource_attribute` - log_resource_attribute
+* `span` - span
+* `span_attribute` - span_attribute
+* `span_resource_attribute` - span_resource_attribute
+* `revenue_analytics` - revenue_analytics
+* `flag` - flag
+* `workflow_variable` - workflow_variable */
+    type?: TypeE27EnumApi
+    /** Numeric value to compare against. */
+    value: number
+    /** Numeric comparison operator.
+
+* `exact` - exact
+* `is_not` - is_not
+* `gt` - gt
+* `lt` - lt
+* `gte` - gte
+* `lte` - lte */
+    operator?: NumericPropertyFilterOperatorEnumApi
+}
+
+/**
+ * * `exact` - exact
+ * `is_not` - is_not
+ * `in` - in
+ * `not_in` - not_in
+ */
+export type ArrayPropertyFilterOperatorEnumApi =
+    (typeof ArrayPropertyFilterOperatorEnumApi)[keyof typeof ArrayPropertyFilterOperatorEnumApi]
+
+export const ArrayPropertyFilterOperatorEnumApi = {
+    Exact: 'exact',
+    IsNot: 'is_not',
+    In: 'in',
+    NotIn: 'not_in',
+} as const
+
+/**
+ * Matches against a list of values (OR semantics for exact/is_not, set membership for in/not_in).
+ */
+export interface ArrayPropertyFilterApi {
+    /** Key of the property you're filtering on. For example `email` or `$current_url`. */
+    key: string
+    /** Property type (event, person, session, etc.).
+
+* `event` - event
+* `event_metadata` - event_metadata
+* `feature` - feature
+* `person` - person
+* `cohort` - cohort
+* `element` - element
+* `static-cohort` - static-cohort
+* `dynamic-cohort` - dynamic-cohort
+* `precalculated-cohort` - precalculated-cohort
+* `group` - group
+* `recording` - recording
+* `log_entry` - log_entry
+* `behavioral` - behavioral
+* `session` - session
+* `hogql` - hogql
+* `data_warehouse` - data_warehouse
+* `data_warehouse_person_property` - data_warehouse_person_property
+* `error_tracking_issue` - error_tracking_issue
+* `log` - log
+* `log_attribute` - log_attribute
+* `log_resource_attribute` - log_resource_attribute
+* `span` - span
+* `span_attribute` - span_attribute
+* `span_resource_attribute` - span_resource_attribute
+* `revenue_analytics` - revenue_analytics
+* `flag` - flag
+* `workflow_variable` - workflow_variable */
+    type?: TypeE27EnumApi
+    /** List of values to match. For example `["test@example.com", "ok@example.com"]`. */
+    value: string[]
+    /** Array comparison operator.
+
+* `exact` - exact
+* `is_not` - is_not
+* `in` - in
+* `not_in` - not_in */
+    operator?: ArrayPropertyFilterOperatorEnumApi
+}
+
+/**
+ * * `is_date_exact` - is_date_exact
+ * `is_date_before` - is_date_before
+ * `is_date_after` - is_date_after
+ */
+export type Operator382EnumApi = (typeof Operator382EnumApi)[keyof typeof Operator382EnumApi]
+
+export const Operator382EnumApi = {
+    IsDateExact: 'is_date_exact',
+    IsDateBefore: 'is_date_before',
+    IsDateAfter: 'is_date_after',
+} as const
+
+/**
+ * Matches date/datetime values with date-specific operators.
+ */
+export interface DatePropertyFilterApi {
+    /** Key of the property you're filtering on. For example `email` or `$current_url`. */
+    key: string
+    /** Property type (event, person, session, etc.).
+
+* `event` - event
+* `event_metadata` - event_metadata
+* `feature` - feature
+* `person` - person
+* `cohort` - cohort
+* `element` - element
+* `static-cohort` - static-cohort
+* `dynamic-cohort` - dynamic-cohort
+* `precalculated-cohort` - precalculated-cohort
+* `group` - group
+* `recording` - recording
+* `log_entry` - log_entry
+* `behavioral` - behavioral
+* `session` - session
+* `hogql` - hogql
+* `data_warehouse` - data_warehouse
+* `data_warehouse_person_property` - data_warehouse_person_property
+* `error_tracking_issue` - error_tracking_issue
+* `log` - log
+* `log_attribute` - log_attribute
+* `log_resource_attribute` - log_resource_attribute
+* `span` - span
+* `span_attribute` - span_attribute
+* `span_resource_attribute` - span_resource_attribute
+* `revenue_analytics` - revenue_analytics
+* `flag` - flag
+* `workflow_variable` - workflow_variable */
+    type?: TypeE27EnumApi
+    /** Date or datetime string in ISO 8601 format (e.g. '2024-01-15' or '2024-01-15T10:30:00Z'). */
+    value: string
+    /** Date comparison operator.
+
+* `is_date_exact` - is_date_exact
+* `is_date_before` - is_date_before
+* `is_date_after` - is_date_after */
+    operator?: Operator382EnumApi
+}
+
+/**
+ * * `is_set` - is_set
+ * `is_not_set` - is_not_set
+ */
+export type OperatorA04EnumApi = (typeof OperatorA04EnumApi)[keyof typeof OperatorA04EnumApi]
+
+export const OperatorA04EnumApi = {
+    IsSet: 'is_set',
+    IsNotSet: 'is_not_set',
+} as const
+
+/**
+ * Checks whether a property is set or not, without comparing values.
+ */
+export interface ExistencePropertyFilterApi {
+    /** Key of the property you're filtering on. For example `email` or `$current_url`. */
+    key: string
+    /** Property type (event, person, session, etc.).
+
+* `event` - event
+* `event_metadata` - event_metadata
+* `feature` - feature
+* `person` - person
+* `cohort` - cohort
+* `element` - element
+* `static-cohort` - static-cohort
+* `dynamic-cohort` - dynamic-cohort
+* `precalculated-cohort` - precalculated-cohort
+* `group` - group
+* `recording` - recording
+* `log_entry` - log_entry
+* `behavioral` - behavioral
+* `session` - session
+* `hogql` - hogql
+* `data_warehouse` - data_warehouse
+* `data_warehouse_person_property` - data_warehouse_person_property
+* `error_tracking_issue` - error_tracking_issue
+* `log` - log
+* `log_attribute` - log_attribute
+* `log_resource_attribute` - log_resource_attribute
+* `span` - span
+* `span_attribute` - span_attribute
+* `span_resource_attribute` - span_resource_attribute
+* `revenue_analytics` - revenue_analytics
+* `flag` - flag
+* `workflow_variable` - workflow_variable */
+    type?: TypeE27EnumApi
+    /** Existence check operator.
+
+* `is_set` - is_set
+* `is_not_set` - is_not_set */
+    operator: OperatorA04EnumApi
+}
+
+export type ActionStepPropertyFilterApi =
+    | StringPropertyFilterApi
+    | NumericPropertyFilterApi
+    | ArrayPropertyFilterApi
+    | DatePropertyFilterApi
+    | ExistencePropertyFilterApi
+
+/**
  * * `contains` - contains
  * `regex` - regex
  * `exact` - exact
@@ -15,36 +396,70 @@
 export type UrlMatchingEnumApi = (typeof UrlMatchingEnumApi)[keyof typeof UrlMatchingEnumApi]
 
 export const UrlMatchingEnumApi = {
-    contains: 'contains',
-    regex: 'regex',
-    exact: 'exact',
+    Contains: 'contains',
+    Regex: 'regex',
+    Exact: 'exact',
 } as const
 
 export type NullEnumApi = (typeof NullEnumApi)[keyof typeof NullEnumApi]
 
 export const NullEnumApi = {} as const
 
-export type ActionStepJSONApiPropertiesItem = { [key: string]: unknown }
-
 export interface ActionStepJSONApi {
-    /** @nullable */
+    /**
+     * Event name to match (e.g. '$pageview', '$autocapture', or a custom event name).
+     * @nullable
+     */
     event?: string | null
-    /** @nullable */
-    properties?: ActionStepJSONApiPropertiesItem[] | null
-    /** @nullable */
+    /**
+     * Event or person property filters. Each item should have 'key' (string), 'value' (string, number, boolean, or array), optional 'operator' (exact, is_not, is_set, is_not_set, icontains, not_icontains, regex, not_regex, gt, gte, lt, lte), and optional 'type' (event, person).
+     * @nullable
+     */
+    properties?: ActionStepPropertyFilterApi[] | null
+    /**
+     * CSS selector to match the target element (e.g. 'div > button.cta').
+     * @nullable
+     */
     selector?: string | null
     /** @nullable */
     readonly selector_regex: string | null
-    /** @nullable */
+    /**
+     * HTML tag name to match (e.g. "button", "a", "input").
+     * @nullable
+     */
     tag_name?: string | null
-    /** @nullable */
+    /**
+     * Element text content to match.
+     * @nullable
+     */
     text?: string | null
+    /** How to match the text value. Defaults to exact.
+
+* `contains` - contains
+* `regex` - regex
+* `exact` - exact */
     text_matching?: UrlMatchingEnumApi | NullEnumApi | null
-    /** @nullable */
+    /**
+     * Link href attribute to match.
+     * @nullable
+     */
     href?: string | null
+    /** How to match the href value. Defaults to exact.
+
+* `contains` - contains
+* `regex` - regex
+* `exact` - exact */
     href_matching?: UrlMatchingEnumApi | NullEnumApi | null
-    /** @nullable */
+    /**
+     * Page URL to match.
+     * @nullable
+     */
     url?: string | null
+    /** How to match the URL value. Defaults to contains.
+
+* `contains` - contains
+* `regex` - regex
+* `exact` - exact */
     url_matching?: UrlMatchingEnumApi | NullEnumApi | null
 }
 
@@ -61,14 +476,14 @@ export interface ActionStepJSONApi {
 export type RoleAtOrganizationEnumApi = (typeof RoleAtOrganizationEnumApi)[keyof typeof RoleAtOrganizationEnumApi]
 
 export const RoleAtOrganizationEnumApi = {
-    engineering: 'engineering',
-    data: 'data',
-    product: 'product',
-    founder: 'founder',
-    leadership: 'leadership',
-    marketing: 'marketing',
-    sales: 'sales',
-    other: 'other',
+    Engineering: 'engineering',
+    Data: 'data',
+    Product: 'product',
+    Founder: 'founder',
+    Leadership: 'leadership',
+    Marketing: 'marketing',
+    Sales: 'sales',
+    Other: 'other',
 } as const
 
 export type BlankEnumApi = (typeof BlankEnumApi)[keyof typeof BlankEnumApi]
@@ -109,15 +524,22 @@ export interface UserBasicApi {
 export interface ActionApi {
     readonly id: number
     /**
+     * Name of the action (must be unique within the project).
      * @maxLength 400
      * @nullable
      */
     name?: string | null
+    /** Human-readable description of what this action represents. */
     description?: string
     tags?: unknown[]
+    /** Whether to post a notification to Slack when this action is triggered. */
     post_to_slack?: boolean
-    /** @maxLength 1200 */
+    /**
+     * Custom Slack message format. Supports templates with event properties.
+     * @maxLength 1200
+     */
     slack_message_format?: string
+    /** Action steps defining trigger conditions. Each step matches events by name, properties, URL, or element attributes. Multiple steps are OR-ed together. */
     steps?: ActionStepJSONApi[]
     readonly created_at: string
     readonly created_by: UserBasicApi
@@ -128,9 +550,13 @@ export interface ActionApi {
     readonly is_action: boolean
     /** @nullable */
     readonly bytecode_error: string | null
-    /** @nullable */
+    /**
+     * ISO 8601 timestamp when the action was pinned, or null if not pinned. Set any value to pin, null to unpin.
+     * @nullable
+     */
     pinned_at?: string | null
-    readonly creation_context: string
+    /** @nullable */
+    readonly creation_context: string | null
     _create_in_folder?: string
     /**
      * The effective access level the user has for this object
@@ -154,15 +580,22 @@ export interface PaginatedActionListApi {
 export interface PatchedActionApi {
     readonly id?: number
     /**
+     * Name of the action (must be unique within the project).
      * @maxLength 400
      * @nullable
      */
     name?: string | null
+    /** Human-readable description of what this action represents. */
     description?: string
     tags?: unknown[]
+    /** Whether to post a notification to Slack when this action is triggered. */
     post_to_slack?: boolean
-    /** @maxLength 1200 */
+    /**
+     * Custom Slack message format. Supports templates with event properties.
+     * @maxLength 1200
+     */
     slack_message_format?: string
+    /** Action steps defining trigger conditions. Each step matches events by name, properties, URL, or element attributes. Multiple steps are OR-ed together. */
     steps?: ActionStepJSONApi[]
     readonly created_at?: string
     readonly created_by?: UserBasicApi
@@ -173,15 +606,81 @@ export interface PatchedActionApi {
     readonly is_action?: boolean
     /** @nullable */
     readonly bytecode_error?: string | null
-    /** @nullable */
+    /**
+     * ISO 8601 timestamp when the action was pinned, or null if not pinned. Set any value to pin, null to unpin.
+     * @nullable
+     */
     pinned_at?: string | null
-    readonly creation_context?: string
+    /** @nullable */
+    readonly creation_context?: string | null
     _create_in_folder?: string
     /**
      * The effective access level the user has for this object
      * @nullable
      */
     readonly user_access_level?: string | null
+}
+
+export interface ActionReferenceApi {
+    /** Resource type: insight, experiment, cohort, or hog_function */
+    type: string
+    /** Resource ID (integer or UUID depending on type) */
+    id: string
+    /** Resource name */
+    name: string
+    /** Relative URL to the resource */
+    url: string
+    /**
+     * When the resource was created
+     * @nullable
+     */
+    created_at: string | null
+    /** User who created the resource */
+    created_by: UserBasicApi | null
+}
+
+/**
+ * * `add` - add
+ * `remove` - remove
+ * `set` - set
+ */
+export type ActionEnumApi = (typeof ActionEnumApi)[keyof typeof ActionEnumApi]
+
+export const ActionEnumApi = {
+    Add: 'add',
+    Remove: 'remove',
+    Set: 'set',
+} as const
+
+export interface BulkUpdateTagsRequestApi {
+    /**
+     * List of object IDs to update tags on.
+     * @maxItems 500
+     */
+    ids: number[]
+    /** 'add' merges with existing tags, 'remove' deletes specific tags, 'set' replaces all tags.
+
+* `add` - add
+* `remove` - remove
+* `set` - set */
+    action: ActionEnumApi
+    /** Tag names to add, remove, or set. */
+    tags: string[]
+}
+
+export interface BulkUpdateTagsItemApi {
+    id: number
+    tags: string[]
+}
+
+export interface BulkUpdateTagsErrorApi {
+    id: number
+    reason: string
+}
+
+export interface BulkUpdateTagsResponseApi {
+    updated: BulkUpdateTagsItemApi[]
+    skipped: BulkUpdateTagsErrorApi[]
 }
 
 export type ActionsListParams = {
@@ -199,8 +698,8 @@ export type ActionsListParams = {
 export type ActionsListFormat = (typeof ActionsListFormat)[keyof typeof ActionsListFormat]
 
 export const ActionsListFormat = {
-    csv: 'csv',
-    json: 'json',
+    Csv: 'csv',
+    Json: 'json',
 } as const
 
 export type ActionsCreateParams = {
@@ -210,8 +709,8 @@ export type ActionsCreateParams = {
 export type ActionsCreateFormat = (typeof ActionsCreateFormat)[keyof typeof ActionsCreateFormat]
 
 export const ActionsCreateFormat = {
-    csv: 'csv',
-    json: 'json',
+    Csv: 'csv',
+    Json: 'json',
 } as const
 
 export type ActionsRetrieveParams = {
@@ -221,8 +720,8 @@ export type ActionsRetrieveParams = {
 export type ActionsRetrieveFormat = (typeof ActionsRetrieveFormat)[keyof typeof ActionsRetrieveFormat]
 
 export const ActionsRetrieveFormat = {
-    csv: 'csv',
-    json: 'json',
+    Csv: 'csv',
+    Json: 'json',
 } as const
 
 export type ActionsUpdateParams = {
@@ -232,8 +731,8 @@ export type ActionsUpdateParams = {
 export type ActionsUpdateFormat = (typeof ActionsUpdateFormat)[keyof typeof ActionsUpdateFormat]
 
 export const ActionsUpdateFormat = {
-    csv: 'csv',
-    json: 'json',
+    Csv: 'csv',
+    Json: 'json',
 } as const
 
 export type ActionsPartialUpdateParams = {
@@ -243,8 +742,8 @@ export type ActionsPartialUpdateParams = {
 export type ActionsPartialUpdateFormat = (typeof ActionsPartialUpdateFormat)[keyof typeof ActionsPartialUpdateFormat]
 
 export const ActionsPartialUpdateFormat = {
-    csv: 'csv',
-    json: 'json',
+    Csv: 'csv',
+    Json: 'json',
 } as const
 
 export type ActionsDestroyParams = {
@@ -254,6 +753,29 @@ export type ActionsDestroyParams = {
 export type ActionsDestroyFormat = (typeof ActionsDestroyFormat)[keyof typeof ActionsDestroyFormat]
 
 export const ActionsDestroyFormat = {
-    csv: 'csv',
-    json: 'json',
+    Csv: 'csv',
+    Json: 'json',
+} as const
+
+export type ActionsReferencesListParams = {
+    format?: ActionsReferencesListFormat
+}
+
+export type ActionsReferencesListFormat = (typeof ActionsReferencesListFormat)[keyof typeof ActionsReferencesListFormat]
+
+export const ActionsReferencesListFormat = {
+    Csv: 'csv',
+    Json: 'json',
+} as const
+
+export type ActionsBulkUpdateTagsCreateParams = {
+    format?: ActionsBulkUpdateTagsCreateFormat
+}
+
+export type ActionsBulkUpdateTagsCreateFormat =
+    (typeof ActionsBulkUpdateTagsCreateFormat)[keyof typeof ActionsBulkUpdateTagsCreateFormat]
+
+export const ActionsBulkUpdateTagsCreateFormat = {
+    Csv: 'csv',
+    Json: 'json',
 } as const

@@ -7,49 +7,123 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
-/**
- * * `potential` - Potential
- * `candidate` - Candidate
- * `in_progress` - In Progress
- * `ready` - Ready
- * `failed` - Failed
- */
-export type SignalReportStatusEnumApi = (typeof SignalReportStatusEnumApi)[keyof typeof SignalReportStatusEnumApi]
-
-export const SignalReportStatusEnumApi = {
-    potential: 'potential',
-    candidate: 'candidate',
-    in_progress: 'in_progress',
-    ready: 'ready',
-    failed: 'failed',
-} as const
-
-export interface SignalReportApi {
-    readonly id: string
-    /** @nullable */
-    readonly title: string | null
-    /** @nullable */
-    readonly summary: string | null
-    readonly status: SignalReportStatusEnumApi
-    readonly total_weight: number
-    readonly signal_count: number
-    /** @nullable */
-    readonly relevant_user_count: number | null
-    readonly created_at: string
-    readonly updated_at: string
-    readonly artefact_count: number
+export interface PauseStateResponseApi {
+    /**
+     * The timestamp the pipeline is paused until, or null if not paused/not running.
+     * @nullable
+     */
+    paused_until: string | null
 }
 
-export interface PaginatedSignalReportListApi {
+export interface PaginatedPauseStateResponseListApi {
     count: number
     /** @nullable */
     next?: string | null
     /** @nullable */
     previous?: string | null
-    results: SignalReportApi[]
+    results: PauseStateResponseApi[]
 }
 
-export type SignalReportsListParams = {
+export interface PauseUntilRequestApi {
+    /** Pause the grouping pipeline until this timestamp (ISO 8601). */
+    timestamp: string
+}
+
+export interface PauseResponseApi {
+    /** Always 'paused'. */
+    status: string
+    /** The timestamp the pipeline is paused until. */
+    paused_until: string
+}
+
+/**
+ * * `session_replay` - Session replay
+ * `llm_analytics` - LLM analytics
+ * `github` - GitHub
+ * `linear` - Linear
+ * `zendesk` - Zendesk
+ * `conversations` - Conversations
+ * `error_tracking` - Error tracking
+ */
+export type SourceProductEnumApi = (typeof SourceProductEnumApi)[keyof typeof SourceProductEnumApi]
+
+export const SourceProductEnumApi = {
+    SessionReplay: 'session_replay',
+    LlmAnalytics: 'llm_analytics',
+    Github: 'github',
+    Linear: 'linear',
+    Zendesk: 'zendesk',
+    Conversations: 'conversations',
+    ErrorTracking: 'error_tracking',
+} as const
+
+/**
+ * * `session_analysis_cluster` - Session analysis cluster
+ * `evaluation` - Evaluation
+ * `issue` - Issue
+ * `ticket` - Ticket
+ * `issue_created` - Issue created
+ * `issue_reopened` - Issue reopened
+ * `issue_spiking` - Issue spiking
+ */
+export type SignalSourceConfigSourceTypeEnumApi =
+    (typeof SignalSourceConfigSourceTypeEnumApi)[keyof typeof SignalSourceConfigSourceTypeEnumApi]
+
+export const SignalSourceConfigSourceTypeEnumApi = {
+    SessionAnalysisCluster: 'session_analysis_cluster',
+    Evaluation: 'evaluation',
+    Issue: 'issue',
+    Ticket: 'ticket',
+    IssueCreated: 'issue_created',
+    IssueReopened: 'issue_reopened',
+    IssueSpiking: 'issue_spiking',
+} as const
+
+export interface SignalSourceConfigApi {
+    readonly id: string
+    source_product: SourceProductEnumApi
+    source_type: SignalSourceConfigSourceTypeEnumApi
+    enabled?: boolean
+    config?: unknown
+    readonly created_at: string
+    readonly updated_at: string
+    /** @nullable */
+    readonly status: string | null
+}
+
+export interface PaginatedSignalSourceConfigListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: SignalSourceConfigApi[]
+}
+
+export interface PatchedSignalSourceConfigApi {
+    readonly id?: string
+    source_product?: SourceProductEnumApi
+    source_type?: SignalSourceConfigSourceTypeEnumApi
+    enabled?: boolean
+    config?: unknown
+    readonly created_at?: string
+    readonly updated_at?: string
+    /** @nullable */
+    readonly status?: string | null
+}
+
+export type SignalsProcessingListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type SignalsSourceConfigsListParams = {
     /**
      * Number of results to return per page.
      */

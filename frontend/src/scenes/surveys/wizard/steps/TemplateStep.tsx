@@ -1,8 +1,9 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 
 import {
+    IconArrowRight,
     IconChevronDown,
     IconChevronRight,
     IconComment,
@@ -18,9 +19,13 @@ import {
     IconTrending,
     IconWarning,
 } from '@posthog/icons'
-import { LemonButton } from '@posthog/lemon-ui'
+import { LemonButton, LemonTextArea } from '@posthog/lemon-ui'
 
-import { SurveyTemplate, SurveyTemplateType } from '../../constants'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { useMaxTool } from 'scenes/max/useMaxTool'
+
+import { SURVEY_CREATED_SOURCE, SurveyTemplate, SurveyTemplateType } from '../../constants'
+import { surveysLogic } from '../../surveysLogic'
 import { surveyWizardLogic } from '../surveyWizardLogic'
 
 const TEMPLATE_ICONS: Partial<Record<SurveyTemplateType, React.ComponentType<{ className?: string }>>> = {
@@ -82,10 +87,27 @@ function TemplateCard({ template, onClick, featured }: TemplateCardProps): JSX.E
     )
 }
 
-export function TemplateStep(): JSX.Element {
+export function TemplateStep({ handleCustomizeMore }: { handleCustomizeMore: () => void }): JSX.Element {
     const { coreTemplates, otherTemplates } = useValues(surveyWizardLogic)
     const { selectTemplate } = useActions(surveyWizardLogic)
+    const { reportSurveyAiPromptSubmitted } = useActions(eventUsageLogic)
+    const { handleMaxSurveyCreated } = useActions(surveysLogic)
     const [showOthers, setShowOthers] = useState(false)
+    const [prompt, setPrompt] = useState('')
+    const textAreaRef = useRef<HTMLTextAreaElement>(null)
+    const { openMax } = useMaxTool({
+        identifier: 'create_survey',
+        initialMaxPrompt: `!${prompt.trim()}`,
+        callback: (toolOutput) => handleMaxSurveyCreated(toolOutput, SURVEY_CREATED_SOURCE.SURVEY_WIZARD),
+    })
+
+    const handleAiSubmit = (): void => {
+        if (prompt.trim()) {
+            reportSurveyAiPromptSubmitted(SURVEY_CREATED_SOURCE.SURVEY_WIZARD)
+            openMax?.()
+            setPrompt('')
+        }
+    }
 
     return (
         <div className="space-y-6">
@@ -108,7 +130,7 @@ export function TemplateStep(): JSX.Element {
 
             {/* Other templates - collapsible */}
             {otherTemplates.length > 0 && (
-                <div className="border-t border-border pt-6 space-y-4">
+                <div className="space-y-4">
                     <LemonButton
                         type="tertiary"
                         onClick={() => setShowOthers(!showOthers)}
@@ -130,6 +152,59 @@ export function TemplateStep(): JSX.Element {
                     )}
                 </div>
             )}
+
+            <div className="flex items-center gap-4">
+                <div className="flex-1 border-t border-border" />
+                <span className="text-xs text-tertiary uppercase tracking-wide">
+                    or tell PostHog AI what you want to learn
+                </span>
+                <div className="flex-1 border-t border-border" />
+            </div>
+
+            <div className="rounded-xl border-2 border-[var(--color-ai)]">
+                <label
+                    htmlFor="wizard-ai-prompt"
+                    className="flex flex-col cursor-text"
+                    onClick={() => textAreaRef.current?.focus()}
+                >
+                    <LemonTextArea
+                        id="wizard-ai-prompt"
+                        ref={textAreaRef}
+                        value={prompt}
+                        onChange={setPrompt}
+                        onPressEnter={handleAiSubmit}
+                        placeholder="e.g., Create an NPS survey for users who completed onboarding"
+                        minRows={2}
+                        maxRows={5}
+                        className="!border-none !bg-transparent !shadow-none !rounded-none px-4 pt-4 pb-2 resize-none text-sm"
+                        hideFocus
+                        data-attr="wizard-ai-prompt-input"
+                    />
+                    <div className="flex items-center justify-between px-4 pb-3">
+                        <div className="flex items-center gap-1.5 text-xs text-tertiary">
+                            <IconSparkles className="text-ai size-3.5" />
+                            <span>PostHog AI</span>
+                        </div>
+                        <LemonButton
+                            type="primary"
+                            size="small"
+                            icon={<IconArrowRight />}
+                            onClick={handleAiSubmit}
+                            disabledReason={!prompt.trim() ? 'Describe the survey you want' : undefined}
+                            data-attr="wizard-ai-prompt-submit"
+                        >
+                            Create with AI
+                        </LemonButton>
+                    </div>
+                </label>
+            </div>
+
+            <p className="text-center text-xs text-muted">
+                Need more control?{' '}
+                <button type="button" onClick={handleCustomizeMore} className="text-link hover:underline">
+                    Open full editor
+                </button>
+            </p>
         </div>
     )
 }

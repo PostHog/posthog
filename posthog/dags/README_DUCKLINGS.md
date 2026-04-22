@@ -26,21 +26,21 @@ Duckling RDS Catalog (PostgreSQL)
 
 ### Events Backfill
 
-| Component                            | Description                                         |
-| ------------------------------------ | --------------------------------------------------- |
-| `duckling_events_backfill`           | Asset that exports events for a team/date partition |
-| `duckling_events_backfill_job`       | Job wrapping the asset                              |
-| `duckling_backfill_discovery_sensor` | Hourly sensor for yesterday's data (top-up)         |
-| `duckling_full_backfill_sensor`      | Daily sensor for historical backfill                |
+| Component                               | Description                                         |
+| --------------------------------------- | --------------------------------------------------- |
+| `duckling_events_backfill`              | Asset that exports events for a team/date partition |
+| `duckling_events_backfill_job`          | Job wrapping the asset                              |
+| `duckling_events_daily_backfill_sensor` | Hourly sensor for yesterday's data (top-up)         |
+| `duckling_events_full_backfill_sensor`  | Sensor for historical backfill (monthly batches)    |
 
 ### Persons Backfill
 
-| Component                               | Description                                          |
-| --------------------------------------- | ---------------------------------------------------- |
-| `duckling_persons_backfill`             | Asset that exports persons for a team/date partition |
-| `duckling_persons_backfill_job`         | Job wrapping the asset                               |
-| `duckling_persons_discovery_sensor`     | Hourly sensor for yesterday's data (top-up)          |
-| `duckling_persons_full_backfill_sensor` | Daily sensor for historical backfill                 |
+| Component                                | Description                                          |
+| ---------------------------------------- | ---------------------------------------------------- |
+| `duckling_persons_backfill`              | Asset that exports persons for a team/date partition |
+| `duckling_persons_backfill_job`          | Job wrapping the asset                               |
+| `duckling_persons_daily_backfill_sensor` | Hourly sensor for yesterday's data (top-up)          |
+| `duckling_persons_full_backfill_sensor`  | Sensor for historical backfill (full export)         |
 
 ## Partition Strategy
 
@@ -71,7 +71,7 @@ Example: `12345_2024-01-15` for team 12345's data on January 15, 2024.
 To run the full backfill immediately (without waiting for tomorrow):
 
 1. Go to Dagster UI → Sensors
-2. Find `duckling_full_backfill_sensor` (or `duckling_persons_full_backfill_sensor`)
+2. Find the relevant sensor (e.g., `duckling_events_full_backfill_sensor` or `duckling_persons_full_backfill_sensor`)
 3. Click "Reset cursor"
 4. The sensor will run on its next tick (within 60 seconds)
 
@@ -153,6 +153,6 @@ If multiple partitions for the same team run concurrently, they may race to crea
 ## S3 Path Structure
 
 ```text
-s3://{bucket}/backfill/events/team_id={team_id}/year={year}/month={month}/day={day}/{run_id}.parquet
-s3://{bucket}/backfill/persons/team_id={team_id}/year={year}/month={month}/day={day}/{run_id}.parquet
+s3://{bucket}/backfill/events/{team_id}/{year}/{month}/{day}/{run_id}.parquet
+s3://{bucket}/backfill/persons/{team_id}/{year}/{month}/{day}/{run_id}.parquet
 ```

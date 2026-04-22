@@ -18,10 +18,11 @@ import { urls } from 'scenes/urls'
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
 import { groupsModel } from '~/models/groupsModel'
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
-import { DataTableNode, Node, NodeKind } from '~/queries/schema/schema-general'
+import { DataTableNode, HogQLQuery, Node, NodeKind } from '~/queries/schema/schema-general'
 import { isDataTableNode } from '~/queries/utils'
 import { ActivityScope, Breadcrumb, Group, GroupTypeIndex, PropertyFilterType, PropertyOperator } from '~/types'
 
+import { CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS } from 'products/customer_analytics/frontend/constants'
 import { revenueAnalyticsLogic } from 'products/revenue_analytics/frontend/revenueAnalyticsLogic'
 
 import type { groupLogicType } from './groupLogicType'
@@ -97,7 +98,7 @@ export const groupLogic = kea<groupLogicType>([
                     }
 
                     try {
-                        const query = {
+                        const response = await api.query<HogQLQuery>({
                             kind: NodeKind.HogQLQuery,
                             query: `
                                 SELECT
@@ -107,11 +108,10 @@ export const groupLogic = kea<groupLogicType>([
                                 WHERE group_key = {groupKey}
                             `,
                             values: { groupKey: props.groupKey },
-                        }
+                            tags: CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS,
+                        })
 
-                        const result = await api.query(query)
-
-                        const row = (result as any).results?.[0]
+                        const row = response?.results?.[0]
                         if (!row) {
                             return null
                         }

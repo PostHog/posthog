@@ -4,26 +4,26 @@ from posthog.temporal.ai.chat_agent import (
     process_chat_agent_activity,
     process_conversation_activity,
 )
+from posthog.temporal.ai.posthog_code_slack_interactivity import (
+    PostHogCodeSlackTerminateTaskWorkflow,
+    process_posthog_code_terminate_task_activity,
+)
+from posthog.temporal.ai.posthog_code_slack_mention import (
+    PostHogCodeSlackMentionWorkflow,
+    classify_posthog_code_task_needs_repo_activity,
+    collect_posthog_code_thread_messages_activity,
+    create_posthog_code_routing_rule_activity,
+    create_posthog_code_task_for_repo_activity,
+    forward_posthog_code_followup_activity,
+    handle_posthog_code_rules_command_activity,
+    post_posthog_code_internal_error_activity,
+    post_posthog_code_no_repos_activity,
+    post_posthog_code_picker_timeout_activity,
+    post_posthog_code_repo_picker_activity,
+    resolve_posthog_code_slack_user_activity,
+    select_posthog_code_repository_activity,
+)
 from posthog.temporal.ai.research_agent import ResearchAgentWorkflow, process_research_agent_activity
-from posthog.temporal.ai.session_summary.activities import (
-    analyze_video_segment_activity,
-    capture_timing_activity,
-    consolidate_video_segments_activity,
-    embed_and_store_segments_activity,
-    export_session_video_activity,
-    store_video_session_summary_activity,
-    upload_video_to_gemini_activity,
-)
-from posthog.temporal.ai.session_summary.activities.patterns import (
-    assign_events_to_patterns_activity,
-    combine_patterns_from_chunks_activity,
-    extract_session_group_patterns_activity,
-    split_session_summaries_into_chunks_for_patterns_extraction_activity,
-)
-from posthog.temporal.ai.session_summary.activities.video_validation import (
-    validate_llm_single_session_summary_with_videos_activity,
-)
-from posthog.temporal.ai.session_summary.types.single import SingleSessionSummaryInputs
 from posthog.temporal.ai.slack_conversation import (
     SlackConversationRunnerWorkflow,
     SlackConversationRunnerWorkflowInputs,
@@ -35,19 +35,6 @@ from .llm_traces_summaries.summarize_traces import (
     SummarizeLLMTracesWorkflow,
     summarize_llm_traces_activity,
 )
-from .session_summary.summarize_session import (
-    SummarizeSingleSessionStreamWorkflow,
-    SummarizeSingleSessionWorkflow,
-    fetch_session_data_activity,
-    get_llm_single_session_summary_activity,
-    stream_llm_single_session_summary_activity,
-)
-from .session_summary.summarize_session_group import (
-    SessionGroupSummaryInputs,
-    SessionGroupSummaryOfSummariesInputs,
-    SummarizeSessionGroupWorkflow,
-    fetch_session_batch_events_activity,
-)
 from .sync_vectors import (
     SyncVectorsInputs,
     SyncVectorsWorkflow,
@@ -55,76 +42,44 @@ from .sync_vectors import (
     batch_summarize_actions,
     get_approximate_actions_count,
 )
-from .video_segment_clustering.activities import (
-    cluster_segments_activity,
-    fetch_segments_activity,
-    label_clusters_activity,
-    match_clusters_activity,
-    persist_reports_activity,
-    prime_session_embeddings_activity,
-)
-from .video_segment_clustering.clustering_workflow import VideoSegmentClusteringWorkflow
-from .video_segment_clustering.coordinator_workflow import (
-    VideoSegmentClusteringCoordinatorWorkflow,
-    get_proactive_tasks_enabled_team_ids_activity,
-)
 
-WORKFLOWS = [
+AI_WORKFLOWS = [
     SyncVectorsWorkflow,
-    SummarizeSingleSessionStreamWorkflow,
-    SummarizeSingleSessionWorkflow,
-    SummarizeSessionGroupWorkflow,
     AssistantConversationRunnerWorkflow,
     ChatAgentWorkflow,
     ResearchAgentWorkflow,
     SummarizeLLMTracesWorkflow,
     SlackConversationRunnerWorkflow,
-    # Video segment clustering workflows
-    VideoSegmentClusteringWorkflow,
-    VideoSegmentClusteringCoordinatorWorkflow,
+    PostHogCodeSlackMentionWorkflow,
+    PostHogCodeSlackTerminateTaskWorkflow,
 ]
 
-ACTIVITIES = [
+AI_ACTIVITIES = [
     get_approximate_actions_count,
     batch_summarize_actions,
     batch_embed_and_sync_actions,
-    stream_llm_single_session_summary_activity,
-    get_llm_single_session_summary_activity,
-    fetch_session_batch_events_activity,
-    extract_session_group_patterns_activity,
-    assign_events_to_patterns_activity,
-    fetch_session_data_activity,
-    combine_patterns_from_chunks_activity,
-    split_session_summaries_into_chunks_for_patterns_extraction_activity,
     process_conversation_activity,
     process_chat_agent_activity,
     process_research_agent_activity,
-    validate_llm_single_session_summary_with_videos_activity,
     summarize_llm_traces_activity,
     process_slack_conversation_activity,
-    # Video analysis activities
-    export_session_video_activity,
-    upload_video_to_gemini_activity,
-    analyze_video_segment_activity,
-    embed_and_store_segments_activity,
-    store_video_session_summary_activity,
-    consolidate_video_segments_activity,
-    capture_timing_activity,
-    # Video segment clustering activities
-    prime_session_embeddings_activity,
-    fetch_segments_activity,
-    cluster_segments_activity,
-    match_clusters_activity,
-    label_clusters_activity,
-    persist_reports_activity,
-    get_proactive_tasks_enabled_team_ids_activity,
+    resolve_posthog_code_slack_user_activity,
+    handle_posthog_code_rules_command_activity,
+    collect_posthog_code_thread_messages_activity,
+    create_posthog_code_routing_rule_activity,
+    select_posthog_code_repository_activity,
+    classify_posthog_code_task_needs_repo_activity,
+    post_posthog_code_no_repos_activity,
+    post_posthog_code_repo_picker_activity,
+    create_posthog_code_task_for_repo_activity,
+    forward_posthog_code_followup_activity,
+    post_posthog_code_picker_timeout_activity,
+    post_posthog_code_internal_error_activity,
+    process_posthog_code_terminate_task_activity,
 ]
 
 __all__ = [
     "SyncVectorsInputs",
-    "SingleSessionSummaryInputs",
-    "SessionGroupSummaryInputs",
-    "SessionGroupSummaryOfSummariesInputs",
     "SummarizeLLMTracesInputs",
     "SlackConversationRunnerWorkflowInputs",
 ]

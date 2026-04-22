@@ -1,7 +1,11 @@
 import { DateTime } from 'luxon'
 
+import { KAFKA_PERSON, KAFKA_PERSON_DISTINCT_ID } from '../../../../../src/config/kafka-topics'
+import { PERSONS_OUTPUT, PERSON_DISTINCT_IDS_OUTPUT } from '../../../../../src/ingestion/analytics/outputs'
+import { IngestionOutputs } from '../../../../../src/ingestion/outputs/ingestion-outputs'
+import { SingleIngestionOutput } from '../../../../../src/ingestion/outputs/single-ingestion-output'
 import { createTeam, insertRow, resetTestDatabase } from '../../../../../tests/helpers/sql'
-import { Hub, InternalPerson, PropertyOperator, PropertyUpdateOperation, Team } from '../../../../types'
+import { Hub, InternalPerson, PropertyUpdateOperation, Team } from '../../../../types'
 import { closeHub, createHub } from '../../../../utils/db/hub'
 import { PostgresRouter, PostgresUse } from '../../../../utils/db/postgres'
 import { parseJSON } from '../../../../utils/json-parse'
@@ -48,20 +52,31 @@ describe('PostgresPersonRepository', () => {
         if (!result.success) {
             throw new Error('Failed to create person')
         }
-        await hub.kafkaProducer.queueMessages(result.messages)
+        const personOutputs = new IngestionOutputs({
+            [PERSONS_OUTPUT]: new SingleIngestionOutput(PERSONS_OUTPUT, KAFKA_PERSON, hub.kafkaProducer, 'test'),
+            [PERSON_DISTINCT_IDS_OUTPUT]: new SingleIngestionOutput(
+                PERSON_DISTINCT_IDS_OUTPUT,
+                KAFKA_PERSON_DISTINCT_ID,
+                hub.kafkaProducer,
+                'test'
+            ),
+        })
+        await Promise.all(
+            result.messages.map((msg) => personOutputs.produce(msg.output, { value: msg.value, key: null }))
+        )
         return result.person
     }
 
     describe('fetchPerson()', () => {
         it('returns undefined if person does not exist', async () => {
-            const team = await getFirstTeam(hub)
+            const team = await getFirstTeam(hub.postgres)
             const person = await repository.fetchPerson(team.id, 'some_id')
 
             expect(person).toEqual(undefined)
         })
 
         it('returns person object if person exists', async () => {
-            const team = await getFirstTeam(hub)
+            const team = await getFirstTeam(hub.postgres)
             const createdPerson = await createTestPerson(team.id, 'some_id', { foo: 'bar' })
             const person = await repository.fetchPerson(team.id, 'some_id')
 
@@ -79,7 +94,7 @@ describe('PostgresPersonRepository', () => {
         })
 
         it('throws error when both forUpdate and useReadReplica are true', async () => {
-            const team = await getFirstTeam(hub)
+            const team = await getFirstTeam(hub.postgres)
 
             await expect(
                 repository.fetchPerson(team.id, 'some_id', { forUpdate: true, useReadReplica: true })
@@ -87,7 +102,7 @@ describe('PostgresPersonRepository', () => {
         })
 
         it('uses read replica when useReadReplica is true', async () => {
-            const team = await getFirstTeam(hub)
+            const team = await getFirstTeam(hub.postgres)
             const createdPerson = await createTestPerson(team.id, 'some_id', { foo: 'bar' })
 
             // Mock the postgres query to verify it's called with the right parameters
@@ -104,6 +119,7 @@ describe('PostgresPersonRepository', () => {
                         is_user_id: createdPerson.is_user_id,
                         version: createdPerson.version,
                         is_identified: createdPerson.is_identified,
+                        last_seen_at: createdPerson.last_seen_at,
                     },
                 ],
                 command: 'SELECT',
@@ -123,7 +139,7 @@ describe('PostgresPersonRepository', () => {
         })
 
         it('uses write connection when useReadReplica is false', async () => {
-            const team = await getFirstTeam(hub)
+            const team = await getFirstTeam(hub.postgres)
             const createdPerson = await createTestPerson(team.id, 'some_id', { foo: 'bar' })
 
             // Mock the postgres query to verify it's called with the right parameters
@@ -140,6 +156,7 @@ describe('PostgresPersonRepository', () => {
                         is_user_id: createdPerson.is_user_id,
                         version: createdPerson.version,
                         is_identified: createdPerson.is_identified,
+                        last_seen_at: createdPerson.last_seen_at,
                     },
                 ],
                 command: 'SELECT',
@@ -159,7 +176,7 @@ describe('PostgresPersonRepository', () => {
         })
 
         it('adds FOR UPDATE clause when forUpdate is true', async () => {
-            const team = await getFirstTeam(hub)
+            const team = await getFirstTeam(hub.postgres)
 
             // Mock the postgres query to verify the SQL contains FOR UPDATE
             const mockQuery = jest.spyOn(postgres, 'query').mockResolvedValue({
@@ -183,7 +200,7 @@ describe('PostgresPersonRepository', () => {
 
     describe('createPerson()', () => {
         it('creates a person with basic properties', async () => {
-            const team = await getFirstTeam(hub)
+            const team = await getFirstTeam(hub.postgres)
             const uuid = new UUIDT().toString()
             const properties = { name: 'John Doe', email: 'john@example.com' }
 
@@ -210,12 +227,12 @@ describe('PostgresPersonRepository', () => {
             )
 
             expect(kafkaMessages).toHaveLength(2) // One for person, one for distinct ID
-            expect(kafkaMessages[0].topic).toBe('clickhouse_person_test')
-            expect(kafkaMessages[1].topic).toBe('clickhouse_person_distinct_id_test')
+            expect(kafkaMessages[0].output).toBe(PERSONS_OUTPUT)
+            expect(kafkaMessages[1].output).toBe(PERSON_DISTINCT_IDS_OUTPUT)
         })
 
         it('creates a person with multiple distinct IDs', async () => {
-            const team = await getFirstTeam(hub)
+            const team = await getFirstTeam(hub.postgres)
             const uuid = new UUIDT().toString()
             const properties = { name: 'Jane Doe' }
 
@@ -250,9 +267,9 @@ describe('PostgresPersonRepository', () => {
             )
 
             expect(kafkaMessages).toHaveLength(3) // One for person, two for distinct IDs
-            expect(kafkaMessages[0].topic).toBe('clickhouse_person_test')
-            expect(kafkaMessages[1].topic).toBe('clickhouse_person_distinct_id_test')
-            expect(kafkaMessages[2].topic).toBe('clickhouse_person_distinct_id_test')
+            expect(kafkaMessages[0].output).toBe(PERSONS_OUTPUT)
+            expect(kafkaMessages[1].output).toBe(PERSON_DISTINCT_IDS_OUTPUT)
+            expect(kafkaMessages[2].output).toBe(PERSON_DISTINCT_IDS_OUTPUT)
 
             const distinctIds = await fetchDistinctIdValues(hub.postgres, person)
             expect(distinctIds).toHaveLength(2)
@@ -264,7 +281,7 @@ describe('PostgresPersonRepository', () => {
         })
 
         it('throws error when trying to create a person with the same distinct ID twice', async () => {
-            const team = await getFirstTeam(hub)
+            const team = await getFirstTeam(hub.postgres)
             const distinctId = 'duplicate-distinct-id'
             const uuid1 = new UUIDT().toString()
             const uuid2 = new UUIDT().toString()
@@ -317,7 +334,7 @@ describe('PostgresPersonRepository', () => {
 
     describe('addDistinctId()', () => {
         it('should add distinct ID to person', async () => {
-            const team = await getFirstTeam(hub)
+            const team = await getFirstTeam(hub.postgres)
             const person = await createTestPerson(team.id, 'existing-distinct-id', { name: 'John Doe' })
             const newDistinctId = 'new-distinct-id'
             const version = 1
@@ -325,10 +342,10 @@ describe('PostgresPersonRepository', () => {
             const messages = await repository.addDistinctId(person, newDistinctId, version)
 
             expect(messages).toHaveLength(1)
-            expect(messages[0].topic).toBe('clickhouse_person_distinct_id_test')
-            expect(messages[0].messages).toHaveLength(1)
+            expect(messages[0].output).toBe(PERSON_DISTINCT_IDS_OUTPUT)
+            expect(messages[0].value).not.toBeNull()
 
-            const messageValue = parseJSON(messages[0].messages[0].value as string)
+            const messageValue = parseJSON(messages[0].value!.toString())
             expect(messageValue).toEqual({
                 person_id: person.uuid,
                 team_id: team.id,
@@ -339,7 +356,7 @@ describe('PostgresPersonRepository', () => {
         })
 
         it('should handle adding distinct ID with different version', async () => {
-            const team = await getFirstTeam(hub)
+            const team = await getFirstTeam(hub.postgres)
             const person = await createTestPerson(team.id, 'existing-distinct-id', { name: 'John Doe' })
             const newDistinctId = 'another-distinct-id'
             const version = 5
@@ -347,10 +364,10 @@ describe('PostgresPersonRepository', () => {
             const messages = await repository.addDistinctId(person, newDistinctId, version)
 
             expect(messages).toHaveLength(1)
-            expect(messages[0].topic).toBe('clickhouse_person_distinct_id_test')
-            expect(messages[0].messages).toHaveLength(1)
+            expect(messages[0].output).toBe(PERSON_DISTINCT_IDS_OUTPUT)
+            expect(messages[0].value).not.toBeNull()
 
-            const messageValue = parseJSON(messages[0].messages[0].value as string)
+            const messageValue = parseJSON(messages[0].value!.toString())
             expect(messageValue).toEqual({
                 person_id: person.uuid,
                 team_id: team.id,
@@ -363,7 +380,7 @@ describe('PostgresPersonRepository', () => {
 
     describe('deletePerson()', () => {
         it('should delete person from postgres', async () => {
-            const team = await getFirstTeam(hub)
+            const team = await getFirstTeam(hub.postgres)
             const uuid = new UUIDT().toString()
             const result = await repository.createPerson(TIMESTAMP, {}, {}, {}, team.id, null, true, uuid, {
                 distinctId: 'delete-test-distinct',
@@ -374,7 +391,18 @@ describe('PostgresPersonRepository', () => {
             const person = result.person
             const kafkaMessages = result.messages
 
-            await hub.kafkaProducer.queueMessages(kafkaMessages)
+            const personOutputs = new IngestionOutputs({
+                [PERSONS_OUTPUT]: new SingleIngestionOutput(PERSONS_OUTPUT, KAFKA_PERSON, hub.kafkaProducer, 'test'),
+                [PERSON_DISTINCT_IDS_OUTPUT]: new SingleIngestionOutput(
+                    PERSON_DISTINCT_IDS_OUTPUT,
+                    KAFKA_PERSON_DISTINCT_ID,
+                    hub.kafkaProducer,
+                    'test'
+                ),
+            })
+            await Promise.all(
+                kafkaMessages.map((msg) => personOutputs.produce(msg.output, { value: msg.value, key: null }))
+            )
 
             // Delete distinct IDs first to avoid FK constraint violation
             await hub.postgres.query(
@@ -392,10 +420,10 @@ describe('PostgresPersonRepository', () => {
 
             // Verify kafka messages are generated
             expect(deleteMessages).toHaveLength(1)
-            expect(deleteMessages[0].topic).toBe('clickhouse_person_test')
-            expect(deleteMessages[0].messages).toHaveLength(1)
+            expect(deleteMessages[0].output).toBe(PERSONS_OUTPUT)
+            expect(deleteMessages[0].value).not.toBeNull()
 
-            const messageValue = parseJSON(deleteMessages[0].messages[0].value as string)
+            const messageValue = parseJSON(deleteMessages[0].value!.toString())
             expect(messageValue).toEqual({
                 id: person.uuid,
                 created_at: person.created_at.toFormat('yyyy-MM-dd HH:mm:ss'),
@@ -404,11 +432,12 @@ describe('PostgresPersonRepository', () => {
                 is_identified: Number(person.is_identified),
                 is_deleted: 1,
                 version: person.version + 100, // version is incremented by 100 for deletions
+                last_seen_at: person.last_seen_at?.toFormat('yyyy-MM-dd HH:mm:ss') ?? null,
             })
         })
 
         it('should handle deleting person that does not exist', async () => {
-            const team = await getFirstTeam(hub)
+            const team = await getFirstTeam(hub.postgres)
             const nonExistentPerson = {
                 id: '999999',
                 uuid: new UUIDT().toString(),
@@ -420,6 +449,7 @@ describe('PostgresPersonRepository', () => {
                 is_user_id: null,
                 version: 0,
                 is_identified: false,
+                last_seen_at: null,
             }
 
             const messages = await repository.deletePerson(nonExistentPerson)
@@ -431,7 +461,7 @@ describe('PostgresPersonRepository', () => {
 
     describe('moveDistinctIds()', () => {
         it('should move distinct IDs from source to target person', async () => {
-            const team = await getFirstTeam(hub)
+            const team = await getFirstTeam(hub.postgres)
             const sourcePerson = await createTestPerson(team.id, 'source-distinct-id', { name: 'Source Person' })
             const targetPerson = await createTestPerson(team.id, 'target-distinct-id', { name: 'Target Person' })
 
@@ -446,10 +476,10 @@ describe('PostgresPersonRepository', () => {
 
                 // Verify the messages have the correct structure
                 for (const message of result.messages) {
-                    expect(message.topic).toBe('clickhouse_person_distinct_id_test')
-                    expect(message.messages).toHaveLength(1)
+                    expect(message.output).toBe(PERSON_DISTINCT_IDS_OUTPUT)
+                    expect(message.value).not.toBeNull()
 
-                    const messageValue = parseJSON(message.messages[0].value as string)
+                    const messageValue = parseJSON(message.value!.toString())
                     expect(messageValue).toMatchObject({
                         person_id: targetPerson.uuid,
                         team_id: team.id,
@@ -462,7 +492,7 @@ describe('PostgresPersonRepository', () => {
         })
 
         it.skip('should handle target person not found', async () => {
-            const team = await getFirstTeam(hub)
+            const team = await getFirstTeam(hub.postgres)
             const sourcePerson = await createTestPerson(team.id, 'source-distinct-id', { name: 'Source Person' })
             const nonExistentTargetPerson = {
                 id: '999999',
@@ -475,6 +505,7 @@ describe('PostgresPersonRepository', () => {
                 is_user_id: null,
                 version: 0,
                 is_identified: false,
+                last_seen_at: null,
             }
 
             const result = await repository.moveDistinctIds(sourcePerson, nonExistentTargetPerson, undefined)
@@ -486,7 +517,7 @@ describe('PostgresPersonRepository', () => {
         })
 
         it('should handle source person not found', async () => {
-            const team = await getFirstTeam(hub)
+            const team = await getFirstTeam(hub.postgres)
             const targetPerson = await createTestPerson(team.id, 'target-distinct-id', { name: 'Target Person' })
             const nonExistentSourcePerson = {
                 id: '888888',
@@ -499,6 +530,7 @@ describe('PostgresPersonRepository', () => {
                 is_user_id: null,
                 version: 0,
                 is_identified: false,
+                last_seen_at: null,
             }
 
             const result = await repository.moveDistinctIds(nonExistentSourcePerson, targetPerson, undefined)
@@ -510,7 +542,7 @@ describe('PostgresPersonRepository', () => {
         })
 
         it('should respect per-call move limit when provided', async () => {
-            const team = await getFirstTeam(hub)
+            const team = await getFirstTeam(hub.postgres)
             const limitedRepository = new PostgresPersonRepository(postgres, {})
 
             const sourcePerson = await createTestPerson(team.id, 'source-distinct-id', { name: 'Source Person' })
@@ -531,10 +563,10 @@ describe('PostgresPersonRepository', () => {
 
                 // Verify the messages have the correct structure
                 for (const message of result.messages) {
-                    expect(message.topic).toBe('clickhouse_person_distinct_id_test')
-                    expect(message.messages).toHaveLength(1)
+                    expect(message.output).toBe(PERSON_DISTINCT_IDS_OUTPUT)
+                    expect(message.value).not.toBeNull()
 
-                    const messageValue = parseJSON(message.messages[0].value as string)
+                    const messageValue = parseJSON(message.value!.toString())
                     expect(messageValue).toMatchObject({
                         person_id: targetPerson.uuid,
                         team_id: team.id,
@@ -556,7 +588,7 @@ describe('PostgresPersonRepository', () => {
         })
 
         it('should move all distinct IDs when no limit is configured', async () => {
-            const team = await getFirstTeam(hub)
+            const team = await getFirstTeam(hub.postgres)
             const unlimitedRepository = new PostgresPersonRepository(postgres, {}) // No limit
 
             const sourcePerson = await createTestPerson(team.id, 'source-unlimited', { name: 'Source Person' })
@@ -587,7 +619,7 @@ describe('PostgresPersonRepository', () => {
         })
 
         it('should move distinct IDs in deterministic order when per-call limit is set', async () => {
-            const team = await getFirstTeam(hub)
+            const team = await getFirstTeam(hub.postgres)
             const limitedRepository = new PostgresPersonRepository(postgres, {})
 
             const sourcePerson = await createTestPerson(team.id, 'source-deterministic', { name: 'Source Person' })
@@ -642,7 +674,7 @@ describe('PostgresPersonRepository', () => {
         })
 
         it('should move all distinct IDs when person has fewer than the per-call limit', async () => {
-            const team = await getFirstTeam(hub)
+            const team = await getFirstTeam(hub.postgres)
             const limitedRepository = new PostgresPersonRepository(postgres, {})
 
             const sourcePerson = await createTestPerson(team.id, 'source-below-limit', { name: 'Source Person' })
@@ -662,10 +694,10 @@ describe('PostgresPersonRepository', () => {
 
                 // Verify the messages have the correct structure
                 for (const message of result.messages) {
-                    expect(message.topic).toBe('clickhouse_person_distinct_id_test')
-                    expect(message.messages).toHaveLength(1)
+                    expect(message.output).toBe(PERSON_DISTINCT_IDS_OUTPUT)
+                    expect(message.value).not.toBeNull()
 
-                    const messageValue = parseJSON(message.messages[0].value as string)
+                    const messageValue = parseJSON(message.value!.toString())
                     expect(messageValue).toMatchObject({
                         person_id: targetPerson.uuid,
                         team_id: team.id,
@@ -689,7 +721,7 @@ describe('PostgresPersonRepository', () => {
 
     describe('fetchPersonDistinctIds()', () => {
         it('should fetch all distinct IDs when no limit is specified', async () => {
-            const team = await getFirstTeam(hub)
+            const team = await getFirstTeam(hub.postgres)
             const person = await createTestPerson(team.id, 'test-distinct-id', { name: 'Test Person' })
 
             // Add more distinct IDs
@@ -707,7 +739,7 @@ describe('PostgresPersonRepository', () => {
         })
 
         it('should fetch limited distinct IDs when limit is specified', async () => {
-            const team = await getFirstTeam(hub)
+            const team = await getFirstTeam(hub.postgres)
             const person = await createTestPerson(team.id, 'test-limit-distinct', { name: 'Test Person' })
 
             // Add more distinct IDs
@@ -723,7 +755,7 @@ describe('PostgresPersonRepository', () => {
         })
 
         it('should return distinct IDs in deterministic order', async () => {
-            const team = await getFirstTeam(hub)
+            const team = await getFirstTeam(hub.postgres)
             const person = await createTestPerson(team.id, 'order-test-distinct', { name: 'Test Person' })
 
             // Add distinct IDs in non-alphabetical order
@@ -740,7 +772,7 @@ describe('PostgresPersonRepository', () => {
         })
 
         it('should handle limit larger than available distinct IDs', async () => {
-            const team = await getFirstTeam(hub)
+            const team = await getFirstTeam(hub.postgres)
             const person = await createTestPerson(team.id, 'large-limit-distinct', { name: 'Test Person' })
 
             // Add only 2 more distinct IDs (total of 3)
@@ -756,7 +788,7 @@ describe('PostgresPersonRepository', () => {
         })
 
         it('should work with transactions', async () => {
-            const team = await getFirstTeam(hub)
+            const team = await getFirstTeam(hub.postgres)
             const person = await createTestPerson(team.id, 'tx-distinct', { name: 'Test Person' })
 
             await repository.addDistinctId(person, 'tx-distinct-2', 1)
@@ -777,7 +809,7 @@ describe('PostgresPersonRepository', () => {
         })
 
         it('should fetch persons by distinct IDs from multiple teams', async () => {
-            const team1 = await getFirstTeam(hub)
+            const team1 = await getFirstTeam(hub.postgres)
             const team2Id = await createTeam(postgres, team1.organization_id)
 
             // Create persons in different teams
@@ -816,7 +848,7 @@ describe('PostgresPersonRepository', () => {
         })
 
         it('should handle non-existent distinct IDs gracefully', async () => {
-            const team = await getFirstTeam(hub)
+            const team = await getFirstTeam(hub.postgres)
             const person = await createTestPerson(team.id, 'existing-distinct', { name: 'Existing Person' })
 
             const teamPersons = [
@@ -833,7 +865,7 @@ describe('PostgresPersonRepository', () => {
         })
 
         it('should handle single team person lookup', async () => {
-            const team = await getFirstTeam(hub)
+            const team = await getFirstTeam(hub.postgres)
             const person = await createTestPerson(team.id, 'single-distinct', { name: 'Single Person' })
 
             const teamPersons = [{ teamId: team.id as any, distinctId: 'single-distinct' }]
@@ -848,7 +880,7 @@ describe('PostgresPersonRepository', () => {
         })
 
         it('should handle duplicate team/distinctId pairs', async () => {
-            const team = await getFirstTeam(hub)
+            const team = await getFirstTeam(hub.postgres)
             const person = await createTestPerson(team.id, 'duplicate-distinct', { name: 'Duplicate Person' })
 
             const teamPersons = [
@@ -865,7 +897,7 @@ describe('PostgresPersonRepository', () => {
         })
 
         it('should include all required fields in InternalPersonWithDistinctId', async () => {
-            const team = await getFirstTeam(hub)
+            const team = await getFirstTeam(hub.postgres)
             const person = await createTestPerson(team.id, 'fields-test', { name: 'Fields Test', age: 25 })
 
             const teamPersons = [{ teamId: team.id as any, distinctId: 'fields-test' }]
@@ -890,9 +922,83 @@ describe('PostgresPersonRepository', () => {
         })
     })
 
+    describe('fetchPersonsByPersonIds', () => {
+        it('should return empty array when no team persons provided', async () => {
+            const result = await repository.fetchPersonsByPersonIds([])
+            expect(result).toEqual([])
+        })
+
+        it.each([
+            ['single team', 1],
+            ['multiple teams', 2],
+        ])('should fetch persons by person IDs (%s)', async (_label, teamCount) => {
+            const team1 = await getFirstTeam(hub.postgres)
+            const team2Id = teamCount > 1 ? await createTeam(postgres, team1.organization_id) : team1.id
+
+            const person1 = await createTestPerson(team1.id, 'pid-test-1', { name: 'Person 1' })
+            const person2 =
+                teamCount > 1
+                    ? await createTestPerson(team2Id, 'pid-test-2', { name: 'Person 2' })
+                    : await createTestPerson(team1.id, 'pid-test-2', { name: 'Person 2' })
+
+            const teamPersons = [
+                { teamId: team1.id, personId: person1.uuid },
+                { teamId: team2Id, personId: person2.uuid },
+            ]
+            const result = await repository.fetchPersonsByPersonIds(teamPersons)
+
+            expect(result).toHaveLength(2)
+            expect(result.map((p) => p.uuid)).toEqual(expect.arrayContaining([person1.uuid, person2.uuid]))
+        })
+
+        it('should not return persons from a different team even if their IDs were referenced', async () => {
+            const team1 = await getFirstTeam(hub.postgres)
+            const team2Id = await createTeam(postgres, team1.organization_id)
+
+            const team1Person = await createTestPerson(team1.id, 'cross-team-1', { name: 'Team 1 Person' })
+            const team2Person = await createTestPerson(team2Id, 'cross-team-2', { name: 'Team 2 Person' })
+
+            const teamPersons = [
+                { teamId: team2Id, personId: team1Person.uuid },
+                { teamId: team1.id, personId: team2Person.uuid },
+            ]
+            const result = await repository.fetchPersonsByPersonIds(teamPersons)
+
+            // Neither pair matches the actual (team_id, person_id) in the DB
+            expect(result).toHaveLength(0)
+        })
+
+        it('should handle non-existent person IDs gracefully', async () => {
+            const team = await getFirstTeam(hub.postgres)
+            const person = await createTestPerson(team.id, 'existing-person', { name: 'Existing' })
+            const nonExistentId = new UUIDT().toString()
+
+            const result = await repository.fetchPersonsByPersonIds([
+                { teamId: team.id, personId: person.uuid },
+                { teamId: team.id, personId: nonExistentId },
+            ])
+
+            expect(result).toHaveLength(1)
+            expect(result[0].uuid).toBe(person.uuid)
+        })
+
+        it('should deduplicate repeated (teamId, personId) pairs', async () => {
+            const team = await getFirstTeam(hub.postgres)
+            const person = await createTestPerson(team.id, 'dedup-person', { name: 'Dedup' })
+
+            const result = await repository.fetchPersonsByPersonIds([
+                { teamId: team.id, personId: person.uuid },
+                { teamId: team.id, personId: person.uuid },
+            ])
+
+            expect(result).toHaveLength(1)
+            expect(result[0].uuid).toBe(person.uuid)
+        })
+    })
+
     describe('addPersonlessDistinctId', () => {
         it('should insert personless distinct ID successfully', async () => {
-            const team = await getFirstTeam(hub)
+            const team = await getFirstTeam(hub.postgres)
             const distinctId = 'test-distinct-new'
 
             const result = await repository.addPersonlessDistinctId(team.id, distinctId)
@@ -912,7 +1018,7 @@ describe('PostgresPersonRepository', () => {
         })
 
         it('should return existing is_merged value when distinct ID already exists', async () => {
-            const team = await getFirstTeam(hub)
+            const team = await getFirstTeam(hub.postgres)
             const distinctId = 'test-distinct-existing'
 
             // First insert
@@ -935,7 +1041,7 @@ describe('PostgresPersonRepository', () => {
         })
 
         it('should handle different team IDs correctly', async () => {
-            const team1 = await getFirstTeam(hub)
+            const team1 = await getFirstTeam(hub.postgres)
             const team2Id = await createTeam(hub.postgres, team1.organization_id)
             const distinctId = 'shared-distinct-id'
 
@@ -971,7 +1077,7 @@ describe('PostgresPersonRepository', () => {
 
     describe('addPersonlessDistinctIdForMerge', () => {
         it('should insert personless distinct ID for merge successfully', async () => {
-            const team = await getFirstTeam(hub)
+            const team = await getFirstTeam(hub.postgres)
             const distinctId = 'test-distinct-merge-new'
 
             const result = await repository.addPersonlessDistinctIdForMerge(team.id, distinctId)
@@ -991,7 +1097,7 @@ describe('PostgresPersonRepository', () => {
         })
 
         it('should update existing record to merged when distinct ID already exists', async () => {
-            const team = await getFirstTeam(hub)
+            const team = await getFirstTeam(hub.postgres)
             const distinctId = 'test-distinct-merge-existing'
 
             // First insert as regular personless distinct ID
@@ -1022,7 +1128,7 @@ describe('PostgresPersonRepository', () => {
         })
 
         it('should handle transaction parameter correctly', async () => {
-            const team = await getFirstTeam(hub)
+            const team = await getFirstTeam(hub.postgres)
             const distinctId = 'test-distinct-merge-transaction'
 
             // Use a transaction
@@ -1055,7 +1161,7 @@ describe('PostgresPersonRepository', () => {
 
     describe('addPersonlessDistinctIdsBatch', () => {
         it('should insert multiple personless distinct IDs in batch', async () => {
-            const team = await getFirstTeam(hub)
+            const team = await getFirstTeam(hub.postgres)
             const entries = [
                 { teamId: team.id, distinctId: 'batch-distinct-1' },
                 { teamId: team.id, distinctId: 'batch-distinct-2' },
@@ -1081,7 +1187,7 @@ describe('PostgresPersonRepository', () => {
         })
 
         it('should handle duplicate distinct IDs in batch (deduplicates)', async () => {
-            const team = await getFirstTeam(hub)
+            const team = await getFirstTeam(hub.postgres)
             const entries = [
                 { teamId: team.id, distinctId: 'dup-distinct' },
                 { teamId: team.id, distinctId: 'dup-distinct' },
@@ -1097,7 +1203,7 @@ describe('PostgresPersonRepository', () => {
         })
 
         it('should return is_merged=true for already merged distinct IDs', async () => {
-            const team = await getFirstTeam(hub)
+            const team = await getFirstTeam(hub.postgres)
             const mergedDistinctId = 'already-merged-distinct'
 
             // First, insert and mark as merged
@@ -1122,7 +1228,7 @@ describe('PostgresPersonRepository', () => {
         })
 
         it('should handle multiple teams in same batch', async () => {
-            const team1 = await getFirstTeam(hub)
+            const team1 = await getFirstTeam(hub.postgres)
             const team2Id = await createTeam(hub.postgres, team1.organization_id)
 
             const entries = [
@@ -1140,7 +1246,7 @@ describe('PostgresPersonRepository', () => {
 
     describe('personPropertiesSize', () => {
         it('should return properties size for existing person', async () => {
-            const team = await getFirstTeam(hub)
+            const team = await getFirstTeam(hub.postgres)
             const person = await createTestPerson(team.id, 'test-distinct', {
                 name: 'John Doe',
                 email: 'john@example.com',
@@ -1158,7 +1264,7 @@ describe('PostgresPersonRepository', () => {
         })
 
         it('should return 0 for non-existent person', async () => {
-            const team = await getFirstTeam(hub)
+            const team = await getFirstTeam(hub.postgres)
             const fakePersonId = '999999' // Use a numeric ID instead of UUID
             const size = await repository.personPropertiesSize(fakePersonId, team.id)
 
@@ -1166,7 +1272,7 @@ describe('PostgresPersonRepository', () => {
         })
 
         it('should handle different persons correctly', async () => {
-            const team1 = await getFirstTeam(hub)
+            const team1 = await getFirstTeam(hub.postgres)
             const team2Id = await createTeam(hub.postgres, team1.organization_id)
 
             // Create person in team 1
@@ -1185,7 +1291,7 @@ describe('PostgresPersonRepository', () => {
         })
 
         it('should return larger size for person with more properties', async () => {
-            const team = await getFirstTeam(hub)
+            const team = await getFirstTeam(hub.postgres)
 
             // Create person with minimal properties
             const minimalPerson = await createTestPerson(team.id, 'minimal-person', { name: 'Minimal' })
@@ -1226,7 +1332,7 @@ describe('PostgresPersonRepository', () => {
 
     describe('updatePerson', () => {
         it('should update person properties successfully', async () => {
-            const team = await getFirstTeam(hub)
+            const team = await getFirstTeam(hub.postgres)
             const person = await createTestPerson(team.id, 'test-distinct', { name: 'John', age: 25 })
 
             const update = { properties: { name: 'Jane', age: 30, city: 'New York' } }
@@ -1247,7 +1353,7 @@ describe('PostgresPersonRepository', () => {
         })
 
         it('should update is_identified field', async () => {
-            const team = await getFirstTeam(hub)
+            const team = await getFirstTeam(hub.postgres)
             const person = await createTestPerson(team.id, 'test-distinct', { name: 'John' })
 
             const update = { is_identified: true }
@@ -1262,7 +1368,7 @@ describe('PostgresPersonRepository', () => {
         })
 
         it('should handle version conflicts correctly', async () => {
-            const team = await getFirstTeam(hub)
+            const team = await getFirstTeam(hub.postgres)
             const person = await createTestPerson(team.id, 'test-distinct', { name: 'John' })
 
             // First update
@@ -1286,7 +1392,7 @@ describe('PostgresPersonRepository', () => {
         })
 
         it('should handle transaction parameter correctly', async () => {
-            const team = await getFirstTeam(hub)
+            const team = await getFirstTeam(hub.postgres)
             const person = await createTestPerson(team.id, 'test-distinct', { name: 'John' })
 
             await postgres.transaction(PostgresUse.PERSONS_WRITE, 'test-transaction', async (tx) => {
@@ -1308,7 +1414,7 @@ describe('PostgresPersonRepository', () => {
         })
 
         it('should handle tag parameter correctly', async () => {
-            const team = await getFirstTeam(hub)
+            const team = await getFirstTeam(hub.postgres)
             const person = await createTestPerson(team.id, 'test-distinct', { name: 'John' })
 
             const update = { properties: { name: 'Jane' } }
@@ -1323,7 +1429,7 @@ describe('PostgresPersonRepository', () => {
         })
 
         it('should throw NoRowsUpdatedError when person does not exist', async () => {
-            const team = await getFirstTeam(hub)
+            const team = await getFirstTeam(hub.postgres)
             const nonExistentPerson: InternalPerson = {
                 id: '1234567890',
                 team_id: team.id,
@@ -1335,6 +1441,7 @@ describe('PostgresPersonRepository', () => {
                 is_user_id: null,
                 properties_last_updated_at: {},
                 properties_last_operation: {},
+                last_seen_at: null,
             }
 
             const update = { properties: { name: 'Jane' } }
@@ -1344,7 +1451,7 @@ describe('PostgresPersonRepository', () => {
         })
 
         it('should handle updatePersonAssertVersion with optimistic concurrency control', async () => {
-            const team = await getFirstTeam(hub)
+            const team = await getFirstTeam(hub.postgres)
             const person = await createTestPerson(team.id, 'test-distinct', { name: 'John' })
 
             // Create a PersonUpdate object
@@ -1360,11 +1467,13 @@ describe('PostgresPersonRepository', () => {
                 version: person.version,
                 is_identified: person.is_identified,
                 is_user_id: person.is_user_id,
+                last_seen_at: person.last_seen_at,
                 needs_write: true,
                 properties_to_set: { name: 'Jane', age: 30 },
                 properties_to_unset: [],
                 original_is_identified: false,
                 original_created_at: DateTime.fromISO('2020-01-01T00:00:00.000Z'),
+                original_last_seen_at: null,
             }
 
             // First update should succeed
@@ -1380,7 +1489,7 @@ describe('PostgresPersonRepository', () => {
         })
 
         it('should handle updatePersonAssertVersion with version mismatch', async () => {
-            const team = await getFirstTeam(hub)
+            const team = await getFirstTeam(hub.postgres)
             const person = await createTestPerson(team.id, 'test-distinct', { name: 'John' })
 
             // Create a PersonUpdate with an outdated version
@@ -1396,11 +1505,13 @@ describe('PostgresPersonRepository', () => {
                 version: person.version - 1, // Outdated version
                 is_identified: person.is_identified,
                 is_user_id: person.is_user_id,
+                last_seen_at: person.last_seen_at,
                 needs_write: true,
                 properties_to_set: { name: 'Jane', age: 30 },
                 properties_to_unset: [],
                 original_is_identified: false,
                 original_created_at: DateTime.fromISO('2020-01-01T00:00:00.000Z'),
+                original_last_seen_at: null,
             }
 
             // Update should fail due to version mismatch
@@ -1416,7 +1527,7 @@ describe('PostgresPersonRepository', () => {
         })
 
         it('should handle updatePersonAssertVersion with non-existent person', async () => {
-            const team = await getFirstTeam(hub)
+            const team = await getFirstTeam(hub.postgres)
 
             // Create a PersonUpdate for a non-existent person
             const personUpdate = {
@@ -1431,11 +1542,13 @@ describe('PostgresPersonRepository', () => {
                 version: 0,
                 is_identified: false,
                 is_user_id: null,
+                last_seen_at: null,
                 needs_write: true,
                 properties_to_set: { name: 'Jane' },
                 properties_to_unset: [],
                 original_is_identified: false,
                 original_created_at: DateTime.fromISO('2020-01-01T00:00:00.000Z'),
+                original_last_seen_at: null,
             }
 
             // Update should fail because person doesn't exist
@@ -1446,7 +1559,7 @@ describe('PostgresPersonRepository', () => {
         })
 
         it('should merge properties_to_set into properties when updating', async () => {
-            const team = await getFirstTeam(hub)
+            const team = await getFirstTeam(hub.postgres)
             const person = await createTestPerson(team.id, 'test-merge-set', { existing: 'value', to_update: 'old' })
 
             const personUpdate = {
@@ -1461,11 +1574,13 @@ describe('PostgresPersonRepository', () => {
                 version: person.version,
                 is_identified: person.is_identified,
                 is_user_id: person.is_user_id,
+                last_seen_at: person.last_seen_at,
                 needs_write: true,
                 properties_to_set: { new_prop: 'new_value', to_update: 'new' }, // New properties to merge
                 properties_to_unset: [],
                 original_is_identified: false,
                 original_created_at: DateTime.fromISO('2020-01-01T00:00:00.000Z'),
+                original_last_seen_at: null,
             }
 
             const [actualVersion, messages] = await repository.updatePersonAssertVersion(personUpdate)
@@ -1482,7 +1597,7 @@ describe('PostgresPersonRepository', () => {
         })
 
         it('should apply properties_to_unset when updating', async () => {
-            const team = await getFirstTeam(hub)
+            const team = await getFirstTeam(hub.postgres)
             const person = await createTestPerson(team.id, 'test-unset', {
                 keep: 'value',
                 remove_me: 'will be removed',
@@ -1500,11 +1615,13 @@ describe('PostgresPersonRepository', () => {
                 version: person.version,
                 is_identified: person.is_identified,
                 is_user_id: person.is_user_id,
+                last_seen_at: person.last_seen_at,
                 needs_write: true,
                 properties_to_set: {},
                 properties_to_unset: ['remove_me'],
                 original_is_identified: false,
                 original_created_at: DateTime.fromISO('2020-01-01T00:00:00.000Z'),
+                original_last_seen_at: null,
             }
 
             const [actualVersion, messages] = await repository.updatePersonAssertVersion(personUpdate)
@@ -1518,7 +1635,7 @@ describe('PostgresPersonRepository', () => {
         })
 
         it('should handle combined properties_to_set and properties_to_unset', async () => {
-            const team = await getFirstTeam(hub)
+            const team = await getFirstTeam(hub.postgres)
             const person = await createTestPerson(team.id, 'test-combined', {
                 keep: 'value',
                 remove: 'will go',
@@ -1537,11 +1654,13 @@ describe('PostgresPersonRepository', () => {
                 version: person.version,
                 is_identified: person.is_identified,
                 is_user_id: person.is_user_id,
+                last_seen_at: person.last_seen_at,
                 needs_write: true,
                 properties_to_set: { update: 'new', added: 'fresh' },
                 properties_to_unset: ['remove'],
                 original_is_identified: false,
                 original_created_at: DateTime.fromISO('2020-01-01T00:00:00.000Z'),
+                original_last_seen_at: null,
             }
 
             const [actualVersion, messages] = await repository.updatePersonAssertVersion(personUpdate)
@@ -1575,7 +1694,7 @@ describe('PostgresPersonRepository', () => {
         }
 
         beforeEach(async () => {
-            team = await getFirstTeam(hub)
+            team = await getFirstTeam(hub.postgres)
             const result = await repository.createPerson(
                 TIMESTAMP,
                 {},
@@ -1609,7 +1728,20 @@ describe('PostgresPersonRepository', () => {
             }
             const targetPerson = result2.person
 
-            await hub.kafkaProducer.queueMessages(kafkaMessagesSourcePerson)
+            const personOutputs = new IngestionOutputs({
+                [PERSONS_OUTPUT]: new SingleIngestionOutput(PERSONS_OUTPUT, KAFKA_PERSON, hub.kafkaProducer, 'test'),
+                [PERSON_DISTINCT_IDS_OUTPUT]: new SingleIngestionOutput(
+                    PERSON_DISTINCT_IDS_OUTPUT,
+                    KAFKA_PERSON_DISTINCT_ID,
+                    hub.kafkaProducer,
+                    'test'
+                ),
+            })
+            await Promise.all(
+                kafkaMessagesSourcePerson.map((msg) =>
+                    personOutputs.produce(msg.output, { value: msg.value, key: null })
+                )
+            )
             sourcePersonID = sourcePerson.id
             targetPersonID = targetPerson.id
         })
@@ -1848,7 +1980,7 @@ describe('PostgresPersonRepository', () => {
 
         describe('createPerson with oversized properties', () => {
             it('should throw PersonPropertiesSizeViolationError when properties exceed size limit', async () => {
-                const team = await getFirstTeam(hub)
+                const team = await getFirstTeam(hub.postgres)
                 const uuid = new UUIDT().toString()
                 const oversizedProperties = {
                     description: 'x'.repeat(200),
@@ -1899,7 +2031,7 @@ describe('PostgresPersonRepository', () => {
 
         describe('updatePerson with oversized properties', () => {
             it('should trim existing oversized person properties and update successfully', async () => {
-                const team = await getFirstTeam(hub)
+                const team = await getFirstTeam(hub.postgres)
 
                 const normalPerson = await createTestPerson(team.id, 'test-oversized-update', {
                     name: 'John',
@@ -1932,7 +2064,7 @@ describe('PostgresPersonRepository', () => {
             })
 
             it('should reject update when current person is under limit but update would exceed it', async () => {
-                const team = await getFirstTeam(hub)
+                const team = await getFirstTeam(hub.postgres)
                 const normalPerson = await createTestPerson(team.id, 'test-normal-person', { name: 'John' })
 
                 const mockPersonPropertiesSize = jest
@@ -1974,7 +2106,7 @@ describe('PostgresPersonRepository', () => {
             })
 
             it('should fail gracefully when trimming fails', async () => {
-                const team = await getFirstTeam(hub)
+                const team = await getFirstTeam(hub.postgres)
                 const normalPerson = await createTestPerson(team.id, 'test-trim-failure', {
                     name: 'John',
                     description: 'x'.repeat(120),
@@ -2029,7 +2161,7 @@ describe('PostgresPersonRepository', () => {
             })
 
             it('should fail when protected properties alone exceed size limit and cannot be trimmed', async () => {
-                const team = await getFirstTeam(hub)
+                const team = await getFirstTeam(hub.postgres)
 
                 const largeProtectedProperties = {
                     name: 'John Doe with a very long name that takes up significant space',
@@ -2131,7 +2263,7 @@ describe('PostgresPersonRepository', () => {
 
         describe('updatePersonAssertVersion with oversized properties', () => {
             it('should throw PersonPropertiesSizeViolationError when properties exceed size limit', async () => {
-                const team = await getFirstTeam(hub)
+                const team = await getFirstTeam(hub.postgres)
                 const person = await createTestPerson(team.id, 'test-assert-oversized', { name: 'John' })
 
                 const originalQuery = postgres.query.bind(postgres)
@@ -2160,11 +2292,13 @@ describe('PostgresPersonRepository', () => {
                     version: person.version,
                     is_identified: person.is_identified,
                     is_user_id: person.is_user_id,
+                    last_seen_at: person.last_seen_at,
                     needs_write: true,
                     properties_to_set: { description: 'x'.repeat(150) },
                     properties_to_unset: [],
                     original_is_identified: false,
                     original_created_at: DateTime.fromISO('2020-01-01T00:00:00.000Z'),
+                    original_last_seen_at: null,
                 }
 
                 await expect(oversizedRepository.updatePersonAssertVersion(personUpdate)).rejects.toThrow(
@@ -2180,7 +2314,7 @@ describe('PostgresPersonRepository', () => {
 
         describe('new metrics and error handling', () => {
             it('should increment personPropertiesSizeViolationCounter with correct labels', async () => {
-                const team = await getFirstTeam(hub)
+                const team = await getFirstTeam(hub.postgres)
                 const uuid = new UUIDT().toString()
                 const oversizedProperties = {
                     description: 'x'.repeat(200),
@@ -2214,7 +2348,7 @@ describe('PostgresPersonRepository', () => {
                         uuid,
                         { distinctId: 'test-metrics' }
                     )
-                } catch (error) {}
+                } catch {}
 
                 expect(mockInc).toHaveBeenCalledWith({
                     violation_type: 'create_person_size_violation',
@@ -2225,7 +2359,7 @@ describe('PostgresPersonRepository', () => {
             })
 
             it('should increment oversizedPersonPropertiesTrimmedCounter when trimming succeeds', async () => {
-                const team = await getFirstTeam(hub)
+                const team = await getFirstTeam(hub.postgres)
                 const person = await createTestPerson(team.id, 'test-trimming-metrics', {
                     name: 'John',
                     description: 'x'.repeat(120),
@@ -2251,7 +2385,7 @@ describe('PostgresPersonRepository', () => {
                 try {
                     await oversizedRepository.updatePerson(person, createPersonUpdateFields(person, oversizedUpdate))
                     expect(mockInc).toHaveBeenCalledWith({ result: 'success' })
-                } catch (error) {}
+                } catch {}
 
                 mockPersonPropertiesSize.mockRestore()
                 metrics.oversizedPersonPropertiesTrimmedCounter.inc = originalInc
@@ -2326,7 +2460,7 @@ describe('PostgresPersonRepository', () => {
 
     describe('calculate properties size feature flag', () => {
         it('should have identical output whether properties size calculation is enabled or disabled', async () => {
-            const team = await getFirstTeam(hub)
+            const team = await getFirstTeam(hub.postgres)
 
             const person1 = await createTestPerson(team.id, 'test-distinct-1', {
                 name: 'John',
@@ -2386,7 +2520,7 @@ describe('PostgresPersonRepository', () => {
         })
 
         it('should have identical behavior for updatePersonAssertVersion regardless of logging configuration', async () => {
-            const team = await getFirstTeam(hub)
+            const team = await getFirstTeam(hub.postgres)
 
             const person1 = await createTestPerson(team.id, 'test-assert-1', { name: 'John', data: 'x'.repeat(2000) })
             const person2 = await createTestPerson(team.id, 'test-assert-2', { name: 'John', data: 'x'.repeat(2000) })
@@ -2414,11 +2548,13 @@ describe('PostgresPersonRepository', () => {
                 version: person.version,
                 is_identified: person.is_identified,
                 is_user_id: person.is_user_id,
+                last_seen_at: person.last_seen_at,
                 needs_write: true,
                 properties_to_set: { name: 'Jane', age: 30, data: 'y'.repeat(2500) },
                 properties_to_unset: [],
                 original_is_identified: false,
                 original_created_at: DateTime.fromISO('2020-01-01T00:00:00.000Z'),
+                original_last_seen_at: null,
             })
 
             const personUpdate1 = createPersonUpdate(person1, 'test-assert-1')
@@ -2442,7 +2578,7 @@ describe('PostgresPersonRepository', () => {
         })
 
         it('should work with default options (no logging)', async () => {
-            const team = await getFirstTeam(hub)
+            const team = await getFirstTeam(hub.postgres)
             const defaultRepository = new PostgresPersonRepository(postgres, {
                 calculatePropertiesSize: 0,
                 personPropertiesDbConstraintLimitBytes: 1024 * 1024,
@@ -2498,7 +2634,7 @@ describe('PostgresPersonRepository', () => {
         })
 
         it('should track JSON field sizes on createPerson', async () => {
-            const team = await getFirstTeam(hub)
+            const team = await getFirstTeam(hub.postgres)
             const properties = { name: 'Alice', email: 'alice@example.com', age: 25 }
             const propertiesLastUpdatedAt = { name: '2024-01-15T10:30:00.000Z', email: '2024-01-15T10:30:00.000Z' }
             const propertiesLastOperation = { name: PropertyUpdateOperation.Set, email: PropertyUpdateOperation.Set }
@@ -2544,7 +2680,7 @@ describe('PostgresPersonRepository', () => {
         })
 
         it('should track JSON field sizes on updatePerson with properties', async () => {
-            const team = await getFirstTeam(hub)
+            const team = await getFirstTeam(hub.postgres)
             const person = await createTestPerson(team.id, 'test-metrics-update', { name: 'Bob' })
 
             // Clear observe calls from createTestPerson
@@ -2587,7 +2723,7 @@ describe('PostgresPersonRepository', () => {
         })
 
         it('should only track metrics for fields being updated', async () => {
-            const team = await getFirstTeam(hub)
+            const team = await getFirstTeam(hub.postgres)
             const person = await createTestPerson(team.id, 'test-metrics-partial', { name: 'Charlie' })
 
             // Clear observe calls from createTestPerson
@@ -2612,7 +2748,7 @@ describe('PostgresPersonRepository', () => {
         })
 
         it('should handle large properties correctly', async () => {
-            const team = await getFirstTeam(hub)
+            const team = await getFirstTeam(hub.postgres)
             const largeProperties = {
                 name: 'David',
                 large_field: 'z'.repeat(100000), // 100KB of data
@@ -2658,7 +2794,7 @@ describe('PostgresPersonRepository', () => {
         })
 
         it('should not record metrics when update is empty', async () => {
-            const team = await getFirstTeam(hub)
+            const team = await getFirstTeam(hub.postgres)
             const person = await createTestPerson(team.id, 'test-metrics-empty', { name: 'Eve' })
 
             // Clear observe calls from createTestPerson
@@ -2674,443 +2810,11 @@ describe('PostgresPersonRepository', () => {
             expect(observeCalls).toHaveLength(3)
         })
     })
-
-    describe('countPersonsByProperties()', () => {
-        it('should return 0 when no persons match the filters', async () => {
-            const team = await getFirstTeam(hub)
-            await createTestPerson(team.id, 'person-1', { age: 25, city: 'NYC' })
-
-            const count = await repository.countPersonsByProperties({
-                teamId: team.id,
-                properties: [{ key: 'age', value: 30, operator: PropertyOperator.Exact, type: 'person' }],
-            })
-
-            expect(count).toBe(0)
-        })
-
-        it('should return correct count when persons match exact property value', async () => {
-            const team = await getFirstTeam(hub)
-            await createTestPerson(team.id, 'person-1', { age: 25, city: 'NYC' })
-            await createTestPerson(team.id, 'person-2', { age: 25, city: 'LA' })
-            await createTestPerson(team.id, 'person-3', { age: 30, city: 'NYC' })
-
-            const count = await repository.countPersonsByProperties({
-                teamId: team.id,
-                properties: [{ key: 'age', value: 25, operator: PropertyOperator.Exact, type: 'person' }],
-            })
-
-            expect(count).toBe(2)
-        })
-
-        it('should return correct count with IsNot operator', async () => {
-            const team = await getFirstTeam(hub)
-            await createTestPerson(team.id, 'person-1', { age: 25, city: 'NYC' })
-            await createTestPerson(team.id, 'person-2', { age: 30, city: 'LA' })
-            await createTestPerson(team.id, 'person-3', { age: 35, city: 'SF' })
-
-            const count = await repository.countPersonsByProperties({
-                teamId: team.id,
-                properties: [{ key: 'age', value: 25, operator: PropertyOperator.IsNot, type: 'person' }],
-            })
-
-            expect(count).toBe(2)
-        })
-
-        it('should return correct count with IsSet operator', async () => {
-            const team = await getFirstTeam(hub)
-            await createTestPerson(team.id, 'person-1', { age: 25, city: 'NYC' })
-            await createTestPerson(team.id, 'person-2', { age: 30 })
-            await createTestPerson(team.id, 'person-3', { name: 'John' })
-
-            const count = await repository.countPersonsByProperties({
-                teamId: team.id,
-                properties: [{ key: 'city', operator: PropertyOperator.IsSet, type: 'person' }],
-            })
-
-            expect(count).toBe(1)
-        })
-
-        it('should return correct count with IsNotSet operator', async () => {
-            const team = await getFirstTeam(hub)
-            await createTestPerson(team.id, 'person-1', { age: 25, city: 'NYC' })
-            await createTestPerson(team.id, 'person-2', { age: 30 })
-            await createTestPerson(team.id, 'person-3', { age: 35 })
-
-            const count = await repository.countPersonsByProperties({
-                teamId: team.id,
-                properties: [{ key: 'city', operator: PropertyOperator.IsNotSet, type: 'person' }],
-            })
-
-            expect(count).toBe(2)
-        })
-
-        it('should return correct count with multiple property filters (AND condition)', async () => {
-            const team = await getFirstTeam(hub)
-            await createTestPerson(team.id, 'person-1', { age: 25, city: 'NYC', active: true })
-            await createTestPerson(team.id, 'person-2', { age: 25, city: 'LA', active: true })
-            await createTestPerson(team.id, 'person-3', { age: 30, city: 'NYC', active: true })
-            await createTestPerson(team.id, 'person-4', { age: 25, city: 'NYC', active: false })
-
-            const count = await repository.countPersonsByProperties({
-                teamId: team.id,
-                properties: [
-                    { key: 'age', value: 25, operator: PropertyOperator.Exact, type: 'person' },
-                    { key: 'city', value: 'NYC', operator: PropertyOperator.Exact, type: 'person' },
-                    { key: 'active', value: true as any, operator: PropertyOperator.Exact, type: 'person' },
-                ],
-            })
-
-            expect(count).toBe(1)
-        })
-
-        it('should return 0 when properties array is empty', async () => {
-            const team = await getFirstTeam(hub)
-            await createTestPerson(team.id, 'person-1', { age: 25 })
-
-            const count = await repository.countPersonsByProperties({
-                teamId: team.id,
-                properties: [],
-            })
-
-            expect(count).toBe(0)
-        })
-
-        it('should support IContains operator', async () => {
-            const team = await getFirstTeam(hub)
-            await createTestPerson(team.id, 'person-1', { email: 'john@example.com' })
-            await createTestPerson(team.id, 'person-2', { email: 'jane@example.com' })
-            await createTestPerson(team.id, 'person-3', { email: 'bob@test.com' })
-
-            const count = await repository.countPersonsByProperties({
-                teamId: team.id,
-                properties: [{ key: 'email', value: 'example', operator: PropertyOperator.IContains, type: 'person' }],
-            })
-
-            expect(count).toBe(2)
-        })
-
-        it('should support GreaterThan operator', async () => {
-            const team = await getFirstTeam(hub)
-            await createTestPerson(team.id, 'person-1', { age: 25 })
-            await createTestPerson(team.id, 'person-2', { age: 30 })
-            await createTestPerson(team.id, 'person-3', { age: 35 })
-
-            const count = await repository.countPersonsByProperties({
-                teamId: team.id,
-                properties: [{ key: 'age', value: 28, operator: PropertyOperator.GreaterThan, type: 'person' }],
-            })
-
-            expect(count).toBe(2)
-        })
-
-        it('should support LessThan operator', async () => {
-            const team = await getFirstTeam(hub)
-            await createTestPerson(team.id, 'person-1', { age: 25 })
-            await createTestPerson(team.id, 'person-2', { age: 30 })
-            await createTestPerson(team.id, 'person-3', { age: 35 })
-
-            const count = await repository.countPersonsByProperties({
-                teamId: team.id,
-                properties: [{ key: 'age', value: 32, operator: PropertyOperator.LessThan, type: 'person' }],
-            })
-
-            expect(count).toBe(2)
-        })
-    })
-
-    describe('fetchPersonsByProperties()', () => {
-        it('should return empty array when no persons match the filters', async () => {
-            const team = await getFirstTeam(hub)
-            await createTestPerson(team.id, 'person-1', { age: 25, city: 'NYC' })
-
-            const persons = await repository.fetchPersonsByProperties({
-                teamId: team.id,
-                properties: [{ key: 'age', value: 30, operator: PropertyOperator.Exact, type: 'person' }],
-            })
-
-            expect(persons).toEqual([])
-        })
-
-        it('should return persons matching exact property value', async () => {
-            const team = await getFirstTeam(hub)
-            const person1 = await createTestPerson(team.id, 'person-1', { age: 25, city: 'NYC' })
-            const person2 = await createTestPerson(team.id, 'person-2', { age: 25, city: 'LA' })
-            await createTestPerson(team.id, 'person-3', { age: 30, city: 'NYC' })
-
-            const persons = await repository.fetchPersonsByProperties({
-                teamId: team.id,
-                properties: [{ key: 'age', value: 25, operator: PropertyOperator.Exact, type: 'person' }],
-            })
-
-            expect(persons).toHaveLength(2)
-            const personIds = persons.map((p) => p.id).sort()
-            expect(personIds).toEqual([person1.id, person2.id].sort())
-            expect(persons[0]).toHaveProperty('distinct_id')
-        })
-
-        it('should return persons with IsNot operator', async () => {
-            const team = await getFirstTeam(hub)
-            await createTestPerson(team.id, 'person-1', { age: 25, city: 'NYC' })
-            const person2 = await createTestPerson(team.id, 'person-2', { age: 30, city: 'LA' })
-            const person3 = await createTestPerson(team.id, 'person-3', { age: 35, city: 'SF' })
-
-            const persons = await repository.fetchPersonsByProperties({
-                teamId: team.id,
-                properties: [{ key: 'age', value: 25, operator: PropertyOperator.IsNot, type: 'person' }],
-            })
-
-            expect(persons).toHaveLength(2)
-            const personIds = persons.map((p) => p.id).sort()
-            expect(personIds).toEqual([person2.id, person3.id].sort())
-        })
-
-        it('should return persons with IsSet operator', async () => {
-            const team = await getFirstTeam(hub)
-            const person1 = await createTestPerson(team.id, 'person-1', { age: 25, city: 'NYC' })
-            await createTestPerson(team.id, 'person-2', { age: 30 })
-            await createTestPerson(team.id, 'person-3', { name: 'John' })
-
-            const persons = await repository.fetchPersonsByProperties({
-                teamId: team.id,
-                properties: [{ key: 'city', operator: PropertyOperator.IsSet, type: 'person' }],
-            })
-
-            expect(persons).toHaveLength(1)
-            expect(persons[0].id).toBe(person1.id)
-            expect(persons[0].properties).toEqual({ age: 25, city: 'NYC' })
-        })
-
-        it('should return persons with IsNotSet operator', async () => {
-            const team = await getFirstTeam(hub)
-            await createTestPerson(team.id, 'person-1', { age: 25, city: 'NYC' })
-            const person2 = await createTestPerson(team.id, 'person-2', { age: 30 })
-            const person3 = await createTestPerson(team.id, 'person-3', { age: 35 })
-
-            const persons = await repository.fetchPersonsByProperties({
-                teamId: team.id,
-                properties: [{ key: 'city', operator: PropertyOperator.IsNotSet, type: 'person' }],
-            })
-
-            expect(persons).toHaveLength(2)
-            const personIds = persons.map((p) => p.id).sort()
-            expect(personIds).toEqual([person2.id, person3.id].sort())
-        })
-
-        it('should return persons with multiple property filters (AND condition)', async () => {
-            const team = await getFirstTeam(hub)
-            const person1 = await createTestPerson(team.id, 'person-1', { age: 25, city: 'NYC', active: true })
-            await createTestPerson(team.id, 'person-2', { age: 25, city: 'LA', active: true })
-            await createTestPerson(team.id, 'person-3', { age: 30, city: 'NYC', active: true })
-            await createTestPerson(team.id, 'person-4', { age: 25, city: 'NYC', active: false })
-
-            const persons = await repository.fetchPersonsByProperties({
-                teamId: team.id,
-                properties: [
-                    { key: 'age', value: 25, operator: PropertyOperator.Exact, type: 'person' },
-                    { key: 'city', value: 'NYC', operator: PropertyOperator.Exact, type: 'person' },
-                    { key: 'active', value: true as any, operator: PropertyOperator.Exact, type: 'person' },
-                ],
-            })
-
-            expect(persons).toHaveLength(1)
-            expect(persons[0].id).toBe(person1.id)
-        })
-
-        it('should respect limit parameter', async () => {
-            const team = await getFirstTeam(hub)
-            await createTestPerson(team.id, 'person-1', { active: true })
-            await createTestPerson(team.id, 'person-2', { active: true })
-            await createTestPerson(team.id, 'person-3', { active: true })
-            await createTestPerson(team.id, 'person-4', { active: true })
-
-            const persons = await repository.fetchPersonsByProperties({
-                teamId: team.id,
-                properties: [{ key: 'active', value: true as any, operator: PropertyOperator.Exact, type: 'person' }],
-                options: { limit: 2 },
-            })
-
-            expect(persons).toHaveLength(2)
-        })
-
-        it('should respect cursor parameter for pagination', async () => {
-            const team = await getFirstTeam(hub)
-            await createTestPerson(team.id, 'person-1', { active: true })
-            await createTestPerson(team.id, 'person-2', { active: true })
-            await createTestPerson(team.id, 'person-3', { active: true })
-
-            const firstBatch = await repository.fetchPersonsByProperties({
-                teamId: team.id,
-                properties: [{ key: 'active', value: true as any, operator: PropertyOperator.Exact, type: 'person' }],
-                options: { limit: 2 },
-            })
-
-            expect(firstBatch).toHaveLength(2)
-
-            // Use the last person's ID as cursor for next batch
-            const cursor = firstBatch[firstBatch.length - 1].id
-            const secondBatch = await repository.fetchPersonsByProperties({
-                teamId: team.id,
-                properties: [{ key: 'active', value: true as any, operator: PropertyOperator.Exact, type: 'person' }],
-                options: { cursor },
-            })
-
-            expect(secondBatch).toHaveLength(1)
-            // Verify that persons in second batch are not in first batch
-            const firstBatchIds = firstBatch.map((p) => p.id)
-            const secondBatchIds = secondBatch.map((p) => p.id)
-            for (const id of secondBatchIds) {
-                expect(firstBatchIds).not.toContain(id)
-            }
-        })
-
-        it('should respect both limit and cursor parameters', async () => {
-            const team = await getFirstTeam(hub)
-            await createTestPerson(team.id, 'person-1', { active: true })
-            await createTestPerson(team.id, 'person-2', { active: true })
-            await createTestPerson(team.id, 'person-3', { active: true })
-            await createTestPerson(team.id, 'person-4', { active: true })
-
-            const firstBatch = await repository.fetchPersonsByProperties({
-                teamId: team.id,
-                properties: [{ key: 'active', value: true as any, operator: PropertyOperator.Exact, type: 'person' }],
-                options: { limit: 1 },
-            })
-
-            expect(firstBatch).toHaveLength(1)
-
-            const cursor = firstBatch[0].id
-            const secondBatch = await repository.fetchPersonsByProperties({
-                teamId: team.id,
-                properties: [{ key: 'active', value: true as any, operator: PropertyOperator.Exact, type: 'person' }],
-                options: { limit: 2, cursor },
-            })
-
-            expect(secondBatch).toHaveLength(2)
-            // Verify cursor filtered out the first person
-            expect(secondBatch.map((p) => p.id)).not.toContain(firstBatch[0].id)
-        })
-
-        it('should return empty array when properties array is empty', async () => {
-            const team = await getFirstTeam(hub)
-            await createTestPerson(team.id, 'person-1', { age: 25 })
-
-            const persons = await repository.fetchPersonsByProperties({
-                teamId: team.id,
-                properties: [],
-            })
-
-            expect(persons).toEqual([])
-        })
-
-        it('should return distinct persons even with multiple distinct IDs', async () => {
-            const team = await getFirstTeam(hub)
-            const uuid = new UUIDT().toString()
-            const result = await repository.createPerson(
-                TIMESTAMP,
-                { age: 25, active: true },
-                {},
-                {},
-                team.id,
-                null,
-                true,
-                uuid,
-                { distinctId: 'distinct-1' },
-                [{ distinctId: 'distinct-2' }, { distinctId: 'distinct-3' }]
-            )
-            if (!result.success) {
-                throw new Error('Failed to create person')
-            }
-            await hub.kafkaProducer.queueMessages(result.messages)
-
-            const persons = await repository.fetchPersonsByProperties({
-                teamId: team.id,
-                properties: [{ key: 'age', value: 25, operator: PropertyOperator.Exact, type: 'person' }],
-            })
-
-            // Should return only one person despite having multiple distinct IDs
-            expect(persons).toHaveLength(1)
-            expect(persons[0].uuid).toBe(uuid)
-            // The distinct_id field should contain one of the distinct IDs
-            expect(['distinct-1', 'distinct-2', 'distinct-3']).toContain(persons[0].distinct_id)
-        })
-
-        it('should include all required fields in InternalPersonWithDistinctId', async () => {
-            const team = await getFirstTeam(hub)
-            const person = await createTestPerson(team.id, 'person-1', { name: 'John', age: 30 })
-
-            const persons = await repository.fetchPersonsByProperties({
-                teamId: team.id,
-                properties: [{ key: 'name', value: 'John', operator: PropertyOperator.Exact, type: 'person' }],
-            })
-
-            expect(persons).toHaveLength(1)
-            expect(persons[0]).toEqual(
-                expect.objectContaining({
-                    id: person.id,
-                    uuid: person.uuid,
-                    team_id: team.id,
-                    properties: { name: 'John', age: 30 },
-                    is_identified: true,
-                    created_at: TIMESTAMP,
-                    version: 0,
-                    distinct_id: 'person-1',
-                })
-            )
-        })
-
-        it('should support IContains operator', async () => {
-            const team = await getFirstTeam(hub)
-            const person1 = await createTestPerson(team.id, 'person-1', { email: 'john@example.com' })
-            const person2 = await createTestPerson(team.id, 'person-2', { email: 'jane@example.com' })
-            await createTestPerson(team.id, 'person-3', { email: 'bob@test.com' })
-
-            const persons = await repository.fetchPersonsByProperties({
-                teamId: team.id,
-                properties: [{ key: 'email', value: 'example', operator: PropertyOperator.IContains, type: 'person' }],
-            })
-
-            expect(persons).toHaveLength(2)
-            const personIds = persons.map((p) => p.id).sort()
-            expect(personIds).toEqual([person1.id, person2.id].sort())
-        })
-
-        it('should support GreaterThan operator', async () => {
-            const team = await getFirstTeam(hub)
-            await createTestPerson(team.id, 'person-1', { age: 25 })
-            const person2 = await createTestPerson(team.id, 'person-2', { age: 30 })
-            const person3 = await createTestPerson(team.id, 'person-3', { age: 35 })
-
-            const persons = await repository.fetchPersonsByProperties({
-                teamId: team.id,
-                properties: [{ key: 'age', value: 28, operator: PropertyOperator.GreaterThan, type: 'person' }],
-            })
-
-            expect(persons).toHaveLength(2)
-            const personIds = persons.map((p) => p.id).sort()
-            expect(personIds).toEqual([person2.id, person3.id].sort())
-        })
-
-        it('should support LessThan operator', async () => {
-            const team = await getFirstTeam(hub)
-            const person1 = await createTestPerson(team.id, 'person-1', { age: 25 })
-            const person2 = await createTestPerson(team.id, 'person-2', { age: 30 })
-            await createTestPerson(team.id, 'person-3', { age: 35 })
-
-            const persons = await repository.fetchPersonsByProperties({
-                teamId: team.id,
-                properties: [{ key: 'age', value: 32, operator: PropertyOperator.LessThan, type: 'person' }],
-            })
-
-            expect(persons).toHaveLength(2)
-            const personIds = persons.map((p) => p.id).sort()
-            expect(personIds).toEqual([person1.id, person2.id].sort())
-        })
-    })
 })
 
 // Helper function from the original test file
-async function getFirstTeam(hub: Hub): Promise<Team> {
-    const teams = await hub.postgres.query(
+async function getFirstTeam(postgres: PostgresRouter): Promise<Team> {
+    const teams = await postgres.query(
         PostgresUse.COMMON_WRITE,
         'SELECT * FROM posthog_team LIMIT 1',
         [],

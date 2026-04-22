@@ -95,7 +95,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let (tx, rx) = measuring_channel(config.update_batch_size * config.channel_slots_per_worker);
 
-    let cache = Cache::new(config.cache_capacity);
+    let cache = Cache::new(
+        config.eventdefs_cache_capacity,
+        config.eventprops_cache_capacity,
+        config.propdefs_cache_capacity,
+    );
 
     let cache = Arc::new(cache);
 

@@ -1,8 +1,9 @@
 import { Message } from 'node-rdkafka'
 
+import { PluginEvent } from '~/plugin-scaffold'
 import { TeamManager } from '~/utils/team-manager'
 
-import { EventHeaders, IncomingEvent, IncomingEventWithTeam, Team } from '../../types'
+import { EventHeaders, Team } from '../../types'
 import { EventIngestionRestrictionManager } from '../../utils/event-ingestion-restrictions'
 import {
     createApplyEventRestrictionsStep,
@@ -14,7 +15,7 @@ import {
     createValidateAiEventTokensStep,
     createValidateHistoricalMigrationStep,
 } from '../event-preprocessing'
-import { PipelineBuilder, StartPipelineBuilder } from '../pipelines/builders/pipeline-builders'
+import { StartPipelineBuilder } from '../pipelines/builders/pipeline-builders'
 
 export interface PreTeamPreprocessingSubpipelineInput {
     message: Message
@@ -23,8 +24,7 @@ export interface PreTeamPreprocessingSubpipelineInput {
 export interface PreTeamPreprocessingSubpipelineOutput {
     message: Message
     headers: EventHeaders
-    event: IncomingEvent
-    eventWithTeam: IncomingEventWithTeam
+    event: PluginEvent
     team: Team
 }
 
@@ -32,23 +32,20 @@ export interface PreTeamPreprocessingSubpipelineConfig {
     teamManager: TeamManager
     eventIngestionRestrictionManager: EventIngestionRestrictionManager
     overflowEnabled: boolean
-    overflowTopic: string
     preservePartitionLocality: boolean
 }
 
 export function createPreTeamPreprocessingSubpipeline<TInput extends PreTeamPreprocessingSubpipelineInput, TContext>(
     builder: StartPipelineBuilder<TInput, TContext>,
     config: PreTeamPreprocessingSubpipelineConfig
-): PipelineBuilder<TInput, TInput & PreTeamPreprocessingSubpipelineOutput, TContext> {
-    const { teamManager, eventIngestionRestrictionManager, overflowEnabled, overflowTopic, preservePartitionLocality } =
-        config
+) {
+    const { teamManager, eventIngestionRestrictionManager, overflowEnabled, preservePartitionLocality } = config
 
     return builder
         .pipe(createParseHeadersStep())
         .pipe(
             createApplyEventRestrictionsStep(eventIngestionRestrictionManager, {
                 overflowEnabled,
-                overflowTopic,
                 preservePartitionLocality,
             })
         )

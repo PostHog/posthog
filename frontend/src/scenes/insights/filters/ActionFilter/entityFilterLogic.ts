@@ -1,16 +1,17 @@
 import { actions, connect, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import isEqual from 'lodash.isequal'
 
 import { convertPropertyGroupToProperties } from 'lib/components/PropertyFilters/utils'
 import { defaultDataWarehousePopoverFields } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
 import { DataWarehousePopoverField } from 'lib/components/TaxonomicFilter/types'
-import { uuid } from 'lib/utils'
+import { assignField, uuid } from 'lib/utils'
 import { GraphSeriesAddedSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { getDefaultEventLabel, getDefaultEventName } from 'lib/utils/getAppContext'
 
 import {
     ActionFilter,
     AnyPropertyFilter,
-    DataWarehouseFilter,
+    AnyDataWarehouseFilter,
     Entity,
     EntityFilter,
     EntityType,
@@ -143,7 +144,7 @@ export const entityFilterLogic = kea<entityFilterLogicType>([
             optionalInFunnel: filter.optionalInFunnel,
         }),
         updateFilter: (
-            filter: (EntityFilter | ActionFilter | DataWarehouseFilter) & {
+            filter: (EntityFilter | ActionFilter | AnyDataWarehouseFilter) & {
                 index: number
                 table_name?: string
                 [key: string]: any
@@ -192,7 +193,25 @@ export const entityFilterLogic = kea<entityFilterLogicType>([
             toLocalFilters(props.filters ?? {}),
             {
                 setFilters: (_, { filters }) => filters,
-                setLocalFilters: (_, { filters }) => toLocalFilters(filters),
+                setLocalFilters: (currentFilters, { filters }) => {
+                    if (isEqual(toFilters(currentFilters), filters)) {
+                        return currentFilters
+                    }
+                    const newFilters = toLocalFilters(filters)
+                    const usedUuids = new Set<string>()
+                    return newFilters.map((newFilter) => {
+                        const isSameFilter = (f: LocalFilter): boolean =>
+                            f.id === newFilter.id && f.type === newFilter.type && !usedUuids.has(f.uuid)
+                        const existing =
+                            currentFilters.find((f) => isSameFilter(f) && f.order === newFilter.order) ??
+                            currentFilters.find(isSameFilter)
+                        if (existing) {
+                            usedUuids.add(existing.uuid)
+                            return { ...newFilter, uuid: existing.uuid }
+                        }
+                        return newFilter
+                    })
+                },
             },
         ],
         entityFilterVisible: [
@@ -256,7 +275,11 @@ export const entityFilterLogic = kea<entityFilterLogicType>([
                             // Dynamically handle fields from dataWarehousePopoverFields
                             dataWarehousePopoverFields.forEach(({ key }) => {
                                 const fieldValue = fieldValues[key]
-                                updatedFilter[key] = typeof fieldValue === 'undefined' ? filter[key] : fieldValue
+                                assignField(
+                                    updatedFilter,
+                                    key as keyof typeof updatedFilter,
+                                    typeof fieldValue === 'undefined' ? filter[key] : fieldValue
+                                )
                             })
 
                             return updatedFilter
@@ -269,6 +292,7 @@ export const entityFilterLogic = kea<entityFilterLogicType>([
                                 id: typeof id === 'undefined' ? filter.id : id,
                                 name: typeof name === 'undefined' ? filter.name : name,
                                 type: typeof type === 'undefined' ? filter.type : type,
+                                custom_name: typeof custom_name === 'undefined' ? filter.custom_name : custom_name,
                                 ...fieldValues,
                             } as LocalFilter
 
@@ -400,7 +424,8 @@ export const entityFilterLogic = kea<entityFilterLogicType>([
             eventUsageLogic.actions.reportInsightFilterSet(sanitizedFilters)
         },
         setEntityFilterVisibility: async ({ index, value }) => {
-            eventUsageLogic.actions.reportEntityFilterVisibilitySet(index, value)
+            const entityName = values.localFilters[index]?.name || undefined
+            eventUsageLogic.actions.reportEntityFilterVisibilitySet(index, value, entityName)
         },
     })),
     events(({ actions, props, values }) => ({

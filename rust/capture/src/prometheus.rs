@@ -23,6 +23,11 @@ pub fn report_internal_error_metrics(err_type: &'static str, stage_tag: &'static
     counter!("capture_error_by_stage_and_type", &tags).increment(1);
 }
 
+pub fn report_clock_skew(skew: chrono::Duration) {
+    let skew_seconds = skew.num_milliseconds().saturating_abs() as f64 / 1000.0;
+    metrics::histogram!("capture_client_clock_skew_seconds").record(skew_seconds);
+}
+
 pub fn setup_metrics_recorder(role: String, capture_mode: &'static str) -> PrometheusHandle {
     // Ok I broke it at the end, but the limit on our ingress is 60 and that's a nicer way of reaching it
     const EXPONENTIAL_SECONDS: &[f64] = &[
@@ -77,6 +82,46 @@ pub fn setup_metrics_recorder(role: String, capture_mode: &'static str) -> Prome
     ];
     // Blob count per event (2x increments)
     const BLOB_COUNTS: &[f64] = &[1.0, 2.0, 4.0, 8.0, 16.0, 32.0];
+    // Global rate limiter pipeline/tick latency (milliseconds)
+    const GLOBAL_RATE_LIMITER_LATENCY_MS: &[f64] = &[
+        0.1,     // 100 microseconds
+        0.5,     // 500 microseconds
+        1.0,     // 1ms
+        2.0,     // 2ms
+        5.0,     // 5ms
+        10.0,    // 10ms
+        100.0,   // 100ms
+        1000.0,  // 1 second
+        2000.0,  // 2 seconds
+        4000.0,  // 4 seconds
+        10000.0, // 10 seconds
+    ];
+    // Global rate limiter pipeline batch sizes (entity counts)
+    const GLOBAL_RATE_LIMITER_PIPELINE_SIZES: &[f64] =
+        &[1.0, 10.0, 50.0, 100.0, 500.0, 1000.0, 5000.0, 10000.0];
+    // Global rate limiter estimate drift (ratio of threshold)
+    const GLOBAL_RATE_LIMITER_DRIFT_RATIOS: &[f64] =
+        &[0.001, 0.005, 0.01, 0.05, 0.1, 0.25, 0.5, 1.0];
+    // Global rate limiter sync staleness (milliseconds)
+    const GLOBAL_RATE_LIMITER_STALENESS_MS: &[f64] = &[
+        100.0, 500.0, 1000.0, 5000.0, 10000.0, 15000.0, 30000.0, 60000.0,
+    ];
+
+    // Absolute client clock skew buckets (in seconds).
+    // Fine granularity near zero for finding the right skew correction threshold.
+    const CLOCK_SKEW_SECONDS: &[f64] = &[
+        0.1, 0.5, 1.0, 2.0, 5.0, 10.0, 30.0, 60.0, 300.0, 3600.0, 86400.0,
+    ];
+
+    // Kafka produce ack duration (milliseconds), measured app-side from
+    // `send_result()` returning to broker ack / error / cancellation.
+    // Dense at low end where healthy acks live; widens into seconds / minutes
+    // to capture the long tail (retries, broker stalls, acks=all replication).
+    // Final bucket is 5 minutes; anything slower lands in +Inf.
+    const KAFKA_PRODUCE_ACK_MS: &[f64] = &[
+        0.5, 1.0, 2.0, 5.0, 10.0, 15.0, 25.0, 50.0, 75.0, 100.0, 150.0, 250.0, 500.0, 1000.0,
+        2500.0, 5000.0, 10000.0, 30000.0, 60000.0, 120000.0, 300000.0,
+    ];
 
     PrometheusBuilder::new()
         .add_global_label("role", role)
@@ -104,6 +149,16 @@ pub fn setup_metrics_recorder(role: String, capture_mode: &'static str) -> Prome
         )
         .unwrap()
         .set_buckets_for_metric(
+            Matcher::Full("capture_ai_otel_body_size_bytes".to_string()),
+            PAYLOAD_SIZES,
+        )
+        .unwrap()
+        .set_buckets_for_metric(
+            Matcher::Full("capture_ai_otel_spans_per_request".to_string()),
+            BATCH_SIZES,
+        )
+        .unwrap()
+        .set_buckets_for_metric(
             Matcher::Full("capture_ai_blob_count_per_event".to_string()),
             BLOB_COUNTS,
         )
@@ -116,6 +171,41 @@ pub fn setup_metrics_recorder(role: String, capture_mode: &'static str) -> Prome
         .set_buckets_for_metric(
             Matcher::Full("capture_ai_blob_total_bytes_per_event".to_string()),
             S3_BODY_SIZES, // Reuse same buckets as S3 body sizes
+        )
+        .unwrap()
+        .set_buckets_for_metric(
+            Matcher::Full("global_rate_limiter_pipeline_ms".to_string()),
+            GLOBAL_RATE_LIMITER_LATENCY_MS,
+        )
+        .unwrap()
+        .set_buckets_for_metric(
+            Matcher::Full("global_rate_limiter_tick_ms".to_string()),
+            GLOBAL_RATE_LIMITER_LATENCY_MS,
+        )
+        .unwrap()
+        .set_buckets_for_metric(
+            Matcher::Full("global_rate_limiter_pipeline_size".to_string()),
+            GLOBAL_RATE_LIMITER_PIPELINE_SIZES,
+        )
+        .unwrap()
+        .set_buckets_for_metric(
+            Matcher::Full("global_rate_limiter_estimate_drift".to_string()),
+            GLOBAL_RATE_LIMITER_DRIFT_RATIOS,
+        )
+        .unwrap()
+        .set_buckets_for_metric(
+            Matcher::Full("global_rate_limiter_sync_staleness_ms".to_string()),
+            GLOBAL_RATE_LIMITER_STALENESS_MS,
+        )
+        .unwrap()
+        .set_buckets_for_metric(
+            Matcher::Full("capture_client_clock_skew_seconds".to_string()),
+            CLOCK_SKEW_SECONDS,
+        )
+        .unwrap()
+        .set_buckets_for_metric(
+            Matcher::Full("capture_kafka_produce_ack_duration_ms".to_string()),
+            KAFKA_PRODUCE_ACK_MS,
         )
         .unwrap()
         .install_recorder()

@@ -8,7 +8,7 @@ logger = logging.getLogger(__name__)
 
 SITEMAP_URL = "https://posthog.com/sitemap/sitemap-0.xml"
 
-STATUS_PAGE_URL = "https://status.posthog.com"
+STATUS_PAGE_URL = "https://www.posthogstatus.com"
 
 HOGQL_PRIORITY_URLS = [
     "https://posthog.com/docs/hogql",

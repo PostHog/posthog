@@ -18,10 +18,15 @@ export function GoalLines({ insightProps }: GoalLinesProps): JSX.Element {
     const { addGoalLine, updateGoalLine, removeGoalLine } = useActions(goalLinesLogic(insightProps))
 
     return (
-        <div className="mt-1 mb-2">
+        <div>
             <GoalLinesList goalLines={goalLines} removeGoalLine={removeGoalLine} updateGoalLine={updateGoalLine} />
-
-            <LemonButton type="secondary" onClick={addGoalLine} icon={<IconPlusSmall />} sideIcon={null}>
+            <LemonButton
+                type="secondary"
+                onClick={addGoalLine}
+                icon={<IconPlusSmall />}
+                size="small"
+                className={goalLines.length > 0 ? 'mt-2' : ''}
+            >
                 Add goal line
             </LemonButton>
         </div>

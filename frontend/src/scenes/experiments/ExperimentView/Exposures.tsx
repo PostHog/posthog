@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useCallback, useState } from 'react'
 
-import { IconCheckCircle, IconCorrelationAnalysis, IconPencil, IconWarning } from '@posthog/icons'
+import { IconCheckCircle, IconCorrelationAnalysis, IconInfo, IconPencil, IconWarning } from '@posthog/icons'
 import { LemonButton, LemonCollapse, LemonTable, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { getSeriesBackgroundColor, getSeriesColor } from 'lib/colors'
@@ -16,11 +16,11 @@ import {
     ExperimentExposureTimeSeries,
 } from '~/queries/schema/schema-general'
 
-import { useChartColors } from '../MetricsView/shared/colors'
 import { experimentLogic } from '../experimentLogic'
-import { modalsLogic } from '../modalsLogic'
-import { getExposureConfigDisplayName } from '../utils'
+import { useChartColors } from '../MetricsView/shared/colors'
+import { filterLowMultipleVariant, getExposureConfigDisplayName } from '../utils'
 import { VariantTag } from './components'
+import { exposureCriteriaModalLogic } from './exposureCriteriaModalLogic'
 
 const srmFailureTooltipText =
     "The distribution of users across variants doesn't match your configured rollout percentages (p < 0.001). This may indicate issues with randomization or data collection."
@@ -74,9 +74,7 @@ function MicroChart({ exposures }: MicroChartProps): JSX.Element | null {
                 options: {
                     responsive: true,
                     maintainAspectRatio: false,
-                    animation: {
-                        duration: 0,
-                    },
+                    animation: false,
                     scales: {
                         x: {
                             display: false,
@@ -144,7 +142,7 @@ function getExposureCriteriaLabel(exposureCriteria: ExperimentExposureCriteria |
 export function Exposures(): JSX.Element {
     const { exposures, exposuresLoading, exposureCriteria, isExperimentDraft, featureFlags } =
         useValues(experimentLogic)
-    const { openExposureCriteriaModal } = useActions(modalsLogic)
+    const { openExposureCriteriaModal } = useActions(exposureCriteriaModalLogic)
     const colors = useChartColors()
 
     const [isCollapsed, setIsCollapsed] = useState(true)
@@ -167,6 +165,8 @@ export function Exposures(): JSX.Element {
             })
         }
     }
+
+    const filteredVariants = filterLowMultipleVariant(variants)
 
     // Detect sample ratio mismatch (p < 0.001 is significant)
     const hasSRM = exposures?.sample_ratio_mismatch != null && exposures.sample_ratio_mismatch.p_value < 0.001
@@ -261,7 +261,12 @@ export function Exposures(): JSX.Element {
         style: { backgroundColor: 'var(--color-bg-table)' },
         children: (
             <div className="flex items-center gap-3 metric-cell" style={{ minHeight: '33px' }}>
-                <span className="metric-cell-header font-bold">Exposures</span>
+                <span className="metric-cell-header font-bold inline-flex items-center gap-1">
+                    Exposures
+                    <Tooltip title="Cumulative unique users exposed to the experiment. A user is counted once at first exposure, not per event.">
+                        <IconInfo className="text-secondary text-base" />
+                    </Tooltip>
+                </span>
 
                 {!isExperimentDraft && (
                     <div
@@ -283,9 +288,9 @@ export function Exposures(): JSX.Element {
                                         : humanFriendlyNumber(totalExposures)}
                                 </span>
                                 {exposures?.timeseries?.length > 0 && <MicroChart exposures={exposures} />}
-                                {variants.length > 0 && (
+                                {filteredVariants.length > 0 && (
                                     <div className="ml-2 flex items-center gap-4">
-                                        {variants.map(({ variant, percentage }) => (
+                                        {filteredVariants.map(({ variant, percentage }) => (
                                             <div key={variant} className="flex items-center gap-2">
                                                 <div className="metric-cell">
                                                     <VariantTag variantKey={variant} />
@@ -336,7 +341,7 @@ export function Exposures(): JSX.Element {
                                                 size="xsmall"
                                                 className="flex items-center gap-2"
                                                 type="secondary"
-                                                onClick={() => openExposureCriteriaModal()}
+                                                onClick={() => openExposureCriteriaModal(exposureCriteria)}
                                             >
                                                 Edit exposure criteria
                                             </LemonButton>
@@ -361,16 +366,19 @@ export function Exposures(): JSX.Element {
                                         size="xsmall"
                                         className="flex items-center gap-2"
                                         type="secondary"
-                                        onClick={() => openExposureCriteriaModal()}
+                                        onClick={() => openExposureCriteriaModal(exposureCriteria)}
                                     />
                                 </div>
                             </div>
-                            {exposures?.timeseries.length > 0 && (
+                            {(exposures?.timeseries?.length ?? 0) > 0 && (
                                 <div>
                                     <h3 className="card-secondary">Total exposures</h3>
                                     <LemonTable
                                         dataSource={[
-                                            ...(exposures?.timeseries || []),
+                                            ...(exposures?.timeseries || []).filter(
+                                                (series: ExperimentExposureTimeSeries) =>
+                                                    filteredVariants.some((v) => v.variant === series.variant)
+                                            ),
                                             { variant: '__total__', isTotal: true },
                                         ]}
                                         columns={[

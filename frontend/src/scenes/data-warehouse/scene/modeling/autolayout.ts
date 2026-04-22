@@ -1,8 +1,10 @@
 import { Edge, Position } from '@xyflow/react'
-import ELK, { ElkExtendedEdge, ElkNode } from 'elkjs/lib/elk.bundled.js'
+import type { ElkExtendedEdge, ElkNode } from 'elkjs/lib/elk.bundled.js'
+
+import { getElk } from 'lib/elk'
 
 import { NODE_HEIGHT, NODE_WIDTH } from './constants'
-import type { ModelNode } from './types'
+import type { ElkDirection, Node } from './types'
 
 const getElkPortSide = (position: Position): string => {
     switch (position) {
@@ -17,14 +19,7 @@ const getElkPortSide = (position: Position): string => {
     }
 }
 
-export type ElkDirection = 'DOWN' | 'RIGHT'
-const elk = new ELK()
-
-export const getFormattedNodes = async (
-    nodes: ModelNode[],
-    edges: Edge[],
-    direction?: ElkDirection
-): Promise<ModelNode[]> => {
+export const getFormattedNodes = async (nodes: Node[], edges: Edge[], direction?: ElkDirection): Promise<Node[]> => {
     if (nodes.length === 0) {
         return []
     }
@@ -32,15 +27,19 @@ export const getFormattedNodes = async (
     direction ??= 'DOWN'
     const elkOptions = {
         'elk.algorithm': 'layered',
-        'elk.layered.spacing.nodeNodeBetweenLayers': `40`,
-        'elk.spacing.nodeNode': '30',
-        'elk.spacing.edgeEdge': `30`,
-        'elk.spacing.edgeNode': `30`,
         'elk.direction': direction,
-        'elk.layered.nodePlacement.strategy': 'SIMPLE',
-        'elk.layered.nodePlacement.bk.fixedAlignment': 'BALANCED',
+        'elk.edgeRouting': 'ORTHOGONAL',
         'elk.layered.crossingMinimization.strategy': 'LAYER_SWEEP',
+        'elk.layered.cycleBreaking.strategy': 'GREEDY',
+        'elk.layered.layering.strategy': 'NETWORK_SIMPLEX',
+        'elk.layered.mergeEdges': 'true',
+        'elk.layered.nodePlacement.bk.fixedAlignment': 'BALANCED',
+        'elk.layered.nodePlacement.strategy': 'NETWORK_SIMPLEX',
+        'elk.layered.spacing.nodeNodeBetweenLayers': '60',
         'elk.padding': '[left=0, top=0, right=0, bottom=0]',
+        'elk.separateConnectedComponents': 'true',
+        'elk.spacing.edgeNode': '30',
+        'elk.spacing.nodeNode': '30',
     }
 
     const graph: ElkNode = {
@@ -59,13 +58,10 @@ export const getFormattedNodes = async (
 
             return {
                 ...node,
-                width: NODE_WIDTH,
-                height: NODE_HEIGHT,
-                targetPosition: 'top',
-                sourcePosition: 'bottom',
-                properties: {
-                    'org.eclipse.elk.portConstraints': 'FIXED_ORDER',
-                },
+                width: node.width ?? NODE_WIDTH,
+                height: node.height ?? NODE_HEIGHT,
+                targetPosition: direction === 'DOWN' ? 'top' : 'left',
+                sourcePosition: direction === 'DOWN' ? 'bottom' : 'right',
                 ports: [...handles],
             }
         }),
@@ -77,9 +73,10 @@ export const getFormattedNodes = async (
         })) as ElkExtendedEdge[],
     }
 
+    const elk = await getElk()
     const laidOutGraph = await elk.layout(graph)
     return (laidOutGraph.children?.map((node) => ({
         ...node,
         position: { x: node.x, y: node.y },
-    })) ?? []) as ModelNode[]
+    })) ?? []) as Node[]
 }

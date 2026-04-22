@@ -1,5 +1,7 @@
 import type { ReactElement } from 'react'
 
+import { EmptyState } from '@posthog/mosaic'
+
 import { formatNumber } from '../utils'
 
 const MAX_ROWS = 20
@@ -32,17 +34,11 @@ export function DataTable({ columns, rows, maxRows = MAX_ROWS }: DataTableProps)
     const hasMore = displayRows.length < rows.length
 
     if (columns.length === 0 && rows.length === 0) {
-        return (
-            <div
-                style={{
-                    padding: '2rem',
-                    textAlign: 'center',
-                    color: 'var(--color-text-secondary, #6b7280)',
-                }}
-            >
-                No data available
-            </div>
-        )
+        return <EmptyState icon="table" description="No rows to display" />
+    }
+
+    if (rows.length === 0) {
+        return <EmptyState icon="table" description="Query returned no rows" />
     }
 
     return (

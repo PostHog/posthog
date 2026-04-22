@@ -1,6 +1,6 @@
 from posthog.test.base import BaseTest
 
-from posthog.models.surveys.survey import Survey
+from products.surveys.backend.models import Survey
 
 
 class TestSurveyQuestionIds(BaseTest):
@@ -27,6 +27,7 @@ class TestSurveyQuestionIds(BaseTest):
         survey.refresh_from_db()
 
         # Check that all questions have IDs
+        assert survey.questions is not None
         for question in survey.questions:
             self.assertIn("id", question)
             self.assertIsNotNone(question["id"])

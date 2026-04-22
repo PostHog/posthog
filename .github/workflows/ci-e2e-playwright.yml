@@ -12,8 +12,7 @@ on:
             - master
 
 permissions:
-    contents: write
-    pull-requests: write
+    contents: read
 
 env:
     SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da' # unsafe - for testing only
@@ -40,6 +39,9 @@ env:
     CLICKHOUSE_SECURE: 'False'
     CLICKHOUSE_VERIFY: 'False'
     CLICKHOUSE_DATABASE: posthog_test
+    # Database names passed to the plugins Docker service via env var substitution
+    POSTHOG_DB_NAME: posthog_e2e_test
+    POSTHOG_PERSONS_DB_NAME: posthog_persons_e2e_test
     PGHOST: localhost
     PGUSER: posthog
     PGPASSWORD: posthog
@@ -55,8 +57,6 @@ env:
 
 concurrency:
     group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
-    # Cancel in-progress runs on PRs when new commits are pushed
-    # SHA verification ensures we don't commit stale snapshots if runs aren't cancelled in time
     cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
@@ -69,6 +69,7 @@ jobs:
         # Set job outputs to values from filter step
         outputs:
             shouldRun: ${{ steps.changes.outputs.shouldRun || 'true' }}
+            oldest_supported: ${{ steps.read-versions.outputs.oldest_supported }}
         steps:
             # For pull requests it's not necessary to check out the code
             - uses: dorny/paths-filter@de90cc6fb38fc0963ad72b210f1f284cd68cea36 # v3.0.2
@@ -85,6 +86,7 @@ jobs:
                         - 'posthog/!(temporal/**)/**'
                         - 'bin/*'
                         - frontend/**/*
+                        - playwright/snapshots.yml
                         - requirements.txt
                         - requirements-dev.txt
                         - package.json
@@ -100,61 +102,32 @@ jobs:
                         - Dockerfile
                         - playwright/**
 
-    get_clickhouse_versions:
-        name: Get ClickHouse versions
-        needs: [changes]
-        if: needs.changes.outputs.shouldRun == 'true'
-        runs-on: ubuntu-latest
-        outputs:
-            oldest_supported: ${{ steps.read-versions.outputs.oldest_supported }}
-        steps:
             - uses: actions/checkout@v6
+              if: github.event_name == 'push' || steps.changes.outputs.shouldRun == 'true'
               with:
                   sparse-checkout: .github/clickhouse-versions.json
                   sparse-checkout-cone-mode: false
+
             - name: Read ClickHouse versions from JSON
               id: read-versions
+              if: github.event_name == 'push' || steps.changes.outputs.shouldRun == 'true'
               run: |
-                  oldest_supported=$(jq -r '.oldest_supported' .github/clickhouse-versions.json)
+                  oldest_supported=$(jq -r '.versions.oldest_supported' .github/clickhouse-versions.json)
                   if [ -z "$oldest_supported" ] || [ "$oldest_supported" = "null" ]; then
                     echo "::error::No oldest_supported version found in .github/clickhouse-versions.json"
                     exit 1
                   fi
                   echo "oldest_supported=$oldest_supported" >> $GITHUB_OUTPUT
 
-    detect-snapshot-mode:
-        name: Detect snapshot mode
-        runs-on: ubuntu-latest
-        needs: [changes]
-        if: needs.changes.outputs.shouldRun == 'true'
-        outputs:
-            mode: ${{ steps.detect.outputs.mode }}
-        steps:
-            - name: Detect mode
-              id: detect
-              run: |
-                  if [ "${{ github.event.pull_request.head.repo.full_name }}" != "${{ github.repository }}" ]; then
-                    echo "mode=check" >> $GITHUB_OUTPUT
-                    echo "Fork detected - running in CHECK mode (no commits allowed)"
-                  else
-                    AUTHOR="${{ github.actor }}"
-                    echo "Workflow triggered by: $AUTHOR"
-                    if [[ "$AUTHOR" == *"github-actions"* ]] || [[ "$AUTHOR" == *"[bot]"* ]] || [[ "$AUTHOR" == "posthog-bot" ]]; then
-                      echo "mode=check" >> $GITHUB_OUTPUT
-                      echo "::notice::🔍 Running in CHECK mode - snapshots must match exactly"
-                    else
-                      echo "mode=update" >> $GITHUB_OUTPUT
-                      echo "::notice::🔄 Running in UPDATE mode - snapshots can be updated"
-                    fi
-                  fi
-
     playwright:
         name: Playwright E2E tests
-        needs: [changes, detect-snapshot-mode, get_clickhouse_versions]
+        needs: [changes]
         if: needs.changes.outputs.shouldRun == 'true'
         # WARNING: Runner size is tuned to avoid CPU scheduling contention. Talk to #team-devex before changing.
         runs-on: depot-ubuntu-latest-16
-        timeout-minutes: 30
+        timeout-minutes: 45
+        outputs:
+            vr_run_id: ${{ steps.vr-create.outputs.run_id }}
         steps:
             - uses: actions/checkout@v6
               with:
@@ -170,8 +143,7 @@ jobs:
             - name: Stop/Start stack with Docker Compose
               shell: bash
               run: |
-                  export CLICKHOUSE_SERVER_IMAGE=${{ needs.get_clickhouse_versions.outputs.oldest_supported }}
-                  export DOCKER_REGISTRY_PREFIX="us-east1-docker.pkg.dev/posthog-301601/mirror/"
+                  export CLICKHOUSE_SERVER_IMAGE=${{ needs.changes.outputs.oldest_supported }}
                   cp posthog/user_scripts/latest_user_defined_function.xml docker/clickhouse/user_defined_function.xml
 
                   (
@@ -183,7 +155,7 @@ jobs:
                         echo "Attempt $attempt of $max_attempts to start stack..."
 
                         if docker compose -f docker-compose.dev.yml down && \
-                          docker compose -f docker-compose.dev.yml up -d; then
+                          docker compose -f docker-compose.dev.yml -f docker-compose.profiles.yml up -d; then
                             echo "Stack started successfully"
                             exit 0
                         fi
@@ -203,22 +175,23 @@ jobs:
                     exit 1
                   ) &
 
-            - name: Add Kafka and ClickHouse to /etc/hosts
+            - name: Add service hostnames to /etc/hosts
               shell: bash
-              run: echo "127.0.0.1 kafka clickhouse" | sudo tee -a /etc/hosts
+              run: echo "127.0.0.1 db redis7 kafka clickhouse clickhouse-coordinator objectstorage seaweedfs temporal" | sudo tee -a /etc/hosts
 
             - name: Set up Python
-              uses: actions/setup-python@83679a892e2d95755f2dac6acb0bfd1e9ac5d548 # v6.1.0
+              uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
               with:
                   python-version: 3.12.12
 
             - name: Install uv
               id: setup-uv
-              uses: astral-sh/setup-uv@61cb8a9741eeb8a550a1b8544337180c0fc8476b # v7.2.0
+              uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b # v7.3.0
               with:
+                  version: '0.10.2' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
                   enable-cache: true
+                  cache-dependency-glob: uv.lock
                   save-cache: ${{ github.ref == 'refs/heads/master' }}
-                  version: 0.9.9
 
             - name: Determine if hogql-parser has changed compared to master
               shell: bash
@@ -237,11 +210,17 @@ jobs:
             - name: Install pnpm
               uses: pnpm/action-setup@41ff72655975bd51cab0327fa583b6e92b6d3061 # v4.2.0
 
+            - name: Fix node-gyp permissions
+              run: chmod +x ~/setup-pnpm/node_modules/.pnpm/pnpm@*/node_modules/pnpm/dist/node_modules/node-gyp/gyp/gyp_main.py
+
             - name: Set up Node.js
-              uses: actions/setup-node@395ad3262231945c25e8478fd5baf05154b1d79f # v6.1.0
+              uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
               with:
-                  node-version: 24.13.0
+                  node-version-file: .nvmrc
                   cache: pnpm
+                  cache-dependency-path: |
+                      pnpm-lock.yaml
+                      .github/workflows/ci-e2e-playwright.yml
 
             # tests would intermittently fail in GH actions
             # with exit code 134 _after passing_ all tests
@@ -267,7 +246,7 @@ jobs:
               # changed (requirements.txt has the already-published version)
               run: |
                   sudo apt-get install unzip cmake curl uuid pkg-config
-                  curl https://www.antlr.org/download/antlr4-cpp-runtime-4.13.1-source.zip --output antlr4-source.zip
+                  curl --fail --location https://www.antlr.org/download/antlr4-cpp-runtime-4.13.1-source.zip --output antlr4-source.zip || curl --fail --location https://raw.githubusercontent.com/antlr/website-antlr4/gh-pages/download/antlr4-cpp-runtime-4.13.1-source.zip --output antlr4-source.zip
                   # Check that the downloaded archive is the expected runtime - a security measure
                   anltr_known_md5sum="c875c148991aacd043f733827644a76f"
                   antlr_found_ms5sum="$(md5sum antlr4-source.zip | cut -d' ' -f1)"
@@ -295,23 +274,22 @@ jobs:
                   touch frontend/dist/exporter.html
                   ./bin/download-mmdb
 
-            - name: Setup Emscripten for WASM build
-              uses: mymindstorm/setup-emsdk@6ab9eb1bda2574c4ddb79809fc9247783eaf9021 # v14
-              with:
-                  version: '4.0.23'
-
-            - name: Install Ninja
-              run: sudo apt-get install -y ninja-build
-
             - name: Install package.json dependencies with pnpm
               run: |
                   pnpm --filter=@posthog/playwright... install --frozen-lockfile
                   bin/turbo --filter=@posthog/frontend prepare
 
-            - name: Wait for services to be available
-              run: |
-                  bin/check_kafka_clickhouse_up
-                  bin/check_postgres_up
+            - name: Start Docker services
+              env:
+                  COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
+                  COMPOSE_PROFILES: capture,temporal
+              run: bin/ci-wait-for-docker launch --down
+
+            - name: Wait for Docker services
+              env:
+                  COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
+                  COMPOSE_PROFILES: capture,temporal
+              run: bin/ci-wait-for-docker wait capture temporal
 
             - name: Build frontend
               run: |
@@ -325,11 +303,32 @@ jobs:
                   # KLUDGE: rrweb thinks they're alongside and the django's collectstatic fails
                   cp frontend/node_modules/@posthog/rrweb/dist/image-bitmap-data-url-worker-*.js.map frontend/dist/ && python manage.py collectstatic --noinput
             - name: Create test database
+              shell: bash
               run: |
                   createdb posthog_e2e_test || echo "Database already exists"
-                  # Drop and recreate clickhouse test database
-                  echo 'DROP DATABASE if exists posthog_test' | curl 'http://localhost:8123/' --data-binary @-
-                  echo 'create database posthog_test' | curl 'http://localhost:8123/' --data-binary @-
+
+                  run_clickhouse_query() {
+                      local query="$1"
+
+                      for attempt in {1..10}; do
+                          if printf '%s' "$query" | curl --silent --show-error --fail 'http://localhost:8123/' --data-binary @-; then
+                              echo
+                              return 0
+                          fi
+
+                          echo "ClickHouse query failed on attempt ${attempt}/10, retrying in 3s..."
+                          sleep 3
+                      done
+
+                      echo "ClickHouse query failed after 10 attempts: $query" >&2
+                      return 1
+                  }
+
+                  # Drop and recreate clickhouse test database. The HTTP endpoint can briefly
+                  # reset connections while the container is still settling after startup.
+                  run_clickhouse_query 'SELECT 1'
+                  run_clickhouse_query 'DROP DATABASE IF EXISTS posthog_test SYNC'
+                  run_clickhouse_query 'CREATE DATABASE posthog_test'
 
             - name: Cache Rust dependencies
               uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2
@@ -360,11 +359,38 @@ jobs:
                   source ./bin/celery-queues.env
                   echo "CELERY_WORKER_QUEUES=$CELERY_WORKER_QUEUES" >> $GITHUB_ENV
 
-            - name: Start PostHog web & Celery worker
+            - name: Resolve Node.js container image tag
+              id: node-image
+              run: |
+                  # ci-nodejs-container.yml tags images as pr-<number> for PRs
+                  if [ -n "${{ github.event.pull_request.number }}" ]; then
+                    TAG="pr-${{ github.event.pull_request.number }}"
+                  else
+                    TAG="${{ github.sha }}"
+                  fi
+                  if docker manifest inspect "ghcr.io/posthog/posthog-node:${TAG}" > /dev/null 2>&1; then
+                    echo "posthog-node image found: ${TAG}"
+                    echo "POSTHOG_NODE_TAG=${TAG}" >> "$GITHUB_ENV"
+                  else
+                    echo "posthog-node image not found for ${TAG}, using master"
+                    echo "POSTHOG_NODE_TAG=master" >> "$GITHUB_ENV"
+                  fi
+
+            - name: Start PostHog web, Celery worker, Temporal worker & ingestion
               run: |
                   python manage.py run_autoreload_celery --type=worker &> /tmp/celery.log &
+                  python manage.py start_temporal_worker --task-queue analytics-platform-task-queue &> /tmp/temporal-worker.log &
                   # WARNING: Worker count is tuned to avoid CPU scheduling contention. Talk to #team-devex before changing.
                   python -m granian --interface asgi posthog.asgi:application --host 0.0.0.0 --port 8000 --log-level debug --workers 2 &> /tmp/server.log &
+                  # Start the Node.js containers now that the database exists and migrations have run.
+                  # plugins: CDP (no mode = default capabilities)
+                  # ingestion-general: event ingestion (ingestion-v2-combined mode)
+                  # ingestion-sessionreplay: session replay ingestion (recordings-blob-ingestion-v2 mode)
+                  # recording-api: session replay API (recording-api mode)
+                  # ingestion-error-tracking: error tracking ingestion (ingestion-errortracking mode)
+                  # ingestion-logs: logs ingestion (ingestion-logs mode)
+                  # ingestion-traces: traces ingestion (ingestion-traces mode)
+                  COMPOSE_FILE=docker-compose.dev.yml COMPOSE_PROFILES=capture,ingestion bin/ci-wait-for-docker launch plugins ingestion-general ingestion-sessionreplay recording-api ingestion-error-tracking ingestion-logs ingestion-traces
 
             # Install Playwright browsers while we wait for PostHog to be ready
             - name: Install Playwright browsers
@@ -378,97 +404,82 @@ jobs:
                   interval: 2000
                   verbose: true
 
+            - name: Wait for node services to be ready
+              env:
+                  COMPOSE_FILE: docker-compose.dev.yml
+                  COMPOSE_PROFILES: capture,ingestion
+              run: bin/ci-wait-for-docker wait plugins ingestion-general ingestion-sessionreplay recording-api ingestion-error-tracking ingestion-logs ingestion-traces
+
+            - name: Clean snapshot directory
+              run: find playwright/__snapshots__ -name '*.png' -delete 2>/dev/null || true
+
             - name: Run Playwright tests
               id: playwright-tests
               shell: bash
               # WARNING: Worker count is tuned to avoid CPU scheduling contention. Talk to #team-devex before changing.
               # Reduced from 6+4 to 4+2 to minimize CPU scheduling contention (see PR #46853)
+              # Capture-only: VR is the gate for visual changes, Playwright just captures screenshots
               run: |
-                  set +e  # Allow snapshot update retry
-                  # Attempt 1: Always verify (fast path when snapshots match)
-                  # Attempt 2: Update snapshots if previous failure was screenshot-related (UPDATE mode only)
-                  # Note: Playwright's built-in retry (3x per test) handles test flakiness
-                  echo "Attempt 1: Running Playwright tests"
-                  set -o pipefail
-                  pnpm --filter=@posthog/playwright exec playwright test --workers=4 2>&1 | tee /tmp/playwright-output-attempt-1.log
-                  EXIT_CODE=$?
-                  set +o pipefail
+                  pnpm --filter=@posthog/playwright exec playwright test --workers=4 --max-failures=5 --update-snapshots
 
-                  if [ $EXIT_CODE -ne 0 ]; then
-                    # Check if we should retry with snapshot update
-                    # Look for either "Screenshot comparison failed" or "snapshot doesn't exist" error messages
-                    # Use case-insensitive match to catch variations like "Snapshot does not exist"
-                    if [ "${{ needs.detect-snapshot-mode.outputs.mode }}" == "update" ] && grep -qEi "(Screenshot comparison failed|snapshot does(n't| not) exist)" /tmp/playwright-output-attempt-1.log 2>/dev/null; then
-                      echo "Screenshot-related failure detected - retrying with --update-snapshots"
-
-                      # Preserve attempt 1 artifacts
-                      echo "Preserving attempt 1 artifacts..."
-                      mkdir -p playwright/test-results-attempt-1 playwright/playwright-report-attempt-1
-                      cp -r playwright/test-results/* playwright/test-results-attempt-1/ 2>/dev/null || true
-                      cp -r playwright/playwright-report/* playwright/playwright-report-attempt-1/ 2>/dev/null || true
-
-                      # Attempt 2: Update snapshots
-                      echo "Attempt 2: Running Playwright tests with --update-snapshots"
-                      set -o pipefail
-                      pnpm --filter=@posthog/playwright exec playwright test --workers=4 --update-snapshots 2>&1 | tee /tmp/playwright-output-attempt-2.log
-                      EXIT_CODE=$?
-                      set +o pipefail
-
-                      if [ $EXIT_CODE -ne 0 ]; then
-                        echo "Playwright tests failed after 2 attempts"
-                        exit 1
-                      fi
-                    else
-                      echo "Non-screenshot failure - not retrying (Playwright already retried failed tests 3x)"
-                      exit 1
-                    fi
-                  fi
-
-            # Create git patch for aggregation (handles A/M/D including binary files)
-            # Only run in UPDATE mode - CHECK mode doesn't update snapshots
-            # Run even if tests failed, as long as snapshots may have been updated
-            - name: Create screenshot patch
-              id: create-patch
-              if: needs.detect-snapshot-mode.outputs.mode == 'update' && (success() || failure()) && needs.changes.outputs.shouldRun == 'true' && github.event.pull_request.head.repo.full_name == github.repository
+            - name: Verify changed Playwright tests are stable
+              if: success() && github.event_name == 'pull_request'
+              shell: bash
               run: |
-                  # Verify we're in a git repository before running git commands
-                  if ! git rev-parse --git-dir > /dev/null 2>&1; then
-                    echo "Not in a git repository, skipping patch creation"
-                    echo "has-changes=false" >> $GITHUB_OUTPUT
-                    exit 0
-                  fi
+                  BASE_SHA="${{ github.event.pull_request.base.sha }}"
+                  git fetch --no-tags --prune --depth=50 origin "$BASE_SHA"
+                  .github/scripts/verify-playwright-new-tests-and-snapshots.sh "$BASE_SHA" 10
 
-                  # Check if there are any changes (modified or untracked) in the snapshots directory
-                  # Use git status --porcelain to detect both modifications and new untracked files
-                  if [ -z "$(git status --porcelain playwright/__snapshots__/)" ]; then
-                    echo "No screenshot changes"
-                    echo "has-changes=false" >> $GITHUB_OUTPUT
-                  else
-                    echo "Screenshot changes detected:"
-                    git status --short playwright/__snapshots__/
+            # Visual Review: create run + upload snapshots directly from the test job.
+            # Completion happens in handle-screenshots so the baseline lands in the same commit as PNGs.
+            - name: Install VR CLI
+              if: always() && (github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'push')
+              run: cd products/visual_review/cli && npm ci && npm run build && npm link
 
-                    # Stage untracked files so git diff can include them in the patch
-                    git add -N playwright/__snapshots__/
-                    # Create binary-safe patch file
-                    mkdir -p /tmp/patches
-                    git diff --binary --full-index playwright/__snapshots__/ > /tmp/patches/playwright-patch.patch
-                    echo "Created patch file"
-                    echo "has-changes=true" >> $GITHUB_OUTPUT
-                  fi
+            - name: Create VR run
+              id: vr-create
+              if: always() && (github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'push')
+              env:
+                  VR_TOKEN: ${{ secrets.VR_API_TOKEN }}
+                  VR_BRANCH: ${{ github.event.pull_request.head.ref || github.ref_name }}
+                  VR_COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
+                  VR_PR: ${{ github.event.pull_request.number }}
+              run: |
+                  RUN_ID=$(vr run create \
+                    --type playwright \
+                    --baseline playwright/snapshots.yml \
+                    --branch "$VR_BRANCH" \
+                    --commit "$VR_COMMIT" \
+                    --pr "$VR_PR" \
+                    --token "$VR_TOKEN")
+                  echo "run_id=$RUN_ID" >> $GITHUB_OUTPUT
 
-            - name: Upload screenshot patch
-              if: steps.create-patch.outputs.has-changes == 'true' && (success() || failure())
-              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
-              with:
-                  name: playwright-patch
-                  path: /tmp/patches/playwright-patch.patch
-                  retention-days: 1
-                  if-no-files-found: ignore
+            - name: Upload snapshots to Visual Review
+              if: always() && steps.vr-create.outputs.run_id != ''
+              env:
+                  VR_TOKEN: ${{ secrets.VR_API_TOKEN }}
+                  VR_RUN_ID: ${{ steps.vr-create.outputs.run_id }}
+              run: |
+                  vr run upload \
+                    --run-id "$VR_RUN_ID" \
+                    --dir playwright/__snapshots__/ \
+                    --baseline playwright/snapshots.yml \
+                    --token "$VR_TOKEN"
 
             # ── Artifacts on failure / always ─────────────────────────────────────
             - name: Capture docker logs
               if: always()
-              run: docker logs posthog-proxy-1 > playwright/test-results/docker-proxy.log 2>&1 || echo "No proxy container" > playwright/test-results/docker-proxy.log
+              run: |
+                  mkdir -p playwright/test-results
+                  docker logs posthog-proxy-1 > playwright/test-results/docker-proxy.log 2>&1 || echo "No proxy container" > playwright/test-results/docker-proxy.log
+                  docker logs posthog-capture-1 > playwright/test-results/docker-capture.log 2>&1 || echo "No capture container" > playwright/test-results/docker-capture.log
+                  docker logs posthog-plugins-1 > playwright/test-results/docker-plugins.log 2>&1 || echo "No plugins container" > playwright/test-results/docker-plugins.log
+                  docker logs posthog-ingestion-general-1 > playwright/test-results/docker-ingestion-general.log 2>&1 || echo "No ingestion-general container" > playwright/test-results/docker-ingestion-general.log
+                  docker logs posthog-ingestion-sessionreplay-1 > playwright/test-results/docker-ingestion-sessionreplay.log 2>&1 || echo "No ingestion-sessionreplay container" > playwright/test-results/docker-ingestion-sessionreplay.log
+                  docker logs posthog-recording-api-1 > playwright/test-results/docker-recording-api.log 2>&1 || echo "No recording-api container" > playwright/test-results/docker-recording-api.log
+                  docker logs posthog-ingestion-error-tracking-1 > playwright/test-results/docker-ingestion-error-tracking.log 2>&1 || echo "No ingestion-error-tracking container" > playwright/test-results/docker-ingestion-error-tracking.log
+                  docker logs posthog-ingestion-logs-1 > playwright/test-results/docker-ingestion-logs.log 2>&1 || echo "No ingestion-logs container" > playwright/test-results/docker-ingestion-logs.log
+                  docker logs posthog-ingestion-traces-1 > playwright/test-results/docker-ingestion-traces.log 2>&1 || echo "No ingestion-traces container" > playwright/test-results/docker-ingestion-traces.log
 
             - name: Archive test artifacts
               if: always()
@@ -482,6 +493,7 @@ jobs:
                       playwright/test-results-attempt-*/
                       /tmp/celery.log
                       /tmp/server.log
+                      /tmp/temporal-worker.log
                       /tmp/playwright-output-attempt-*.log
                   retention-days: 30
                   if-no-files-found: ignore
@@ -494,12 +506,142 @@ jobs:
                   path: playwright/junit-results.xml
                   if-no-files-found: ignore
 
+            - name: Publish report to Cloudflare Pages
+              if: always() && (github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository)
+              id: cf-deploy
+              continue-on-error: true
+              env:
+                  CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+                  CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+              run: |
+                  BRANCH="${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.number) || 'master' }}"
+                  npx --yes wrangler@3 pages deploy playwright/playwright-report \
+                    --project-name=playwright-report \
+                    --branch="$BRANCH" \
+                    --commit-dirty=true 2>&1 | tee /tmp/wrangler-output.txt
+                  URL=$(grep -oP 'https://\S+\.pages\.dev' /tmp/wrangler-output.txt | tail -1 || true)
+                  if [ -n "$URL" ]; then
+                      echo "deployment-url=$URL" >> $GITHUB_OUTPUT
+                  fi
+
+            - name: Write report URL to job summary
+              if: always() && steps.cf-deploy.outputs.deployment-url != ''
+              env:
+                  DEPLOYMENT_URL: ${{ steps.cf-deploy.outputs.deployment-url }}
+              run: |
+                  echo "## 🎭 Playwright report" >> $GITHUB_STEP_SUMMARY
+                  echo "" >> $GITHUB_STEP_SUMMARY
+                  echo "**Report URL:** $DEPLOYMENT_URL" >> $GITHUB_STEP_SUMMARY
+                  echo "" >> $GITHUB_STEP_SUMMARY
+                  echo "- Commit: \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
+                  echo "- Run: [#${{ github.run_number }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})" >> $GITHUB_STEP_SUMMARY
+
+            - name: Upsert report URL comment on PR
+              if: always() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+              continue-on-error: true
+              uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+              env:
+                  DEPLOYMENT_URL: ${{ steps.cf-deploy.outputs.deployment-url }}
+              with:
+                  github-token: ${{ secrets.GITHUB_TOKEN }}
+                  script: |
+                      const fs = require('fs');
+                      const marker = '<!-- playwright-report-comment -->';
+                      const reportUrl = process.env.DEPLOYMENT_URL;
+                      const jobPassed = '${{ job.status }}' === 'success';
+
+                      // Collect failed and flaky tests from JSON report — only populated when
+                      // results.json exists (i.e. tests actually ran). If the file is missing
+                      // (setup failure, cancelled, etc.) extraLines stays empty and we treat
+                      // it the same as "no failures found", so we don't delete an existing
+                      // comment that may have relevant info from a previous run.
+                      let extraLines = '';
+                      let resultsRead = false;
+                      let failed = [];
+                      try {
+                          const results = JSON.parse(fs.readFileSync('playwright/results.json', 'utf8'));
+                          resultsRead = true;
+                          const flaky = [];
+                          function collect(suites) {
+                              for (const suite of suites || []) {
+                                  for (const spec of suite.specs || []) {
+                                      for (const test of spec.tests || []) {
+                                          if (test.status === 'unexpected') {
+                                              failed.push(`- ${spec.title} (${test.projectName})`);
+                                          } else if (test.status === 'flaky') {
+                                              flaky.push(`- ${spec.title} (${test.projectName})`);
+                                          }
+                                      }
+                                  }
+                                  collect(suite.suites);
+                              }
+                          }
+                          collect(results.suites);
+                          if (failed.length > 0) {
+                              extraLines += `\n\n❌ **${failed.length} failed test${failed.length > 1 ? 's' : ''}:**\n${failed.join('\n')}`;
+                          }
+                          if (flaky.length > 0) {
+                              extraLines += `\n\n⚠️ **${flaky.length} flaky test${flaky.length > 1 ? 's' : ''}:**\n${flaky.join('\n')}`;
+                          }
+                      } catch {}
+
+                      // Flake verification results for changed test files
+                      try {
+                          const flakeResults = JSON.parse(fs.readFileSync('playwright/flake-verification-results.json', 'utf8'));
+                          if (flakeResults.status === 'failed') {
+                              const fileList = flakeResults.files.map(f => `- \`${f}\``).join('\n');
+                              const flakeReportLink = reportUrl ? ` [View report →](${reportUrl})` : '';
+                              extraLines += `\n\n🔁 **Flake verification failed** (--repeat-each=${flakeResults.repeat_count}):\n${fileList}\n\nThe report only shows the tests under verification.${flakeReportLink} Fix these before merging.`;
+                          }
+                      } catch {}
+
+                      const { data: comments } = await github.rest.issues.listComments({
+                          owner: context.repo.owner,
+                          repo: context.repo.repo,
+                          issue_number: context.issue.number,
+                      });
+                      const existing = comments.find(c => c.body.includes(marker));
+
+                      // No failures or flakies — nothing to comment about
+                      if (!extraLines) {
+                          // Clean up any existing comment, but only when we know tests actually ran and passed
+                          if (resultsRead && existing) {
+                              await github.rest.issues.deleteComment({
+                                  owner: context.repo.owner,
+                                  repo: context.repo.repo,
+                                  comment_id: existing.id,
+                              });
+                          }
+                          return;
+                      }
+
+                      const reportLink = reportUrl ? ` · [View test results →](${reportUrl})` : '';
+                      const footer = '\n\n\n*These issues are not necessarily caused by your changes.*\n*Annoyed by this comment? Help fix flakies and failures and it\'ll disappear!*';
+                      const body = `${marker}\n🎭 Playwright report${reportLink}${extraLines}${footer}`;
+
+                      if (existing) {
+                          await github.rest.issues.updateComment({
+                              owner: context.repo.owner,
+                              repo: context.repo.repo,
+                              comment_id: existing.id,
+                              body,
+                          });
+                      } else {
+                          await github.rest.issues.createComment({
+                              owner: context.repo.owner,
+                              repo: context.repo.repo,
+                              issue_number: context.issue.number,
+                              body,
+                          });
+                      }
+
     capture-run-time:
         name: Capture run time
         runs-on: ubuntu-latest
+        timeout-minutes: 5
         needs: [changes, playwright]
-        if: # Run on pull requests to PostHog/posthog + on PostHog/posthog outside of PRs - but never on forks
-            always() &&
+        if: # Run on pull requests to PostHog/posthog + on PostHog/posthog outside of PRs - but never on forks or Dependabot (no secrets access)
+            always() && github.actor != 'dependabot[bot]' &&
             needs.changes.outputs.shouldRun == 'true' && (
             (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog') ||
             (github.event_name != 'pull_request' && github.repository == 'PostHog/posthog'))
@@ -514,91 +656,69 @@ jobs:
                   github-token: ${{ secrets.GITHUB_TOKEN }}
                   status-job: 'Playwright tests pass'
                   runner: 'depot'
-
-    # Aggregate all screenshot artifacts and commit once
-    handle-screenshots:
-        name: Handle screenshot changes
-        runs-on: ubuntu-latest
-        needs: [playwright, detect-snapshot-mode, changes]
-        if: always() && needs.detect-snapshot-mode.outputs.mode == 'update' && needs.changes.outputs.shouldRun == 'true' && github.event.pull_request.head.repo.full_name == github.repository
-        steps:
-            # Use GitHub app token so Actions run after commiting updated snapshots
-            - name: Get app token
-              id: app-token
-              uses: getsentry/action-github-app-token@d4b5da6c5e37703f8c3b3e43abb5705b46e159cc # v3.0.0
+            - name: Capture running time to DevEx PostHog
+              continue-on-error: true
+              uses: PostHog/posthog-github-action@eea1405eeb2d1d2259f0ee0b44d7b152869e6840 # v1.1.1
               with:
-                  app_id: ${{ secrets.GH_APP_POSTHOG_TESTS_APP_ID }}
-                  private_key: ${{ secrets.GH_APP_POSTHOG_TESTS_PRIVATE_KEY }}
+                  posthog-token: ${{ secrets.POSTHOG_DEVEX_PROJECT_API_TOKEN }}
+                  event: 'posthog-ci-running-time'
+                  capture-run-duration: true
+                  capture-job-durations: true
+                  github-token: ${{ secrets.GITHUB_TOKEN }}
+                  status-job: 'Playwright tests pass'
+                  runner: 'depot'
 
+    vr-complete:
+        name: Complete Visual Review run
+        runs-on: ubuntu-latest
+        timeout-minutes: 15
+        needs: [playwright]
+        if: needs.playwright.outputs.vr_run_id != '' && needs.playwright.result == 'success'
+        steps:
             - uses: actions/checkout@v6
               with:
-                  ref: ${{ github.event.pull_request.head.sha }}
-                  token: ${{ steps.app-token.outputs.token || github.token }}
+                  ref: ${{ github.event.pull_request.head.sha || github.sha }}
+                  repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
+                  sparse-checkout: |
+                      .nvmrc
+                      products/visual_review/cli
+                      products/visual_review/frontend/generated/api.schemas.ts
+                      playwright/snapshots.yml
+                  sparse-checkout-cone-mode: false
 
-            - name: Download screenshot patches
-              id: download-patches
-              continue-on-error: true
-              uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+            - name: Set up Node.js
+              uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
               with:
-                  pattern: playwright-patch
-                  path: /tmp/screenshot-patches/
-                  merge-multiple: true
+                  node-version-file: .nvmrc
 
-            - name: Check for screenshot changes
-              id: check-screenshots
+            - name: Install VR CLI
+              run: cd products/visual_review/cli && npm ci && npm run build && npm link
+
+            - name: Complete Visual Review run
+              env:
+                  VR_TOKEN: ${{ secrets.VR_API_TOKEN }}
               run: |
-                  # Check if patches were downloaded and have content
-                  if [ "${{ steps.download-patches.outcome }}" == "failure" ] || [ ! -d /tmp/screenshot-patches/ ]; then
-                    echo "has-changes=false" >> $GITHUB_OUTPUT
-                    echo "No screenshot patches found"
-                    exit 0
-                  fi
+                  vr run complete \
+                    --run-id "${{ needs.playwright.outputs.vr_run_id }}" \
+                    --baseline playwright/snapshots.yml \
+                    --token "$VR_TOKEN"
 
-                  # Check if any patch files have content (>0 bytes)
-                  PATCHES=$(find /tmp/screenshot-patches -name "*.patch" -type f -size +0c)
-                  if [ -z "$PATCHES" ]; then
-                    echo "has-changes=false" >> $GITHUB_OUTPUT
-                    echo "Patch files empty - no screenshot changes"
-                  else
-                    echo "has-changes=true" >> $GITHUB_OUTPUT
-                    echo "Screenshot changes detected in patches"
-                  fi
-
-            # UPDATE mode: commit the changes
-            - name: Commit screenshot changes
-              if: steps.check-screenshots.outputs.has-changes == 'true' && needs.detect-snapshot-mode.outputs.mode == 'update'
-              uses: ./.github/actions/commit-snapshots
-              with:
-                  workflow-type: playwright
-                  patch-path: /tmp/screenshot-patches/
-                  snapshot-path: playwright/
-                  commit-message: 'test(e2e): update screenshots'
-                  pr-number: ${{ github.event.pull_request.number }}
-                  repository: ${{ github.repository }}
-                  commit-sha: ${{ github.event.pull_request.head.sha }}
-                  branch-name: ${{ github.event.pull_request.head.ref }}
-                  github-token: ${{ steps.app-token.outputs.token || github.token }}
-
-    # Job to collate the status of the matrix jobs for requiring passing status
-    # Must depend on handle-screenshots to prevent auto-merge before commits complete
+    # Collate test + VR completion status for the required check
     playwright_tests:
-        needs: [playwright, handle-screenshots]
+        needs: [playwright, vr-complete]
         name: Playwright tests pass
         runs-on: ubuntu-latest
+        timeout-minutes: 5
         if: always()
         steps:
-            - name: Check matrix outcome
+            - name: Check outcome
               run: |
-                  # Check playwright matrix result
                   if [[ "${{ needs.playwright.result }}" != "success" && "${{ needs.playwright.result }}" != "skipped" ]]; then
-                    echo "One or more jobs in the Playwright test matrix failed."
+                    echo "Playwright tests failed."
                     exit 1
                   fi
 
-                  # Check handle-screenshots result (OK if skipped, but fail if it failed)
-                  if [[ "${{ needs.handle-screenshots.result }}" == "failure" ]]; then
-                    echo "Screenshot commit job failed."
+                  if [[ "${{ needs.vr-complete.result }}" != "success" && "${{ needs.vr-complete.result }}" != "skipped" ]]; then
+                    echo "Visual Review did not complete successfully (result: ${{ needs.vr-complete.result }})."
                     exit 1
                   fi
-
-                  echo "All jobs passed or were skipped successfully."

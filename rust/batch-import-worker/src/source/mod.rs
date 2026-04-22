@@ -4,6 +4,7 @@ use async_trait::async_trait;
 pub mod date_range_export;
 pub mod folder;
 pub mod s3;
+pub mod s3_gzip;
 pub mod url_list;
 
 #[async_trait]

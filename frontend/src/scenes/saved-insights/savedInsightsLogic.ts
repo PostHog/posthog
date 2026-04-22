@@ -8,6 +8,7 @@ import { dayjs } from 'lib/dayjs'
 import { Sorting } from 'lib/lemon-ui/LemonTable'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { PaginationManual } from 'lib/lemon-ui/PaginationControl'
+import { listSelectionLogic } from 'lib/logic/listSelectionLogic'
 import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
 import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
 import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
@@ -85,6 +86,7 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
     tabAwareScene(),
     connect(() => ({
         values: [teamLogic, ['currentTeamId'], sceneLogic, ['activeSceneId']],
+        actions: [listSelectionLogic({ resource: 'insights' }), ['bulkUpdateTagsSuccess']],
         logic: [eventUsageLogic],
     })),
     actions({
@@ -123,6 +125,10 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
                 const legacyResponse: CountedPaginatedResponse<InsightModel> = await api.get(
                     `api/environments/${teamLogic.values.currentTeamId}/insights/?${toParams(params)}`
                 )
+
+                // Cancel if a newer request came in while this one was in flight
+                await breakpoint()
+
                 const response = {
                     ...legacyResponse,
                     results: legacyResponse.results.map((legacyInsight) => getQueryBasedInsightModel(legacyInsight)),
@@ -131,6 +137,7 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
                 if (filters.search && String(filters.search).match(/^[0-9]+$/)) {
                     try {
                         const insight = await insightsApi.getByNumericId(Number(filters.search))
+                        await breakpoint()
                         return {
                             ...response,
                             count: response.count + 1,
@@ -249,9 +256,11 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
                 ...(filters.insightType?.toLowerCase() !== 'all types' && {
                     insight: filters.insightType?.toUpperCase(),
                 }),
-                ...(filters.createdBy !== 'All users' && {
-                    created_by: JSON.stringify(filters.createdBy),
-                }),
+                ...(filters.tab === SavedInsightsTabs.Yours && { user: true }),
+                ...(filters.tab !== SavedInsightsTabs.Yours &&
+                    filters.createdBy !== 'All users' && {
+                        created_by: JSON.stringify(filters.createdBy),
+                    }),
                 ...(filters.tags && filters.tags.length > 0 && { tags: JSON.stringify(filters.tags) }),
                 ...(filters.dateFrom &&
                     filters.dateFrom !== 'all' && {
@@ -349,7 +358,12 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
         [insightsModel.actionTypes.renameInsightSuccess]: ({ item }) => {
             actions.updateInsight(item)
         },
-        [dashboardsModel.actionTypes.updateDashboardInsight]: ({ insight }) => {
+        [dashboardsModel.actionTypes.updateDashboardInsight]: ({ insight, sourceDashboardId }) => {
+            if (sourceDashboardId != null) {
+                // That payload is only valid on the dashboard that refreshed it (date range, etc. are baked into
+                // `query`). The saved list should show the saved insight definition, not the merged view.
+                return
+            }
             const matchingInsightIndex = values.insights.results.findIndex((i) => i.id === insight.id)
             if (matchingInsightIndex >= 0) {
                 actions.updateInsight(insight)
@@ -366,6 +380,9 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
             if (duplicateDashboard.duplicateTiles) {
                 actions.loadInsights()
             }
+        },
+        bulkUpdateTagsSuccess: () => {
+            actions.loadInsights()
         },
     })),
     tabAwareActionToUrl(({ values }) => {

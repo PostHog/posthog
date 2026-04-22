@@ -9,8 +9,7 @@ import '@posthog/lemon-ui'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { getProjectEventExistence } from 'lib/utils/getAppContext'
 
 import { groupsModel } from '~/models/groupsModel'
 import type { DashboardTile, QueryBasedInsightModel } from '~/types'
@@ -22,8 +21,7 @@ export function TileFiltersOverride({ tile }: { tile: DashboardTile<QueryBasedIn
     const { setDates, setProperties } = useActions(tileLogic)
     const { groupsTaxonomicTypes } = useValues(groupsModel)
 
-    const { featureFlags } = useValues(featureFlagLogic)
-    const canAccessExplicitDateToggle = !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_DATE_PICKER_EXPLICIT_DATE_TOGGLE]
+    const { hasPageview, hasScreen } = getProjectEventExistence()
 
     return (
         <div className="space-y-4 tile-filters-override">
@@ -38,7 +36,7 @@ export function TileFiltersOverride({ tile }: { tile: DashboardTile<QueryBasedIn
                     <label className="text-sm font-medium mb-2 block">Date Range</label>
                     <DateFilter
                         showCustom
-                        showExplicitDateToggle={canAccessExplicitDateToggle}
+                        showExplicitDateToggle
                         dateFrom={overrides.date_from ?? null}
                         dateTo={overrides.date_to ?? null}
                         explicitDate={overrides.explicitDate}
@@ -63,6 +61,9 @@ export function TileFiltersOverride({ tile }: { tile: DashboardTile<QueryBasedIn
                             TaxonomicFilterGroupType.PersonProperties,
                             TaxonomicFilterGroupType.EventFeatureFlags,
                             TaxonomicFilterGroupType.EventMetadata,
+                            ...(hasPageview ? [TaxonomicFilterGroupType.PageviewUrls] : []),
+                            ...(hasScreen ? [TaxonomicFilterGroupType.Screens] : []),
+                            TaxonomicFilterGroupType.EmailAddresses,
                             ...groupsTaxonomicTypes,
                             TaxonomicFilterGroupType.Cohorts,
                             TaxonomicFilterGroupType.Elements,

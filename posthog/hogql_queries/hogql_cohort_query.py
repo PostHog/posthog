@@ -111,6 +111,8 @@ class HogQLCohortQuery:
                     hogql_context=self.hogql_context,
                 ),
                 self.team.pk,
+                self.team,
+                cohort,
             )
             self.property_groups = filter.property_groups
         elif cohort_query is not None:
@@ -127,7 +129,7 @@ class HogQLCohortQuery:
             modifiers=HogQLQueryModifiers(personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED),
             team=self.team,
             limit_context=LimitContext.COHORT_CALCULATION,
-            settings=HogQLGlobalSettings(allow_experimental_analyzer=None),
+            settings=HogQLGlobalSettings(enable_analyzer=None),
         )
 
     def get_query(self) -> SelectQuery | SelectSetQuery:
@@ -698,7 +700,7 @@ class HogQLRealtimeCohortQuery(HogQLCohortQuery):
         unwrapped_values: list[Union[Property, PropertyGroup]] = [
             self._unwrap_single_property_groups(v) for v in prop_or_group.values
         ]
-        prop_or_group.values = unwrapped_values  # type: ignore[assignment]
+        prop_or_group.values = cast(Union[list[Property], list[PropertyGroup]], unwrapped_values)
 
         # If this group has only one child, return the child instead
         if len(prop_or_group.values) == 1:
@@ -738,7 +740,7 @@ class HogQLRealtimeCohortQuery(HogQLCohortQuery):
                 else v
                 for v in prop_group.values
             ]
-            prop_group.values = processed_values  # type: ignore[assignment]
+            prop_group.values = cast(Union[list[Property], list[PropertyGroup]], processed_values)
             return prop_group
 
         # Group person properties by (key, operator)
@@ -776,7 +778,7 @@ class HogQLRealtimeCohortQuery(HogQLCohortQuery):
                 merged_values.extend(props)
 
         merged_values.extend(non_mergeable)
-        prop_group.values = merged_values  # type: ignore[assignment]
+        prop_group.values = cast(Union[list[Property], list[PropertyGroup]], merged_values)
 
         # After merging within groups, also merge sibling single-property groups
         prop_group = self._merge_sibling_single_property_groups(prop_group)
@@ -855,7 +857,7 @@ class HogQLRealtimeCohortQuery(HogQLCohortQuery):
                 merged_values.append(PropertyGroup(type=PropertyOperatorType.OR, values=[single_prop]))
 
         merged_values.extend(other_values)
-        prop_group.values = merged_values  # type: ignore[assignment]
+        prop_group.values = cast(Union[list[Property], list[PropertyGroup]], merged_values)
         return prop_group
 
     def _should_combine_person_properties(self) -> bool:
@@ -1055,7 +1057,7 @@ class HogQLRealtimeCohortQuery(HogQLCohortQuery):
                 SELECT
                     person_id,
                     condition,
-                    argMax(matches, _timestamp) as latest_matches
+                    argMax(matches, (_timestamp, _offset)) as latest_matches
                 FROM precalculated_person_properties
                 WHERE
                     team_id = {team_id}
@@ -1098,7 +1100,7 @@ class HogQLRealtimeCohortQuery(HogQLCohortQuery):
                 SELECT
                     person_id,
                     condition,
-                    argMax(matches, _timestamp) as latest_matches
+                    argMax(matches, (_timestamp, _offset)) as latest_matches
                 FROM precalculated_person_properties
                 WHERE
                     team_id = {team_id}
@@ -1165,7 +1167,7 @@ class HogQLRealtimeCohortQuery(HogQLCohortQuery):
                     team_id = {team_id}
                     AND condition = {condition_hash}
                 GROUP BY person_id
-                HAVING argMax(matches, _timestamp) = 1
+                HAVING argMax(matches, (_timestamp, _offset)) = 1
             """
 
             return cast(

@@ -8,25 +8,26 @@ import { LemonButton, LemonCheckbox, LemonSelect } from '@posthog/lemon-ui'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
-import { OrganizationMembershipLevel } from 'lib/constants'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
 import { ExporterFormat } from '~/types'
 
+import { buildBillingCsv } from './billing-utils'
 import { BillingDataTable } from './BillingDataTable'
 import { BillingEarlyAccessBanner } from './BillingEarlyAccessBanner'
 import { BillingEmptyState } from './BillingEmptyState'
 import { BillingLineGraph } from './BillingLineGraph'
+import { billingLogic } from './billingLogic'
 import { BillingNoAccess } from './BillingNoAccess'
-import { buildBillingCsv } from './billing-utils'
 import { billingUsageLogic } from './billingUsageLogic'
 import { USAGE_TYPES } from './constants'
 
 export function BillingUsage(): JSX.Element {
+    const { minimumBillingAccessLevel } = useValues(billingLogic)
     const restrictionReason = useRestrictedArea({
-        minimumAccessLevel: OrganizationMembershipLevel.Admin,
+        minimumAccessLevel: minimumBillingAccessLevel,
         scope: RestrictionScope.Organization,
     })
     const logic = billingUsageLogic({ syncWithUrl: true })

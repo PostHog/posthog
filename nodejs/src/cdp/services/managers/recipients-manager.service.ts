@@ -71,6 +71,44 @@ export class RecipientsManagerService {
         return recipient.preferences['$all'] ?? 'NO_PREFERENCE'
     }
 
+    /**
+     * Opt out one or more recipients from all marketing messaging by upserting the $all preference to OPTED_OUT.
+     */
+    public async optOut(teamId: number, identifiers: string[]): Promise<void> {
+        if (identifiers.length === 0) {
+            return
+        }
+
+        const preferences = JSON.stringify({ $all: 'OPTED_OUT' })
+
+        // Build a single INSERT with multiple VALUES rows
+        const valueClauses: string[] = []
+        const params: (number | string)[] = []
+        for (let i = 0; i < identifiers.length; i++) {
+            const teamParam = i * 3 + 1
+            const identifierParam = i * 3 + 2
+            const prefsParam = i * 3 + 3
+            valueClauses.push(
+                `(gen_random_uuid(), $${teamParam}, $${identifierParam}, $${prefsParam}, NOW(), NOW(), false)`
+            )
+            params.push(teamId, identifiers[i], preferences)
+        }
+
+        const queryString = `
+            INSERT INTO posthog_messagerecipientpreference (id, team_id, identifier, preferences, created_at, updated_at, deleted)
+            VALUES ${valueClauses.join(', ')}
+            ON CONFLICT (team_id, identifier)
+            DO UPDATE SET
+                preferences = posthog_messagerecipientpreference.preferences || EXCLUDED.preferences,
+                updated_at = NOW()
+        `
+
+        await this.postgres.query(PostgresUse.COMMON_WRITE, queryString, params, 'optOutRecipients')
+
+        // Clear the cache so subsequent reads pick up the new preferences
+        this.lazyLoader.clear()
+    }
+
     private async fetchRecipients(ids: string[]): Promise<Record<string, RecipientManagerRecipient | undefined>> {
         const recipientArgs = ids.map(fromKey)
 

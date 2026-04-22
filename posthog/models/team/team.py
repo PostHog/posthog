@@ -1,9 +1,7 @@
-import re
 from datetime import timedelta
 from decimal import Decimal
 from functools import lru_cache
-from typing import TYPE_CHECKING, Optional, cast
-from uuid import UUID
+from typing import TYPE_CHECKING, Any, Optional, cast
 from zoneinfo import ZoneInfo
 
 from django.conf import settings
@@ -18,11 +16,10 @@ import pytz
 import pydantic
 import posthoganalytics
 
-from posthog.clickhouse.query_tagging import tag_queries
+from posthog.clickhouse.query_tagging import Feature, Product, tag_queries, tags_context
 from posthog.cloud_utils import is_cloud
 from posthog.helpers.dashboard_templates import create_dashboard_from_template
 from posthog.helpers.session_recording_playlist_templates import DEFAULT_PLAYLISTS
-from posthog.models.dashboard import Dashboard
 from posthog.models.filters.filter import Filter
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.filters.utils import GroupTypeIndex
@@ -40,12 +37,13 @@ from posthog.models.utils import (
 from posthog.rbac.decorators import field_access_control
 from posthog.session_recordings.models.session_recording_playlist import SessionRecordingPlaylist
 from posthog.settings.utils import get_list
-from posthog.utils import GenericEmails
 
 from products.customer_analytics.backend.constants import DEFAULT_ACTIVITY_EVENT
+from products.dashboards.backend.models.dashboard import Dashboard
 
 from ...hogql.modifiers import set_default_modifier_values
 from ...schema import CurrencyCode, HogQLQueryModifiers, PathCleaningFilter, PersonsOnEventsMode
+from .extensions import get_or_create_team_extension
 from .team_caching import get_team_in_cache, set_team_in_cache
 
 if TYPE_CHECKING:
@@ -86,50 +84,35 @@ class TeamManager(models.Manager):
     def get_queryset(self):
         return super().get_queryset().defer(*DEPRECATED_ATTRS)
 
-    def set_test_account_filters(self, organization_id: Optional[UUID]) -> list:
-        filters = [
-            {
-                "key": "$host",
-                "operator": "not_regex",
-                "value": r"^(localhost|127\.0\.0\.1)($|:)",
-                "type": "event",
-            }
-        ]
-        if organization_id:
-            example_emails_raw = OrganizationMembership.objects.filter(organization_id=organization_id).values_list(
-                "user__email", flat=True
-            )
-            generic_emails = GenericEmails()
-            example_emails = [email for email in example_emails_raw if not generic_emails.is_generic(email)]
-            if len(example_emails) > 0:
-                example_email = re.search(r"@[\w.]+", example_emails[0])
-                if example_email:
-                    return [
-                        {
-                            "key": "email",
-                            "operator": "not_icontains",
-                            "value": example_email.group(),
-                            "type": "person",
-                        },
-                        *filters,
-                    ]
-        return filters
-
     def create_with_data(self, *, initiating_user: Optional["User"], **kwargs) -> "Team":
         team = cast("Team", self.create(**kwargs))
+
+        # Create internal/test users cohort and set test_account_filters to exclude it
+        from posthog.models.cohort.cohort import get_or_create_internal_test_users_cohort
+
+        initiating_user_email = initiating_user.email if initiating_user else None
+        test_users_cohort = get_or_create_internal_test_users_cohort(team, initiating_user_email=initiating_user_email)
+        team.test_account_filters = [
+            {"key": "id", "type": "cohort", "value": test_users_cohort.pk, "operator": "not_in"}
+        ]
 
         if kwargs.get("is_demo"):
             if initiating_user is None:
                 raise ValueError("initiating_user must be provided when creating a demo team")
-            team.kick_off_demo_data_generation(initiating_user)
+            team.save()
+            # Defer Celery task if we're inside an atomic block (e.g., ensure_account_and_save)
+            # to avoid sending task before transaction commits. In tests, Celery tasks run
+            # synchronously so we can call directly (and on_commit doesn't run in TestCase).
+            if connection.in_atomic_block and not settings.TEST:
+                transaction.on_commit(lambda: team.kick_off_demo_data_generation(initiating_user))
+            else:
+                team.kick_off_demo_data_generation(initiating_user)
             return team  # Return quickly, as the demo data and setup will be created asynchronously
 
         # Get organization to apply defaults
         organization = kwargs.get("organization") or Organization.objects.get(id=kwargs.get("organization_id"))
 
         team.anonymize_ips = kwargs.get("anonymize_ips", organization.default_anonymize_ips)
-
-        team.test_account_filters = self.set_test_account_filters(organization.id)
 
         # Self-hosted deployments get 5-year session recording retention by default
         if not is_cloud():
@@ -320,16 +303,17 @@ class Team(UUIDTClassicModel):
         default="Default project",
         validators=[MinLengthValidator(1, "Project must have a name!")],
     )
+    # DEPRECATED - not used anywhere and eligible for deletion
     slack_incoming_webhook = models.CharField(max_length=500, null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
-    anonymize_ips = models.BooleanField(default=False)
+    anonymize_ips = field_access_control(models.BooleanField(default=False), "project", "admin")
     completed_snippet_onboarding = models.BooleanField(default=False)
     has_completed_onboarding_for = models.JSONField(null=True, blank=True)
     onboarding_tasks = models.JSONField(null=True, blank=True)
     ingested_event = models.BooleanField(default=False)
 
-    person_processing_opt_out = models.BooleanField(null=True, default=False)
+    person_processing_opt_out = field_access_control(models.BooleanField(null=True, default=False), "project", "admin")
     secret_api_token = models.CharField(
         max_length=200,
         null=True,
@@ -342,7 +326,7 @@ class Team(UUIDTClassicModel):
     )
 
     # Session recording
-    session_recording_opt_in = field_access_control(models.BooleanField(default=False), "session_recording", "editor")
+    session_recording_opt_in = field_access_control(models.BooleanField(default=False), "project", "admin")
     session_recording_sample_rate = field_access_control(
         models.DecimalField(
             # will store a decimal between 0 and 1 allowing up to 2 decimal places
@@ -352,8 +336,8 @@ class Team(UUIDTClassicModel):
             decimal_places=2,
             validators=[MinValueValidator(Decimal(0)), MaxValueValidator(Decimal(1))],
         ),
-        "session_recording",
-        "editor",
+        "project",
+        "admin",
     )
     session_recording_minimum_duration_milliseconds = field_access_control(
         models.IntegerField(
@@ -361,145 +345,204 @@ class Team(UUIDTClassicModel):
             blank=True,
             validators=[MinValueValidator(0), MaxValueValidator(30000)],
         ),
-        "session_recording",
-        "editor",
+        "project",
+        "admin",
     )
-    session_recording_linked_flag = field_access_control(
-        models.JSONField(null=True, blank=True), "session_recording", "editor"
-    )
+    session_recording_linked_flag = field_access_control(models.JSONField(null=True, blank=True), "project", "admin")
     session_recording_network_payload_capture_config = field_access_control(
-        models.JSONField(null=True, blank=True), "session_recording", "editor"
+        models.JSONField(null=True, blank=True), "project", "admin"
     )
-    session_recording_masking_config = field_access_control(
-        models.JSONField(null=True, blank=True), "session_recording", "editor"
-    )
+    session_recording_masking_config = field_access_control(models.JSONField(null=True, blank=True), "project", "admin")
     session_recording_url_trigger_config = field_access_control(
         ArrayField(models.JSONField(null=True, blank=True), default=list, blank=True, null=True),
-        "session_recording",
-        "editor",
+        "project",
+        "admin",
     )
     session_recording_url_blocklist_config = field_access_control(
         ArrayField(models.JSONField(null=True, blank=True), default=list, blank=True, null=True),
-        "session_recording",
-        "editor",
+        "project",
+        "admin",
     )
     session_recording_event_trigger_config = field_access_control(
         ArrayField(models.TextField(null=True, blank=True), default=list, blank=True, null=True),
-        "session_recording",
-        "editor",
+        "project",
+        "admin",
     )
     session_recording_trigger_match_type_config = field_access_control(
         models.CharField(null=True, blank=True, max_length=24),
-        "session_recording",
-        "editor",
+        "project",
+        "admin",
     )
-    session_replay_config = field_access_control(models.JSONField(null=True, blank=True), "session_recording", "editor")
-    session_recording_retention_period = models.CharField(
-        max_length=3,
-        choices=SessionRecordingRetentionPeriod.choices,
-        default=SessionRecordingRetentionPeriod.THIRTY_DAYS,
+    session_recording_trigger_groups = field_access_control(
+        models.JSONField(
+            null=True,
+            blank=True,
+            help_text="V2 trigger groups configuration for session recording. If present, takes precedence over legacy trigger fields.",
+        ),
+        "project",
+        "admin",
     )
-    session_recording_encryption = models.BooleanField(null=True, blank=True, default=False)
+    session_replay_config = field_access_control(models.JSONField(null=True, blank=True), "project", "admin")
+    session_recording_retention_period = field_access_control(
+        models.CharField(
+            max_length=3,
+            choices=SessionRecordingRetentionPeriod.choices,
+            default=SessionRecordingRetentionPeriod.THIRTY_DAYS,
+        ),
+        "project",
+        "admin",
+    )
 
     # Conversations
-    conversations_enabled = models.BooleanField(null=True, blank=True)
-    conversations_settings = models.JSONField(null=True, blank=True)
+    conversations_enabled = field_access_control(models.BooleanField(null=True, blank=True), "project", "admin")
+    conversations_settings = field_access_control(models.JSONField(null=True, blank=True), "project", "admin")
 
     # Proactive tasks (#team-signals)
     proactive_tasks_enabled = models.BooleanField(null=True, blank=True)
 
     # Surveys
-    survey_config = field_access_control(models.JSONField(null=True, blank=True), "survey", "editor")
-    surveys_opt_in = field_access_control(models.BooleanField(null=True, blank=True), "survey", "editor")
+    survey_config = field_access_control(models.JSONField(null=True, blank=True), "project", "admin")
+    surveys_opt_in = field_access_control(models.BooleanField(null=True, blank=True), "project", "admin")
 
     # Product tours
-    product_tours_opt_in = models.BooleanField(null=True, blank=True)
+    product_tours_opt_in = field_access_control(models.BooleanField(null=True, blank=True), "project", "admin")
 
     # Capture / Autocapture
-    capture_console_log_opt_in = models.BooleanField(null=True, blank=True, default=True)
-    capture_performance_opt_in = models.BooleanField(null=True, blank=True, default=True)
-    capture_dead_clicks = models.BooleanField(null=True, blank=True, default=False)
-    autocapture_opt_out = models.BooleanField(null=True, blank=True)
-    autocapture_web_vitals_opt_in = models.BooleanField(null=True, blank=True)
-    autocapture_web_vitals_allowed_metrics = models.JSONField(null=True, blank=True)
-    autocapture_exceptions_opt_in = models.BooleanField(null=True, blank=True)
-    autocapture_exceptions_errors_to_ignore = models.JSONField(null=True, blank=True)
+    capture_console_log_opt_in = field_access_control(
+        models.BooleanField(null=True, blank=True, default=True), "project", "admin"
+    )
+    capture_performance_opt_in = field_access_control(
+        models.BooleanField(null=True, blank=True, default=True), "project", "admin"
+    )
+    capture_dead_clicks = field_access_control(
+        models.BooleanField(null=True, blank=True, default=False), "project", "admin"
+    )
+    autocapture_opt_out = field_access_control(models.BooleanField(null=True, blank=True), "project", "admin")
+    autocapture_web_vitals_opt_in = field_access_control(models.BooleanField(null=True, blank=True), "project", "admin")
+    autocapture_web_vitals_allowed_metrics = field_access_control(
+        models.JSONField(null=True, blank=True), "project", "admin"
+    )
+    autocapture_exceptions_opt_in = field_access_control(models.BooleanField(null=True, blank=True), "project", "admin")
+    autocapture_exceptions_errors_to_ignore = field_access_control(
+        models.JSONField(null=True, blank=True), "project", "admin"
+    )
 
     # Logs
-    logs_settings = models.JSONField(null=True, blank=True)
+    logs_settings = field_access_control(models.JSONField(null=True, blank=True), "project", "admin")
 
     # Heatmaps
-    heatmaps_opt_in = models.BooleanField(null=True, blank=True)
+    heatmaps_opt_in = field_access_control(models.BooleanField(null=True, blank=True), "project", "admin")
 
     # Activity logs
-    receive_org_level_activity_logs = models.BooleanField(null=True, blank=True, default=False)
+    receive_org_level_activity_logs = field_access_control(
+        models.BooleanField(null=True, blank=True, default=False), "project", "admin"
+    )
 
     # Web analytics
     web_analytics_pre_aggregated_tables_enabled = field_access_control(
-        models.BooleanField(default=False, null=True), "web_analytics", "editor"
+        models.BooleanField(default=False, null=True), "project", "admin"
     )
-    web_analytics_pre_aggregated_tables_version = models.CharField(
-        max_length=10, default="v2", null=True, choices=[("v1", "v1"), ("v2", "v2")]
+    web_analytics_pre_aggregated_tables_version = field_access_control(
+        models.CharField(max_length=10, default="v2", null=True, choices=[("v1", "v1"), ("v2", "v2")]),
+        "project",
+        "admin",
     )
 
     # Feature flags
-    flags_persistence_default = models.BooleanField(null=True, blank=True, default=False)
-    feature_flag_confirmation_enabled = models.BooleanField(null=True, blank=True, default=False)
-    feature_flag_confirmation_message = models.TextField(null=True, blank=True)
+    flags_persistence_default = field_access_control(
+        models.BooleanField(null=True, blank=True, default=False), "project", "admin"
+    )
+    feature_flag_confirmation_enabled = field_access_control(
+        models.BooleanField(null=True, blank=True, default=False), "project", "admin"
+    )
+    feature_flag_confirmation_message = field_access_control(
+        models.TextField(null=True, blank=True), "project", "admin"
+    )
     # DEPRECATED: Use default_evaluation_contexts_enabled instead. Will be removed in a future migration after full rollout.
     default_evaluation_environments_enabled = models.BooleanField(null=True, blank=True, default=False)
     # DEPRECATED: Use require_evaluation_contexts instead. Will be removed in a future migration after full rollout.
     require_evaluation_environment_tags = models.BooleanField(null=True, blank=True, default=False)
-    default_evaluation_contexts_enabled = models.BooleanField(
-        null=True,
-        blank=True,
-        default=False,
-        help_text="Whether to automatically apply default evaluation contexts to new feature flags",
+    default_evaluation_contexts_enabled = field_access_control(
+        models.BooleanField(
+            null=True,
+            blank=True,
+            default=False,
+            help_text="Whether to automatically apply default evaluation contexts to new feature flags",
+        ),
+        "project",
+        "admin",
     )
-    require_evaluation_contexts = models.BooleanField(
-        null=True,
-        blank=True,
-        default=False,
-        help_text="Whether to require at least one evaluation context tag when creating new feature flags",
+    require_evaluation_contexts = field_access_control(
+        models.BooleanField(
+            null=True,
+            blank=True,
+            default=False,
+            help_text="Whether to require at least one evaluation context tag when creating new feature flags",
+        ),
+        "project",
+        "admin",
     )
-    session_recording_version = models.CharField(null=True, blank=True, max_length=24)
+    session_recording_version = field_access_control(
+        models.CharField(null=True, blank=True, max_length=24), "project", "admin"
+    )
     signup_token = models.CharField(max_length=200, null=True, blank=True)
     is_demo = models.BooleanField(default=False)
 
     # DEPRECATED - do not use
     access_control = models.BooleanField(default=False)
 
-    week_start_day = models.SmallIntegerField(null=True, blank=True, choices=WeekStartDay.choices)
+    week_start_day = field_access_control(
+        models.SmallIntegerField(null=True, blank=True, choices=WeekStartDay.choices), "project", "admin"
+    )
     # This is not a manual setting. It's updated automatically to reflect if the team uses site apps or not.
     inject_web_apps = models.BooleanField(null=True)
 
-    test_account_filters = models.JSONField(default=list)
-    test_account_filters_default_checked = models.BooleanField(null=True, blank=True)
+    test_account_filters = field_access_control(models.JSONField(default=list), "project", "admin")
+    test_account_filters_default_checked = field_access_control(
+        models.BooleanField(null=True, blank=True), "project", "admin"
+    )
 
     path_cleaning_filters = field_access_control(
-        models.JSONField(default=list, null=True, blank=True), "web_analytics", "editor"
+        models.JSONField(default=list, null=True, blank=True), "project", "admin"
     )
-    timezone = models.CharField(max_length=240, choices=TIMEZONES, default="UTC")
-    data_attributes = models.JSONField(default=get_default_data_attributes)
-    person_display_name_properties: ArrayField = ArrayField(models.CharField(max_length=400), null=True, blank=True)
-    live_events_columns: ArrayField = ArrayField(models.TextField(), null=True, blank=True)
-    recording_domains: ArrayField = ArrayField(models.CharField(max_length=200, null=True), blank=True, null=True)
-    human_friendly_comparison_periods = models.BooleanField(default=False, null=True, blank=True)
-    cookieless_server_hash_mode = models.SmallIntegerField(
-        default=CookielessServerHashMode.DISABLED,
-        choices=CookielessServerHashMode.choices,
-        null=True,
+
+    timezone = field_access_control(
+        models.CharField(max_length=240, choices=TIMEZONES, default="UTC"), "project", "admin"
+    )
+    data_attributes = field_access_control(
+        models.JSONField(default=get_default_data_attributes, blank=True), "project", "admin"
+    )
+    person_display_name_properties: ArrayField = field_access_control(
+        ArrayField(models.CharField(max_length=400), null=True, blank=True), "project", "admin"
+    )
+    live_events_columns: ArrayField = field_access_control(
+        ArrayField(models.TextField(), null=True, blank=True), "project", "admin"
+    )
+    recording_domains: ArrayField = field_access_control(
+        ArrayField(models.CharField(max_length=200, null=True), blank=True, null=True), "project", "admin"
+    )
+    human_friendly_comparison_periods = field_access_control(
+        models.BooleanField(default=False, null=True, blank=True), "project", "admin"
+    )
+    cookieless_server_hash_mode = field_access_control(
+        models.SmallIntegerField(
+            default=CookielessServerHashMode.DISABLED,
+            choices=CookielessServerHashMode.choices,
+            null=True,
+        ),
+        "project",
+        "admin",
     )
 
     primary_dashboard = models.ForeignKey(
-        "posthog.Dashboard",
+        "dashboards.Dashboard",
         on_delete=models.SET_NULL,
         null=True,
         related_name="primary_dashboard_teams",
         blank=True,
     )  # Dashboard shown on project homepage
 
-    default_data_theme = models.IntegerField(null=True, blank=True)
+    default_data_theme = field_access_control(models.IntegerField(null=True, blank=True), "project", "admin")
 
     # Generic field for storing any team-specific context
     # that likely doesn't deserve a dedicated column. Can be used for things like settings and overrides
@@ -507,7 +550,7 @@ class Team(UUIDTClassicModel):
     extra_settings = models.JSONField(null=True, blank=True)
 
     # Environment-level default HogQL query modifiers
-    modifiers = models.JSONField(null=True, blank=True)
+    modifiers = field_access_control(models.JSONField(null=True, blank=True), "project", "admin")
 
     # This is meant to be used as a stopgap until https://github.com/PostHog/meta/pull/39 gets implemented
     # Switches _most_ queries to using distinct_id as aggregator instead of person_id
@@ -520,7 +563,7 @@ class Team(UUIDTClassicModel):
     # repository for correlation related settings.
     # NOTE: we're not doing any schema checking here, just storing whatever is
     # thrown at us. Correlation code can handle schema related issues.
-    correlation_config = models.JSONField(default=dict, null=True, blank=True)
+    correlation_config = field_access_control(models.JSONField(default=dict, null=True, blank=True), "project", "admin")
 
     # DEPRECATED, DISUSED: recordings on CH are cleared with Clickhouse's TTL
     session_recording_retention_period_days = models.IntegerField(null=True, default=None, blank=True)
@@ -558,58 +601,83 @@ class Team(UUIDTClassicModel):
     )
 
     # Consolidated base currency for all analytics (revenue, marketing, etc.)
-    base_currency = models.CharField(
-        max_length=3,
-        choices=CURRENCY_CODE_CHOICES,
-        default=DEFAULT_CURRENCY,
-        null=True,
-        blank=True,
+    base_currency = field_access_control(
+        models.CharField(
+            max_length=3,
+            choices=CURRENCY_CODE_CHOICES,
+            default=DEFAULT_CURRENCY,
+            null=True,
+            blank=True,
+        ),
+        "project",
+        "admin",
     )
 
-    experiment_recalculation_time = models.TimeField(
-        null=True,
-        blank=True,
-        help_text="Time of day (UTC) when experiment metrics should be recalculated. If not set, uses the default recalculation time.",
+    experiment_recalculation_time = field_access_control(
+        models.TimeField(
+            null=True,
+            blank=True,
+            help_text="Time of day (UTC) when experiment metrics should be recalculated. If not set, uses the default recalculation time.",
+        ),
+        "project",
+        "admin",
     )
 
-    default_experiment_confidence_level = models.DecimalField(
-        max_digits=3,
-        decimal_places=2,
-        null=True,
-        blank=True,
-        help_text="Default confidence level for new experiments in this environment. Valid values: 0.90, 0.95, 0.99.",
+    default_experiment_confidence_level = field_access_control(
+        models.DecimalField(
+            max_digits=3,
+            decimal_places=2,
+            null=True,
+            blank=True,
+            help_text="Default confidence level for new experiments in this environment. Valid values: 0.90, 0.95, 0.99.",
+        ),
+        "project",
+        "admin",
     )
 
-    default_experiment_stats_method = models.CharField(
-        max_length=20,
-        choices=Organization.DefaultExperimentStatsMethod.choices,
-        default=Organization.DefaultExperimentStatsMethod.BAYESIAN,
-        help_text="Default statistical method for new experiments in this environment.",
-        null=True,
-        blank=True,
+    default_experiment_stats_method = field_access_control(
+        models.CharField(
+            max_length=20,
+            choices=Organization.DefaultExperimentStatsMethod.choices,
+            default=Organization.DefaultExperimentStatsMethod.BAYESIAN,
+            help_text="Default statistical method for new experiments in this environment.",
+            null=True,
+            blank=True,
+        ),
+        "project",
+        "admin",
     )
 
-    business_model = models.CharField(
-        max_length=10,
-        choices=BusinessModel.choices,
-        null=True,
-        blank=True,
-        help_text="Whether this project serves B2B or B2C customers, used to optimize the UI layout.",
+    business_model = field_access_control(
+        models.CharField(
+            max_length=10,
+            choices=BusinessModel.choices,
+            null=True,
+            blank=True,
+            help_text="Whether this project serves B2B or B2C customers, used to optimize the UI layout.",
+        ),
+        "project",
+        "admin",
     )
+
+    # Before adding new fields here, read posthog/models/team/README.md
+    # Domain-specific config should use a Team Extension model instead.
+
+    # TRANSITIONAL: These accessors exist for backward compat with existing
+    # `team.<product>_config` call sites. New products should NOT add accessors
+    # here — use get_or_create_team_extension() at call sites instead.
 
     @cached_property
     def revenue_analytics_config(self):
         from .team_revenue_analytics_config import TeamRevenueAnalyticsConfig
 
-        config, _ = TeamRevenueAnalyticsConfig.objects.get_or_create(team=self)
-        return config
+        return get_or_create_team_extension(self, TeamRevenueAnalyticsConfig)
 
     @cached_property
     def marketing_analytics_config(self):
         from .team_marketing_analytics_config import TeamMarketingAnalyticsConfig
 
-        config, _ = TeamMarketingAnalyticsConfig.objects.get_or_create(team=self)
-        return config
+        return get_or_create_team_extension(self, TeamMarketingAnalyticsConfig)
 
     @cached_property
     def customer_analytics_config(self):
@@ -617,10 +685,9 @@ class Team(UUIDTClassicModel):
             TeamCustomerAnalyticsConfig,
         )
 
-        config, _ = TeamCustomerAnalyticsConfig.objects.get_or_create(
-            team=self, defaults={"activity_event": DEFAULT_ACTIVITY_EVENT}
+        return get_or_create_team_extension(
+            self, TeamCustomerAnalyticsConfig, defaults={"activity_event": DEFAULT_ACTIVITY_EVENT}
         )
-        return config
 
     @property
     def default_modifiers(self) -> dict:
@@ -660,8 +727,9 @@ class Team(UUIDTClassicModel):
 
     @property
     def _person_on_events_person_id_no_override_properties_on_events(self) -> bool:
-        if settings.PERSON_ON_EVENTS_OVERRIDE is not None:
-            return settings.PERSON_ON_EVENTS_OVERRIDE
+        person_on_events_override = getattr(settings, "PERSON_ON_EVENTS_OVERRIDE", None)
+        if person_on_events_override is not None:
+            return person_on_events_override
 
         # on PostHog Cloud, use the feature flag
         if is_cloud():
@@ -672,7 +740,7 @@ class Team(UUIDTClassicModel):
                 group_properties={
                     "project": {
                         "id": str(self.id),
-                        "created_at": self.created_at,
+                        "created_at": self.created_at.isoformat() if self.created_at else None,
                         "uuid": self.uuid,
                     }
                 },
@@ -685,8 +753,9 @@ class Team(UUIDTClassicModel):
 
     @property
     def _person_on_events_person_id_override_properties_on_events(self) -> bool:
-        if settings.PERSON_ON_EVENTS_V2_OVERRIDE is not None:
-            return settings.PERSON_ON_EVENTS_V2_OVERRIDE
+        person_on_events_v2_override = getattr(settings, "PERSON_ON_EVENTS_V2_OVERRIDE", None)
+        if person_on_events_v2_override is not None:
+            return person_on_events_v2_override
 
         # on PostHog Cloud, use the feature flag
         if is_cloud():
@@ -697,7 +766,9 @@ class Team(UUIDTClassicModel):
                 group_properties={
                     "organization": {
                         "id": str(self.organization_id),
-                        "created_at": self.organization.created_at,
+                        "created_at": self.organization.created_at.isoformat()
+                        if self.organization.created_at
+                        else None,
                     }
                 },
                 only_evaluate_locally=True,
@@ -719,29 +790,31 @@ class Team(UUIDTClassicModel):
         filter = Filter(data={"full": "true"})
         person_query, person_query_params = PersonQuery(filter, self.id).get_query()
 
-        return sync_execute(
-            f"""
-            SELECT count(1) FROM (
-                {person_query}
-            )
-        """,
-            {**person_query_params, **filter.hogql_context.values},
-        )[0][0]
+        with tags_context(product=Product.FEATURE_FLAGS, feature=Feature.QUERY):
+            return sync_execute(
+                f"""
+                SELECT count(1) FROM (
+                    {person_query}
+                )
+            """,
+                {**person_query_params, **filter.hogql_context.values},
+            )[0][0]
 
     @lru_cache(maxsize=5)  # noqa: B019 - TODO: refactor to module-level cache
     def groups_seen_so_far(self, group_type_index: GroupTypeIndex) -> int:
         from posthog.clickhouse.client import sync_execute
 
-        # nosemgrep: clickhouse-fstring-param-audit - no interpolation, only parameterized values
-        return sync_execute(
-            f"""
-            SELECT
-                count(DISTINCT group_key)
-            FROM groups
-            WHERE team_id = %(team_id)s AND group_type_index = %(group_type_index)s
-        """,
-            {"team_id": self.pk, "group_type_index": group_type_index},
-        )[0][0]
+        with tags_context(product=Product.FEATURE_FLAGS, feature=Feature.QUERY):
+            # nosemgrep: clickhouse-fstring-param-audit - no interpolation, only parameterized values
+            return sync_execute(
+                f"""
+                SELECT
+                    count(DISTINCT group_key)
+                FROM groups
+                WHERE team_id = %(team_id)s AND group_type_index = %(group_type_index)s
+            """,
+                {"team_id": self.pk, "group_type_index": group_type_index},
+            )[0][0]
 
     @property
     def timezone_info(self) -> ZoneInfo:
@@ -994,7 +1067,7 @@ class Team(UUIDTClassicModel):
             )
 
             # Union all sets of user IDs
-            user_ids_queryset = admin_user_ids.union(member_access_user_ids).union(role_user_ids)
+            user_ids_queryset = cast(Any, admin_user_ids).union(member_access_user_ids, role_user_ids)
 
         return User.objects.filter(is_active=True, id__in=user_ids_queryset)
 

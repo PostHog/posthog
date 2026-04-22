@@ -57,6 +57,7 @@ import {
     UniversalFiltersGroup,
 } from '~/types'
 
+import { deletedRecordingsLogic } from '../deletedRecordingsLogic'
 import { playerSettingsLogic } from '../player/playerSettingsLogic'
 import { filtersFromUniversalFilterGroups } from '../utils'
 import { playlistFiltersLogic } from './playlistFiltersLogic'
@@ -160,6 +161,11 @@ export const DEFAULT_RECORDING_FILTERS_ORDER_BY = 'start_time'
 export const MAX_SELECTED_RECORDINGS = 20
 export const DELETE_CONFIRMATION_TEXT = 'delete'
 
+const getDefaultFilterTestAccounts = (): boolean => {
+    const stored = localStorage.getItem('default_filter_test_accounts')
+    return stored === 'true'
+}
+
 export const DEFAULT_RECORDING_FILTERS: RecordingUniversalFilters = {
     filter_test_accounts: false,
     date_from: '-3d',
@@ -170,13 +176,53 @@ export const DEFAULT_RECORDING_FILTERS: RecordingUniversalFilters = {
     order_direction: 'DESC',
 }
 
-const DEFAULT_PERSON_RECORDING_FILTERS: RecordingUniversalFilters = {
-    ...DEFAULT_RECORDING_FILTERS,
-    date_from: '-30d',
+export const getDefaultFilters = (
+    personUUID?: PersonUUID,
+    pinnedFilters?: UniversalFiltersGroup
+): RecordingUniversalFilters => {
+    const filterTestAccounts = getDefaultFilterTestAccounts()
+    const defaults: RecordingUniversalFilters = {
+        ...DEFAULT_RECORDING_FILTERS,
+        filter_test_accounts: filterTestAccounts,
+        date_from: personUUID ? '-30d' : '-3d',
+    }
+    if (pinnedFilters) {
+        defaults.filter_group = mergePinnedFilters(defaults.filter_group, pinnedFilters)
+    }
+    return defaults
 }
 
-export const getDefaultFilters = (personUUID?: PersonUUID): RecordingUniversalFilters => {
-    return personUUID ? DEFAULT_PERSON_RECORDING_FILTERS : DEFAULT_RECORDING_FILTERS
+function mergePinnedFilters(
+    filterGroup: UniversalFiltersGroup,
+    pinnedFilters: UniversalFiltersGroup
+): UniversalFiltersGroup {
+    const pinnedValues = pinnedFilters.values
+    if (pinnedValues.length === 0) {
+        return filterGroup
+    }
+
+    const firstGroup = filterGroup.values[0]
+    const isNestedGroup = firstGroup && 'values' in firstGroup && 'type' in firstGroup
+
+    if (isNestedGroup) {
+        const nested = firstGroup as UniversalFiltersGroup
+        const existingNonPinned = nested.values.filter((v) => !pinnedValues.some((pv) => equal(v, pv)))
+        return {
+            ...filterGroup,
+            values: [{ ...nested, values: [...pinnedValues, ...existingNonPinned] }, ...filterGroup.values.slice(1)],
+        }
+    }
+
+    const existingNonPinned = filterGroup.values.filter((v) => !pinnedValues.some((pv) => equal(v, pv)))
+    return {
+        ...filterGroup,
+        values: [
+            {
+                type: FilterLogicalOperator.And,
+                values: [...pinnedValues, ...existingNonPinned],
+            },
+        ],
+    }
 }
 
 /**
@@ -330,6 +376,8 @@ export function convertUniversalFiltersToRecordingsQuery(universalFilters: Recor
                     having_predicates.push(f)
                 } else if (f.key === 'comment_text') {
                     comment_text = f
+                } else {
+                    having_predicates.push(f)
                 }
             } else {
                 // Normalize filter value to ensure multi-select operators have array values
@@ -482,8 +530,11 @@ export interface SessionRecordingPlaylistLogicProps {
     distinctIds?: string[]
     updateSearchParams?: boolean
     autoPlay?: boolean
+    onlyPinned?: boolean
+    type?: 'filters' | 'collection'
     filters?: RecordingUniversalFilters
     onFiltersChange?: (filters: RecordingUniversalFilters) => void
+    pinnedFilters?: UniversalFiltersGroup
     pinnedRecordings?: (SessionRecordingType | string)[]
     onPinnedChange?: (recording: SessionRecordingType, pinned: boolean) => void
 }
@@ -495,7 +546,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
     props({} as SessionRecordingPlaylistLogicProps),
     key(
         (props: SessionRecordingPlaylistLogicProps) =>
-            `${props.logicKey}-${props.personUUID}-${props.updateSearchParams ? '-with-search' : ''}`
+            `${props.logicKey ?? ''}-${props.personUUID ?? ''}-${props.updateSearchParams ? '-with-search' : ''}`
     ),
     connect(() => ({
         actions: [
@@ -507,6 +558,8 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             ['setHideViewedRecordings'],
             playlistFiltersLogic,
             ['setIsFiltersExpanded'],
+            deletedRecordingsLogic,
+            ['addDeletedRecordings'],
         ],
         values: [
             featureFlagLogic,
@@ -515,6 +568,8 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             ['autoplayDirection', 'hideViewedRecordings'],
             groupsModel,
             ['groupsTaxonomicTypes'],
+            deletedRecordingsLogic,
+            ['deletedRecordingIds'],
         ],
     })),
 
@@ -709,7 +764,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             },
         ],
         filters: [
-            props.filters ?? getDefaultFilters(props.personUUID),
+            props.filters ?? getDefaultFilters(props.personUUID, props.pinnedFilters),
             { persist: true, prefix: `${getCurrentTeamId()}__${key}` },
             {
                 setFilters: (state, { filters }) => {
@@ -718,21 +773,24 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                             posthog.captureException(new Error('Invalid filters provided'), {
                                 filters,
                             })
-                            return getDefaultFilters(props.personUUID)
+                            return getDefaultFilters(props.personUUID, props.pinnedFilters)
                         }
 
-                        return {
+                        const newState = {
                             ...state,
-                            // if we're setting a relative date_from, then we need to clear the existing date_to
                             date_to: filters.date_from && isRelativeDate(filters.date_from) ? null : state.date_to,
                             ...filters,
                         }
+                        if (props.pinnedFilters) {
+                            newState.filter_group = mergePinnedFilters(newState.filter_group, props.pinnedFilters)
+                        }
+                        return newState
                     } catch (e) {
                         posthog.captureException(e)
-                        return getDefaultFilters(props.personUUID)
+                        return getDefaultFilters(props.personUUID, props.pinnedFilters)
                     }
                 },
-                resetFilters: () => getDefaultFilters(props.personUUID),
+                resetFilters: () => getDefaultFilters(props.personUUID, props.pinnedFilters),
             },
         ],
         showFilters: [
@@ -879,7 +937,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                 key: propertyKey,
                 value: propertyValue,
                 operator: PropertyOperator.Exact,
-            }
+            } as AnyPropertyFilter
 
             // Clone the current filter group structure and add to the first nested group
             const currentGroup = values.filters.filter_group
@@ -1067,6 +1125,12 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.WatchSessionRecording)
         },
 
+        addDeletedRecordings: ({ ids }) => {
+            if (values.selectedRecordingId && ids.includes(values.selectedRecordingId)) {
+                actions.setSelectedRecordingId(null)
+            }
+        },
+
         setHideViewedRecordings: () => {
             actions.maybeLoadSessionRecordings('older')
         },
@@ -1126,44 +1190,40 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         },
         handleSelectUnselectAll: ({ checked, type }: { checked: boolean; type: 'filters' | 'collection' }) => {
             if (checked) {
-                const recordings = type === 'filters' ? values.sessionRecordings : values.pinnedRecordings
+                const recordings = type === 'filters' ? values.otherRecordings : values.visiblePinnedRecordings
                 actions.setSelectedRecordingsIds(recordings.map((s) => s.id))
             } else {
                 actions.setSelectedRecordingsIds([])
             }
         },
         handleDeleteSelectedRecordings: async ({ shortId }: { shortId?: string }) => {
-            await lemonToast.promise(
-                (async () => {
-                    try {
-                        actions.setDeleteConfirmationText('')
-                        actions.setIsDeleteSelectedRecordingsDialogOpen(false)
-                        await api.recordings.bulkDeleteRecordings(
-                            values.selectedRecordingsIds,
-                            values.filters.date_from
-                        )
-                        actions.setSelectedRecordingsIds([])
+            const idsToDelete = [...values.selectedRecordingsIds]
+            const deleteCount = idsToDelete.length
+            actions.setDeleteConfirmationText('')
+            actions.setIsDeleteSelectedRecordingsDialogOpen(false)
 
-                        // If it was a collection then we need to reload it, otherwise we need to reload the recordings
-                        if (shortId) {
-                            handleLoadCollectionRecordings(shortId)
-                        } else {
-                            actions.loadSessionRecordings()
-                        }
-                    } catch (e) {
-                        posthog.captureException(e)
-                    }
-                })(),
-                {
-                    success: `${values.selectedRecordingsIds.length} recording${
-                        values.selectedRecordingsIds.length > 1 ? 's' : ''
-                    } deleted!`,
-                    error: 'Failed to delete recordings!',
-                    pending: `Deleting ${values.selectedRecordingsIds.length} recording${
-                        values.selectedRecordingsIds.length > 1 ? 's' : ''
-                    }...`,
+            try {
+                const result = await api.recordings.bulkDeleteRecordings(idsToDelete, values.filters.date_from)
+                const deletedIds = idsToDelete.filter((id) => !(result.failed_ids ?? []).includes(id))
+                actions.addDeletedRecordings(deletedIds)
+                actions.setSelectedRecordingsIds([])
+
+                if (shortId) {
+                    handleLoadCollectionRecordings(shortId)
                 }
-            )
+
+                const actualCount = deletedIds.length
+                if (actualCount < deleteCount) {
+                    lemonToast.warning(
+                        `${actualCount} of ${deleteCount} recording${deleteCount > 1 ? 's' : ''} deleted. ${deleteCount - actualCount} failed.`
+                    )
+                } else {
+                    lemonToast.success(`${actualCount} recording${actualCount > 1 ? 's' : ''} deleted!`)
+                }
+            } catch (e) {
+                lemonToast.error('Failed to delete recordings!')
+                posthog.captureException(e)
+            }
         },
         handleCreateNewCollectionBulkAdd: async ({ onSuccess }) => {
             const newPlaylist = await createPlaylist({
@@ -1309,13 +1369,13 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         nextSessionRecording: [
             (s) => [s.activeSessionRecording, s.recordings, s.autoplayDirection],
             (activeSessionRecording, recordings, autoplayDirection): Partial<SessionRecordingType> | undefined => {
-                if (!activeSessionRecording || !autoplayDirection) {
+                if (!activeSessionRecording) {
                     return
                 }
                 const activeSessionRecordingIndex = recordings.findIndex((x) => x.id === activeSessionRecording.id)
-                return autoplayDirection === 'older'
-                    ? recordings[activeSessionRecordingIndex + 1]
-                    : recordings[activeSessionRecordingIndex - 1]
+                return autoplayDirection === 'newer'
+                    ? recordings[activeSessionRecordingIndex - 1]
+                    : recordings[activeSessionRecordingIndex + 1]
             },
         ],
 
@@ -1324,14 +1384,21 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             (sessionRecordingsResponse) => sessionRecordingsResponse.has_next,
         ],
 
+        pinnedFilters: [
+            () => [(_, props) => props.pinnedFilters],
+            (pinnedFilters): UniversalFiltersGroup | undefined => pinnedFilters,
+        ],
+
         totalFiltersCount: [
-            (s) => [s.filters, (_, props) => props.personUUID],
-            (filters, personUUID) => {
-                const defaultFilters = getDefaultFilters(personUUID)
+            (s) => [s.filters, (_, props) => props.personUUID, (_, props) => props.pinnedFilters],
+            (filters, personUUID, pinnedFilters) => {
+                const defaultFilters = getDefaultFilters(personUUID, pinnedFilters)
                 const groupFilters = filtersFromUniversalFilterGroups(filters)
+                const pinnedValues: UniversalFilterValue[] = pinnedFilters?.values ?? []
+                const userFilterCount = groupFilters.filter((f) => !pinnedValues.some((pv) => equal(f, pv))).length
 
                 return (
-                    groupFilters.length +
+                    userFilterCount +
                     (equal(filters.duration[0], defaultFilters.duration[0]) ? 0 : 1) +
                     (filters.date_from === defaultFilters.date_from && filters.date_to === defaultFilters.date_to
                         ? 0
@@ -1341,9 +1408,18 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         ],
 
         hiddenRecordings: [
-            (s) => [s.sessionRecordings, s.hideViewedRecordings, s.selectedRecordingId],
-            (sessionRecordings, hideViewedRecordings, selectedRecordingId): SessionRecordingType[] => {
+            (s) => [s.sessionRecordings, s.hideViewedRecordings, s.selectedRecordingId, s.deletedRecordingIds],
+            (
+                sessionRecordings,
+                hideViewedRecordings,
+                selectedRecordingId,
+                deletedRecordingIds
+            ): SessionRecordingType[] => {
                 return sessionRecordings.filter((rec) => {
+                    if (deletedRecordingIds.has(rec.id)) {
+                        return false
+                    }
+
                     if (hideViewedRecordings === 'current-user' && rec.viewed && rec.id !== selectedRecordingId) {
                         return true
                     }
@@ -1362,15 +1438,27 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         ],
 
         otherRecordings: [
-            (s) => [s.sessionRecordings, s.hideViewedRecordings, s.pinnedRecordings, s.selectedRecordingId, s.filters],
+            (s) => [
+                s.sessionRecordings,
+                s.hideViewedRecordings,
+                s.pinnedRecordings,
+                s.deletedRecordingIds,
+                s.selectedRecordingId,
+                s.filters,
+            ],
             (
                 sessionRecordings,
                 hideViewedRecordings,
                 pinnedRecordings,
+                deletedRecordingIds,
                 selectedRecordingId,
                 filters
             ): SessionRecordingType[] => {
                 const filteredRecordings = sessionRecordings.filter((rec) => {
+                    if (deletedRecordingIds.has(rec.id)) {
+                        return false
+                    }
+
                     if (pinnedRecordings.find((pinned) => pinned.id === rec.id)) {
                         return false
                     }
@@ -1398,17 +1486,28 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             },
         ],
 
+        // pinnedRecordings is a lazyLoader so we can't add filtering there directly
+        visiblePinnedRecordings: [
+            (s) => [s.pinnedRecordings, s.deletedRecordingIds],
+            (pinnedRecordings, deletedRecordingIds): SessionRecordingType[] => {
+                if (deletedRecordingIds.size === 0) {
+                    return pinnedRecordings
+                }
+                return pinnedRecordings.filter((r) => !deletedRecordingIds.has(r.id))
+            },
+        ],
+
         recordings: [
-            (s) => [s.pinnedRecordings, s.otherRecordings],
-            (pinnedRecordings, otherRecordings): SessionRecordingType[] => {
-                return [...pinnedRecordings, ...otherRecordings]
+            (s) => [s.visiblePinnedRecordings, s.otherRecordings, (_, props) => props.onlyPinned],
+            (visiblePinnedRecordings, otherRecordings, onlyPinned): SessionRecordingType[] => {
+                return onlyPinned ? [...visiblePinnedRecordings] : [...visiblePinnedRecordings, ...otherRecordings]
             },
         ],
 
         recordingsCount: [
-            (s) => [s.pinnedRecordings, s.otherRecordings],
-            (pinnedRecordings, otherRecordings): number => {
-                return otherRecordings.length + pinnedRecordings.length
+            (s) => [s.recordings],
+            (recordings): number => {
+                return recordings.length
             },
         ],
 
@@ -1560,7 +1659,35 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
     }),
 
     // NOTE: It is important this comes after urlToAction, as it will override the default behavior
-    afterMount(({ actions }) => {
+    afterMount(({ actions, props, values }) => {
+        if (props.onlyPinned) {
+            return
+        }
+
+        if (props.pinnedFilters) {
+            const merged = mergePinnedFilters(values.filters.filter_group, props.pinnedFilters)
+            if (!equal(merged, values.filters.filter_group)) {
+                actions.setFilters({ filter_group: merged })
+                return
+            }
+        }
+
+        // If updateSearchParams is enabled and URL has filters different from current state,
+        // skip the initial load here. The urlToAction handler will apply the URL filters and
+        // trigger loadSessionRecordings with the correct filters. This prevents a race condition
+        // where we load with default filters first, then load again with URL filters.
+        if (props.updateSearchParams) {
+            const searchParams = router.values.searchParams
+            if (
+                searchParams?.filters &&
+                isValidRecordingFilters(searchParams.filters) &&
+                !equal(searchParams.filters, values.filters)
+            ) {
+                // URL has valid filters different from current state - let urlToAction handle the initial load
+                return
+            }
+        }
+
         actions.loadSessionRecordings()
     }),
 ])

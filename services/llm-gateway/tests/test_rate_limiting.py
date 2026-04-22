@@ -244,11 +244,9 @@ class TestRateLimitResponseHeaders:
             assert response.status_code == 429
             assert response.headers["retry-after"] == "3600"
             assert response.json() == {
-                "detail": {
-                    "error": {
-                        "message": "Rate limit exceeded",
-                        "type": "rate_limit_error",
-                        "reason": "Product rate limit exceeded",
-                    }
+                "error": {
+                    "message": "Rate limit exceeded",
+                    "type": "rate_limit_error",
+                    "reason": "Product rate limit exceeded",
                 }
             }

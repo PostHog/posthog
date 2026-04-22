@@ -19,13 +19,18 @@ export const API_SCOPES: APIScope[] = [
     { key: 'activity_log', objectName: 'Activity log', objectPlural: 'activity logs' },
     { key: 'alert', objectName: 'Alert', objectPlural: 'alerts' },
     { key: 'annotation', objectName: 'Annotation', objectPlural: 'annotations' },
+    { key: 'approvals', objectName: 'Approvals', objectPlural: 'approvals' },
     { key: 'batch_export', objectName: 'Batch export', objectPlural: 'batch exports' },
     { key: 'cohort', objectName: 'Cohort', objectPlural: 'cohorts' },
+    { key: 'comment', objectName: 'Comment', objectPlural: 'comments' },
+    { key: 'customer_analytics', objectName: 'Customer analytics', objectPlural: 'customer analytics' },
+    { key: 'customer_journey', objectName: 'Customer journey', objectPlural: 'customer journeys' },
     { key: 'dashboard', objectName: 'Dashboard', objectPlural: 'dashboards' },
     { key: 'dashboard_template', objectName: 'Dashboard template', objectPlural: 'dashboard templates' },
     { key: 'dataset', objectName: 'Dataset', objectPlural: 'datasets' },
     { key: 'desktop_recording', objectName: 'Desktop recording', objectPlural: 'desktop recordings' },
     { key: 'early_access_feature', objectName: 'Early access feature', objectPlural: 'early access features' },
+    { key: 'element', objectName: 'Element', objectPlural: 'elements' },
     { key: 'endpoint', objectName: 'Endpoint', objectPlural: 'endpoints' },
     { key: 'event_definition', objectName: 'Event definition', objectPlural: 'event definitions' },
     { key: 'error_tracking', objectName: 'Error tracking', objectPlural: 'error tracking' },
@@ -35,12 +40,18 @@ export const API_SCOPES: APIScope[] = [
     { key: 'export', objectName: 'Export', objectPlural: 'exports' },
     { key: 'feature_flag', objectName: 'Feature flag', objectPlural: 'feature flags' },
     { key: 'group', objectName: 'Group', objectPlural: 'groups' },
+    { key: 'health_issue', objectName: 'Health issue', objectPlural: 'health issues' },
+    { key: 'heatmap', objectName: 'Heatmap', objectPlural: 'heatmaps' },
+    { key: 'hog_flow', objectName: 'Workflow', objectPlural: 'workflows' },
     { key: 'hog_function', objectName: 'Hog function', objectPlural: 'hog functions' },
     { key: 'insight', objectName: 'Insight', objectPlural: 'insights' },
     { key: 'insight_variable', objectName: 'Insight variable', objectPlural: 'insight variables' },
     { key: 'integration', objectName: 'Integration', objectPlural: 'integrations', disabledActions: ['write'] },
+    { key: 'legal_document', objectName: 'Legal document', objectPlural: 'legal documents' },
+    { key: 'llm_analytics', objectName: 'LLM analytics', objectPlural: 'LLM analytics' },
     { key: 'llm_gateway', objectName: 'LLM gateway', objectPlural: 'LLM gateway', disabledActions: ['write'] },
     { key: 'llm_prompt', objectName: 'LLM prompt', objectPlural: 'LLM prompts' },
+    { key: 'llm_skill', objectName: 'LLM skill', objectPlural: 'LLM skills' },
     { key: 'logs', objectName: 'Logs', objectPlural: 'logs' },
     { key: 'notebook', objectName: 'Notebook', objectPlural: 'notebooks' },
     { key: 'organization', objectName: 'Organization', objectPlural: 'organizations', disabledWhenProjectScoped: true },
@@ -89,6 +100,7 @@ export const API_SCOPES: APIScope[] = [
     { key: 'subscription', objectName: 'Subscription', objectPlural: 'subscriptions' },
     { key: 'survey', objectName: 'Survey', objectPlural: 'surveys' },
     { key: 'ticket', objectName: 'Ticket', objectPlural: 'tickets' },
+    { key: 'uploaded_media', objectName: 'Uploaded media', objectPlural: 'uploaded media' },
     {
         key: 'user',
         objectName: 'User',
@@ -105,6 +117,7 @@ export const API_SCOPES: APIScope[] = [
         },
     },
     { key: 'task', objectName: 'Task', objectPlural: 'tasks' },
+    { key: 'visual_review', objectName: 'Visual review', objectPlural: 'visual reviews' },
     {
         key: 'webhook',
         objectName: 'Webhook',
@@ -114,6 +127,9 @@ export const API_SCOPES: APIScope[] = [
     { key: 'warehouse_view', objectName: 'Warehouse view', objectPlural: 'warehouse views' },
     { key: 'warehouse_table', objectName: 'Warehouse table', objectPlural: 'warehouse tables' },
 ]
+API_SCOPES.sort((a, b) => a.objectName.localeCompare(b.objectName))
+
+export const PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION = ['endpoint:read']
 
 export const API_KEY_SCOPE_PRESETS: {
     value: string
@@ -163,6 +179,13 @@ export const APIScopeActionLabels: Record<APIScopeAction, string> = {
     write: 'Write',
 }
 
+export const PROJECT_SECRET_API_KEY_SCOPE_PRESETS: {
+    value: string
+    label: string
+    scopes: string[]
+    isCloudOnly?: boolean
+}[] = [{ value: 'endpoint_execution', label: 'Endpoint execution', scopes: ['endpoint:read'] }]
+
 export const DEFAULT_OAUTH_SCOPES = ['openid', 'email', 'profile']
 
 // Scopes required by the PostHog MCP server (https://mcp.posthog.com)
@@ -173,8 +196,10 @@ export const MCP_SERVER_OAUTH_SCOPES = [
     'email',
     'introspection',
     'user:read',
+    'user:write',
     'organization:read',
     'project:read',
+    'project:write',
     'feature_flag:read',
     'feature_flag:write',
     'experiment:read',

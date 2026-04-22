@@ -46,9 +46,11 @@ export function TrialUsageMeterDisplay({
                 <p className="text-sm">
                     Trial evaluations exhausted.{' '}
                     {showSettingsLink ? (
-                        <Link to={`${urls.llmAnalyticsEvaluations()}?tab=settings`}>Add your OpenAI API key</Link>
+                        <Link to={urls.settings('environment-llm-analytics', 'llm-analytics-byok')}>
+                            Add your API key
+                        </Link>
                     ) : (
-                        'Add your OpenAI API key'
+                        'Add your API key'
                     )}{' '}
                     to continue running evaluations.
                 </p>
@@ -56,7 +58,9 @@ export function TrialUsageMeterDisplay({
                 <p className="text-sm text-muted">
                     You have {trial_evals_remaining} evaluations to try things out before{' '}
                     {showSettingsLink ? (
-                        <Link to={`${urls.llmAnalyticsEvaluations()}?tab=settings`}>adding your own key</Link>
+                        <Link to={urls.settings('environment-llm-analytics', 'llm-analytics-byok')}>
+                            adding your own key
+                        </Link>
                     ) : (
                         'adding your own key'
                     )}

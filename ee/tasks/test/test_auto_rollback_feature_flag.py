@@ -70,7 +70,6 @@ class AutoRollbackTest(ClickhouseTestMixin, APIBaseTest):
             team=self.team,
             created_by=self.user,
             key="test-ff",
-            rollout_percentage=50,
             rollback_conditions=[rollback_condition],
         )
 
@@ -108,7 +107,6 @@ class AutoRollbackTest(ClickhouseTestMixin, APIBaseTest):
                 team=self.team,
                 created_by=self.user,
                 key="test-ff",
-                rollout_percentage=50,
                 rollback_conditions=[rollback_condition],
             )
 
@@ -151,7 +149,6 @@ class AutoRollbackTest(ClickhouseTestMixin, APIBaseTest):
                 team=self.team,
                 created_by=self.user,
                 key="test-ff",
-                rollout_percentage=50,
                 rollback_conditions=[rollback_condition],
             )
 
@@ -179,7 +176,6 @@ class AutoRollbackTest(ClickhouseTestMixin, APIBaseTest):
                 team=self.team,
                 created_by=self.user,
                 key="test-ff",
-                rollout_percentage=50,
                 rollback_conditions=[rollback_condition],
             )
 

@@ -9,15 +9,17 @@ import {
 import { ExperimentStatsMethod, InsightType } from '~/types'
 
 import { experimentLogic } from '../../experimentLogic'
+import { isLaunched } from '../../experimentsLogic'
 import { type ExperimentVariantResult, getVariantInterval } from '../shared/utils'
+import { MAX_AXIS_RANGE } from './constants'
 import { MetricRowGroup } from './MetricRowGroup'
 import { TableHeader } from './TableHeader'
-import { MAX_AXIS_RANGE } from './constants'
 
 interface MetricsTableProps {
     metrics: ExperimentMetric[]
     results: NewExperimentQueryResponse[]
     errors: any[]
+    metricIndexes: number[]
     isSecondary: boolean
     getInsightType: (metric: ExperimentMetric | ExperimentTrendsQuery | ExperimentFunnelsQuery) => InsightType
     showDetailsModal?: boolean
@@ -27,11 +29,12 @@ export function MetricsTable({
     metrics,
     results,
     errors,
+    metricIndexes,
     isSecondary,
     getInsightType,
     showDetailsModal = true,
 }: MetricsTableProps): JSX.Element {
-    const { experiment, hasMinimumExposureForResults, exposuresLoading } = useValues(experimentLogic)
+    const { experiment, exposuresLoading } = useValues(experimentLogic)
     const { duplicateMetric, updateExperimentMetrics, updateMetricBreakdown, removeMetricBreakdown } =
         useActions(experimentLogic)
 
@@ -95,8 +98,9 @@ export function MetricsTable({
                     {metrics.map((metric, index) => {
                         const result = results[index]
                         const error = errors[index]
+                        const metricIndex = metricIndexes[index]
 
-                        const isLoading = !result && !error && !!experiment.start_date
+                        const isLoading = !result && !error && isLaunched(experiment)
 
                         return (
                             <MetricRowGroup
@@ -105,6 +109,7 @@ export function MetricsTable({
                                 result={result}
                                 experiment={experiment}
                                 metricType={getInsightType(metric)}
+                                metricIndex={metricIndex}
                                 displayOrder={index}
                                 axisRange={axisRange}
                                 isSecondary={isSecondary}
@@ -147,7 +152,6 @@ export function MetricsTable({
                                 }}
                                 error={error}
                                 isLoading={isLoading}
-                                hasMinimumExposureForResults={hasMinimumExposureForResults}
                                 exposuresLoading={exposuresLoading}
                                 showDetailsModal={showDetailsModal}
                             />

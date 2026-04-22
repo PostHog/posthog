@@ -1,3 +1,5 @@
+from collections.abc import Sequence
+
 from posthog.test.base import APIBaseTest
 
 from parameterized import parameterized
@@ -10,7 +12,7 @@ from posthog.models.organization import OrganizationMembership
 class TestPolicyEngineBypass(APIBaseTest):
     def _create_policy(
         self,
-        bypass_org_membership_levels: list[str] | None = None,
+        bypass_org_membership_levels: Sequence[str | int] | None = None,
         bypass_role_ids: list[str] | None = None,
     ) -> ApprovalPolicy:
         policy = ApprovalPolicy.objects.create(
@@ -34,12 +36,15 @@ class TestPolicyEngineBypass(APIBaseTest):
             (OrganizationMembership.Level.ADMIN, ["15"], False),
             (OrganizationMembership.Level.OWNER, ["15"], True),
             (OrganizationMembership.Level.ADMIN, [], False),
+            # integer-typed levels should also work
+            (OrganizationMembership.Level.ADMIN, [8, 15], True),
+            (OrganizationMembership.Level.MEMBER, [8, 15], False),
         ]
     )
     def test_bypass_org_membership_levels(
         self,
         user_level: int,
-        bypass_levels: list[str],
+        bypass_levels: Sequence[str | int],
         expected_bypass: bool,
     ):
         self.organization_membership.level = user_level
@@ -142,7 +147,7 @@ class TestPolicyEngineBypass(APIBaseTest):
 class TestPolicyEngineEvaluateBypass(APIBaseTest):
     def _create_policy(
         self,
-        bypass_org_membership_levels: list[str] | None = None,
+        bypass_org_membership_levels: Sequence[str | int] | None = None,
         bypass_role_ids: list[str] | None = None,
     ) -> ApprovalPolicy:
         policy = ApprovalPolicy.objects.create(
@@ -208,7 +213,7 @@ class TestPolicyEngineEvaluateBypass(APIBaseTest):
 class TestPolicySnapshotBypassFields(APIBaseTest):
     def _create_policy(
         self,
-        bypass_org_membership_levels: list[str] | None = None,
+        bypass_org_membership_levels: Sequence[str | int] | None = None,
         bypass_role_ids: list[str] | None = None,
     ) -> ApprovalPolicy:
         policy = ApprovalPolicy.objects.create(

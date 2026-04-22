@@ -1,5 +1,5 @@
 from typing import Any, cast
-from urllib.parse import urlparse
+from urllib.parse import urlencode, urlparse
 
 from django.conf import settings
 from django.http import HttpRequest, HttpResponse, HttpResponseRedirect, HttpResponseServerError
@@ -17,6 +17,7 @@ from posthog.api import (
     api_not_found,
     authentication,
     github,
+    hog_flow,
     hog_flow_template,
     hog_function_template,
     playwright_setup,
@@ -31,15 +32,14 @@ from posthog.api import (
     uploaded_media,
     user,
 )
+from posthog.api.oauth.connected_apps import ConnectedAppsViewSet
+from posthog.api.oauth.wizard_metadata import WIZARD_METADATA_PATH, WizardClientMetadataView
 from posthog.api.query import progress
 from posthog.api.sdk_doctor import sdk_doctor
-from posthog.api.slack import slack_interactivity_callback
-from posthog.api.survey import public_survey_page, surveys
 from posthog.api.two_factor_qrcode import CacheAwareQRGeneratorView
 from posthog.api.utils import hostname_in_allowed_url_list
 from posthog.api.web_experiment import web_experiments
 from posthog.api.zendesk_orgcheck import ensure_zendesk_organization
-from posthog.auth import apply_auth_brand_cookie
 from posthog.constants import PERMITTED_FORUM_DOMAINS
 from posthog.demo.legacy import demo_route
 from posthog.models import User
@@ -47,9 +47,15 @@ from posthog.models.instance_setting import get_instance_setting
 from posthog.oauth2_urls import urlpatterns as oauth2_urls
 from posthog.temporal.codec_server import decode_payloads
 
+from products.data_warehouse.backend.api.public_source_configs import PublicSourceConfigViewSet
 from products.early_access_features.backend.api import early_access_features
+from products.legal_documents.backend.presentation.webhook import legal_document_pandadoc_webhook
+from products.messaging.backend.api.customerio_webhook import CustomerIOWebhookView
 from products.product_tours.backend.api import product_tours
-from products.slack_app.backend.api import slack_event_handler
+from products.signals.backend import views as signals_views
+from products.signals.backend.views import SignalUserAutonomyConfigView as signals_user_autonomy_view
+from products.slack_app.backend.api import posthog_code_event_handler, posthog_code_interactivity_handler
+from products.surveys.backend.api.survey import public_survey_page, surveys
 from products.tasks.backend.webhooks import github_pr_webhook
 
 from .utils import opt_slash_path, render_template
@@ -99,8 +105,7 @@ def home(request, *args, **kwargs):
         url = "https://us.posthog.com{}".format(request.get_full_path())
         if url_has_allowed_host_and_scheme(url, "us.posthog.com", True):
             return HttpResponseRedirect(url)
-    response = render_template("index.html", request)
-    return apply_auth_brand_cookie(request, response)
+    return render_template("index.html", request)
 
 
 def authorize_and_redirect(request: HttpRequest) -> HttpResponse:
@@ -119,7 +124,22 @@ def authorize_and_redirect(request: HttpRequest) -> HttpResponse:
         or (redirect_url.hostname not in PERMITTED_FORUM_DOMAINS and is_forum_login)
         or (not is_forum_login and not hostname_in_allowed_url_list(current_team.app_urls, redirect_url.hostname))
     ):
-        return HttpResponse(f"Can only redirect to a permitted domain.", status=403)
+        hostname = redirect_url.hostname or request.GET["redirect"]
+        return render_template(
+            "toolbar_oauth_error.html",
+            request,
+            context={
+                "error_title": "Domain not authorized",
+                "error_message": "The toolbar cannot authenticate on this domain because it is not in your project's authorized URLs.",
+                "error_detail": (
+                    f"The hostname {hostname} needs to be added to your project's "
+                    "authorized URLs before the toolbar can be used on this site."
+                ),
+                "error_code": "403",
+                "settings_url": f"{settings.SITE_URL}/settings/project-toolbar#authorized-urls",
+            },
+            status_code=403,
+        )
 
     if referer_url.hostname != redirect_url.hostname:
         return HttpResponse(
@@ -146,6 +166,7 @@ def authorize_and_redirect(request: HttpRequest) -> HttpResponse:
             "email": request.user,
             "domain": redirect_url.hostname,
             "redirect_url": request.GET["redirect"],
+            "authorization_url": f"/api/user/redirect_to_site/?{urlencode({'appUrl': request.GET['redirect']})}",
         },
     )
 
@@ -178,8 +199,23 @@ urlpatterns = [
     path("api/environments/<int:team_id>/query/<str:query_uuid>/progress", progress),
     path("api/unsubscribe", unsubscribe.unsubscribe),
     path("api/alerts/github", github.SecretAlert.as_view()),
+    path(
+        "api/legal_documents/pandadoc",
+        csrf_exempt(legal_document_pandadoc_webhook),
+        name="legal_document_pandadoc_webhook",
+    ),
+    path(
+        "api/users/<str:user_id>/signal_autonomy/",
+        signals_user_autonomy_view.as_view(),
+        name="user_signal_autonomy",
+    ),
+    path("api/environments/<int:team_id>/messaging/customerio/webhook/", csrf_exempt(CustomerIOWebhookView.as_view())),
     path("api/sdk_doctor/", sdk_doctor),
     path("api/conversations/", include("products.conversations.backend.api.urls")),
+    path(
+        "api/environments/<int:parent_lookup_team_id>/mcp_analytics/",
+        include("products.mcp_analytics.backend.presentation.urls"),
+    ),
     opt_slash_path("api/support/ensure-zendesk-organization", csrf_exempt(ensure_zendesk_organization)),
     path("api/", include(router.urls)),
     # Override the tf_urls QRGeneratorView to use the cache-aware version (handles session race conditions)
@@ -187,9 +223,12 @@ urlpatterns = [
     path("", include(tf_urls)),
     opt_slash_path("api/user/prepare_toolbar_preloaded_flags", user.prepare_toolbar_preloaded_flags),
     opt_slash_path("api/user/get_toolbar_preloaded_flags", user.get_toolbar_preloaded_flags),
+    opt_slash_path("api/user/toolbar_oauth_refresh", user.toolbar_oauth_refresh),
+    path("toolbar_oauth/authorize/", login_required(user.toolbar_oauth_authorize)),
+    path("toolbar_oauth/callback", user.toolbar_oauth_callback),
+    path("toolbar_oauth/check", user.toolbar_oauth_check),
     opt_slash_path("api/user/redirect_to_site", user.redirect_to_site),
     opt_slash_path("api/user/redirect_to_website", user.redirect_to_website),
-    opt_slash_path("api/user/test_slack_webhook", user.test_slack_webhook),
     opt_slash_path("api/early_access_features", early_access_features),
     opt_slash_path("api/web_experiments", web_experiments),
     opt_slash_path("api/surveys", surveys),
@@ -215,8 +254,42 @@ urlpatterns = [
         "api/public_hog_flow_templates",
         hog_flow_template.PublicHogFlowTemplateViewSet.as_view({"get": "list"}),
     ),
+    opt_slash_path(
+        "api/public_source_configs",
+        PublicSourceConfigViewSet.as_view({"get": "list"}),
+    ),
+    # Internal service-to-service endpoints (authenticated with POSTHOG_INTERNAL_SERVICE_TOKEN)
+    path(
+        "api/projects/<str:team_id>/internal/hog_flows/user_blast_radius",
+        csrf_exempt(hog_flow.InternalHogFlowViewSet.as_view({"post": "internal_user_blast_radius"})),
+    ),
+    path(
+        "api/projects/<str:team_id>/internal/hog_flows/user_blast_radius_persons",
+        csrf_exempt(hog_flow.InternalHogFlowViewSet.as_view({"post": "internal_user_blast_radius_persons"})),
+    ),
+    path(
+        "api/internal/hog_flows/process_due_schedules",
+        csrf_exempt(hog_flow.InternalHogFlowViewSet.as_view({"post": "internal_process_due_schedules"})),
+    ),
+    path(
+        "api/projects/<str:team_id>/internal/signals/emit",
+        csrf_exempt(signals_views.InternalSignalViewSet.as_view({"post": "emit"})),
+    ),
     # Test setup endpoint (only available in TEST mode)
     path("api/setup_test/<str:test_name>/", csrf_exempt(playwright_setup.setup_test)),
+    opt_slash_path(
+        "api/oauth/connected-apps",
+        ConnectedAppsViewSet.as_view({"get": "list"}),
+    ),
+    path(
+        "api/oauth/connected-apps/<uuid:pk>/revoke/",
+        ConnectedAppsViewSet.as_view({"post": "revoke"}),
+    ),
+    path(
+        WIZARD_METADATA_PATH,
+        WizardClientMetadataView.as_view(),
+        name="wizard-client-metadata",
+    ),
     re_path(r"^api.+", api_not_found),
     path("authorize_and_redirect/", login_required(authorize_and_redirect)),
     path(
@@ -255,8 +328,8 @@ urlpatterns = [
     ),  # overrides from `social_django.urls` to validate proper license
     path("", include("social_django.urls", namespace="social")),
     path("uploaded_media/<str:image_uuid>", uploaded_media.download),
-    opt_slash_path("slack/interactivity-callback", slack_interactivity_callback),
-    opt_slash_path("slack/event-callback", slack_event_handler),
+    opt_slash_path("slack/interactivity-callback", posthog_code_interactivity_handler),
+    opt_slash_path("slack/event-callback", posthog_code_event_handler),
     # GitHub webhooks for task lifecycle events
     opt_slash_path("webhooks/github/pr", github_pr_webhook),
     # Message preferences

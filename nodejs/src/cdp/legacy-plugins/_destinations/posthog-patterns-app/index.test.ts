@@ -1,5 +1,4 @@
-import { createEvent } from '@posthog/plugin-scaffold/test/utils'
-
+import { createEvent } from '../../test-utils'
 import { PatternsMeta, onEvent, setupPlugin } from './index'
 
 const testWebhookUrl = 'https://api-staging.patterns.app/api/app/webhooks/wh1234'

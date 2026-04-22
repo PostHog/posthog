@@ -1,56 +1,27 @@
 import { hasScopes } from '@/lib/api'
 
-// Actions
-import createAction from './actions/create'
-import deleteAction from './actions/delete'
-import getAction from './actions/get'
-import getAllActions from './actions/getAll'
-import updateAction from './actions/update'
-// Dashboards
-import addInsightToDashboard from './dashboards/addInsight'
-import createDashboard from './dashboards/create'
-import deleteDashboard from './dashboards/delete'
-import getDashboard from './dashboards/get'
-import getAllDashboards from './dashboards/getAll'
-import reorderDashboardTiles from './dashboards/reorderTiles'
-import updateDashboard from './dashboards/update'
-// Demo
-import demoMcpUiApps from './demo/demoMcpUiApps'
+// Debug
+import debugMcpUiApps from './debug/debugMcpUiApps'
 // Documentation
 import searchDocs from './documentation/searchDocs'
-// Error Tracking
-import errorDetails from './errorTracking/errorDetails'
-import listErrors from './errorTracking/listErrors'
-// Experiments
-import createExperiment from './experiments/create'
-import deleteExperiment from './experiments/delete'
-import getExperiment from './experiments/get'
-import getAllExperiments from './experiments/getAll'
+// Experiments (hand-written — CRUD + lifecycle are codegen in generated/experiments.ts)
 import getExperimentResults from './experiments/getResults'
-import updateExperiment from './experiments/update'
-// Feature Flags
-import createFeatureFlag from './featureFlags/create'
-import deleteFeatureFlag from './featureFlags/delete'
-import getAllFeatureFlags from './featureFlags/getAll'
-import getFeatureFlagDefinition from './featureFlags/getDefinition'
-import updateFeatureFlag from './featureFlags/update'
+// Generated tools (from definitions/*.yaml)
+import { GENERATED_TOOL_MAP } from './generated'
 // Insights
-import createInsight from './insights/create'
-import deleteInsight from './insights/delete'
-import getInsight from './insights/get'
-import getAllInsights from './insights/getAll'
 import queryInsight from './insights/query'
-import updateInsight from './insights/update'
-// LLM Observability
+// LLM Analytics
 import getLLMCosts from './llmAnalytics/getLLMCosts'
-import logsListAttributeValues from './logs/listAttributeValues'
-import logsListAttributes from './logs/listAttributes'
-// Logs
-import logsQuery from './logs/query'
 // Organizations
-import getOrganizationDetails from './organizations/getDetails'
-import getOrganizations from './organizations/getOrganizations'
 import setActiveOrganization from './organizations/setActive'
+// PostHog AI tools
+import {
+    executeSql,
+    externalDataSourcesDbSchema,
+    externalDataSourcesJobs,
+    readDataSchema,
+    readDataWarehouseSchema,
+} from './posthogAiTools'
 // Projects
 import eventDefinitions from './projects/eventDefinitions'
 import getProjects from './projects/getProjects'
@@ -62,31 +33,18 @@ import generateHogQLFromQuestion from './query/generateHogQLFromQuestion'
 import queryRun from './query/run'
 // Search
 import entitySearch from './search/entitySearch'
-// Surveys
-import createSurvey from './surveys/create'
-import deleteSurvey from './surveys/delete'
-import getSurvey from './surveys/get'
-import getAllSurveys from './surveys/getAll'
-import surveysGlobalStats from './surveys/global-stats'
-import surveyStats from './surveys/stats'
-import updateSurvey from './surveys/update'
 // Misc
-import { getToolsForFeatures as getFilteredToolNames, getToolDefinition } from './toolDefinitions'
+import {
+    type ToolFilterOptions,
+    getToolsForFeatures as getFilteredToolNames,
+    getToolDefinition,
+} from './toolDefinitions'
 import type { Context, Tool, ToolBase, ZodObjectAny } from './types'
 
 // Map of tool names to tool factory functions
-const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
-    // Feature Flags
-    'feature-flag-get-definition': getFeatureFlagDefinition,
-    'feature-flag-get-all': getAllFeatureFlags,
-    'create-feature-flag': createFeatureFlag,
-    'update-feature-flag': updateFeatureFlag,
-    'delete-feature-flag': deleteFeatureFlag,
-
+export const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
     // Organizations
-    'organizations-get': getOrganizations,
     'switch-organization': setActiveOrganization,
-    'organization-details-get': getOrganizationDetails,
 
     // Projects
     'projects-get': getProjects,
@@ -98,72 +56,45 @@ const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
     // Documentation - handled separately due to env check
     // "docs-search": searchDocs,
 
-    // Error Tracking
-    'list-errors': listErrors,
-    'error-details': errorDetails,
-
-    // Logs
-    'logs-query': logsQuery,
-    'logs-list-attributes': logsListAttributes,
-    'logs-list-attribute-values': logsListAttributeValues,
-
-    // Experiments
-    'experiment-get-all': getAllExperiments,
-    'experiment-get': getExperiment,
+    // Experiments (results is hand-written; CRUD + lifecycle are codegen)
     'experiment-results-get': getExperimentResults,
-    'experiment-create': createExperiment,
-    'experiment-delete': deleteExperiment,
-    'experiment-update': updateExperiment,
 
     // Insights
-    'insights-get-all': getAllInsights,
-    'insight-get': getInsight,
-    'insight-create-from-query': createInsight,
-    'insight-update': updateInsight,
-    'insight-delete': deleteInsight,
     'insight-query': queryInsight,
 
     // Queries
     'query-generate-hogql-from-question': generateHogQLFromQuestion,
     'query-run': queryRun,
 
-    // Dashboards
-    'dashboards-get-all': getAllDashboards,
-    'dashboard-get': getDashboard,
-    'dashboard-create': createDashboard,
-    'dashboard-update': updateDashboard,
-    'dashboard-delete': deleteDashboard,
-    'dashboard-reorder-tiles': reorderDashboardTiles,
-    'add-insight-to-dashboard': addInsightToDashboard,
-
-    // LLM Observability
+    // LLM Analytics
     'get-llm-total-costs-for-project': getLLMCosts,
-
-    // Surveys
-    'surveys-get-all': getAllSurveys,
-    'survey-get': getSurvey,
-    'survey-create': createSurvey,
-    'survey-update': updateSurvey,
-    'survey-delete': deleteSurvey,
-    'surveys-global-stats': surveysGlobalStats,
-    'survey-stats': surveyStats,
-
-    // Actions
-    'actions-get-all': getAllActions,
-    'action-get': getAction,
-    'action-create': createAction,
-    'action-update': updateAction,
-    'action-delete': deleteAction,
 
     // Search
     'entity-search': entitySearch,
 
-    // Demo
-    'demo-mcp-ui-apps': demoMcpUiApps,
+    // Debug
+    'debug-mcp-ui-apps': debugMcpUiApps,
+
+    // PostHog AI tools
+    'execute-sql': executeSql,
+    'read-data-schema': readDataSchema,
+    'read-data-warehouse-schema': readDataWarehouseSchema,
+
+    // Data warehouse (custom handlers for non-standard request shapes)
+    'external-data-sources-db-schema': externalDataSourcesDbSchema,
+    'external-data-sources-jobs': externalDataSourcesJobs,
 }
 
-export const getToolsFromContext = async (context: Context, features?: string[]): Promise<Tool<ZodObjectAny>[]> => {
-    const allowedToolNames = getFilteredToolNames(features)
+export const getToolsFromContext = async (
+    context: Context,
+    options?: ToolFilterOptions
+): Promise<Tool<ZodObjectAny>[]> => {
+    // Check org AI consent to gate tools that use LLMs internally (cached in StateManager)
+    const aiConsentGiven = await context.stateManager.getAiConsentGiven()
+    const effectiveOptions = aiConsentGiven !== undefined ? { ...options, aiConsentGiven } : options
+    const effectiveMap = { ...TOOL_MAP, ...GENERATED_TOOL_MAP }
+    const excludeTools = options?.excludeTools ?? []
+    const allowedToolNames = getFilteredToolNames(effectiveOptions).filter((name) => !excludeTools.includes(name))
     const toolBases: ToolBase<ZodObjectAny>[] = []
 
     for (const toolName of allowedToolNames) {
@@ -171,15 +102,19 @@ export const getToolsFromContext = async (context: Context, features?: string[])
         if (toolName === 'docs-search' && context.env.INKEEP_API_KEY) {
             toolBases.push(searchDocs())
         } else {
-            const toolFactory = TOOL_MAP[toolName]
+            const toolFactory = effectiveMap[toolName]
             if (toolFactory) {
                 toolBases.push(toolFactory())
             }
         }
     }
 
-    const tools: Tool<ZodObjectAny>[] = toolBases.map((toolBase) => {
-        const definition = getToolDefinition(toolBase.name)
+    // Filter tools by mcpVersion — when set, the tool is exclusive to that version
+    const effectiveVersion = options?.version ?? 1
+    const filteredBases = toolBases.filter((tb) => tb.mcpVersion === undefined || tb.mcpVersion === effectiveVersion)
+
+    const tools: Tool<ZodObjectAny>[] = filteredBases.map((toolBase) => {
+        const definition = getToolDefinition(toolBase.name, options?.version)
         return {
             ...toolBase,
             title: definition.title,

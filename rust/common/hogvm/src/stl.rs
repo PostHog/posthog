@@ -8,7 +8,7 @@ use crate::{
     error::VmError,
     memory::VmHeap,
     program::Module,
-    util::{get_json_nested, regex_match},
+    util::{get_json_nested, regex_extract, regex_match},
     values::{HogLiteral, HogValue, Num},
     vm::HogVM,
     ExportedFunction,
@@ -319,6 +319,21 @@ pub fn stl() -> Vec<(String, NativeFunction)> {
             }),
         ),
         (
+            "extractRegex",
+            native_func(err_to_null(|vm, args| {
+                // Hog: extractRegex(haystack, pattern)
+                assert_argc(&args, 2, "extractRegex")?;
+                if matches!(args[0].deref(&vm.heap)?, HogLiteral::Null)
+                    || matches!(args[1].deref(&vm.heap)?, HogLiteral::Null)
+                {
+                    return Ok(HogLiteral::String(String::new()).into());
+                }
+                let haystack = args[0].deref(&vm.heap)?.try_as::<str>()?;
+                let pattern = args[1].deref(&vm.heap)?.try_as::<str>()?;
+                Ok(HogLiteral::String(regex_extract(haystack, pattern)?).into())
+            })),
+        ),
+        (
             "JSONExtract",
             native_func(err_to_null(|vm, args| {
                 assert(
@@ -347,6 +362,37 @@ pub fn stl() -> Vec<(String, NativeFunction)> {
                 construct_free_standing(res, 0)
             })),
         ),
+        (
+            "multiSearchAnyCaseInsensitive",
+            native_func(|vm, args| {
+                if args.len() != 2 {
+                    return Err(VmError::NativeCallFailed(
+                        "multiSearchAnyCaseInsensitive takes exactly 2 arguments".to_string(),
+                    ));
+                }
+
+                // Coerce the haystack to a string (to align with TS/Python and ClickHouse behavior)
+                let haystack_str = to_string(&vm.heap, &args[0], 0)?.to_lowercase();
+
+                // The second argument must be an array of needles; otherwise, treat as no match (0)
+                let needles = args[1].deref(&vm.heap)?;
+                let needles_array = match needles {
+                    HogLiteral::Array(arr) => arr,
+                    _ => return Ok(HogLiteral::Number(0i64.into()).into()),
+                };
+
+                for needle_value in needles_array {
+                    // Coerce each needle to a string, regardless of its underlying literal type
+                    let needle_str = to_string(&vm.heap, needle_value, 0)?.to_lowercase();
+                    if haystack_str.contains(&needle_str) {
+                        // Return 1 (numeric) to match ClickHouse-style predicate semantics
+                        return Ok(HogLiteral::Number(1i64.into()).into());
+                    }
+                }
+                // No needles matched: return 0 (numeric)
+                Ok(HogLiteral::Number(0i64.into()).into())
+            }),
+        ),
     ]
     .into_iter()
     .map(|(name, func)| (name.to_string(), func))
@@ -360,6 +406,7 @@ pub fn hog_stl() -> Module {
       "arrayFilter": [2, [43, 0, 36, 1, 36, 3, 2, "values", 1, 33, 1, 36, 4, 2, "length", 1, 31, 36, 6, 36, 5, 16, 40, 33, 36, 4, 36, 5, 45, 37, 7, 36, 7, 36, 0, 54, 1, 40, 9, 36, 2, 36, 7, 2, "arrayPushBack", 2, 37, 2, 36, 5, 33, 1, 6, 37, 5, 39, -40, 35, 35, 35, 35, 35, 36, 2, 38, 35]],
       "arrayMap": [2, [43, 0, 36, 1, 36, 3, 2, "values", 1, 33, 1, 36, 4, 2, "length", 1, 31, 36, 6, 36, 5, 16, 40, 29, 36, 4, 36, 5, 45, 37, 7, 36, 2, 36, 7, 36, 0, 54, 1, 2, "arrayPushBack", 2, 37, 2, 36, 5, 33, 1, 6, 37, 5, 39, -36, 35, 35, 35, 35, 35, 36, 2, 38, 35]],
       "arrayReduce": [3, [36, 2, 36, 1, 36, 4, 2, "values", 1, 33, 1, 36, 5, 2, "length", 1, 31, 36, 7, 36, 6, 16, 40, 26, 36, 5, 36, 6, 45, 37, 8, 36, 3, 36, 8, 36, 0, 54, 2, 37, 3, 36, 6, 33, 1, 6, 37, 6, 39, -33, 35, 35, 35, 35, 35, 36, 3, 38, 35]],
+      "sortableSemver": [1, [31, 36, 0, 11, 40, 3, 43, 0, 38, 36, 0, 32, "(\\d+(\\.\\d+)+)", 2, "extractRegex", 2, 36, 1, 2, "empty", 1, 40, 3, 43, 0, 38, 32, ".", 36, 1, 2, "splitByString", 2, 52, "lambda", 1, 0, 11, 36, 0, 2, "toInt", 1, 47, 3, 35, 33, 0, 38, 53, 0, 36, 2, 2, "arrayMap", 2, 38, 35, 35]],
     });
 
     let funcs: HashMap<String, (usize, Vec<JsonValue>)> =

@@ -1,7 +1,7 @@
 """Type definitions for feature flag data structures."""
 
 from enum import StrEnum
-from typing import Any, TypedDict
+from typing import Any, NotRequired, TypedDict
 
 
 class PropertyFilterType(StrEnum):
@@ -24,10 +24,11 @@ class FlagProperty(TypedDict, total=False):
 
 
 class FilterGroup(TypedDict):
-    """Filter group within a feature flag."""
+    """Filter group (condition set) within a feature flag."""
 
     properties: list[FlagProperty]
     rollout_percentage: float
+    aggregation_group_type_index: NotRequired[int | None]
 
 
 class FlagFilters(TypedDict):

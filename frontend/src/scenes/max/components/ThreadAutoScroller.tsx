@@ -57,7 +57,7 @@ export function ThreadAutoScroller({ children }: { children: React.ReactNode }):
                 scrollOrigin.current.user = true
             }
         }
-        scrollableContainer.addEventListener('scroll', scrollListener)
+        scrollableContainer.addEventListener('scroll', scrollListener, { passive: true })
 
         // When the thread is resized during generation, we need to scroll to the bottom
         let resizeTimeout: NodeJS.Timeout | null = null

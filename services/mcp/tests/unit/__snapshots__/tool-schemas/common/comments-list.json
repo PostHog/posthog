@@ -1,0 +1,30 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "cursor": {
+            "description": "The pagination cursor value.",
+            "type": "string"
+        },
+        "item_id": {
+            "description": "Filter by the ID of the resource being commented on.",
+            "minLength": 1,
+            "type": "string"
+        },
+        "scope": {
+            "description": "Filter by resource type (e.g. Dashboard, FeatureFlag, Insight, Replay).",
+            "minLength": 1,
+            "type": "string"
+        },
+        "search": {
+            "description": "Full-text search within comment content.",
+            "minLength": 1,
+            "type": "string"
+        },
+        "source_comment": {
+            "description": "Filter replies to a specific parent comment.",
+            "minLength": 1,
+            "type": "string"
+        }
+    },
+    "type": "object"
+}

@@ -55,7 +55,7 @@ Assistant: I'll help you analyze how error tracking issues are impacting your ch
 Based on your event taxonomy, the checkout-related events are: checkout_started, payment_submitted, and order_completed. These are the events you should analyze to understand which issues may be blocking or affecting your checkout conversion.
 """.strip()
 
-MODE_DESCRIPTION = "Specialized mode for analyzing error tracking issues. This mode allows you to search and filter error tracking issues by status, date range, frequency, and other criteria. You can also retrieve detailed stack trace information for any issue to analyze and explain its root cause."
+ERROR_TRACKING_MODE_DESCRIPTION = "Specialized mode for analyzing error tracking issues. This mode allows you to search and filter error tracking issues by status, date range, frequency, and other criteria. You can also retrieve detailed stack trace information for any issue to analyze and explain its root cause."
 
 POSITIVE_EXAMPLE_IMPACT_ANALYSIS_REASONING = """
 The assistant used the read_taxonomy tool because:
@@ -95,7 +95,7 @@ class ErrorTrackingAgentToolkit(AgentToolkit):
 
 error_tracking_agent = AgentModeDefinition(
     mode=AgentMode.ERROR_TRACKING,
-    mode_description=MODE_DESCRIPTION,
+    mode_description=ERROR_TRACKING_MODE_DESCRIPTION,
     toolkit_class=ErrorTrackingAgentToolkit,
     node_class=ChatAgentExecutable,
     tools_node_class=ChatAgentToolsExecutable,
@@ -104,7 +104,7 @@ error_tracking_agent = AgentModeDefinition(
 
 chat_agent_plan_error_tracking_agent = AgentModeDefinition(
     mode=AgentMode.ERROR_TRACKING,
-    mode_description=MODE_DESCRIPTION,
+    mode_description=ERROR_TRACKING_MODE_DESCRIPTION,
     toolkit_class=ErrorTrackingAgentToolkit,
     node_class=ChatAgentPlanExecutable,
     tools_node_class=ChatAgentPlanToolsExecutable,

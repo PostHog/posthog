@@ -10,6 +10,12 @@ describe('Encrypted fields', () => {
         encryptedFields = new EncryptedFields(encryptionSaltKeys)
     })
 
+    it('should construct with empty keys but throw on encrypt/decrypt', () => {
+        const empty = new EncryptedFields('')
+        expect(() => empty.encrypt('test')).toThrow('Encryption keys are not set')
+        expect(() => empty.decrypt('test')).toThrow('Encryption keys are not set')
+    })
+
     describe('encryption and decryption', () => {
         it('should encrypt and decrypt a string', () => {
             const encrypted = encryptedFields.encrypt('test-case')

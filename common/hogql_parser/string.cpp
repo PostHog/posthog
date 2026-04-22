@@ -6,18 +6,35 @@
 using namespace std;
 
 string replace_common_escape_characters(string text) {
-  // Copied from clickhouse_driver/util/escape.py
-  replace_all(text, "\\a", "\a");
-  replace_all(text, "\\b", "\b");
-  replace_all(text, "\\f", "\f");
-  replace_all(text, "\\n", "\n");
-  replace_all(text, "\\r", "\r");
-  replace_all(text, "\\t", "\t");
-  replace_all(text, "\\v", "\v");
-  replace_all(text, "\\0", "");  // NUL characters are ignored
-  replace_all(text, "\\\\", "\\");
-
-  return text;
+  // Escape map derived from clickhouse_driver's escape_chars_map:
+  // https://github.com/mymarilyn/clickhouse-driver/blob/master/clickhouse_driver/util/escape.py#L9
+  //
+  // Single-pass left-to-right scan so that an escaped backslash (\\)
+  // is consumed before the next character is inspected.
+  string result;
+  result.reserve(text.size());
+  size_t i = 0;
+  size_t length = text.size();
+  while (i < length) {
+    if (text[i] == '\\' && i + 1 < length) {
+      char next = text[i + 1];
+      switch (next) {
+        case 'b': result += '\b'; i += 2; continue;
+        case 'f': result += '\f'; i += 2; continue;
+        case 'r': result += '\r'; i += 2; continue;
+        case 'n': result += '\n'; i += 2; continue;
+        case 't': result += '\t'; i += 2; continue;
+        case '0': /* NUL characters are ignored */ i += 2; continue;
+        case 'a': result += '\a'; i += 2; continue;
+        case 'v': result += '\v'; i += 2; continue;
+        case '\\': result += '\\'; i += 2; continue;
+        default: break;
+      }
+    }
+    result += text[i];
+    i += 1;
+  }
+  return result;
 }
 
 string parse_string_literal_text(string text) {

@@ -1,9 +1,9 @@
 /**
- * # Chapter 12: Filter and Map Pattern
+ * # Chapter 12: Filter Map Pattern
  *
- * The `filterOk()` and `map()` combination is a common pattern for transforming
- * pipeline results and enriching context. This is especially useful when you need
- * to extract data from results and add it to the context for downstream processing.
+ * The `filterMap()` method filters OK results, applies a mapping function to transform
+ * values and context, and processes them through a subpipeline. Non-OK results pass
+ * through unchanged.
  *
  * ## Common Use Case: Adding Team to Context
  *
@@ -11,51 +11,43 @@
  * `handleIngestionWarnings()`). These methods require `team` to be present in the
  * pipeline context - if it's not, the code will not compile.
  *
- * When team data comes from a lookup step, `filterOk()` and `map()` allow us to
- * add the team to context in a type-safe way:
- *
- * 1. Filter out failed lookups with `filterOk()`
- * 2. Extract team from the result and add to context with `map()`
- * 3. Use `teamAware()` for team-scoped operations
+ * When team data comes from a lookup step, `filterMap()` allows us to:
+ * 1. Filter OK results (failed lookups pass through as non-OK)
+ * 2. Extract team from the result and add to context
+ * 3. Process through a team-aware subpipeline
  */
 import { Message } from 'node-rdkafka'
 
 import { createTestMessage } from '../../../../tests/helpers/kafka-message'
+import { createMockIngestionOutputs } from '../../../../tests/helpers/mock-ingestion-outputs'
 import { createTestTeam } from '../../../../tests/helpers/team'
 import { Team } from '../../../types'
 import { PromiseScheduler } from '../../../utils/promise-scheduler'
+import { DLQ_OUTPUT, INGESTION_WARNINGS_OUTPUT, IngestionWarningsOutput, OVERFLOW_OUTPUT } from '../../common/outputs'
 import { newBatchPipelineBuilder } from '../builders'
-import { createContext } from '../helpers'
+import { createOkContext } from '../helpers'
 import { PipelineWarning } from '../pipeline.interface'
 import { PipelineResult, dlq, isOkResult, ok, redirect } from '../results'
 
-type BatchProcessingStep<T, U> = (values: T[]) => Promise<PipelineResult<U>[]>
+type BatchProcessingStep<T, U, R extends string = never> = (values: T[]) => Promise<PipelineResult<U, R>[]>
 
-describe('Filter and Map', () => {
+describe('Filter Map', () => {
     /**
      * The `teamAware()` method requires `{ team: Team }` in the pipeline context.
      * Without it, TypeScript will report a compile error.
      *
-     * This pattern uses `filterOk()` to remove failed results, then `map()` to
-     * extract team from the result value and add it to context in a type-safe way.
+     * `filterMap()` filters OK results, maps them (adding team to context), and
+     * processes through a subpipeline. Non-OK results pass through unchanged.
      */
-    it('filterOk and map enable team-aware processing', async () => {
+    it('filterMap enables team-aware processing with non-OK passthrough', async () => {
         const processedEvents: Array<{ eventName: string; teamId: number }> = []
-        const producedMessages: any[] = []
         const promiseScheduler = new PromiseScheduler()
-        const mockKafkaProducer = {
-            produce: jest.fn((msg) => {
-                producedMessages.push(msg)
-                return Promise.resolve()
-            }),
-            queueMessages: jest.fn((msg) => {
-                producedMessages.push(msg)
-                return Promise.resolve()
-            }),
-        }
+        const mockWarningOutputs = createMockIngestionOutputs<IngestionWarningsOutput>()
+        const mockOutputs = createMockIngestionOutputs<
+            typeof DLQ_OUTPUT | typeof OVERFLOW_OUTPUT | typeof INGESTION_WARNINGS_OUTPUT
+        >()
         const pipelineConfig = {
-            kafkaProducer: mockKafkaProducer as any,
-            dlqTopic: 'test-dlq',
+            outputs: mockOutputs,
             promiseScheduler,
         }
 
@@ -87,13 +79,13 @@ describe('Filter and Map', () => {
         }
 
         // Step 2: Process event (runs within teamAware context)
-        function createProcessEventStep(): BatchProcessingStep<EventWithTeam, EventWithTeam> {
+        function createProcessEventStep(): BatchProcessingStep<EventWithTeam, EventWithTeam, typeof OVERFLOW_OUTPUT> {
             return function processEventStep(events) {
                 return Promise.resolve(
                     events.map((item) => {
                         // Redirect special events to overflow topic
                         if (item.event.name === 'overflow') {
-                            return redirect('Event overflow', 'overflow-topic')
+                            return redirect('Event overflow', OVERFLOW_OUTPUT)
                         }
 
                         // Add warning for deprecated events
@@ -115,54 +107,53 @@ describe('Filter and Map', () => {
             }
         }
 
-        // Note: This pipeline structure is a bit convoluted because filterOk() and map()
-        // drop non-OK items. This will be refactored to a filterMap() step that passes
-        // through non-OK results, so handleResults/handleSideEffects will only need to
-        // be called once at the end.
+        // filterMap() filters OK results, maps them, and processes through subpipeline.
+        // Non-OK results pass through unchanged, so we only need handleResults once at the end.
         const pipeline = newBatchPipelineBuilder<RawEvent, { message: Message }>()
             .pipeBatch(createTeamLookupStep())
-            // Handle results and side effects BEFORE filterOk - DLQ items
-            // won't be processed after filterOk removes them
-            .messageAware((builder) => builder)
-            .handleResults(pipelineConfig)
-            .handleSideEffects(promiseScheduler, { await: true })
-            // filterOk() removes non-OK results (failed team lookups)
-            .filterOk()
-            // map() extracts team from result and adds to context
-            .map((element) => ({
-                result: element.result,
-                context: {
-                    ...element.context,
-                    team: element.result.value.team,
-                },
-            }))
-            // teamAware() now works because context has team
-            // Wrap with messageAware to get access to handleResults after handleIngestionWarnings
-            .messageAware((builder) =>
-                builder
-                    .teamAware((b) => b.pipeBatch(createProcessEventStep()))
-                    .handleIngestionWarnings(mockKafkaProducer as any)
+            .gather()
+            .filterMap(
+                // Map: extract team from result and add to context
+                (element) => ({
+                    result: element.result,
+                    context: {
+                        ...element.context,
+                        team: element.result.value.team,
+                    },
+                }),
+                // Subpipeline: process events with team context
+                (b) =>
+                    b
+                        .teamAware((b) => b.pipeBatch(createProcessEventStep()).gather())
+                        .handleIngestionWarnings(mockWarningOutputs)
             )
+            // Handle all results (both from subpipeline and passed-through non-OK) once at the end
+            .messageAware((builder) => builder)
             .handleResults(pipelineConfig)
             .handleSideEffects(promiseScheduler, { await: true })
             .build()
 
         const batch = [
-            createContext(ok<RawEvent>({ teamId: 1, name: 'pageview' }), { message: createTestMessage() }),
-            createContext(ok<RawEvent>({ teamId: 999, name: 'will_fail' }), { message: createTestMessage() }),
-            createContext(ok<RawEvent>({ teamId: 2, name: 'overflow' }), { message: createTestMessage() }),
-            createContext(ok<RawEvent>({ teamId: 3, name: 'deprecated_event' }), { message: createTestMessage() }),
+            createOkContext({ teamId: 1, name: 'pageview' } as RawEvent, { message: createTestMessage() }),
+            createOkContext({ teamId: 999, name: 'will_fail' } as RawEvent, { message: createTestMessage() }),
+            createOkContext({ teamId: 2, name: 'overflow' } as RawEvent, { message: createTestMessage() }),
+            createOkContext({ teamId: 3, name: 'deprecated_event' } as RawEvent, { message: createTestMessage() }),
         ]
-        // Type assertion needed because team is added dynamically via map()
-        pipeline.feed(batch as any)
+        pipeline.feed(batch)
 
-        const results = await pipeline.next()
+        // Drain all results (non-OK may come first due to streaming)
+        const allResults: any[] = []
+        let result = await pipeline.next()
+        while (result !== null) {
+            allResults.push(...result)
+            result = await pipeline.next()
+        }
 
-        // 3 results returned (one DLQ'd before filterOk, one redirected, two OK)
-        expect(results).toHaveLength(3)
+        // 4 results total: DLQ passes through, redirect passes through, two OK
+        expect(allResults).toHaveLength(4)
 
-        // Two events are OK (pageview and deprecated_event), one was redirected
-        const okResults = results!.filter((r) => isOkResult(r.result))
+        // Two events are OK (pageview and deprecated_event)
+        const okResults = allResults.filter((r) => isOkResult(r.result))
         expect(okResults).toHaveLength(2)
 
         // Verify the pageview and deprecated events were processed
@@ -171,17 +162,16 @@ describe('Filter and Map', () => {
             { eventName: 'deprecated_event', teamId: 3 },
         ])
 
-        // Verify Kafka producer was called for DLQ, redirect, and ingestion warning
-        const topics = producedMessages.map((msg) => msg.topic)
-
         // DLQ was called for the team lookup failure
-        expect(topics).toContain('test-dlq')
+        expect(mockOutputs.produce).toHaveBeenCalledWith(DLQ_OUTPUT, expect.anything())
 
         // Redirect was called for the overflow event
-        expect(topics).toContain('overflow-topic')
+        expect(mockOutputs.produce).toHaveBeenCalledWith(OVERFLOW_OUTPUT, expect.anything())
 
-        // Ingestion warning was produced for deprecated event
-        const warningTopics = topics.filter((t: string) => t.includes('ingestion_warnings'))
-        expect(warningTopics).toHaveLength(1)
+        // Ingestion warning was produced for deprecated event via outputs
+        expect(mockWarningOutputs.queueMessages).toHaveBeenCalledTimes(1)
+        expect(mockWarningOutputs.queueMessages.mock.calls[0][0]).toBe(INGESTION_WARNINGS_OUTPUT)
+        const warningValue = mockWarningOutputs.queueMessages.mock.calls[0][1][0].value!.toString()
+        expect(warningValue).toContain('"type":"deprecated_event"')
     })
 })

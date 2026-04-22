@@ -12,7 +12,7 @@ export function AIDataLoading({ variant = 'inline' }: { variant?: 'inline' | 'bl
 
     return (
         <div className="flex flex-col items-center justify-center p-8 text-muted-alt">
-            <Spinner className="text-2xl mb-2" />
+            <Spinner className="text-2xl mb-2" captureTime />
             <p className="text-sm">Loading AI data...</p>
         </div>
     )

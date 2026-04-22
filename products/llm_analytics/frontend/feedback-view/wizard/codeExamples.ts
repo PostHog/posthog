@@ -4,8 +4,8 @@ interface CodeExampleParams {
 }
 
 export function getReactExample({ surveyId = 'your-survey-id', followUpEnabled }: CodeExampleParams): string {
-    return `// requires @posthog/react X.XX.X+ (bundled with posthog-js 1.XXX.X+)
-import { useThumbSurvey } from 'posthog-js/react/surveys'
+    return `// requires @posthog/react 1.7.1+ (bundled with posthog-js 1.345.1+)
+import { useThumbSurvey } from '@posthog/react/surveys'
 
 function HedgehogBotResponse({ traceId }: { traceId: string }) {
   const { respond, response${followUpEnabled ? ', triggerRef' : ''} } = useThumbSurvey({

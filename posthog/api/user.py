@@ -1,4 +1,5 @@
 import os
+import re
 import json
 import time
 import secrets
@@ -15,6 +16,7 @@ from django.core.cache import cache
 from django.core.exceptions import ValidationError
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import redirect
+from django.utils.html import escape
 from django.views.decorators.http import require_http_methods
 
 import jwt
@@ -25,32 +27,37 @@ from django_otp import login as otp_login
 from django_otp.plugins.otp_static.models import StaticDevice, StaticToken
 from django_otp.plugins.otp_totp.models import TOTPDevice
 from django_otp.util import random_hex
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.utils import extend_schema, extend_schema_field, extend_schema_view
 from loginas.utils import is_impersonated_session
 from prometheus_client import Counter
 from rest_framework import exceptions, mixins, serializers, viewsets
 from rest_framework.exceptions import NotFound
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
+from rest_framework.views import APIView
 from two_factor.forms import TOTPDeviceForm
 from two_factor.utils import default_device
 
 from posthog.api.email_verification import EmailVerifier
+from posthog.api.oauth.toolbar_service import (
+    ToolbarOAuthError,
+    ToolbarOAuthState,
+    build_authorization_url,
+    build_toolbar_oauth_state,
+    get_or_create_toolbar_oauth_application,
+    new_state_nonce,
+    normalize_and_validate_app_url,
+    refresh_tokens,
+    validate_and_consume_toolbar_oauth_state,
+)
 from posthog.api.organization import OrganizationSerializer
 from posthog.api.services.flags_service import get_flags_from_service
 from posthog.api.shared import OrganizationBasicSerializer, TeamBasicSerializer
-from posthog.api.utils import (
-    ClassicBehaviorBooleanFieldSerializer,
-    PublicIPOnlyHttpAdapter,
-    action,
-    raise_if_user_provided_url_unsafe,
-    unparsed_hostname_in_allowed_url_list,
-)
+from posthog.api.utils import ClassicBehaviorBooleanFieldSerializer, action, unparsed_hostname_in_allowed_url_list
 from posthog.auth import (
     OAuthAccessTokenAuthentication,
     PersonalAPIKeyAuthentication,
     SessionAuthentication,
-    TemporaryTokenAuthentication,
     session_auth_required,
 )
 from posthog.constants import PERMITTED_FORUM_DOMAINS
@@ -64,11 +71,11 @@ from posthog.event_usage import (
 from posthog.helpers.session_cache import SessionCache
 from posthog.helpers.two_factor_session import set_two_factor_verified_in_session
 from posthog.middleware import get_impersonated_session_expires_at, is_read_only_impersonation
-from posthog.models import Dashboard, Team, User, UserScenePersonalisation
+from posthog.models import Team, User, UserScenePersonalisation
 from posthog.models.organization import Organization
 from posthog.models.user import NOTIFICATION_DEFAULTS, ROLE_CHOICES, Notifications, ShortcutPosition
 from posthog.permissions import APIScopePermission, TimeSensitiveActionPermission, UserNoOrgMembershipDeletePermission
-from posthog.rate_limit import UserAuthenticationThrottle, UserEmailVerificationThrottle
+from posthog.rate_limit import ToolbarOAuthRefreshThrottle, UserAuthenticationThrottle, UserEmailVerificationThrottle
 from posthog.tasks import user_identify
 from posthog.tasks.email import (
     send_email_change_emails,
@@ -77,6 +84,9 @@ from posthog.tasks.email import (
     send_two_factor_auth_enabled_email,
 )
 from posthog.user_permissions import UserPermissions
+from posthog.utils import render_template
+
+from products.dashboards.backend.models.dashboard import Dashboard
 
 REDIRECT_TO_SITE_COUNTER = Counter("posthog_redirect_to_site", "Redirect to site")
 REDIRECT_TO_SITE_FAILED_COUNTER = Counter("posthog_redirect_to_site_failed", "Redirect to site failed")
@@ -92,6 +102,16 @@ class ScenePersonalisationBasicSerializer(serializers.ModelSerializer):
         fields = ["scene", "dashboard"]
 
 
+class PendingInviteSerializer(serializers.Serializer):
+    """Shape of each item in UserSerializer.pending_invites."""
+
+    id = serializers.CharField()
+    target_email = serializers.EmailField()
+    organization_id = serializers.CharField()
+    organization_name = serializers.CharField()
+    created_at = serializers.DateTimeField()
+
+
 class UserSerializer(serializers.ModelSerializer):
     has_password = serializers.SerializerMethodField()
     is_impersonated = serializers.SerializerMethodField()
@@ -101,16 +121,36 @@ class UserSerializer(serializers.ModelSerializer):
     is_2fa_enabled = serializers.SerializerMethodField()
     has_social_auth = serializers.SerializerMethodField()
     has_sso_enforcement = serializers.SerializerMethodField()
+    pending_invites = serializers.SerializerMethodField()
     team = TeamBasicSerializer(read_only=True)
     organization = OrganizationSerializer(read_only=True)
     organizations = OrganizationBasicSerializer(many=True, read_only=True)
     set_current_organization = serializers.CharField(write_only=True, required=False)
     set_current_team = serializers.CharField(write_only=True, required=False)
-    current_password = serializers.CharField(write_only=True, required=False)
-    notification_settings = serializers.DictField(required=False)
+    current_password = serializers.CharField(
+        write_only=True,
+        required=False,
+        help_text=(
+            "The user's current password. Required when changing `password` if the user already has a usable password set."
+        ),
+    )
+    notification_settings = serializers.DictField(
+        required=False,
+        help_text=(
+            "Map of notification preferences. Keys include `plugin_disabled`, `all_weekly_report_disabled`, "
+            "`project_weekly_digest_disabled`, `error_tracking_weekly_digest_project_enabled`, "
+            "`web_analytics_weekly_digest_project_enabled`, `organization_member_join_email_disabled`, "
+            "`data_pipeline_error_threshold` (number between 0.0 and 1.0), and other per-topic switches. "
+            "Values are either booleans, or (for per-project/per-resource keys) a map of IDs to booleans. "
+            "Only the keys you send are updated — other preferences stay as-is."
+        ),
+    )
     scene_personalisation = ScenePersonalisationBasicSerializer(many=True, read_only=True)
-    anonymize_data = ClassicBehaviorBooleanFieldSerializer()
+    anonymize_data = ClassicBehaviorBooleanFieldSerializer(
+        help_text="Whether PostHog should anonymize events captured for this user when identified."
+    )
     role_at_organization = serializers.ChoiceField(choices=ROLE_CHOICES, required=False)
+    is_organization_first_user = serializers.SerializerMethodField()
 
     class Meta:
         model = User
@@ -153,6 +193,8 @@ class UserSerializer(serializers.ModelSerializer):
             "shortcut_position",
             "role_at_organization",
             "passkeys_enabled_for_2fa",
+            "is_organization_first_user",
+            "pending_invites",
         ]
 
         read_only_fields = [
@@ -172,6 +214,8 @@ class UserSerializer(serializers.ModelSerializer):
             "organizations",
             "has_social_auth",
             "has_sso_enforcement",
+            "is_organization_first_user",
+            "pending_invites",
         ]
 
         extra_kwargs = {
@@ -235,6 +279,75 @@ class UserSerializer(serializers.ModelSerializer):
             OrganizationDomain.objects.get_sso_enforcement_for_email_address(instance.email, organization=organization)
         )
 
+    def get_is_organization_first_user(self, instance: User) -> bool | None:
+        # Only compute when the serialized user is the requesting user. Avoids paying an
+        # extra membership query on every /api/users/@me/ hit for admin/staff flows that
+        # don't need this field, and ensures invitee attribution can't leak across users.
+        request = self.context.get("request")
+        if not request or request.user.id != instance.id:
+            return None
+
+        organization = instance.current_organization
+        if organization is None:
+            return None
+
+        # "First user" == "didn't arrive via an invite". Direct signal (membership.invited_by IS NULL)
+        # avoids the earliest-joined heuristic, which silently reassigns creator status if the
+        # original creator leaves the org.
+        from posthog.models.organization import OrganizationMembership
+
+        membership = (
+            OrganizationMembership.objects.filter(organization=organization, user=instance)
+            .only("invited_by_id")
+            .first()
+        )
+        if membership is None:
+            return None
+        return membership.invited_by_id is None
+
+    @extend_schema_field(PendingInviteSerializer(many=True))
+    def get_pending_invites(self, instance: User) -> list[dict]:
+        """Non-expired organization invites matching the user's email for orgs they aren't already in.
+
+        Only returned when the serialized user is the requesting user — staff retrieving
+        another account should not see that user's private invites.
+        """
+        from django.utils import timezone as django_timezone
+
+        from posthog.constants import INVITE_DAYS_VALIDITY
+        from posthog.helpers.email_utils import EmailNormalizer
+        from posthog.models import OrganizationInvite, OrganizationMembership
+
+        request = self.context.get("request")
+        if not request or request.user.id != instance.id or not instance.email:
+            return []
+
+        normalized_email = EmailNormalizer.normalize(instance.email)
+        existing_org_ids = OrganizationMembership.objects.filter(user=instance).values_list(
+            "organization_id", flat=True
+        )
+
+        invites = (
+            OrganizationInvite.objects.filter(
+                target_email__iexact=normalized_email,
+                created_at__gt=django_timezone.now() - timedelta(days=INVITE_DAYS_VALIDITY),
+            )
+            .exclude(organization_id__in=existing_org_ids)
+            .select_related("organization")
+            .order_by("-created_at")
+        )
+
+        return [
+            {
+                "id": str(invite.id),
+                "target_email": invite.target_email,
+                "organization_id": str(invite.organization_id),
+                "organization_name": invite.organization.name,
+                "created_at": invite.created_at,
+            }
+            for invite in invites
+        ]
+
     def validate_set_current_organization(self, value: str) -> Organization:
         try:
             organization = Organization.objects.get(id=value)
@@ -262,6 +375,13 @@ class UserSerializer(serializers.ModelSerializer):
             **(instance.partial_notification_settings or {}),
         }
 
+        _dict_notification_keys = (
+            "project_weekly_digest_disabled",
+            "error_tracking_weekly_digest_project_enabled",
+            "web_analytics_weekly_digest_project_enabled",
+            "organization_member_join_email_disabled",
+        )
+
         for key, value in notification_settings.items():
             if key not in Notifications.__annotations__:
                 raise serializers.ValidationError(
@@ -271,21 +391,19 @@ class UserSerializer(serializers.ModelSerializer):
 
             expected_type = Notifications.__annotations__[key]
 
-            if key == "project_weekly_digest_disabled":
+            if key in _dict_notification_keys:
                 if not isinstance(value, dict):
                     raise serializers.ValidationError(
-                        f"project_weekly_digest_disabled must be a dictionary mapping project IDs to boolean values",
+                        f"{key} must be a dictionary mapping IDs to boolean values",
                         code="invalid_input",
                     )
-                # Validate each project setting is a boolean
                 for _, disabled in value.items():
                     if not isinstance(disabled, bool):
                         raise serializers.ValidationError(
-                            f"Project notification setting values must be boolean, got {type(disabled)} instead",
+                            f"Notification setting values must be boolean, got {type(disabled)} instead",
                             code="invalid_input",
                         )
-                # Merge with existing settings
-                current_settings[key] = {**current_settings.get("project_weekly_digest_disabled", {}), **value}
+                current_settings[key] = {**current_settings.get(key, {}), **value}
             elif key == "data_pipeline_error_threshold":
                 if not isinstance(value, (int, float)):
                     raise serializers.ValidationError(
@@ -457,6 +575,23 @@ class ScenePersonalisationSerializer(serializers.ModelSerializer):
 
 
 @extend_schema(tags=["core"])
+@extend_schema_view(
+    retrieve=extend_schema(
+        description=(
+            "Retrieve a user's profile and settings. Pass `@me` as the UUID to fetch the authenticated user; "
+            "non-staff callers may only access their own account."
+        ),
+    ),
+    update=extend_schema(
+        description=(
+            "Replace the authenticated user's profile and settings. Pass `@me` as the UUID to update the authenticated "
+            "user. Prefer the PATCH endpoint for partial updates — PUT requires every writable field to be provided."
+        ),
+    ),
+    partial_update=extend_schema(
+        description=("Update one or more of the authenticated user's profile fields or settings."),
+    ),
+)
 class UserViewSet(
     mixins.RetrieveModelMixin,
     mixins.UpdateModelMixin,
@@ -465,6 +600,10 @@ class UserViewSet(
     viewsets.GenericViewSet,
 ):
     scope_object = "user"
+    # None = derive scopes from scope_object per HTTP method; individual actions can override via @action(required_scopes=...)
+    required_scopes: list[str] | None = None
+    # Custom @action GETs that should map to user:read for OAuth / personal API keys
+    scope_object_read_actions = ["list", "retrieve", "github_login"]
     throttle_classes = [UserAuthenticationThrottle]
     serializer_class = UserSerializer
     authentication_classes = [
@@ -481,14 +620,27 @@ class UserViewSet(
     time_sensitive_allow_if_only_fields = [
         "theme_mode",
         "set_current_organization",
+        "set_current_team",
         "allow_sidebar_suggestions",
         "shortcut_position",
         "has_seen_product_intro_for",
+        "events_column_config",
+        "role_at_organization",
     ]
+    time_sensitive_exclude_actions = [
+        "hedgehog_config",
+        "scene_personalisation",
+    ]
+    time_sensitive_allow_actions = ["hedgehog_config"]
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ["is_staff", "email"]
     queryset = User.objects.filter(is_active=True)
     lookup_field = "uuid"
+
+    def dangerously_get_required_scopes(self, request, view) -> list[str] | None:
+        if self.action == "hedgehog_config":
+            return ["user:read"] if request.method == "GET" else ["user:write"]
+        return None
 
     def get_object(self) -> User:
         lookup_value = self.kwargs[self.lookup_field]
@@ -525,6 +677,11 @@ class UserViewSet(
     def perform_destroy(self, user: User) -> None:
         report_user_deleted_account(user)
         super().perform_destroy(user)
+
+    @action(methods=["GET"], detail=True, url_path="github_login")
+    def github_login(self, request, **kwargs):
+        user = self.get_object()
+        return Response({"github_login": user.get_github_login()})
 
     @action(methods=["POST"], detail=False, permission_classes=[AllowAny])
     def verify_email(self, request, **kwargs):
@@ -620,7 +777,6 @@ class UserViewSet(
         detail=True,
         throttle_classes=[],
         authentication_classes=[
-            TemporaryTokenAuthentication,
             SessionAuthentication,
             PersonalAPIKeyAuthentication,
             OAuthAccessTokenAuthentication,
@@ -772,6 +928,190 @@ class UserViewSet(
         return Response({"success": True})
 
 
+###
+# Toolbar
+
+
+@require_http_methods(["GET"])
+def toolbar_oauth_authorize(request):
+    """
+    Start the toolbar OAuth flow.
+
+    Validates the redirect URL, accepts the client-provided PKCE code_challenge,
+    builds a signed state, and redirects to the OAuth authorization endpoint.
+    The client holds the code_verifier and exchanges the code for tokens itself.
+    """
+    redirect_url = request.GET.get("redirect")
+    if not redirect_url:
+        return HttpResponse("You need to pass a url to ?redirect=", status=400)
+
+    code_challenge = request.GET.get("code_challenge")
+    if not code_challenge:
+        return HttpResponse("You need to pass a ?code_challenge=", status=400)
+
+    team = request.user.team
+    if not team:
+        return HttpResponse("No project found", status=400)
+
+    try:
+        app_url = normalize_and_validate_app_url(team, redirect_url)
+
+        oauth_app = get_or_create_toolbar_oauth_application(user=request.user)
+
+        signed_state, _expires_at = build_toolbar_oauth_state(
+            ToolbarOAuthState(
+                nonce=new_state_nonce(),
+                user_id=request.user.id,
+                team_id=team.id,
+                app_url=app_url,
+            )
+        )
+
+        authorization_url = build_authorization_url(
+            application=oauth_app, state=signed_state, code_challenge=code_challenge
+        )
+    except ToolbarOAuthError as exc:
+        if exc.code == "forbidden_app_url":
+            parsed_redirect = urllib.parse.urlparse(redirect_url)
+            hostname = parsed_redirect.hostname or redirect_url
+            return render_template(
+                "toolbar_oauth_error.html",
+                request,
+                context={
+                    "error_title": "Domain not authorized",
+                    "error_message": "The toolbar cannot authenticate on this domain because it is not in your project's authorized URLs.",
+                    "error_detail": (
+                        f"The hostname {hostname} needs to be added to your project's "
+                        "authorized URLs before the toolbar can be used on this site."
+                    ),
+                    "error_code": "403",
+                    "settings_url": f"{settings.SITE_URL}/settings/project-toolbar#authorized-urls",
+                },
+                status_code=exc.status_code,
+            )
+        return HttpResponse(exc.detail, status=exc.status_code)
+
+    # Mark session so the callback knows to redirect back to app_url with the code
+    return redirect(authorization_url)
+
+
+@require_http_methods(["GET", "HEAD"])
+def toolbar_oauth_check(request):
+    return HttpResponse("ok", status=200)
+
+
+@require_http_methods(["GET"])
+def toolbar_oauth_callback(request):
+    """
+    OAuth callback endpoint (redirect_uri for toolbar OAuth).
+
+    Validates the signed state and redirects back to the customer's app_url
+    with the authorization code in the URL fragment. The client holds the PKCE
+    verifier and exchanges the code for tokens itself.
+    """
+    # Clean up legacy session keys from the old server-side PKCE flow
+    request.session.pop("toolbar_oauth_code_verifier", None)
+    request.session.pop("toolbar_oauth_code_verifier_ts", None)
+
+    error = request.GET.get("error")
+    if error:
+        description = escape(request.GET.get("error_description", error))
+        return HttpResponse(
+            description, status=400, content_type="text/plain"
+        )  # nosemgrep: reflected-data-httpresponse
+
+    code = request.GET.get("code")
+    state = request.GET.get("state")
+
+    if not (code and state):
+        return HttpResponse("Missing code or state", status=400)
+
+    if not re.match(r"^[A-Za-z0-9._~-]+$", code):
+        return HttpResponse("Invalid authorization code format", status=400)
+
+    if not request.user.is_authenticated:
+        return HttpResponse("Not authenticated", status=401)
+
+    team = request.user.team
+    if not team:
+        return HttpResponse("No project found", status=400)
+
+    try:
+        state_payload = validate_and_consume_toolbar_oauth_state(
+            signed_state=state,
+            request_user=request.user,
+            request_team=team,
+        )
+        oauth_app = get_or_create_toolbar_oauth_application(user=request.user)
+    except ToolbarOAuthError as exc:
+        return HttpResponse(exc.detail, status=exc.status_code)
+
+    # Re-validate app_url from the signed state against the team's allowlist.
+    # validate_and_consume_toolbar_oauth_state already does this, but repeating
+    # the call here makes the sanitisation visible at the point of use, which
+    # satisfies static-analysis tools that trace the taint from request.GET.
+    try:
+        app_url = normalize_and_validate_app_url(team, state_payload["app_url"])
+    except ToolbarOAuthError as exc:
+        return HttpResponse(exc.detail, status=exc.status_code)
+
+    parsed = urllib.parse.urlparse(app_url)
+    original_fragment = parsed.fragment
+    base_url = urllib.parse.urlunparse(parsed._replace(fragment=""))
+    quoted_code = urllib.parse.quote(code, safe="")
+    quoted_client_id = urllib.parse.quote(oauth_app.client_id, safe="")
+    toolbar_param = f"__posthog_toolbar=code:{quoted_code},client_id:{quoted_client_id}"
+    if original_fragment:
+        fragment = f"{original_fragment}&{toolbar_param}"
+    else:
+        fragment = toolbar_param
+    return redirect(f"{base_url}#{fragment}")
+
+
+class ToolbarOAuthRefreshView(APIView):
+    """
+    Refresh toolbar OAuth tokens.
+
+    No session auth — the refresh_token itself is the credential.
+    CSRF exempt via DRF's SessionAuthentication not being listed.
+    """
+
+    permission_classes = [AllowAny]
+    authentication_classes = []
+    throttle_classes = [ToolbarOAuthRefreshThrottle]
+
+    def post(self, request):
+        try:
+            body = json.loads(request.body or "{}")
+        except json.JSONDecodeError:
+            return JsonResponse({"code": "invalid_json", "detail": "Request body must be valid JSON"}, status=400)
+
+        refresh_token = body.get("refresh_token")
+        client_id = body.get("client_id")
+        if not refresh_token or not client_id:
+            return JsonResponse(
+                {"code": "invalid_request", "detail": "refresh_token and client_id are required"}, status=400
+            )
+
+        try:
+            token_payload = refresh_tokens(client_id=client_id, refresh_token=refresh_token)
+        except ToolbarOAuthError as exc:
+            logger.warning("toolbar_oauth_refresh_failed", code=exc.code)
+            return JsonResponse({"code": exc.code, "detail": exc.detail}, status=exc.status_code)
+
+        logger.info("toolbar_oauth_refresh_success")
+        return JsonResponse(
+            {
+                "access_token": token_payload["access_token"],
+                "refresh_token": token_payload["refresh_token"],
+                "expires_in": token_payload["expires_in"],
+            }
+        )
+
+
+toolbar_oauth_refresh = ToolbarOAuthRefreshView.as_view()
+
+
 @session_auth_required
 def get_toolbar_preloaded_flags(request):
     """Retrieve cached feature flags for toolbar"""
@@ -853,6 +1193,9 @@ def prepare_toolbar_preloaded_flags(request):
 
 @session_auth_required
 def redirect_to_site(request):
+    # TODO: Now that toolbar uses OAuth, this endpoint mostly just redirects with toolbar params
+    # (token, actionId, etc.) in the hash. The domain-restriction is handled by OAuth redirect_uris.
+    # Consider removing this in favor of building the redirect URL client-side.
     REDIRECT_TO_SITE_COUNTER.inc()
     team = request.user.team
     app_url = request.GET.get("appUrl") or (team.app_urls and team.app_urls[0])
@@ -862,19 +1205,32 @@ def redirect_to_site(request):
 
     if not team or not unparsed_hostname_in_allowed_url_list(team.app_urls, app_url):
         REDIRECT_TO_SITE_FAILED_COUNTER.inc()
+        parsed_app_url = urllib.parse.urlparse(app_url)
+        hostname = parsed_app_url.hostname or app_url
         logger.error(
             "can_only_redirect_to_permitted_domain",
             permitted_domains=team.app_urls,
             app_url=app_url,
             team_id=team.id,
         )
-        return HttpResponse(f"Can only redirect to a permitted domain.", status=403)
-    request.user.temporary_token = secrets.token_urlsafe(32)
-    request.user.save()
+        return render_template(
+            "toolbar_oauth_error.html",
+            request,
+            context={
+                "error_title": "Domain not authorized",
+                "error_message": "The toolbar cannot load on this domain because it is not in your project's authorized URLs.",
+                "error_detail": (
+                    f"The hostname {hostname} needs to be added to your project's "
+                    "authorized URLs before the toolbar can be used on this site."
+                ),
+                "error_code": "403",
+                "settings_url": f"{settings.SITE_URL}/settings/project-toolbar#authorized-urls",
+            },
+            status_code=403,
+        )
     params = {
         "action": "ph_authorize",
         "token": team.api_token,
-        "temporaryToken": request.user.temporary_token,
         "actionId": request.GET.get("actionId"),
         "experimentId": request.GET.get("experimentId"),
         "productTourId": request.GET.get("productTourId"),
@@ -963,35 +1319,3 @@ def redirect_to_website(request):
     userData = urllib.parse.quote(json.dumps({"jwt": token}), safe="")
 
     return redirect("{}?userData={}&redirect={}".format("https://posthog.com/auth", userData, app_url))
-
-
-@require_http_methods(["POST"])
-@session_auth_required
-def test_slack_webhook(request):
-    """Test webhook."""
-    try:
-        body = json.loads(request.body)
-    except (TypeError, json.decoder.JSONDecodeError):
-        return JsonResponse({"error": "Cannot parse request body"}, status=400)
-
-    webhook = body.get("webhook")
-
-    if not webhook:
-        return JsonResponse({"error": "no webhook URL"})
-    message = {"text": "_Greetings_ from PostHog!"}
-    try:
-        session = requests.Session()
-
-        if not settings.DEBUG:
-            raise_if_user_provided_url_unsafe(webhook)
-            session.mount("https://", PublicIPOnlyHttpAdapter())
-            session.mount("http://", PublicIPOnlyHttpAdapter())
-
-        response = session.post(webhook, verify=False, json=message)
-
-        if response.ok:
-            return JsonResponse({"success": True})
-        else:
-            return JsonResponse({"error": response.text})
-    except:
-        return JsonResponse({"error": "invalid webhook URL"})

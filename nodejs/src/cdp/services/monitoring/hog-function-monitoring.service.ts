@@ -1,12 +1,17 @@
 import { Counter, Gauge, Histogram } from 'prom-client'
 
-import { InternalCaptureEvent } from '~/common/services/internal-capture'
+import { InternalCaptureEvent, InternalCaptureService } from '~/common/services/internal-capture'
 import { instrumentFn } from '~/common/tracing/tracing-utils'
+import { KAFKA_WAREHOUSE_SOURCE_WEBHOOKS } from '~/config/kafka-topics'
+import { APP_METRICS_OUTPUT, AppMetricsOutput, LOG_ENTRIES_OUTPUT, LogEntriesOutput } from '~/ingestion/common/outputs'
+import { IngestionOutputs } from '~/ingestion/outputs/ingestion-outputs'
+import { KafkaProducerWrapper } from '~/kafka/producer'
 
-import { Hub, TimestampFormat } from '../../../types'
+import { TimestampFormat } from '../../../types'
 import { safeClickhouseString } from '../../../utils/db/utils'
 import { logger } from '../../../utils/logger'
 import { captureException } from '../../../utils/posthog'
+import { TeamManager } from '../../../utils/team-manager'
 import { castTimestampOrNow } from '../../../utils/utils'
 import {
     AppMetricType,
@@ -16,17 +21,9 @@ import {
     LogEntrySerialized,
     MetricLogSource,
     MinimalAppMetric,
+    WarehouseWebhookPayload,
 } from '../../types'
 import { fixLogDeduplication } from '../../utils'
-
-export type HogFunctionMonitoringServiceHub = Pick<
-    Hub,
-    | 'kafkaProducer'
-    | 'internalCaptureService'
-    | 'teamManager'
-    | 'HOG_FUNCTION_MONITORING_APP_METRICS_TOPIC'
-    | 'HOG_FUNCTION_MONITORING_LOG_ENTRIES_TOPIC'
->
 
 const counterHogFunctionMetric = new Counter({
     name: 'cdp_hog_function_metric',
@@ -50,11 +47,12 @@ const hogFunctionMonitoringPendingEvents = new Gauge({
     help: 'Number of internal capture events queued and waiting to be flushed. High values indicate accumulation and potential memory leak.',
 })
 
+export type MonitoringOutput = AppMetricsOutput | LogEntriesOutput
+
 export type HogFunctionMonitoringMessage = {
-    topic: string
+    output: MonitoringOutput
     value: LogEntrySerialized | AppMetricType
     headers?: Record<string, string>
-    key: string
 }
 
 // Check if the result is of type CyclotronJobInvocationHogFunction
@@ -67,8 +65,19 @@ export const isHogFunctionResult = (
 export class HogFunctionMonitoringService {
     messagesToProduce: HogFunctionMonitoringMessage[] = []
     eventsToCapture: InternalCaptureEvent[] = []
+    warehouseWebhookPayloads: WarehouseWebhookPayload[] = []
 
-    constructor(private hub: HogFunctionMonitoringServiceHub) {}
+    private warehouseKafkaProducer?: KafkaProducerWrapper
+
+    constructor(
+        private outputs: IngestionOutputs<MonitoringOutput>,
+        private internalCaptureService: InternalCaptureService,
+        private teamManager: TeamManager
+    ) {}
+
+    setWarehouseKafkaProducer(producer: KafkaProducerWrapper): void {
+        this.warehouseKafkaProducer = producer
+    }
 
     async flush() {
         const messages = [...this.messagesToProduce]
@@ -79,13 +88,15 @@ export class HogFunctionMonitoringService {
         this.eventsToCapture = []
         hogFunctionMonitoringPendingEvents.set(0)
 
+        const warehouseWebhookPayloads = [...this.warehouseWebhookPayloads]
+        this.warehouseWebhookPayloads = []
+
         await Promise.all([
             ...messages.map((x) => {
                 const value = x.value ? Buffer.from(safeClickhouseString(JSON.stringify(x.value))) : null
-                return this.hub.kafkaProducer
-                    .produce({
-                        topic: x.topic,
-                        key: x.key ? Buffer.from(x.key) : null,
+                return this.outputs
+                    .produce(x.output, {
+                        key: null,
                         value,
                         headers: x.headers,
                     })
@@ -95,20 +106,37 @@ export class HogFunctionMonitoringService {
                         logger.error('⚠️', `failed to produce message: ${error}`, {
                             error: String(error),
                             messageLength: value?.length,
-                            topic: x.topic,
-                            key: x.key,
+                            output: x.output,
                             headers: x.headers,
                         })
 
                         captureException(error)
                     })
             }),
-            eventsToCapture.map((event) =>
-                this.hub.internalCaptureService.capture(event).catch((error) => {
+            ...eventsToCapture.map((event) =>
+                this.internalCaptureService.capture(event).catch((error) => {
                     logger.error('Error capturing internal event', { error })
                     captureException(error)
                 })
             ),
+            ...(this.warehouseKafkaProducer
+                ? warehouseWebhookPayloads.map((payload) =>
+                      this.warehouseKafkaProducer!.produce({
+                          topic: KAFKA_WAREHOUSE_SOURCE_WEBHOOKS,
+                          key: Buffer.from(`${payload.team_id}:${payload.schema_id}`),
+                          value: Buffer.from(
+                              JSON.stringify({
+                                  schema_id: payload.schema_id,
+                                  team_id: payload.team_id,
+                                  payload: JSON.stringify(payload.payload),
+                              })
+                          ),
+                      }).catch((error) => {
+                          logger.error('Error producing warehouse webhook payload', { error })
+                          captureException(error)
+                      })
+                  )
+                : []),
         ])
     }
 
@@ -122,9 +150,8 @@ export class HogFunctionMonitoringService {
         counterHogFunctionMetric.labels(metric.metric_kind, metric.metric_name).inc(appMetric.count)
 
         this.messagesToProduce.push({
-            topic: this.hub.HOG_FUNCTION_MONITORING_APP_METRICS_TOPIC,
+            output: APP_METRICS_OUTPUT,
             value: appMetric,
-            key: appMetric.app_source_id,
         })
         hogFunctionMonitoringPendingMessages.set(this.messagesToProduce.length)
     }
@@ -143,9 +170,8 @@ export class HogFunctionMonitoringService {
 
         logs.forEach((logEntry) => {
             this.messagesToProduce.push({
-                topic: this.hub.HOG_FUNCTION_MONITORING_LOG_ENTRIES_TOPIC,
+                output: LOG_ENTRIES_OUTPUT,
                 value: logEntry,
-                key: logEntry.instance_id,
             })
         })
         hogFunctionMonitoringPendingMessages.set(this.messagesToProduce.length)
@@ -186,7 +212,7 @@ export class HogFunctionMonitoringService {
                         this.queueAppMetric(
                             {
                                 team_id: result.invocation.teamId,
-                                app_source_id: result.invocation.functionId,
+                                app_source_id: result.invocation.parentRunId ?? result.invocation.functionId,
                                 metric_kind: result.error ? 'failure' : 'success',
                                 metric_name: result.error ? 'failed' : 'succeeded',
                                 count: 1,
@@ -195,11 +221,16 @@ export class HogFunctionMonitoringService {
                         )
                     }
 
+                    // Warehouse webhook payloads
+                    for (const payload of result.warehouseWebhookPayloads ?? []) {
+                        this.warehouseWebhookPayloads.push(payload)
+                    }
+
                     // PostHog capture events
                     const capturedEvents = result.capturedPostHogEvents
 
                     for (const event of capturedEvents ?? []) {
-                        const team = await this.hub.teamManager.getTeam(event.team_id)
+                        const team = await this.teamManager.getTeam(event.team_id)
                         if (!team) {
                             continue
                         }

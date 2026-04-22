@@ -8,6 +8,7 @@ import {
     CohortType,
     DataColorThemeModel,
     ExperimentStatsMethod,
+    ExperimentVelocityStats,
     FilterLogicalOperator,
     GroupType,
     OrganizationInviteType,
@@ -54,7 +55,6 @@ export const MOCK_DEFAULT_TEAM: TeamType = {
     app_urls: ['https://posthog.com/', 'https://app.posthog.com', 'https://example.com', 'http://127.0.0.1:*'],
     recording_domains: ['https://recordings.posthog.com/'],
     name: 'MockHog App + Marketing',
-    slack_incoming_webhook: '',
     created_at: '2020-06-30T09:53:35.932534Z',
     updated_at: '2022-03-17T16:09:21.566253Z',
     anonymize_ips: false,
@@ -244,6 +244,7 @@ export const MOCK_DEFAULT_ORGANIZATION: OrganizationType = {
     default_experiment_stats_method: ExperimentStatsMethod.Bayesian,
     is_active: true,
     is_not_active_reason: null,
+    is_pending_deletion: false,
 }
 
 export const MOCK_DEFAULT_BASIC_USER: UserBasicType = {
@@ -265,7 +266,10 @@ export const MOCK_DEFAULT_USER: UserType = {
         project_weekly_digest_disabled: {},
         all_weekly_digest_disabled: false,
         error_tracking_issue_assigned: false,
+        error_tracking_weekly_digest: true,
         discussions_mentioned: false,
+        web_analytics_weekly_digest: false,
+        organization_member_join_email_disabled: {},
     },
     anonymize_data: false,
     allow_impersonation: true,
@@ -293,6 +297,7 @@ export const MOCK_DEFAULT_USER: UserType = {
             allow_publicly_shared_resources,
             is_active,
             is_not_active_reason,
+            is_pending_deletion,
         }) => ({
             id,
             name,
@@ -303,6 +308,7 @@ export const MOCK_DEFAULT_USER: UserType = {
             logo_media_id: null,
             is_active,
             is_not_active_reason,
+            is_pending_deletion,
         })
     ),
     events_column_config: {
@@ -457,3 +463,11 @@ export const MOCK_DATA_COLOR_THEMES: DataColorThemeModel[] = [
         is_global: false,
     },
 ]
+
+export const MOCK_EXPERIMENTS_STATS_RESPONSE: ExperimentVelocityStats = {
+    launched_last_30d: 0,
+    launched_previous_30d: 0,
+    percent_change: 0,
+    active_experiments: 0,
+    completed_last_30d: 0,
+}

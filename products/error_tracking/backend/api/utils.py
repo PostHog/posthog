@@ -1,6 +1,7 @@
 from typing import Any, Protocol, TypeVar
 
 import structlog
+from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers, status
 from rest_framework.exceptions import ValidationError
 from rest_framework.response import Response
@@ -30,9 +31,11 @@ class ErrorTrackingIssueAssignmentSerializer(serializers.ModelSerializer):
         model = ErrorTrackingIssueAssignment
         fields = ["id", "type"]
 
+    @extend_schema_field({"oneOf": [{"type": "integer"}, {"type": "string"}], "nullable": True})
     def get_id(self, obj):
         return obj.user_id if obj.user_id else str(obj.role_id) if obj.role_id else None
 
+    @extend_schema_field(serializers.CharField())
     def get_type(self, obj):
         return "role" if obj.role else "user"
 
@@ -65,6 +68,12 @@ def generate_byte_code(team: Team, props: PropertyGroupFilterValue):
     bytecode = create_bytecode(with_return).bytecode
     validate_bytecode(bytecode)
     return bytecode
+
+
+def generate_match_all_bytecode():
+    """Generate bytecode that always returns true (matches all events)."""
+    with_return = ast.ReturnStatement(expr=ast.Constant(value=True))
+    return create_bytecode(with_return).bytecode
 
 
 def validate_bytecode(bytecode: list[Any]) -> None:

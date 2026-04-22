@@ -33,7 +33,7 @@ interface InlinePropsWithJSXInside extends InlinePropsBase {
     children?: JSX.Element
     explicitValue: string
 }
-type InlineProps = InlinePropsWithStringInside | InlinePropsWithJSXInside
+export type InlineProps = InlinePropsWithStringInside | InlinePropsWithJSXInside
 
 export const CopyToClipboardInline = React.forwardRef<HTMLSpanElement, InlineProps>(function CopyToClipboardInline(
     {

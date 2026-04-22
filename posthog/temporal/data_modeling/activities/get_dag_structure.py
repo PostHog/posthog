@@ -18,6 +18,8 @@ class GetDAGStructureInputs:
     dag_id: str
 
 
+# TODO(andrew): make this a property / function on the actual DAG record
+# maybe DAG().orchestration_plan() or similar
 @dataclasses.dataclass
 class DAG:
     """Structure of a DAG for orchestration.

@@ -8,8 +8,8 @@ import api from 'lib/api'
 import { twoFactorLogic } from 'scenes/authentication/twoFactorLogic'
 import { userLogic } from 'scenes/userLogic'
 
-import type { passkeySettingsLogicType } from './passkeySettingsLogicType'
 import { getPasskeyErrorMessage } from './passkeys/utils'
+import type { passkeySettingsLogicType } from './passkeySettingsLogicType'
 
 export interface PasskeyCredential {
     id: number

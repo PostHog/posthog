@@ -4,8 +4,12 @@ import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { objectsEqual } from 'lib/utils'
 
+import { BlastRadiusApi } from 'products/workflows/frontend/generated/api.schemas'
+
 import { HogFlowAction } from '../types'
 import type { batchTriggerLogicType } from './batchTriggerLogicType'
+
+export const BLAST_RADIUS_LIMIT = 5000
 
 export interface BatchTriggerLogicProps {
     id?: string | 'new'
@@ -26,7 +30,7 @@ export const batchTriggerLogic = kea<batchTriggerLogicType>([
     })),
     loaders(({ props }) => ({
         blastRadius: [
-            null as { users_affected: number; total_users: number } | null,
+            null as BlastRadiusApi | null,
             {
                 loadBlastRadius: async () => {
                     if (!props.filters) {
@@ -42,9 +46,7 @@ export const batchTriggerLogic = kea<batchTriggerLogicType>([
             actions.loadBlastRadius()
         }
     }),
-    afterMount(({ actions, props }) => {
-        if (props.filters?.properties && props.filters.properties.length > 0) {
-            actions.loadBlastRadius()
-        }
+    afterMount(({ actions }) => {
+        actions.loadBlastRadius()
     }),
 ])

@@ -16,13 +16,14 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
-from posthog.hogql.constants import LimitContext
+from posthog.hogql.constants import BREAKDOWN_VALUE_MAX_LENGTH, LimitContext
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.property import apply_path_cleaning
 from posthog.hogql.timings import HogQLTimings
 
 from posthog.hogql_queries.insights.trends.display import TrendsDisplay
 from posthog.hogql_queries.insights.trends.utils import get_properties_chain
+from posthog.hogql_queries.insights.utils.breakdowns import has_breakdown_filter, has_multi_breakdown
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.team.team import Team
@@ -67,10 +68,7 @@ class Breakdown:
 
     @property
     def enabled(self) -> bool:
-        return self.query.breakdownFilter is not None and (
-            self.query.breakdownFilter.breakdown is not None
-            or (self.query.breakdownFilter.breakdowns is not None and len(self.query.breakdownFilter.breakdowns) > 0)
-        )
+        return has_breakdown_filter(self.query.breakdownFilter)
 
     @cached_property
     def is_histogram_breakdown(self) -> bool:
@@ -89,10 +87,7 @@ class Breakdown:
 
     @property
     def is_multiple_breakdown(self) -> bool:
-        if self.enabled:
-            breakdown_filter = self._breakdown_filter
-            return breakdown_filter.breakdowns is not None
-        return False
+        return has_multi_breakdown(self.query.breakdownFilter)
 
     @cached_property
     def field_exprs(self) -> list[ast.Field]:
@@ -278,7 +273,7 @@ class Breakdown:
 
         is_numeric_breakdown = isinstance(histogram_bin_count, int)
 
-        if breakdown_type == "hogql":
+        if breakdown_type == "hogql" or breakdown_type == "event_metadata":
             left = parse_expr(breakdown_value)
         else:
             left = ast.Field(
@@ -355,9 +350,10 @@ class Breakdown:
         return cast(
             ast.Call,
             parse_expr(
-                "ifNull(nullIf(toString({node}), ''), {nil})",
+                "ifNull(nullIf(left(toString({node}), {max_length}), ''), {nil})",
                 placeholders={
                     "node": node,
+                    "max_length": ast.Constant(value=BREAKDOWN_VALUE_MAX_LENGTH),
                     "nil": ast.Constant(value=BREAKDOWN_NULL_STRING_LABEL),
                 },
             ),

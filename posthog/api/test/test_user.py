@@ -23,12 +23,14 @@ from rest_framework import status
 
 from posthog.api.email_verification import email_verification_token_generator
 from posthog.api.oauth.test_dcr import generate_rsa_key
-from posthog.models import Dashboard, Team, User
+from posthog.models import Team, User
 from posthog.models.instance_setting import set_instance_setting
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.organization import Organization, OrganizationMembership
-from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
-from posthog.models.utils import generate_random_token_personal
+from posthog.models.personal_api_key import PersonalAPIKey
+from posthog.models.utils import generate_random_token_personal, hash_key_value
+
+from products.dashboards.backend.models.dashboard import Dashboard
 
 
 def create_user(email: str, password: str, organization: Organization):
@@ -112,6 +114,7 @@ class TestUserAPI(APIBaseTest):
                     "members_can_use_personal_api_keys": True,
                     "is_active": True,
                     "is_not_active_reason": None,
+                    "is_pending_deletion": False,
                 },
                 {
                     "id": str(self.new_org.id),
@@ -122,9 +125,74 @@ class TestUserAPI(APIBaseTest):
                     "members_can_use_personal_api_keys": True,
                     "is_active": True,
                     "is_not_active_reason": None,
+                    "is_pending_deletion": False,
                 },
             ],
         )
+
+    def test_current_user_includes_pending_invites(self):
+        from posthog.models import OrganizationInvite
+
+        other_org = Organization.objects.create(name="Other Org For Pending Invites Test")
+        matching_invite = OrganizationInvite.objects.create(
+            organization=other_org,
+            target_email=self.user.email,
+            created_by=self.user,
+        )
+
+        # Invite for a different email — should be ignored.
+        OrganizationInvite.objects.create(
+            organization=self.organization,
+            target_email="someone-else@example.com",
+            created_by=self.user,
+        )
+
+        # Invite to an org the user already belongs to — should be ignored.
+        OrganizationInvite.objects.create(
+            organization=self.organization,
+            target_email=self.user.email,
+            created_by=self.user,
+        )
+
+        response = self.client.get("/api/users/@me/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        pending_invites = response.json()["pending_invites"]
+        self.assertEqual(len(pending_invites), 1)
+        self.assertEqual(pending_invites[0]["id"], str(matching_invite.id))
+        self.assertEqual(pending_invites[0]["organization_id"], str(other_org.id))
+        self.assertEqual(pending_invites[0]["organization_name"], "Other Org For Pending Invites Test")
+        self.assertEqual(pending_invites[0]["target_email"], self.user.email)
+
+    def test_current_user_pending_invites_matches_email_case_insensitively(self):
+        from posthog.models import OrganizationInvite
+
+        other_org = Organization.objects.create(name="Other Org For Pending Invites Test")
+        OrganizationInvite.objects.create(
+            organization=other_org,
+            target_email=self.user.email.upper(),
+            created_by=self.user,
+        )
+
+        response = self.client.get("/api/users/@me/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.json()["pending_invites"]), 1)
+
+    def test_current_user_pending_invites_excludes_expired(self):
+        from posthog.constants import INVITE_DAYS_VALIDITY
+        from posthog.models import OrganizationInvite
+
+        other_org = Organization.objects.create(name="Other Org For Pending Invites Test")
+        with freeze_time(timezone.now() - timedelta(days=INVITE_DAYS_VALIDITY + 1)):
+            OrganizationInvite.objects.create(
+                organization=other_org,
+                target_email=self.user.email,
+                created_by=self.user,
+            )
+
+        response = self.client.get("/api/users/@me/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.json()["pending_invites"]), 0)
 
     def test_hedgehog_config_is_unset(self):
         self.user.hedgehog_config = None
@@ -1093,6 +1161,42 @@ class TestUserAPI(APIBaseTest):
             properties=mock.ANY,
         )
 
+    @patch("posthoganalytics.capture")
+    def test_can_delete_account_after_deleting_only_organization(self, mock_capture):
+        org = Organization.objects.create(name="Solo Org")
+        user = User.objects.create(email="solo@posthog.com", password="testpassword")
+        OrganizationMembership.objects.create(
+            user=user,
+            organization=org,
+            level=OrganizationMembership.Level.OWNER,
+        )
+        self.client.force_login(user)
+
+        # User belongs to exactly one organization
+        response = self.client.get("/api/users/@me/")
+        assert response.status_code == status.HTTP_200_OK
+        assert len(response.json()["organizations"]) == 1
+
+        # Cannot delete account while still a member of an organization
+        response = self.client.delete("/api/users/@me/")
+        assert response.status_code == status.HTTP_409_CONFLICT
+
+        # Delete the organization
+        response = self.client.delete(f"/api/organizations/{org.id}")
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+
+        # Membership is removed synchronously so the user immediately
+        # sees zero organizations, even before the async Celery task runs
+        assert not OrganizationMembership.objects.filter(user=user).exists()
+        response = self.client.get("/api/users/@me/")
+        assert response.status_code == status.HTTP_200_OK
+        assert len(response.json()["organizations"]) == 0
+
+        # Now the user can delete their account
+        response = self.client.delete("/api/users/@me/")
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        assert not User.objects.filter(pk=user.pk).exists()
+
     def test_cannot_delete_another_user_with_no_org_memberships(self):
         user = self._create_user("deleteanotheruser@posthog.com", password="test")
 
@@ -1140,10 +1244,7 @@ class TestUserAPI(APIBaseTest):
         response = self.client.delete(f"/api/users/@me/")
         assert response.status_code == status.HTTP_401_UNAUTHORIZED
 
-    @patch("posthog.api.user.secrets.token_urlsafe")
-    def test_redirect_user_to_site_with_toolbar(self, patched_token):
-        patched_token.return_value = "tokenvalue"
-
+    def test_redirect_user_to_site_with_toolbar(self):
         self.team.app_urls = ["http://127.0.0.1:8010"]
         self.team.save()
 
@@ -1156,13 +1257,10 @@ class TestUserAPI(APIBaseTest):
         self.maxDiff = None
         assert (
             unquote(locationHeader)
-            == 'http://127.0.0.1:8010#__posthog={"action": "ph_authorize", "token": "token123", "temporaryToken": "tokenvalue", "actionId": null, "experimentId": null, "productTourId": null, "userIntent": "add-action", "toolbarVersion": "toolbar", "apiURL": "http://testserver", "dataAttributes": ["data-attr"]}'
+            == 'http://127.0.0.1:8010#__posthog={"action": "ph_authorize", "token": "token123", "actionId": null, "experimentId": null, "productTourId": null, "userIntent": "add-action", "toolbarVersion": "toolbar", "apiURL": "http://testserver", "dataAttributes": ["data-attr"]}'
         )
 
-    @patch("posthog.api.user.secrets.token_urlsafe")
-    def test_generate_params_for_user_to_load_toolbar(self, patched_token):
-        patched_token.return_value = "tokenvalue"
-
+    def test_generate_params_for_user_to_load_toolbar(self):
         self.team.app_urls = ["http://127.0.0.1:8010"]
         self.team.save()
 
@@ -1172,13 +1270,10 @@ class TestUserAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert (
             unquote(response.json()["toolbarParams"])
-            == '{"action": "ph_authorize", "token": "token123", "temporaryToken": "tokenvalue", "actionId": null, "experimentId": null, "productTourId": null, "userIntent": "add-action", "toolbarVersion": "toolbar", "apiURL": "http://testserver", "dataAttributes": ["data-attr"]}'
+            == '{"action": "ph_authorize", "token": "token123", "actionId": null, "experimentId": null, "productTourId": null, "userIntent": "add-action", "toolbarVersion": "toolbar", "apiURL": "http://testserver", "dataAttributes": ["data-attr"]}'
         )
 
-    @patch("posthog.api.user.secrets.token_urlsafe")
-    def test_generate_only_param_can_be_falsy(self, patched_token):
-        patched_token.return_value = "tokenvalue"
-
+    def test_generate_only_param_can_be_falsy(self):
         self.team.app_urls = ["http://127.0.0.1:8010"]
         self.team.save()
 
@@ -1187,10 +1282,7 @@ class TestUserAPI(APIBaseTest):
         )
         assert response.status_code == status.HTTP_302_FOUND
 
-    @patch("posthog.api.user.secrets.token_urlsafe")
-    def test_redirect_user_to_site_with_experiments_toolbar(self, patched_token):
-        patched_token.return_value = "tokenvalue"
-
+    def test_redirect_user_to_site_with_experiments_toolbar(self):
         self.team.app_urls = ["http://127.0.0.1:8010"]
         self.team.save()
 
@@ -1203,13 +1295,10 @@ class TestUserAPI(APIBaseTest):
         self.maxDiff = None
         self.assertEqual(
             unquote(locationHeader),
-            'http://127.0.0.1:8010#__posthog={"action": "ph_authorize", "token": "token123", "temporaryToken": "tokenvalue", "actionId": null, "experimentId": "12", "productTourId": null, "userIntent": "edit-experiment", "toolbarVersion": "toolbar", "apiURL": "http://testserver", "dataAttributes": ["data-attr"]}',
+            'http://127.0.0.1:8010#__posthog={"action": "ph_authorize", "token": "token123", "actionId": null, "experimentId": "12", "productTourId": null, "userIntent": "edit-experiment", "toolbarVersion": "toolbar", "apiURL": "http://testserver", "dataAttributes": ["data-attr"]}',
         )
 
-    @patch("posthog.api.user.secrets.token_urlsafe")
-    def test_redirect_only_to_allowed_urls(self, patched_token):
-        patched_token.return_value = "tokenvalue"
-
+    def test_redirect_only_to_allowed_urls(self):
         self.team.app_urls = [
             "https://www.example.com",
             "https://*.otherexample.com",
@@ -1231,7 +1320,11 @@ class TestUserAPI(APIBaseTest):
         # hostnames
         assert_allowed_url("https://www.example.com")
         assert_forbidden_url("https://www.notexample.com")
-        assert_forbidden_url("https://www.anotherexample.com")
+        # www.anotherexample.com is equivalent to anotherexample.com
+        assert_allowed_url("https://www.anotherexample.com")
+
+        # bare domain matches www entry
+        assert_allowed_url("https://example.com")
 
         # wildcard domains and folders
         assert_forbidden_url("https://subdomain.example.com")
@@ -1257,7 +1350,7 @@ class TestUserAPI(APIBaseTest):
         }
 
         # Create some feature flags
-        FeatureFlag.objects.create(team=self.team, key="test-flag-1", created_by=self.user, rollout_percentage=100)
+        FeatureFlag.objects.create(team=self.team, key="test-flag-1", created_by=self.user)
         FeatureFlag.objects.create(
             team=self.team,
             key="test-flag-2",
@@ -1328,11 +1421,7 @@ class TestUserAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         self.assertIn("error", response.json())
 
-    @patch("posthog.api.user.secrets.token_urlsafe")
-    def test_redirect_to_site_with_toolbar_flags_key(self, patched_token):
-        """Test that redirect_to_site passes toolbarFlagsKey through to params"""
-        patched_token.return_value = "tokenvalue"
-
+    def test_redirect_to_site_with_toolbar_flags_key(self):
         self.team.app_urls = ["http://127.0.0.1:8010"]
         self.team.save()
 
@@ -1396,9 +1485,12 @@ class TestUserAPI(APIBaseTest):
                 "project_weekly_digest_disabled": {"123": True},  # Note: JSON converts int keys to strings
                 "all_weekly_digest_disabled": True,
                 "error_tracking_issue_assigned": False,
+                "error_tracking_weekly_digest": True,
                 "data_pipeline_error_threshold": 0.1,
                 "project_api_key_exposed": True,
                 "materialized_view_sync_failed": True,
+                "web_analytics_weekly_digest": True,
+                "organization_member_join_email_disabled": {},
             },
         )
 
@@ -1411,9 +1503,12 @@ class TestUserAPI(APIBaseTest):
                 "project_weekly_digest_disabled": {"123": True},
                 "all_weekly_digest_disabled": True,
                 "error_tracking_issue_assigned": False,
+                "error_tracking_weekly_digest": True,
                 "data_pipeline_error_threshold": 0.1,
                 "project_api_key_exposed": True,
                 "materialized_view_sync_failed": True,
+                "web_analytics_weekly_digest": True,
+                "organization_member_join_email_disabled": {},
             },
         )
 
@@ -1433,6 +1528,38 @@ class TestUserAPI(APIBaseTest):
         response_data = response.json()
         self.assertEqual(
             response_data["notification_settings"]["project_weekly_digest_disabled"], {"123": True, "456": True}
+        )
+
+    def test_notification_settings_organization_member_join_settings_are_merged_not_replaced(self):
+        # First update
+        response = self.client.patch(
+            "/api/users/@me/",
+            {
+                "notification_settings": {
+                    "organization_member_join_email_disabled": {"00000000-0000-0000-0000-000000000001": True}
+                }
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        # Second update with different organization
+        response = self.client.patch(
+            "/api/users/@me/",
+            {
+                "notification_settings": {
+                    "organization_member_join_email_disabled": {"00000000-0000-0000-0000-000000000002": True}
+                }
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        response_data = response.json()
+        self.assertEqual(
+            response_data["notification_settings"]["organization_member_join_email_disabled"],
+            {
+                "00000000-0000-0000-0000-000000000001": True,
+                "00000000-0000-0000-0000-000000000002": True,
+            },
         )
 
     def test_invalid_notification_settings_returns_error(self):
@@ -1463,7 +1590,7 @@ class TestUserAPI(APIBaseTest):
             {
                 "type": "validation_error",
                 "code": "invalid_input",
-                "detail": "Project notification setting values must be boolean, got <class 'str'> instead",
+                "detail": "Notification setting values must be boolean, got <class 'str'> instead",
                 "attr": "notification_settings",
             },
         )
@@ -1480,40 +1607,21 @@ class TestUserAPI(APIBaseTest):
                 "project_weekly_digest_disabled": {},  # Default value
                 "all_weekly_digest_disabled": True,
                 "error_tracking_issue_assigned": True,  # Default value
-                "data_pipeline_error_threshold": 0.0,  # Default value
+                "error_tracking_weekly_digest": True,  # Default value
+                "data_pipeline_error_threshold": 0.01,  # Default value
                 "project_api_key_exposed": True,  # Default value
                 "materialized_view_sync_failed": False,  # Default value
+                "web_analytics_weekly_digest": True,  # Default value
+                "organization_member_join_email_disabled": {},  # Default value
             },
         )
-
-
-class TestUserSlackWebhook(APIBaseTest):
-    ENDPOINT: str = "/api/user/test_slack_webhook/"
-
-    def send_request(self, payload):
-        return self.client.post(self.ENDPOINT, payload)
-
-    def test_slack_webhook_no_webhook(self):
-        response = self.send_request({})
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json()["error"], "no webhook URL")
-
-    def test_slack_webhook_bad_url(self):
-        response = self.send_request({"webhook": "blabla"})
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json()["error"], "invalid webhook URL")
-
-    def test_slack_webhook_bad_url_full(self):
-        response = self.send_request({"webhook": "http://localhost/bla"})
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json()["error"], "invalid webhook URL")
 
 
 class TestSessionAuthEndpoints(APIBaseTest):
     """
     Tests that certain endpoints require session authentication and reject Personal API Keys.
 
-    These endpoints (redirect_to_site, test_slack_webhook, etc.) are browser-interactive
+    These endpoints (redirect_to_site, etc.) are browser-interactive
     features that should not be accessible via API keys.
     """
 
@@ -1530,7 +1638,7 @@ class TestSessionAuthEndpoints(APIBaseTest):
         self.team.save()
 
     def test_redirect_to_site_rejects_personal_api_key(self):
-        """Personal API Keys should not be able to call redirect_to_site to mint temporary tokens."""
+        """Personal API Keys should not be able to call redirect_to_site."""
         self.client.logout()
         self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {self.api_key_value}")
 
@@ -1544,23 +1652,6 @@ class TestSessionAuthEndpoints(APIBaseTest):
         response = self.client.get("/api/user/redirect_to_site/?appUrl=http%3A%2F%2F127.0.0.1%3A8010")
 
         self.assertEqual(response.status_code, status.HTTP_302_FOUND)
-
-    def test_test_slack_webhook_rejects_personal_api_key(self):
-        """Personal API Keys should not be able to call test_slack_webhook."""
-        self.client.logout()
-        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {self.api_key_value}")
-
-        response = self.client.post("/api/user/test_slack_webhook/", {"webhook": "https://hooks.slack.com/test"})
-
-        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
-        self.assertEqual(response.json()["detail"], "Authentication credentials were not provided.")
-
-    def test_test_slack_webhook_works_with_session_auth(self):
-        """Session authentication should still work for test_slack_webhook."""
-        response = self.client.post("/api/user/test_slack_webhook/", {"webhook": "invalid"})
-
-        # Returns 200 with error message (not 401) - endpoint is accessible
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
 
     def test_prepare_toolbar_preloaded_flags_rejects_personal_api_key(self):
         """Personal API Keys should not be able to call prepare_toolbar_preloaded_flags."""

@@ -1,11 +1,14 @@
-import { useActions } from 'kea'
+import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import type React from 'react'
 
 import { IconOpenSidebar, IconPlus } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
+import { taxonomicFilterLogic } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
+import { getProjectEventExistence } from 'lib/utils/getAppContext'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -23,6 +26,10 @@ type EmptyStateProps = {
     docsUrl?: string
     hog: React.ComponentType<{ className?: string }>
     groupType: TaxonomicFilterGroupType
+}
+
+type TaxonomicFilterEmptyStateProps = {
+    isLoading?: boolean
 }
 
 const EmptyState = ({ title, description, action, docsUrl, hog: Hog, groupType }: EmptyStateProps): JSX.Element => {
@@ -54,15 +61,17 @@ const EmptyState = ({ title, description, action, docsUrl, hog: Hog, groupType }
                     >
                         {action.text}
                     </LemonButton>
-                    <LemonButton
-                        type="tertiary"
-                        sideIcon={<IconOpenSidebar className="w-4 h-4" />}
-                        to={`${docsUrl}?utm_medium=in-product&utm_campaign=taxonomic-filter-empty-state-docs-link`}
-                        data-attr="product-introduction-docs-link"
-                        targetBlank
-                    >
-                        Learn more
-                    </LemonButton>
+                    {docsUrl ? (
+                        <LemonButton
+                            type="tertiary"
+                            sideIcon={<IconOpenSidebar className="w-4 h-4" />}
+                            to={`${docsUrl}?utm_medium=in-product&utm_campaign=taxonomic-filter-empty-state-docs-link`}
+                            data-attr="product-introduction-docs-link"
+                            targetBlank
+                        >
+                            Learn more
+                        </LemonButton>
+                    ) : null}
                 </div>
             </div>
         </div>
@@ -71,9 +80,26 @@ const EmptyState = ({ title, description, action, docsUrl, hog: Hog, groupType }
 
 type Props = {
     groupType: TaxonomicFilterGroupType
+    isLoading?: boolean
 }
 
-const DataWarehouseEmptyState = (): JSX.Element => {
+const DataWarehouseLoadingState = (): JSX.Element => {
+    return (
+        <div className="flex flex-col items-center p-8 mt-4 w-full text-center">
+            <Spinner className="text-3xl" />
+            <h2 className="mt-4 text-lg font-semibold">Loading data warehouse tables</h2>
+            <p className="mt-2 text-sm text-secondary">
+                This list will populate once your connected data warehouse tables have loaded.
+            </p>
+        </div>
+    )
+}
+
+const DataWarehouseEmptyState = ({ isLoading = false }: { isLoading?: boolean }): JSX.Element => {
+    if (isLoading) {
+        return <DataWarehouseLoadingState />
+    }
+
     return (
         <EmptyState
             title="Connect external data"
@@ -89,23 +115,86 @@ const DataWarehouseEmptyState = (): JSX.Element => {
     )
 }
 
+const RecentFiltersEmptyState = (): JSX.Element => {
+    return (
+        <div className="flex flex-col items-center p-8 mt-4 w-full text-center">
+            <p className="text-sm text-secondary">No recent selections yet. Items you select will appear here.</p>
+        </div>
+    )
+}
+
+const PinnedFiltersEmptyState = (): JSX.Element => {
+    const { searchQuery } = useValues(taxonomicFilterLogic)
+    const hasSearch = searchQuery.trim().length > 0
+    return (
+        <div className="flex flex-col items-center p-8 mt-4 w-full text-center">
+            <p className="text-sm text-secondary">
+                {hasSearch
+                    ? 'No pinned items match your search.'
+                    : 'No pinned items yet. Hover over any item and click the pin icon to keep it handy here.'}
+            </p>
+        </div>
+    )
+}
+
+const PageviewUrlsEmptyState = (): JSX.Element => {
+    const { hasPageview } = getProjectEventExistence()
+    return (
+        <div className="flex flex-col items-center p-8 mt-4 w-full text-center">
+            <p className="text-sm text-secondary">
+                {hasPageview
+                    ? 'Search to find pageview URLs. Type at least 3 characters to see results.'
+                    : 'No pageview events have been ingested yet. Once your app sends $pageview events, URLs will appear here.'}
+            </p>
+        </div>
+    )
+}
+
+const ScreensEmptyState = (): JSX.Element => {
+    const { hasScreen } = getProjectEventExistence()
+    return (
+        <div className="flex flex-col items-center p-8 mt-4 w-full text-center">
+            <p className="text-sm text-secondary">
+                {hasScreen
+                    ? 'Search to find screens. Type at least 3 characters to see results.'
+                    : 'No screen events have been ingested yet. Once your app sends $screen events, screen names will appear here.'}
+            </p>
+        </div>
+    )
+}
+
+const EmailAddressesEmptyState = (): JSX.Element => {
+    return (
+        <div className="flex flex-col items-center p-8 mt-4 w-full text-center">
+            <p className="text-sm text-secondary">
+                Search to find email addresses. Type at least 5 characters to see results.
+            </p>
+        </div>
+    )
+}
+
 const DefaultEmptyState = (): JSX.Element | null => {
     return null
 }
 
-const EMPTY_STATES: Partial<Record<TaxonomicFilterGroupType, () => JSX.Element>> = {
+const EMPTY_STATES: Partial<Record<TaxonomicFilterGroupType, React.ComponentType<TaxonomicFilterEmptyStateProps>>> = {
     [TaxonomicFilterGroupType.DataWarehouse]: DataWarehouseEmptyState,
     [TaxonomicFilterGroupType.DataWarehouseProperties]: DataWarehouseEmptyState,
     [TaxonomicFilterGroupType.DataWarehousePersonProperties]: DataWarehouseEmptyState,
+    [TaxonomicFilterGroupType.RecentFilters]: RecentFiltersEmptyState,
+    [TaxonomicFilterGroupType.PinnedFilters]: PinnedFiltersEmptyState,
+    [TaxonomicFilterGroupType.PageviewUrls]: PageviewUrlsEmptyState,
+    [TaxonomicFilterGroupType.Screens]: ScreensEmptyState,
+    [TaxonomicFilterGroupType.EmailAddresses]: EmailAddressesEmptyState,
 } as const
 
 export const taxonomicFilterGroupTypesWithEmptyStates = Object.keys(EMPTY_STATES) as TaxonomicFilterGroupType[]
 
-export const TaxonomicFilterEmptyState = (props: Props): JSX.Element => {
-    const EmptyState = EMPTY_STATES[props.groupType]
+export const TaxonomicFilterEmptyState = ({ groupType, isLoading = false }: Props): JSX.Element => {
+    const EmptyState = EMPTY_STATES[groupType]
 
     if (EmptyState) {
-        return <EmptyState />
+        return <EmptyState isLoading={isLoading} />
     }
 
     return <DefaultEmptyState />

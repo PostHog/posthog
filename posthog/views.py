@@ -19,7 +19,7 @@ from django.http import HttpRequest, HttpResponse, HttpResponseNotAllowed, JsonR
 from django.shortcuts import redirect, render
 from django.views.decorators.cache import never_cache
 from django.views.decorators.clickjacking import xframe_options_exempt
-from django.views.decorators.csrf import csrf_protect
+from django.views.decorators.csrf import csrf_exempt, csrf_protect
 from django.views.decorators.http import require_http_methods
 
 import structlog
@@ -28,16 +28,10 @@ from posthog.auth import AUTH_BRAND_COOKIE, apply_auth_brand_cookie, normalize_a
 from posthog.cloud_utils import is_cloud
 from posthog.email import is_email_available
 from posthog.exceptions_capture import capture_exception
-from posthog.health import is_clickhouse_connected, is_kafka_connected
+from posthog.health import is_clickhouse_connected
 from posthog.models import Organization, User
 from posthog.models.activity_logging.activity_log import Detail, log_activity
 from posthog.models.integration import SlackIntegration
-from posthog.models.message_category import MessageCategory
-from posthog.models.message_preferences import (
-    ALL_MESSAGE_PREFERENCE_CATEGORY_ID,
-    MessageRecipientPreference,
-    PreferenceStatus,
-)
 from posthog.models.oauth import find_oauth_access_token, find_oauth_refresh_token
 from posthog.models.personal_api_key import find_personal_api_key
 from posthog.plugins.plugin_server_api import validate_messaging_preferences_token
@@ -57,6 +51,14 @@ from posthog.utils import (
     render_template,
 )
 
+from products.messaging.backend.models.message_category import MessageCategory
+from products.messaging.backend.models.message_preferences import (
+    ALL_MESSAGE_PREFERENCE_CATEGORY_ID,
+    MessageRecipientPreference,
+    PreferenceStatus,
+)
+from products.messaging.backend.services.customerio_sync_service import sync_preferences_to_customerio
+
 logger = structlog.get_logger(__name__)
 
 
@@ -67,7 +69,7 @@ def noop(*args, **kwargs) -> None:
 try:
     from ee.models.license import get_licensed_users_available
 except ImportError:
-    get_licensed_users_available = noop
+    get_licensed_users_available = noop  # ty: ignore[invalid-assignment]
 
 
 def login_required(view):
@@ -136,6 +138,7 @@ Disallow: /*@*
 # Block authentication paths
 Disallow: /verify_email/
 Disallow: /authorize_and_redirect
+Disallow: /toolbar_oauth/
 
 # Block ingestion paths
 Disallow: /e/
@@ -168,6 +171,9 @@ def render_query(request: HttpRequest) -> HttpResponse:
 @never_cache
 def preflight_check(request: HttpRequest) -> JsonResponse:
     slack_client_id = SlackIntegration.slack_config().get("SLACK_APP_CLIENT_ID")
+    posthog_code_slack_config = SlackIntegration.posthog_code_slack_config()
+    posthog_code_slack_client_id = posthog_code_slack_config.get("SLACK_POSTHOG_CODE_CLIENT_ID")
+    posthog_code_slack_signing_secret = posthog_code_slack_config.get("SLACK_POSTHOG_CODE_SIGNING_SECRET")
     hubspot_client_id = settings.HUBSPOT_APP_CLIENT_ID
     salesforce_client_id = settings.SALESFORCE_CONSUMER_KEY
 
@@ -177,7 +183,7 @@ def preflight_check(request: HttpRequest) -> JsonResponse:
         "plugins": is_cloud() or is_plugin_server_alive() or settings.TEST,
         "celery": is_cloud() or is_celery_alive() or settings.TEST,
         "clickhouse": is_cloud() or is_clickhouse_connected() or settings.TEST,
-        "kafka": is_cloud() or is_kafka_connected() or settings.TEST,
+        "kafka": is_cloud() or settings.TEST,
         "db": is_cloud() or is_postgres_alive(),
         "initiated": is_cloud() or Organization.objects.exists(),
         "cloud": is_cloud(),
@@ -190,6 +196,12 @@ def preflight_check(request: HttpRequest) -> JsonResponse:
         "slack_service": {
             "available": bool(slack_client_id),
             "client_id": slack_client_id or None,
+        },
+        "posthog_code_slack_service": {
+            "available": bool(posthog_code_slack_client_id)
+            and bool(posthog_code_slack_signing_secret)
+            and bool(posthog_code_slack_config.get("SLACK_POSTHOG_CODE_CLIENT_SECRET")),
+            "client_id": posthog_code_slack_client_id or None,
         },
         "data_warehouse_integrations": {
             "hubspot": {"client_id": hubspot_client_id},
@@ -464,7 +476,8 @@ def api_key_search_view(request: HttpRequest):
     return render(request, template_name="api_key_search/values.html", context=context, status=200)
 
 
-@require_http_methods(["GET"])
+@csrf_exempt
+@require_http_methods(["GET", "POST"])
 def preferences_page(request: HttpRequest, token: str) -> HttpResponse:
     """Render the preferences page for a given recipient token"""
     response = validate_messaging_preferences_token(token)
@@ -481,31 +494,61 @@ def preferences_page(request: HttpRequest, token: str) -> HttpResponse:
     if not team_id or not identifier:
         return render(request, "message_preferences/error.html", {"error": "Invalid recipient"}, status=400)
 
-    try:
-        recipient = MessageRecipientPreference.objects.get(team_id=team_id, identifier=identifier)
-    except MessageRecipientPreference.DoesNotExist:
-        # A first-time preferences page visitor will not have a recipient in Postgres yet.
-        recipient = None
+    recipient, _ = MessageRecipientPreference.objects.get_or_create(team_id=team_id, identifier=identifier)
+    categories = MessageCategory.objects.filter(deleted=False, team=team_id, category_type="marketing").order_by("name")
+
+    is_one_click_unsubscribe = (
+        request.GET.get("one_click_unsubscribe") == "1" or request.POST.get("one_click_unsubscribe") == "1"
+    )
+    if is_one_click_unsubscribe:
+        # If one-click unsubscribe, set all preferences to opted out
+        preferences_dict = {str(cat.id): PreferenceStatus.OPTED_OUT.value for cat in categories}
+
+        # Also set the "$all" preference
+        preferences_dict[ALL_MESSAGE_PREFERENCE_CATEGORY_ID] = PreferenceStatus.OPTED_OUT.value
+
+        recipient.preferences = preferences_dict
+        recipient.save(update_fields=["preferences"])
+
+        sync_preferences_to_customerio(team_id, identifier, preferences_dict)
+
+        if request.method == "POST":
+            return HttpResponse(status=200)
 
     # Only fetch active categories and their preferences
-    categories = MessageCategory.objects.filter(deleted=False, team=team_id, category_type="marketing").order_by("name")
     preferences = recipient.get_all_preferences() if recipient else {}
+
+    categories_templating = [
+        {
+            "id": cat.id,
+            "name": cat.name,
+            "description": cat.public_description,
+            "status": preferences.get(str(cat.id), PreferenceStatus.NO_PREFERENCE),
+        }
+        for cat in categories
+    ]
 
     context = {
         "recipient": recipient,
         "categories": [
+            *categories_templating,
             {
-                "id": cat.id,
-                "name": cat.name,
-                "description": cat.public_description,
-                "status": preferences.get(str(cat.id), PreferenceStatus.NO_PREFERENCE),
-            }
-            for cat in categories
+                "id": ALL_MESSAGE_PREFERENCE_CATEGORY_ID,
+                "name": "All marketing communications",
+                "description": "Unsubscribing here overrides individual preferences.",
+                "status": preferences.get(ALL_MESSAGE_PREFERENCE_CATEGORY_ID, PreferenceStatus.NO_PREFERENCE),
+            },
         ],
         "token": token,
     }
 
-    return render(request, "message_preferences/preferences.html", context)
+    return render(
+        request,
+        "message_preferences/one_click_unsubscribe_success.html"
+        if is_one_click_unsubscribe
+        else "message_preferences/preferences.html",
+        context,
+    )
 
 
 @csrf_protect
@@ -561,6 +604,8 @@ def update_preferences(request: HttpRequest) -> JsonResponse:
         # Update all preferences with a single DB write
         recipient.preferences = preferences_dict
         recipient.save()
+
+        sync_preferences_to_customerio(team_id, identifier, preferences_dict)
 
         return JsonResponse({"success": True})
 

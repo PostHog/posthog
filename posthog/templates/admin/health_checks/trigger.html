@@ -1,0 +1,318 @@
+{% extends "admin/base_site.html" %}
+{% load i18n %}
+
+{% block extrastyle %}
+{{ super }}
+<style>
+    .config-card {
+        border: 1px solid #e5e7eb;
+        padding: 16px 20px;
+        margin: 16px 0;
+        border-radius: 8px;
+        background: #f9fafb;
+    }
+    .config-card dl {
+        display: grid;
+        grid-template-columns: 160px 1fr;
+        gap: 6px 16px;
+        margin: 0;
+        font-size: 13px;
+    }
+    .config-card dt {
+        font-weight: 600;
+        color: #374151;
+    }
+    .config-card dd {
+        margin: 0;
+        color: #6b7280;
+    }
+    .config-card code {
+        background: #e5e7eb;
+        padding: 1px 5px;
+        border-radius: 3px;
+        font-size: 12px;
+    }
+    .workflow-section {
+        border: 1px solid #e5e7eb;
+        padding: 20px 24px;
+        margin: 20px 0;
+        border-radius: 8px;
+        background: #fff;
+    }
+    .workflow-section h3 {
+        margin-top: 0;
+        margin-bottom: 4px;
+        font-size: 16px;
+    }
+    .form-row {
+        margin: 14px 0;
+    }
+    .form-row label {
+        display: block;
+        font-weight: 600;
+        margin-bottom: 4px;
+        font-size: 13px;
+    }
+    .form-row input[type="text"],
+    .form-row input[type="number"],
+    .form-row textarea {
+        width: 100%;
+        max-width: 500px;
+        padding: 8px 10px;
+        border: 1px solid #d1d5db;
+        border-radius: 6px;
+        font-size: 14px;
+        box-sizing: border-box;
+        background: #fff;
+    }
+    .form-row textarea {
+        font-family: monospace;
+        resize: vertical;
+    }
+    .form-row input:focus,
+    .form-row textarea:focus {
+        outline: none;
+        border-color: #3b82f6;
+        box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.15);
+    }
+    .help-text {
+        color: #9ca3af;
+        font-size: 12px;
+        margin-top: 4px;
+    }
+    .checkbox-row {
+        margin: 14px 0;
+    }
+    .checkbox-row label {
+        font-weight: normal;
+        font-size: 14px;
+        cursor: pointer;
+    }
+    .submit-row {
+        margin-top: 20px;
+    }
+    .btn-primary {
+        padding: 8px 18px;
+        background: #3b82f6;
+        color: white;
+        border: none;
+        border-radius: 6px;
+        font-size: 14px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: background 0.15s;
+    }
+    .btn-primary:hover {
+        background: #2563eb;
+    }
+    .section-header {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+    }
+    .section-header h3 {
+        margin: 0;
+    }
+    .refresh-btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 28px;
+        height: 28px;
+        font-size: 14px;
+        line-height: 1;
+        text-decoration: none;
+        border: 1px solid #e5e7eb;
+        border-radius: 4px;
+        padding: 0;
+        cursor: pointer;
+        background: #fff;
+    }
+    .refresh-btn:hover {
+        border-color: #d1d5db;
+        background: #f9fafb;
+    }
+    .refresh-btn.is-playing {
+        color: #991b1b;
+        border-color: #fca5a5;
+    }
+    .refresh-btn.is-playing:hover {
+        background: #fef2f2;
+    }
+    .refresh-btn.is-stopped {
+        color: #166534;
+        border-color: #86efac;
+    }
+    .refresh-btn.is-stopped:hover {
+        background: #f0fdf4;
+    }
+    .workflow-table {
+        width: 100%;
+        border-collapse: collapse;
+    }
+    .workflow-table th {
+        padding: 8px 10px;
+        text-align: left;
+        border-bottom: 2px solid #e5e7eb;
+        background: #f9fafb;
+        font-size: 12px;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        color: #6b7280;
+    }
+    .workflow-table td {
+        padding: 8px 10px;
+        border-bottom: 1px solid #f3f4f6;
+    }
+    .workflow-table tr:last-child td {
+        border-bottom: none;
+    }
+    .workflow-id {
+        font-family: monospace;
+        font-size: 11px;
+        color: #4b5563;
+    }
+    .status-badge {
+        display: inline-block;
+        padding: 2px 8px;
+        border-radius: 10px;
+        font-size: 12px;
+        font-weight: 600;
+    }
+    .status-running { background: #dbeafe; color: #1d4ed8; }
+    .status-completed { background: #dcfce7; color: #166534; }
+    .status-failed { background: #fee2e2; color: #991b1b; }
+    .status-canceled { background: #fef3c7; color: #92400e; }
+    .empty-state {
+        color: #9ca3af;
+        font-style: italic;
+        font-size: 13px;
+    }
+    .alert { padding: 10px 14px; margin: 16px 0; border-radius: 6px; font-size: 14px; }
+    .alert-success { background: #dcfce7; border: 1px solid #86efac; color: #166534; }
+    .alert-error { background: #fee2e2; border: 1px solid #fca5a5; color: #991b1b; }
+</style>
+{% endblock %}
+
+{% block content %}
+<p><a href="{% url 'health-checks' %}">&larr; Back to health checks</a></p>
+
+{% if messages %}
+    {% for message in messages %}
+        <div class="alert alert-{{ message.tags }}">{{ message }}</div>
+    {% endfor %}
+{% endif %}
+
+<div class="config-card">
+    <dl>
+        <dt>Kind</dt>
+        <dd><code>{{ config.kind }}</code></dd>
+        <dt>Name</dt>
+        <dd><code>{{ config.name }}</code></dd>
+        <dt>Owner</dt>
+        <dd>{{ config.owner }}</dd>
+        <dt>Schedule</dt>
+        <dd>{% if config.schedule %}<code>{{ config.schedule }}</code>{% else %}Manual only{% endif %}</dd>
+    </dl>
+</div>
+
+<div class="workflow-section">
+    <h3>Trigger workflow</h3>
+    <form method="post">
+        {% csrf_token %}
+
+        <div class="checkbox-row">
+            <label>{{ form.dry_run }} Dry run</label>
+            {% if form.dry_run.help_text %}<p class="help-text">{{ form.dry_run.help_text }}</p>{% endif %}
+            {{ form.dry_run.errors }}
+        </div>
+
+        <div class="form-row">
+            <label for="{{ form.batch_size.id_for_label }}">Batch size</label>
+            {{ form.batch_size }}
+            {% if form.batch_size.help_text %}<p class="help-text">{{ form.batch_size.help_text }}</p>{% endif %}
+            {{ form.batch_size.errors }}
+        </div>
+
+        <div class="form-row">
+            <label for="{{ form.max_concurrent.id_for_label }}">Max concurrent</label>
+            {{ form.max_concurrent }}
+            {% if form.max_concurrent.help_text %}<p class="help-text">{{ form.max_concurrent.help_text }}</p>{% endif %}
+            {{ form.max_concurrent.errors }}
+        </div>
+
+        <div class="form-row">
+            <label for="{{ form.rollout_percentage.id_for_label }}">Rollout percentage</label>
+            {{ form.rollout_percentage }}
+            {% if form.rollout_percentage.help_text %}<p class="help-text">{{ form.rollout_percentage.help_text }}</p>{% endif %}
+            {{ form.rollout_percentage.errors }}
+        </div>
+
+        <div class="form-row">
+            <label for="{{ form.active_since_days.id_for_label }}">Active since (days)</label>
+            {{ form.active_since_days }}
+            {% if form.active_since_days.help_text %}<p class="help-text">{{ form.active_since_days.help_text }}</p>{% endif %}
+            {{ form.active_since_days.errors }}
+        </div>
+
+        <div class="form-row">
+            <label for="{{ form.team_ids.id_for_label }}">Team IDs</label>
+            {{ form.team_ids }}
+            {% if form.team_ids.help_text %}<p class="help-text">{{ form.team_ids.help_text }}</p>{% endif %}
+            {{ form.team_ids.errors }}
+        </div>
+
+        <div class="submit-row">
+            <input type="submit" value="Trigger workflow" class="btn-primary" />
+        </div>
+    </form>
+</div>
+
+<div class="workflow-section">
+    <div class="section-header">
+        <h3>Recent runs</h3>
+        <button id="poll-toggle" class="refresh-btn" type="button" title="Start auto-refresh">&#9654;</button>
+    </div>
+    <div id="runs-container">
+        {% include "admin/health_checks/_run_history.html" %}
+    </div>
+</div>
+
+<script nonce="{{ request.csp_nonce }}">
+(function() {
+    var container = document.getElementById("runs-container");
+    var pollUrl = "{% url 'health-check-runs' config.kind %}";
+    var btn = document.getElementById("poll-toggle");
+    var intervalId = null;
+
+    function refresh() {
+        fetch(pollUrl, { headers: { "X-Requested-With": "XMLHttpRequest" } })
+            .then(function(r) { return r.text(); })
+            .then(function(html) { container.innerHTML = html; })
+            .catch(function() {});
+    }
+
+    function start() {
+        if (intervalId) return;
+        refresh();
+        intervalId = setInterval(refresh, 5000);
+        btn.innerHTML = "&#9632;";
+        btn.title = "Stop auto-refresh";
+        btn.className = "refresh-btn is-playing";
+    }
+
+    function stop() {
+        clearInterval(intervalId);
+        intervalId = null;
+        btn.innerHTML = "&#9654;";
+        btn.title = "Start auto-refresh";
+        btn.className = "refresh-btn is-stopped";
+    }
+
+    btn.addEventListener("click", function() {
+        intervalId ? stop() : start();
+    });
+    start();
+})();
+</script>
+{% endblock %}

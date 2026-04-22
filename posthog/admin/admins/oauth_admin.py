@@ -35,6 +35,11 @@ class OAuthApplicationForm(forms.ModelForm):
             self.fields["authorization_grant_type"].disabled = True
             self.fields["authorization_grant_type"].help_text = "Only authorization code grant type is supported"
 
+        if "provisioning_signing_secret" in self.fields:
+            self.fields[
+                "provisioning_signing_secret"
+            ].help_text = "Only used for HMAC provisioning partners. Leave blank for PKCE or bearer clients."
+
         # For new applications, set defaults
         if not self.instance.pk:
             # Pre-generate client_id and client_secret
@@ -60,13 +65,24 @@ class OAuthApplicationAdmin(admin.ModelAdmin):
         "auth_brand",
         "is_verified",
         "is_dcr_client",
+        "is_cimd_client",
         "is_first_party",
         "user_link",
         "organization_link",
         "authorization_grant_type",
     )
     list_display_links = ("id", "name")
-    list_filter = ("authorization_grant_type", "is_verified", "is_dcr_client", "is_first_party", "auth_brand")
+    list_filter = (
+        "authorization_grant_type",
+        "is_verified",
+        "is_dcr_client",
+        "is_cimd_client",
+        "is_first_party",
+        "auth_brand",
+        "provisioning_active",
+        "provisioning_auth_method",
+        "provisioning_partner_type",
+    )
     search_fields = ("name", "client_id", "user__email", "organization__name")
     autocomplete_fields = ("user", "organization")
     ordering = ("name",)
@@ -91,24 +107,51 @@ class OAuthApplicationAdmin(admin.ModelAdmin):
 
     def get_readonly_fields(self, request, obj=None):
         if obj:
-            return ("id", "client_id")
+            return ("id", "client_id", "is_dcr_client", "is_cimd_client", "cimd_metadata_url")
         else:
-            return ("id",)
+            return ("id", "is_dcr_client", "is_cimd_client")
 
     def get_fieldsets(self, request, obj=None):
         if obj:
+            provisioning_fields = [
+                "provisioning_auth_method",
+                "provisioning_partner_type",
+                "provisioning_active",
+                "provisioning_can_create_accounts",
+                "provisioning_can_provision_resources",
+                "provisioning_rate_limit_account_requests",
+                "provisioning_rate_limit_token_exchanges",
+                "provisioning_rate_limit_resource_creates",
+            ]
+            if obj.provisioning_auth_method == "hmac":
+                provisioning_fields.append("provisioning_signing_secret")
+
             return (
-                (None, {"fields": ("id", "name", "client_id", "client_type", "auth_brand")}),
+                (None, {"fields": ("id", "name", "client_id", "client_type", "auth_brand", "logo_uri")}),
                 (
                     "Authorization",
                     {"fields": ("authorization_grant_type", "redirect_uris", "algorithm")},
                 ),
                 ("Ownership", {"fields": ("user", "organization")}),
-                ("Status", {"fields": ("is_verified", "is_dcr_client", "is_first_party")}),
+                ("Status", {"fields": ("is_verified", "is_first_party", "is_dcr_client", "is_cimd_client")}),
+                (
+                    "Provisioning",
+                    {
+                        "description": "Provisioning settings for agentic partners. HMAC signing secret is only used for HMAC clients.",
+                        "fields": tuple(provisioning_fields),
+                    },
+                ),
+                (
+                    "CIMD",
+                    {
+                        "classes": ("collapse",),
+                        "fields": ("cimd_metadata_url", "cimd_metadata_last_fetched"),
+                    },
+                ),
             )
         else:
             return (
-                (None, {"fields": ("name", "client_id", "client_secret", "client_type", "auth_brand")}),
+                (None, {"fields": ("name", "client_id", "client_secret", "client_type", "auth_brand", "logo_uri")}),
                 (
                     "Authorization",
                     {"fields": ("authorization_grant_type", "redirect_uris", "algorithm")},

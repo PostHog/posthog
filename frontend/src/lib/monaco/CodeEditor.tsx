@@ -1,12 +1,12 @@
 import './CodeEditor.scss'
 
 import MonacoEditor, { type EditorProps, Monaco, DiffEditor as MonacoDiffEditor, loader } from '@monaco-editor/react'
-import { BuiltLogic, useMountedLogic, useValues } from 'kea'
+import { BuiltLogic, useActions, useMountedLogic, useValues } from 'kea'
 import * as monacoModule from 'monaco-editor'
 import { IDisposable, editor, editor as importedEditor } from 'monaco-editor'
-import { VimMode, initVimMode } from 'monaco-vim'
 import { useEffect, useMemo, useRef, useState } from 'react'
 
+import 'lib/monaco/monacoEnvironment'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { usePageVisibility } from 'lib/hooks/usePageVisibility'
 import { Spinner } from 'lib/lemon-ui/Spinner'
@@ -31,6 +31,8 @@ export interface CodeEditorProps extends Omit<EditorProps, 'loading' | 'theme'> 
     queryKey?: string
     autocompleteContext?: string
     onPressCmdEnter?: (value: string, selectionType: 'selection' | 'full') => void
+    /** Run the innermost subquery at cursor (Cmd+Shift+Enter) */
+    onPressCmdShiftEnter?: () => void
     /** Pressed up in an empty code editor, likely to edit the previous message in a list */
     onPressUpNoValue?: () => void
     autoFocus?: boolean
@@ -39,7 +41,12 @@ export interface CodeEditorProps extends Omit<EditorProps, 'loading' | 'theme'> 
     schema?: Record<string, any> | null
     onMetadata?: (metadata: HogQLMetadataResponse | null) => void
     onMetadataLoading?: (loading: boolean) => void
+    onFixWithAI?: (prompt: string) => void
     onError?: (error: string | null) => void
+    /** Override the query sent for metadata validation (e.g. active query in multi-query mode) */
+    metadataQuery?: string
+    /** Character offset of metadataQuery within the full editor text, for correct marker positioning */
+    metadataQueryOffset?: number
     /** The original value to compare against - renders it in diff mode */
     originalValue?: string
     /** Enable vim keybindings */
@@ -127,6 +134,7 @@ export function CodeEditor({
     onMount,
     value,
     onPressCmdEnter,
+    onPressCmdShiftEnter,
     autoFocus,
     globals,
     sourceQuery,
@@ -134,6 +142,9 @@ export function CodeEditor({
     onError,
     onMetadata,
     onMetadataLoading,
+    onFixWithAI,
+    metadataQuery,
+    metadataQueryOffset,
     originalValue,
     enableVimMode,
     ...editorProps
@@ -148,13 +159,15 @@ export function CodeEditor({
     // Keep a ref to the editor for cleanup - ensures we can dispose it even if state is stale
     const editorRef = useRef<importedEditor.IStandaloneCodeEditor | null>(null)
 
-    const vimModeRef = useRef<VimMode | null>(null)
+    const vimModeRef = useRef<{ dispose: () => void } | null>(null)
     const vimStatusBarRef = useRef<HTMLDivElement | null>(null)
 
     const [realKey] = useState(() => codeEditorIndex++)
     const builtCodeEditorLogic = codeEditorLogic({
         key: queryKey ?? `new/${realKey}`,
         query: value ?? '',
+        metadataQuery: metadataQuery,
+        metadataQueryOffset: metadataQueryOffset,
         language: editorProps.language ?? 'text',
         globals,
         sourceQuery,
@@ -163,9 +176,13 @@ export function CodeEditor({
         onError,
         onMetadata,
         onMetadataLoading,
+        onFixWithAI,
         metadataFilters: sourceQuery?.kind === NodeKind.HogQLQuery ? sourceQuery.filters : undefined,
     })
     useMountedLogic(builtCodeEditorLogic)
+
+    const { vimCommandHistory } = useValues(builtCodeEditorLogic)
+    const { appendVimCommand } = useActions(builtCodeEditorLogic)
 
     const { isVisible } = usePageVisibility()
 
@@ -247,20 +264,32 @@ export function CodeEditor({
             return
         }
 
+        let cancelled = false
+
         if (enableVimMode && vimStatusBarRef.current) {
-            vimModeRef.current = initVimMode(editor, vimStatusBarRef.current)
+            const statusBar = vimStatusBarRef.current
+            void import('lib/monaco/vimMode').then(({ setupVimMode }) => {
+                if (cancelled) {
+                    return
+                }
+                vimModeRef.current = setupVimMode(editor, statusBar, {
+                    initialHistory: vimCommandHistory,
+                    onCommandExecuted: appendVimCommand,
+                })
+            })
         } else if (vimModeRef.current) {
             vimModeRef.current.dispose()
             vimModeRef.current = null
         }
 
         return () => {
+            cancelled = true
             if (vimModeRef.current) {
                 vimModeRef.current.dispose()
                 vimModeRef.current = null
             }
         }
-    }, [editor, enableVimMode])
+    }, [editor, enableVimMode, vimCommandHistory, appendVimCommand])
 
     const editorOptions: editor.IStandaloneEditorConstructionOptions = {
         minimap: {
@@ -328,6 +357,14 @@ export function CodeEditor({
             dispose: () => observer.disconnect(),
         })
 
+        monacoDisposables.current.push(
+            monaco.editor.registerCommand('posthog.hogql.fixWithAI', (_, prompt) => {
+                if (typeof prompt === 'string' && prompt.length > 0) {
+                    onFixWithAI?.(prompt)
+                }
+            })
+        )
+
         if (onPressCmdEnter) {
             monacoDisposables.current.push(
                 editor.addAction({
@@ -344,6 +381,18 @@ export function CodeEditor({
                         }
 
                         onPressCmdEnter(editor.getValue(), 'full')
+                    },
+                })
+            )
+        }
+        if (onPressCmdShiftEnter) {
+            monacoDisposables.current.push(
+                editor.addAction({
+                    id: 'runSubqueryPostHog',
+                    label: 'Run subquery at cursor',
+                    keybindings: [monaco.KeyMod.CtrlCmd | monaco.KeyMod.Shift | monaco.KeyCode.Enter],
+                    run: () => {
+                        onPressCmdShiftEnter()
                     },
                 })
             )

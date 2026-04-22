@@ -6,6 +6,7 @@ import { closeHub, createHub } from '~/utils/db/hub'
 
 import {
     EvaluationMatcher,
+    checkConditionMatch,
     checkRolloutPercentage,
     filterAndParseMessages,
     groupEventsByTeam,
@@ -138,6 +139,89 @@ describe('Evaluation Scheduler', () => {
         })
     })
 
+    describe('checkConditionMatch', () => {
+        let mockExecHog: jest.Mock
+
+        beforeEach(() => {
+            mockExecHog = require('~/cdp/utils/hog-exec').execHog as jest.Mock
+        })
+
+        it('passes person properties from event to bytecode execution globals', async () => {
+            mockExecHog.mockResolvedValue({ execResult: { result: true } })
+
+            const personProperties = { is_internal: true, plan: 'enterprise' }
+            const eventProperties = { $ai_model: 'gpt-4' }
+            const event = createAiGenerationEvent(teamId, {
+                person_properties: JSON.stringify(personProperties),
+                properties: JSON.stringify(eventProperties),
+            })
+            const condition = createEvaluationCondition({
+                bytecode: ['_H', 1, 32, true],
+                rollout_percentage: 100,
+            })
+
+            await checkConditionMatch(event, condition)
+
+            expect(mockExecHog).toHaveBeenCalledWith(
+                condition.bytecode,
+                expect.objectContaining({
+                    globals: expect.objectContaining({
+                        event: '$ai_generation',
+                        distinct_id: event.distinct_id,
+                        person: { properties: personProperties },
+                        properties: eventProperties,
+                    }),
+                })
+            )
+        })
+
+        it('handles empty person properties gracefully', async () => {
+            mockExecHog.mockResolvedValue({ execResult: { result: true } })
+
+            const event = createAiGenerationEvent(teamId, {
+                person_properties: '{}',
+            })
+            const condition = createEvaluationCondition({
+                bytecode: ['_H', 1, 32, true],
+                rollout_percentage: 100,
+            })
+
+            await checkConditionMatch(event, condition)
+
+            expect(mockExecHog).toHaveBeenCalledWith(
+                condition.bytecode,
+                expect.objectContaining({
+                    globals: expect.objectContaining({
+                        person: { properties: {} },
+                    }),
+                })
+            )
+        })
+
+        it('handles missing person properties gracefully', async () => {
+            mockExecHog.mockResolvedValue({ execResult: { result: true } })
+
+            const event = createAiGenerationEvent(teamId)
+            // Simulate missing person_properties by setting to undefined
+            delete (event as any).person_properties
+            const condition = createEvaluationCondition({
+                bytecode: ['_H', 1, 32, true],
+                rollout_percentage: 100,
+            })
+
+            await checkConditionMatch(event, condition)
+
+            expect(mockExecHog).toHaveBeenCalledWith(
+                condition.bytecode,
+                expect.objectContaining({
+                    globals: expect.objectContaining({
+                        person: { properties: {} },
+                    }),
+                })
+            )
+        })
+    })
+
     describe('EvaluationMatcher', () => {
         let matcher: EvaluationMatcher
         let mockExecHog: jest.Mock
@@ -249,6 +333,36 @@ describe('Evaluation Scheduler', () => {
             const result = await matcher.shouldTriggerEvaluation(event, evaluation)
 
             expect(result).toEqual({ matched: false, reason: 'filtered' })
+        })
+
+        it('passes person properties to bytecode execution', async () => {
+            mockExecHog.mockResolvedValue({
+                execResult: { result: true },
+            })
+
+            const personProperties = { is_internal: true, email: 'test@example.com' }
+            const event = createAiGenerationEvent(teamId, {
+                person_properties: JSON.stringify(personProperties),
+            })
+            const evaluation = createEvaluation({
+                enabled: true,
+                conditions: [
+                    createEvaluationCondition({ id: 'cond-1', rollout_percentage: 100, bytecode: ['_H', 1, 32, true] }),
+                ],
+            })
+
+            await matcher.shouldTriggerEvaluation(event, evaluation)
+
+            expect(mockExecHog).toHaveBeenCalledWith(
+                ['_H', 1, 32, true],
+                expect.objectContaining({
+                    globals: expect.objectContaining({
+                        person: {
+                            properties: personProperties,
+                        },
+                    }),
+                })
+            )
         })
     })
 })

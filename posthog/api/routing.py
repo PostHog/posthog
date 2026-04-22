@@ -12,6 +12,7 @@ from rest_framework_extensions.settings import extensions_api_settings
 
 from posthog.api.utils import get_token
 from posthog.auth import (
+    InternalAPIAuthentication,
     JwtAuthentication,
     OAuthAccessTokenAuthentication,
     PersonalAPIKeyAuthentication,
@@ -101,6 +102,9 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):  # TODO: Rename to include "Env" 
         except NotImplementedError:
             pass
 
+        if isinstance(self.request.successful_authenticator, InternalAPIAuthentication):
+            return [IsAuthenticated()]
+
         if isinstance(
             self.request.successful_authenticator,
             SharingAccessTokenAuthentication | SharingPasswordProtectedAuthentication,
@@ -186,8 +190,8 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):  # TODO: Rename to include "Env" 
         # NOTE: Half implemented - for admins, they may want to include listing of results that are not accessible (like private resources)
         include_all_if_admin = self.request.GET.get("admin_include_all") == "true"
 
-        # Additionally "projects" is a special one where we always want to include all projects if you're an org admin
-        if self.scope_object == "project":
+        # Projects and dashboards: org admins have implicit access; list must match retrieve (see issue #44364).
+        if self.scope_object in ("project", "dashboard"):
             include_all_if_admin = True
 
         # "insights" are a special case where we want to use include_all_if_admin if listing with short_id because
@@ -305,6 +309,7 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):  # TODO: Rename to include "Env" 
             assert team.project is not None
             return team.project
         try:
+            # nosemgrep: idor-lookup-without-org (routing validates org access via permissions)
             return Project.objects.get(id=self.project_id)
         except (Project.DoesNotExist, ValueError):
             raise NotFound(detail="Project not found.")

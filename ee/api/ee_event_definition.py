@@ -6,7 +6,8 @@ from rest_framework import serializers
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.tagged_item import TaggedItemSerializerMixin
 from posthog.event_usage import groups
-from posthog.models import EventDefinition
+from posthog.models import EventDefinition, ObjectMediaPreview
+from posthog.models.organization import OrganizationMembership
 
 from ee.models.event_definition import EnterpriseEventDefinition
 
@@ -22,6 +23,7 @@ class EnterpriseEventDefinitionSerializer(TaggedItemSerializerMixin, serializers
     last_updated_at = serializers.DateTimeField(read_only=True)
     post_to_slack = serializers.BooleanField(default=False)
     default_columns = serializers.ListField(child=serializers.CharField(), required=False)
+    media_preview_urls = serializers.SerializerMethodField(read_only=True)
 
     class Meta:
         model = EnterpriseEventDefinition
@@ -40,6 +42,7 @@ class EnterpriseEventDefinitionSerializer(TaggedItemSerializerMixin, serializers
             "verified_at",
             "verified_by",
             "hidden",
+            "enforcement_mode",
             # Action fields
             "is_action",
             "action_id",
@@ -48,6 +51,7 @@ class EnterpriseEventDefinitionSerializer(TaggedItemSerializerMixin, serializers
             "created_by",
             "post_to_slack",
             "default_columns",
+            "media_preview_urls",
         )
         read_only_fields = [
             "id",
@@ -75,6 +79,17 @@ class EnterpriseEventDefinitionSerializer(TaggedItemSerializerMixin, serializers
 
         return extra_kwargs
 
+    def validate_owner(self, value):
+        if value is None:
+            return value
+        view = self.context.get("view")
+        organization_id = getattr(view, "organization_id", None) if view else None
+        if organization_id is None:
+            raise serializers.ValidationError("Cannot assign owner without organization context")
+        if not OrganizationMembership.objects.filter(organization_id=organization_id, user=value).exists():
+            raise serializers.ValidationError("Owner must be a member of this organization")
+        return value
+
     def validate_name(self, value):
         # For creation, check if event definition with this name already exists
         if self.instance:
@@ -96,6 +111,27 @@ class EnterpriseEventDefinitionSerializer(TaggedItemSerializerMixin, serializers
         if "hidden" in validated_data and "verified" in validated_data:
             if validated_data["hidden"] and validated_data["verified"]:
                 raise serializers.ValidationError("An event cannot be both hidden and verified")
+
+        if validated_data.get("enforcement_mode") == "reject":
+            request = self.context.get("request")
+            if not request or not request.user:
+                raise serializers.ValidationError(
+                    'Setting schema enforcement mode to "reject" requires an authenticated request'
+                )
+            user = request.user
+            org = getattr(user, "organization", None)
+            org_id = str(org.id) if org else ""
+            flag_enabled = posthoganalytics.feature_enabled(
+                "schema-enforcement-reject",
+                str(user.distinct_id),
+                groups={"organization": org_id},
+                group_properties={"organization": {"id": org_id}},
+                only_evaluate_locally=False,
+            )
+            if not flag_enabled:
+                raise serializers.ValidationError(
+                    'Setting schema enforcement mode to "reject" requires the schema-enforcement-reject feature flag'
+                )
 
         # Set verified metadata when verifying
         if "verified" in validated_data:
@@ -158,3 +194,17 @@ class EnterpriseEventDefinitionSerializer(TaggedItemSerializerMixin, serializers
 
     def get_is_action(self, obj) -> bool:
         return hasattr(obj, "action_id") and obj.action_id is not None
+
+    def get_media_preview_urls(self, obj) -> list[str]:
+        media_map = self.context.get("media_preview_urls_map")
+        if media_map is not None:
+            return media_map.get(str(obj.id), [])
+
+        if not obj.id:
+            return []
+        previews = (
+            ObjectMediaPreview.objects.filter(event_definition_id=obj.id)
+            .select_related("uploaded_media", "exported_asset")
+            .order_by("-updated_at")
+        )
+        return [p.media_url for p in previews if p.media_url]

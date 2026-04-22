@@ -1,4 +1,4 @@
-import { formatErrorRate, formatTokens } from './ClusterCard'
+import { formatErrorRate, formatTokens } from '../utils'
 import { ItemMetrics, aggregateClusterMetrics } from './clusterMetricsLoader'
 import { Cluster } from './types'
 

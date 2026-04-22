@@ -5,6 +5,7 @@ import { actionToUrl, router, urlToAction } from 'kea-router'
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -14,7 +15,14 @@ import { legacyEntityToNode, sanitizeRetentionEntity } from '~/queries/nodes/Ins
 import { getQueryBasedDashboard } from '~/queries/nodes/InsightViz/utils'
 import { NodeKind } from '~/queries/schema/schema-general'
 import { isInsightVizNode } from '~/queries/utils'
-import { DashboardTemplateType, DashboardTemplateVariableType, DashboardTile, DashboardType, JsonType } from '~/types'
+import {
+    DashboardTemplateStoredTile,
+    DashboardTemplateType,
+    DashboardTemplateVariableType,
+    DashboardTile,
+    DashboardType,
+    JsonType,
+} from '~/types'
 
 import type { newDashboardLogicType } from './newDashboardLogicType'
 
@@ -40,7 +48,7 @@ export interface NewDashboardLogicProps {
 
 // Currently this is a very generic recursive function incase we want to add template variables to aspects beyond events
 export function applyTemplate(
-    obj: DashboardTile | JsonType,
+    obj: DashboardTile | DashboardTemplateStoredTile | JsonType,
     variables: DashboardTemplateVariableType[],
     queryKind: NodeKind | null
 ): JsonType {
@@ -86,13 +94,17 @@ export function applyTemplate(
     return obj
 }
 
-function makeTilesUsingVariables(tiles: DashboardTile[], variables: DashboardTemplateVariableType[]): JsonType[] {
-    return tiles.map((tile: DashboardTile) => {
-        const isQueryBased = 'query' in tile && tile.query != null
+function makeTilesUsingVariables(
+    tiles: DashboardTemplateStoredTile[],
+    variables: DashboardTemplateVariableType[]
+): JsonType[] {
+    return tiles.map((tile) => {
+        const isQueryBased = 'query' in tile && (tile as { query?: unknown }).query != null
+        const query = isQueryBased ? (tile as { query: unknown }).query : null
         const queryKind: NodeKind | null = isQueryBased
-            ? isInsightVizNode(tile.query as any)
-                ? (tile.query as any)?.source.kind
-                : (tile.query as any)?.kind
+            ? isInsightVizNode(query as any)
+                ? (query as any)?.source.kind
+                : (query as any)?.kind
             : null
         return applyTemplate(tile, variables, queryKind)
     })
@@ -103,7 +115,7 @@ export const newDashboardLogic = kea<newDashboardLogicType>([
     key(({ featureFlagId }) => featureFlagId ?? 'new'),
     path(['scenes', 'dashboard', 'newDashboardLogic']),
     connect(() => ({
-        logic: [dashboardsModel],
+        logic: [dashboardsModel, eventUsageLogic],
         values: [featureFlagLogic, ['featureFlags']],
     })),
     actions({
@@ -114,6 +126,7 @@ export const newDashboardLogic = kea<newDashboardLogicType>([
         addDashboard: (form: Partial<NewDashboardForm>) => ({ form }),
         setActiveDashboardTemplate: (template: DashboardTemplateType) => ({ template }),
         clearActiveDashboardTemplate: true,
+        setRedirectAfterCreation: (redirect: boolean) => ({ redirect }),
         createDashboardFromTemplate: (
             template: DashboardTemplateType,
             variables: DashboardTemplateVariableType[],
@@ -163,8 +176,15 @@ export const newDashboardLogic = kea<newDashboardLogicType>([
                 clearActiveDashboardTemplate: () => null,
             },
         ],
+        redirectAfterCreation: [
+            true,
+            {
+                setRedirectAfterCreation: (_, { redirect }) => redirect,
+                showNewDashboardModal: () => true,
+            },
+        ],
     }),
-    forms(({ actions, props }) => ({
+    forms(({ actions, props, values }) => ({
         newDashboard: {
             defaults: defaultFormValues,
             errors: ({ name }) => ({
@@ -188,7 +208,7 @@ export const newDashboardLogic = kea<newDashboardLogicType>([
                     const queryBasedDashboard = getQueryBasedDashboard(result)
                     queryBasedDashboard && dashboardsModel.actions.addDashboardSuccess(queryBasedDashboard)
                     actions.submitNewDashboardSuccessWithResult(result)
-                    if (show) {
+                    if (show && values.redirectAfterCreation) {
                         breakpoint()
                         router.actions.push(urls.dashboard(result.id))
                     }
@@ -246,6 +266,15 @@ export const newDashboardLogic = kea<newDashboardLogicType>([
                 const queryBasedDashboard = getQueryBasedDashboard(result)
                 queryBasedDashboard && dashboardsModel.actions.addDashboardSuccess(queryBasedDashboard)
                 actions.submitNewDashboardSuccessWithResult(result, variables)
+
+                eventUsageLogic.actions.reportWebDashboardCreatedFromTemplate({
+                    dashboard_id: result.id,
+                    template_id: template.id,
+                    template_name: template.template_name,
+                    template_variable_count: variables.length,
+                    template_scope: template.scope ?? null,
+                })
+
                 if (redirectAfterCreation) {
                     router.actions.push(urls.dashboard(result.id))
                 }

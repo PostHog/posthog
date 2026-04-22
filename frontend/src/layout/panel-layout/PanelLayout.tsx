@@ -7,11 +7,11 @@ import { cn } from 'lib/utils/css-classes'
 import { supportTicketCounterLogic } from 'products/conversations/frontend/supportTicketCounterLogic'
 
 import { navigation3000Logic } from '../navigation-3000/navigationLogic'
-import { AiFirstNavBar } from './AiFirstNavBar'
+import { Nav as AiFirstNavBar } from './ai-first/Nav'
+import { panelLayoutLogic } from './panelLayoutLogic'
 import { PanelLayoutNavBar } from './PanelLayoutNavBar'
 import { PROJECT_TREE_KEY, ProjectTree } from './ProjectTree/ProjectTree'
 import { projectTreeLogic } from './ProjectTree/projectTreeLogic'
-import { panelLayoutLogic } from './panelLayoutLogic'
 
 const panelLayoutStyles = cva({
     base: 'gap-0 w-fit relative h-screen z-[var(--z-layout-panel)]',

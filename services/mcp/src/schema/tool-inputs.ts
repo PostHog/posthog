@@ -1,72 +1,75 @@
 import { z } from 'zod'
 
-import { CreateActionInputSchema, ListActionsInputSchema, UpdateActionInputSchema } from './actions'
-import {
-    AddInsightToDashboardSchema,
-    CreateDashboardInputSchema,
-    ListDashboardsSchema,
-    ReorderDashboardTilesSchema,
-    UpdateDashboardInputSchema,
-} from './dashboards'
-import { ErrorDetailsSchema, ListErrorsSchema } from './errors'
-import { FilterGroupsSchema, UpdateFeatureFlagInputSchema } from './flags'
-import { CreateInsightInputSchema, ListInsightsSchema, UpdateInsightInputSchema } from './insights'
-import { LogsListAttributeValuesInputSchema, LogsListAttributesInputSchema, LogsQueryInputSchema } from './logs'
-import { InsightQuerySchema } from './query'
-import {
-    CreateSurveyInputSchema,
-    GetSurveySpecificStatsInputSchema,
-    GetSurveyStatsInputSchema,
-    ListSurveysInputSchema,
-    UpdateSurveyInputSchema,
-} from './surveys'
+import { DataVisualizationNodeSchema, HogQLQuerySchema, InsightVizNodeSchema, PropertyFilter } from './query'
 
-export const DashboardAddInsightSchema = z.object({
-    data: AddInsightToDashboardSchema,
+export const ExternalDataSchemaSyncTypeSchema = z
+    .enum(['incremental', 'full_refresh', 'append', 'cdc'])
+    .describe(
+        'Sync strategy: incremental (only new/changed rows), full_refresh (re-import all), append (add-only), or cdc (change data capture).'
+    )
+
+export const ExternalDataSchemaSyncFrequencySchema = z
+    .enum(['30min', '1hour', '6hour', '12hour', '24hour'])
+    .describe('How often to sync this table.')
+
+export const ExternalDataSchemaSyncTimeOfDaySchema = z
+    .string()
+    .nullable()
+    .describe('Time of day to sync in HH:MM:SS format (e.g. "02:00:00"). Set to null to clear.')
+
+export const ExternalDataSchemaIncrementalFieldSchema = z
+    .string()
+    .describe('Column name used to track sync progress for incremental syncs (e.g. "updated_at", "id").')
+
+export const ExternalDataSchemaIncrementalFieldTypeSchema = z
+    .enum(['integer', 'datetime', 'timestamp', 'date'])
+    .describe('Data type of the incremental field.')
+
+export const ExternalDataSchemaPrimaryKeyColumnsSchema = z
+    .array(z.string())
+    .nullable()
+    .describe('Column names that form the primary key for deduplication. Set to null to use auto-detected PKs.')
+
+export const ExternalDataSchemaCdcTableModeSchema = z
+    .enum(['consolidated', 'cdc_only', 'both'])
+    .describe('For CDC syncs: consolidated (merge changes into one table), cdc_only (only change log), or both.')
+
+export const ExternalDataJobsAfterSchema = z
+    .string()
+    .describe('ISO timestamp — only return jobs created after this date (e.g. "2025-01-01T00:00:00Z").')
+
+export const ExternalDataJobsBeforeSchema = z
+    .string()
+    .describe('ISO timestamp — only return jobs created before this date (e.g. "2025-12-31T23:59:59Z").')
+
+export const ExternalDataJobsSchemasSchema = z
+    .array(z.string())
+    .describe('Filter jobs by table schema names (e.g. ["users", "orders"]). Only returns jobs for these tables.')
+
+export const ExternalDataSourcePayloadSchema = z
+    .record(z.string(), z.unknown())
+    .describe(
+        'Connection credentials for the source. Keys depend on source_type. For database sources: host, port, database, user, password, schema. For SaaS sources: api_key or OAuth fields. Use external-data-sources-wizard to see required fields per source type.'
+    )
+
+export const ExternalDataSourceTypeSchema = z
+    .string()
+    .describe(
+        'The source type name (e.g. "Postgres", "MySQL", "Stripe"). Use external-data-sources-wizard to see available types and their required fields.'
+    )
+
+export const PromptListInputSchema = z.object({
+    search: z.string().optional().describe('Optional substring filter applied to prompt names and prompt content.'),
+    content: z
+        .enum(['full', 'preview', 'none'])
+        .default('none')
+        .describe(
+            "Controls how much prompt content is included in list results. 'full' includes the full prompt, 'preview' includes a short prompt_preview, and 'none' omits prompt content entirely."
+        ),
 })
-
-export const DashboardCreateSchema = z.object({
-    data: CreateDashboardInputSchema,
-})
-
-export const DashboardDeleteSchema = z.object({
-    dashboardId: z.number(),
-})
-
-export const DashboardGetSchema = z.object({
-    dashboardId: z.number(),
-})
-
-export const DashboardGetAllSchema = z.object({
-    data: ListDashboardsSchema.optional(),
-})
-
-export const DashboardUpdateSchema = z.object({
-    dashboardId: z.number(),
-    data: UpdateDashboardInputSchema,
-})
-
-export const DashboardReorderTilesSchema = ReorderDashboardTilesSchema
 
 export const DocumentationSearchSchema = z.object({
     query: z.string(),
-})
-
-export const ErrorTrackingDetailsSchema = ErrorDetailsSchema
-
-export const ErrorTrackingListSchema = ListErrorsSchema
-
-export const ExperimentGetAllSchema = z.object({
-    data: z
-        .object({
-            limit: z.number().int().positive().optional(),
-            offset: z.number().int().min(0).optional(),
-        })
-        .optional(),
-})
-
-export const ExperimentGetSchema = z.object({
-    experimentId: z.number().describe('The ID of the experiment to retrieve'),
 })
 
 export const ExperimentResultsGetSchema = z.object({
@@ -102,7 +105,12 @@ export const ExperimentUpdateInputSchema = z.object({
                     .array(z.string())
                     .optional()
                     .describe('For funnel metrics only: Array of event names for each funnel step'),
-                properties: z.record(z.any()).optional().describe('Event properties to filter on'),
+                properties: z
+                    .array(PropertyFilter)
+                    .optional()
+                    .describe(
+                        'Event property filters as an array, e.g. [{ key: "$browser", value: "Chrome", operator: "exact", type: "event" }]'
+                    ),
                 description: z.string().optional().describe('What this metric measures'),
             })
         )
@@ -116,7 +124,12 @@ export const ExperimentUpdateInputSchema = z.object({
                 metric_type: z.enum(['mean', 'funnel', 'ratio']).describe('Metric type'),
                 event_name: z.string().describe('PostHog event name'),
                 funnel_steps: z.array(z.string()).optional().describe('For funnel metrics only: Array of event names'),
-                properties: z.record(z.any()).optional().describe('Event properties to filter on'),
+                properties: z
+                    .array(PropertyFilter)
+                    .optional()
+                    .describe(
+                        'Event property filters as an array, e.g. [{ key: "$browser", value: "Chrome", operator: "exact", type: "event" }]'
+                    ),
                 description: z.string().optional().describe('What this metric measures'),
             })
         )
@@ -135,7 +148,10 @@ export const ExperimentUpdateInputSchema = z.object({
 
     conclusion_comment: z.string().optional().describe('Comment about experiment conclusion'),
 
-    restart: z.boolean().optional().describe('Restart concluded experiment (clears end_date and conclusion)'),
+    restart: z
+        .boolean()
+        .optional()
+        .describe('Restart concluded experiment as draft (clears start_date, end_date, and conclusion)'),
 
     archive: z.boolean().optional().describe('Archive or unarchive experiment'),
 })
@@ -161,11 +177,6 @@ export const ExperimentCreateSchema = z.object({
             'Feature flag key (letters, numbers, hyphens, underscores only). IMPORTANT: First search for existing feature flags that might be suitable using the feature-flags-get-all tool, then suggest reusing existing ones or creating a new key based on the experiment name'
         ),
 
-    type: z
-        .enum(['product', 'web'])
-        .default('product')
-        .describe("Experiment type: 'product' for backend/API changes, 'web' for frontend UI changes"),
-
     // Primary metrics with guidance
     primary_metrics: z
         .array(
@@ -187,7 +198,12 @@ export const ExperimentCreateSchema = z.object({
                     .describe(
                         "For funnel metrics only: Array of event names for each funnel step (e.g., ['product_view', 'add_to_cart', 'checkout', 'purchase'])"
                     ),
-                properties: z.record(z.any()).optional().describe('Event properties to filter on'),
+                properties: z
+                    .array(PropertyFilter)
+                    .optional()
+                    .describe(
+                        'Event property filters as an array, e.g. [{ key: "$browser", value: "Chrome", operator: "exact", type: "event" }]'
+                    ),
                 description: z
                     .string()
                     .optional()
@@ -214,7 +230,12 @@ export const ExperimentCreateSchema = z.object({
                     .array(z.string())
                     .optional()
                     .describe('For funnel metrics only: Array of event names for each funnel step'),
-                properties: z.record(z.any()).optional().describe('Event properties to filter on'),
+                properties: z
+                    .array(PropertyFilter)
+                    .optional()
+                    .describe(
+                        'Event property filters as an array, e.g. [{ key: "$browser", value: "Chrome", operator: "exact", type: "event" }]'
+                    ),
                 description: z.string().optional().describe('What this secondary metric measures'),
             })
         )
@@ -229,7 +250,20 @@ export const ExperimentCreateSchema = z.object({
             z.object({
                 key: z.string().describe("Variant key (e.g., 'control', 'variant_a', 'new_design')"),
                 name: z.string().optional().describe('Human-readable variant name'),
-                rollout_percentage: z.number().min(0).max(100).describe('Percentage of users to show this variant'),
+                split_percent: z
+                    .number()
+                    .min(0)
+                    .max(100)
+                    .optional()
+                    .describe(
+                        'Percentage of traffic allocated to this variant (0-100). All variants must sum to 100. One of split_percent (recommended) or rollout_percentage (deprecated) must be provided per variant.'
+                    ),
+                rollout_percentage: z
+                    .number()
+                    .min(0)
+                    .max(100)
+                    .optional()
+                    .describe('Deprecated: use split_percent instead. Accepted for backward compatibility.'),
             })
         )
         .optional()
@@ -249,7 +283,7 @@ export const ExperimentCreateSchema = z.object({
     filter_test_accounts: z.boolean().default(true).describe('Whether to filter out internal test accounts'),
 
     target_properties: z
-        .record(z.any())
+        .record(z.string(), z.any())
         .optional()
         .describe('Properties to target specific user segments (e.g., country, subscription type)'),
 
@@ -263,54 +297,13 @@ export const ExperimentCreateSchema = z.object({
         .number()
         .optional()
         .describe('Holdout group ID if this experiment should exclude users from other experiments'),
-})
 
-export const FeatureFlagCreateSchema = z.object({
-    name: z.string(),
-    key: z.string(),
-    description: z.string(),
-    filters: FilterGroupsSchema,
-    active: z.boolean(),
-    tags: z.array(z.string()).optional(),
-})
-
-export const FeatureFlagDeleteSchema = z.object({
-    flagKey: z.string(),
-})
-
-export const FeatureFlagGetAllSchema = z.object({
-    data: z
-        .object({
-            limit: z.number().int().positive().optional(),
-            offset: z.number().int().min(0).optional(),
-        })
-        .optional(),
-})
-
-export const FeatureFlagGetDefinitionSchema = z.object({
-    flagId: z.number().int().positive().optional(),
-    flagKey: z.string().optional(),
-})
-
-export const FeatureFlagUpdateSchema = z.object({
-    flagKey: z.string(),
-    data: UpdateFeatureFlagInputSchema,
-})
-
-export const InsightCreateSchema = z.object({
-    data: CreateInsightInputSchema,
-})
-
-export const InsightDeleteSchema = z.object({
-    insightId: z.string(),
-})
-
-export const InsightGetSchema = z.object({
-    insightId: z.string(),
-})
-
-export const InsightGetAllSchema = z.object({
-    data: ListInsightsSchema.optional(),
+    allow_unknown_events: z
+        .boolean()
+        .optional()
+        .describe(
+            'Set to true to skip validation that event names exist in the project. Use when intentionally referencing events that have not been ingested yet.'
+        ),
 })
 
 export const InsightGenerateHogQLFromQuestionSchema = z.object({
@@ -321,12 +314,14 @@ export const InsightGenerateHogQLFromQuestionSchema = z.object({
 })
 
 export const InsightQueryInputSchema = z.object({
-    insightId: z.string(),
-})
-
-export const InsightUpdateSchema = z.object({
-    insightId: z.string(),
-    data: UpdateInsightInputSchema,
+    insightId: z.string().describe('The insight ID or short_id to run.'),
+    output_format: z
+        .enum(['optimized', 'json'])
+        .optional()
+        .default('optimized')
+        .describe(
+            'Output format. "optimized" returns a human-readable summary from server-side formatters (recommended for analysis). "json" returns the raw query results as JSON.'
+        ),
 })
 
 export const LLMAnalyticsGetCostsSchema = z.object({
@@ -334,12 +329,8 @@ export const LLMAnalyticsGetCostsSchema = z.object({
     days: z.number().optional(),
 })
 
-export const OrganizationGetDetailsSchema = z.object({})
-
-export const OrganizationGetAllSchema = z.object({})
-
 export const OrganizationSetActiveSchema = z.object({
-    orgId: z.string().uuid(),
+    orgId: z.string(),
 })
 
 export const ProjectGetAllSchema = z.object({})
@@ -385,52 +376,16 @@ export const ProjectSetActiveSchema = z.object({
     projectId: z.number().int().positive(),
 })
 
-export const SurveyCreateSchema = CreateSurveyInputSchema
-
 export const SurveyResponseCountsSchema = z.object({})
 
-export const SurveyGlobalStatsSchema = GetSurveyStatsInputSchema
-
-export const SurveyStatsSchema = GetSurveySpecificStatsInputSchema
-
-export const SurveyDeleteSchema = z.object({
-    surveyId: z.string(),
-})
-
-export const SurveyGetSchema = z.object({
-    surveyId: z.string(),
-})
-
-export const SurveyGetAllSchema = ListSurveysInputSchema
-
-export const SurveyUpdateSchema = UpdateSurveyInputSchema.extend({
-    surveyId: z.string(),
-})
+const QueryRunQuerySchema = z.discriminatedUnion('kind', [
+    InsightVizNodeSchema,
+    DataVisualizationNodeSchema,
+    HogQLQuerySchema,
+])
 
 export const QueryRunInputSchema = z.object({
-    query: InsightQuerySchema,
-})
-
-export { LogsQueryInputSchema, LogsListAttributesInputSchema, LogsListAttributeValuesInputSchema }
-
-// Actions
-export const ActionCreateSchema = CreateActionInputSchema
-
-export const ActionDeleteSchema = z.object({
-    actionId: z.number().int().positive().describe('The ID of the action to delete'),
-})
-
-export const ActionGetSchema = z.object({
-    actionId: z.number().int().positive().describe('The ID of the action to retrieve'),
-})
-
-export const ActionGetAllSchema = z.object({
-    data: ListActionsInputSchema.optional(),
-})
-
-export const ActionUpdateSchema = z.object({
-    actionId: z.number().int().positive().describe('The ID of the action to update'),
-    data: UpdateActionInputSchema,
+    query: QueryRunQuerySchema,
 })
 
 // Entity Search
@@ -456,7 +411,76 @@ export const EntitySearchSchema = z.object({
         ),
 })
 
-// Demo MCP UI Apps
-export const DemoMcpUiAppsSchema = z.object({
-    message: z.string().optional().describe('Optional message to include in the demo data'),
+// Debug MCP UI Apps
+export const DebugMcpUiAppsSchema = z.object({
+    message: z.string().optional().describe('Optional message to include in the debug data'),
+})
+
+// PostHog AI tools
+export const ExecuteSQLSchema = z.object({
+    query: z.string().min(1).describe('The final SQL query to be executed.'),
+    truncate: z
+        .boolean()
+        .optional()
+        .default(true)
+        .describe(
+            'Whether to truncate large blob/JSON values in results. Defaults to true. Set to false when you need full untruncated results (e.g., for dumping to a file).'
+        ),
+})
+
+export const ReadDataWarehouseSchemaSchema = z
+    .object({})
+    .describe('No input required. Returns core data warehouse schemas.')
+
+const ReadEventsQuerySchema = z.object({
+    kind: z.literal('events'),
+    limit: z.number().int().min(1).max(500).default(500).optional().describe('Number of events to return per page.'),
+    offset: z.number().int().min(0).default(0).optional().describe('Number of events to skip for pagination.'),
+})
+
+const ReadEventPropertiesQuerySchema = z.object({
+    kind: z.literal('event_properties'),
+    event_name: z.string().describe('The name of the event that you want to retrieve properties for.'),
+})
+
+const ReadEntityPropertiesQuerySchema = z.object({
+    kind: z.literal('entity_properties'),
+    entity: z.string().describe('The type of the entity that you want to retrieve properties for.'),
+})
+
+const ReadActionPropertiesQuerySchema = z.object({
+    kind: z.literal('action_properties'),
+    action_id: z.number().int().describe('The ID of the action that you want to retrieve properties for.'),
+})
+
+const ReadEntitySamplePropertyValuesQuerySchema = z.object({
+    kind: z.literal('entity_property_values'),
+    entity: z.string().describe('The type of the entity that you want to retrieve properties for.'),
+    property_name: z.string().describe('Verified property name of an entity.'),
+})
+
+const ReadEventSamplePropertyValuesQuerySchema = z.object({
+    kind: z.literal('event_property_values'),
+    event_name: z.string().describe('Verified event name'),
+    property_name: z.string().describe('Verified property name of an event.'),
+})
+
+const ReadActionSamplePropertyValuesQuerySchema = z.object({
+    kind: z.literal('action_property_values'),
+    action_id: z.number().int().describe('Verified action ID'),
+    property_name: z.string().describe('Verified property name of an action.'),
+})
+
+export const ReadDataSchemaSchema = z.object({
+    query: z
+        .discriminatedUnion('kind', [
+            ReadEventsQuerySchema,
+            ReadEventPropertiesQuerySchema,
+            ReadEntityPropertiesQuerySchema,
+            ReadActionPropertiesQuerySchema,
+            ReadEntitySamplePropertyValuesQuerySchema,
+            ReadEventSamplePropertyValuesQuerySchema,
+            ReadActionSamplePropertyValuesQuerySchema,
+        ])
+        .describe('The data schema query to execute.'),
 })

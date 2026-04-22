@@ -6,13 +6,24 @@ import { InsightType } from '~/types'
 
 import { getDefaultMetricTitle } from './utils'
 
-export const MetricTitle = ({ metric, metricType }: { metric: any; metricType?: InsightType }): JSX.Element => {
+export const MetricTitle = ({
+    metric,
+    metricType,
+    singleLine,
+}: {
+    metric: any
+    metricType?: InsightType
+    singleLine?: boolean
+}): JSX.Element => {
     const shouldShowTooltip = (text: string): boolean => {
         // Show tooltip for longer text that might be clamped
         return text.length > 50
     }
 
     const getTextClassName = (text: string): string => {
+        if (singleLine) {
+            return 'truncate block'
+        }
         // Use break-words for text with spaces, break-all for underscore-separated text
         const breakClass = text.includes(' ') ? 'break-words' : 'break-all'
         return `line-clamp-3 ${breakClass}`

@@ -1,29 +1,28 @@
-import { Meta, StoryFn, StoryObj } from '@storybook/react'
+import type { Meta, StoryObj } from '@storybook/react'
 import { useState } from 'react'
 
 import { PathCleaningFilter } from '~/types'
 
 import { PathCleanFilters, PathCleanFiltersProps } from './PathCleanFilters'
-import { PathCleanFiltersTable } from './PathCleanFiltersTable'
+import { PathCleanFiltersTable, PathCleanFiltersTableProps } from './PathCleanFiltersTable'
 
-type Story = StoryObj<typeof PathCleanFilters>
-const meta: Meta<typeof PathCleanFilters> = {
+type Story = StoryObj<PathCleanFiltersProps>
+const meta: Meta<PathCleanFiltersProps> = {
     title: 'Filters/PathCleanFilters',
     component: PathCleanFilters,
+    render: (props) => {
+        const [filters, setFilters] = useState<PathCleaningFilter[]>([
+            { alias: 'insights', regex: '/insights/w+/dashboard$' },
+            { regex: '/feature_flags/d+$' },
+            { alias: 'recordings' },
+        ])
+
+        return <PathCleanFilters {...props} filters={filters} setFilters={setFilters} />
+    },
 }
 export default meta
 
-const Template: StoryFn<typeof PathCleanFilters> = (props: Partial<PathCleanFiltersProps>) => {
-    const [filters, setFilters] = useState<PathCleaningFilter[]>([
-        { alias: 'insights', regex: '/insights/w+/dashboard$' },
-        { regex: '/feature_flags/d+$' },
-        { alias: 'recordings' },
-    ])
-
-    return <PathCleanFilters filters={filters} setFilters={setFilters} {...props} />
-}
-
-const TableTemplate: StoryFn<typeof PathCleanFiltersTable> = (props) => {
+const TableTemplate = (props: PathCleanFiltersTableProps): JSX.Element => {
     const [filters, setFilters] = useState<PathCleaningFilter[]>([
         { alias: 'insights', regex: '/insights/\\w+/dashboard$', order: 0 },
         { alias: 'feature-flags', regex: '/feature_flags/\\d+$', order: 1 },
@@ -35,7 +34,7 @@ const TableTemplate: StoryFn<typeof PathCleanFiltersTable> = (props) => {
     return <PathCleanFiltersTable {...props} filters={filters} setFilters={setFilters} />
 }
 
-export const TableUI: StoryObj<typeof PathCleanFiltersTable> = {
+export const TableUI: StoryObj<PathCleanFiltersTableProps> = {
     render: TableTemplate,
     parameters: {
         docs: {
@@ -46,7 +45,7 @@ export const TableUI: StoryObj<typeof PathCleanFiltersTable> = {
     },
 }
 
-export const TableUIEmpty: StoryObj<typeof PathCleanFiltersTable> = {
+export const TableUIEmpty: StoryObj<PathCleanFiltersTableProps> = {
     render: () => {
         const [filters, setFilters] = useState<PathCleaningFilter[]>([])
         return <PathCleanFiltersTable filters={filters} setFilters={setFilters} />
@@ -60,5 +59,6 @@ export const TableUIEmpty: StoryObj<typeof PathCleanFiltersTable> = {
     },
 }
 
-export const Default: Story = Template.bind({})
-Default.args = {}
+export const Default: Story = {
+    args: {},
+}

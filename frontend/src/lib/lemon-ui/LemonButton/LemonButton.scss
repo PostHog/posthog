@@ -99,6 +99,7 @@
         align-items: center;
         justify-content: flex-start;
         width: 100%;
+        min-width: 0;
         height: 100%;
         min-height: var(--lemon-button-height);
         padding: var(--lemon-button-padding-vertical) var(--lemon-button-padding-horizontal);
@@ -116,6 +117,7 @@
             display: flex;
             flex: 1;
             align-items: center;
+            min-width: 0;
             line-height: initial;
         }
 
@@ -214,10 +216,8 @@
     &.LemonButton--secondary.LemonButton--status-alt:hover,
     &.LemonButton--secondary.LemonButton--status-alt.LemonButton--active,
     &.LemonButton--secondary:not(.LemonButton--status-alt, .LemonButton--status-danger) {
-        .reduce-visual-noise & {
-            --button-border-color: var(--color-border-primary) !important;
-            --lemon-button-border-color-hover: var(--color-border-secondary) !important;
-        }
+        --button-border-color: var(--color-border-primary);
+        --lemon-button-border-color-hover: var(--color-border-secondary);
 
         @include secondary-variables;
     }

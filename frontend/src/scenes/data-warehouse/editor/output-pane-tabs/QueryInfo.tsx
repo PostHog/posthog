@@ -1,9 +1,10 @@
 import { useActions, useValues } from 'kea'
 
-import { IconRevert, IconTarget, IconX } from '@posthog/icons'
+import { IconRefresh, IconRevert, IconTarget, IconX } from '@posthog/icons'
 import { LemonDialog, LemonTable, Link, Spinner } from '@posthog/lemon-ui'
 
 import { FEATURE_FLAGS } from 'lib/constants'
+import { dayjsUtcToTimezone } from 'lib/dayjs'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { LemonSegmentedButton } from 'lib/lemon-ui/LemonSegmentedButton'
@@ -13,15 +14,28 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { humanFriendlyDetailedTime, humanFriendlyDuration, humanFriendlyNumber } from 'lib/utils'
 import { dataWarehouseViewsLogic } from 'scenes/data-warehouse/saved_queries/dataWarehouseViewsLogic'
+import { LogsViewer } from 'scenes/hog-functions/logs/LogsViewer'
+import { teamLogic } from 'scenes/teamLogic'
+import { userLogic } from 'scenes/userLogic'
 
-import { DataModelingJob, DataWarehouseSyncInterval, LineageNode, OrNever } from '~/types'
+import {
+    DataModelingJob,
+    DataWarehouseSavedQuery,
+    DataModelingSyncInterval,
+    LineageNode,
+    LogEntryLevel,
+    OrNever,
+} from '~/types'
 
-import { multitabEditorLogic } from '../multitabEditorLogic'
+const LOG_LEVELS: LogEntryLevel[] = ['LOG', 'INFO', 'WARN', 'WARNING', 'ERROR']
+
 import { UpstreamGraph } from '../sidebar/graph/UpstreamGraph'
+import { sqlEditorLogic } from '../sqlEditorLogic'
 import { infoTabLogic } from './infoTabLogic'
 
 interface QueryInfoProps {
     tabId: string
+    view?: DataWarehouseSavedQuery | null
 }
 
 function getMaterializationStatusMessage(
@@ -60,35 +74,35 @@ const OPTIONS = [
         label: ' No resync',
     },
     {
-        value: '5min' as DataWarehouseSyncInterval,
-        label: ' Resync every 5 mins',
+        value: '15min' as DataModelingSyncInterval,
+        label: ' Resync every 15 mins',
     },
     {
-        value: '30min' as DataWarehouseSyncInterval,
+        value: '30min' as DataModelingSyncInterval,
         label: ' Resync every 30 mins',
     },
     {
-        value: '1hour' as DataWarehouseSyncInterval,
+        value: '1hour' as DataModelingSyncInterval,
         label: ' Resync every 1 hour',
     },
     {
-        value: '6hour' as DataWarehouseSyncInterval,
+        value: '6hour' as DataModelingSyncInterval,
         label: ' Resync every 6 hours',
     },
     {
-        value: '12hour' as DataWarehouseSyncInterval,
+        value: '12hour' as DataModelingSyncInterval,
         label: ' Resync every 12 hours',
     },
     {
-        value: '24hour' as DataWarehouseSyncInterval,
+        value: '24hour' as DataModelingSyncInterval,
         label: ' Resync Daily',
     },
     {
-        value: '7day' as DataWarehouseSyncInterval,
+        value: '7day' as DataModelingSyncInterval,
         label: ' Resync Weekly',
     },
     {
-        value: '30day' as DataWarehouseSyncInterval,
+        value: '30day' as DataModelingSyncInterval,
         label: ' Resync Monthly',
     },
 ]
@@ -113,33 +127,35 @@ function getMaterializationDisabledReasons(
     }
 }
 
-export function QueryInfo({ tabId }: QueryInfoProps): JSX.Element {
-    const { sourceTableItems } = useValues(infoTabLogic({ tabId }))
-    const { editingView, upstream, upstreamViewMode } = useValues(multitabEditorLogic)
-    const { runDataWarehouseSavedQuery, saveAsView, setUpstreamViewMode } = useActions(multitabEditorLogic)
+export function QueryInfo({ tabId, view }: QueryInfoProps): JSX.Element {
+    const { editingView, upstream, upstreamViewMode } = useValues(sqlEditorLogic)
+    const targetView = view ?? editingView
+    const infoLogic = infoTabLogic({ tabId, viewId: targetView?.id })
+    const { sourceTableItems } = useValues(infoLogic)
+    const { runDataWarehouseSavedQuery, saveAsView, setUpstreamViewMode } = useActions(sqlEditorLogic)
     const { featureFlags } = useValues(featureFlagLogic)
+    const { timezone } = useValues(teamLogic)
+    const { user } = useValues(userLogic)
+    const showDebugLogs = user?.is_staff || user?.is_impersonated
 
     const isLineageDependencyViewEnabled = featureFlags[FEATURE_FLAGS.LINEAGE_DEPENDENCY_VIEW]
+    const isDagSchedulesOnly = !!featureFlags[FEATURE_FLAGS.DATA_MODELING_BACKEND_V2]
 
-    const {
-        dataWarehouseSavedQueryMapById,
-        updatingDataWarehouseSavedQuery,
-        initialDataWarehouseSavedQueryLoading,
-        dataModelingJobs,
-        hasMoreJobsToLoad,
-        startingMaterialization,
-    } = useValues(dataWarehouseViewsLogic)
+    const { dataModelingJobs, dataModelingJobsLoading, hasMoreJobsToLoad, startingMaterialization } =
+        useValues(infoLogic)
+    const { loadDataModelingJobs, loadOlderDataModelingJobs, setStartingMaterialization } = useActions(infoLogic)
+
+    const { dataWarehouseSavedQueryMapById, updatingDataWarehouseSavedQuery, initialDataWarehouseSavedQueryLoading } =
+        useValues(dataWarehouseViewsLogic)
     const {
         updateDataWarehouseSavedQuery,
-        loadOlderDataModelingJobs,
         cancelDataWarehouseSavedQuery,
         materializeDataWarehouseSavedQuery,
         revertMaterialization,
-        setStartingMaterialization,
     } = useActions(dataWarehouseViewsLogic)
 
-    // note: editingView is stale, but dataWarehouseSavedQueryMapById gets updated
-    const savedQuery = editingView ? dataWarehouseSavedQueryMapById[editingView.id] : null
+    // note: targetView is stale, but dataWarehouseSavedQueryMapById gets updated
+    const savedQuery = targetView ? dataWarehouseSavedQueryMapById[targetView.id] : null
 
     const currentJobStatus = dataModelingJobs?.results?.[0]?.status || null
     const { sync, cancel, revert } = getMaterializationDisabledReasons(currentJobStatus, startingMaterialization)
@@ -160,7 +176,7 @@ export function QueryInfo({ tabId }: QueryInfoProps): JSX.Element {
                         <h3 className="mb-0">Materialization</h3>
                         <LemonTag type="warning">BETA</LemonTag>
                         {savedQuery?.latest_error && savedQuery.status === 'Failed' && (
-                            <Tooltip title={savedQuery.latest_error}>
+                            <Tooltip title={savedQuery.latest_error} interactive>
                                 <LemonTag type="danger">Error</LemonTag>
                             </Tooltip>
                         )}
@@ -181,16 +197,16 @@ export function QueryInfo({ tabId }: QueryInfoProps): JSX.Element {
                                         loading={startingMaterialization || currentJobStatus === 'Running'}
                                         disabledReason={sync}
                                         onClick={() => {
-                                            if (editingView) {
+                                            if (targetView) {
                                                 setStartingMaterialization(true)
-                                                runDataWarehouseSavedQuery(editingView.id)
+                                                runDataWarehouseSavedQuery(targetView.id)
                                             }
                                         }}
                                         type="secondary"
                                         sideAction={{
                                             icon: <IconX fontSize={16} />,
                                             tooltip: 'Cancel materialization',
-                                            onClick: () => editingView && cancelDataWarehouseSavedQuery(editingView.id),
+                                            onClick: () => targetView && cancelDataWarehouseSavedQuery(targetView.id),
                                             disabledReason: cancel,
                                         }}
                                     >
@@ -200,29 +216,31 @@ export function QueryInfo({ tabId }: QueryInfoProps): JSX.Element {
                                               ? 'Running...'
                                               : 'Sync now'}
                                     </LemonButton>
-                                    <LemonSelect
-                                        className="h-9"
-                                        disabledReason={sync}
-                                        value={
-                                            editingView
-                                                ? dataWarehouseSavedQueryMapById[editingView.id]?.sync_frequency ||
-                                                  'never'
-                                                : 'never'
-                                        }
-                                        onChange={(newValue) => {
-                                            if (editingView && newValue) {
-                                                updateDataWarehouseSavedQuery({
-                                                    id: editingView.id,
-                                                    sync_frequency: newValue,
-                                                    types: [[]],
-                                                    lifecycle: 'update',
-                                                })
+                                    {!isDagSchedulesOnly && (
+                                        <LemonSelect
+                                            className="h-9"
+                                            disabledReason={sync}
+                                            value={
+                                                targetView
+                                                    ? dataWarehouseSavedQueryMapById[targetView.id]?.sync_frequency ||
+                                                      'never'
+                                                    : 'never'
                                             }
-                                        }}
-                                        loading={updatingDataWarehouseSavedQuery}
-                                        options={OPTIONS}
-                                    />
-                                    {editingView && (
+                                            onChange={(newValue) => {
+                                                if (targetView && newValue) {
+                                                    updateDataWarehouseSavedQuery({
+                                                        id: targetView.id,
+                                                        sync_frequency: newValue,
+                                                        types: [[]],
+                                                        lifecycle: 'update',
+                                                    })
+                                                }
+                                            }}
+                                            loading={updatingDataWarehouseSavedQuery}
+                                            options={OPTIONS}
+                                        />
+                                    )}
+                                    {targetView && (
                                         <LemonButton
                                             type="secondary"
                                             size="small"
@@ -238,7 +256,7 @@ export function QueryInfo({ tabId }: QueryInfoProps): JSX.Element {
                                                     primaryButton: {
                                                         status: 'danger',
                                                         children: 'Revert materialization',
-                                                        onClick: () => revertMaterialization(editingView.id),
+                                                        onClick: () => revertMaterialization(targetView.id),
                                                     },
                                                     secondaryButton: {
                                                         children: 'Cancel',
@@ -267,8 +285,8 @@ export function QueryInfo({ tabId }: QueryInfoProps): JSX.Element {
                                 <LemonButton
                                     size="small"
                                     onClick={() => {
-                                        if (editingView) {
-                                            materializeDataWarehouseSavedQuery(editingView.id)
+                                        if (targetView) {
+                                            materializeDataWarehouseSavedQuery(targetView.id)
                                         } else {
                                             saveAsView({ materializeAfterSave: true })
                                         }
@@ -276,7 +294,7 @@ export function QueryInfo({ tabId }: QueryInfoProps): JSX.Element {
                                     type="primary"
                                     loading={updatingDataWarehouseSavedQuery}
                                 >
-                                    {editingView ? 'Materialize' : 'Save and materialize'}
+                                    {targetView ? 'Materialize' : 'Save and materialize'}
                                 </LemonButton>
                             </div>
                         )}
@@ -284,15 +302,26 @@ export function QueryInfo({ tabId }: QueryInfoProps): JSX.Element {
                 </div>
                 {savedQuery && (
                     <>
-                        <div>
-                            <h3>Materialization Runs</h3>
-                            <p className="text-xs">
-                                The last runs for this materialized view. These can be scheduled or run on demand.
-                            </p>
+                        <div className="flex items-start justify-between">
+                            <div>
+                                <h3>Materialization Runs</h3>
+                                <p className="text-xs">
+                                    The last runs for this materialized view. These can be scheduled or run on demand.
+                                </p>
+                            </div>
+                            <LemonButton
+                                icon={<IconRefresh />}
+                                size="small"
+                                type="secondary"
+                                onClick={() => loadDataModelingJobs(savedQuery.id)}
+                                loading={dataModelingJobsLoading}
+                                disabledReason={startingMaterialization ? 'Materialization is starting' : undefined}
+                                tooltip="Refresh runs"
+                            />
                         </div>
                         <LemonTable
                             size="small"
-                            loading={initialDataWarehouseSavedQueryLoading}
+                            loading={dataModelingJobsLoading && !dataModelingJobs?.results?.length}
                             dataSource={dataModelingJobs?.results || []}
                             columns={[
                                 {
@@ -332,7 +361,7 @@ export function QueryInfo({ tabId }: QueryInfoProps): JSX.Element {
                                         }
 
                                         return error && status !== 'Completed' ? (
-                                            <Tooltip title={error}>
+                                            <Tooltip title={error} interactive>
                                                 <LemonTag type={type}>{status}</LemonTag>
                                             </Tooltip>
                                         ) : (
@@ -372,6 +401,39 @@ export function QueryInfo({ tabId }: QueryInfoProps): JSX.Element {
                                     },
                                 },
                             ]}
+                            expandable={
+                                dataModelingJobs?.results?.length && savedQuery
+                                    ? {
+                                          expandedRowRender: (job: DataModelingJob) => (
+                                              <div className="p-4">
+                                                  <LogsViewer
+                                                      logicKey={`data_modeling_run:${job.id}`}
+                                                      sourceType="data_modeling_run"
+                                                      sourceId={savedQuery.id}
+                                                      groupByInstanceId={false}
+                                                      hideDateFilter
+                                                      hideLevelsFilter
+                                                      hideInstanceIdColumn
+                                                      defaultFilters={{
+                                                          instanceId: job.workflow_run_id,
+                                                          dateFrom: dayjsUtcToTimezone(job.created_at, timezone).format(
+                                                              'YYYY-MM-DD HH:mm:ss'
+                                                          ),
+                                                          dateTo: job.last_run_at
+                                                              ? dayjsUtcToTimezone(job.last_run_at, timezone)
+                                                                    .add(1, 'hour')
+                                                                    .format('YYYY-MM-DD HH:mm:ss')
+                                                              : undefined,
+                                                          levels: showDebugLogs ? ['DEBUG', ...LOG_LEVELS] : LOG_LEVELS,
+                                                      }}
+                                                  />
+                                              </div>
+                                          ),
+                                          rowExpandable: () => true,
+                                          noIndent: true,
+                                      }
+                                    : undefined
+                            }
                             nouns={['run', 'runs']}
                             emptyState="No runs available"
                             footer={
@@ -381,7 +443,7 @@ export function QueryInfo({ tabId }: QueryInfoProps): JSX.Element {
                                             center
                                             fullWidth
                                             onClick={() => loadOlderDataModelingJobs()}
-                                            loading={initialDataWarehouseSavedQueryLoading}
+                                            loading={dataModelingJobsLoading}
                                         >
                                             Load older runs
                                         </LemonButton>
@@ -458,7 +520,7 @@ export function QueryInfo({ tabId }: QueryInfoProps): JSX.Element {
                     </>
                 )}
 
-                {upstream && editingView && upstream.nodes.length > 0 && isLineageDependencyViewEnabled && (
+                {upstream && targetView && upstream.nodes.length > 0 && isLineageDependencyViewEnabled && (
                     <>
                         <div>
                             <div className="flex items-center justify-between">
@@ -492,7 +554,7 @@ export function QueryInfo({ tabId }: QueryInfoProps): JSX.Element {
                                         title: 'Name',
                                         render: (_, { name }) => (
                                             <div className="flex items-center gap-1">
-                                                {name === editingView?.name && (
+                                                {name === targetView?.name && (
                                                     <Tooltip
                                                         placement="right"
                                                         title="This is the currently viewed query"

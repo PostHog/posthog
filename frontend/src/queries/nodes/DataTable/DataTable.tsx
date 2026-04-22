@@ -10,6 +10,7 @@ import { TaxonomicPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopov
 import ViewRecordingButton, { RecordingPlayerType } from 'lib/components/ViewRecordingButton/ViewRecordingButton'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonTable, LemonTableColumn } from 'lib/lemon-ui/LemonTable'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
@@ -19,27 +20,27 @@ import { InsightEmptyState, InsightErrorState } from 'scenes/insights/EmptyState
 import { PersonDeleteModal } from 'scenes/persons/PersonDeleteModal'
 import { createMarketingAnalyticsOrderBy } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/utils'
 
+import { DataNodeLogicProps, dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { DateRange } from '~/queries/nodes/DataNode/DateRange'
 import { ElapsedTime } from '~/queries/nodes/DataNode/ElapsedTime'
 import { LoadNext } from '~/queries/nodes/DataNode/LoadNext'
 import { Reload } from '~/queries/nodes/DataNode/Reload'
 import { SupportTracesFilters } from '~/queries/nodes/DataNode/SupportTracesFilters'
 import { TestAccountFilters } from '~/queries/nodes/DataNode/TestAccountFilters'
-import { DataNodeLogicProps, dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { BackToSource } from '~/queries/nodes/DataTable/BackToSource'
 import { ColumnConfigurator } from '~/queries/nodes/DataTable/ColumnConfigurator/ColumnConfigurator'
 import { DataTableCount } from '~/queries/nodes/DataTable/DataTableCount'
 import { DataTableExport } from '~/queries/nodes/DataTable/DataTableExport'
+import { DataTableLogicProps, DataTableRow, dataTableLogic } from '~/queries/nodes/DataTable/dataTableLogic'
 import { DataTableSavedFilters } from '~/queries/nodes/DataTable/DataTableSavedFilters'
 import { DataTableSavedFiltersButton } from '~/queries/nodes/DataTable/DataTableSavedFiltersButton'
-import { eventRowActionsContent } from '~/queries/nodes/DataTable/EventRowActions'
+import { EventRowActions } from '~/queries/nodes/DataTable/EventRowActions'
 import { InsightActorsQueryOptions } from '~/queries/nodes/DataTable/InsightActorsQueryOptions'
-import { SavedQueries } from '~/queries/nodes/DataTable/SavedQueries'
-import { TableViewSelector } from '~/queries/nodes/DataTable/TableView/TableViewSelector'
-import { DataTableLogicProps, DataTableRow, dataTableLogic } from '~/queries/nodes/DataTable/dataTableLogic'
 import { QueryFeature } from '~/queries/nodes/DataTable/queryFeatures'
 import { getContextColumn, renderColumn } from '~/queries/nodes/DataTable/renderColumn'
 import { renderColumnMeta } from '~/queries/nodes/DataTable/renderColumnMeta'
+import { SavedQueries } from '~/queries/nodes/DataTable/SavedQueries'
+import { TableViewSelector } from '~/queries/nodes/DataTable/TableView/TableViewSelector'
 import {
     extractExpressionComment,
     getDataNodeDefaultColumns,
@@ -166,6 +167,7 @@ export function DataTable({
         dataNodeCollectionId: context?.insightProps?.dataNodeCollectionId || dataKey,
         refresh: context?.refresh,
         maxPaginationLimit: context?.dataTableMaxPaginationLimit,
+        limitContext: context?.limitContext,
     }
     const {
         response,
@@ -771,8 +773,13 @@ export function DataTable({
 
     const secondRowRight = [
         sourceFeatures.has(QueryFeature.linkDataButton) && hasCustomerAnalyticsEnabled ? (
-            <ViewLinkButton tableName="groups" />
+            <ViewLinkButton key="view-link-button" tableName="groups" />
         ) : null,
+        ...(context?.customActions
+            ? Array.isArray(context.customActions)
+                ? context.customActions
+                : [context.customActions]
+            : []),
         (showColumnConfigurator || showPersistentColumnConfigurator) &&
         sourceFeatures.has(QueryFeature.columnConfigurator) ? (
             <ColumnConfigurator key="column-configurator" query={queryWithDefaults} setQuery={setQuery} />
@@ -935,8 +942,10 @@ export function DataTable({
                                                   return null
                                               }
                                               if (result && columnsInResponse?.includes('*')) {
-                                                  return eventRowActionsContent(
-                                                      (result as any[])[columnsInResponse.indexOf('*')]
+                                                  return (
+                                                      <EventRowActions
+                                                          event={(result as any[])[columnsInResponse.indexOf('*')]}
+                                                      />
                                                   )
                                               }
                                               return null
@@ -947,9 +956,13 @@ export function DataTable({
                                                     return null
                                                 }
                                                 return (
-                                                    <NonIntegratedConversionsRowActions
-                                                        result={row.result}
-                                                        columnsInResponse={columnsInResponse}
+                                                    <More
+                                                        overlay={
+                                                            <NonIntegratedConversionsRowActions
+                                                                result={row.result}
+                                                                columnsInResponse={columnsInResponse}
+                                                            />
+                                                        }
                                                     />
                                                 )
                                             }

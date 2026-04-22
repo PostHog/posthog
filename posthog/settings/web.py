@@ -56,6 +56,19 @@ PRODUCTS_APPS = [
     "products.workflows.backend.apps.WorkflowsConfig",
     "products.posthog_ai.backend.apps.PosthogAiConfig",
     "products.signals.backend.apps.SignalsConfig",
+    "products.visual_review.backend.apps.VisualReviewConfig",
+    "products.mcp_store.backend.apps.McpStoreConfig",
+    "products.event_definitions.backend.apps.EventDefinitionsConfig",
+    "products.logs.backend.apps.LogsConfig",
+    "products.tracing.backend.apps.TracingConfig",
+    "products.metrics.backend.apps.MetricsConfig",
+    "products.notifications.backend.apps.NotificationsConfig",
+    "products.dashboards.backend.apps.DashboardsConfig",
+    "products.messaging.backend.apps.MessagingConfig",
+    "products.mcp_analytics.backend.apps.McpAnalyticsConfig",
+    "products.platform_features.backend.apps.PlatformFeaturesConfig",
+    "products.streamlit_apps.backend.apps.StreamlitAppsConfig",
+    "products.legal_documents.backend.apps.LegalDocumentsConfig",
 ]
 
 INSTALLED_APPS = [
@@ -95,8 +108,10 @@ MIDDLEWARE = [
     "posthog.gzip_middleware.ScopedGZipMiddleware",
     "posthog.middleware.per_request_logging_context_middleware",
     "django_structlog.middlewares.RequestMiddleware",
+    "posthog.personhog_client.middleware.PersonHogGateMiddleware",
     "posthog.middleware.Fix204Middleware",
     "django.middleware.security.SecurityMiddleware",
+    "posthog.middleware.OAuthCoopMiddleware",
     # NOTE: we need healthcheck high up to avoid hitting middlewares that may be
     # using dependencies that the healthcheck should be checking. It should be
     # ok below the above middlewares however.
@@ -105,14 +120,17 @@ MIDDLEWARE = [
     "posthog.middleware.AllowIPMiddleware",
     "whitenoise.middleware.WhiteNoiseMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
+    "posthog.middleware.OAuthCorsPreflightMiddleware",  # Must precede CorsMiddleware — echoes custom headers on OAuth preflights
     "corsheaders.middleware.CorsMiddleware",
     "posthog.middleware.CSPMiddleware",
     "django.middleware.common.CommonMiddleware",
     "posthog.middleware.CsrfOrKeyViewMiddleware",
     "posthog.middleware.QueryTimeCountingMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
+    "posthog.api.query_coalescer.QueryCoalescingMiddleware",
     "posthog.middleware.SocialAuthExceptionMiddleware",
     "posthog.middleware.SessionAgeMiddleware",
+    "posthog.middleware.KnownLoginDeviceCookieMiddleware",
     "posthog.middleware.ActivityLoggingMiddleware",
     "posthog.middleware.user_logging_context_middleware",
     "django_otp.middleware.OTPMiddleware",
@@ -195,7 +213,7 @@ LOGIN_URL = "/login"
 LOGOUT_URL = "/logout"
 LOGIN_REDIRECT_URL = "/"
 APPEND_SLASH = False
-CORS_URLS_REGEX = r"^(/site_app/|/array/|/static/|/api/(?!early_access_features|surveys|web_experiments).*$)"
+CORS_URLS_REGEX = r"^(/site_app/|/array/|/static/|/oauth/token/|/toolbar_oauth/check|/api/(?!early_access_features|surveys|web_experiments).*$)"
 CORS_ALLOW_HEADERS = default_headers + CORS_ALLOWED_TRACING_HEADERS
 X_FRAME_OPTIONS = "SAMEORIGIN"
 
@@ -243,6 +261,7 @@ SESSION_COOKIE_AGE = get_from_env("SESSION_COOKIE_AGE", 60 * 60 * 24 * 14, type_
 # For sensitive actions we have an additional permission (default 2 hour)
 SESSION_SENSITIVE_ACTIONS_AGE = get_from_env("SESSION_SENSITIVE_ACTIONS_AGE", 60 * 60 * 2, type_cast=int)
 
+SESSION_COOKIE_NAME = get_from_env("SESSION_COOKIE_NAME", "sessionid")
 CSRF_COOKIE_NAME = "posthog_csrftoken"
 CSRF_COOKIE_AGE = get_from_env("CSRF_COOKIE_AGE", SESSION_COOKIE_AGE, type_cast=int)
 
@@ -255,8 +274,7 @@ IMPERSONATION_COOKIE_LAST_ACTIVITY_KEY = get_from_env(
     "IMPERSONATION_COOKIE_LAST_ACTIVITY_KEY", "impersonation_last_activity"
 )
 # Disallow impersonating other staff
-CAN_LOGIN_AS = (
-    lambda request, target_user:
+CAN_LOGIN_AS = lambda request, target_user: (
     # user performing action must be a staff member
     request.user.is_staff
     # cannot impersonate other staff
@@ -332,7 +350,7 @@ REST_FRAMEWORK = {
     "PAGE_SIZE": 100,
     "EXCEPTION_HANDLER": "exceptions_hog.exception_handler",
     "TEST_REQUEST_DEFAULT_FORMAT": "json",
-    "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
+    "DEFAULT_SCHEMA_CLASS": "posthog.api.documentation.PostHogAutoSchema",
     # These rate limits are defined in `rate_limit.py`, and they're only
     # applied if env variable `RATE_LIMIT_ENABLED` is set to True
     "DEFAULT_THROTTLE_CLASSES": [
@@ -351,15 +369,20 @@ if DEBUG:
 
 SPECTACULAR_SETTINGS = {
     "AUTHENTICATION_WHITELIST": ["posthog.auth.PersonalAPIKeyAuthentication"],
+    "GET_MOCK_REQUEST": "posthog.api.documentation.build_openapi_mock_request",
     "PREPROCESSING_HOOKS": ["posthog.api.documentation.preprocess_exclude_path_format"],
     "POSTPROCESSING_HOOKS": [
         "drf_spectacular.hooks.postprocess_schema_enums",
         "posthog.api.documentation.custom_postprocessing_hook",
     ],
     "ENUM_NAME_OVERRIDES": {
-        "DashboardRestrictionLevel": "posthog.models.dashboard.Dashboard.RestrictionLevel",
+        "DashboardRestrictionLevel": "products.dashboards.backend.models.dashboard.Dashboard.RestrictionLevel",
+        "PropertyGroupOperator": ["AND", "OR"],
         "OrganizationMembershipLevel": "posthog.models.organization.OrganizationMembership.Level",
-        "SurveyType": "posthog.models.surveys.survey.Survey.SurveyType",
+        "SetupTaskId": "posthog.models.team.setup_tasks.SetupTaskId",
+        "SurveyType": "products.surveys.backend.models.Survey.SurveyType",
+        "ConversationStatus": "ee.models.assistant.Conversation.Status",
+        "ConversationType": "ee.models.assistant.Conversation.Type",
     },
 }
 
@@ -386,6 +409,7 @@ GZIP_RESPONSE_ALLOW_LIST = get_list(
         "GZIP_RESPONSE_ALLOW_LIST",
         ",".join(
             [
+                "^/?external_surveys/[^/]+/?$",
                 "^/?api/plugin_config/\\d+/frontend/?$",
                 "^/?api/(environments|projects)/@current/property_definitions/?$",
                 "^/?api/(environments|projects)/\\d+/event_definitions/?$",
@@ -445,6 +469,10 @@ CLOUDFLARE_ZONE_ID = get_from_env("CLOUDFLARE_ZONE_ID", "")
 CLOUDFLARE_WORKER_NAME = get_from_env("CLOUDFLARE_WORKER_NAME", "")
 CLOUDFLARE_PROXY_BASE_CNAME = get_from_env("CLOUDFLARE_PROXY_BASE_CNAME", "")
 
+# Domain Connect (automated DNS configuration)
+DOMAIN_CONNECT_PRIVATE_KEY: str | None = os.getenv("DOMAIN_CONNECT_PRIVATE_KEY", "").replace("\\n", "\n") or None
+DOMAIN_CONNECT_KEY_ID: str = os.getenv("DOMAIN_CONNECT_KEY_ID", "_dcpubkeyv1")
+
 ####
 # CDP
 
@@ -469,6 +497,13 @@ if REMOTE_CONFIG_DECIDE_ROLLOUT_PERCENTAGE > 1:
 REMOTE_CONFIG_CDN_PURGE_ENDPOINT = get_from_env("REMOTE_CONFIG_CDN_PURGE_ENDPOINT", "")
 REMOTE_CONFIG_CDN_PURGE_TOKEN = get_from_env("REMOTE_CONFIG_CDN_PURGE_TOKEN", "")
 REMOTE_CONFIG_CDN_PURGE_DOMAINS = get_list(os.getenv("REMOTE_CONFIG_CDN_PURGE_DOMAINS", ""))
+
+# Versioned posthog-js S3 bucket — enables versioned JS content serving when set
+POSTHOG_JS_S3_BUCKET = get_from_env("POSTHOG_JS_S3_BUCKET", "")
+# CDN cache control for array.js responses
+POSTHOG_JS_CDN_MAX_AGE = int(os.getenv("POSTHOG_JS_CDN_MAX_AGE", "3600"))
+POSTHOG_JS_CDN_STALE_WHILE_REVALIDATE = int(os.getenv("POSTHOG_JS_CDN_STALE_WHILE_REVALIDATE", "86400"))
+POSTHOG_JS_CDN_STALE_IF_ERROR = int(os.getenv("POSTHOG_JS_CDN_STALE_IF_ERROR", "86400"))
 
 ####
 # /capture
@@ -511,6 +546,14 @@ POSTHOG_JS_UUID_VERSION = os.getenv("POSTHOG_JS_UUID_VERSION", "v7")
 # Feature flag to enable HogFunctions daily digest email for specific teams
 # Comma-separated list of team IDs that should receive the digest
 HOG_FUNCTIONS_DAILY_DIGEST_TEAM_IDS = get_list(get_from_env("HOG_FUNCTIONS_DAILY_DIGEST_TEAM_IDS", ""))
+
+# Comma-separated list of org ids allowed to receive the Error Tracking weekly digest
+# "*" for all, empty to disable feature
+ERROR_TRACKING_WEEKLY_DIGEST_ORG_IDS = get_list(get_from_env("ERROR_TRACKING_WEEKLY_DIGEST_ORG_IDS", ""))
+
+# Comma-separated list of email addresses allowed to receive the Error Tracking weekly digest
+# "*" for all
+ERROR_TRACKING_WEEKLY_DIGEST_ALLOWED_EMAILS = get_list(get_from_env("ERROR_TRACKING_WEEKLY_DIGEST_ALLOWED_EMAILS", ""))
 
 ####
 # OAuth
@@ -563,6 +606,28 @@ OAUTH2_PROVIDER_ACCESS_TOKEN_MODEL = "posthog.OAuthAccessToken"
 OAUTH2_PROVIDER_REFRESH_TOKEN_MODEL = "posthog.OAuthRefreshToken"
 OAUTH2_PROVIDER_ID_TOKEN_MODEL = "posthog.OAuthIDToken"
 OAUTH2_PROVIDER_GRANT_MODEL = "posthog.OAuthGrant"
+
+TOOLBAR_OAUTH_STATE_TTL_SECONDS = 60 * 5
+TOOLBAR_OAUTH_EXCHANGE_TIMEOUT_SECONDS = 10
+TOOLBAR_OAUTH_APPLICATION_NAME = "PostHog Toolbar"
+TOOLBAR_OAUTH_SCOPES = [
+    "openid",
+    "user:read",
+    "action:read",
+    "action:write",
+    "feature_flag:read",
+    "experiment:read",
+    "experiment:write",
+    "query:read",
+    "product_tour:read",
+    "product_tour:write",
+    "heatmap:read",
+    "element:read",
+    "uploaded_media:write",
+    "survey:read",
+]
+
+ELEMENT_STATS_DEFAULT_LIMIT = get_from_env("ELEMENT_STATS_DEFAULT_LIMIT", 50_000, type_cast=int)
 
 # Sharing configuration settings
 SHARING_TOKEN_GRACE_PERIOD_SECONDS = 60 * 5  # 5 minutes

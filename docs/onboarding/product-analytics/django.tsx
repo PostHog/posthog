@@ -34,7 +34,7 @@ export const getDjangoSteps = (ctx: OnboardingComponentsContext): StepDefinition
             content: (
                 <>
                     <Markdown>
-                        Set the PostHog API key and host in your `AppConfig` in `apps.py` so that it's available
+                        Set the PostHog project token and host in your `AppConfig` in `apps.py` so that it's available
                         everywhere:
                     </Markdown>
                     <CodeBlock
@@ -50,7 +50,7 @@ export const getDjangoSteps = (ctx: OnboardingComponentsContext): StepDefinition
                                         name = "your_app_name"
 
                                         def ready(self):
-                                            posthog.api_key = '<ph_project_api_key>'
+                                            posthog.api_key = '<ph_project_token>'
                                             posthog.host = '<ph_client_api_host>'
                                 `,
                             },

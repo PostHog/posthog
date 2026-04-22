@@ -8,11 +8,7 @@ from parameterized import parameterized
 
 from posthog.schema import AgentMode, AssistantMessage, AssistantToolCall, AssistantToolCallMessage, HumanMessage
 
-from ee.hogai.chat_agent.executables import (
-    SWITCH_TO_EXECUTION_MODE_PROMPT,
-    ChatAgentPlanExecutable,
-    ChatAgentPlanToolsExecutable,
-)
+from ee.hogai.chat_agent.executables import ChatAgentPlanExecutable, ChatAgentPlanToolsExecutable
 from ee.hogai.chat_agent.toolkit import ChatAgentToolkitManager
 from ee.hogai.context import AssistantContextManager
 from ee.hogai.core.agent_modes.prompt_builder import AgentPromptBuilder
@@ -292,14 +288,13 @@ class TestChatAgentPlanToolsExecutableProperties(BaseTest):
 
         self.assertEqual(executable.transition_supermode, CLEAR_SUPERMODE)
 
-    def test_transition_prompt_returns_expected_value(self):
+    async def test_get_transition_prompt_returns_dynamic_prompt(self):
         from ee.hogai.chat_agent.executables import ChatAgentPlanToolsExecutable
         from ee.hogai.chat_agent.toolkit import ChatAgentToolkitManager
         from ee.hogai.utils.types.base import AssistantNodeName, NodePath
 
         node_path = (NodePath(name=AssistantNodeName.ROOT, message_id="test_id", tool_call_id="test_tool_call_id"),)
 
-        # ChatAgentPlanToolsExecutable has transition_prompt, not ChatAgentPlanExecutable
         executable = ChatAgentPlanToolsExecutable(
             team=self.team,
             user=self.user,
@@ -307,7 +302,9 @@ class TestChatAgentPlanToolsExecutableProperties(BaseTest):
             node_path=node_path,
         )
 
-        self.assertEqual(executable.transition_prompt, SWITCH_TO_EXECUTION_MODE_PROMPT)
+        prompt = await executable.get_transition_prompt()
+        self.assertIn("Planning complete", prompt)
+        self.assertIn("product_analytics", prompt)
 
     @parameterized.expand(
         [

@@ -23,7 +23,7 @@
             <allow_nondeterministic_mutations>1</allow_nondeterministic_mutations>
 
             <enable_analyzer>0</enable_analyzer>
-            <compatibility>25.6</compatibility>
+            <compatibility>25.8</compatibility>
             <distributed_product_mode>global</distributed_product_mode>
             <enable_parallel_replicas>0</enable_parallel_replicas>
             <max_parallel_replicas>1</max_parallel_replicas>
@@ -34,6 +34,7 @@
             <number_of_mutations_to_throw>1</number_of_mutations_to_throw>
 
             <stream_poll_timeout_ms>50</stream_poll_timeout_ms>
+            <stream_flush_interval_ms>500</stream_flush_interval_ms>
 
             <!-- Development performance optimizations -->
             <max_threads>2</max_threads>

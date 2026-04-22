@@ -1,28 +1,29 @@
+import json
 import asyncio
 from textwrap import dedent
-from typing import Any, Literal
-from uuid import uuid4
+from typing import Any, Literal, cast
 
 import structlog
-import posthoganalytics
 from pydantic import BaseModel, Field
 
-from posthog.schema import AssistantMessage, AssistantToolCallMessage, MaxRecordingUniversalFilters, RecordingsQuery
+from posthog.schema import MaxRecordingUniversalFilters, RecordingsQuery
 
-from posthog.session_recordings.playlist_counters import convert_filters_to_recordings_query
+from posthog.clickhouse.query_tagging import Product, tags_context
 from posthog.sync import database_sync_to_async
-from posthog.temporal.ai.session_summary.summarize_session import execute_summarize_session
-from posthog.temporal.ai.session_summary.summarize_session_group import (
-    SessionSummaryStreamUpdate,
-    execute_summarize_session_group,
-)
 from posthog.temporal.common.heartbeat import Heartbeater
-from posthog.utils import pluralize
+from posthog.temporal.session_replay.count_playlist_items import convert_filters_to_recordings_query
+from posthog.temporal.session_replay.session_summary.summarize_session import execute_summarize_session
+from posthog.temporal.session_replay.session_summary.summarize_session_group import execute_summarize_session_group
+from posthog.temporal.session_replay.session_summary.types.group import (
+    SessionProgressStreamData,
+    SessionStatusChange,
+    SessionSummaryStreamUpdate,
+)
 
 from ee.hogai.session_summaries.constants import (
     GROUP_SUMMARIES_MIN_SESSIONS,
     MAX_SESSIONS_TO_SUMMARIZE,
-    SESSION_SUMMARIES_SYNC_MODEL,
+    SESSION_SUMMARIES_MODEL,
 )
 from ee.hogai.session_summaries.session.stringify import SingleSessionSummaryStringifier
 from ee.hogai.session_summaries.session_group.patterns import EnrichedSessionGroupSummaryPatternsList
@@ -33,7 +34,7 @@ from ee.hogai.session_summaries.tracking import (
     capture_session_summary_started,
     generate_tracking_id,
 )
-from ee.hogai.tool import MaxTool, ToolMessagesArtifact
+from ee.hogai.tool import MaxTool
 from ee.hogai.utils.state import prepare_reasoning_progress_message
 
 logger = structlog.get_logger(__name__)
@@ -86,7 +87,7 @@ class SummarizeSessionsTool(MaxTool):
         self,
         recordings_filters_or_explicit_session_ids: MaxRecordingUniversalFilters | list[str],
         summary_title: str,
-    ) -> tuple[str, ToolMessagesArtifact | None]:
+    ) -> tuple[str, dict | None]:
         # If filters - convert filters to recordings query and get session IDs
         if isinstance(recordings_filters_or_explicit_session_ids, MaxRecordingUniversalFilters):
             recordings_query = convert_filters_to_recordings_query(
@@ -143,7 +144,6 @@ class SummarizeSessionsTool(MaxTool):
         summary_type: Literal["single", "group"] = (
             "single" if len(session_ids) <= GROUP_SUMMARIES_MIN_SESSIONS else "group"
         )
-        video_validation_enabled = self._determine_video_validation_enabled()
         tracking_id = generate_tracking_id()
         capture_session_summary_started(
             user=self._user,
@@ -151,9 +151,7 @@ class SummarizeSessionsTool(MaxTool):
             tracking_id=tracking_id,
             summary_source="chat",
             summary_type=summary_type,
-            is_streaming=False,
             session_ids=session_ids,
-            video_validation_enabled=video_validation_enabled,
         )
         try:
             # Summarize the sessions
@@ -162,87 +160,39 @@ class SummarizeSessionsTool(MaxTool):
                 summary_title=summary_title,
                 session_ids_source=llm_provided_session_ids_source,
             )
-            # Build messages artifact for group summaries (with "Open report" button)
-            content, artifact = None, None
+            content: str | None = None
+            artifact: dict | None = None
             if session_group_summary_id:
-                messages = [
-                    AssistantMessage(
-                        meta={
-                            "form": {
-                                "options": [
-                                    {
-                                        "value": "Open report",
-                                        "href": f"/session-summaries/{session_group_summary_id}",
-                                        "variant": "primary",
-                                    }
-                                ]
-                            }
-                        },
-                        content=f"Report complete: {summary_title or 'Sessions summary'}",
-                        id=str(uuid4()),
-                    ),
-                    AssistantToolCallMessage(
-                        content=summaries_content,
-                        tool_call_id=self._state.root_tool_call_id or "unknown",
-                        id=str(uuid4()),
-                    ),
-                ]
-                # Providing string to avoid feeding the context twice, as AssistantToolCallMessage is required for proper rendering of the report button
-                content, artifact = "Sessions summarized successfully", ToolMessagesArtifact(messages=messages)
+                content = summaries_content
+                artifact = {
+                    "title": summary_title or "Sessions summary",
+                    "session_group_summary_id": session_group_summary_id,
+                }
             else:
                 content, artifact = summaries_content, None
         except Exception as err:
-            # The session summarization failed
             capture_session_summary_generated(
                 user=self._user,
                 team=self._team,
                 tracking_id=tracking_id,
                 summary_source="chat",
                 summary_type=summary_type,
-                is_streaming=False,
                 session_ids=session_ids,
-                video_validation_enabled=video_validation_enabled,
                 success=False,
                 error_type=type(err).__name__,
                 error_message=str(err),
             )
             raise
-        # The session successfully summarized
         capture_session_summary_generated(
             user=self._user,
             team=self._team,
             tracking_id=tracking_id,
             summary_source="chat",
             summary_type=summary_type,
-            is_streaming=False,
             session_ids=session_ids,
-            video_validation_enabled=video_validation_enabled,
             success=True,
         )
         return content, artifact
-
-    def _determine_video_validation_enabled(self) -> bool | Literal["full"]:
-        """
-        Check if the user has the video validation for session summaries feature flag enabled.
-        """
-        if posthoganalytics.feature_enabled(
-            "max-session-summarization-video-as-base",
-            str(self._user.distinct_id),
-            groups={"organization": str(self._team.organization_id)},
-            group_properties={"organization": {"id": str(self._team.organization_id)}},
-            send_feature_flag_events=False,
-        ):
-            return "full"  # Use video as base of summarization
-        return (
-            posthoganalytics.feature_enabled(
-                "max-session-summarization-video-validation",
-                str(self._user.distinct_id),
-                groups={"organization": str(self._team.organization_id)},
-                group_properties={"organization": {"id": str(self._team.organization_id)}},
-                send_feature_flag_events=False,
-            )
-            or False
-        )
 
     def _stream_progress(self, progress_message: str) -> None:
         """Push summarization progress as reasoning messages"""
@@ -250,16 +200,65 @@ class SummarizeSessionsTool(MaxTool):
         if content:
             self.dispatcher.update(content)
 
+    def _dispatch_structured_update(self, data: SessionProgressStreamData | dict) -> None:
+        """Push structured JSON update directly, bypassing prepare_reasoning_progress_message truncation."""
+        self.dispatcher.update(json.dumps(data))
+
+    def _dispatch_session_progress(self, session_id: str, status: str, completed: int, total: int) -> None:
+        """Push a per-session progress update to the frontend widget."""
+        self._dispatch_structured_update(
+            SessionProgressStreamData(
+                type="progress",
+                status_changes=[SessionStatusChange(id=session_id, status=status)],
+                phase="watching_sessions",
+                completed_count=completed,
+                total_count=total,
+                patterns_found=[],
+            )
+        )
+
+    def _get_session_metadata(self, session_ids: list[str]) -> dict[str, dict]:
+        """Fetch per-session metadata from ClickHouse for the progress widget."""
+        from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
+
+        replay_events = SessionReplayEvents()
+        metadata_dict = replay_events.get_group_metadata(
+            session_ids=session_ids,
+            team=self._team,
+        )
+        result: dict[str, dict] = {}
+        for sid in session_ids:
+            meta = metadata_dict.get(sid)
+            if meta:
+                start_time = meta.get("start_time")
+                result[sid] = {
+                    "first_url": meta["first_url"],
+                    "active_duration_s": int(meta["active_seconds"]),
+                    "distinct_id": meta["distinct_id"],
+                    "start_time": start_time.isoformat() if start_time else None,
+                    "snapshot_source": meta["snapshot_source"],
+                }
+            else:
+                result[sid] = {
+                    "first_url": "",
+                    "active_duration_s": 0,
+                    "distinct_id": "",
+                    "start_time": None,
+                    "snapshot_source": "web",
+                }
+        return result
+
     def _get_session_ids_with_filters(self, replay_filters: RecordingsQuery) -> list[str] | None:
         """Get session ids from DB with filters"""
         from posthog.session_recordings.queries.session_recording_list_from_query import SessionRecordingListFromQuery
 
         # Execute the query to get session IDs
         try:
-            query_runner = SessionRecordingListFromQuery(
-                team=self._team, query=replay_filters, hogql_query_modifiers=None
-            )
-            results = query_runner.run()
+            with tags_context(product=Product.MAX_AI, team_id=self._team.pk, org_id=self._team.organization_id):
+                query_runner = SessionRecordingListFromQuery(
+                    team=self._team, query=replay_filters, hogql_query_modifiers=None
+                )
+                results = query_runner.run()
         except Exception as e:
             logger.exception(
                 f"Error getting session ids for session summarization with filters query "
@@ -271,25 +270,39 @@ class SummarizeSessionsTool(MaxTool):
         session_ids = [recording["session_id"] for recording in results.results]
         return session_ids if session_ids else None
 
+    def _get_trigger_session_id(self) -> str | None:
+        """Get the session ID of the user who triggered the summarization."""
+        return self._get_session_id(self._config)
+
     async def _summarize_sessions_individually(self, session_ids: list[str]) -> str:
         """Summarize sessions individually with progress updates."""
         total = len(session_ids)
         completed = 0
-        video_validation_enabled = self._determine_video_validation_enabled()
+        trigger_session_id = self._get_trigger_session_id()
 
-        async def _summarize(session_id: str) -> dict[str, Any]:
+        async def _summarize(session_id: str) -> dict[str, Any] | None:
             nonlocal completed
-            result = await execute_summarize_session(
-                session_id=session_id,
-                user=self._user,
-                team=self._team,
-                model_to_use=SESSION_SUMMARIES_SYNC_MODEL,
-                video_validation_enabled=video_validation_enabled,
-            )
-            completed += 1
-            # Update the user on the progress
-            self._stream_progress(progress_message=f"Watching sessions ({completed}/{total})")
-            return result
+            self._dispatch_session_progress(session_id, "summarizing", completed, total)
+            try:
+                result = await execute_summarize_session(
+                    session_id=session_id,
+                    user=self._user,
+                    team=self._team,
+                    model_to_use=SESSION_SUMMARIES_MODEL,
+                    trigger_session_id=trigger_session_id,
+                )
+                completed += 1
+                self._dispatch_session_progress(session_id, "summarized", completed, total)
+                return result
+            except Exception:
+                completed += 1
+                self._dispatch_session_progress(session_id, "failed", completed, total)
+                logger.warning(
+                    f"Session summarization failed for session {session_id}",
+                    exc_info=True,
+                    signals_type="session-summaries",
+                )
+                return None
 
         # Run all tasks concurrently, with periodic heartbeats to keep the parent activity alive
         tasks = [_summarize(sid) for sid in session_ids]
@@ -299,6 +312,8 @@ class SummarizeSessionsTool(MaxTool):
         # Stringify, as chat doesn't need full JSON to be context-aware, while providing it could overload the context
         stringified_summaries = []
         for summary in summaries:
+            if summary is None:
+                continue
             stringifier = SingleSessionSummaryStringifier(summary)
             stringified_summaries.append(stringifier.stringify_session())
         # Combine all stringified summaries into a single string
@@ -316,8 +331,7 @@ class SummarizeSessionsTool(MaxTool):
         min_timestamp, max_timestamp = await database_sync_to_async(find_sessions_timestamps, thread_sensitive=False)(
             session_ids=session_ids, team=self._team
         )
-        # Check if the summaries should be validated with videos
-        video_validation_enabled = self._determine_video_validation_enabled()
+        trigger_session_id = self._get_trigger_session_id()
         async with Heartbeater():
             async for update_type, data in execute_summarize_session_group(
                 session_ids=session_ids,
@@ -327,7 +341,7 @@ class SummarizeSessionsTool(MaxTool):
                 max_timestamp=max_timestamp,
                 summary_title=summary_title,
                 extra_summary_context=None,
-                video_validation_enabled=video_validation_enabled,
+                trigger_session_id=trigger_session_id,
             ):
                 # Max "reasoning" text update message
                 if update_type == SessionSummaryStreamUpdate.UI_STATUS:
@@ -338,8 +352,12 @@ class SummarizeSessionsTool(MaxTool):
                         )
                         logger.error(msg, signals_type="session-summaries")
                         raise TypeError(msg)
-                    # Status message - stream to user
+                    # Status message - stream to user (backward-compatible logging)
                     self._stream_progress(progress_message=data)
+                # Structured per-session progress
+                elif update_type == SessionSummaryStreamUpdate.SESSION_PROGRESS:
+                    assert isinstance(data, dict)
+                    self._dispatch_structured_update(cast(SessionProgressStreamData, data))
                 # Final summary result
                 elif update_type == SessionSummaryStreamUpdate.FINAL_RESULT:
                     if not isinstance(data, tuple) or len(data) != 2:
@@ -377,19 +395,30 @@ class SummarizeSessionsTool(MaxTool):
         Summarize sessions. Returns tuple of (summary_str, session_group_summary_id).
         session_group_summary_id is None for individual summaries, as report is not generated.
         """
+        # Fetch per-session metadata for the progress widget
+        metadata = await database_sync_to_async(self._get_session_metadata, thread_sensitive=False)(session_ids)
+        # Emit sessions_discovered for the frontend progress widget
+        self._dispatch_structured_update(
+            {
+                "type": "sessions_discovered",
+                "sessions": [
+                    {
+                        "id": sid,
+                        "first_url": metadata[sid]["first_url"],
+                        "active_duration_s": metadata[sid]["active_duration_s"],
+                        "distinct_id": metadata[sid]["distinct_id"],
+                        "start_time": metadata[sid]["start_time"],
+                        "snapshot_source": metadata[sid]["snapshot_source"],
+                    }
+                    for sid in session_ids
+                ],
+            }
+        )
         # Process sessions based on count
-        base_message = f"Found {pluralize(len(session_ids), 'session')} based on {'filters' if session_ids_source == 'filters' else 'explicit session IDs'}."
         if len(session_ids) <= GROUP_SUMMARIES_MIN_SESSIONS:
-            # If small amount of sessions - there are no patterns to extract, so summarize them individually and return as is
-            self._stream_progress(
-                progress_message=f"{base_message} We will do a quick summary, as the scope is small",
-            )
             summaries_content = await self._summarize_sessions_individually(session_ids=session_ids)
             return summaries_content, None
         # For large groups, process in detail, searching for patterns
-        self._stream_progress(
-            progress_message=f"{base_message} We will analyze in detail, and store the report",
-        )
         summaries_content, session_group_summary_id = await self._summarize_sessions_as_group(
             session_ids=session_ids,
             summary_title=summary_title,

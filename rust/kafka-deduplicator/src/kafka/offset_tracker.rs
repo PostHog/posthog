@@ -270,6 +270,26 @@ impl OffsetTracker {
         }
     }
 
+    /// Initialize partition state from restored metadata (local or S3 import).
+    ///
+    /// Populates committed and producer offsets so checkpointing reflects the pre-restart
+    /// state. Only inserts if no entry exists yet — safe to call multiple times.
+    pub fn init_partition_from_metadata(
+        &self,
+        partition: &Partition,
+        consumer_offset: i64,
+        producer_offset: i64,
+    ) {
+        self.partition_state
+            .entry(partition.clone())
+            .or_insert_with(|| PartitionState {
+                processed_offset: consumer_offset,
+                last_processed_batch_id: 0,
+                committed_offset: consumer_offset,
+                producer_offset,
+            });
+    }
+
     /// Clear all partitions (during shutdown)
     pub fn clear_all(&self) {
         self.partition_state.clear();
@@ -668,5 +688,34 @@ mod tests {
         assert_eq!(tracker.get_partition_offset(&partition), None);
         assert_eq!(tracker.get_committed_offset(&partition), None);
         assert_eq!(tracker.get_producer_offset(&partition), None);
+    }
+
+    #[test]
+    fn test_init_partition_from_metadata_seeds_all_offsets() {
+        let coordinator = create_test_tracker();
+        let tracker = OffsetTracker::new(coordinator);
+        let partition = test_partition(0);
+
+        tracker.init_partition_from_metadata(&partition, 1000, 500);
+
+        assert_eq!(tracker.get_partition_offset(&partition), Some(1000));
+        assert_eq!(tracker.get_committed_offset(&partition), Some(1000));
+        assert_eq!(tracker.get_producer_offset(&partition), Some(500));
+    }
+
+    #[test]
+    fn test_init_partition_from_metadata_does_not_overwrite_existing_entry() {
+        let coordinator = create_test_tracker();
+        let tracker = OffsetTracker::new(coordinator);
+        let partition = test_partition(0);
+        let batch_id = tracker.assign_batch_id();
+
+        // Entry already exists from normal processing
+        tracker.mark_processed(&partition, batch_id, 2000);
+
+        // init should be a no-op since the entry already exists
+        tracker.init_partition_from_metadata(&partition, 1000, 500);
+
+        assert_eq!(tracker.get_partition_offset(&partition), Some(2000));
     }
 }

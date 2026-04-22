@@ -12,9 +12,9 @@ import {
     TaxonomicFilterLogicProps,
     TaxonomicFilterProps,
 } from 'lib/components/TaxonomicFilter/types'
+import { Icon123 } from 'lib/lemon-ui/icons'
 import { LemonInput, LemonInputPropsText } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { Tooltip, TooltipProps } from 'lib/lemon-ui/Tooltip'
-import { Icon123 } from 'lib/lemon-ui/icons'
 import { urls } from 'scenes/urls'
 
 import { InfiniteSelectResults } from './InfiniteSelectResults'
@@ -34,6 +34,7 @@ export function TaxonomicFilter({
     metadataSource,
     eventNames,
     schemaColumns,
+    schemaColumnsLoading,
     height,
     width,
     excludedProperties,
@@ -45,8 +46,14 @@ export function TaxonomicFilter({
     showNumericalPropsOnly,
     dataWarehousePopoverFields = defaultDataWarehousePopoverFields,
     maxContextOptions,
-    useVerticalLayout,
     allowNonCapturedEvents = false,
+    hogQLGlobals,
+    hogQLExpressionShowBreakdownLabelHint,
+    definitionPopoverRenderer,
+    minSearchQueryLength,
+    suggestedFiltersLabel,
+    hideSearchInput,
+    searchQuery: controlledSearchQuery,
 }: TaxonomicFilterProps): JSX.Element {
     // Generate a unique key for each unique TaxonomicFilter that's rendered
     const taxonomicFilterLogicKey = useMemo(
@@ -67,6 +74,7 @@ export function TaxonomicFilter({
         optionsFromProp,
         eventNames,
         schemaColumns,
+        schemaColumnsLoading,
         popoverEnabled,
         selectFirstItem,
         excludedProperties,
@@ -76,15 +84,25 @@ export function TaxonomicFilter({
         hideBehavioralCohorts,
         showNumericalPropsOnly,
         dataWarehousePopoverFields,
-        useVerticalLayout,
         autoSelectItem: true,
         allowNonCapturedEvents,
         maxContextOptions,
+        hogQLGlobals,
+        hogQLExpressionShowBreakdownLabelHint,
+        minSearchQueryLength,
+        suggestedFiltersLabel,
     }
 
     const logic = taxonomicFilterLogic(taxonomicFilterLogicProps)
     const { activeTab } = useValues(logic)
+    const { setSearchQuery } = useActions(logic)
     const [refReady, setRefReady] = useState(false)
+
+    useEffect(() => {
+        if (controlledSearchQuery !== undefined) {
+            setSearchQuery(controlledSearchQuery)
+        }
+    }, [controlledSearchQuery, setSearchQuery])
 
     useEffect(() => {
         if (groupType !== TaxonomicFilterGroupType.HogQLExpression) {
@@ -117,7 +135,8 @@ export function TaxonomicFilter({
                 // eslint-disable-next-line react/forbid-dom-props
                 style={style}
             >
-                {activeTab !== TaxonomicFilterGroupType.HogQLExpression || taxonomicGroupTypes.length > 1 ? (
+                {!hideSearchInput &&
+                (activeTab !== TaxonomicFilterGroupType.HogQLExpression || taxonomicGroupTypes.length > 1) ? (
                     <div className="relative">
                         <TaxonomicFilterSearchInput searchInputRef={searchInputRef} onClose={onClose} />
                     </div>
@@ -127,7 +146,7 @@ export function TaxonomicFilter({
                         focusInput={focusInput}
                         taxonomicFilterLogicProps={taxonomicFilterLogicProps}
                         popupAnchorElement={taxonomicFilterRef.current}
-                        useVerticalLayout={useVerticalLayout}
+                        definitionPopoverRenderer={definitionPopoverRenderer}
                     />
                 )}
             </div>
@@ -140,9 +159,15 @@ export const TaxonomicFilterSearchInput = forwardRef<
     {
         searchInputRef: React.Ref<HTMLInputElement> | null
         onClose: TaxonomicFilterProps['onClose']
-    } & Pick<LemonInputPropsText, 'onClick' | 'size' | 'prefix' | 'fullWidth' | 'onChange'> &
+    } & Pick<
+        LemonInputPropsText,
+        'onClick' | 'size' | 'prefix' | 'fullWidth' | 'onChange' | 'autoFocus' | 'placeholder'
+    > &
         Pick<TooltipProps, 'docLink'>
->(function UniversalSearchInput({ searchInputRef, onClose, onChange, docLink, ...props }, ref): JSX.Element {
+>(function UniversalSearchInput(
+    { searchInputRef, onClose, onChange, docLink, autoFocus = true, placeholder, ...props },
+    ref
+): JSX.Element {
     const { searchQuery, searchPlaceholder, showNumericalPropsOnly } = useValues(taxonomicFilterLogic)
     const {
         setSearchQuery: setTaxonomicSearchQuery,
@@ -165,7 +190,7 @@ export const TaxonomicFilterSearchInput = forwardRef<
             data-attr="taxonomic-filter-searchfield"
             type="search"
             fullWidth
-            placeholder={`Search ${searchPlaceholder}`}
+            placeholder={placeholder ?? `Search ${searchPlaceholder}`}
             value={searchQuery}
             suffix={
                 <>
@@ -226,7 +251,7 @@ export const TaxonomicFilterSearchInput = forwardRef<
             }}
             inputRef={searchInputRef}
             onChange={_onChange}
-            autoFocus
+            autoFocus={autoFocus}
         />
     )
 })

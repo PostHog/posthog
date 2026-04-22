@@ -22,12 +22,13 @@ from posthog.hogql.autocomplete import get_hogql_autocomplete
 from posthog.hogql.compiler.bytecode import execute_hog
 from posthog.hogql.constants import LimitContext
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.database import Database
+from posthog.hogql.direct_connection import resolve_database_for_connection
 from posthog.hogql.metadata import get_hogql_metadata
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.cloud_utils import is_cloud
+from posthog.event_usage import AnalyticsProps
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.query_runner import CacheMissResponse, ExecutionMode, QueryResponse, get_query_runner
 from posthog.models import Team, User
@@ -53,6 +54,8 @@ def process_query_dict(
     insight_id: Optional[int] = None,
     dashboard_id: Optional[int] = None,
     is_query_service: bool = False,
+    pagination_cursor: Optional[str] = None,
+    analytics_props: Optional[AnalyticsProps] = None,
 ) -> dict | BaseModel:
     upgraded_query_json = upgrade(query_json)
     try:
@@ -101,6 +104,8 @@ def process_query_dict(
         insight_id=insight_id,
         dashboard_id=dashboard_id,
         is_query_service=is_query_service,
+        pagination_cursor=pagination_cursor,
+        analytics_props=analytics_props,
     )
 
 
@@ -118,8 +123,59 @@ def process_query_model(
     dashboard_id: Optional[int] = None,
     is_query_service: bool = False,
     cache_age_seconds: Optional[int] = None,
+    pagination_cursor: Optional[str] = None,
+    analytics_props: Optional[AnalyticsProps] = None,
 ) -> dict | BaseModel:
     result: dict | BaseModel
+
+    if isinstance(query, HogQLAutocomplete):
+        _, database = resolve_database_for_connection(
+            team,
+            query.connectionId,
+            user=user,
+            error_factory=ValidationError,
+            modifiers=create_default_modifiers_for_team(team),
+        )
+        return get_hogql_autocomplete(query=query, team=team, database_arg=database, user=user)
+
+    if isinstance(query, HogQLMetadata):
+        metadata_query = HogQLMetadata.model_validate(query)
+        return get_hogql_metadata(query=metadata_query, team=team, user=user)
+
+    if isinstance(query, DatabaseSchemaQuery):
+        _, database = resolve_database_for_connection(
+            team,
+            query.connectionId,
+            user=user,
+            error_factory=ValidationError,
+            modifiers=create_default_modifiers_for_team(team),
+        )
+        context = HogQLContext(team_id=team.pk, team=team, database=database, user=user)
+        serialized_tables = database.serialize(context, include_hidden_posthog_tables=True)
+        table_names = set(serialized_tables.keys())
+        joins = DataWarehouseJoin.objects.filter(team_id=team.pk).exclude(deleted=True)
+        joins = joins.filter(source_table_name__in=table_names, joining_table_name__in=table_names)
+
+        join_models: list[DataWarehouseViewLink] = []
+        for join in joins.iterator():
+            join_models.append(
+                DataWarehouseViewLink.model_validate(
+                    {
+                        "id": str(join.id),
+                        "source_table_name": join.source_table_name,
+                        "source_table_key": join.source_table_key,
+                        "joining_table_name": join.joining_table_name,
+                        "joining_table_key": join.joining_table_key,
+                        "field_name": join.field_name,
+                        "created_at": join.created_at.isoformat(),
+                    }
+                )
+            )
+
+        return DatabaseSchemaQueryResponse(
+            tables=serialized_tables,
+            joins=join_models,
+        )
 
     try:
         query_runner = get_query_runner(query, team, limit_context=limit_context)
@@ -138,6 +194,7 @@ def process_query_model(
                 dashboard_id=dashboard_id,
                 is_query_service=is_query_service,
                 cache_age_seconds=cache_age_seconds,
+                analytics_props=analytics_props,
             )
         elif execution_mode == ExecutionMode.CACHE_ONLY_NEVER_CALCULATE:
             # Caching is handled by query runners, so in this case we can only return a cache miss
@@ -157,34 +214,6 @@ def process_query_model(
                 )
             except Exception as e:
                 result = HogQueryResponse(results=f"ERROR: {str(e)}")
-        elif isinstance(query, HogQLAutocomplete):
-            result = get_hogql_autocomplete(query=query, team=team)
-        elif isinstance(query, HogQLMetadata):
-            metadata_query = HogQLMetadata.model_validate(query)
-            metadata_response = get_hogql_metadata(query=metadata_query, team=team)
-            result = metadata_response
-        elif isinstance(query, DatabaseSchemaQuery):
-            joins = DataWarehouseJoin.objects.filter(team_id=team.pk).exclude(deleted=True)
-            database = Database.create_for(team=team, modifiers=create_default_modifiers_for_team(team))
-            context = HogQLContext(team_id=team.pk, team=team, database=database)
-            result = DatabaseSchemaQueryResponse(
-                tables=database.serialize(context, include_hidden_posthog_tables=True),
-                joins=[
-                    DataWarehouseViewLink.model_validate(
-                        {
-                            "id": str(join.id),
-                            "source_table_name": join.source_table_name,
-                            "source_table_key": join.source_table_key,
-                            "joining_table_name": join.joining_table_name,
-                            "joining_table_key": join.joining_table_key,
-                            "field_name": join.field_name,
-                            "configuration": join.configuration,
-                            "created_at": join.created_at.isoformat(),
-                        }
-                    )
-                    for join in joins
-                ],
-            )
         else:
             raise ValidationError(f"Unsupported query kind: {query.__class__.__name__}")
     else:  # Query runner available - it will handle execution as well as caching
@@ -192,6 +221,8 @@ def process_query_model(
             query_runner.apply_dashboard_filters(dashboard_filters)
         if variables_override:
             query_runner.apply_variable_overrides(variables_override)
+        if pagination_cursor:
+            query_runner.apply_pagination_cursor(pagination_cursor)
         query_runner.is_query_service = is_query_service
 
         result = query_runner.run(
@@ -201,6 +232,7 @@ def process_query_model(
             insight_id=insight_id,
             dashboard_id=dashboard_id,
             cache_age_seconds=cache_age_seconds,
+            analytics_props=analytics_props,
         )
 
     return result

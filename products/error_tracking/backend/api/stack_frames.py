@@ -1,7 +1,7 @@
 from django.db.models import Q
 
 import structlog
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.utils import extend_schema, extend_schema_field
 from rest_framework import serializers, viewsets
 from rest_framework.response import Response
 
@@ -27,13 +27,16 @@ class ErrorTrackingStackFrameSerializer(serializers.ModelSerializer):
         model = ErrorTrackingStackFrame
         fields = ["id", "raw_id", "created_at", "contents", "resolved", "context", "symbol_set_ref", "release"]
 
+    @extend_schema_field(serializers.CharField(help_text="Raw frame ID in 'hash/part' format"))
     def get_raw_id(self, obj):
         return obj.raw_id + "/" + str(obj.part)
 
 
 @extend_schema(tags=[ProductKey.ERROR_TRACKING])
 class ErrorTrackingStackFrameViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ReadOnlyModelViewSet):
-    scope_object = "INTERNAL"
+    scope_object = "error_tracking"
+    scope_object_read_actions = ["list", "retrieve", "batch_get"]
+    scope_object_write_actions: list = []
     queryset = ErrorTrackingStackFrame.objects.all()
     serializer_class = ErrorTrackingStackFrameSerializer
 

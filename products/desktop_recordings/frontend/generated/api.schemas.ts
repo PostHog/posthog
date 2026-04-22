@@ -14,14 +14,14 @@
  * `desktop_audio` - Desktop audio
  * `slack` - Slack huddle
  */
-export type Platform9aaEnumApi = (typeof Platform9aaEnumApi)[keyof typeof Platform9aaEnumApi]
+export type Platform0afEnumApi = (typeof Platform0afEnumApi)[keyof typeof Platform0afEnumApi]
 
-export const Platform9aaEnumApi = {
-    zoom: 'zoom',
-    teams: 'teams',
-    meet: 'meet',
-    desktop_audio: 'desktop_audio',
-    slack: 'slack',
+export const Platform0afEnumApi = {
+    Zoom: 'zoom',
+    Teams: 'teams',
+    Meet: 'meet',
+    DesktopAudio: 'desktop_audio',
+    Slack: 'slack',
 } as const
 
 /**
@@ -31,14 +31,14 @@ export const Platform9aaEnumApi = {
  * `ready` - Ready
  * `error` - Error
  */
-export type Status292EnumApi = (typeof Status292EnumApi)[keyof typeof Status292EnumApi]
+export type StatusD05EnumApi = (typeof StatusD05EnumApi)[keyof typeof StatusD05EnumApi]
 
-export const Status292EnumApi = {
-    recording: 'recording',
-    uploading: 'uploading',
-    processing: 'processing',
-    ready: 'ready',
-    error: 'error',
+export const StatusD05EnumApi = {
+    Recording: 'recording',
+    Uploading: 'uploading',
+    Processing: 'processing',
+    Ready: 'ready',
+    Error: 'error',
 } as const
 
 /**
@@ -83,7 +83,7 @@ export interface DesktopRecordingApi {
     readonly sdk_upload_id: string
     /** @nullable */
     recall_recording_id?: string | null
-    platform: Platform9aaEnumApi
+    platform: Platform0afEnumApi
     /**
      * @maxLength 255
      * @nullable
@@ -100,7 +100,7 @@ export interface DesktopRecordingApi {
      * @nullable
      */
     duration_seconds?: number | null
-    status?: Status292EnumApi
+    status?: StatusD05EnumApi
     /** @nullable */
     notes?: string | null
     /** @nullable */
@@ -111,8 +111,8 @@ export interface DesktopRecordingApi {
      */
     video_url?: string | null
     /**
-     * @minimum -9223372036854776000
-     * @maximum 9223372036854776000
+     * @minimum -2147483648
+     * @maximum 2147483647
      * @nullable
      */
     video_size_bytes?: number | null
@@ -156,11 +156,11 @@ export type CreateRecordingRequestPlatformEnumApi =
     (typeof CreateRecordingRequestPlatformEnumApi)[keyof typeof CreateRecordingRequestPlatformEnumApi]
 
 export const CreateRecordingRequestPlatformEnumApi = {
-    zoom: 'zoom',
-    teams: 'teams',
-    meet: 'meet',
-    desktop_audio: 'desktop_audio',
-    slack: 'slack',
+    Zoom: 'zoom',
+    Teams: 'teams',
+    Meet: 'meet',
+    DesktopAudio: 'desktop_audio',
+    Slack: 'slack',
 } as const
 
 /**
@@ -188,7 +188,7 @@ export interface CreateRecordingResponseApi {
     readonly sdk_upload_id: string
     /** @nullable */
     recall_recording_id?: string | null
-    platform: Platform9aaEnumApi
+    platform: Platform0afEnumApi
     /**
      * @maxLength 255
      * @nullable
@@ -205,7 +205,7 @@ export interface CreateRecordingResponseApi {
      * @nullable
      */
     duration_seconds?: number | null
-    status?: Status292EnumApi
+    status?: StatusD05EnumApi
     /** @nullable */
     notes?: string | null
     /** @nullable */
@@ -216,8 +216,8 @@ export interface CreateRecordingResponseApi {
      */
     video_url?: string | null
     /**
-     * @minimum -9223372036854776000
-     * @maximum 9223372036854776000
+     * @minimum -2147483648
+     * @maximum 2147483647
      * @nullable
      */
     video_size_bytes?: number | null
@@ -251,7 +251,7 @@ export interface PatchedDesktopRecordingApi {
     readonly sdk_upload_id?: string
     /** @nullable */
     recall_recording_id?: string | null
-    platform?: Platform9aaEnumApi
+    platform?: Platform0afEnumApi
     /**
      * @maxLength 255
      * @nullable
@@ -268,7 +268,7 @@ export interface PatchedDesktopRecordingApi {
      * @nullable
      */
     duration_seconds?: number | null
-    status?: Status292EnumApi
+    status?: StatusD05EnumApi
     /** @nullable */
     notes?: string | null
     /** @nullable */
@@ -279,8 +279,8 @@ export interface PatchedDesktopRecordingApi {
      */
     video_url?: string | null
     /**
-     * @minimum -9223372036854776000
-     * @maximum 9223372036854776000
+     * @minimum -2147483648
+     * @maximum 2147483647
      * @nullable
      */
     video_size_bytes?: number | null

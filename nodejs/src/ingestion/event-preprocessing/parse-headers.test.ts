@@ -273,6 +273,46 @@ describe('createParseHeadersStep', () => {
             )
         })
 
+        it('should lowercase UUID session_id from header', async () => {
+            const input = {
+                message: {
+                    headers: [{ session_id: Buffer.from('0192E72A-1DD2-7714-8000-8B3E4C123456') }],
+                } as Pick<Message, 'headers'>,
+            }
+            const result = await step(input)
+
+            expect(result).toEqual(
+                ok({
+                    ...input,
+                    headers: {
+                        session_id: '0192e72a-1dd2-7714-8000-8b3e4c123456',
+                        force_disable_person_processing: false,
+                        historical_migration: false,
+                    },
+                })
+            )
+        })
+
+        it('should not lowercase non-UUID session_id from header', async () => {
+            const input = {
+                message: {
+                    headers: [{ session_id: Buffer.from('Custom-Session-ID') }],
+                } as Pick<Message, 'headers'>,
+            }
+            const result = await step(input)
+
+            expect(result).toEqual(
+                ok({
+                    ...input,
+                    headers: {
+                        session_id: 'Custom-Session-ID',
+                        force_disable_person_processing: false,
+                        historical_migration: false,
+                    },
+                })
+            )
+        })
+
         it('should not include session_id when not present', async () => {
             const input = {
                 message: {

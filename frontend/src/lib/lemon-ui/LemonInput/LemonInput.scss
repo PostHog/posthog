@@ -103,6 +103,15 @@
         .LemonInput__input {
             font-variant-numeric: tabular-nums;
             text-overflow: clip;
+
+            // Hide native spin buttons so they don't crowd the input text
+            appearance: textfield;
+
+            &::-webkit-outer-spin-button,
+            &::-webkit-inner-spin-button {
+                margin: 0;
+                appearance: none;
+            }
         }
     }
 

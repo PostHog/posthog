@@ -4,8 +4,9 @@ import structlog
 from rest_framework import status
 from rest_framework.test import APIClient
 
-from posthog.models.link import Link
 from posthog.models.team.team import Team
+
+from products.links.backend.models import Link
 
 logger = structlog.get_logger(__name__)
 

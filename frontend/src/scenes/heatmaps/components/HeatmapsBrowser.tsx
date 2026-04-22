@@ -23,12 +23,12 @@ import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { FixedReplayHeatmapBrowser } from 'scenes/heatmaps/components/FixedReplayHeatmapBrowser'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { sidePanelSettingsLogic } from '~/layout/navigation-3000/sidepanel/panels/sidePanelSettingsLogic'
+import { sidePanelSettingsLogic } from '~/layout/navigation-3000/sidepanel/panels/settings/sidePanelSettingsLogic'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 
 import { FilterPanel } from './FilterPanel'
-import { IframeHeatmapBrowser } from './IframeHeatmapBrowser'
 import { heatmapsBrowserLogic } from './heatmapsBrowserLogic'
+import { IframeHeatmapBrowser } from './IframeHeatmapBrowser'
 
 function ExportButton({
     iframeRef,
@@ -332,7 +332,7 @@ function Warnings(): JSX.Element | null {
             action={{
                 type: 'secondary',
                 icon: <IconGear />,
-                onClick: () => openSettingsPanel({ sectionId: 'environment-autocapture', settingId: 'heatmaps' }),
+                onClick: () => openSettingsPanel({ sectionId: 'environment-heatmaps', settingId: 'heatmaps' }),
                 children: 'Configure',
             }}
             dismissKey="heatmaps-might-be-disabled-warning"

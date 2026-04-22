@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Optional
+from typing import Literal, Optional
 
 from products.data_warehouse.backend.types import IncrementalField, IncrementalFieldType
 
@@ -12,6 +12,8 @@ class GithubEndpointConfig:
     default_incremental_field: Optional[str] = None
     partition_key: Optional[str] = None
     page_size: int = 100  # GitHub default, max is 100
+    sort_mode: Literal["asc", "desc"] = "asc"
+    primary_key: str = "id"  # Primary key for upsert operations
 
 
 GITHUB_ENDPOINTS: dict[str, GithubEndpointConfig] = {
@@ -39,13 +41,38 @@ GITHUB_ENDPOINTS: dict[str, GithubEndpointConfig] = {
         name="pull_requests",
         path="/repos/{repository}/pulls",
         partition_key="created_at",
-        incremental_fields=[],  # GitHub pulls API doesn't support 'since' parameter
+        incremental_fields=[
+            {
+                "label": "updated_at",
+                "type": IncrementalFieldType.DateTime,
+                "field": "updated_at",
+                "field_type": IncrementalFieldType.DateTime,
+            },
+            {
+                "label": "created_at",
+                "type": IncrementalFieldType.DateTime,
+                "field": "created_at",
+                "field_type": IncrementalFieldType.DateTime,
+            },
+        ],
+        default_incremental_field="updated_at",
+        sort_mode="desc",  # Use descending sort to enable incremental sync
     ),
     "commits": GithubEndpointConfig(
         name="commits",
         path="/repos/{repository}/commits",
         partition_key="created_at",
-        incremental_fields=[],  # Commits use 'since' param but response has nested author.date
+        incremental_fields=[
+            {
+                "label": "created_at",
+                "type": IncrementalFieldType.DateTime,
+                "field": "created_at",  # Flattened from commit.author.date
+                "field_type": IncrementalFieldType.DateTime,
+            },
+        ],
+        default_incremental_field="created_at",
+        primary_key="sha",  # Commits use sha as unique identifier
+        sort_mode="desc",  # GitHub commits API always returns newest-first, ignores sort/direction params
     ),
     "stargazers": GithubEndpointConfig(
         name="stargazers",

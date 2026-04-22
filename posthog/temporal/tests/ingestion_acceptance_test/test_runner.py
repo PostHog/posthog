@@ -4,7 +4,13 @@ import pytest
 from unittest.mock import MagicMock, patch
 
 from posthog.temporal.ingestion_acceptance_test.config import Config
-from posthog.temporal.ingestion_acceptance_test.runner import AcceptanceTest, TestContext, run_tests
+from posthog.temporal.ingestion_acceptance_test.runner import (
+    AcceptanceTest,
+    RunningTestInfo,
+    RunningTests,
+    TestContext,
+    run_tests,
+)
 from posthog.temporal.ingestion_acceptance_test.test_cases_discovery import TestCase
 
 
@@ -13,8 +19,7 @@ def config() -> Config:
     return Config(
         api_host="https://test.posthog.com",
         project_api_key="phc_test_key",
-        project_id="12345",
-        personal_api_key="phx_personal_key",
+        team_id=12345,
     )
 
 
@@ -28,9 +33,14 @@ def executor() -> ThreadPoolExecutor:
     return ThreadPoolExecutor(max_workers=4)
 
 
+@pytest.fixture
+def running_tests() -> RunningTests:
+    return RunningTests()
+
+
 class TestRunTests:
     def test_instantiates_class_calls_setup_and_runs_method(
-        self, config: Config, mock_client: MagicMock, executor: ThreadPoolExecutor
+        self, config: Config, mock_client: MagicMock, executor: ThreadPoolExecutor, running_tests: RunningTests
     ) -> None:
         call_order = []
 
@@ -46,12 +56,12 @@ class TestRunTests:
 
         tests = [TestCase(module_name="test_mod", test_class=FakeTest, method_name="test_method")]
 
-        run_tests(config, tests, mock_client, executor)
+        run_tests(config, tests, mock_client, executor, running_tests)
 
         assert call_order == ["init", "setup", "test_method"]
 
     def test_returns_passed_status_and_correct_names(
-        self, config: Config, mock_client: MagicMock, executor: ThreadPoolExecutor
+        self, config: Config, mock_client: MagicMock, executor: ThreadPoolExecutor, running_tests: RunningTests
     ) -> None:
         class FakeTest(AcceptanceTest):
             def test_method(self) -> None:
@@ -59,7 +69,7 @@ class TestRunTests:
 
         tests = [TestCase(module_name="test_mod", test_class=FakeTest, method_name="test_method")]
 
-        result = run_tests(config, tests, mock_client, executor)
+        result = run_tests(config, tests, mock_client, executor, running_tests)
 
         assert result.passed_count == 1
         assert result.results[0].status == "passed"
@@ -67,7 +77,7 @@ class TestRunTests:
         assert result.results[0].test_file == "test_mod::FakeTest::test_method"
 
     def test_returns_failed_status_for_assertion_error(
-        self, config: Config, mock_client: MagicMock, executor: ThreadPoolExecutor
+        self, config: Config, mock_client: MagicMock, executor: ThreadPoolExecutor, running_tests: RunningTests
     ) -> None:
         class FakeTest(AcceptanceTest):
             def test_method(self) -> None:
@@ -75,7 +85,7 @@ class TestRunTests:
 
         tests = [TestCase(module_name="test_mod", test_class=FakeTest, method_name="test_method")]
 
-        result = run_tests(config, tests, mock_client, executor)
+        result = run_tests(config, tests, mock_client, executor, running_tests)
 
         assert result.failed_count == 1
         assert result.results[0].status == "failed"
@@ -85,7 +95,7 @@ class TestRunTests:
         assert result.results[0].error_details["type"] == "AssertionError"
 
     def test_returns_error_status_for_unexpected_exception(
-        self, config: Config, mock_client: MagicMock, executor: ThreadPoolExecutor
+        self, config: Config, mock_client: MagicMock, executor: ThreadPoolExecutor, running_tests: RunningTests
     ) -> None:
         class FakeTest(AcceptanceTest):
             def test_method(self) -> None:
@@ -93,7 +103,7 @@ class TestRunTests:
 
         tests = [TestCase(module_name="test_mod", test_class=FakeTest, method_name="test_method")]
 
-        result = run_tests(config, tests, mock_client, executor)
+        result = run_tests(config, tests, mock_client, executor, running_tests)
 
         assert result.error_count == 1
         assert result.results[0].status == "error"
@@ -103,7 +113,7 @@ class TestRunTests:
         assert result.results[0].error_details["type"] == "ValueError"
 
     def test_runs_multiple_tests_and_aggregates_results(
-        self, config: Config, mock_client: MagicMock, executor: ThreadPoolExecutor
+        self, config: Config, mock_client: MagicMock, executor: ThreadPoolExecutor, running_tests: RunningTests
     ) -> None:
         class PassingTest(AcceptanceTest):
             def test_pass(self) -> None:
@@ -118,25 +128,14 @@ class TestRunTests:
             TestCase(module_name="test_mod", test_class=FailingTest, method_name="test_fail"),
         ]
 
-        result = run_tests(config, tests, mock_client, executor)
+        result = run_tests(config, tests, mock_client, executor, running_tests)
 
         assert result.total_count == 2
         assert result.passed_count == 1
         assert result.failed_count == 1
 
-    def test_calls_client_shutdown(self, config: Config, mock_client: MagicMock, executor: ThreadPoolExecutor) -> None:
-        class FakeTest(AcceptanceTest):
-            def test_method(self) -> None:
-                pass
-
-        tests = [TestCase(module_name="test_mod", test_class=FakeTest, method_name="test_method")]
-
-        run_tests(config, tests, mock_client, executor)
-
-        mock_client.shutdown.assert_called_once()
-
-    def test_returns_environment_from_config(
-        self, config: Config, mock_client: MagicMock, executor: ThreadPoolExecutor
+    def test_calls_client_shutdown(
+        self, config: Config, mock_client: MagicMock, executor: ThreadPoolExecutor, running_tests: RunningTests
     ) -> None:
         class FakeTest(AcceptanceTest):
             def test_method(self) -> None:
@@ -144,14 +143,27 @@ class TestRunTests:
 
         tests = [TestCase(module_name="test_mod", test_class=FakeTest, method_name="test_method")]
 
-        result = run_tests(config, tests, mock_client, executor)
+        run_tests(config, tests, mock_client, executor, running_tests)
+
+        mock_client.shutdown.assert_called_once()
+
+    def test_returns_environment_from_config(
+        self, config: Config, mock_client: MagicMock, executor: ThreadPoolExecutor, running_tests: RunningTests
+    ) -> None:
+        class FakeTest(AcceptanceTest):
+            def test_method(self) -> None:
+                pass
+
+        tests = [TestCase(module_name="test_mod", test_class=FakeTest, method_name="test_method")]
+
+        result = run_tests(config, tests, mock_client, executor, running_tests)
 
         assert result.environment["api_host"] == "https://test.posthog.com"
-        assert result.environment["project_id"] == "12345"
+        assert result.environment["team_id"] == "12345"
 
     @patch("posthog.temporal.ingestion_acceptance_test.runner.as_completed")
     def test_submits_all_tests_to_executor(
-        self, mock_as_completed: MagicMock, config: Config, mock_client: MagicMock
+        self, mock_as_completed: MagicMock, config: Config, mock_client: MagicMock, running_tests: RunningTests
     ) -> None:
         mock_executor = MagicMock()
         mock_futures = [MagicMock(), MagicMock(), MagicMock()]
@@ -178,6 +190,43 @@ class TestRunTests:
             TestCase(module_name="test_mod", test_class=FakeTest3, method_name="test_three"),
         ]
 
-        run_tests(config, tests, mock_client, mock_executor)
+        run_tests(config, tests, mock_client, mock_executor, running_tests)
 
         assert mock_executor.submit.call_count == 3
+
+
+class TestSnapshotWithPolls:
+    @pytest.mark.parametrize(
+        "tests_by_tid, polls_by_tid, expected",
+        [
+            (
+                {100: "TestA::test_one", 200: "TestB::test_two"},
+                {100: "event UUID 'abc-123'", 200: "person with distinct_id 'xyz-456'"},
+                [
+                    RunningTestInfo("TestA::test_one", "event UUID 'abc-123'"),
+                    RunningTestInfo("TestB::test_two", "person with distinct_id 'xyz-456'"),
+                ],
+            ),
+            (
+                {100: "TestA::test_one", 200: "TestB::test_two"},
+                {100: "event UUID 'abc-123'"},
+                [
+                    RunningTestInfo("TestA::test_one", "event UUID 'abc-123'"),
+                    RunningTestInfo("TestB::test_two", None),
+                ],
+            ),
+            ({}, {}, []),
+        ],
+        ids=["all_polls_matched", "partial_poll_match", "empty"],
+    )
+    def test_snapshot_with_polls(
+        self,
+        tests_by_tid: dict[int, str],
+        polls_by_tid: dict[int, str],
+        expected: list[RunningTestInfo],
+    ) -> None:
+        rt = RunningTests()
+        rt._tests = tests_by_tid
+        mock_client = MagicMock()
+        mock_client.pending_polls_snapshot.return_value = polls_by_tid
+        assert rt.snapshot_with_polls(mock_client) == expected

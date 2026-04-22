@@ -1,13 +1,13 @@
 import uuid
 import dataclasses
 from datetime import timedelta
-from enum import Enum
 
 from django.db.models.signals import pre_delete
 from django.dispatch import receiver
 
 import posthoganalytics
 from django_filters.rest_framework import DjangoFilterBackend
+from drf_spectacular.utils import extend_schema_field
 from rest_framework import filters, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.request import Request
@@ -25,12 +25,6 @@ from posthog.models.activity_logging.model_activity import get_current_user, get
 from posthog.models.batch_imports import BatchImport, ContentType, DateRangeExportSource
 from posthog.models.signals import model_activity_signal, mutable_receiver
 from posthog.models.user import User
-
-
-class BatchImportKafkaTopic(str, Enum):
-    MAIN = "main"
-    HISTORICAL = "historical"
-    OVERFLOW = "overflow"
 
 
 class BatchImportSerializer(serializers.ModelSerializer):
@@ -68,6 +62,7 @@ class BatchImportSerializer(serializers.ModelSerializer):
             validated_data["import_config"] = validated_data.pop("import_config")
         return BatchImport.objects.create(**validated_data)
 
+    @extend_schema_field({"type": "object", "nullable": True})
     def get_created_by(self, obj):
         if obj.created_by_id:
             try:
@@ -96,6 +91,9 @@ class BatchImportS3SourceCreateSerializer(BatchImportSerializer):
     s3_region = serializers.CharField(write_only=True, required=False)
     access_key = serializers.CharField(write_only=True, required=False)
     secret_key = serializers.CharField(write_only=True, required=False)
+    import_events = serializers.BooleanField(write_only=True, required=False, default=True)
+    generate_identify_events = serializers.BooleanField(write_only=True, required=False, default=True)
+    generate_group_identify_events = serializers.BooleanField(write_only=True, required=False, default=False)
 
     class Meta:
         model = BatchImport
@@ -115,6 +113,9 @@ class BatchImportS3SourceCreateSerializer(BatchImportSerializer):
             "s3_region",
             "access_key",
             "secret_key",
+            "import_events",
+            "generate_identify_events",
+            "generate_group_identify_events",
         ]
         read_only_fields = [
             "id",
@@ -142,17 +143,113 @@ class BatchImportS3SourceCreateSerializer(BatchImportSerializer):
 
         content_type = content_type_map[validated_data["content_type"]]
 
-        batch_import.config.json_lines(content_type).from_s3(
+        config_builder = batch_import.config.json_lines(content_type).from_s3(
             bucket=validated_data["s3_bucket"],
             prefix=validated_data.get("s3_prefix", ""),
             region=validated_data["s3_region"],
             access_key_id=validated_data["access_key"],
             secret_access_key=validated_data["secret_key"],
-        ).to_kafka(
-            topic=BatchImportKafkaTopic.HISTORICAL,
-            send_rate=1000,
-            transaction_timeout_seconds=60,
         )
+
+        if content_type == ContentType.AMPLITUDE:
+            config_builder = (
+                config_builder.with_import_events(validated_data.get("import_events", True))
+                .with_generate_identify_events(validated_data.get("generate_identify_events", True))
+                .with_generate_group_identify_events(validated_data.get("generate_group_identify_events", False))
+            )
+
+        config_builder.to_capture(send_rate=1000)
+
+        batch_import.save()
+        return batch_import
+
+
+class BatchImportS3GzipSourceCreateSerializer(BatchImportSerializer):
+    """Serializer for creating BatchImports with S3 gzipped JSONL source"""
+
+    content_type = serializers.ChoiceField(
+        choices=["mixpanel", "captured", "amplitude"],
+        write_only=True,
+        required=True,
+    )
+    source_type = serializers.ChoiceField(
+        choices=["s3_gzip"],
+        write_only=True,
+        required=True,
+    )
+    s3_bucket = serializers.CharField(write_only=True, required=False)
+    s3_prefix = serializers.CharField(write_only=True, required=False, allow_blank=True)
+    s3_region = serializers.CharField(write_only=True, required=False)
+    access_key = serializers.CharField(write_only=True, required=False)
+    secret_key = serializers.CharField(write_only=True, required=False)
+    import_events = serializers.BooleanField(write_only=True, required=False, default=True)
+    generate_identify_events = serializers.BooleanField(write_only=True, required=False, default=True)
+    generate_group_identify_events = serializers.BooleanField(write_only=True, required=False, default=False)
+
+    class Meta:
+        model = BatchImport
+        fields = [
+            "id",
+            "team_id",
+            "created_at",
+            "updated_at",
+            "state",
+            "status",
+            "display_status_message",
+            "import_config",
+            "content_type",
+            "source_type",
+            "s3_bucket",
+            "s3_prefix",
+            "s3_region",
+            "access_key",
+            "secret_key",
+            "import_events",
+            "generate_identify_events",
+            "generate_group_identify_events",
+        ]
+        read_only_fields = [
+            "id",
+            "team_id",
+            "created_at",
+            "updated_at",
+            "state",
+            "status",
+            "display_status_message",
+            "import_config",
+        ]
+
+    def create(self, validated_data: dict, **kwargs) -> BatchImport:
+        """Create BatchImport using config builder pattern."""
+        batch_import = BatchImport(
+            team_id=self.context["team_id"],
+            created_by_id=self.context["request"].user.id,
+        )
+
+        content_type_map = {
+            "mixpanel": ContentType.MIXPANEL,
+            "amplitude": ContentType.AMPLITUDE,
+            "captured": ContentType.CAPTURED,
+        }
+
+        content_type = content_type_map[validated_data["content_type"]]
+
+        config_builder = batch_import.config.json_lines(content_type).from_s3_gzip(
+            bucket=validated_data["s3_bucket"],
+            prefix=validated_data.get("s3_prefix", ""),
+            region=validated_data["s3_region"],
+            access_key_id=validated_data["access_key"],
+            secret_access_key=validated_data["secret_key"],
+        )
+
+        if content_type == ContentType.AMPLITUDE:
+            config_builder = (
+                config_builder.with_import_events(validated_data.get("import_events", True))
+                .with_generate_identify_events(validated_data.get("generate_identify_events", True))
+                .with_generate_group_identify_events(validated_data.get("generate_group_identify_events", False))
+            )
+
+        config_builder.to_capture(send_rate=1000)
 
         batch_import.save()
         return batch_import
@@ -230,6 +327,10 @@ class BatchImportDateRangeSourceCreateSerializer(BatchImportSerializer):
                     "Date range cannot exceed 1 year. Please create multiple migration jobs for longer periods."
                 )
 
+            source_type = data.get("source_type")
+            if source_type == "amplitude" and (end_date - start_date) < timedelta(hours=1):
+                raise serializers.ValidationError("Date range must be at least 1 hour for Amplitude migrations.")
+
         # For Amplitude, ensure at least one of import_events or generate_identify_events is enabled
         source_type = data.get("source_type")
         if source_type == "amplitude":
@@ -273,11 +374,7 @@ class BatchImportDateRangeSourceCreateSerializer(BatchImportSerializer):
                     .with_generate_group_identify_events(validated_data.get("generate_group_identify_events", True))
                 )
 
-            config_builder.to_kafka(
-                topic=BatchImportKafkaTopic.HISTORICAL,
-                send_rate=1000,
-                transaction_timeout_seconds=60,
-            )
+            config_builder.to_capture(send_rate=1000)
 
             batch_import.save()
             return batch_import
@@ -366,6 +463,8 @@ class BatchImportViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             source_type = self.request.data.get("source_type")
             if source_type == "s3":
                 return BatchImportS3SourceCreateSerializer
+            elif source_type == "s3_gzip":
+                return BatchImportS3GzipSourceCreateSerializer
             elif source_type in ["mixpanel", "amplitude"]:
                 return BatchImportDateRangeSourceCreateSerializer
             else:

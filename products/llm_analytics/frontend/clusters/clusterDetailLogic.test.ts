@@ -399,6 +399,7 @@ describe('clusterDetailLogic', () => {
                 expect(breadcrumbs).toHaveLength(3)
                 expect(breadcrumbs[0].name).toBe('Clusters')
                 expect(breadcrumbs[2].name).toBe('Test Cluster')
+                expect(breadcrumbs[2].iconType).toBe('llm_clusters')
             })
 
             it('uses default cluster name when cluster has no title', async () => {

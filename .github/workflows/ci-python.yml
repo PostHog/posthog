@@ -58,14 +58,21 @@ jobs:
                         - 'services/llm-gateway/**/*.py'
                         # GitHub scripts
                         - '.github/scripts/**/*.py'
+                        # PR approval agent
+                        - 'tools/pr-approval-agent/**'
 
     code-quality:
         needs: changes
         if: needs.changes.outputs.python == 'true'
         timeout-minutes: 30
 
-        name: Python code quality
-        runs-on: depot-ubuntu-latest
+        strategy:
+            fail-fast: false
+            matrix:
+                include: ${{ vars.BLACKSMITH_SHADOW_ENABLED == 'true' && fromJson('[{"runner":"depot-ubuntu-latest","is_shadow":false},{"runner":"blacksmith-2vcpu-ubuntu-2404","is_shadow":true}]') || fromJson('[{"runner":"depot-ubuntu-latest","is_shadow":false}]') }}
+        name: Python code quality (${{ matrix.runner }})
+        runs-on: ${{ matrix.runner }}
+        continue-on-error: ${{ matrix.is_shadow }}
 
         steps:
             - uses: actions/checkout@v6
@@ -73,17 +80,18 @@ jobs:
                   fetch-depth: 1
 
             - name: Set up Python
-              uses: actions/setup-python@83679a892e2d95755f2dac6acb0bfd1e9ac5d548 # v6.1.0
+              uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
               with:
                   python-version: 3.12.12
 
             - name: Install uv
               id: setup-uv
-              uses: astral-sh/setup-uv@61cb8a9741eeb8a550a1b8544337180c0fc8476b # v7.2.0
+              uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b # v7.3.0
               with:
+                  version: '0.10.2' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
                   enable-cache: true
+                  cache-dependency-glob: uv.lock
                   save-cache: ${{ github.ref == 'refs/heads/master' }}
-                  version: 0.9.9
 
             - name: Check uv and Python version compatibility
               shell: bash
@@ -102,6 +110,11 @@ jobs:
               run: |
                   UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
 
+            - name: Download GeoIP database
+              shell: bash
+              run: |
+                  ./bin/download-mmdb
+
             - name: Check for syntax errors, import sort, and code style violations
               shell: bash
               run: |
@@ -117,14 +130,11 @@ jobs:
               run: |
                   echo "::add-matcher::.github/ty-problem-matcher.json"
 
-            - name: Check ty type checking (informational)
+            - name: Check ty type checking
               shell: bash
-              continue-on-error: true
               run: |
-                  echo "👀 Running ty type checker (informational - does not block CI)"
-                  echo "📊 Trial run to evaluate ty vs mypy. Feedback welcome in #team-devex"
-                  echo ""
-                  ./bin/ty.py check posthog ee common dags || echo "⚠️ ty found type issues (annotations below)"
+                  echo "📊 Feedback welcome in #team-devex"
+                  uv run ty check
 
             - name: Add mypy Problem Matcher
               shell: bash
@@ -132,7 +142,7 @@ jobs:
                   echo "::add-matcher::.github/mypy-problem-matcher.json"
 
             - name: Restore mypy cache
-              uses: actions/cache/restore@9255dc7a253b0ccc959486e2bca901246202afeb # v5.0.1
+              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5
               with:
                   path: .mypy_cache
                   key: mypy-cache-${{ runner.os }}-3.12-${{ hashFiles('**/pyproject.toml', '**/mypy.ini') }}
@@ -142,11 +152,12 @@ jobs:
             - name: Check static typing
               shell: bash -e {0}
               run: |
-                  mypy --version && mypy --cache-fine-grained . | mypy-baseline filter || (echo "run 'pnpm run mypy-baseline-sync' to update the baseline" && exit 1)
+                  mypy --version && mypy --cache-fine-grained .
 
             - name: Save mypy cache
-              if: github.ref == 'refs/heads/master'
-              uses: actions/cache/save@9255dc7a253b0ccc959486e2bca901246202afeb # v5.0.1
+              # Shadow restores the saved cache for apples-to-apples timing.
+              if: github.ref == 'refs/heads/master' && !matrix.is_shadow
+              uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5
               with:
                   path: .mypy_cache
                   key: mypy-cache-${{ runner.os }}-3.12-${{ hashFiles('**/pyproject.toml', '**/mypy.ini') }}
@@ -168,7 +179,7 @@ jobs:
 
             - name: Upload test results
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
-              if: always()
+              if: always() && !matrix.is_shadow
               with:
                   name: junit-results-hogli
                   path: junit-hogli.xml
@@ -180,7 +191,7 @@ jobs:
 
             - name: Upload test results for dependency detection
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
-              if: always()
+              if: always() && !matrix.is_shadow
               with:
                   name: junit-results-dependency-detection
                   path: junit-dependency-detection.xml
@@ -198,6 +209,7 @@ jobs:
         needs: [changes, code-quality]
         name: Python code quality checks
         runs-on: ubuntu-latest
+        timeout-minutes: 5
         if: always()
         steps:
             - name: Check Python CI status
