@@ -1,6 +1,6 @@
-import type { Meta, StoryObj } from '@storybook/react'
-
 import './EditorScene.scss'
+
+import type { Meta, StoryObj } from '@storybook/react'
 
 // Pure-CSS visual documentation of the decoration classes applied by the SQL
 // editor when the cursor sits inside a subquery/CTE. The real decorations are
