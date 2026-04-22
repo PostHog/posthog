@@ -10,8 +10,11 @@ the PR-writing sandbox that follows a `mode="autoresearch_campaign"` run.
 
 The sandbox has a `clickhouse_perf:test_read` scope on its OAuth token. All
 ClickHouse queries go through `/api/query_performance_proxy/execute-test/` —
-**never** connect to ClickHouse directly. The proxy is read-only (SELECT /
-WITH / EXPLAIN / SHOW / DESCRIBE only, `readonly = 2` enforced server-side).
+**never** connect to ClickHouse directly. The cluster's ClickHouse user
+enforces `readonly = 2` server-side, so any write-shaped query (INSERT,
+ALTER, DROP, etc.) returns a 502 with a "cannot execute query in readonly
+mode" detail. Stick to SELECT / WITH / EXPLAIN / SHOW / DESCRIBE and you'll
+be fine.
 
 The cluster behind that endpoint is team-scoped at the ClickHouse layer
 (today: it contains only team 2, "PostHog, the company"), so there is no
