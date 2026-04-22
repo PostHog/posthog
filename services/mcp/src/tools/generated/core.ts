@@ -3,9 +3,6 @@ import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
 import {
-    PartialUpdate2Body,
-    PartialUpdate2Params,
-    Retrieve2Params,
     SubscriptionsCreateBody,
     SubscriptionsDeliveriesListParams,
     SubscriptionsDeliveriesListQueryParams,
@@ -21,76 +18,6 @@ import {
 } from '@/generated/core/api'
 import { withPostHogUrl, omitResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
-
-const ProjectGetSchema = Retrieve2Params.extend({
-    id: Retrieve2Params.shape['id'].describe("Project ID, or `@current` to fetch the caller's active project."),
-})
-
-const projectGet = (): ToolBase<typeof ProjectGetSchema, Schemas.Organization> => ({
-    name: 'project-get',
-    schema: ProjectGetSchema,
-    handler: async (context: Context, params: z.infer<typeof ProjectGetSchema>) => {
-        const result = await context.api.request<Schemas.Organization>({
-            method: 'GET',
-            path: `/api/organizations/${encodeURIComponent(String(params.id))}/`,
-        })
-        const filtered = omitResponseFields(result, [
-            'secret_api_token',
-            'secret_api_token_backup',
-            'live_events_token',
-            'default_modifiers',
-        ]) as typeof result
-        return filtered
-    },
-})
-
-const ProjectSettingsUpdateSchema = PartialUpdate2Params.extend(PartialUpdate2Body.shape).extend({
-    id: PartialUpdate2Params.shape['id'].describe("Project ID, or `@current` to target the caller's active project."),
-})
-
-const projectSettingsUpdate = (): ToolBase<typeof ProjectSettingsUpdateSchema, Schemas.Organization> => ({
-    name: 'project-settings-update',
-    schema: ProjectSettingsUpdateSchema,
-    handler: async (context: Context, params: z.infer<typeof ProjectSettingsUpdateSchema>) => {
-        const body: Record<string, unknown> = {}
-        if (params.name !== undefined) {
-            body['name'] = params.name
-        }
-        if (params.logo_media_id !== undefined) {
-            body['logo_media_id'] = params.logo_media_id
-        }
-        if (params.enforce_2fa !== undefined) {
-            body['enforce_2fa'] = params.enforce_2fa
-        }
-        if (params.members_can_invite !== undefined) {
-            body['members_can_invite'] = params.members_can_invite
-        }
-        if (params.members_can_use_personal_api_keys !== undefined) {
-            body['members_can_use_personal_api_keys'] = params.members_can_use_personal_api_keys
-        }
-        if (params.allow_publicly_shared_resources !== undefined) {
-            body['allow_publicly_shared_resources'] = params.allow_publicly_shared_resources
-        }
-        if (params.is_ai_data_processing_approved !== undefined) {
-            body['is_ai_data_processing_approved'] = params.is_ai_data_processing_approved
-        }
-        if (params.default_experiment_stats_method !== undefined) {
-            body['default_experiment_stats_method'] = params.default_experiment_stats_method
-        }
-        if (params.default_anonymize_ips !== undefined) {
-            body['default_anonymize_ips'] = params.default_anonymize_ips
-        }
-        if (params.default_role_id !== undefined) {
-            body['default_role_id'] = params.default_role_id
-        }
-        const result = await context.api.request<Schemas.Organization>({
-            method: 'PATCH',
-            path: `/api/organizations/${encodeURIComponent(String(params.id))}/`,
-            body,
-        })
-        return result
-    },
-})
 
 const SubscriptionsListSchema = SubscriptionsListQueryParams
 
@@ -442,8 +369,6 @@ const subscriptionsDeliveriesRetrieve = (): ToolBase<
 })
 
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
-    'project-get': projectGet,
-    'project-settings-update': projectSettingsUpdate,
     'subscriptions-list': subscriptionsList,
     'subscriptions-create': subscriptionsCreate,
     'subscriptions-retrieve': subscriptionsRetrieve,

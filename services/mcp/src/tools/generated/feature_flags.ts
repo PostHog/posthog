@@ -13,7 +13,7 @@ import {
     FeatureFlagsListQueryParams,
     FeatureFlagsPartialUpdateBody,
     FeatureFlagsPartialUpdateParams,
-    FeatureFlagsRetrieve2Params,
+    FeatureFlagsRetrieveParams,
     FeatureFlagsStatusRetrieveParams,
     FeatureFlagsUserBlastRadiusCreateBody,
     ScheduledChangesCreateBody,
@@ -75,7 +75,7 @@ const featureFlagGetAll = (): ToolBase<
     },
 })
 
-const FeatureFlagGetDefinitionSchema = FeatureFlagsRetrieve2Params.omit({ project_id: true })
+const FeatureFlagGetDefinitionSchema = FeatureFlagsRetrieveParams.omit({ project_id: true })
 
 const featureFlagGetDefinition = (): ToolBase<
     typeof FeatureFlagGetDefinitionSchema,
