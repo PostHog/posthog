@@ -160,7 +160,9 @@ test.describe('Stickiness insights', () => {
 
         await test.step('disable comparison and verify values restored', async () => {
             await insight.stickiness.selectComparison('No comparison between periods')
+            await insight.stickiness.openOptionsMenu()
             await expect(insight.stickiness.comparisonButton).toContainText('No comparison')
+            await insight.stickiness.closeOptionsMenu()
             await insight.stickiness.waitForDetailsTable()
 
             const day1 = await insight.stickiness.details.row('Pageview').column('Day 1')

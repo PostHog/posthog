@@ -75,8 +75,10 @@ export class StickinessInsight extends ChartInsightBase {
     }
 
     async selectComparison(text: string): Promise<void> {
+        await this.openOptionsMenu()
         await this.comparisonButton.click()
         await this.page.getByText(text).click()
+        await this.closeOptionsMenu()
         await this.waitForChart()
     }
 
