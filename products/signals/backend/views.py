@@ -22,6 +22,7 @@ from django.db.models import (
     Value,
     When,
 )
+from django.db.models.fields.json import KeyTextTransform
 from django.db.models.functions import Cast, Coalesce
 
 import structlog
@@ -583,7 +584,8 @@ class SignalReportViewSet(
             )
             .exclude(output__pr_url="")
             .order_by("-created_at")
-            .values("output__pr_url")[:1],
+            .annotate(output_pr_url_text=KeyTextTransform("pr_url", "output"))
+            .values("output_pr_url_text")[:1],
             output_field=CharField(),
         )
         return queryset.annotate(implementation_pr_url=latest_impl_pr_url)
@@ -601,14 +603,15 @@ class SignalReportViewSet(
             )
             .exclude(output__pr_url="")
             .order_by("task__signal_report_tasks__report_id", "-created_at", "-id")
-            .values("task__signal_report_tasks__report_id", "output__pr_url")
+            .annotate(output_pr_url_text=KeyTextTransform("pr_url", "output"))
+            .values("task__signal_report_tasks__report_id", "output_pr_url_text")
             .distinct("task__signal_report_tasks__report_id")
         )
 
         return {
-            str(row["task__signal_report_tasks__report_id"]): row["output__pr_url"]
+            str(row["task__signal_report_tasks__report_id"]): row["output_pr_url_text"]
             for row in latest_runs
-            if row["task__signal_report_tasks__report_id"] and row["output__pr_url"]
+            if row["task__signal_report_tasks__report_id"] and row["output_pr_url_text"]
         }
 
     def filter_queryset(self, queryset):

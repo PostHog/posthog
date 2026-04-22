@@ -416,6 +416,7 @@ class TestSignalReportListAPI(APIBaseTest):
         response = self.client.get(f"/api/projects/{self.team.id}/signals/reports/{report.id}/")
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["implementation_pr_url"] == "https://github.com/org/repo/pull/42"
+        assert response.json()["implementation_pr_url"] == response.json()["implementation_pr_url"].strip('"')
 
     def test_implementation_pr_url_null_when_no_implementation_task(self):
         report = self._create_report()
