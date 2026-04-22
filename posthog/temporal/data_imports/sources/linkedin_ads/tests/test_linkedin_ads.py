@@ -421,7 +421,9 @@ class TestLinkedinAdsSource:
             logger=mock.MagicMock(),
         )
 
-        rows = list(result.items())
+        items = result.items()
+        assert isinstance(items, Iterable)
+        rows = list(items)
         assert all(isinstance(r, pa.Table) for r in rows)
         # Flush 1 at p2-b: [p1-a, p2-a, p2-b] — page 1 fully durable, "token-2" saved.
         # Final flush: [p3-a, p3-b] — page 2's tail had already been written by flush 1,
