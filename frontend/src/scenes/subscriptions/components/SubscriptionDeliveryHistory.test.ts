@@ -32,7 +32,11 @@ describe('rowHasExpandedContent', () => {
         ['summary only', { change_summary: { summary: 'all good' } }, true],
         ['assets only', { exported_asset_ids: [101] }, true],
         ['both', { change_summary: { summary: 'all good' }, exported_asset_ids: [101, 102] }, true],
-        ['empty summary object still truthy', { change_summary: {} }, true],
+        // Empty summary object with no assets should NOT claim expandability — the expanded row
+        // would render nothing. Prevents a confusing "click-caret-to-see-empty" UX.
+        ['empty summary object, no assets', { change_summary: {} }, false],
+        ['empty summary string, no assets', { change_summary: { summary: '' } }, false],
+        ['empty summary object with assets', { change_summary: {}, exported_asset_ids: [101] }, true],
     ])('%s → %s', (_label, overrides, expected) => {
         expect(rowHasExpandedContent(makeDelivery(overrides))).toBe(expected)
     })

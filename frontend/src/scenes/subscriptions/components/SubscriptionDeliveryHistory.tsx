@@ -147,7 +147,10 @@ function ExpandedDeliveryRow({
 }
 
 export function rowHasExpandedContent(row: SubscriptionDeliveryApi): boolean {
-    return Boolean(row.change_summary) || row.exported_asset_ids.length > 0
+    // Check for actual summary content, not just the presence of the change_summary object.
+    // Empty objects ({}) or objects with no summary key would otherwise claim expandability
+    // but render an empty expanded row.
+    return Boolean(row.change_summary?.summary) || row.exported_asset_ids.length > 0
 }
 
 function buildExpandable(initiallyExpandedDeliveryIds?: ReadonlySet<string>): {
