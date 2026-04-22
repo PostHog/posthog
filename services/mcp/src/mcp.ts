@@ -30,7 +30,7 @@ import { SessionManager } from '@/lib/SessionManager'
 import { StateManager } from '@/lib/StateManager'
 import { sanitizeHeaderValue } from '@/lib/utils'
 import { registerPrompts } from '@/prompts'
-import { registerResources } from '@/resources'
+import { getRequiredSkillFlags, registerResources } from '@/resources'
 import { registerUiAppResources } from '@/resources/ui-apps'
 import INSTRUCTIONS_TEMPLATE_V1 from '@/templates/instructions-v1.md'
 import INSTRUCTIONS_TEMPLATE_V2 from '@/templates/instructions-v2.md'
@@ -336,11 +336,7 @@ export class MCP extends McpAgent<Env> {
             return
         }
 
-        await this.trackEvent(
-            event,
-            {},
-            { context: resolvedContext, ...(previousContext ? { previousContext } : {}) }
-        )
+        await this.trackEvent(event, {}, { context: resolvedContext, ...(previousContext ? { previousContext } : {}) })
     }
 
     registerTool<TSchema extends z.ZodObject>(
@@ -473,9 +469,11 @@ export class MCP extends McpAgent<Env> {
     async init(): Promise<void> {
         const { features, tools, version: clientVersion, organizationId, projectId, readOnly } = this.requestProperties
 
-        // Start feature flag resolution in parallel with cache seeding
+        // Start feature flag resolution in parallel with cache seeding.
+        // Tool and skill flags share one batch evaluation so we only pay a
+        // single network round-trip for flag evaluation per init.
         const flagPromise = this.resolveVersionFlag()
-        const toolFlagsPromise = this.resolveToolFeatureFlags(clientVersion)
+        const featureFlagsPromise = this.resolveFeatureFlags(clientVersion)
 
         // Seed cache with header-provided IDs before any fetches
         if (organizationId) {
@@ -492,7 +490,7 @@ export class MCP extends McpAgent<Env> {
             await context.stateManager.setDefaultOrganizationAndProject()
         }
 
-        const [flagVersion, toolFeatureFlags] = await Promise.all([flagPromise, toolFlagsPromise])
+        const [flagVersion, featureFlags] = await Promise.all([flagPromise, featureFlagsPromise])
         const version = flagVersion ?? clientVersion ?? 1
 
         // Fetch group types and metadata in parallel (cache is now seeded)
@@ -522,7 +520,7 @@ export class MCP extends McpAgent<Env> {
         // Register prompts and resources
         await Promise.all([
             registerPrompts(this.server),
-            registerResources(this.server, context),
+            registerResources(this.server, context, featureFlags),
             registerUiAppResources(this.server, context),
         ])
 
@@ -534,7 +532,7 @@ export class MCP extends McpAgent<Env> {
             version,
             excludeTools,
             readOnly,
-            featureFlags: toolFeatureFlags,
+            featureFlags,
         })
 
         // OAuth introspection has now run (triggered by getToolsFromContext → getApiKey),
@@ -604,16 +602,26 @@ export class MCP extends McpAgent<Env> {
         }
     }
 
-    private async resolveToolFeatureFlags(version?: number): Promise<Record<string, boolean> | undefined> {
+    /**
+     * Batch-evaluate feature flags referenced by both tool and skill (resource)
+     * definitions. Skills and tools share one round-trip so init latency
+     * doesn't grow linearly with the number of gated surfaces.
+     */
+    private async resolveFeatureFlags(version?: number): Promise<Record<string, boolean> | undefined> {
         try {
             const { getRequiredFeatureFlags } = await import('@/tools/toolDefinitions')
-            const flagKeys = getRequiredFeatureFlags(version)
-            if (flagKeys.length === 0) {
+            const toolFlagKeys = getRequiredFeatureFlags(version)
+            const skillFlagKeys = await getRequiredSkillFlags({ env: this.env })
+            const allKeys = [...new Set([...toolFlagKeys, ...skillFlagKeys])]
+            if (allKeys.length === 0) {
                 return undefined
             }
             const distinctId = await this.getDistinctId()
-            return await evaluateFeatureFlags(flagKeys, distinctId)
-        } catch {
+            return await evaluateFeatureFlags(allKeys, distinctId)
+        } catch (err) {
+            // Degrade gracefully: enable-gated surfaces stay hidden, disable-gated stay shown.
+            // Log so operators can diagnose recurrent failures (e.g. distinct_id lookup flakes).
+            console.warn('[feature-flag-gating] resolution failed', err)
             return undefined
         }
     }

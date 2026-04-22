@@ -1,6 +1,7 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { type Unzipped, strFromU8, unzipSync } from 'fflate'
 
+import { shouldIncludeByFlag } from '@/lib/feature-flag-gating'
 import type { Context } from '@/tools/types'
 
 import { loadContextMillManifest } from './manifest-loader'
@@ -13,40 +14,43 @@ import type { ContextMillManifest, ResourceManifest } from './manifest-types'
 export const CONTEXT_MILL_URL =
     'https://github.com/PostHog/context-mill/releases/latest/download/skills-mcp-resources.zip'
 
-// Cache for context-mill resources ZIP contents
-let cachedResources: Unzipped | null = null
+// Cache for context-mill resources ZIP contents. Stored as a Promise so
+// concurrent cold-path callers (e.g. getRequiredSkillFlags racing with
+// registerContextMillResources) collapse onto a single fetch.
+let cachedResourcesPromise: Promise<Unzipped> | null = null
+
+export type ContextMillEnv = { env: Context['env'] }
 
 /**
  * Fetches and caches the context-mill resources ZIP
  * For local testing, set POSTHOG_MCP_LOCAL_SKILLS_URL to a local HTTP URL
  */
-async function fetchContextMillResources(context: Context): Promise<Unzipped> {
+async function fetchContextMillResources(context: ContextMillEnv): Promise<Unzipped> {
     // Check for local URL override in environment (for testing)
     const localUrlRaw = (context.env as Record<string, string | undefined>)?.POSTHOG_MCP_LOCAL_SKILLS_URL
     const localUrl = localUrlRaw && localUrlRaw.trim() !== '' ? localUrlRaw : undefined
-    const url = localUrl || CONTEXT_MILL_URL
 
-    // Skip cache for local development
-    if (cachedResources && !localUrl) {
-        return cachedResources
+    if (localUrl) {
+        return doFetchContextMillResources(localUrl, true)
     }
 
-    const response = await fetch(url, localUrl ? { cache: 'no-store' } : {})
+    if (!cachedResourcesPromise) {
+        cachedResourcesPromise = doFetchContextMillResources(CONTEXT_MILL_URL, false).catch((err) => {
+            // Clear the cache on failure so subsequent calls can retry.
+            cachedResourcesPromise = null
+            throw err
+        })
+    }
+    return cachedResourcesPromise
+}
 
+async function doFetchContextMillResources(url: string, noStore: boolean): Promise<Unzipped> {
+    const response = await fetch(url, noStore ? { cache: 'no-store' } : {})
     if (!response.ok) {
         throw new Error(`Failed to fetch context-mill resources from ${url}: ${response.statusText}`)
     }
-
     const arrayBuffer = await response.arrayBuffer()
-    const uint8Array = new Uint8Array(arrayBuffer)
-    const unzipped = unzipSync(uint8Array)
-
-    // Only cache if not using local URL override
-    if (!localUrl) {
-        cachedResources = unzipped
-    }
-
-    return unzipped
+    return unzipSync(new Uint8Array(arrayBuffer))
 }
 
 /**
@@ -73,13 +77,24 @@ export async function getPromptsFromManifest(): Promise<ResourceManifest['resour
  * Register resources from the context-mill manifest.
  * The manifest fully defines each resource's MCP representation —
  * this function is a pure pass-through.
+ *
+ * Resources declaring `feature_flag` are filtered via `shouldIncludeByFlag`
+ * using the evaluated `featureFlags` map (same semantics as tool gating).
  */
-async function registerContextMillResources(server: McpServer, context: Context): Promise<void> {
+async function registerContextMillResources(
+    server: McpServer,
+    context: ContextMillEnv,
+    featureFlags?: Record<string, boolean>
+): Promise<void> {
     try {
         const archive = await fetchContextMillResources(context)
         const manifest = loadManifestFromArchive(archive)
 
         for (const entry of manifest.resources) {
+            if (!shouldIncludeByFlag(entry, featureFlags)) {
+                continue
+            }
+
             // Validate archive file exists for non-inline resources
             if (entry.file) {
                 const zipData = archive[entry.file]
@@ -113,9 +128,38 @@ async function registerContextMillResources(server: McpServer, context: Context)
 }
 
 /**
+ * Collect all distinct feature flag keys referenced by context-mill resources.
+ * Used at init time to batch-evaluate flags alongside tool flags before
+ * registering resources.
+ *
+ * Never throws — on manifest fetch/parse failure, returns an empty list so
+ * init can proceed (resources will just skip flag-gated entries when they
+ * can't be fetched either).
+ */
+export async function getRequiredSkillFlags(context: ContextMillEnv): Promise<string[]> {
+    try {
+        const archive = await fetchContextMillResources(context)
+        const manifest = loadManifestFromArchive(archive)
+        const flags = new Set<string>()
+        for (const entry of manifest.resources) {
+            if (entry.feature_flag) {
+                flags.add(entry.feature_flag)
+            }
+        }
+        return [...flags]
+    } catch {
+        return []
+    }
+}
+
+/**
  * Registers all PostHog resources with the MCP server
  * Resources are loaded from context-mill's skills-mcp-resources.zip
  */
-export async function registerResources(server: McpServer, context: Context): Promise<void> {
-    await registerContextMillResources(server, context)
+export async function registerResources(
+    server: McpServer,
+    context: ContextMillEnv,
+    featureFlags?: Record<string, boolean>
+): Promise<void> {
+    await registerContextMillResources(server, context, featureFlags)
 }

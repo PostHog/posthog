@@ -31,10 +31,11 @@ import zipfile
 import argparse
 import textwrap
 from pathlib import Path
+from typing import Literal
 
 import yaml
 from jinja2 import Environment, StrictUndefined, TemplateSyntaxError
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, Field, ValidationError, field_validator, model_validator
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent.parent
 sys.path.insert(0, str(REPO_ROOT))
@@ -74,6 +75,29 @@ def _assert_text_file(file_path: Path) -> None:
 class SkillFrontmatter(BaseModel):
     name: str
     description: str
+    # Optional PostHog feature flag key that gates this skill at MCP request
+    # time. Skills without a flag are always included. See the MCP server's
+    # shouldIncludeByFlag helper for the gating rule.
+    feature_flag: str | None = None
+    feature_flag_behavior: Literal["enable", "disable"] | None = None
+
+    @field_validator("feature_flag", mode="before")
+    @classmethod
+    def _strip_and_reject_empty_flag(cls, v: object) -> str | None:
+        if v is None:
+            return None
+        if not isinstance(v, str):
+            raise ValueError("feature_flag must be a string")
+        stripped = v.strip()
+        if not stripped:
+            raise ValueError("feature_flag must be a non-empty string")
+        return stripped
+
+    @model_validator(mode="after")
+    def _reject_orphan_behavior(self) -> SkillFrontmatter:
+        if self.feature_flag_behavior is not None and self.feature_flag is None:
+            raise ValueError("feature_flag_behavior requires feature_flag to be set")
+        return self
 
 
 class DiscoveredSkill(BaseModel):
@@ -93,6 +117,8 @@ class SkillResource(BaseModel):
     description: str
     files: list[SkillFile]
     source: str
+    feature_flag: str | None = None
+    feature_flag_behavior: Literal["enable", "disable"] | None = None
 
 
 class SkillManifest(BaseModel):
@@ -119,6 +145,17 @@ def validate_frontmatter(text: str, source_label: str = "<unknown>") -> SkillFro
         return SkillFrontmatter.model_validate(parsed)
     except ValidationError as e:
         raise ValueError(f"Invalid frontmatter in {source_label}: {e}") from e
+
+
+def _try_validate_frontmatter(text: str, source_label: str) -> SkillFrontmatter | None:
+    """Validate frontmatter if present, return ``None`` if the block is absent.
+
+    Distinct from ``validate_frontmatter`` in that a missing block (legacy
+    skills) is tolerated, but malformed content still raises.
+    """
+    if not _FRONTMATTER_RE.match(text):
+        return None
+    return validate_frontmatter(text, source_label=source_label)
 
 
 def parse_frontmatter(text: str) -> tuple[dict[str, str], str]:
@@ -278,25 +315,39 @@ class SkillBuilder:
             skill_dir = skill.source_file.parent
             skill_files = self.collect_skill_files(skill_dir, renderer)
             entry_content = skill_files[0].content
-            metadata, _body = parse_frontmatter(entry_content)
             source = str(skill_dir.relative_to(self.repo_root))
         else:
             rendered = renderer.render(skill.source_file)
-            metadata, _body = parse_frontmatter(rendered)
+            entry_content = rendered
             out_name = skill.source_file.name
             if out_name.endswith(".j2"):
                 out_name = out_name.removesuffix(".j2")
             skill_files = [SkillFile(path=out_name, content=rendered.strip())]
             source = str(skill.source_file.relative_to(self.repo_root))
 
-        display_name = metadata.get("name", skill.name)
-        description = metadata.get("description", f"Skill: {skill.name}")
+        # Parse typed frontmatter when present — the stringified `metadata` dict from
+        # `parse_frontmatter` would turn `feature_flag: null` into the literal string
+        # "None" and ship a bogus flag key in the manifest. Skills without frontmatter
+        # fall back to legacy defaults (lint catches this separately).
+        fm = _try_validate_frontmatter(entry_content, source)
+        if fm is not None:
+            display_name = fm.name
+            description = fm.description
+            feature_flag = fm.feature_flag
+            feature_flag_behavior = fm.feature_flag_behavior
+        else:
+            display_name = skill.name
+            description = f"Skill: {skill.name}"
+            feature_flag = None
+            feature_flag_behavior = None
 
         return SkillResource(
             name=display_name,
             description=description,
             files=skill_files,
             source=source,
+            feature_flag=feature_flag,
+            feature_flag_behavior=feature_flag_behavior,
         )
 
     def build_manifest(self, skills: list[DiscoveredSkill], renderer: SkillRenderer) -> SkillManifest:

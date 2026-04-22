@@ -82,6 +82,10 @@ export interface ContextMillResource {
     uri: string
     /** Filename in the archive (for validation). Absent for inline resources. */
     file?: string
+    /** PostHog feature flag key that gates this resource. */
+    feature_flag?: string
+    /** How the flag gates the resource: 'enable' (default) or 'disable'. */
+    feature_flag_behavior?: 'enable' | 'disable'
     /** Complete MCP resource representation, served directly to clients */
     resource: {
         mimeType: string

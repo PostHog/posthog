@@ -1,29 +1,29 @@
 import z from 'zod'
 
+import { FlagGatedSchema, shouldIncludeByFlag } from '@/lib/feature-flag-gating'
+
 import generatedToolDefinitionsJson from '../../schema/generated-tool-definitions.json'
 import toolDefinitionsV2Json from '../../schema/tool-definitions-v2.json'
 import toolDefinitionsJson from '../../schema/tool-definitions.json'
 
-export const ToolDefinitionSchema = z.object({
-    description: z.string(),
-    category: z.string(),
-    feature: z.string(),
-    summary: z.string(),
-    title: z.string(),
-    required_scopes: z.array(z.string()),
-    new_mcp: z.boolean().optional(),
-    requires_ai_consent: z.boolean().optional(),
-    /** PostHog feature flag key that gates this tool. */
-    feature_flag: z.string().optional(),
-    /** How the flag gates the tool: 'enable' (default) or 'disable'. */
-    feature_flag_behavior: z.enum(['enable', 'disable']).optional(),
-    annotations: z.object({
-        destructiveHint: z.boolean(),
-        idempotentHint: z.boolean(),
-        openWorldHint: z.boolean(),
-        readOnlyHint: z.boolean(),
-    }),
-})
+export const ToolDefinitionSchema = z
+    .object({
+        description: z.string(),
+        category: z.string(),
+        feature: z.string(),
+        summary: z.string(),
+        title: z.string(),
+        required_scopes: z.array(z.string()),
+        new_mcp: z.boolean().optional(),
+        requires_ai_consent: z.boolean().optional(),
+        annotations: z.object({
+            destructiveHint: z.boolean(),
+            idempotentHint: z.boolean(),
+            openWorldHint: z.boolean(),
+            readOnlyHint: z.boolean(),
+        }),
+    })
+    .merge(FlagGatedSchema)
 
 export type ToolDefinition = z.infer<typeof ToolDefinitionSchema>
 
@@ -147,29 +147,7 @@ export function getToolsForFeatures(options?: ToolFilterOptions): string[] {
     // Filter by feature flags — tools with a feature_flag are gated by the flag's evaluation.
     // behavior 'enable' (default): tool is included only when the flag is on.
     // behavior 'disable': tool is excluded when the flag is on.
-    if (featureFlags) {
-        entries = entries.filter(([_, definition]) => {
-            if (!definition.feature_flag) {
-                return true
-            }
-            const flagValue = featureFlags[definition.feature_flag]
-            // If the flag wasn't evaluated (missing from the map), exclude the tool
-            // for 'enable' behavior and include it for 'disable' behavior.
-            const isOn = flagValue === true
-            const behavior = definition.feature_flag_behavior ?? 'enable'
-            return behavior === 'enable' ? isOn : !isOn
-        })
-    } else {
-        // When no feature flags have been evaluated, exclude tools that require
-        // a flag to be enabled (behavior 'enable') — they shouldn't appear by default.
-        // Tools with behavior 'disable' are included since their flag hasn't fired.
-        entries = entries.filter(([_, definition]) => {
-            if (!definition.feature_flag) {
-                return true
-            }
-            return (definition.feature_flag_behavior ?? 'enable') === 'disable'
-        })
-    }
+    entries = entries.filter(([_, definition]) => shouldIncludeByFlag(definition, featureFlags))
 
     return entries.map(([toolName, _]) => toolName)
 }

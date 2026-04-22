@@ -15,6 +15,7 @@ from products.posthog_ai.scripts.build_skills import (
     DiscoveredSkill,
     SkillBuilder,
     SkillDiscoverer,
+    SkillFrontmatter,
     SkillRenderer,
     parse_frontmatter,
     validate_frontmatter,
@@ -220,6 +221,93 @@ def test_build_skill_defaults_without_frontmatter(tmp_path: Path) -> None:
     assert result.name == "my-skill"
     assert result.description == "Skill: my-skill"
     assert "# No frontmatter" in result.files[0].content
+
+
+def _make_skill(tmp_path: Path, frontmatter: str) -> tuple[DiscoveredSkill, SkillBuilder]:
+    md_file = tmp_path / "products" / "foo" / "skills" / "flagged" / "SKILL.md"
+    md_file.parent.mkdir(parents=True)
+    md_file.write_text(f"---\n{frontmatter}---\n# Body\n")
+    skill = DiscoveredSkill(name="flagged", source_file=md_file, product_dir=tmp_path / "products" / "foo", depth=1)
+    builder = SkillBuilder(repo_root=tmp_path, products_dir=tmp_path / "products", output_dir=tmp_path / "output")
+    return skill, builder
+
+
+def test_skill_frontmatter_accepts_valid_flag_and_behavior() -> None:
+    fm = SkillFrontmatter.model_validate(
+        {
+            "name": "x",
+            "description": "y",
+            "feature_flag": "my-flag",
+            "feature_flag_behavior": "disable",
+        }
+    )
+    assert fm.feature_flag == "my-flag"
+    assert fm.feature_flag_behavior == "disable"
+
+
+def test_skill_frontmatter_null_flag_becomes_none() -> None:
+    fm = SkillFrontmatter.model_validate({"name": "x", "description": "y", "feature_flag": None})
+    assert fm.feature_flag is None
+
+
+@pytest.mark.parametrize(
+    "value,error_fragment",
+    [
+        ("", "non-empty"),
+        ("   ", "non-empty"),
+        (42, "must be a string"),
+    ],
+    ids=["empty-string", "whitespace-only", "wrong-type"],
+)
+def test_skill_frontmatter_rejects_invalid_flag(value: object, error_fragment: str) -> None:
+    with pytest.raises(ValueError, match=error_fragment):
+        SkillFrontmatter.model_validate({"name": "x", "description": "y", "feature_flag": value})
+
+
+def test_skill_frontmatter_rejects_orphan_behavior() -> None:
+    with pytest.raises(ValueError, match="feature_flag_behavior requires feature_flag"):
+        SkillFrontmatter.model_validate({"name": "x", "description": "y", "feature_flag_behavior": "enable"})
+
+
+def test_build_skill_propagates_flag_and_behavior(tmp_path: Path) -> None:
+    skill, builder = _make_skill(
+        tmp_path,
+        "name: flagged\ndescription: gated skill\nfeature_flag: gate-me\nfeature_flag_behavior: enable\n",
+    )
+    renderer = SkillRenderer()
+    result = builder.build_skill(skill, renderer)
+    assert result.feature_flag == "gate-me"
+    assert result.feature_flag_behavior == "enable"
+
+
+def test_build_skill_null_feature_flag_does_not_leak_as_string(tmp_path: Path) -> None:
+    # Regression: `feature_flag: null` in YAML used to be stringified to "None"
+    # and ship as a bogus flag key in the manifest.
+    skill, builder = _make_skill(tmp_path, "name: flagged\ndescription: no gate\nfeature_flag: null\n")
+    renderer = SkillRenderer()
+    result = builder.build_skill(skill, renderer)
+    assert result.feature_flag is None
+    assert result.feature_flag_behavior is None
+
+
+def test_build_skill_rejects_invalid_behavior(tmp_path: Path) -> None:
+    skill, builder = _make_skill(
+        tmp_path,
+        "name: flagged\ndescription: x\nfeature_flag: gate\nfeature_flag_behavior: maybe\n",
+    )
+    renderer = SkillRenderer()
+    with pytest.raises(ValueError):
+        builder.build_skill(skill, renderer)
+
+
+def test_build_skill_rejects_orphan_behavior(tmp_path: Path) -> None:
+    skill, builder = _make_skill(
+        tmp_path,
+        "name: flagged\ndescription: x\nfeature_flag_behavior: enable\n",
+    )
+    renderer = SkillRenderer()
+    with pytest.raises(ValueError, match="feature_flag_behavior requires feature_flag"):
+        builder.build_skill(skill, renderer)
 
 
 def test_build_skill_collects_all_files(tmp_path: Path) -> None:
