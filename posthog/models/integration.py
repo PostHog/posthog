@@ -2089,10 +2089,10 @@ class GitHubIntegration:
 
         Returns the GitHub username or None if the exchange fails.
         """
-        client_id = settings.GITHUB_APP_OAUTH_CLIENT_ID
-        client_secret = settings.GITHUB_APP_OAUTH_CLIENT_SECRET
+        client_id = settings.GITHUB_APP_CLIENT_ID
+        client_secret = settings.GITHUB_APP_CLIENT_SECRET
         if not client_id or not client_secret:
-            logger.warning("GitHubIntegration: GITHUB_APP_OAUTH_CLIENT_ID/SECRET not configured, cannot exchange code")
+            logger.warning("GitHubIntegration: GITHUB_APP_CLIENT_ID/SECRET not configured, cannot exchange code")
             return None
 
         try:
