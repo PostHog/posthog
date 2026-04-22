@@ -53,6 +53,7 @@ jobs:
                         - .github/workflows/ci-frontend.yml
                         # various JS config files
                         - .oxlintrc.json
+                        - .oxlintrc.strict.json
                         - .oxfmtrc*
                         - babel.config.js
                         - package.json
@@ -81,6 +82,7 @@ jobs:
                         - 'playwright/**'
                         - .github/workflows/ci-frontend.yml
                         - .oxlintrc.json
+                        - .oxlintrc.strict.json
                         - .oxfmtrc*
                         - babel.config.js
                         - package.json
@@ -99,6 +101,9 @@ jobs:
         timeout-minutes: 10
         steps:
             - uses: actions/checkout@v6
+              with:
+                  # Need full history so strict-lint can diff against the PR's merge base
+                  fetch-depth: 0
 
             - name: Install pnpm
               uses: pnpm/action-setup@41ff72655975bd51cab0327fa583b6e92b6d3061 # v4.2.0
@@ -128,6 +133,19 @@ jobs:
 
             - name: Lint with Oxlint
               run: pnpm exec oxlint --quiet
+
+            - name: Lint changed files with strict Oxlint rules
+              if: github.event_name == 'pull_request'
+              env:
+                  BASE_SHA: ${{ github.event.pull_request.base.sha }}
+                  HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+              run: |
+                  mapfile -t CHANGED < <(git diff --name-only --diff-filter=ACMRT "$BASE_SHA...$HEAD_SHA" -- '*.ts' '*.tsx' '*.js' '*.jsx' '*.mjs')
+                  if [ ${#CHANGED[@]} -gt 0 ]; then
+                      pnpm exec oxlint --quiet --config .oxlintrc.strict.json "${CHANGED[@]}"
+                  else
+                      echo "No changed JS/TS files to lint with strict rules."
+                  fi
 
             - name: Check markdown formatting with oxfmt
               run: pnpm exec oxfmt --check "**/*.{md,mdx}"

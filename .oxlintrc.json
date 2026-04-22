@@ -85,11 +85,6 @@
             {
                 "paths": [
                     {
-                        "name": "react",
-                        "importNames": ["useState"],
-                        "message": "Save state in state management instead."
-                    },
-                    {
                         "name": "dayjs",
                         "message": "Do not directly import dayjs. Only import the dayjs exported from 'lib/dayjs'."
                     },
