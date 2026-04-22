@@ -605,6 +605,19 @@ class ConnectionParameters:
     database: str
     has_self_signed_cert: bool = False
 
+    def credentials(self) -> Credentials:
+        user = self.user
+        password = self.password
+        return Credentials(user, password)
+
+    def authority(self) -> Authority:
+        host = self.host
+        port = self.port
+        return Authority(host, port)
+
+    def tls(self) -> TLS:
+        return TLS(ssl_mode="prefer" if settings.TEST else "require")
+
 
 @dataclasses.dataclass
 class TableParameters:
@@ -622,19 +635,6 @@ class RedshiftCopyActivityInputs:
     table: TableParameters
     copy: CopyParameters
 
-    def credentials(self) -> Credentials:
-        user = self.connection.user
-        password = self.connection.password
-        return Credentials(user, password)
-
-    def authority(self) -> Authority:
-        host = self.connection.host
-        port = self.connection.port
-        return Authority(host, port)
-
-    def tls(self) -> TLS:
-        return TLS(ssl_mode="prefer" if settings.TEST else "require")
-
 
 @dataclasses.dataclass
 class RedshiftInsertInputs:
@@ -643,19 +643,6 @@ class RedshiftInsertInputs:
     batch_export: BatchExportInsertInputs
     connection: ConnectionParameters
     table: TableParameters
-
-    def credentials(self) -> Credentials:
-        user = self.connection.user
-        password = self.connection.password
-        return Credentials(user, password)
-
-    def authority(self) -> Authority:
-        host = self.connection.host
-        port = self.connection.port
-        return Authority(host, port)
-
-    def tls(self) -> TLS:
-        return TLS(ssl_mode="prefer" if settings.TEST else "require")
 
 
 class RedshiftConsumer(Consumer):
@@ -931,7 +918,9 @@ async def insert_into_redshift_activity_from_stage(inputs: RedshiftInsertInputs)
             else inputs.table.name
         )
 
-        async with RedshiftClient.from_inputs(inputs, database=inputs.connection.database).connect() as redshift_client:
+        async with RedshiftClient.from_inputs(
+            inputs.connection, database=inputs.connection.database
+        ).connect() as redshift_client:
             remove_duplicates = True
             # filter out fields that are not in the destination table
             try:
@@ -1278,7 +1267,9 @@ async def copy_into_redshift_activity_from_stage(inputs: RedshiftCopyActivityInp
         if result.error is not None:
             return result
 
-        async with RedshiftClient.from_inputs(inputs, database=inputs.connection.database).connect() as redshift_client:
+        async with RedshiftClient.from_inputs(
+            inputs.connection, database=inputs.connection.database
+        ).connect() as redshift_client:
             remove_duplicates = True
 
             # filter out fields that are not in the destination table
