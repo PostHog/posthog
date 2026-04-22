@@ -1,9 +1,9 @@
-import json
 import sys
+import json
 from pathlib import Path
-from unittest.mock import MagicMock, patch
 
 import pytest
+from unittest.mock import MagicMock, patch
 
 # The transport module lives alongside the vendored autoresearch scripts.
 # Loading it via sys.path keeps that code shape intact without needing to
@@ -11,34 +11,21 @@ import pytest
 _SCRIPTS_DIR = Path(__file__).resolve().parent.parent.parent / "autoresearch" / "scripts"
 sys.path.insert(0, str(_SCRIPTS_DIR))
 
-from transports import (  # noqa: E402
-    PosthogProxyTransport,
-    TransportError,
-    load_transport,
-)
+from transports import PosthogProxyTransport, TransportError, load_transport  # noqa: E402
 
 
 class TestPosthogProxyTransport:
     def test_factory_requires_url(self):
         with pytest.raises(ValueError, match="url"):
-            load_transport({"type": "posthog_proxy", "cluster": "test", "token": "t"})
-
-    def test_factory_requires_cluster(self):
-        with pytest.raises(ValueError, match="cluster"):
-            load_transport({"type": "posthog_proxy", "url": "http://x", "token": "t"})
-
-    def test_factory_rejects_bogus_cluster(self):
-        with pytest.raises(ValueError, match="cluster"):
-            load_transport({"type": "posthog_proxy", "url": "http://x", "cluster": "prodd", "token": "t"})
+            load_transport({"type": "posthog_proxy", "token": "t"})
 
     def test_factory_requires_token(self):
         with pytest.raises(ValueError, match="token"):
-            load_transport({"type": "posthog_proxy", "url": "http://x", "cluster": "test"})
+            load_transport({"type": "posthog_proxy", "url": "http://x"})
 
     def test_run_posts_to_execute_test_with_bearer_and_unwraps_response(self):
         transport = PosthogProxyTransport(
             base_url="http://posthog.internal:8000",
-            cluster="test",
             token="tok-123",
         )
 
@@ -70,24 +57,23 @@ class TestPosthogProxyTransport:
         assert result.bytes_read == 1
         assert "qid-abc" in result.stdout
 
-    def test_run_targets_prod_cluster_url_when_configured(self):
+    def test_run_strips_trailing_slash_from_base_url(self):
         transport = PosthogProxyTransport(
-            base_url="http://posthog.internal:8000/",  # trailing slash handled
-            cluster="prod",
-            token="tok-prod",
+            base_url="http://posthog.internal:8000/",
+            token="tok",
         )
 
         proxy_response = b'{"result": "", "elapsed_ms": 1.0, "rows_read": null, "bytes_read": null, "query_id": null}'
         mock_ctx = MagicMock()
         mock_ctx.__enter__.return_value.read.return_value = proxy_response
         with patch("transports.urllib.request.urlopen", return_value=mock_ctx) as mocked:
-            transport.run("SELECT 1 WHERE team_id = 2")
+            transport.run("SELECT 1")
 
         called_req = mocked.call_args.args[0]
-        assert called_req.full_url == "http://posthog.internal:8000/api/query_performance_proxy/execute-prod/"
+        assert called_req.full_url == "http://posthog.internal:8000/api/query_performance_proxy/execute-test/"
 
     def test_run_wraps_http_error_as_transport_error(self):
-        transport = PosthogProxyTransport(base_url="http://x", cluster="test", token="tok")
+        transport = PosthogProxyTransport(base_url="http://x", token="tok")
 
         import urllib.error
 
@@ -98,7 +84,7 @@ class TestPosthogProxyTransport:
             hdrs=None,  # type: ignore[arg-type]
             fp=None,
         )
-        err.read = lambda: b'{"error":"sql must begin with a read-only statement"}'  # type: ignore[method-assign]
+        err.read = lambda: b'{"error":"sql must begin with a read-only statement"}'  # type: ignore[method-assign] # ty: ignore[invalid-assignment]
 
         with patch("transports.urllib.request.urlopen", side_effect=err):
             with pytest.raises(TransportError) as excinfo:
@@ -107,7 +93,7 @@ class TestPosthogProxyTransport:
         assert "read-only" in str(excinfo.value)
 
     def test_run_wraps_url_error_as_transport_error(self):
-        transport = PosthogProxyTransport(base_url="http://x", cluster="test", token="tok")
+        transport = PosthogProxyTransport(base_url="http://x", token="tok")
 
         import urllib.error
 
@@ -116,7 +102,7 @@ class TestPosthogProxyTransport:
                 transport.run("SELECT 1")
 
     def test_run_wraps_non_json_response_as_transport_error(self):
-        transport = PosthogProxyTransport(base_url="http://x", cluster="test", token="tok")
+        transport = PosthogProxyTransport(base_url="http://x", token="tok")
 
         mock_ctx = MagicMock()
         mock_ctx.__enter__.return_value.read.return_value = b"<html>oops</html>"

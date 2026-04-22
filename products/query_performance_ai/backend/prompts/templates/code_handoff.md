@@ -91,11 +91,10 @@ Last run record (so you can cross-reference artifacts):
    - Include a **verification script** under
      `products/query_performance_ai/verifications/` that reproduces the
      before/after measurement so reviewers can replay your numbers.
-   - Run the verification against the **test** cluster first. If the change
-     applies to data that only exists in prod (e.g., large-team behaviour),
-     also run it against the **prod** cluster — remember prod queries must
-     literally filter to `team_id = 2`. The endpoint will reject anything
-     else with a 400.
+   - Run the verification against the test cluster through
+     `/api/query_performance_proxy/execute-test/`. The cluster is team-scoped
+     at the ClickHouse layer (today: team 2 only), so you do not need to add
+     a `team_id` predicate yourself.
    - **Require a ≥ 5% improvement in `elapsed_ms` over baseline** to open
      a non-draft PR. Individual small wins stack up at PostHog scale — a
      5% win on a query that runs hundreds of times a day is worth

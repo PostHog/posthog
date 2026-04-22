@@ -8,24 +8,24 @@ description: 'Use when a PostHog Code task is opening query-performance PRs from
 This skill gates query-performance PRs on measured improvement. It's used by
 the PR-writing sandbox that follows a `mode="autoresearch_campaign"` run.
 
-The sandbox has both `clickhouse_perf:test_read` and `clickhouse_perf:prod_read`
-scopes on its OAuth token. All ClickHouse queries go through
-`/api/query_performance_proxy/execute-{test|prod}/` — **never** connect to
-ClickHouse directly.
+The sandbox has a `clickhouse_perf:test_read` scope on its OAuth token. All
+ClickHouse queries go through `/api/query_performance_proxy/execute-test/` —
+**never** connect to ClickHouse directly. The proxy is read-only (SELECT /
+WITH / EXPLAIN / SHOW / DESCRIBE only, `readonly = 2` enforced server-side).
+
+The cluster behind that endpoint is team-scoped at the ClickHouse layer
+(today: it contains only team 2, "PostHog, the company"), so there is no
+cross-team data to worry about leaking through the proxy.
 
 ## The measurement loop
 
 For every candidate fix:
 
-1. Pick a cluster. Use `test` unless the change only manifests on real data
-   volume (e.g., a materialized view tuned against prod). Prod queries
-   **must** literally contain `team_id = 2`; the proxy returns 400
-   otherwise (the endpoint never rewrites).
-2. Run the **original** query through the proxy, twice, take the
-   median `elapsed_ms` — this is `baseline_ms`.
-3. Run the **candidate** query through the proxy, twice, take the
-   median `elapsed_ms` — this is `candidate_ms`.
-4. Improvement = `(baseline_ms - candidate_ms) / baseline_ms * 100`.
+1. Run the **original** query through the proxy, twice, take the median
+   `elapsed_ms` — this is `baseline_ms`.
+2. Run the **candidate** query through the proxy, twice, take the median
+   `elapsed_ms` — this is `candidate_ms`.
+3. Improvement = `(baseline_ms - candidate_ms) / baseline_ms * 100`.
 
 Reasons to double-run: ClickHouse warm vs cold cache skews the first run.
 The second result is what steady-state users experience.
@@ -35,10 +35,9 @@ The second result is what steady-state users experience.
 ```bash
 POSTHOG_URL="$POSTHOG_API_URL"            # already set by the sandbox
 TOKEN="$POSTHOG_PERSONAL_API_KEY"         # already set by the sandbox
-CLUSTER=test                              # or prod
 
 curl --fail --silent --max-time 90 \
-    -X POST "$POSTHOG_URL/api/query_performance_proxy/execute-$CLUSTER/" \
+    -X POST "$POSTHOG_URL/api/query_performance_proxy/execute-test/" \
     -H "Authorization: Bearer $TOKEN" \
     -H "Content-Type: application/json" \
     -d @- <<EOF
@@ -63,18 +62,17 @@ all four numbers: `elapsed_ms`, `rows_read`, `bytes_read`, `query_id`.
 
 ## Error cases and what they mean
 
-| status | meaning | action |
-| --- | --- | --- |
-| 400 `sql must begin with a read-only statement` | You passed DDL/DML | Only SELECT/WITH/EXPLAIN/SHOW are allowed. Rewrite. |
-| 400 `queries against the prod cluster must filter to team_id = 2` | Prod endpoint without literal predicate | Add `team_id = 2` (or `team_id IN (2)`) to the WHERE clause yourself. The endpoint deliberately does not rewrite. |
-| 403 | Wrong scope | You hit `/execute-prod/` with a test-only token. Double-check you need prod. |
-| 502 `clickhouse unreachable` | Cluster down | Retry once, then report and move on to the next candidate. |
+| status | meaning                                           | action                                                                      |
+| ------ | ------------------------------------------------- | --------------------------------------------------------------------------- |
+| 400    | `sql must begin with a read-only statement`       | Only SELECT / WITH / EXPLAIN / SHOW / DESCRIBE are allowed. Rewrite.        |
+| 403    | Wrong scope                                       | The token lacks `clickhouse_perf:test_read`. Check how the Task was minted. |
+| 502    | `clickhouse unreachable`                          | Cluster down. Retry once, then report and move on to the next candidate.    |
+| 503    | `CLICKHOUSE_PERF_TEST_HTTP_URL is not configured` | Deploy-time config is missing. Not recoverable from the sandbox — escalate. |
 
 ## The PR threshold
 
-* **≥ 5% improvement** → open the PR ready for review. At PostHog scale, a
-  single 5% win on a frequently-run query is shippable.
-* **< 5% improvement or regression** → open the PR as a **draft**. Include
+- **≥ 5% improvement** → open the PR ready for review.
+- **< 5% improvement or regression** → open the PR as a **draft**. Include
   the measured numbers and a short analysis of why the variant missed.
   Do not skip it — a failed variant is still useful signal for the next
   campaign.
@@ -95,8 +93,8 @@ Run locally with:
 # ...
 ```
 
-Reviewers can replay this by pointing at staging/prod to confirm your
-numbers before merging.
+Reviewers can replay this by pointing at staging to confirm your numbers
+before merging.
 
 ## Reporting back
 
@@ -104,12 +102,8 @@ When you're done, emit the final JSON block the handoff template asks for:
 
 ```json
 {
-    "prs": [
-        {"url": "https://github.com/PostHog/posthog/pull/NNNN", "kind": "query-rewrite", "improvement_pct": 12.3}
-    ],
-    "skipped_hunches": [
-        {"hunch": "materialize X as column on Y", "reason": "needs migration coordination"}
-    ]
+  "prs": [{ "url": "https://github.com/PostHog/posthog/pull/NNNN", "kind": "query-rewrite", "improvement_pct": 12.3 }],
+  "skipped_hunches": [{ "hunch": "materialize X as column on Y", "reason": "needs migration coordination" }]
 }
 ```
 

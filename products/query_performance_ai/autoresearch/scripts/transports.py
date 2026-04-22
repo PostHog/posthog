@@ -139,9 +139,7 @@ def load_transport(config: dict[str, Any]) -> Transport:
         raise ValueError('adapter.json must set a "type" field')
     factory = _TRANSPORTS.get(kind)
     if factory is None:
-        raise ValueError(
-            f"unknown adapter type: {kind!r} (supported: {sorted(_TRANSPORTS)})"
-        )
+        raise ValueError(f"unknown adapter type: {kind!r} (supported: {sorted(_TRANSPORTS)})")
     return factory(config)
 
 
@@ -163,24 +161,20 @@ class PosthogProxyTransport(Transport):
         {
           "type": "posthog_proxy",
           "url": "https://posthog.example.com",   # base URL of the PostHog app
-          "cluster": "test" | "prod",             # dispatches to /execute-test or /execute-prod
-          "token": "<oauth access token>"         # must have clickhouse_perf:<cluster>_read scope
+          "token": "<oauth access token>"         # must have clickhouse_perf:test_read scope
         }
 
-    The proxy validates SQL server-side (readonly + team_id = 2 on prod), so
-    this transport stays a thin shim: POST JSON, unwrap the response payload
-    into a :class:`TransportResult`.
+    The proxy enforces ``readonly = 2`` server-side, so this transport stays
+    a thin shim: POST JSON, unwrap the response payload into a
+    :class:`TransportResult`.
     """
 
-    def __init__(self, *, base_url: str, cluster: str, token: str):
-        if cluster not in ("test", "prod"):
-            raise ValueError('posthog_proxy "cluster" must be "test" or "prod"')
+    def __init__(self, *, base_url: str, token: str):
         self.base_url = base_url.rstrip("/")
-        self.cluster = cluster
         self.token = token
 
     def run(self, sql: str, *, timeout_s: int = 30) -> TransportResult:
-        endpoint = f"{self.base_url}/api/query_performance_proxy/execute-{self.cluster}/"
+        endpoint = f"{self.base_url}/api/query_performance_proxy/execute-test/"
         body = json.dumps({"sql": sql}).encode("utf-8")
         req = urllib.request.Request(
             endpoint,
@@ -239,15 +233,12 @@ class PosthogProxyTransport(Transport):
 
 def _posthog_proxy_factory(config: dict[str, Any]) -> Transport:
     url = config.get("url")
-    cluster = config.get("cluster")
     token = config.get("token")
     if not url:
         raise ValueError('adapter type "posthog_proxy" requires a "url" field')
-    if cluster not in ("test", "prod"):
-        raise ValueError('adapter type "posthog_proxy" requires "cluster" to be "test" or "prod"')
     if not token:
         raise ValueError('adapter type "posthog_proxy" requires a "token" field')
-    return PosthogProxyTransport(base_url=url, cluster=cluster, token=token)
+    return PosthogProxyTransport(base_url=url, token=token)
 
 
 _TRANSPORTS: dict[str, Any] = {
