@@ -111,8 +111,8 @@ export interface DesktopRecordingApi {
      */
     video_url?: string | null
     /**
-     * @minimum -9223372036854776000
-     * @maximum 9223372036854776000
+     * @minimum -2147483648
+     * @maximum 2147483647
      * @nullable
      */
     video_size_bytes?: number | null
@@ -216,8 +216,8 @@ export interface CreateRecordingResponseApi {
      */
     video_url?: string | null
     /**
-     * @minimum -9223372036854776000
-     * @maximum 9223372036854776000
+     * @minimum -2147483648
+     * @maximum 2147483647
      * @nullable
      */
     video_size_bytes?: number | null
@@ -279,8 +279,8 @@ export interface PatchedDesktopRecordingApi {
      */
     video_url?: string | null
     /**
-     * @minimum -9223372036854776000
-     * @maximum 9223372036854776000
+     * @minimum -2147483648
+     * @maximum 2147483647
      * @nullable
      */
     video_size_bytes?: number | null

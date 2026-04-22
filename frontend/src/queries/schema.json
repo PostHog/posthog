@@ -17738,11 +17738,15 @@
                     "type": "string"
                 },
                 "rollout_percentage": {
-                    "description": "Percentage of users assigned to this variant (0–100). All variants must sum to 100.",
+                    "deprecated": "Use split_percent instead. Accepted for backward compatibility.",
+                    "type": "number"
+                },
+                "split_percent": {
+                    "description": "Percentage of users assigned to this variant (0–100). All variants must sum to 100. One of split_percent (recommended) or rollout_percentage must be provided.",
                     "type": "number"
                 }
             },
-            "required": ["key", "rollout_percentage"],
+            "required": ["key"],
             "type": "object"
         },
         "ExperimentVariantFunnelsBaseStats": {

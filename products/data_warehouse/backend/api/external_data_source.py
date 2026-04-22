@@ -702,6 +702,23 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
     """
 
     scope_object = "external_data_source"
+    scope_object_write_actions = [
+        "create",
+        "update",
+        "partial_update",
+        "patch",
+        "destroy",
+        "reload",
+        "refresh_schemas",
+        "database_schema",
+        "source_prefix",
+        "revenue_analytics_config",
+        "create_webhook",
+        "update_webhook_inputs",
+        "delete_webhook",
+        "check_cdc_prerequisites",
+    ]
+    scope_object_read_actions = ["list", "retrieve", "jobs", "wizard", "webhook_info", "connections"]
     queryset = ExternalDataSource.objects.all()
     serializer_class = ExternalDataSourceSerializers
     filter_backends = [filters.SearchFilter]

@@ -3,10 +3,226 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 9 enabled ops
+ * PostHog API - MCP 24 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
+
+export const ExternalDataSchemasListParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const ExternalDataSchemasListQueryParams = /* @__PURE__ */ zod.object({
+    limit: zod.number().optional().describe('Number of results to return per page.'),
+    offset: zod.number().optional().describe('The initial index from which to return the results.'),
+    search: zod.string().optional().describe('A search term.'),
+})
+
+export const ExternalDataSchemasRetrieveParams = /* @__PURE__ */ zod.object({
+    id: zod.string().describe('A UUID string identifying this external data schema.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const ExternalDataSchemasPartialUpdateParams = /* @__PURE__ */ zod.object({
+    id: zod.string().describe('A UUID string identifying this external data schema.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const ExternalDataSchemasPartialUpdateBody = /* @__PURE__ */ zod.object({
+    should_sync: zod.boolean().optional(),
+})
+
+export const ExternalDataSchemasCancelCreateParams = /* @__PURE__ */ zod.object({
+    id: zod.string().describe('A UUID string identifying this external data schema.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const ExternalDataSchemasCancelCreateBody = /* @__PURE__ */ zod.object({
+    should_sync: zod.boolean().optional(),
+})
+
+export const ExternalDataSchemasDeleteDataDestroyParams = /* @__PURE__ */ zod.object({
+    id: zod.string().describe('A UUID string identifying this external data schema.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const ExternalDataSchemasReloadCreateParams = /* @__PURE__ */ zod.object({
+    id: zod.string().describe('A UUID string identifying this external data schema.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const ExternalDataSchemasReloadCreateBody = /* @__PURE__ */ zod.object({
+    should_sync: zod.boolean().optional(),
+})
+
+export const ExternalDataSchemasResyncCreateParams = /* @__PURE__ */ zod.object({
+    id: zod.string().describe('A UUID string identifying this external data schema.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const ExternalDataSchemasResyncCreateBody = /* @__PURE__ */ zod.object({
+    should_sync: zod.boolean().optional(),
+})
+
+/**
+ * Create, Read, Update and Delete External data Sources.
+ */
+export const ExternalDataSourcesListParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const ExternalDataSourcesListQueryParams = /* @__PURE__ */ zod.object({
+    limit: zod.number().optional().describe('Number of results to return per page.'),
+    offset: zod.number().optional().describe('The initial index from which to return the results.'),
+    search: zod.string().optional().describe('A search term.'),
+})
+
+/**
+ * Create, Read, Update and Delete External data Sources.
+ */
+export const ExternalDataSourcesCreateParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const externalDataSourcesCreateBodyPrefixMax = 100
+
+export const externalDataSourcesCreateBodyDescriptionMax = 400
+
+export const ExternalDataSourcesCreateBody = /* @__PURE__ */ zod
+    .object({
+        prefix: zod.string().max(externalDataSourcesCreateBodyPrefixMax).nullish(),
+        description: zod.string().max(externalDataSourcesCreateBodyDescriptionMax).nullish(),
+    })
+    .describe('Mixin for serializers to add user access control fields')
+
+/**
+ * Create, Read, Update and Delete External data Sources.
+ */
+export const ExternalDataSourcesRetrieveParams = /* @__PURE__ */ zod.object({
+    id: zod.string().describe('A UUID string identifying this external data source.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+/**
+ * Create, Read, Update and Delete External data Sources.
+ */
+export const ExternalDataSourcesPartialUpdateParams = /* @__PURE__ */ zod.object({
+    id: zod.string().describe('A UUID string identifying this external data source.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const externalDataSourcesPartialUpdateBodyPrefixMax = 100
+
+export const externalDataSourcesPartialUpdateBodyDescriptionMax = 400
+
+export const ExternalDataSourcesPartialUpdateBody = /* @__PURE__ */ zod
+    .object({
+        client_secret: zod.string().optional(),
+        account_id: zod.string().optional(),
+        prefix: zod.string().max(externalDataSourcesPartialUpdateBodyPrefixMax).nullish(),
+        description: zod.string().max(externalDataSourcesPartialUpdateBodyDescriptionMax).nullish(),
+        job_inputs: zod.unknown().nullish(),
+    })
+    .describe('Mixin for serializers to add user access control fields')
+
+/**
+ * Create, Read, Update and Delete External data Sources.
+ */
+export const ExternalDataSourcesDestroyParams = /* @__PURE__ */ zod.object({
+    id: zod.string().describe('A UUID string identifying this external data source.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+/**
+ * Fetch current schema/table list from the source and create any new ExternalDataSchema rows (no data sync).
+ */
+export const ExternalDataSourcesRefreshSchemasCreateParams = /* @__PURE__ */ zod.object({
+    id: zod.string().describe('A UUID string identifying this external data source.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const ExternalDataSourcesRefreshSchemasCreateBody = /* @__PURE__ */ zod
+    .object({})
+    .describe('Mixin for serializers to add user access control fields')
+
+/**
+ * Create, Read, Update and Delete External data Sources.
+ */
+export const ExternalDataSourcesReloadCreateParams = /* @__PURE__ */ zod.object({
+    id: zod.string().describe('A UUID string identifying this external data source.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const ExternalDataSourcesReloadCreateBody = /* @__PURE__ */ zod
+    .object({})
+    .describe('Mixin for serializers to add user access control fields')
+
+/**
+ * Create, Read, Update and Delete External data Sources.
+ */
+export const ExternalDataSourcesWizardRetrieveParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
 
 /**
  * Create, Read, Update and Delete Warehouse Tables.

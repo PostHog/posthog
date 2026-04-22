@@ -433,6 +433,34 @@
             "readOnlyHint": true
         }
     },
+    "external-data-sources-db-schema": {
+        "description": "Validate source credentials and return the available tables from the remote database. Use this before creating a source to verify connectivity and discover tables. Pass source_type and credential fields in the payload object. The response includes per-table: available sync methods (incremental, full_refresh, append, cdc), available incremental fields with types, detected primary keys, available columns with types and nullability, and row counts. Present all of this to the user so they can configure each table before creation: which tables to sync, sync method, incremental field (and type), and primary key overrides.",
+        "category": "Data warehouse",
+        "feature": "data_warehouse",
+        "summary": "Preview remote database schema before creating a source.",
+        "title": "Preview remote database schema",
+        "required_scopes": ["external_data_source:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "external-data-sources-jobs": {
+        "description": "List sync job history for a data warehouse source. Returns jobs sorted by most recent first, with status, duration, rows synced, and errors. Supports optional filtering by date range (after/before as ISO timestamps) and by schema name.",
+        "category": "Data warehouse",
+        "feature": "data_warehouse",
+        "summary": "List sync job history for a source with optional date and schema filters.",
+        "title": "List sync jobs for a source",
+        "required_scopes": ["external_data_source:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": false,
+            "readOnlyHint": true
+        }
+    },
     "execute-sql": {
         "description": "Use this tool to execute an SQL query (or HogQL, which is PostHog's variant of SQL that supports most of ClickHouse SQL). We're going to use terms \"HogQL\" and \"SQL\" interchangeably. For more information, see the posthog-query-data skill.\nBEFORE writing any query, you should follow these steps:\n1. Call posthog:read-data-warehouse-schema to discover available tables, views, columns, and their types. Do NOT guess table or column names.\n2. Call posthog:read-data-schema to discover available events, properties, and property values. Do NOT rely on training data or PostHog defaults.\n3. Only after completing steps 1 and 2, write and execute your SQL query using verified table and column names.\nAn example query to retrieve columns of a custom data warehouse table:\n```sql\nSELECT columns FROM system.data_warehouse_tables WHERE name = 'my_table'\n```\nIMPORTANT: By default, large JSON values in results (like full `properties` objects) are truncated. If you anticipate that results might be large or you are selecting the full `properties` object (e.g., `SELECT properties FROM events`), you should dump the results to a file instead of outputting them directly. Use bash commands to process the file. Alternatively, cherry-pick only the specific properties you need (e.g., `properties.$browser`) instead of selecting the entire object.",
         "category": "SQL",
@@ -1018,6 +1046,36 @@
             "readOnlyHint": false
         }
     },
+    "project-get": {
+        "description": "Retrieve a project and its settings. Pass `@current` as the ID to fetch the caller's active project.",
+        "category": "Core",
+        "feature": "core",
+        "summary": "Get project",
+        "title": "Get project",
+        "required_scopes": ["project:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "project-settings-update": {
+        "description": "Update a project's settings using PATCH semantics — only the fields included in the request body are changed. Use `project-get` first to inspect current settings. Always confirm changes with the user before applying.",
+        "category": "Core",
+        "feature": "core",
+        "summary": "Update project settings",
+        "title": "Update project settings",
+        "required_scopes": ["project:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "subscriptions-list": {
         "description": "List subscriptions for the project. Returns scheduled email, Slack, or webhook deliveries of insight or dashboard snapshots. Each subscription includes its schedule (frequency, interval, byweekday), next_delivery_date, and a human-readable summary.",
         "category": "Core",
@@ -1070,6 +1128,36 @@
         "summary": "Update subscription",
         "title": "Update subscription",
         "required_scopes": ["subscription:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "user-get": {
+        "description": "Retrieve a user's profile and settings. Pass `@me` as the UUID to fetch the authenticated user — non-staff callers may only access their own account.",
+        "category": "Core",
+        "feature": "core",
+        "summary": "Get user",
+        "title": "Get user",
+        "required_scopes": ["user:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "user-settings-update": {
+        "description": "Update the authenticated user's profile and settings using PATCH semantics — only the fields included in the request body are changed. Pass `@me` as the UUID; non-staff callers may only update their own account. Use `user-get` first to inspect current settings. `notification_settings` merges key-by-key; changing `email` triggers a verification flow; changing `password` also requires `current_password`. Always confirm changes with the user before applying.",
+        "category": "Core",
+        "feature": "core",
+        "summary": "Update user settings",
+        "title": "Update user settings",
+        "required_scopes": ["user:write"],
         "new_mcp": true,
         "annotations": {
             "destructiveHint": true,
@@ -1228,6 +1316,141 @@
             "readOnlyHint": false
         }
     },
+    "external-data-schemas-list": {
+        "description": "List all table schemas across all data warehouse sources. Each schema represents one table being synced from an external source. Returns the schema name, sync status, sync frequency, incremental field configuration, and latest error. Use this to see which tables are actively syncing and their health.",
+        "category": "Data warehouse",
+        "feature": "data_warehouse",
+        "summary": "List data import schemas",
+        "title": "List data import schemas",
+        "required_scopes": ["external_data_source:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "external-data-sources-list": {
+        "description": "List all configured data warehouse import sources in the project. Returns each source's type (Postgres, Stripe, Hubspot, etc.), connection status, prefix, schemas, latest error, and last sync timestamp. Use this to discover what external data sources are connected.",
+        "category": "Data warehouse",
+        "feature": "data_warehouse",
+        "summary": "List data warehouse sources",
+        "title": "List data warehouse sources",
+        "required_scopes": ["external_data_source:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "external-data-sources-create": {
+        "description": "Create a new external data source connection. Before calling this, use 'external-data-sources-wizard' to discover source types and 'external-data-sources-db-schema' to validate credentials and discover available tables. Present the db-schema results to the user showing each table's available sync methods, incremental fields, detected primary keys, and columns so they can configure before creation. The payload must include a 'schemas' array where each entry has: name, should_sync (bool), sync_type (incremental/full_refresh/append), and optionally incremental_field, incremental_field_type, and primary_key_columns from the db-schema response.",
+        "category": "Data warehouse",
+        "feature": "data_warehouse",
+        "summary": "Create data warehouse source",
+        "title": "Create data warehouse source",
+        "required_scopes": ["external_data_source:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "external-data-sources-retrieve": {
+        "description": "Get a single data warehouse source by ID. Returns full details including source type, connection status, prefix, all table schemas with their sync statuses, latest error, and last sync timestamp.",
+        "category": "Data warehouse",
+        "feature": "data_warehouse",
+        "summary": "Get data warehouse source",
+        "title": "Get data warehouse source",
+        "required_scopes": ["external_data_source:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "external-data-sources-partial-update": {
+        "description": "Update an existing data warehouse source. Can change the prefix (table name prefix in HogQL), description, or connection credentials via job_inputs. Cannot change the source_type or access_method after creation.",
+        "category": "Data warehouse",
+        "feature": "data_warehouse",
+        "summary": "Update data warehouse source",
+        "title": "Update data warehouse source",
+        "required_scopes": ["external_data_source:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "external-data-sources-destroy": {
+        "description": "Delete a data warehouse source and all its table schemas, synced tables, and sync schedules. This is a soft delete. Any running syncs are cancelled first. This cannot be undone — the source must be recreated to resume syncing.",
+        "category": "Data warehouse",
+        "feature": "data_warehouse",
+        "summary": "Delete data warehouse source",
+        "title": "Delete data warehouse source",
+        "required_scopes": ["external_data_source:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "external-data-sources-refresh-schemas": {
+        "description": "Fetch the latest table list from the remote database and create schema entries for any new tables found. Does not trigger a data sync. Use this after adding new tables to a source database to make them available for syncing.",
+        "category": "Data warehouse",
+        "feature": "data_warehouse",
+        "summary": "Refresh available schemas",
+        "title": "Refresh available schemas",
+        "required_scopes": ["external_data_source:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "external-data-sources-reload": {
+        "description": "Trigger a sync for all enabled table schemas in the source using each table's configured sync method. If the source uses direct query mode, this refreshes the schema metadata instead.",
+        "category": "Data warehouse",
+        "feature": "data_warehouse",
+        "summary": "Trigger sync for a source",
+        "title": "Trigger sync for a source",
+        "required_scopes": ["external_data_source:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "external-data-sources-wizard": {
+        "description": "Return the configuration metadata for all supported data warehouse source types. Each entry describes the required fields (host, port, database, credentials, etc.), field types, and OAuth flows. Use this to discover what source types are available and what parameters are needed to create a new source.",
+        "category": "Data warehouse",
+        "feature": "data_warehouse",
+        "summary": "Get source type configurations",
+        "title": "Get source type configurations",
+        "required_scopes": ["external_data_source:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "view-list": {
         "description": "List all data warehouse saved queries (views) in the project. Returns each view's name, materialization status, sync frequency, column schema, latest error, and last run timestamp. Use this to discover available views before querying them in HogQL.",
         "category": "Data warehouse",
@@ -1361,6 +1584,96 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
+        }
+    },
+    "external-data-schemas-retrieve": {
+        "description": "Get a single table schema by ID. Returns full details including sync status, sync frequency, incremental field, latest error, and the associated source and table metadata.",
+        "category": "Data warehouse",
+        "feature": "data_warehouse",
+        "summary": "Get data import schema",
+        "title": "Get data import schema",
+        "required_scopes": ["external_data_source:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "external-data-schemas-partial-update": {
+        "description": "Update a table schema's sync configuration. Can change sync type, sync frequency, incremental field, primary key columns, CDC table mode, and enable/disable the schema.",
+        "category": "Data warehouse",
+        "feature": "data_warehouse",
+        "summary": "Update data import schema",
+        "title": "Update data import schema",
+        "required_scopes": ["external_data_source:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "external-data-schemas-cancel": {
+        "description": "Cancel a currently running sync job for a specific table schema. If no sync is running, returns an error. Use 'external-data-schemas-list' to check which schemas have status 'Running' before calling this.",
+        "category": "Data warehouse",
+        "feature": "data_warehouse",
+        "summary": "Cancel running sync",
+        "title": "Cancel running sync",
+        "required_scopes": ["external_data_source:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "external-data-schemas-delete-data": {
+        "description": "Delete the synced table data from PostHog but keep the schema entry. The schema remains visible in the source and can be re-synced. Use this to clear stale or corrupt data before triggering a fresh sync.",
+        "category": "Data warehouse",
+        "feature": "data_warehouse",
+        "summary": "Delete synced table data",
+        "title": "Delete synced table data",
+        "required_scopes": ["external_data_source:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "external-data-schemas-reload": {
+        "description": "Trigger a sync for a single table schema using its configured sync method (incremental, full refresh, append, or CDC). Use this to manually sync a specific table without triggering all tables in the source.",
+        "category": "Data warehouse",
+        "feature": "data_warehouse",
+        "summary": "Trigger sync for a table schema",
+        "title": "Trigger sync for a table schema",
+        "required_scopes": ["external_data_source:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "external-data-schemas-resync": {
+        "description": "Trigger a full resync for a table schema, discarding all previously synced data and re-importing from the source. This cancels any running sync first, then resets the pipeline state. Use this when data is corrupt or out of sync.",
+        "category": "Data warehouse",
+        "feature": "data_warehouse",
+        "summary": "Resync table schema from scratch",
+        "title": "Resync table schema from scratch",
+        "required_scopes": ["external_data_source:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
         }
     },
     "early-access-feature-list": {
@@ -1723,6 +2036,21 @@
             "readOnlyHint": true
         }
     },
+    "error-tracking-suppression-rules-create": {
+        "description": "Create an error tracking suppression rule for the current project. Provide optional `filters` and optional `sampling_rate`; omit `filters` to create a match-all suppression rule.",
+        "category": "Error tracking",
+        "feature": "error_tracking",
+        "summary": "Create error tracking suppression rule",
+        "title": "Create error tracking suppression rule",
+        "required_scopes": ["error_tracking:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "query-error-tracking-issues": {
         "description": "Query error tracking issues to find, filter, and inspect errors in the project. Returns aggregated metrics per issue including occurrence count, affected users, sessions, and volume data.\n\nUse 'read-data-schema' to discover available events, actions, and properties for filters.\n\nThis is a unified query tool — use it both to list issues and to get details on a specific issue:\n\n- **List issues**: omit `issueId` to get a filtered, sorted list of error tracking issues.\n- **Get issue details**: provide `issueId` to get aggregated metrics for a single issue.\n\nUse `error-tracking-issues-retrieve` to get the full issue model (description, assignee, external references) and `error-tracking-issues-partial-update` to change status or assignee.\n\nCRITICAL: Be minimalist. Only include filters and settings that are essential to answer the user's specific question. Default settings are usually sufficient unless the user explicitly requests customization.\n\n# Data narrowing\n\n## Property filters\n\nUse property filters via the `filterGroup` field to narrow results. Only include property filters when they are essential to directly answer the user's question. Avoid adding them if the question can be addressed without additional filtering and always use the minimum set of property filters needed.\n\nIMPORTANT: Do not check if a property is set unless the user explicitly asks for it.\n\nWhen using a property filter, you should:\n\n- **Prioritize properties directly related to the context or objective of the user's query.** Avoid using properties for identification like IDs. Instead, prioritize filtering based on general properties like `$browser`, `$os`, or `$geoip_country_code`.\n- **Ensure that you find both the property group and name.** Property groups should be one of the following: event, person, session, group.\n- After selecting a property, **validate that the property value accurately reflects the intended criteria**.\n- **Find the suitable operator for type** (e.g., `contains`, `is set`).\n- If the operator requires a value, use the `read-data-schema` tool to find the property values.\n\nInfer the property groups from the user's request. If your first guess doesn't yield any results, try to adjust the property group.\n\nSupported operators for the String type are:\n\n- equals (exact)\n- doesn't equal (is_not)\n- contains (icontains)\n- doesn't contain (not_icontains)\n- matches regex (regex)\n- doesn't match regex (not_regex)\n- is set\n- is not set\n\nSupported operators for the Numeric type are:\n\n- equals (exact)\n- doesn't equal (is_not)\n- greater than (gt)\n- less than (lt)\n- is set\n- is not set\n\nSupported operators for the DateTime type are:\n\n- equals (is_date_exact)\n- doesn't equal (is_not for existence check)\n- before (is_date_before)\n- after (is_date_after)\n- is set\n- is not set\n\nSupported operators for the Boolean type are:\n\n- equals\n- doesn't equal\n- is set\n- is not set\n\nAll operators take a single value except for `equals` and `doesn't equal` which can take one or more values (as an array).\n\n## Time period\n\nYou should not filter events by time using property filters. Instead, use the `dateRange` field. If the question doesn't mention time, the default is the last 7 days.\n\n# Parameters\n\n## issueId (optional)\n\nWhen provided, returns aggregated metrics for a single error tracking issue. When omitted, returns a paginated list of issues matching the filters.\n\n## status\n\nFilter by issue status. Available values: `active`, `resolved`, `suppressed`, `pending_release`, `archived`, `all`. Defaults to `active`.\n\n## orderBy\n\nField to sort results by: `occurrences`, `last_seen`, `first_seen`, `users`, `sessions`. Defaults to `occurrences`.\n\n## searchQuery\n\nFree-text search across exception type, message, and stack frames. Use this when the user is looking for a specific error by name or message content.\n\n## assignee\n\nFilter issues by assignee. The value is a user ID. Use this when the user asks to see errors assigned to a specific person.\n\n## filterGroup\n\nA flat list of property filters to narrow results. Each filter specifies a property key, operator, type (event/person/session/group), and value. See the \"Property filters\" section above for usage guidelines and supported operators.\n\n## volumeResolution\n\nControls the granularity of the volume chart data returned with each issue. Use `1` (default) for list views where you want a volume sparkline. Use `0` when you only need aggregate counts without volume data.\n\n## dateRange\n\nDate range to filter results. Defaults to the last 7 days (`-7d`).\n\n- `date_from`: Start of the range. Accepts ISO 8601 timestamps (e.g., `2024-01-15T00:00:00Z`) or relative formats: `-7d`, `-2w`, `-1m`, `-1h`, `-1mStart`, `-1yStart`.\n- `date_to`: End of the range. Same format. Omit or null for \"now\".\n\n## limit / offset\n\nPagination controls. `limit` defaults to 50.\n\n# Examples\n\n## List all active errors sorted by occurrence count\n\n```json\n{}\n```\n\nAll defaults apply: `status: \"active\"`, `orderBy: \"occurrences\"`, `dateRange: { \"date_from\": \"-7d\" }`.\n\n## Search for a specific error\n\n```json\n{\n  \"searchQuery\": \"TypeError: Cannot read property\",\n  \"limit\": 10\n}\n```\n\n## Get details for a specific issue\n\n```json\n{\n  \"issueId\": \"01234567-89ab-cdef-0123-456789abcdef\",\n  \"volumeResolution\": 0\n}\n```\n\n## List resolved errors from the last 30 days\n\n```json\n{\n  \"status\": \"resolved\",\n  \"dateRange\": { \"date_from\": \"-30d\" },\n  \"orderBy\": \"last_seen\"\n}\n```\n\n## Find most recent errors\n\n```json\n{\n  \"orderBy\": \"first_seen\",\n  \"orderDirection\": \"DESC\",\n  \"dateRange\": { \"date_from\": \"-24h\" }\n}\n```\n\n## Errors from Chrome users only\n\n```json\n{\n  \"filterGroup\": [{ \"key\": \"$browser\", \"operator\": \"exact\", \"type\": \"event\", \"value\": [\"Chrome\"] }]\n}\n```\n\n## Errors from US users in the last 30 days\n\n```json\n{\n  \"filterGroup\": [{ \"key\": \"$geoip_country_code\", \"operator\": \"exact\", \"type\": \"event\", \"value\": [\"US\"] }],\n  \"dateRange\": { \"date_from\": \"-30d\" }\n}\n```\n\n# Reminders\n\n- Ensure that any properties included are directly relevant to the context and objectives of the user's question. Avoid unnecessary or unrelated details.\n- Avoid overcomplicating the response with excessive property filters. Focus on the simplest solution.",
         "category": "Error tracking",
@@ -1769,7 +2097,7 @@
         }
     },
     "evaluation-report-update": {
-        "description": "Partially update an evaluation report configuration. Toggle enabled/disabled, update delivery targets (email or Slack), change frequency ('every_n' or 'scheduled'), set trigger_threshold and cooldown_minutes for every_n mode, or set rrule/starts_at for scheduled mode. Set deleted=true to soft-delete the config.",
+        "description": "Partially update an evaluation report configuration. Toggle enabled/disabled, update delivery targets (email or Slack), change frequency ('every_n' or 'scheduled'), set trigger_threshold and cooldown_minutes (min 60, max 1440) for every_n mode, or set rrule/starts_at for scheduled mode. Set deleted=true to soft-delete the config.",
         "category": "LLM analytics",
         "feature": "llm_analytics",
         "summary": "Update evaluation report config",
@@ -3341,6 +3669,21 @@
         "summary": "Get skill file",
         "title": "Get skill file",
         "required_scopes": ["llm_skill:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "web-analytics-weekly-digest": {
+        "description": "Summarizes a project's web analytics over a lookback window (default 7 days): unique visitors, pageviews, sessions, bounce rate, and average session duration with period-over-period comparisons, plus the top 5 pages, top 5 traffic sources, and goal conversions. Accepts optional `days` (1–90, default 7) and `compare` (bool, default true) query params — pass `days=30` to summarize the last month, or `compare=false` to skip the period-over-period comparison for a faster response. Use this to answer questions like \"how are my web analytics?\", \"how did the site do last week?\", or \"what's my traffic looking like this month?\".",
+        "category": "Web analytics",
+        "feature": "web_analytics",
+        "summary": "Summarize web analytics",
+        "title": "Summarize web analytics",
+        "required_scopes": ["web_analytics:read"],
         "new_mcp": true,
         "annotations": {
             "destructiveHint": false,

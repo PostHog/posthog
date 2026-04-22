@@ -62,6 +62,7 @@ from posthog.temporal.data_imports.pipelines.pipeline_v3.pipeline import Pipelin
 from posthog.temporal.data_imports.row_tracking import get_rows
 from posthog.temporal.data_imports.settings import ACTIVITIES
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
+from posthog.temporal.data_imports.sources.common.rest_source.rest_client import RESTClient as PostHogRESTClient
 from posthog.temporal.data_imports.sources.common.webhook_s3 import WebhookSourceManager
 from posthog.temporal.data_imports.sources.stripe.constants import (
     BALANCE_TRANSACTION_RESOURCE_NAME as STRIPE_BALANCE_TRANSACTION_RESOURCE_NAME,
@@ -381,6 +382,21 @@ async def _execute_run(workflow_id: str, inputs: ExternalDataWorkflowInputs, moc
     ):
         return iter(mock_data_response)
 
+    def mock_paginate_pages(
+        class_self,
+        path: str = "",
+        method: Any = "GET",
+        params: Optional[dict[str, Any]] = None,
+        json: Optional[dict[str, Any]] = None,
+        auth: Optional[Any] = None,
+        paginator: Optional[Any] = None,
+        data_selector: Optional[Any] = None,
+        hooks: Optional[Any] = None,
+    ):
+        # Yield each record as its own page so tests that probe chunking
+        # by record size still see one call per record.
+        return iter([[item] for item in mock_data_response])
+
     def mock_to_session_credentials(class_self):
         return {
             "aws_access_key_id": settings.OBJECT_STORAGE_ACCESS_KEY_ID,
@@ -405,6 +421,7 @@ async def _execute_run(workflow_id: str, inputs: ExternalDataWorkflowInputs, moc
 
     with (
         mock.patch.object(RESTClient, "paginate", mock_paginate),
+        mock.patch.object(PostHogRESTClient, "paginate", mock_paginate_pages),
         mock.patch.object(ListObject, "auto_paging_iter", return_value=iter(mock_data_response)),
         mock.patch.object(InvoiceListWithAllLines, "auto_paging_iter", return_value=iter(mock_data_response)),
         override_settings(
