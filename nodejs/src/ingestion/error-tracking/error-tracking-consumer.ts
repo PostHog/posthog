@@ -15,7 +15,7 @@ import { PromiseScheduler } from '../../utils/promise-scheduler'
 import { TeamManager } from '../../utils/team-manager'
 import { GroupTypeManager } from '../../worker/ingestion/group-type-manager'
 import { PersonRepository } from '../../worker/ingestion/persons/repositories/person-repository'
-import { OverflowOutput } from '../common/outputs'
+import { DlqOutput, OverflowOutput } from '../common/outputs'
 import { BatchPipelineUnwrapper } from '../pipelines/batch-pipeline-unwrapper'
 import { TopHog } from '../tophog'
 import { MainLaneOverflowRedirect } from '../utils/overflow-redirect/main-lane-overflow-redirect'
@@ -96,7 +96,7 @@ export class ErrorTrackingConsumer {
         { message: Message },
         ErrorTrackingPipelineOutput,
         { message: Message },
-        OverflowOutput
+        OverflowOutput | DlqOutput
     >
     protected cymbalClient: CymbalClient
     protected promiseScheduler: PromiseScheduler

@@ -1,11 +1,11 @@
 import { Message } from 'node-rdkafka'
 
 import { PromiseScheduler } from '../../../utils/promise-scheduler'
-import { IngestionWarningsOutput } from '../../common/outputs'
+import { DlqOutput, IngestionWarningsOutput, OverflowOutput } from '../../common/outputs'
 import { IngestionOutputs } from '../../outputs/ingestion-outputs'
 import { BaseBatchPipeline, BatchProcessingStep } from '../base-batch-pipeline'
 import { BatchPipeline } from '../batch-pipeline.interface'
-import { BatchRetryOptions, withBatchRetry } from '../batch-retry'
+import { BatchRetryOptions, BatchRetryStep, withBatchRetry } from '../batch-retry'
 import { BufferingBatchPipeline } from '../buffering-batch-pipeline'
 import { ConcurrentBatchProcessingPipeline } from '../concurrent-batch-pipeline'
 import { ConcurrentlyGroupingBatchPipeline, GroupingFunction } from '../concurrently-grouping-batch-pipeline'
@@ -87,16 +87,15 @@ export class BatchPipelineBuilder<TInput, TOutput, CInput, COutput = CInput, R e
     }
 
     /**
-     * Add a batch processing step with automatic retry logic.
-     *
-     * When the step throws a retriable error (error.isRetriable === true),
-     * it will be retried with exponential backoff. Non-retriable errors
-     * are converted to DLQ results for all inputs in the batch.
+     * Add a batch step with per-event retry, overflow redirect, and DLQ
+     * routing. The step returns per-event success/failure. The wrapper
+     * retries only the failed events, DLQs non-retriable failures, and
+     * overflows retriable failures after retries are exhausted.
      */
     pipeBatchWithRetry<U, R2 extends string = never>(
-        step: BatchProcessingStep<TOutput, U, R2>,
+        step: BatchRetryStep<TOutput, U, R2>,
         options?: BatchRetryOptions
-    ): BatchPipelineBuilder<TInput, U, CInput, COutput, R | R2> {
+    ): BatchPipelineBuilder<TInput, U, CInput, COutput, R | OverflowOutput | DlqOutput | R2> {
         return this.pipeBatch(withBatchRetry(step, options))
     }
 

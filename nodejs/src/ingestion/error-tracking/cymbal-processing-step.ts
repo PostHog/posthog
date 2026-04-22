@@ -4,9 +4,9 @@ import { logger } from '~/utils/logger'
 import { invalidTimestampCounter } from '~/worker/ingestion/event-pipeline/metrics'
 import { parseEventTimestamp } from '~/worker/ingestion/timestamps'
 
-import { BatchProcessingStep } from '../pipelines/base-batch-pipeline'
+import { BatchRetryStepResult } from '../pipelines/batch-retry'
 import { PipelineWarning } from '../pipelines/pipeline.interface'
-import { PipelineResult, drop, ok } from '../pipelines/results'
+import { drop, ok } from '../pipelines/results'
 import { CymbalClient } from './cymbal/client'
 import { CymbalResponse } from './cymbal/types'
 
@@ -74,8 +74,8 @@ function getCymbalProcessingWarnings(response: CymbalResponse, eventUuid: string
  */
 export function createCymbalProcessingStep<T extends CymbalProcessingInput>(
     cymbalClient: CymbalClient
-): BatchProcessingStep<T, T> {
-    return async function cymbalProcessingStep(inputs: T[]): Promise<PipelineResult<T>[]> {
+): (inputs: T[]) => Promise<BatchRetryStepResult<T>[]> {
+    return async function cymbalProcessingStep(inputs: T[]): Promise<BatchRetryStepResult<T>[]> {
         if (inputs.length === 0) {
             return []
         }
@@ -104,43 +104,38 @@ export function createCymbalProcessingStep<T extends CymbalProcessingInput>(
             estimatedSize: input.messageBytes ?? 0,
         }))
 
-        try {
-            const responses = await cymbalClient.processExceptions(items)
+        const results = await cymbalClient.processExceptions(items)
 
-            // Map responses back to results, maintaining 1:1 correspondence
-            return responses.map((response, index) => {
-                const { input, warnings: timestampWarnings } = validatedInputs[index]
+        // Map results back, maintaining 1:1 correspondence
+        return results.map((result, index) => {
+            const { input, warnings: timestampWarnings } = validatedInputs[index]
 
-                // Null response means the event should be dropped (suppressed)
-                if (!response) {
-                    logger.debug('🔇', 'cymbal_event_suppressed', {
-                        eventUuid: input.event.uuid,
-                        teamId: input.team.id,
-                    })
-                    return drop('suppressed')
+            // Cymbal call failed — pass through for the wrapper to retry/overflow
+            if (result.status === 'failed') {
+                return {
+                    status: 'failed' as const,
+                    retriable: result.retriable,
+                    reason: result.reason,
                 }
+            }
 
-                // Replace event properties with Cymbal's processed properties.
-                // Cymbal returns the full properties object with $exception_list, $exception_fingerprint, etc.
-                // We mutate the event directly since it's not used after this step.
-                input.event.properties = response.properties
+            // Null response means the event should be dropped (suppressed)
+            if (!result.response) {
+                logger.debug('🔇', 'cymbal_event_suppressed', {
+                    eventUuid: input.event.uuid,
+                    teamId: input.team.id,
+                })
+                return { status: 'success' as const, result: drop('suppressed') }
+            }
 
-                // Combine timestamp validation warnings with Cymbal processing warnings
-                const cymbalWarnings = getCymbalProcessingWarnings(response, input.event.uuid)
-                const warnings = [...timestampWarnings, ...cymbalWarnings]
+            // Replace event properties with Cymbal's processed properties.
+            input.event.properties = result.response.properties
 
-                return ok({ ...input, event: input.event }, [], warnings)
-            })
-        } catch (error) {
-            logger.error('❌', 'cymbal_batch_processing_error', {
-                error: error instanceof Error ? error.message : String(error),
-                batchSize: inputs.length,
-            })
+            // Combine timestamp validation warnings with Cymbal processing warnings
+            const cymbalWarnings = getCymbalProcessingWarnings(result.response, input.event.uuid)
+            const warnings = [...timestampWarnings, ...cymbalWarnings]
 
-            // Throw so Kafka retries the batch. For retriable errors (5xx, timeout, network),
-            // this allows automatic recovery when Cymbal comes back. For non-retriable errors
-            // (4xx), this indicates a bug in our request building that needs fixing.
-            throw error
-        }
+            return { status: 'success' as const, result: ok({ ...input, event: input.event }, [], warnings) }
+        })
     }
 }

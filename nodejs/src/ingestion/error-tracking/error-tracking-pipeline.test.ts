@@ -324,7 +324,7 @@ describe('ErrorTrackingPipeline', () => {
             const cymbalResponse = createCymbalResponseWithEnrichedProperties({
                 $exception_list: [{ type: 'Error', value: 'Test error' }],
             })
-            mockCymbalClient.processExceptions.mockResolvedValue([cymbalResponse])
+            mockCymbalClient.processExceptions.mockResolvedValue([{ status: 'success', response: cymbalResponse }])
 
             // Hog transformations run AFTER Cymbal and add GeoIP properties
             mockHogTransformer.transformEventAndProduceMessages.mockImplementation((event) =>
@@ -390,7 +390,9 @@ describe('ErrorTrackingPipeline', () => {
                     properties: { $exception_fingerprint: 'fp-2', $exception_issue_id: 'issue-2' },
                 }),
             ]
-            mockCymbalClient.processExceptions.mockResolvedValue(cymbalResponses)
+            mockCymbalClient.processExceptions.mockResolvedValue(
+                cymbalResponses.map((r) => ({ status: 'success' as const, response: r }))
+            )
 
             const messages = [
                 createKafkaMessage({ distinctId: 'user-1', eventUuid: uuid1 }),
@@ -420,7 +422,7 @@ describe('ErrorTrackingPipeline', () => {
             const cymbalResponse = createCymbalResponseWithEnrichedProperties({
                 $exception_list: [{ type: 'Error', value: 'Test error' }],
             })
-            mockCymbalClient.processExceptions.mockResolvedValue([cymbalResponse])
+            mockCymbalClient.processExceptions.mockResolvedValue([{ status: 'success', response: cymbalResponse }])
 
             const message = createKafkaMessage({})
             const pipeline = createErrorTrackingPipeline(pipelineConfig)
@@ -447,7 +449,7 @@ describe('ErrorTrackingPipeline', () => {
                 $group_0: 'acme-corp',
                 $group_1: 'project-123',
             })
-            mockCymbalClient.processExceptions.mockResolvedValue([cymbalResponse])
+            mockCymbalClient.processExceptions.mockResolvedValue([{ status: 'success', response: cymbalResponse }])
 
             const message = createKafkaMessage({
                 properties: {
@@ -476,7 +478,7 @@ describe('ErrorTrackingPipeline', () => {
             mockPersonRepository.fetchPerson.mockResolvedValue(undefined)
 
             // Cymbal returns null for suppressed events
-            mockCymbalClient.processExceptions.mockResolvedValue([null])
+            mockCymbalClient.processExceptions.mockResolvedValue([{ status: 'success', response: null }])
 
             const message = createKafkaMessage({})
 
@@ -596,7 +598,9 @@ describe('ErrorTrackingPipeline', () => {
                 new Set([RestrictionType.FORCE_OVERFLOW])
             )
             mockPersonRepository.fetchPerson.mockResolvedValue(undefined)
-            mockCymbalClient.processExceptions.mockResolvedValue([createCymbalResponse()])
+            mockCymbalClient.processExceptions.mockResolvedValue([
+                { status: 'success', response: createCymbalResponse() },
+            ])
 
             const message = createKafkaMessage({})
 
@@ -613,7 +617,9 @@ describe('ErrorTrackingPipeline', () => {
 
         it('propagates database errors from person lookup', async () => {
             mockPersonRepository.fetchPersonsByDistinctIds.mockRejectedValue(new Error('Database error'))
-            mockCymbalClient.processExceptions.mockResolvedValue([createCymbalResponse()])
+            mockCymbalClient.processExceptions.mockResolvedValue([
+                { status: 'success', response: createCymbalResponse() },
+            ])
 
             const message = createKafkaMessage({})
 
@@ -627,59 +633,41 @@ describe('ErrorTrackingPipeline', () => {
             expect(mockHogTransformer.transformEventAndProduceMessages).not.toHaveBeenCalled()
         })
 
-        it('retries Cymbal errors and propagates after exhausting retries', async () => {
+        it('overflows all events when all fail with retriable errors', async () => {
             mockPersonRepository.fetchPerson.mockResolvedValue(undefined)
 
-            // Create retriable error (default errors are treated as retriable)
-            const retriableError = new Error('Cymbal unavailable')
-            ;(retriableError as any).isRetriable = true
-            mockCymbalClient.processExceptions.mockRejectedValue(retriableError)
+            // CymbalClient returns a retriable failure on every attempt
+            mockCymbalClient.processExceptions.mockResolvedValue([
+                { status: 'failed', retriable: true, reason: 'Cymbal timeout' },
+            ])
 
             const message = createKafkaMessage({})
-
             const pipeline = createErrorTrackingPipeline(pipelineConfig)
 
-            // Cymbal errors are retried 10 times (pipeline default), then propagate
-            // so Kafka doesn't commit and retries the batch
-            await expect(runErrorTrackingPipeline(pipeline, [message])).rejects.toThrow('Cymbal unavailable')
-
-            // Cymbal was called 10 times (initial + 9 retries) before giving up
-            expect(mockCymbalClient.processExceptions).toHaveBeenCalledTimes(10)
-            expect(mockHogTransformer.transformEventAndProduceMessages).not.toHaveBeenCalled()
-        })
-
-        it('retries Cymbal errors and succeeds on subsequent attempts', async () => {
-            mockPersonRepository.fetchPerson.mockResolvedValue(undefined)
-
-            // First two calls fail with retriable error, third call succeeds
-            const retriableError = new Error('Cymbal temporarily unavailable')
-            ;(retriableError as any).isRetriable = true
-
-            mockCymbalClient.processExceptions
-                .mockRejectedValueOnce(retriableError)
-                .mockRejectedValueOnce(retriableError)
-                .mockResolvedValueOnce([createCymbalResponse()])
-
-            const message = createKafkaMessage({})
-
-            const pipeline = createErrorTrackingPipeline(pipelineConfig)
+            // All retriable failures are overflowed after retries exhaust —
+            // the client's circuit breaker is responsible for blocking when
+            // the service is fully down.
             await runErrorTrackingPipeline(pipeline, [message])
 
-            // Cymbal was called 3 times before succeeding
+            // Cymbal was retried (default 3 attempts)
             expect(mockCymbalClient.processExceptions).toHaveBeenCalledTimes(3)
-            // Processing continued after Cymbal succeeded
-            expect(mockHogTransformer.transformEventAndProduceMessages).toHaveBeenCalledTimes(1)
-            // Event was emitted
-            expect(getProducedEvents()).toHaveLength(1)
+            // Processing should not continue past Cymbal
+            expect(mockHogTransformer.transformEventAndProduceMessages).not.toHaveBeenCalled()
+            // Event should not be produced to output topic
+            expect(getProducedEvents()).toHaveLength(0)
+            // Event should be redirected to overflow
+            expect(getOverflowMessages()).toHaveLength(1)
+            // Event should not be DLQ'd
+            expect(getDLQMessages()).toHaveLength(0)
         })
 
-        it('sends events to DLQ on non-retriable Cymbal errors', async () => {
+        it('sends non-retriable Cymbal errors to DLQ', async () => {
             mockPersonRepository.fetchPerson.mockResolvedValue(undefined)
 
-            // Non-retriable error (e.g., 400 Bad Request from Cymbal)
-            const nonRetriableError = new Error('Bad request - invalid event format')
-            ;(nonRetriableError as any).isRetriable = false
-            mockCymbalClient.processExceptions.mockRejectedValue(nonRetriableError)
+            // Non-retriable error (e.g., 400 Bad Request) returned as a failed result
+            mockCymbalClient.processExceptions.mockResolvedValue([
+                { status: 'failed', retriable: false, reason: 'Cymbal returned 400' },
+            ])
 
             const message = createKafkaMessage({})
 
@@ -693,39 +681,27 @@ describe('ErrorTrackingPipeline', () => {
             // Event should not be produced to output topic
             expect(getProducedEvents()).toHaveLength(0)
             // Event should be sent to DLQ
-            const dlqMessages = getDLQMessages()
-            expect(dlqMessages).toHaveLength(1)
+            expect(getDLQMessages()).toHaveLength(1)
         })
 
-        it('sends all batch events to DLQ on non-retriable Cymbal error', async () => {
+        it('propagates unexpected thrown errors to the consumer', async () => {
             mockPersonRepository.fetchPerson.mockResolvedValue(undefined)
 
-            // Non-retriable error affects the entire batch
-            const nonRetriableError = new Error('Bad request - invalid batch')
-            ;(nonRetriableError as any).isRetriable = false
-            mockCymbalClient.processExceptions.mockRejectedValue(nonRetriableError)
+            // Unexpected errors (e.g., code bugs) propagate to the consumer
+            // which will crash and not commit offsets, preserving the events
+            mockCymbalClient.processExceptions.mockRejectedValue(new Error('Unexpected error'))
 
-            const messages = [
-                createKafkaMessage({ distinctId: 'user-1' }),
-                createKafkaMessage({ distinctId: 'user-2' }),
-                createKafkaMessage({ distinctId: 'user-3' }),
-            ]
+            const messages = [createKafkaMessage({ distinctId: 'user-1' })]
 
             const pipeline = createErrorTrackingPipeline(pipelineConfig)
-            await runErrorTrackingPipeline(pipeline, messages)
-
-            // Non-retriable errors should not be retried
-            expect(mockCymbalClient.processExceptions).toHaveBeenCalledTimes(1)
-            // All events should be sent to DLQ
-            const dlqMessages = getDLQMessages()
-            expect(dlqMessages).toHaveLength(3)
-            // No events should be produced to output topic
-            expect(getProducedEvents()).toHaveLength(0)
+            await expect(runErrorTrackingPipeline(pipeline, messages)).rejects.toThrow('Unexpected error')
         })
 
         it('runs Hog transformations on events', async () => {
             mockPersonRepository.fetchPerson.mockResolvedValue(undefined)
-            mockCymbalClient.processExceptions.mockResolvedValue([createCymbalResponse()])
+            mockCymbalClient.processExceptions.mockResolvedValue([
+                { status: 'success', response: createCymbalResponse() },
+            ])
 
             const message = createKafkaMessage({})
 
@@ -741,7 +717,9 @@ describe('ErrorTrackingPipeline', () => {
 
         it('preserves GeoIP properties added by Hog transformations', async () => {
             mockPersonRepository.fetchPerson.mockResolvedValue(undefined)
-            mockCymbalClient.processExceptions.mockResolvedValue([createCymbalResponse()])
+            mockCymbalClient.processExceptions.mockResolvedValue([
+                { status: 'success', response: createCymbalResponse() },
+            ])
 
             // Mock the transformer to add GeoIP properties (simulating the GeoIP transformation)
             mockHogTransformer.transformEventAndProduceMessages.mockImplementation((event) =>
@@ -788,7 +766,7 @@ describe('ErrorTrackingPipeline', () => {
                 custom_property: 'should-be-preserved',
                 $browser: 'Chrome',
             })
-            mockCymbalClient.processExceptions.mockResolvedValue([cymbalResponse])
+            mockCymbalClient.processExceptions.mockResolvedValue([{ status: 'success', response: cymbalResponse }])
 
             const message = createKafkaMessage({
                 properties: {
@@ -828,7 +806,7 @@ describe('ErrorTrackingPipeline', () => {
                     ],
                 },
             })
-            mockCymbalClient.processExceptions.mockResolvedValue([cymbalResponse])
+            mockCymbalClient.processExceptions.mockResolvedValue([{ status: 'success', response: cymbalResponse }])
 
             const message = createKafkaMessage({ eventUuid })
 
@@ -865,7 +843,7 @@ describe('ErrorTrackingPipeline', () => {
                     // No $cymbal_errors
                 },
             })
-            mockCymbalClient.processExceptions.mockResolvedValue([cymbalResponse])
+            mockCymbalClient.processExceptions.mockResolvedValue([{ status: 'success', response: cymbalResponse }])
 
             const message = createKafkaMessage({})
 
@@ -888,7 +866,9 @@ describe('ErrorTrackingPipeline', () => {
             // Test with person found - should be 'full' mode
             const person = createTestPerson()
             mockPersonRepository.fetchPersonsByDistinctIds.mockResolvedValue([person])
-            mockCymbalClient.processExceptions.mockResolvedValue([createCymbalResponse()])
+            mockCymbalClient.processExceptions.mockResolvedValue([
+                { status: 'success', response: createCymbalResponse() },
+            ])
 
             const pipeline1 = createErrorTrackingPipeline(pipelineConfig)
             await runErrorTrackingPipeline(pipeline1, [createKafkaMessage({})])
@@ -905,7 +885,9 @@ describe('ErrorTrackingPipeline', () => {
 
             // Test without person found - still uses 'full' mode because processPerson=true
             mockPersonRepository.fetchPerson.mockResolvedValue(undefined)
-            mockCymbalClient.processExceptions.mockResolvedValue([createCymbalResponse()])
+            mockCymbalClient.processExceptions.mockResolvedValue([
+                { status: 'success', response: createCymbalResponse() },
+            ])
 
             const pipeline2 = createErrorTrackingPipeline(pipelineConfig)
             await runErrorTrackingPipeline(pipeline2, [createKafkaMessage({ distinctId: 'no-person' })])
@@ -945,7 +927,9 @@ describe('ErrorTrackingPipeline', () => {
         it('records resolved_teams metric when team is resolved', async () => {
             const person = createTestPerson()
             mockPersonRepository.fetchPersonsByDistinctIds.mockResolvedValue([person])
-            mockCymbalClient.processExceptions.mockResolvedValue([createCymbalResponse()])
+            mockCymbalClient.processExceptions.mockResolvedValue([
+                { status: 'success', response: createCymbalResponse() },
+            ])
 
             const configWithTopHog: ErrorTrackingPipelineConfig = {
                 ...pipelineConfig,
@@ -970,7 +954,9 @@ describe('ErrorTrackingPipeline', () => {
         it('records emitted_events metric when events are emitted', async () => {
             const person = createTestPerson()
             mockPersonRepository.fetchPersonsByDistinctIds.mockResolvedValue([person])
-            mockCymbalClient.processExceptions.mockResolvedValue([createCymbalResponse()])
+            mockCymbalClient.processExceptions.mockResolvedValue([
+                { status: 'success', response: createCymbalResponse() },
+            ])
 
             const configWithTopHog: ErrorTrackingPipelineConfig = {
                 ...pipelineConfig,
@@ -995,7 +981,9 @@ describe('ErrorTrackingPipeline', () => {
         it('records emitted_events_per_distinct_id metric with distinct_id', async () => {
             const person = createTestPerson()
             mockPersonRepository.fetchPersonsByDistinctIds.mockResolvedValue([person])
-            mockCymbalClient.processExceptions.mockResolvedValue([createCymbalResponse()])
+            mockCymbalClient.processExceptions.mockResolvedValue([
+                { status: 'success', response: createCymbalResponse() },
+            ])
 
             const configWithTopHog: ErrorTrackingPipelineConfig = {
                 ...pipelineConfig,
@@ -1021,7 +1009,9 @@ describe('ErrorTrackingPipeline', () => {
         it('includes pipeline and lane labels in TopHog output', async () => {
             const person = createTestPerson()
             mockPersonRepository.fetchPersonsByDistinctIds.mockResolvedValue([person])
-            mockCymbalClient.processExceptions.mockResolvedValue([createCymbalResponse()])
+            mockCymbalClient.processExceptions.mockResolvedValue([
+                { status: 'success', response: createCymbalResponse() },
+            ])
 
             const configWithTopHog: ErrorTrackingPipelineConfig = {
                 ...pipelineConfig,
@@ -1047,7 +1037,7 @@ describe('ErrorTrackingPipeline', () => {
             const person = createTestPerson()
             mockPersonRepository.fetchPersonsByDistinctIds.mockResolvedValue([person])
             mockCymbalClient.processExceptions.mockImplementation((events) =>
-                Promise.resolve(events.map(() => createCymbalResponse()))
+                Promise.resolve(events.map(() => ({ status: 'success' as const, response: createCymbalResponse() })))
             )
 
             const configWithTopHog: ErrorTrackingPipelineConfig = {

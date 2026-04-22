@@ -1,10 +1,35 @@
 import { createTestPluginEvent } from '~/tests/helpers/plugin-event'
 import { createTestTeam } from '~/tests/helpers/team'
 
+import { BatchRetryStepResult } from '../pipelines/batch-retry'
 import { PipelineResultType, isDropResult, isOkResult } from '../pipelines/results'
-import { createCymbalProcessingStep } from './cymbal-processing-step'
-import { CymbalClient } from './cymbal/client'
+import { CymbalProcessingInput, createCymbalProcessingStep } from './cymbal-processing-step'
+import { CymbalClient, CymbalEventResult } from './cymbal/client'
 import { CymbalResponse } from './cymbal/types'
+
+/** Wrap a CymbalResponse (or null) into a CymbalEventResult for mocking. */
+const toResult = (response: CymbalResponse | null): CymbalEventResult => ({
+    status: 'success',
+    response,
+})
+
+/** Assert a result is a success and return its pipeline result. */
+function expectSuccess(result: BatchRetryStepResult<CymbalProcessingInput>) {
+    expect(result.status).toBe('success')
+    if (result.status !== 'success') {
+        throw new Error('Expected success')
+    }
+    return result.result
+}
+
+/** Assert a result is a failed result. */
+function expectFailed(result: BatchRetryStepResult<CymbalProcessingInput>) {
+    expect(result.status).toBe('failed')
+    if (result.status !== 'failed') {
+        throw new Error('Expected failed')
+    }
+    return result
+}
 
 describe('createCymbalProcessingStep', () => {
     let mockCymbalClient: jest.Mocked<CymbalClient>
@@ -54,13 +79,13 @@ describe('createCymbalProcessingStep', () => {
             createResponse({ uuid: 'uuid-2', properties: { $exception_fingerprint: 'fp-2' } }),
         ]
 
-        mockCymbalClient.processExceptions.mockResolvedValueOnce(responses)
+        mockCymbalClient.processExceptions.mockResolvedValueOnce(responses.map(toResult))
 
         const results = await step(inputs)
 
         expect(results).toHaveLength(2)
-        expect(results[0].type).toBe(PipelineResultType.OK)
-        expect(results[1].type).toBe(PipelineResultType.OK)
+        expect(expectSuccess(results[0]).type).toBe(PipelineResultType.OK)
+        expect(expectSuccess(results[1]).type).toBe(PipelineResultType.OK)
 
         // Verify Cymbal request format
         expect(mockCymbalClient.processExceptions).toHaveBeenCalledWith([
@@ -100,14 +125,15 @@ describe('createCymbalProcessingStep', () => {
             },
         })
 
-        mockCymbalClient.processExceptions.mockResolvedValueOnce([response])
+        mockCymbalClient.processExceptions.mockResolvedValueOnce([toResult(response)])
 
         const results = await step([input])
 
-        expect(results[0].type).toBe(PipelineResultType.OK)
-        if (isOkResult(results[0])) {
+        const pipelineResult = expectSuccess(results[0])
+        expect(pipelineResult.type).toBe(PipelineResultType.OK)
+        if (isOkResult(pipelineResult)) {
             // Cymbal replaces properties entirely
-            expect(results[0].value.event.properties).toEqual(response.properties)
+            expect(pipelineResult.value.event.properties).toEqual(response.properties)
         }
     })
 
@@ -115,16 +141,48 @@ describe('createCymbalProcessingStep', () => {
         const inputs = [createInput({ uuid: 'uuid-1' }), createInput({ uuid: 'uuid-2' })]
 
         mockCymbalClient.processExceptions.mockResolvedValueOnce([
-            null, // Suppressed
-            createResponse({ uuid: 'uuid-2', properties: { $exception_fingerprint: 'fp-2' } }),
+            toResult(null), // Suppressed
+            toResult(createResponse({ uuid: 'uuid-2', properties: { $exception_fingerprint: 'fp-2' } })),
         ])
 
         const results = await step(inputs)
 
         expect(results).toHaveLength(2)
-        expect(results[0].type).toBe(PipelineResultType.DROP)
-        expect(isDropResult(results[0])).toBe(true)
-        expect(results[1].type).toBe(PipelineResultType.OK)
+        expect(expectSuccess(results[0]).type).toBe(PipelineResultType.DROP)
+        expect(isDropResult(expectSuccess(results[0]))).toBe(true)
+        expect(expectSuccess(results[1]).type).toBe(PipelineResultType.OK)
+    })
+
+    it('preserves ordering across mixed success, failed, and suppressed results', async () => {
+        const inputs = [
+            createInput({ uuid: 'uuid-0' }),
+            createInput({ uuid: 'uuid-1' }),
+            createInput({ uuid: 'uuid-2' }),
+            createInput({ uuid: 'uuid-3' }),
+        ]
+
+        mockCymbalClient.processExceptions.mockResolvedValueOnce([
+            toResult(createResponse({ uuid: 'uuid-0', properties: { $exception_fingerprint: 'fp-0' } })),
+            { status: 'failed' as const, retriable: true, reason: 'timeout' },
+            toResult(null), // suppressed
+            toResult(createResponse({ uuid: 'uuid-3', properties: { $exception_fingerprint: 'fp-3' } })),
+        ])
+
+        const results = await step(inputs)
+
+        expect(results).toHaveLength(4)
+        expect(expectSuccess(results[0]).type).toBe(PipelineResultType.OK)
+        expectFailed(results[1])
+        expect(expectSuccess(results[2]).type).toBe(PipelineResultType.DROP)
+        expect(expectSuccess(results[3]).type).toBe(PipelineResultType.OK)
+
+        // Verify the OK results have the right event data at the right positions
+        const r0 = expectSuccess(results[0])
+        const r3 = expectSuccess(results[3])
+        if (isOkResult(r0) && isOkResult(r3)) {
+            expect(r0.value.event.properties!.$exception_fingerprint).toBe('fp-0')
+            expect(r3.value.event.properties!.$exception_fingerprint).toBe('fp-3')
+        }
     })
 
     it('passes all properties to Cymbal including GeoIP', async () => {
@@ -138,7 +196,7 @@ describe('createCymbalProcessingStep', () => {
             },
         })
 
-        mockCymbalClient.processExceptions.mockResolvedValueOnce([createResponse()])
+        mockCymbalClient.processExceptions.mockResolvedValueOnce([toResult(createResponse())])
 
         await step([input])
 
@@ -166,7 +224,7 @@ describe('createCymbalProcessingStep', () => {
             },
         })
 
-        mockCymbalClient.processExceptions.mockResolvedValueOnce([createResponse()])
+        mockCymbalClient.processExceptions.mockResolvedValueOnce([toResult(createResponse())])
 
         await step([input])
 
@@ -194,13 +252,14 @@ describe('createCymbalProcessingStep', () => {
     it('preserves team in output', async () => {
         const input = createInput()
 
-        mockCymbalClient.processExceptions.mockResolvedValueOnce([createResponse()])
+        mockCymbalClient.processExceptions.mockResolvedValueOnce([toResult(createResponse())])
 
         const results = await step([input])
 
-        expect(results[0].type).toBe(PipelineResultType.OK)
-        if (isOkResult(results[0])) {
-            expect(results[0].value.team).toBe(team)
+        const pipelineResult = expectSuccess(results[0])
+        expect(pipelineResult.type).toBe(PipelineResultType.OK)
+        if (isOkResult(pipelineResult)) {
+            expect(pipelineResult.value.team).toBe(team)
         }
     })
 
@@ -209,7 +268,7 @@ describe('createCymbalProcessingStep', () => {
             properties: { some_prop: 'value' }, // No $exception_list
         })
 
-        mockCymbalClient.processExceptions.mockResolvedValueOnce([createResponse()])
+        mockCymbalClient.processExceptions.mockResolvedValueOnce([toResult(createResponse())])
 
         await step([input])
 
@@ -228,7 +287,7 @@ describe('createCymbalProcessingStep', () => {
             const input = createInput()
             input.event.timestamp = '2024-01-15T10:30:00.000Z'
 
-            mockCymbalClient.processExceptions.mockResolvedValueOnce([createResponse()])
+            mockCymbalClient.processExceptions.mockResolvedValueOnce([toResult(createResponse())])
 
             await step([input])
 
@@ -250,7 +309,7 @@ describe('createCymbalProcessingStep', () => {
                 const input = createInput()
                 input.event.timestamp = undefined as any
 
-                mockCymbalClient.processExceptions.mockResolvedValueOnce([createResponse()])
+                mockCymbalClient.processExceptions.mockResolvedValueOnce([toResult(createResponse())])
 
                 await step([input])
 
@@ -271,14 +330,14 @@ describe('createCymbalProcessingStep', () => {
             const input = createInput()
             input.event.timestamp = '2024-01-15T10:30:00.000Z'
 
-            mockCymbalClient.processExceptions.mockResolvedValueOnce([createResponse()])
+            mockCymbalClient.processExceptions.mockResolvedValueOnce([toResult(createResponse())])
 
             const results = await step([input])
 
-            expect(results[0].type).toBe(PipelineResultType.OK)
-            if (isOkResult(results[0])) {
-                // The validated timestamp should be stored on event.timestamp
-                expect(results[0].value.event.timestamp).toBe('2024-01-15T10:30:00.000Z')
+            const pipelineResult = expectSuccess(results[0])
+            expect(pipelineResult.type).toBe(PipelineResultType.OK)
+            if (isOkResult(pipelineResult)) {
+                expect(pipelineResult.value.event.timestamp).toBe('2024-01-15T10:30:00.000Z')
             }
         })
 
@@ -286,25 +345,24 @@ describe('createCymbalProcessingStep', () => {
             const input = createInput()
             input.event.timestamp = 'not-a-valid-timestamp' as any
 
-            mockCymbalClient.processExceptions.mockResolvedValueOnce([createResponse()])
+            mockCymbalClient.processExceptions.mockResolvedValueOnce([toResult(createResponse())])
 
             const results = await step([input])
 
-            expect(results[0].type).toBe(PipelineResultType.OK)
-            if (isOkResult(results[0])) {
-                // Should have a timestamp warning
-                expect(results[0].warnings.length).toBeGreaterThanOrEqual(1)
-                expect(results[0].warnings.some((w) => w.type.includes('timestamp'))).toBe(true)
+            const pipelineResult = expectSuccess(results[0])
+            expect(pipelineResult.type).toBe(PipelineResultType.OK)
+            if (isOkResult(pipelineResult)) {
+                expect(pipelineResult.warnings.length).toBeGreaterThanOrEqual(1)
+                expect(pipelineResult.warnings.some((w) => w.type.includes('timestamp'))).toBe(true)
             }
         })
     })
 
-    it('throws on Cymbal client error so Kafka retries the batch', async () => {
+    it('propagates thrown errors for the wrapper to handle', async () => {
         const inputs = [createInput({ uuid: 'uuid-1' }), createInput({ uuid: 'uuid-2' })]
 
         mockCymbalClient.processExceptions.mockRejectedValueOnce(new Error('Cymbal unavailable'))
 
-        // Error should propagate up so Kafka doesn't commit the offset and retries the batch
         await expect(step(inputs)).rejects.toThrow('Cymbal unavailable')
     })
 
@@ -321,14 +379,15 @@ describe('createCymbalProcessingStep', () => {
                 },
             })
 
-            mockCymbalClient.processExceptions.mockResolvedValueOnce([response])
+            mockCymbalClient.processExceptions.mockResolvedValueOnce([toResult(response)])
 
             const results = await step([input])
 
-            expect(results[0].type).toBe(PipelineResultType.OK)
-            if (isOkResult(results[0])) {
-                expect(results[0].warnings).toHaveLength(1)
-                expect(results[0].warnings[0]).toEqual({
+            const pipelineResult = expectSuccess(results[0])
+            expect(pipelineResult.type).toBe(PipelineResultType.OK)
+            if (isOkResult(pipelineResult)) {
+                expect(pipelineResult.warnings).toHaveLength(1)
+                expect(pipelineResult.warnings[0]).toEqual({
                     type: 'error_tracking_exception_processing_errors',
                     details: {
                         eventUuid: 'event-with-errors',
@@ -353,14 +412,15 @@ describe('createCymbalProcessingStep', () => {
                 },
             })
 
-            mockCymbalClient.processExceptions.mockResolvedValueOnce([response])
+            mockCymbalClient.processExceptions.mockResolvedValueOnce([toResult(response)])
 
             const results = await step([input])
 
-            expect(results[0].type).toBe(PipelineResultType.OK)
-            if (isOkResult(results[0])) {
-                expect(results[0].warnings).toHaveLength(1)
-                expect(results[0].warnings[0].details.errors).toEqual([
+            const pipelineResult = expectSuccess(results[0])
+            expect(pipelineResult.type).toBe(PipelineResultType.OK)
+            if (isOkResult(pipelineResult)) {
+                expect(pipelineResult.warnings).toHaveLength(1)
+                expect(pipelineResult.warnings[0].details.errors).toEqual([
                     'No sourcemap found for source url: https://example.com/app.js',
                     'Invalid source map: failed to parse',
                 ])
@@ -379,13 +439,14 @@ describe('createCymbalProcessingStep', () => {
                 },
             })
 
-            mockCymbalClient.processExceptions.mockResolvedValueOnce([response])
+            mockCymbalClient.processExceptions.mockResolvedValueOnce([toResult(response)])
 
             const results = await step([input])
 
-            expect(results[0].type).toBe(PipelineResultType.OK)
-            if (isOkResult(results[0])) {
-                expect(results[0].warnings).toHaveLength(0)
+            const pipelineResult = expectSuccess(results[0])
+            expect(pipelineResult.type).toBe(PipelineResultType.OK)
+            if (isOkResult(pipelineResult)) {
+                expect(pipelineResult.warnings).toHaveLength(0)
             }
         })
 
@@ -401,26 +462,27 @@ describe('createCymbalProcessingStep', () => {
                 },
             })
 
-            mockCymbalClient.processExceptions.mockResolvedValueOnce([response])
+            mockCymbalClient.processExceptions.mockResolvedValueOnce([toResult(response)])
 
             const results = await step([input])
 
-            expect(results[0].type).toBe(PipelineResultType.OK)
-            if (isOkResult(results[0])) {
-                expect(results[0].warnings).toHaveLength(0)
+            const pipelineResult = expectSuccess(results[0])
+            expect(pipelineResult.type).toBe(PipelineResultType.OK)
+            if (isOkResult(pipelineResult)) {
+                expect(pipelineResult.warnings).toHaveLength(0)
             }
         })
 
         it('does not emit warning for suppressed events', async () => {
             const input = createInput({ uuid: 'suppressed-event' })
 
-            mockCymbalClient.processExceptions.mockResolvedValueOnce([null])
+            mockCymbalClient.processExceptions.mockResolvedValueOnce([toResult(null)])
 
             const results = await step([input])
 
-            expect(results[0].type).toBe(PipelineResultType.DROP)
-            // Drop results also have warnings array but it should be empty
-            expect(results[0].warnings).toHaveLength(0)
+            const pipelineResult = expectSuccess(results[0])
+            expect(pipelineResult.type).toBe(PipelineResultType.DROP)
+            expect(pipelineResult.warnings).toHaveLength(0)
         })
     })
 })

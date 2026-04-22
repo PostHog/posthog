@@ -77,16 +77,19 @@ const createMockPersonRepository = (): jest.Mocked<PersonRepository> => ({
 jest.mock('./cymbal', () => ({
     CymbalClient: jest.fn().mockImplementation(() => ({
         processExceptions: jest.fn().mockImplementation((items) =>
-            // Return a valid response for each item, preserving input properties
+            // Return a valid success result for each item, preserving input properties
             items.map((item: any) => ({
-                uuid: item.request.uuid,
-                event: item.request.event,
-                team_id: item.request.team_id,
-                timestamp: item.request.timestamp,
-                properties: {
-                    ...item.request.properties,
-                    $exception_fingerprint: `fingerprint-${item.request.uuid}`,
-                    $exception_issue_id: `issue-${item.request.uuid}`,
+                status: 'success',
+                response: {
+                    uuid: item.request.uuid,
+                    event: item.request.event,
+                    team_id: item.request.team_id,
+                    timestamp: item.request.timestamp,
+                    properties: {
+                        ...item.request.properties,
+                        $exception_fingerprint: `fingerprint-${item.request.uuid}`,
+                        $exception_issue_id: `issue-${item.request.uuid}`,
+                    },
                 },
             }))
         ),
