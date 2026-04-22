@@ -4603,8 +4603,6 @@ export namespace Schemas {
       experiment_id?: number | null;
       kind?: ExperimentQueryKind;
       metric: ExperimentMeanMetric | ExperimentFunnelMetric | ExperimentRatioMetric | ExperimentRetentionMetric;
-      /** @nullable */
-      metric_events_precomputation?: boolean | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
       /** @nullable */
