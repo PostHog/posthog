@@ -60,8 +60,13 @@ function alertSparklineData(sparkline: readonly LogsAlertSparklineBucketApi[] | 
             color: 'warning',
         },
         {
+            name: 'Resolved',
+            values: sparkline.map((b) => b.resolved),
+            color: 'success',
+        },
+        {
             name: 'Quiet',
-            values: sparkline.map((b) => (b.breached === 0 && b.errored === 0 ? 1 : 0)),
+            values: sparkline.map((b) => (b.breached === 0 && b.errored === 0 && b.resolved === 0 ? 1 : 0)),
             color: 'border',
         },
     ]
@@ -131,7 +136,7 @@ export function LogsAlertList(): JSX.Element {
         },
         {
             title: (
-                <Tooltip title="Breached (red) and errored (yellow) checks over the last 24 hours. Grey bars mark quiet hours.">
+                <Tooltip title="Breached (red), errored (yellow), and resolved (green) checks over the last 24 hours. Grey bars mark quiet hours.">
                     <span className="cursor-help">Last 24h</span>
                 </Tooltip>
             ),
