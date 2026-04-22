@@ -23,8 +23,10 @@ export enum TaskRunEnvironment {
 }
 
 export interface TaskRunArtifact {
+    id?: string
     name: string
     type: string
+    source?: string
     size?: number
     content_type?: string
     storage_path: string

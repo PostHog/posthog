@@ -18,7 +18,12 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { parse as parseYaml } from 'yaml'
 
-import { applyNestedExclusions, filterSchemaByOperationIds, runOrvalParallel } from '@posthog/openapi-codegen'
+import {
+    applyNestedExclusions,
+    filterSchemaByOperationIds,
+    preprocessSchema,
+    runOrvalParallel,
+} from '@posthog/openapi-codegen'
 
 import { discoverDefinitions, resolveSchemaPath } from './lib/definitions.mjs'
 import { stripEnumMinLength } from './lib/schema-transforms.mjs'
@@ -232,7 +237,7 @@ if (definitions.length === 0) {
     process.exit(0)
 }
 
-const fullSchema = JSON.parse(fs.readFileSync(schemaPath, 'utf-8'))
+const fullSchema = preprocessSchema(JSON.parse(fs.readFileSync(schemaPath, 'utf-8')))
 const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mcp-orval-'))
 
 // Phase 1: Prepare all modules (filter schemas, write temp files) — synchronous, fast

@@ -292,8 +292,14 @@ jobs:
               id: check_python_changes_analytics_platform_temporal_worker
               run: |
                   CHANGED_FILES=$(git diff --name-only HEAD^ HEAD | tr '\n' ' ')
-                  RESULT=$(uv run bin/find_python_dependencies.py posthog.temporal.subscriptions --check-changes "$CHANGED_FILES" | jq -r '.affected') || RESULT="true"
-                  echo "changed=$RESULT" >> $GITHUB_OUTPUT
+                  SUBS_RESULT=$(uv run bin/find_python_dependencies.py posthog.temporal.subscriptions --check-changes "$CHANGED_FILES" | jq -r '.affected') || SUBS_RESULT="true"
+                  ALERTS_RESULT=$(uv run bin/find_python_dependencies.py posthog.temporal.alerts --check-changes "$CHANGED_FILES" | jq -r '.affected') || ALERTS_RESULT="true"
+                  EXPORTS_RESULT=$(uv run bin/find_python_dependencies.py posthog.temporal.exports --check-changes "$CHANGED_FILES" | jq -r '.affected') || EXPORTS_RESULT="true"
+                  if [ "$SUBS_RESULT" = "true" ] || [ "$ALERTS_RESULT" = "true" ] || [ "$EXPORTS_RESULT" = "true" ]; then
+                      echo "changed=true" >> $GITHUB_OUTPUT
+                  else
+                      echo "changed=false" >> $GITHUB_OUTPUT
+                  fi
 
             - name: Trigger Billing Temporal Worker Cloud deployment
               if: steps.check_changes_billing_temporal_worker.outputs.changed == 'true'
