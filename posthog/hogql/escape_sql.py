@@ -199,6 +199,14 @@ def escape_duckdb_identifier(v: str) -> str:
 
 
 def _quote_postgres_wire_identifier(v: str, extra_reserved_keywords: set[str] | None) -> str:
+    # Reject ``%`` for parity with the HogQL and ClickHouse escape paths. psycopg
+    # interprets ``%`` as the start of a parameter placeholder when scanning SQL
+    # passed to ``cursor.execute(sql, params)``, so a literal ``%`` slipping through
+    # as an identifier name would either confuse parameter binding or get consumed
+    # as a format specifier.
+    if "%" in v:
+        raise QueryError(f'The Postgres identifier "{v}" is not permitted as it contains the "%" character')
+
     if POSTGRES_SIMPLE_IDENTIFIER_REGEX.match(v):
         upper = v.upper()
         if upper not in POSTGRES_RESERVED_KEYWORDS and (

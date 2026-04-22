@@ -5735,3 +5735,13 @@ class TestDuckDBPrinter(BaseTest):
 
         printer = DuckDBPrinter(context=HogQLContext(team_id=self.team.pk))
         self.assertEqual(printer._print_identifier(name), f'"{name}"')
+
+    def test_percent_in_identifier_rejected_postgres_family(self):
+        # ``%`` in an identifier would confuse psycopg's parameter-placeholder scanning.
+        from posthog.hogql.printer.duckdb import DuckDBPrinter
+        from posthog.hogql.printer.postgres import PostgresPrinter
+
+        ctx = HogQLContext(team_id=self.team.pk)
+        for printer in (DuckDBPrinter(context=ctx), PostgresPrinter(context=ctx)):
+            with self.assertRaisesMessage(QueryError, 'is not permitted as it contains the "%" character'):
+                printer._print_identifier("bad%name")
