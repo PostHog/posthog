@@ -642,11 +642,6 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
         )
 
         minimum_occurrences = self.query.retentionFilter.minimumOccurrences or 1
-        minimum_occurrences_aliases = self._get_minimum_occurrences_aliases(
-            minimum_occurrences=minimum_occurrences,
-            start_of_interval_sql=start_of_interval_sql,
-            return_entity_expr=self.return_entity_expr,
-        )
 
         if self.aggregation_target:
             # For aggregation, we need separate handling for start (interval 0) and return events (interval 1+).
@@ -855,109 +850,166 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
                 is_first_interval_after_start_event, intervals_from_base_array_aggregator
             )
 
-        select_fields: list[ast.Expr] = [
-            ast.Alias(alias="actor_id", expr=ast.Field(chain=["events", self.target_field])),
-            # start events between date_from and date_to (represented by start of interval)
-            # when TARGET_FIRST_TIME, also adds filter for start (target) event performed for first time
-            ast.Alias(alias="start_event_timestamps", expr=start_event_timestamps),
-            # get all intervals between date_from and date_to (represented by start of interval)
-            ast.Alias(
-                alias="date_range",
-                expr=parse_expr(
-                    """
-                        arrayMap(
-                            x -> {date_from_start_of_interval} + {to_interval_function},
-                            range(0, {intervals_between})
-                        )
-                    """,
-                    {
-                        "intervals_between": ast.Constant(value=self.query_date_range.intervals_between),
-                        "date_from_start_of_interval": self.query_date_range.date_from_to_start_of_interval_hogql(),
-                        "to_interval_function": ast.Call(
-                            name=f"toInterval{self.query_date_range.interval_name.capitalize()}",
-                            args=[ast.Field(chain=["x"])],
-                        ),
-                    },
-                ),
-            ),
-            *minimum_occurrences_aliases,
-        ]
-
-        # When using aggregation mode, add the grouped data arrays as named aliases BEFORE columns that reference them.
-        # This ensures ClickHouse uses the pre-aggregated arrays rather than re-executing the groupArrayIf inside
-        # lambda functions, which would otherwise trigger a self-join on the events table and exceed memory limits.
-        if self.aggregation_target and return_event_values:
-            start_event_data_raw, return_event_data_raw = return_event_values
-            select_fields.append(ast.Alias(alias="_start_event_data", expr=start_event_data_raw))
-            select_fields.append(ast.Alias(alias="_return_event_data", expr=return_event_data_raw))
-
-        select_fields.extend(
-            [
-                # timestamps representing the start of a qualified interval (where count of events >= minimum_occurrences)
-                ast.Alias(alias="return_event_timestamps", expr=return_event_timestamps),
-                # exploded (0 based) indices of matching intervals for start event
+        data_warehouse = False
+        if not data_warehouse:
+            minimum_occurrences_aliases = self._get_minimum_occurrences_aliases(
+                minimum_occurrences=minimum_occurrences,
+                start_of_interval_sql=start_of_interval_sql,
+                return_entity_expr=self.return_entity_expr,
+            )
+            select_fields: list[ast.Expr] = [
+                ast.Alias(alias="actor_id", expr=ast.Field(chain=["events", self.target_field])),
+                # start events between date_from and date_to (represented by start of interval)
+                # when TARGET_FIRST_TIME, also adds filter for start (target) event performed for first time
+                ast.Alias(alias="start_event_timestamps", expr=start_event_timestamps),
+                # get all intervals between date_from and date_to (represented by start of interval)
                 ast.Alias(
-                    alias="start_interval_index",
+                    alias="date_range",
                     expr=parse_expr(
                         """
-                        arrayJoin(
-                            arrayFilter(
-                                x -> x > -1,
-                                arrayMap(
-                                (interval_index, interval_date) ->
-                                    if(
-                                        {is_valid_start_interval},
-                                        interval_index - 1,
-                                        -1
-                                    ),
-                                    arrayEnumerate(date_range),
-                                    date_range
+                            arrayMap(
+                                x -> {date_from_start_of_interval} + {to_interval_function},
+                                range(0, {intervals_between})
+                            )
+                        """,
+                        {
+                            "intervals_between": ast.Constant(value=self.query_date_range.intervals_between),
+                            "date_from_start_of_interval": self.query_date_range.date_from_to_start_of_interval_hogql(),
+                            "to_interval_function": ast.Call(
+                                name=f"toInterval{self.query_date_range.interval_name.capitalize()}",
+                                args=[ast.Field(chain=["x"])],
+                            ),
+                        },
+                    ),
+                ),
+                *minimum_occurrences_aliases,
+            ]
+
+            # When using aggregation mode, add the grouped data arrays as named aliases BEFORE columns that reference them.
+            # This ensures ClickHouse uses the pre-aggregated arrays rather than re-executing the groupArrayIf inside
+            # lambda functions, which would otherwise trigger a self-join on the events table and exceed memory limits.
+            if self.aggregation_target and return_event_values:
+                start_event_data_raw, return_event_data_raw = return_event_values
+                select_fields.append(ast.Alias(alias="_start_event_data", expr=start_event_data_raw))
+                select_fields.append(ast.Alias(alias="_return_event_data", expr=return_event_data_raw))
+
+            select_fields.extend(
+                [
+                    # timestamps representing the start of a qualified interval (where count of events >= minimum_occurrences)
+                    ast.Alias(alias="return_event_timestamps", expr=return_event_timestamps),
+                    # exploded (0 based) indices of matching intervals for start event
+                    ast.Alias(
+                        alias="start_interval_index",
+                        expr=parse_expr(
+                            """
+                            arrayJoin(
+                                arrayFilter(
+                                    x -> x > -1,
+                                    arrayMap(
+                                    (interval_index, interval_date) ->
+                                        if(
+                                            {is_valid_start_interval},
+                                            interval_index - 1,
+                                            -1
+                                        ),
+                                        arrayEnumerate(date_range),
+                                        date_range
+                                    )
                                 )
                             )
-                        )
-                    """,
-                        {"is_valid_start_interval": is_valid_start_interval},
+                        """,
+                            {"is_valid_start_interval": is_valid_start_interval},
+                        ),
                     ),
-                ),
-                ast.Alias(
-                    alias="intervals_from_base",
-                    expr=intervals_from_base_expr,
-                ),
-            ]
-        )
-
-        if retention_value_expr:
-            select_fields.append(ast.Alias(alias="retention_value", expr=retention_value_expr))
-
-        inner_query = ast.SelectQuery(
-            select=select_fields,
-            select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
-            where=ast.And(exprs=event_filters),
-            group_by=[ast.Field(chain=["actor_id"])],
-            having=ast.And(
-                exprs=[
-                    (
-                        ast.CompareOperation(
-                            op=ast.CompareOperationOp.Eq,
-                            left=ast.Field(chain=["start_interval_index"]),
-                            right=ast.Constant(value=start_interval_index_filter),
-                        )
-                        if start_interval_index_filter is not None
-                        else ast.Constant(value=1)
-                    ),
-                    (
-                        ast.CompareOperation(
-                            op=ast.CompareOperationOp.Eq,
-                            left=ast.Field(chain=["breakdown_value"]),
-                            right=ast.Constant(value=selected_breakdown_value),
-                        )
-                        if selected_breakdown_value is not None
-                        else ast.Constant(value=1)
+                    ast.Alias(
+                        alias="intervals_from_base",
+                        expr=intervals_from_base_expr,
                     ),
                 ]
-            ),
-        )
+            )
 
+            if retention_value_expr:
+                select_fields.append(ast.Alias(alias="retention_value", expr=retention_value_expr))
+
+            inner_query = ast.SelectQuery(
+                select=select_fields,
+                select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+                where=ast.And(exprs=event_filters),
+                group_by=[ast.Field(chain=["actor_id"])],
+                having=ast.And(
+                    exprs=[
+                        (
+                            ast.CompareOperation(
+                                op=ast.CompareOperationOp.Eq,
+                                left=ast.Field(chain=["start_interval_index"]),
+                                right=ast.Constant(value=start_interval_index_filter),
+                            )
+                            if start_interval_index_filter is not None
+                            else ast.Constant(value=1)
+                        ),
+                        (
+                            ast.CompareOperation(
+                                op=ast.CompareOperationOp.Eq,
+                                left=ast.Field(chain=["breakdown_value"]),
+                                right=ast.Constant(value=selected_breakdown_value),
+                            )
+                            if selected_breakdown_value is not None
+                            else ast.Constant(value=1)
+                        ),
+                    ]
+                ),
+            )
+        else:
+            entity = self.start_event
+            is_dwh = entity.kind == EntityType.DATA_WAREHOUSE
+
+            actor_column_name = entity.distinct_id_field if is_dwh else self.target_field
+            timestamp_column_name = entity.timestamp_field if is_dwh else "timestamp"
+            start_of_interval_sql = self.query_date_range.get_start_of_interval_hogql(
+                source=ast.Field(chain=[timestamp_column_name])
+            )
+            start_entity_expr = property_to_expr(entity.properties, self.team) if is_dwh else self.start_entity_expr
+
+            start_event_timestamps = parse_expr(
+                """
+                arraySort(
+                    groupUniqArrayIf(
+                        {start_of_interval_sql},
+                        {start_entity_expr} and
+                        {filter_timestamp}
+                    )
+                )
+                """,
+                {
+                    "start_of_interval_sql": start_of_interval_sql,
+                    "start_entity_expr": start_entity_expr,
+                    "filter_timestamp": self.events_timestamp_filter,
+                },
+            )
+            table_name = self.start_event.table_name if is_dwh else "events"
+            where_expr = None if is_dwh else ast.And(exprs=event_filters)
+
+            start_event_query = ast.SelectQuery(
+                select=[
+                    ast.Alias(alias="actor_id", expr=ast.Field(chain=[actor_column_name])),
+                    ast.Alias(alias="start_event_timestamps", expr=start_event_timestamps),
+                ],
+                select_from=ast.JoinExpr(table=ast.Field(chain=[table_name])),
+                where=where_expr,
+                group_by=[ast.Field(chain=["actor_id"])],
+            )
+
+            # self.return_event
+
+            # return_event_query=
+            # inner_query=
+
+            select_fields: list[ast.Expr] = [
+                ast.Alias(alias="actor_id", expr=ast.Field(chain=["events", self.target_field])),
+                # start events between date_from and date_to (represented by start of interval)
+                # when TARGET_FIRST_TIME, also adds filter for start (target) event performed for first time
+                ast.Alias(alias="start_event_timestamps", expr=start_event_timestamps),
+            ]
         return inner_query
 
     def _get_default_intervals_from_base_expr(
