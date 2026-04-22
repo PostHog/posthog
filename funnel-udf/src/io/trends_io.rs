@@ -20,7 +20,6 @@ use crate::types::BreakdownShape;
 //   6 Array(<breakdown shape>)                                                     prop_vals
 //   7 Array(Tuple(Nullable(Float64), UInt64, UUID, <breakdown shape>, Array(Int8))) value
 const COLUMN_COUNT: usize = 8;
-pub const PROP_VALS_INDEX: usize = 6;
 
 pub fn read_args<R: RowBinaryRead + ?Sized>(
     r: &mut R,

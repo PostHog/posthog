@@ -34,7 +34,7 @@
         </argument>
         <format>RowBinaryWithNamesAndTypes</format>
         <send_chunk_header>true</send_chunk_header>
-        <command>aggregate_funnel steps</command>
+        <command>aggregate_funnel steps --variant=plain</command>
         <lifetime>600</lifetime>
     </function>
 
@@ -73,7 +73,7 @@
         </argument>
         <format>RowBinaryWithNamesAndTypes</format>
         <send_chunk_header>true</send_chunk_header>
-        <command>aggregate_funnel steps</command>
+        <command>aggregate_funnel steps --variant=cohort</command>
         <lifetime>600</lifetime>
     </function>
 
@@ -112,7 +112,7 @@
         </argument>
         <format>RowBinaryWithNamesAndTypes</format>
         <send_chunk_header>true</send_chunk_header>
-        <command>aggregate_funnel steps</command>
+        <command>aggregate_funnel steps --variant=array</command>
         <lifetime>600</lifetime>
     </function>
 
@@ -155,7 +155,7 @@
         </argument>
         <format>RowBinaryWithNamesAndTypes</format>
         <send_chunk_header>true</send_chunk_header>
-        <command>aggregate_funnel trends</command>
+        <command>aggregate_funnel trends --variant=plain</command>
         <lifetime>600</lifetime>
     </function>
 
@@ -198,7 +198,7 @@
         </argument>
         <format>RowBinaryWithNamesAndTypes</format>
         <send_chunk_header>true</send_chunk_header>
-        <command>aggregate_funnel trends</command>
+        <command>aggregate_funnel trends --variant=array</command>
         <lifetime>600</lifetime>
     </function>
 
@@ -241,7 +241,7 @@
         </argument>
         <format>RowBinaryWithNamesAndTypes</format>
         <send_chunk_header>true</send_chunk_header>
-        <command>aggregate_funnel trends</command>
+        <command>aggregate_funnel trends --variant=cohort</command>
         <lifetime>600</lifetime>
     </function>
 
@@ -284,7 +284,7 @@
             <name>value</name>
         </argument>
         <format>JSONEachRow</format>
-        <command>aggregate_funnel steps --json</command>
+        <command>aggregate_funnel steps --json --variant=plain</command>
         <lifetime>600</lifetime>
     </function>
 
@@ -322,7 +322,7 @@
             <name>value</name>
         </argument>
         <format>JSONEachRow</format>
-        <command>aggregate_funnel steps --json</command>
+        <command>aggregate_funnel steps --json --variant=cohort</command>
         <lifetime>600</lifetime>
     </function>
 
@@ -360,7 +360,7 @@
             <name>value</name>
         </argument>
         <format>JSONEachRow</format>
-        <command>aggregate_funnel steps --json</command>
+        <command>aggregate_funnel steps --json --variant=array</command>
         <lifetime>600</lifetime>
     </function>
 
@@ -402,7 +402,7 @@
             <name>value</name>
         </argument>
         <format>JSONEachRow</format>
-        <command>aggregate_funnel trends --json</command>
+        <command>aggregate_funnel trends --json --variant=plain</command>
         <lifetime>600</lifetime>
     </function>
 
@@ -444,7 +444,7 @@
             <name>value</name>
         </argument>
         <format>JSONEachRow</format>
-        <command>aggregate_funnel trends --json</command>
+        <command>aggregate_funnel trends --json --variant=array</command>
         <lifetime>600</lifetime>
     </function>
 
@@ -486,7 +486,7 @@
             <name>value</name>
         </argument>
         <format>JSONEachRow</format>
-        <command>aggregate_funnel trends --json</command>
+        <command>aggregate_funnel trends --json --variant=cohort</command>
         <lifetime>600</lifetime>
     </function>
 

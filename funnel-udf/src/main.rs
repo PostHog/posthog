@@ -18,6 +18,7 @@ pub use types::{Bytes, PropVal};
 use crate::codec::chunk::read_chunk_header;
 use crate::codec::header::{read_block_header, write_block_header};
 use crate::codec::CodecResult;
+use crate::types::BreakdownShape;
 
 #[cfg(test)]
 mod tests {
@@ -110,7 +111,13 @@ mod e2e {
 
         let mut reader = Cursor::new(input_buf);
         let mut writer = Cursor::new(Vec::new());
-        run_rowbinary(&mut reader, &mut writer, Mode::Steps).unwrap();
+        run_rowbinary(
+            &mut reader,
+            &mut writer,
+            Mode::Steps,
+            BreakdownShape::NullableString,
+        )
+        .unwrap();
 
         let out_bytes = writer.into_inner();
         let mut out = out_bytes.as_slice();
@@ -154,7 +161,13 @@ mod e2e {
         write_steps_header(&mut input_buf);
         let mut reader = Cursor::new(input_buf);
         let mut writer = Cursor::new(Vec::new());
-        run_rowbinary(&mut reader, &mut writer, Mode::Steps).unwrap();
+        run_rowbinary(
+            &mut reader,
+            &mut writer,
+            Mode::Steps,
+            BreakdownShape::NullableString,
+        )
+        .unwrap();
         let out = writer.into_inner();
         assert!(!out.is_empty());
     }
@@ -163,7 +176,13 @@ mod e2e {
     fn rowbinary_returns_ok_on_clean_eof() {
         let mut reader = Cursor::new(Vec::<u8>::new());
         let mut writer = Cursor::new(Vec::new());
-        run_rowbinary(&mut reader, &mut writer, Mode::Steps).unwrap();
+        run_rowbinary(
+            &mut reader,
+            &mut writer,
+            Mode::Steps,
+            BreakdownShape::NullableString,
+        )
+        .unwrap();
         assert!(writer.into_inner().is_empty());
     }
 
@@ -199,31 +218,50 @@ enum Format {
 struct Cli {
     mode: Mode,
     format: Format,
+    shape: BreakdownShape,
 }
 
 // CLI:
-//   aggregate_funnel <steps|trends>            RowBinaryWithNamesAndTypes (default)
-//   aggregate_funnel <steps|trends> --json     JSONEachRow (debug / benchmark)
+//   aggregate_funnel <steps|trends> --variant=<plain|cohort|array>
+//     RowBinaryWithNamesAndTypes (default)
+//   aggregate_funnel <steps|trends> --variant=<...> --json
+//     JSONEachRow (debug / benchmark)
 //
-// Breakdown shape (nullable_string / array_string / u64) is detected at runtime
-// from the prop_vals column type in the block header, so one binary serves all
-// three XML variants.
+// `--variant` fixes the breakdown wire shape for this process's lifetime.
+// Each XML <function> block (aggregate_funnel, aggregate_funnel_cohort,
+// aggregate_funnel_array) gets its own executable_pool, so the variant is
+// known at startup and never changes per call.
 fn parse_cli(argv: &[String]) -> std::result::Result<Cli, String> {
     let mut mode: Option<Mode> = None;
     let mut format = Format::RowBinary;
+    let mut shape: Option<BreakdownShape> = None;
 
     for arg in &argv[1..] {
-        match arg.as_str() {
+        let s = arg.as_str();
+        match s {
             "steps" => mode = Some(Mode::Steps),
             "trends" => mode = Some(Mode::Trends),
             "--json" => format = Format::Json,
             "--rowbinary" => format = Format::RowBinary,
-            s => return Err(format!("unknown argument: {s:?}")),
+            _ if s.starts_with("--variant=") => {
+                shape = Some(match &s["--variant=".len()..] {
+                    "plain" => BreakdownShape::NullableString,
+                    "cohort" => BreakdownShape::U64,
+                    "array" => BreakdownShape::ArrayString,
+                    v => return Err(format!("unknown --variant value: {v:?}")),
+                });
+            }
+            _ => return Err(format!("unknown argument: {s:?}")),
         }
     }
 
     let mode = mode.ok_or_else(|| "missing mode (steps | trends)".to_string())?;
-    Ok(Cli { mode, format })
+    let shape = shape.ok_or_else(|| "missing --variant=<plain|cohort|array>".to_string())?;
+    Ok(Cli {
+        mode,
+        format,
+        shape,
+    })
 }
 
 fn run_json<R: BufRead, W: Write>(reader: R, writer: &mut W, mode: Mode) -> std::io::Result<()> {
@@ -243,11 +281,8 @@ fn run_rowbinary<R: BufRead, W: Write>(
     reader: &mut R,
     writer: &mut W,
     mode: Mode,
+    shape: BreakdownShape,
 ) -> CodecResult<()> {
-    let prop_vals_index = match mode {
-        Mode::Steps => io::steps_io::PROP_VALS_INDEX,
-        Mode::Trends => io::trends_io::PROP_VALS_INDEX,
-    };
     // One loop iteration per UDF invocation. executable_pool keeps us alive
     // across invocations to skip fork/exec; each invocation's input/output is
     // self-contained (own `N\n` chunk header, own RBWNAT block header + rows).
@@ -257,15 +292,6 @@ fn run_rowbinary<R: BufRead, W: Write>(
             None => return Ok(()),
         };
         let columns = read_block_header(reader)?;
-        let prop_vals_type = columns
-            .get(prop_vals_index)
-            .ok_or_else(|| crate::codec::CodecError::SchemaLen {
-                got: columns.len(),
-                want: prop_vals_index + 1,
-            })?
-            .data_type
-            .clone();
-        let shape = io::propval::detect_shape(&prop_vals_type)?;
 
         match mode {
             Mode::Steps => {
@@ -304,7 +330,7 @@ fn main() -> ExitCode {
         Err(e) => {
             let _ = writeln!(
                 std::io::stderr(),
-                "funnels: {e}\n\nusage: {} <steps|trends> [--json]\n  default format is RowBinaryWithNamesAndTypes; breakdown shape is detected from the prop_vals column type",
+                "funnels: {e}\n\nusage: {} <steps|trends> --variant=<plain|cohort|array> [--json]\n  default format is RowBinaryWithNamesAndTypes; --variant pins the breakdown wire shape",
                 argv.first().map(String::as_str).unwrap_or("aggregate_funnel")
             );
             return ExitCode::FAILURE;
@@ -318,7 +344,9 @@ fn main() -> ExitCode {
 
     let result: std::result::Result<(), Box<dyn std::error::Error>> = match cli.format {
         Format::Json => run_json(&mut reader, &mut writer, cli.mode).map_err(Into::into),
-        Format::RowBinary => run_rowbinary(&mut reader, &mut writer, cli.mode).map_err(Into::into),
+        Format::RowBinary => {
+            run_rowbinary(&mut reader, &mut writer, cli.mode, cli.shape).map_err(Into::into)
+        }
     };
 
     match result {
