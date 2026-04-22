@@ -228,7 +228,7 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
 
         return buckets
 
-    @extend_schema_field(serializers.ListField(child=serializers.ChoiceField(choices=DestinationType)))
+    @extend_schema_field(serializers.ListField(child=serializers.ChoiceField(choices=list(DestinationType))))
     def get_destination_types(self, obj: LogsAlertConfiguration) -> list[str]:
         # N+1 is acceptable: max 20 alerts per team, each query is a fast indexed lookup.
         team_id = obj.team_id
@@ -507,7 +507,7 @@ class LogsAlertSimulateResponseSerializer(serializers.Serializer):
 
 
 class LogsAlertCreateDestinationSerializer(serializers.Serializer):
-    type = serializers.ChoiceField(choices=DestinationType, help_text="Destination type — slack or webhook.")
+    type = serializers.ChoiceField(choices=list(DestinationType), help_text="Destination type — slack or webhook.")
     slack_workspace_id = serializers.IntegerField(
         required=False, help_text="Integration ID for the Slack workspace. Required when type=slack."
     )
