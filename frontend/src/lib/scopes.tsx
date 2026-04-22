@@ -47,6 +47,7 @@ export const API_SCOPES: APIScope[] = [
     { key: 'insight', objectName: 'Insight', objectPlural: 'insights' },
     { key: 'insight_variable', objectName: 'Insight variable', objectPlural: 'insight variables' },
     { key: 'integration', objectName: 'Integration', objectPlural: 'integrations', disabledActions: ['write'] },
+    { key: 'legal_document', objectName: 'Legal document', objectPlural: 'legal documents' },
     { key: 'llm_analytics', objectName: 'LLM analytics', objectPlural: 'LLM analytics' },
     { key: 'llm_gateway', objectName: 'LLM gateway', objectPlural: 'LLM gateway', disabledActions: ['write'] },
     { key: 'llm_prompt', objectName: 'LLM prompt', objectPlural: 'LLM prompts' },
@@ -126,6 +127,7 @@ export const API_SCOPES: APIScope[] = [
     { key: 'warehouse_view', objectName: 'Warehouse view', objectPlural: 'warehouse views' },
     { key: 'warehouse_table', objectName: 'Warehouse table', objectPlural: 'warehouse tables' },
 ]
+API_SCOPES.sort((a, b) => a.objectName.localeCompare(b.objectName))
 
 export const PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION = ['endpoint:read']
 
@@ -194,8 +196,10 @@ export const MCP_SERVER_OAUTH_SCOPES = [
     'email',
     'introspection',
     'user:read',
+    'user:write',
     'organization:read',
     'project:read',
+    'project:write',
     'feature_flag:read',
     'feature_flag:write',
     'experiment:read',

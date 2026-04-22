@@ -6212,8 +6212,6 @@ export interface ExperimentQueryApi {
         | ExperimentFunnelMetricApi
         | ExperimentRatioMetricApi
         | ExperimentRetentionMetricApi
-    /** @nullable */
-    metric_events_precomputation?: boolean | null
     /** Modifiers used when performing the query */
     modifiers?: HogQLQueryModifiersApi | null
     /** @nullable */
@@ -9205,6 +9203,7 @@ export const DisplayTypeApi = {
     Auto: 'auto',
     Line: 'line',
     Bar: 'bar',
+    Area: 'area',
 } as const
 
 export type YAxisPositionApi = (typeof YAxisPositionApi)[keyof typeof YAxisPositionApi]

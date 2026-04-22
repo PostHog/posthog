@@ -2,25 +2,9 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any, Literal, Optional, TypedDict
 
-from dlt.common import jsonpath
-from dlt.common.schema.typing import (
-    TAnySchemaColumns,
-    TColumnNames,
-    TSchemaContract,
-    TTableFormat,
-    TWriteDispositionConfig,
-)
-from dlt.common.typing import TSortOrder
-from dlt.extract.incremental import LastValueFunc
-from dlt.extract.items import TTableHintTemplate
-from dlt.sources.helpers.rest_client.auth import (
-    APIKeyAuth,
-    AuthConfigBase,
-    BearerTokenAuth,
-    HttpBasicAuth,
-    TApiKeyLocation,
-)
-from dlt.sources.helpers.rest_client.paginators import (
+from .auth import APIKeyAuth, AuthConfigBase, BearerTokenAuth, HttpBasicAuth, TApiKeyLocation
+from .jsonpath_utils import TJsonPath, compile_path
+from .paginators import (
     BasePaginator,
     HeaderLinkPaginator,
     JSONResponseCursorPaginator,
@@ -29,7 +13,16 @@ from dlt.sources.helpers.rest_client.paginators import (
     PageNumberPaginator,
     SinglePagePaginator,
 )
-from dlt.sources.helpers.rest_client.typing import HTTPMethodBasic
+
+HTTPMethodBasic = Literal["get", "post", "put", "patch", "delete", "GET", "POST", "PUT", "PATCH", "DELETE"]
+TSortOrder = Literal["asc", "desc"]
+LastValueFunc = Callable[..., Any]
+TTableHintTemplate = Any
+TAnySchemaColumns = Any
+TColumnNames = Any
+TSchemaContract = Any
+TTableFormat = Any
+TWriteDispositionConfig = Any
 
 PaginatorType = Literal[
     "json_response",
@@ -47,44 +40,31 @@ class PaginatorTypeConfig(TypedDict, total=True):
 
 
 class PageNumberPaginatorConfig(PaginatorTypeConfig, total=False):
-    """A paginator that uses page number-based pagination strategy."""
-
     initial_page: Optional[int]
     page_param: Optional[str]
-    total_path: Optional[jsonpath.TJsonPath]
+    total_path: Optional[TJsonPath]
     maximum_page: Optional[int]
 
 
 class OffsetPaginatorConfig(PaginatorTypeConfig, total=False):
-    """A paginator that uses offset-based pagination strategy."""
-
     limit: int
     offset: Optional[int]
     offset_param: Optional[str]
     limit_param: Optional[str]
-    total_path: Optional[jsonpath.TJsonPath]
+    total_path: Optional[TJsonPath]
     maximum_offset: Optional[int]
 
 
 class HeaderLinkPaginatorConfig(PaginatorTypeConfig, total=False):
-    """A paginator that uses the 'Link' header in HTTP responses
-    for pagination."""
-
     links_next_key: Optional[str]
 
 
 class JSONResponsePaginatorConfig(PaginatorTypeConfig, total=False):
-    """Locates the next page URL within the JSON response body. The key
-    containing the URL can be specified using a JSON path."""
-
-    next_url_path: Optional[jsonpath.TJsonPath]
+    next_url_path: Optional[TJsonPath]
 
 
 class JSONResponseCursorPaginatorConfig(PaginatorTypeConfig, total=False):
-    """Uses a cursor parameter for pagination, with the cursor value found in
-    the JSON response body."""
-
-    cursor_path: Optional[jsonpath.TJsonPath]
+    cursor_path: Optional[TJsonPath]
     cursor_param: Optional[str]
 
 
@@ -113,30 +93,19 @@ class AuthTypeConfig(TypedDict, total=True):
 
 
 class BearerTokenAuthConfig(TypedDict, total=False):
-    """Uses `token` for Bearer authentication in "Authorization" header."""
-
-    # we allow for a shorthand form of bearer auth, without a type
     type: Optional[AuthType]  # noqa
     token: str
 
 
 class ApiKeyAuthConfig(AuthTypeConfig, total=False):
-    """Uses provided `api_key` to create authorization data in the specified `location` (query, param, header, cookie) under specified `name`"""
-
     name: Optional[str]
     api_key: str
     location: Optional[TApiKeyLocation]
 
 
 class HttpBasicAuthConfig(AuthTypeConfig, total=True):
-    """Uses HTTP basic authentication"""
-
     username: str
     password: str
-
-
-# TODO: add later
-# class OAuthJWTAuthConfig(AuthTypeConfig, total=True):
 
 
 AuthConfig = (
@@ -161,8 +130,7 @@ class ClientConfig(TypedDict, total=False):
 class IncrementalArgs(TypedDict, total=False):
     cursor_path: str
     initial_value: Optional[str]
-    last_value_func: Optional[LastValueFunc[str]]
-    primary_key: Optional[TTableHintTemplate[TColumnNames]]
+    last_value_func: Optional[LastValueFunc]
     end_value: Optional[str]
     row_order: Optional[TSortOrder]
     convert: Optional[Callable[..., Any]]
@@ -187,18 +155,16 @@ class ResolveParamConfig(ParamBindConfig):
 
 class IncrementalParamConfig(ParamBindConfig, IncrementalArgs):
     pass
-    # TODO: implement param type to bind incremental to
-    # param_type: Optional[Literal["start_param", "end_param"]]
 
 
 @dataclass
 class ResolvedParam:
     param_name: str
     resolve_config: ResolveParamConfig
-    field_path: jsonpath.TJsonPath = field(init=False)
+    field_path: TJsonPath = field(init=False)
 
     def __post_init__(self) -> None:
-        self.field_path = jsonpath.compile_path(self.resolve_config["field"])
+        self.field_path = compile_path(self.resolve_config["field"])
 
 
 class ResponseAction(TypedDict, total=False):
@@ -213,23 +179,21 @@ class Endpoint(TypedDict, total=False):
     params: Optional[dict[str, ResolveParamConfig | IncrementalParamConfig | Any]]
     json: Optional[dict[str, Any]]
     paginator: Optional[PaginatorConfig]
-    data_selector: Optional[jsonpath.TJsonPath]
+    data_selector: Optional[TJsonPath]
     response_actions: Optional[list[ResponseAction]]
     incremental: Optional[IncrementalConfig]
 
 
 class ResourceBase(TypedDict, total=False):
-    """Defines hints that may be passed to `dlt.resource` decorator"""
-
-    table_name: Optional[TTableHintTemplate[str]]
+    table_name: Optional[TTableHintTemplate]
     max_table_nesting: Optional[int]
-    write_disposition: Optional[TTableHintTemplate[TWriteDispositionConfig]]
-    parent: Optional[TTableHintTemplate[str]]
-    columns: Optional[TTableHintTemplate[TAnySchemaColumns]]
-    primary_key: Optional[TTableHintTemplate[TColumnNames]]
-    merge_key: Optional[TTableHintTemplate[TColumnNames]]
-    schema_contract: Optional[TTableHintTemplate[TSchemaContract]]
-    table_format: Optional[TTableHintTemplate[TTableFormat]]
+    write_disposition: Optional[TTableHintTemplate]
+    parent: Optional[TTableHintTemplate]
+    columns: Optional[TTableHintTemplate]
+    primary_key: Optional[TTableHintTemplate]
+    merge_key: Optional[TTableHintTemplate]
+    schema_contract: Optional[TTableHintTemplate]
+    table_format: Optional[TTableHintTemplate]
     selected: Optional[bool]
     parallelized: Optional[bool]
 
@@ -240,7 +204,7 @@ class EndpointResourceBase(ResourceBase, total=False):
 
 
 class EndpointResource(EndpointResourceBase, total=False):
-    name: TTableHintTemplate[str]
+    name: TTableHintTemplate
 
 
 class RESTAPIConfig(TypedDict):
