@@ -66,16 +66,19 @@ async def test_create_schedule_routes_by_existence(
     assert mock_create.await_count == (1 if expect_create else 0)
     assert mock_update.await_count == (1 if expect_update else 0)
 
-    # On the create path, validate the Schedule shape we register.
+    # Same Schedule shape must be registered on both paths — a stale config
+    # passed to a_update_schedule would silently ship otherwise.
+    invoked = mock_create if expect_create else mock_update
+    assert invoked.await_args is not None
+    schedule_arg = invoked.await_args.args[2]
+    assert isinstance(schedule_arg, Schedule)
+    assert isinstance(schedule_arg.spec, ScheduleSpec)
+    assert schedule_arg.spec.cron_expressions == ["*/2 * * * *"]
+    assert schedule_arg.policy.overlap == ScheduleOverlapPolicy.ALLOW_ALL
+    assert isinstance(schedule_arg.action, ScheduleActionStartWorkflow)
+    assert schedule_arg.action.execution_timeout == dt.timedelta(minutes=10)
+
     if expect_create:
-        assert mock_create.await_args is not None
-        schedule_arg = mock_create.await_args.args[2]
-        assert isinstance(schedule_arg, Schedule)
-        assert isinstance(schedule_arg.spec, ScheduleSpec)
-        assert schedule_arg.spec.cron_expressions == ["*/2 * * * *"]
-        assert schedule_arg.policy.overlap == ScheduleOverlapPolicy.ALLOW_ALL
-        assert isinstance(schedule_arg.action, ScheduleActionStartWorkflow)
-        assert schedule_arg.action.execution_timeout == dt.timedelta(minutes=10)
         assert mock_create.await_args.kwargs.get("trigger_immediately") is False
 
 
@@ -90,8 +93,7 @@ def _valid_trends_query() -> dict:
     ).model_dump()
 
 
-@sync_to_async
-def _create_alert(ateam, *, insight_deleted: bool = False, enabled: bool = True) -> AlertConfiguration:
+def _build_alert(ateam, *, insight_deleted: bool = False, enabled: bool = True) -> AlertConfiguration:
     insight = Insight.objects.create(team=ateam, name="insight", query=_valid_trends_query(), deleted=insight_deleted)
     return AlertConfiguration.objects.create(
         team=ateam,
@@ -104,6 +106,11 @@ def _create_alert(ateam, *, insight_deleted: bool = False, enabled: bool = True)
     )
 
 
+@sync_to_async
+def _create_alert(ateam, *, insight_deleted: bool = False, enabled: bool = True) -> AlertConfiguration:
+    return _build_alert(ateam, insight_deleted=insight_deleted, enabled=enabled)
+
+
 @pytest_asyncio.fixture
 async def alert_with_subscriber(ateam, aorganization):
     @sync_to_async
@@ -113,15 +120,7 @@ async def alert_with_subscriber(ateam, aorganization):
             email=f"alerts-wf-{uuid.uuid4().hex[:6]}@posthog.com",
             password=None,
         )
-        alert = AlertConfiguration.objects.create(
-            team=ateam,
-            insight=Insight.objects.create(team=ateam, name="insight", query=_valid_trends_query()),
-            name="wf-test-alert",
-            enabled=True,
-            calculation_interval=AlertCalculationInterval.DAILY.value,
-            config={"type": "TrendsAlertConfig", "series_index": 0},
-            condition={"type": "absolute_value"},
-        )
+        alert = _build_alert(ateam)
         alert.subscribed_users.add(user)
         return alert
 
