@@ -97,22 +97,19 @@ describe('alertFormLogic', () => {
         },
     }
 
-    let listSpy: jest.SpyInstance
-    let getSpy: jest.SpyInstance
     let createSpy: jest.SpyInstance
     let updateSpy: jest.SpyInstance
-    let integrationsListSpy: jest.SpyInstance
     let errorToastSpy: jest.SpyInstance
     let successToastSpy: jest.SpyInstance
     let captureExceptionSpy: jest.SpyInstance
 
     beforeEach(() => {
         initKeaTests()
-        listSpy = jest.spyOn(api.alerts, 'list').mockResolvedValue({ results: [] })
-        getSpy = jest.spyOn(api.alerts, 'get').mockResolvedValue(makeSavedAlert())
+        jest.spyOn(api.alerts, 'list').mockResolvedValue({ results: [] })
+        jest.spyOn(api.alerts, 'get').mockResolvedValue(makeSavedAlert())
         createSpy = jest.spyOn(api.alerts, 'create').mockResolvedValue(makeSavedAlert())
         updateSpy = jest.spyOn(api.alerts, 'update').mockResolvedValue(makeSavedAlert())
-        integrationsListSpy = jest.spyOn(api.integrations, 'list').mockResolvedValue({ results: [] } as any)
+        jest.spyOn(api.integrations, 'list').mockResolvedValue({ results: [] } as any)
         errorToastSpy = jest.spyOn(lemonToast, 'error').mockImplementation(jest.fn())
         successToastSpy = jest.spyOn(lemonToast, 'success').mockImplementation(jest.fn())
         captureExceptionSpy = jest.spyOn(posthog, 'captureException').mockImplementation(jest.fn())
