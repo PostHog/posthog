@@ -110,6 +110,9 @@ const skillUpdate = (): ToolBase<typeof SkillUpdateSchema, Schemas.LLMSkill> => 
         if (params.body !== undefined) {
             body['body'] = params.body
         }
+        if (params.edits !== undefined) {
+            body['edits'] = params.edits
+        }
         if (params.description !== undefined) {
             body['description'] = params.description
         }

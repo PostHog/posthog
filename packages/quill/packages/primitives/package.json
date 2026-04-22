@@ -1,6 +1,6 @@
 {
     "name": "@posthog/quill-primitives",
-    "version": "0.2.0-alpha.0",
+    "version": "0.1.1-alpha.0",
     "private": true,
     "description": "Internal workspace package (private, not published). The lowest layer of the quill design system — unstyled Base UI primitives wrapped with quill's Tailwind classes (Button, Card, Dialog, Input, Popover, Combobox, etc.). Bundled into @posthog/quill at build time; consumers should import from @posthog/quill instead.",
     "license": "MIT",
