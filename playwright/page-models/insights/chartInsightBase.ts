@@ -27,4 +27,12 @@ export class ChartInsightBase {
     async hoverAway(): Promise<void> {
         await this.page.mouse.move(0, 0)
     }
+
+    async openOptionsMenu(): Promise<void> {
+        await this.page.getByRole('button', { name: /^Options/ }).click()
+    }
+
+    async closeOptionsMenu(): Promise<void> {
+        await this.page.keyboard.press('Escape')
+    }
 }

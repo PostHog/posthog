@@ -151,7 +151,9 @@ test.describe('Trends insights', () => {
 
         await test.step('enable comparison and verify no NaN', async () => {
             await insight.trends.selectComparison('Compare to previous period')
+            await insight.trends.openOptionsMenu()
             await expect(insight.trends.comparisonButton).toContainText('Previous period')
+            await insight.trends.closeOptionsMenu()
             await insight.trends.waitForDetailsTable()
             const tableText = await insight.trends.detailsTable.textContent()
             expect(tableText).not.toContain('NaN')
@@ -159,7 +161,9 @@ test.describe('Trends insights', () => {
 
         await test.step('disable comparison', async () => {
             await insight.trends.selectComparison('No comparison between periods')
+            await insight.trends.openOptionsMenu()
             await expect(insight.trends.comparisonButton).toContainText('No comparison')
+            await insight.trends.closeOptionsMenu()
         })
     })
 
