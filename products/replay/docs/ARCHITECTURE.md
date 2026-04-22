@@ -15,7 +15,9 @@ flowchart TB
 
     S3[("S3<br/>sodium-encrypted blocks")]
     CH[("ClickHouse<br/>session metadata")]
+    PG[("Postgres<br/>SessionRecording · playlists<br/>team settings")]
     DDB[("DynamoDB<br/>per-session keys")]
+    REDIS[("Redis<br/>session tracker · blocklist<br/>keystore cache")]
 
     subgraph READ["2. Read path"]
         direction LR
@@ -44,10 +46,15 @@ flowchart TB
     BLOBBY --> S3
     BLOBBY --> CH
     BLOBBY --> DDB
+    BLOBBY --> REDIS
+    BLOBBY -.->|team settings| PG
 
     API --> S3
     API --> CH
     API --> DDB
+    API --> REDIS
+
+    PLAYER -.->|recordings · playlists| PG
 
     SWF -->|rasterize MP4| EXP
     EXP -->|fetch blocks| API
