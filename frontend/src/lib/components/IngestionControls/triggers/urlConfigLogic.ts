@@ -17,6 +17,34 @@ export function ensureAnchored(url: string): string {
     return `^${url}$`
 }
 
+const BARE_HOSTNAME_ONLY_REGEX = /^\^?[a-zA-Z0-9.-]+\.[a-z]{2,}\/?\$?$/i
+
+/**
+ * Detects when a stored/raw regex pattern is a bare hostname ending in a TLD —
+ * e.g. `www.example.com`, `^www.example.com$`. Once anchored with `^...$` these
+ * patterns can never match a URL produced by `window.location.href` (which always
+ * includes a protocol prefix and typically a path), so they fail silently —
+ * notably for blocklists this means recordings are captured on domains the user
+ * explicitly tried to exclude. We surface this as a warning in the UI.
+ */
+export function isLikelyUnmatchableUrlPattern(pattern: string): boolean {
+    if (!pattern) {
+        return false
+    }
+    return BARE_HOSTNAME_ONLY_REGEX.test(pattern.trim())
+}
+
+export function urlPatternMatchWarning(url: string): string | null {
+    if (!url) {
+        return null
+    }
+    if (/\.[a-z]{2,}\/?$/i.test(url)) {
+        const sanitizedUrl = url.endsWith('/') ? url.slice(0, -1) : url
+        return `If you want to match all paths of a domain, include the protocol and path wildcard — e.g. "https?://${sanitizedUrl}(/.*)?". As written, "${sanitizedUrl}" will be stored as the regex "^${sanitizedUrl}$" which cannot match a real page URL.`
+    }
+    return null
+}
+
 export interface UrlConfigLogicProps {
     logicKey: string
     initialUrlTriggerConfig: UrlTriggerConfig[]
@@ -81,18 +109,7 @@ export const urlConfigLogic = kea<urlConfigLogicType>([
         urlTriggerInputValidationWarning: [
             null as string | null,
             {
-                validateUrlInput: (_, { url, type }) => {
-                    if (type !== 'trigger') {
-                        return _
-                    }
-                    // Check if it ends with a TLD
-                    if (/\.[a-z]{2,}\/?$/i.test(url)) {
-                        const sanitizedUrl = url.endsWith('/') ? url.slice(0, -1) : url
-                        return `If you want to match all paths of a domain, you should write " ${sanitizedUrl}(/.*)? ". This would match: 
-                        ${sanitizedUrl}, ${sanitizedUrl}/, ${sanitizedUrl}/page, etc. Don't forget to include https:// at the beginning of the url.`
-                    }
-                    return null
-                },
+                validateUrlInput: (_, { url }) => urlPatternMatchWarning(url),
             },
         ],
     })),

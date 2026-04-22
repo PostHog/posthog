@@ -3,6 +3,7 @@ import { forms } from 'kea-forms'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 
+import { urlPatternMatchWarning } from 'lib/components/IngestionControls/triggers/urlConfigLogic'
 import { UrlTriggerConfig } from 'lib/components/IngestionControls/types'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -145,35 +146,13 @@ export const replayTriggersLogic = kea<replayTriggersLogicType>([
         urlTriggerInputValidationWarning: [
             null as string | null,
             {
-                validateUrlInput: (_, { url, type }) => {
-                    if (type !== 'trigger') {
-                        return _
-                    }
-                    // Check if it ends with a TLD
-                    if (/\.[a-z]{2,}\/?$/i.test(url)) {
-                        const sanitizedUrl = url.endsWith('/') ? url.slice(0, -1) : url
-                        return `If you want to match all paths of a domain, you should write " ${sanitizedUrl}(/.*)? ". This would match: 
-                        ${sanitizedUrl}, ${sanitizedUrl}/, ${sanitizedUrl}/page, etc. Don't forget to include https:// at the beginning of the url.`
-                    }
-                    return null
-                },
+                validateUrlInput: (prev, { url, type }) => (type === 'trigger' ? urlPatternMatchWarning(url) : prev),
             },
         ],
         urlBlocklistInputValidationWarning: [
             null as string | null,
             {
-                validateUrlInput: (_, { url, type }) => {
-                    if (type !== 'blocklist') {
-                        return _
-                    }
-                    // Check if it ends with a TLD
-                    if (/\.[a-z]{2,}\/?$/i.test(url)) {
-                        const sanitizedUrl = url.endsWith('/') ? url.slice(0, -1) : url
-                        return `If you want to match all paths of a domain, you should write " ${sanitizedUrl}(/.*)? ". This would match: 
-                        ${sanitizedUrl}, ${sanitizedUrl}/, ${sanitizedUrl}/page, etc. Don't forget to include https:// at the beginning of the url.`
-                    }
-                    return null
-                },
+                validateUrlInput: (prev, { url, type }) => (type === 'blocklist' ? urlPatternMatchWarning(url) : prev),
             },
         ],
     }),

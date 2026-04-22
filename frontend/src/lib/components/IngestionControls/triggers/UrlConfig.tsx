@@ -1,8 +1,8 @@
 import { LogicWrapper, useValues } from 'kea'
 import { Form } from 'kea-forms'
 
-import { IconCheck, IconPencil, IconPlus, IconTrash, IconX } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonDialog, LemonInput, LemonLabel, lemonToast } from '@posthog/lemon-ui'
+import { IconCheck, IconPencil, IconPlus, IconTrash, IconWarning, IconX } from '@posthog/icons'
+import { LemonBanner, LemonButton, LemonDialog, LemonInput, LemonLabel, Tooltip, lemonToast } from '@posthog/lemon-ui'
 
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { TeamMembershipLevel } from 'lib/constants'
@@ -13,6 +13,7 @@ import { Since } from 'scenes/settings/environment/SessionRecordingSettings'
 
 import { ingestionControlsLogic } from '../ingestionControlsLogic'
 import { UrlTriggerConfig } from '../types'
+import { ensureAnchored, isLikelyUnmatchableUrlPattern } from './urlConfigLogic'
 
 export function UrlConfig({
     logic,
@@ -172,16 +173,34 @@ function UrlConfigRow({
         )
     }
 
+    const unmatchable = isLikelyUnmatchableUrlPattern(trigger.url)
+
     return (
         <div
             className={cn('border rounded flex items-center p-2 pl-4 bg-surface-primary', {
                 'border-success': checkUrlResult === true,
-                'border-danger': checkUrlResult === false,
+                'border-danger': checkUrlResult === false || unmatchable,
             })}
         >
             <span title={trigger.url} className="flex-1 truncate">
                 <span>{trigger.matching === 'regex' ? 'Matches regex: ' : ''}</span>
                 <span>{trigger.url}</span>
+                {unmatchable && (
+                    <Tooltip
+                        title={
+                            <>
+                                This pattern is a bare hostname anchored with <code>^...$</code>, so it will not match
+                                any real page URL (which always includes a protocol and usually a path). Edit it to
+                                include the protocol and a path wildcard — for example{' '}
+                                <code>https?://{trigger.url.replace(/^\^|\$$/g, '')}(/.*)?</code>.
+                            </>
+                        }
+                    >
+                        <span className="ml-2 text-xs text-danger inline-flex items-center gap-1">
+                            <IconWarning /> Will not match any URL
+                        </span>
+                    </Tooltip>
+                )}
                 {checkUrlResult !== undefined && (
                     <span
                         className={cn('ml-2 text-xs', {
@@ -256,6 +275,11 @@ function UrlConfigForm({
     addUrl: (urlTriggerConfig: UrlTriggerConfig) => void
     validationWarning: string | null
 }): JSX.Element {
+    const formValues = useValues(logic(logicProps))[formKey] as UrlTriggerConfig | undefined
+    const rawUrl = (formValues?.url ?? '').trim()
+    const storedRegexPreview = rawUrl ? ensureAnchored(rawUrl) : ''
+    const previewIsUnmatchable = isLikelyUnmatchableUrlPattern(storedRegexPreview)
+
     return (
         <Form
             logic={logic}
@@ -268,7 +292,11 @@ function UrlConfigForm({
                 <LemonBanner type="info" className="text-sm">
                     We always wrap the URL regex with anchors to avoid unexpected behavior (if you do not). This is
                     because <pre className="inline">https://example.com/</pre> does not only match the homepage. You'd
-                    need <pre className="inline">^https://example.com/$</pre>
+                    need <pre className="inline">^https://example.com/$</pre>. Bare hostnames like{' '}
+                    <pre className="inline">example.com</pre> will be stored as{' '}
+                    <pre className="inline">^example.com$</pre> and will <strong>not</strong> match any real page URL —
+                    include the protocol and a path wildcard, e.g.{' '}
+                    <pre className="inline">https?://example\.com(/.*)?</pre>.
                 </LemonBanner>
                 <LemonLabel className="w-full">
                     Matching regex:
@@ -276,6 +304,21 @@ function UrlConfigForm({
                         <LemonInput autoFocus placeholder="Enter URL regex." data-attr="url-input" />
                     </LemonField>
                 </LemonLabel>
+                {storedRegexPreview && (
+                    <div
+                        className={cn('text-xs', {
+                            'text-muted': !previewIsUnmatchable,
+                            'text-danger': previewIsUnmatchable,
+                        })}
+                        data-attr="url-stored-regex-preview"
+                    >
+                        {previewIsUnmatchable && (
+                            <IconWarning className="inline-block align-text-bottom mr-1" aria-hidden />
+                        )}
+                        Will be saved as: <pre className="inline">{storedRegexPreview}</pre>
+                        {previewIsUnmatchable && ' — this pattern will not match any real page URL.'}
+                    </div>
+                )}
                 {validationWarning && <span className="text-danger">{validationWarning}</span>}
             </div>
             <div className="flex justify-between gap-2 w-full">
