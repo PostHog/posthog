@@ -50,6 +50,14 @@ AUTORESEARCH_DIR = PRODUCT_DIR / "autoresearch"
 SCRIPTS_DIR = AUTORESEARCH_DIR / "scripts"
 DEFAULT_WORKSPACE = Path("/tmp/autoresearch-campaign")
 
+# Pinned upstream versions. Bumping these is an explicit decision — an
+# unpinned install would pull the next npm publish / git HEAD into every
+# sandbox, which means an upstream rewrite silently changes what the
+# agent sees. Bump together with a fresh smoke run to confirm nothing
+# broke.
+PI_CODING_AGENT_VERSION = "0.68.1"
+PI_AUTORESEARCH_COMMIT = "56e9f2ec6f0dc6f9997126e4f1d8a4223de2a534"
+
 
 class CampaignError(RuntimeError):
     pass
@@ -115,41 +123,28 @@ def check_proxy_reachable(posthog_url: str, token: str) -> None:
 
 
 def install_pi_toolchain() -> None:
-    if shutil.which("pi"):
-        log(f"pi already installed: {shutil.which('pi')}")
-    else:
-        log("installing @mariozechner/pi-coding-agent globally via npm")
-        run(["npm", "install", "-g", "@mariozechner/pi-coding-agent"])
+    # Always run npm install with the pinned version — it's a fast no-op when
+    # already at the same version and it's a visible upgrade step when not,
+    # instead of silently keeping whatever an earlier sandbox snapshotted.
+    log(f"installing @mariozechner/pi-coding-agent@{PI_CODING_AGENT_VERSION} globally via npm")
+    run(["npm", "install", "-g", f"@mariozechner/pi-coding-agent@{PI_CODING_AGENT_VERSION}"])
 
     _patch_pi_ai_anthropic_baseurl()
 
     pi_autoresearch_dir = Path.home() / ".pi/agent/git/github.com/davebcn87/pi-autoresearch"
     if not pi_autoresearch_dir.is_dir():
-        log("installing pi-autoresearch framework from git")
+        log("cloning pi-autoresearch framework from git")
         run(["pi", "install", "https://github.com/davebcn87/pi-autoresearch"])
 
-        # Preserve workspace dirs during log_experiment's auto-revert. Without
-        # this, pi-autoresearch's default ``git clean -fd`` wipes untracked
-        # artifacts between experiments. Same patch as the reference
-        # dockerfile.
-        index_ts = pi_autoresearch_dir / "extensions/pi-autoresearch/index.ts"
-        if index_ts.is_file():
-            log(f"patching {index_ts.name} to preserve workspace dirs")
-            preserve = " ".join(
-                f"-e {name}"
-                for name in (
-                    "runs lanes hypotheses reviews baseline runtime state.json "
-                    "campaign.json operator-hunches.md adapter.json suggestions.md"
-                ).split()
-            )
-            contents = index_ts.read_text()
-            contents = contents.replace(
-                "git clean -fd 2>/dev/null",
-                f"git clean -fd {preserve} 2>/dev/null",
-            )
-            index_ts.write_text(contents)
-    else:
-        log("pi-autoresearch already installed")
+    # Pin to a known-good commit. ``pi install`` just clones HEAD, so without
+    # this the agent would pick up whatever upstream rewrote this morning.
+    # Safe to re-run on a stale clone: fetch + checkout of the same SHA is a
+    # no-op.
+    log(f"pinning pi-autoresearch to {PI_AUTORESEARCH_COMMIT[:12]}")
+    run(["git", "-C", str(pi_autoresearch_dir), "fetch", "--depth", "1", "origin", PI_AUTORESEARCH_COMMIT])
+    run(["git", "-C", str(pi_autoresearch_dir), "checkout", "--detach", PI_AUTORESEARCH_COMMIT])
+
+    _patch_pi_autoresearch_index_ts(pi_autoresearch_dir)
 
     plugin_dir = Path.home() / ".pi/packages/pi-clickhouse-autoresearch"
     if not plugin_dir.is_dir():
@@ -157,6 +152,35 @@ def install_pi_toolchain() -> None:
         run(["pi", "install", str(AUTORESEARCH_DIR)])
     else:
         log("pi-clickhouse-autoresearch already installed")
+
+
+def _patch_pi_autoresearch_index_ts(pi_autoresearch_dir: Path) -> None:
+    """Keep workspace artifacts across experiments.
+
+    ``log_experiment`` calls ``git clean -fd`` between experiments, which
+    wipes untracked files — including the lane / hypothesis / review
+    markdown the agent has just produced. Adding ``-e`` excludes preserves
+    them. The replace is idempotent: re-applying on an already-patched
+    file is a no-op because the pre-patch string is gone.
+    """
+    index_ts = pi_autoresearch_dir / "extensions/pi-autoresearch/index.ts"
+    if not index_ts.is_file():
+        return
+    preserve = " ".join(
+        f"-e {name}"
+        for name in (
+            "runs lanes hypotheses reviews baseline runtime state.json "
+            "campaign.json operator-hunches.md adapter.json suggestions.md"
+        ).split()
+    )
+    contents = index_ts.read_text()
+    patched = contents.replace(
+        "git clean -fd 2>/dev/null",
+        f"git clean -fd {preserve} 2>/dev/null",
+    )
+    if patched != contents:
+        log(f"patched {index_ts.name} to preserve workspace dirs")
+        index_ts.write_text(patched)
 
 
 def _patch_pi_ai_anthropic_baseurl() -> None:
