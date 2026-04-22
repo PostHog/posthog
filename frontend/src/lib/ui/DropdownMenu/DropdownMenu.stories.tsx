@@ -175,7 +175,7 @@ export function Default(): JSX.Element {
                     <DropdownMenuSeparator />
                     <DropdownMenuRadioGroup
                         value={radioChoice}
-                        onValueChange={(value) => setRadioChoice(value as 'beers' | 'wines' | 'spirits')}
+                        onValueChange={(value: string) => setRadioChoice(value as 'beers' | 'wines' | 'spirits')}
                     >
                         <DropdownMenuRadioItem value="beers" asChild>
                             <ButtonPrimitive menuItem>

@@ -17,6 +17,8 @@ import { ErrorBoundary } from './layout/ErrorBoundary'
 import { loadPostHogJS } from './loadPostHogJS'
 import { preWarmDecompression } from './scenes/session-recordings/player/snapshot-processing/DecompressionWorkerManager'
 
+// eslint-disable-next-line no-console
+console.info('[memlens-experiment] v1: stub all menus/popovers/tooltips — expect zero menu UI, measure leak impact')
 loadPostHogJS()
 initKea()
 preWarmDecompression()

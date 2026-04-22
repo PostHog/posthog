@@ -1,255 +1,79 @@
 import * as DropdownMenuPrimitive from '@radix-ui/react-dropdown-menu'
 import * as React from 'react'
 
-import { IconCheck } from '@posthog/icons'
+// eslint-disable-next-line no-console
+console.info('[memlens-stub] DropdownMenu (all exports) stubbed — content returns null')
 
-import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
-import { cn } from 'lib/utils/css-classes'
+// Stubs use `any` for props so consumer inline callbacks aren't flagged as implicit-any.
+// This whole file is an experiment; original types are restored when the file is.
+/* eslint-disable @typescript-eslint/no-explicit-any */
 
-import { Label } from '../Label/Label'
-import { MenuSeparator } from '../Menus/Menus'
-
-/* -------------------------------------------------------------------------- */
-/*                           Open State Context                               */
-/* -------------------------------------------------------------------------- */
-
-const DropdownMenuOpenContext = React.createContext(false)
-
-function DropdownMenu({
-    children,
-    open: controlledOpen,
-    defaultOpen,
-    onOpenChange,
-    ...props
-}: React.ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.Root>): JSX.Element {
-    const [internalOpen, setInternalOpen] = React.useState(defaultOpen ?? false)
-    const isOpen = controlledOpen ?? internalOpen
-
-    const handleOpenChange = React.useCallback(
-        (open: boolean) => {
-            if (controlledOpen === undefined) {
-                setInternalOpen(open)
-            }
-            onOpenChange?.(open)
-        },
-        [controlledOpen, onOpenChange]
-    )
-
-    return (
-        <DropdownMenuOpenContext.Provider value={isOpen}>
-            <DropdownMenuPrimitive.Root open={isOpen} onOpenChange={handleOpenChange} {...props}>
-                {children}
-            </DropdownMenuPrimitive.Root>
-        </DropdownMenuOpenContext.Provider>
-    )
+function RenderChildrenOnly({ children }: { children?: React.ReactNode }): JSX.Element {
+    return <>{children}</>
 }
 
-const DropdownMenuTrigger = DropdownMenuPrimitive.Trigger
+function RenderFirstChild({ children }: { children?: React.ReactNode }): JSX.Element | null {
+    const only = React.Children.toArray(children).find(Boolean)
+    return React.isValidElement(only) ? only : <>{children}</>
+}
 
-const DropdownMenuGroup = React.forwardRef<
-    React.ElementRef<typeof DropdownMenuPrimitive.Group>,
-    React.ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.Group>
->(({ className, ...props }, ref): JSX.Element => {
-    return <DropdownMenuPrimitive.Group ref={ref} className={cn('flex flex-col gap-px p-1', className)} {...props} />
-})
-DropdownMenuGroup.displayName = DropdownMenuPrimitive.Group.displayName
+function RenderNothing(): null {
+    return null
+}
 
-const DropdownMenuPortal = DropdownMenuPrimitive.Portal
+type Stub<P> = React.ComponentType<P>
 
-const DropdownMenuSub = DropdownMenuPrimitive.Sub
+// Roots pass children through so triggers still render.
+const DropdownMenu = RenderChildrenOnly as unknown as Stub<
+    React.ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.Root>
+>
+const DropdownMenuSub = RenderChildrenOnly as unknown as Stub<
+    React.ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.Sub>
+>
 
-const DropdownMenuRadioGroup = React.forwardRef<
-    React.ElementRef<typeof DropdownMenuPrimitive.RadioGroup>,
-    React.ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.RadioGroup>
->(({ className, ...props }, ref): JSX.Element => {
-    return (
-        <DropdownMenuPrimitive.RadioGroup ref={ref} className={cn('flex flex-col gap-px p-1', className)} {...props} />
-    )
-})
-DropdownMenuRadioGroup.displayName = DropdownMenuPrimitive.RadioGroup.displayName
+// Triggers render their child (usually asChild-style).
+const DropdownMenuTrigger = RenderFirstChild as unknown as Stub<
+    React.ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.Trigger>
+>
+const DropdownMenuSubTrigger = RenderFirstChild as unknown as Stub<
+    React.ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.SubTrigger> & { inset?: boolean }
+>
 
-const DropdownMenuItemIndicator = React.forwardRef<
-    React.ElementRef<typeof DropdownMenuPrimitive.ItemIndicator>,
-    React.ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.ItemIndicator> & {
-        intent: 'checkbox' | 'radio'
-    }
->(({ className, intent, ...props }, ref): JSX.Element => {
-    return (
-        // We need to make a box around the indicator to ensure when it's not "checked" it's still the same size
-        <div className="flex place-items-center size-[var(--button-height)] shrink-0">
-            <DropdownMenuPrimitive.ItemIndicator
-                ref={ref}
-                className={cn('size-full flex place-items-center shrink-0', className)}
-                {...props}
-            >
-                {intent === 'checkbox' && <IconCheck className="shrink-0" />}
-                {intent === 'radio' && (
-                    <div className="h-2 w-2 rounded-full bg-black dark:bg-white relative -translate-x-1/2 left-1/2" />
-                )}
-            </DropdownMenuPrimitive.ItemIndicator>
-        </div>
-    )
-})
-DropdownMenuItemIndicator.displayName = DropdownMenuPrimitive.ItemIndicator.displayName
-
-const DropdownMenuSubTrigger = React.forwardRef<
-    React.ElementRef<typeof DropdownMenuPrimitive.SubTrigger>,
-    React.ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.SubTrigger> & {
-        inset?: boolean
-    }
->(({ className, inset, ...props }, ref): JSX.Element => {
-    return <DropdownMenuPrimitive.SubTrigger ref={ref} className={cn(inset && 'pl-7', className)} {...props} />
-})
-DropdownMenuSubTrigger.displayName = DropdownMenuPrimitive.SubTrigger.displayName
-
-const DropdownMenuSubContent = React.forwardRef<
-    React.ElementRef<typeof DropdownMenuPrimitive.SubContent>,
+// Everything else renders nothing.
+const DropdownMenuContent = RenderNothing as unknown as Stub<
+    React.ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.Content> & { matchTriggerWidth?: boolean }
+>
+const DropdownMenuSubContent = RenderNothing as unknown as Stub<
     React.ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.SubContent>
->(
-    ({ className, children, collisionPadding = { top: 50, bottom: 50 }, ...props }, ref): JSX.Element => (
-        <DropdownMenuPrimitive.SubContent
-            ref={ref}
-            collisionPadding={collisionPadding}
-            className={cn(
-                'primitive-menu-content max-h-[var(--radix-dropdown-menu-content-available-height)]',
-                className
-            )}
-            {...props}
-        >
-            <ScrollableShadows direction="vertical" styledScrollbars innerClassName="primitive-menu-content-inner">
-                {children}
-            </ScrollableShadows>
-        </DropdownMenuPrimitive.SubContent>
-    )
-)
-DropdownMenuSubContent.displayName = DropdownMenuPrimitive.SubContent.displayName
-
-const DropdownMenuContent = React.forwardRef<
-    React.ElementRef<typeof DropdownMenuPrimitive.Content>,
-    React.ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.Content> & {
-        matchTriggerWidth?: boolean
-    }
->(
-    (
-        {
-            className,
-            children,
-            sideOffset = 4,
-            collisionPadding = { top: 50, bottom: 50, left: 10, right: 10 },
-            matchTriggerWidth,
-            ...props
-        },
-        ref
-    ): JSX.Element | null => {
-        const open = React.useContext(DropdownMenuOpenContext)
-
-        if (!open) {
-            return null
-        }
-
-        return (
-            <DropdownMenuPrimitive.Portal>
-                <DropdownMenuPrimitive.Content
-                    ref={ref}
-                    sideOffset={sideOffset}
-                    collisionPadding={collisionPadding}
-                    className={cn(
-                        'primitive-menu-content max-h-[var(--radix-dropdown-menu-content-available-height)]',
-                        matchTriggerWidth && 'min-w-[var(--radix-dropdown-menu-trigger-width)]',
-                        className
-                    )}
-                    loop
-                    {...props}
-                >
-                    <ScrollableShadows
-                        direction="vertical"
-                        styledScrollbars
-                        innerClassName="primitive-menu-content-inner"
-                    >
-                        {children}
-                    </ScrollableShadows>
-                </DropdownMenuPrimitive.Content>
-            </DropdownMenuPrimitive.Portal>
-        )
-    }
-)
-DropdownMenuContent.displayName = DropdownMenuPrimitive.Content.displayName
-
-const DropdownMenuItem = React.forwardRef<
-    React.ElementRef<typeof DropdownMenuPrimitive.Item>,
-    React.ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.Item> & {
-        inset?: boolean
-    }
->(({ className, inset, ...props }, ref): JSX.Element => {
-    return <DropdownMenuPrimitive.Item ref={ref} className={cn(inset && 'pl-7', className)} {...props} />
-})
-DropdownMenuItem.displayName = DropdownMenuPrimitive.Item.displayName
-
-const DropdownMenuCheckboxItem = React.forwardRef<
-    React.ElementRef<typeof DropdownMenuPrimitive.CheckboxItem>,
+>
+const DropdownMenuItem = RenderNothing as unknown as Stub<
+    React.ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.Item> & { inset?: boolean }
+>
+const DropdownMenuCheckboxItem = RenderNothing as unknown as Stub<
     React.ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.CheckboxItem>
->(({ className, checked, ...props }, ref): JSX.Element => {
-    return (
-        <DropdownMenuPrimitive.CheckboxItem
-            ref={ref}
-            className={cn(
-                'relative flex cursor-default select-none outline-none transition-colors data-[disabled]:pointer-events-none data-[disabled]:opacity-50',
-                className
-            )}
-            checked={checked}
-            {...props}
-        />
-    )
-})
-DropdownMenuCheckboxItem.displayName = DropdownMenuPrimitive.CheckboxItem.displayName
-
-const DropdownMenuRadioItem = React.forwardRef<
-    React.ElementRef<typeof DropdownMenuPrimitive.RadioItem>,
+>
+const DropdownMenuRadioItem = RenderNothing as unknown as Stub<
     React.ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.RadioItem>
->(({ className, ...props }, ref): JSX.Element => {
-    return (
-        <DropdownMenuPrimitive.RadioItem
-            ref={ref}
-            className={cn(
-                'relative flex cursor-default select-none outline-none transition-colors data-[disabled]:pointer-events-none data-[disabled]:opacity-50',
-                className
-            )}
-            {...props}
-        />
-    )
-})
-DropdownMenuRadioItem.displayName = DropdownMenuPrimitive.RadioItem.displayName
-
-const DropdownMenuLabel = React.forwardRef<
-    React.ElementRef<typeof DropdownMenuPrimitive.Label>,
-    React.ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.Label> & {
-        inset?: boolean
-    }
->(
-    ({ className, inset, children, ...props }, ref): JSX.Element => (
-        <DropdownMenuPrimitive.Label ref={ref} className={cn('px-2', inset && 'pl-7', className)} asChild {...props}>
-            <Label intent="menu">{children}</Label>
-        </DropdownMenuPrimitive.Label>
-    )
-)
-DropdownMenuLabel.displayName = DropdownMenuPrimitive.Label.displayName
-
-const DropdownMenuSeparator = React.forwardRef<
-    React.ElementRef<typeof DropdownMenuPrimitive.Separator>,
+>
+const DropdownMenuItemIndicator = RenderNothing as unknown as Stub<
+    React.ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.ItemIndicator> & { intent: 'checkbox' | 'radio' }
+>
+const DropdownMenuLabel = RenderNothing as unknown as Stub<
+    React.ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.Label> & { inset?: boolean }
+>
+const DropdownMenuSeparator = RenderNothing as unknown as Stub<
     React.ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.Separator>
->(
-    ({ className, ...props }, ref): JSX.Element => (
-        <DropdownMenuPrimitive.Separator ref={ref} {...props} asChild>
-            <MenuSeparator className={className} />
-        </DropdownMenuPrimitive.Separator>
-    )
-)
-DropdownMenuSeparator.displayName = DropdownMenuPrimitive.Separator.displayName
-
-const DropdownMenuShortcut = ({ className, ...props }: React.HTMLAttributes<HTMLSpanElement>): JSX.Element => {
-    return <span className={cn('ml-auto text-xs tracking-widest opacity-60', className)} {...props} />
-}
-DropdownMenuShortcut.displayName = 'DropdownMenuShortcut'
+>
+const DropdownMenuShortcut = RenderNothing as unknown as Stub<React.HTMLAttributes<HTMLSpanElement>>
+const DropdownMenuGroup = RenderNothing as unknown as Stub<
+    React.ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.Group>
+>
+const DropdownMenuPortal = RenderNothing as unknown as Stub<
+    React.ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.Portal>
+>
+const DropdownMenuRadioGroup = RenderNothing as unknown as Stub<
+    React.ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.RadioGroup>
+>
 
 export {
     DropdownMenu,

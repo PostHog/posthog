@@ -33,7 +33,7 @@ export function TreeSortDropdownMenu({ setSortMethod, sortMethod }: SortDropdown
             <DropdownMenuContent loop align="end" side="bottom" className="max-w-[250px]">
                 <DropdownMenuRadioGroup
                     value={sortMethod}
-                    onValueChange={(value) => setSortMethod(value as ProjectTreeSortMethod)}
+                    onValueChange={(value: string) => setSortMethod(value as ProjectTreeSortMethod)}
                 >
                     <DropdownMenuRadioItem value="folder" asChild>
                         <ButtonPrimitive menuItem data-attr="tree-filters-dropdown-menu-alphabetical-button">
