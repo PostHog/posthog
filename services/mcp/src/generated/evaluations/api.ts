@@ -51,7 +51,7 @@ export const EvaluationsListQueryParams = /* @__PURE__ */ zod.object({
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     order_by: zod
-        .array(zod.enum(['-created_at', '-name', '-updated_at', 'created_at', 'name', 'updated_at']))
+        .array(zod.string())
         .optional()
         .describe(
             'Ordering\n\n* `created_at` - Created At\n* `-created_at` - Created At (descending)\n* `updated_at` - Updated At\n* `-updated_at` - Updated At (descending)\n* `name` - Name\n* `-name` - Name (descending)'
