@@ -13,7 +13,7 @@ from posthog.hogql.hogql import HogQLContext
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_ast_for_printing
 
-from posthog.batch_exports.http import BatchExportSerializer, _validate_identifier_fields
+from posthog.batch_exports.http import _IDENTIFIER_FIELDS_BY_TYPE, BatchExportSerializer, _validate_identifier_fields
 
 
 def prepare_query(query: str, team_id: int) -> ast.SelectQuery:
@@ -134,6 +134,9 @@ class TestSerializeHogQLQueryToBatchExportSchema(BaseTest):
         assert field["expression"] == "events.uuid"
 
 
+# Hand-maintained as the spec of what we *intend* to validate. Acts as an
+# independent check on the production dict: the drift test below asserts
+# they agree, so accidental additions or deletions fail loudly.
 _IDENTIFIER_FIELDS_BY_TYPE_CASES = [
     ("Snowflake", "database"),
     ("Snowflake", "warehouse"),
@@ -164,6 +167,21 @@ _FORBIDDEN_PAYLOADS = [
 
 
 class TestValidateIdentifierFields:
+    def test_spec_matches_production_dict(self):
+        # Drift check: if a destination or field is added/removed in http.py's
+        # _IDENTIFIER_FIELDS_BY_TYPE, this test fails until the spec above is
+        # updated too. Forces a deliberate choice (and PR review) on any
+        # change to which fields we validate as identifiers.
+        spec_pairs = {(destination, field) for destination, field in _IDENTIFIER_FIELDS_BY_TYPE_CASES}
+        prod_pairs = {
+            (destination, field) for destination, fields in _IDENTIFIER_FIELDS_BY_TYPE.items() for field in fields
+        }
+        assert spec_pairs == prod_pairs, (
+            "Identifier-field spec drifted from production dict. "
+            f"Missing from spec: {prod_pairs - spec_pairs}. "
+            f"Extra in spec: {spec_pairs - prod_pairs}."
+        )
+
     @parameterized.expand(
         [
             (f"{destination}-{field}-{idx}", destination, field, payload)
