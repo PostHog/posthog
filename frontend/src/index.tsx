@@ -18,7 +18,7 @@ import { loadPostHogJS } from './loadPostHogJS'
 import { preWarmDecompression } from './scenes/session-recordings/player/snapshot-processing/DecompressionWorkerManager'
 
 // eslint-disable-next-line no-console
-console.info('[memlens-experiment] v2: Tooltip re-enabled — menus/popovers still stubbed')
+console.info('[memlens-experiment] v3: Tooltip + Popover re-enabled — DropdownMenu/ContextMenu still stubbed')
 loadPostHogJS()
 initKea()
 preWarmDecompression()
