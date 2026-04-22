@@ -16,11 +16,7 @@ export function AdvancedActivityLogFiltersPanel(): JSX.Element {
     const { clearAllFilters, exportLogs } = useActions(advancedActivityLogsLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
-    const { properties: subscribeProperties, droppedFields } = advancedActivityFiltersToHogProperties(filters)
-    const subscribeTooltip =
-        droppedFields.length > 0
-            ? `Some filters can't trigger notifications yet (${droppedFields.join(', ')}) — they'll be skipped.`
-            : undefined
+    const { properties: subscribeProperties } = advancedActivityFiltersToHogProperties(filters)
 
     return (
         <div className="border rounded-md p-4 bg-bg-light">
@@ -64,7 +60,6 @@ export function AdvancedActivityLogFiltersPanel(): JSX.Element {
                     {featureFlags[FEATURE_FLAGS.CDP_ACTIVITY_LOG_NOTIFICATIONS] && (
                         <ActivityLogSubscribeMenu
                             properties={subscribeProperties}
-                            tooltip={subscribeTooltip}
                             data-attr="audit-logs-subscribe-button"
                         />
                     )}
