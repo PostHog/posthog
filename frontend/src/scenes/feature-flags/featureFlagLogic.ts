@@ -579,6 +579,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         enrichUsageDashboard: true,
         setCopyDestinationProject: (id: number | null) => ({ id }),
         setCopySchedule: (copySchedule: boolean) => ({ copySchedule }),
+        setDisableCopiedFlag: (disableCopiedFlag: boolean) => ({ disableCopiedFlag }),
         setScheduleDateMarker: (dateMarker: any) => ({ dateMarker }),
         setSchedulePayload: (
             filters: FeatureFlagType['filters'] | null,
@@ -914,6 +915,12 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             false as boolean,
             {
                 setCopySchedule: (_, { copySchedule }) => copySchedule,
+            },
+        ],
+        disableCopiedFlag: [
+            false as boolean,
+            {
+                setDisableCopiedFlag: (_, { disableCopiedFlag }) => disableCopiedFlag,
             },
         ],
         scheduleDateMarker: [
@@ -1488,7 +1495,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             copyFlag: async () => {
                 const orgId = values.currentOrganizationId
                 const featureFlagKey = values.featureFlag.key
-                const { copyDestinationProject, currentProjectId, copySchedule } = values
+                const { copyDestinationProject, currentProjectId, copySchedule, disableCopiedFlag } = values
 
                 if (currentProjectId && copyDestinationProject) {
                     return await api.organizationFeatureFlags.copy(orgId, {
@@ -1496,6 +1503,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                         from_project: currentProjectId,
                         target_project_ids: [copyDestinationProject],
                         copy_schedule: copySchedule,
+                        disable_copied_flag: disableCopiedFlag,
                     })
                 }
             },
@@ -1930,6 +1938,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             actions.loadProjectsWithCurrentFlag()
             actions.setCopyDestinationProject(null)
             actions.setCopySchedule(false)
+            actions.setDisableCopiedFlag(false)
         },
         createStaticCohortSuccess: ({ newCohort }) => {
             if (newCohort) {

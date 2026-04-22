@@ -453,6 +453,70 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
             "[ErrorDetail(string='Feature flag with this key already exists and is used in an experiment. Please delete the experiment before deleting the flag.', code='invalid')]",
         )
 
+    def test_copy_feature_flag_disable_copied_flag_new(self):
+        """disable_copied_flag=True must force a newly created copy to be inactive, regardless of source state."""
+        assert self.feature_flag_to_copy.active is True
+
+        url = f"/api/organizations/{self.organization.id}/feature_flags/copy_flags"
+        data = {
+            "feature_flag_key": self.feature_flag_to_copy.key,
+            "from_project": self.feature_flag_to_copy.team_id,
+            "target_project_ids": [self.team_2.id],
+            "disable_copied_flag": True,
+        }
+        response = self.client.post(url, data)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.json()["success"]), 1)
+        self.assertFalse(response.json()["success"][0]["active"])
+
+        copied_flag = FeatureFlag.objects.get(key=self.feature_flag_to_copy.key, team=self.team_2)
+        self.assertFalse(copied_flag.active)
+
+        # Source flag must remain untouched
+        self.feature_flag_to_copy.refresh_from_db()
+        self.assertTrue(self.feature_flag_to_copy.active)
+
+    def test_copy_feature_flag_disable_copied_flag_updating_existing(self):
+        """disable_copied_flag=True must also force an existing target flag to become inactive when re-syncing."""
+        existing_flag = FeatureFlag.objects.create(
+            team=self.team_2,
+            created_by=self.user,
+            key=self.feature_flag_to_copy.key,
+            active=True,
+            filters={"groups": [{"rollout_percentage": 10}]},
+        )
+
+        url = f"/api/organizations/{self.organization.id}/feature_flags/copy_flags"
+        data = {
+            "feature_flag_key": self.feature_flag_to_copy.key,
+            "from_project": self.feature_flag_to_copy.team_id,
+            "target_project_ids": [self.team_2.id],
+            "disable_copied_flag": True,
+        }
+        response = self.client.post(url, data)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.json()["success"]), 1)
+        self.assertFalse(response.json()["success"][0]["active"])
+
+        existing_flag.refresh_from_db()
+        self.assertFalse(existing_flag.active)
+
+    def test_copy_feature_flag_disable_copied_flag_default_false(self):
+        """Omitting disable_copied_flag preserves the source flag's enabled status."""
+        url = f"/api/organizations/{self.organization.id}/feature_flags/copy_flags"
+        data = {
+            "feature_flag_key": self.feature_flag_to_copy.key,
+            "from_project": self.feature_flag_to_copy.team_id,
+            "target_project_ids": [self.team_2.id],
+        }
+        response = self.client.post(url, data)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.json()["success"]), 1)
+        self.assertTrue(response.json()["success"][0]["active"])
+
     def test_copy_feature_flag_missing_fields(self):
         url = f"/api/organizations/{self.organization.id}/feature_flags/copy_flags"
         data: dict[str, Any] = {}

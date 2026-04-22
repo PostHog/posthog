@@ -19,6 +19,8 @@ export interface CopyFlagsRequestApi {
     target_project_ids: number[]
     /** Whether to also copy scheduled changes for this flag */
     copy_schedule?: boolean
+    /** Whether to force the copied flag to be disabled in target projects, ignoring the source flag's enabled status */
+    disable_copied_flag?: boolean
 }
 
 export interface CopyFlagsSuccessItemApi {
