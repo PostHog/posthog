@@ -1851,7 +1851,6 @@ class TestPostgreSQLIntegrationModel(BaseTest):
     def test_integration_from_config(self, _name, overrides, expected_tls):
         kwargs = {
             "team_id": self.team.pk,
-            "organization_id": str(self.team.organization.id),
             "host": "db.example.com",
             "port": 5432,
             "user": "exporter",
