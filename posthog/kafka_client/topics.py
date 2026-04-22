@@ -23,6 +23,10 @@ KAFKA_PLUGIN_LOG_ENTRIES = f"{KAFKA_PREFIX}plugin_log_entries{SUFFIX}"
 KAFKA_DEAD_LETTER_QUEUE = f"{KAFKA_PREFIX}events_dead_letter_queue{SUFFIX}"
 KAFKA_GROUPS = f"{KAFKA_PREFIX}clickhouse_groups{SUFFIX}"
 KAFKA_INGESTION_WARNINGS = f"{KAFKA_PREFIX}clickhouse_ingestion_warnings{SUFFIX}"
+# DEPRECATED: superseded by clickhouse_app_metrics2 (see KAFKA_APP_METRICS2 below).
+# Kept only because the legacy `kafka_app_metrics` ClickHouse Kafka-engine table
+# still references this topic in its DDL — see posthog/models/app_metrics/sql.py.
+# No producer writes to it. Remove once the underlying tables are dropped.
 KAFKA_APP_METRICS = f"{KAFKA_PREFIX}clickhouse_app_metrics{SUFFIX}"
 KAFKA_APP_METRICS2 = f"{KAFKA_PREFIX}clickhouse_app_metrics2{SUFFIX}"
 KAFKA_METRICS_TIME_TO_SEE_DATA = f"{KAFKA_PREFIX}clickhouse_metrics_time_to_see_data{SUFFIX}"

@@ -1,6 +1,6 @@
 import { DateTime } from 'luxon'
 
-import { KAFKA_APP_METRICS } from '../../config/kafka-topics'
+import { KAFKA_APP_METRICS_2 } from '../../config/kafka-topics'
 import { KafkaProducerWrapper, TopicMessage } from '../../kafka/producer'
 import { TeamId, TimestampFormat } from '../../types'
 import { logger } from '../../utils/logger'
@@ -18,50 +18,31 @@ export interface AppMetric extends AppMetricIdentifier {
     successes?: number
     successesOnRetry?: number
     failures?: number
-
-    errorUuid?: string
-    errorType?: string
-    // Should be json-encoded!
-    errorDetails?: string
-}
-
-export interface ErrorWithContext {
-    error: Error | string
-    // Passed from processEvent/onEvent
-    event?: any
-    // Passed from exportEvents
-    eventCount?: any
 }
 
 interface QueuedMetric {
     lastTimestamp: number
-    queuedAt: number
 
     successes: number
     successesOnRetry: number
     failures: number
 
-    errorUuid?: string
-    errorType?: string
-    // Should be json-encoded!
-    errorDetails?: string
-
     metric: AppMetricIdentifier
 }
 
-/** An aggregated AppMetric, as written to/read from a ClickHouse row. */
-export interface RawAppMetric {
-    timestamp: string
+// app_source value for legacy-plugin rows in clickhouse_app_metrics2.
+// Keep in sync with the value the frontend filters on.
+const APP_SOURCE_LEGACY_PLUGIN = 'legacy_plugin'
+
+interface AppMetric2Row {
     team_id: number
-    plugin_config_id: number
-    job_id?: string
-    category: string
-    successes: number
-    successes_on_retry: number
-    failures: number
-    error_uuid?: string
-    error_type?: string
-    error_details?: string
+    timestamp: string
+    app_source: string
+    app_source_id: string
+    instance_id: string
+    metric_kind: 'success' | 'failure'
+    metric_name: 'succeeded' | 'succeeded_on_retry' | 'failed'
+    count: number
 }
 
 export class LegacyPluginAppMetrics {
@@ -95,7 +76,7 @@ export class LegacyPluginAppMetrics {
         timestamp = timestamp || now
         const key = this._key(metric)
 
-        const { successes, successesOnRetry, failures, errorUuid, errorType, errorDetails, ...metricInfo } = metric
+        const { successes, successesOnRetry, failures, ...metricInfo } = metric
 
         if (!this.queuedData[key]) {
             this.queueSize += 1
@@ -103,12 +84,8 @@ export class LegacyPluginAppMetrics {
                 successes: 0,
                 successesOnRetry: 0,
                 failures: 0,
-                errorUuid,
-                errorType,
-                errorDetails,
 
                 lastTimestamp: timestamp,
-                queuedAt: timestamp,
                 metric: metricInfo,
             }
         }
@@ -142,32 +119,46 @@ export class LegacyPluginAppMetrics {
         this.queueSize = 0
         this.queuedData = {}
 
-        const messages: TopicMessage['messages'] = Object.values(queue).map((value) => ({
-            value: JSON.stringify({
-                timestamp: castTimestampOrNow(DateTime.fromMillis(value.lastTimestamp), TimestampFormat.ClickHouse),
+        const messages: TopicMessage['messages'] = Object.values(queue).flatMap((value) => {
+            const timestamp = castTimestampOrNow(DateTime.fromMillis(value.lastTimestamp), TimestampFormat.ClickHouse)
+            const base = {
                 team_id: value.metric.teamId,
-                plugin_config_id: value.metric.pluginConfigId,
-                job_id: value.metric.jobId ?? null,
-                category: value.metric.category,
+                timestamp,
+                app_source: APP_SOURCE_LEGACY_PLUGIN,
+                app_source_id: String(value.metric.pluginConfigId),
+                instance_id: value.metric.jobId ?? '',
+            }
 
-                successes: value.successes,
-                successes_on_retry: value.successesOnRetry,
-                failures: value.failures,
+            const rows: AppMetric2Row[] = []
+            if (value.successes > 0) {
+                rows.push({ ...base, metric_kind: 'success', metric_name: 'succeeded', count: value.successes })
+            }
+            if (value.successesOnRetry > 0) {
+                rows.push({
+                    ...base,
+                    metric_kind: 'success',
+                    metric_name: 'succeeded_on_retry',
+                    count: value.successesOnRetry,
+                })
+            }
+            if (value.failures > 0) {
+                rows.push({ ...base, metric_kind: 'failure', metric_name: 'failed', count: value.failures })
+            }
+            return rows.map((row) => ({ value: JSON.stringify(row) }))
+        })
 
-                error_uuid: value.errorUuid,
-                error_type: value.errorType,
-                error_details: value.errorDetails,
-            } as RawAppMetric),
-        }))
+        if (messages.length === 0) {
+            return
+        }
 
         await this.kafkaProducer.queueMessages({
-            topic: KAFKA_APP_METRICS,
+            topic: KAFKA_APP_METRICS_2,
             messages: messages,
         })
         logger.debug('🚽', `Finished flushing app metrics, took ${Date.now() - startTime}ms`)
     }
 
     _key(metric: AppMetric): string {
-        return `${metric.teamId}.${metric.pluginConfigId}.${metric.category}.${metric.jobId}.${metric.errorUuid}`
+        return `${metric.teamId}.${metric.pluginConfigId}.${metric.category}.${metric.jobId}`
     }
 }

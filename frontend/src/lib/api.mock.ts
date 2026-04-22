@@ -428,7 +428,6 @@ export const MOCK_DEFAULT_PLUGIN_CONFIG: PluginConfigWithPluginInfo = {
     order: 1,
     config: {},
     team_id: MOCK_TEAM_ID,
-    delivery_rate_24h: 0.999,
     created_at: '2020-12-01T14:00:00.000Z',
     plugin_info: MOCK_DEFAULT_PLUGIN,
 }
