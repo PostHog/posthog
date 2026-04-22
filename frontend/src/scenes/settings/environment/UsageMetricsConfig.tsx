@@ -99,7 +99,7 @@ function UsageMetricsTable(): JSX.Element {
                                 label: 'Edit',
                                 onClick: () => {
                                     openModal()
-                                    setUsageMetricValues(metric)
+                                    setUsageMetricValues({ ...metric })
                                     reportUsageMetricsUpdateButtonClicked()
                                 },
                                 disabledReason: restrictedReason,
