@@ -1,5 +1,5 @@
 use chrono::{DateTime, Utc};
-use common_types::HasEventName;
+use common_types::{CapturedEventHeaders, HasEventName};
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
 use uuid::Uuid;
@@ -95,12 +95,25 @@ impl SinkEvent for WrappedEvent {
         &self.destination
     }
 
-    fn headers(&self) -> Vec<(String, String)> {
-        let mut h = Vec::new();
-        if self.skip_person_processing {
-            h.push(("skip_person_processing".into(), "true".into()));
+    fn headers(&self, _ctx: &Context) -> CapturedEventHeaders {
+        CapturedEventHeaders {
+            token: None,
+            distinct_id: None,
+            session_id: None,
+            timestamp: None,
+            event: None,
+            uuid: None,
+            now: None,
+            force_disable_person_processing: if self.skip_person_processing {
+                Some(true)
+            } else {
+                None
+            },
+            historical_migration: None,
+            dlq_reason: None,
+            dlq_step: None,
+            dlq_timestamp: None,
         }
-        h
     }
 
     fn write_partition_key(&self, ctx: &Context, buf: &mut String) {
@@ -529,17 +542,46 @@ mod tests {
 
     #[test]
     fn headers_empty_when_no_skip_person() {
+        let ctx = test_utils::test_context();
         let ev = ok_wrapped("$pageview", "user-1");
-        assert!(ev.headers().is_empty());
+        let h = ev.headers(&ctx);
+        // No skip → the only field this WIP impl writes to stays None, and
+        // every other field remains None as well (nothing populated yet at
+        // this PR tip).
+        assert!(h.force_disable_person_processing.is_none());
+        assert!(h.token.is_none());
+        assert!(h.distinct_id.is_none());
+        assert!(h.session_id.is_none());
+        assert!(h.timestamp.is_none());
+        assert!(h.event.is_none());
+        assert!(h.uuid.is_none());
+        assert!(h.now.is_none());
+        assert!(h.historical_migration.is_none());
+        assert!(h.dlq_reason.is_none());
+        assert!(h.dlq_step.is_none());
+        assert!(h.dlq_timestamp.is_none());
     }
 
     #[test]
     fn headers_include_skip_person_processing() {
+        let ctx = test_utils::test_context();
         let mut ev = ok_wrapped("$pageview", "user-1");
         ev.skip_person_processing = true;
-        let h = ev.headers();
-        assert_eq!(h.len(), 1);
-        assert_eq!(h[0], ("skip_person_processing".into(), "true".into()));
+        let h = ev.headers(&ctx);
+        assert_eq!(h.force_disable_person_processing, Some(true));
+        // WIP impl populates only this one field; every other field stays
+        // None. PR-5a will extend the impl and this assertion set.
+        assert!(h.token.is_none());
+        assert!(h.distinct_id.is_none());
+        assert!(h.session_id.is_none());
+        assert!(h.timestamp.is_none());
+        assert!(h.event.is_none());
+        assert!(h.uuid.is_none());
+        assert!(h.now.is_none());
+        assert!(h.historical_migration.is_none());
+        assert!(h.dlq_reason.is_none());
+        assert!(h.dlq_step.is_none());
+        assert!(h.dlq_timestamp.is_none());
     }
 
     fn partition_key(ev: &WrappedEvent, ctx: &Context) -> String {
