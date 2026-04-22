@@ -213,10 +213,12 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
             if not is_cdc_enabled_for_team(team):
                 raise ValidationError("CDC is not enabled for this team")
 
+        # Only update sync_type if it was explicitly provided in the request
         if "sync_type" in data:
             validated_data["sync_type"] = sync_type
 
         trigger_refresh = False
+        # Update the validated_data with incremental fields
         if sync_type in (
             ExternalDataSchema.SyncType.INCREMENTAL,
             ExternalDataSchema.SyncType.APPEND,
@@ -238,6 +240,7 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
                     )
                 payload["primary_key_columns"] = new_pk
 
+            # Detect incremental field changes before mutating payload
             incremental_field_changed = False
             incremental_field = data.get("incremental_field")
             if sync_type in (ExternalDataSchema.SyncType.INCREMENTAL, ExternalDataSchema.SyncType.APPEND):
@@ -254,10 +257,12 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
 
             if incremental_field_changed:
                 if instance.table is not None and isinstance(incremental_field, str):
+                    # Get the max_value and set it on incremental_field_last_value
                     max_value = instance.table.get_max_value_for_column(incremental_field)
                     if max_value:
                         instance.update_incremental_field_value(max_value, save=False)
                     else:
+                        # if we can't get the max value, reset the table
                         payload["incremental_field_last_value"] = None
                         trigger_refresh = True
 
@@ -271,6 +276,7 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
                 payload["cdc_table_mode"] = cdc_table_mode
             validated_data["sync_type_config"] = payload
         else:
+            # For CDC schemas where sync_type isn't being changed, still allow cdc_table_mode updates
             if instance.sync_type == ExternalDataSchema.SyncType.CDC and "cdc_table_mode" in data:
                 cdc_table_mode = data.get("cdc_table_mode")
                 if cdc_table_mode in ("consolidated", "cdc_only", "both"):
