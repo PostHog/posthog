@@ -479,12 +479,7 @@ def _is_oom_error(exc: Exception) -> bool:
 
 
 def _is_too_many_parts_error(exc: Exception) -> bool:
-    """Check if an exception is a ClickHouse TOO_MANY_PARTS error.
-
-    This can happen even after the preflight check passes — a single INSERT SELECT
-    can produce hundreds of parts (one per block), exceeding parts_to_throw_insert
-    before merges catch up.
-    """
+    """Check if an exception is a ClickHouse TOO_MANY_PARTS error."""
     error_str = str(exc)
     return f"error code {ErrorCodes.TOO_MANY_PARTS}" in error_str or "TOO_MANY_PARTS" in error_str
 
@@ -499,12 +494,7 @@ def _execute_with_too_many_parts_retry(
     retry_state: dict[str, int],
     retry_description: str,
 ) -> None:
-    """Execute an INSERT, retrying by re-running the preflight wait on TOO_MANY_PARTS.
-
-    Uses a shared retry budget (retry_state['count'] / retry_state['max']) across
-    the whole backfill run so a single misbehaving partition can't loop forever.
-    Raises the original exception when the budget is exhausted (or on any other error).
-    """
+    """Run the INSERT, retrying via the preflight wait on TOO_MANY_PARTS until the shared budget is spent."""
     while True:
         try:
             sync_execute(sql, settings=settings_, sync_client=client)
@@ -653,9 +643,7 @@ def _do_experimental_backfill(
     # and is a standalone node not in the main ClickHouse cluster
     target_table = DISTRIBUTED_RAW_SESSIONS_TABLE_V3()
 
-    # Shared retry budget for TOO_MANY_PARTS across the whole run. Budget = num_chunks
-    # so on average each chunk can trigger one retry; a few bad chunks may burn through
-    # more, but the total is bounded so we fail fast if parts consistently aren't merging.
+    # Budget = num_chunks so a persistently un-merging partition fails fast instead of looping forever.
     parts_retry_state = {"count": 0, "max": num_chunks}
 
     with get_http_client(**kwargs, **config.client_overrides) as client:

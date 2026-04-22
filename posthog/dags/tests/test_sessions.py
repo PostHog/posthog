@@ -227,7 +227,6 @@ class TestExperimentalBackfillResume:
 class TestTooManyPartsRetry:
     @staticmethod
     def _too_many_parts_error() -> Exception:
-        # Match the detection string used in _is_too_many_parts_error.
         return RuntimeError("Code: 252. DB::Exception: error code 252 TOO_MANY_PARTS: Too many parts")
 
     def test_retries_on_too_many_parts_then_succeeds(self):
@@ -260,12 +259,10 @@ class TestTooManyPartsRetry:
         assert mock_wait.call_count == 5
 
     def test_retry_budget_equals_num_chunks(self):
-        """When retries exhaust the budget (= num_chunks), the job fails."""
         num_chunks = 3
         config = ExperimentalSessionsBackfillConfig(distinct_id_chunks=num_chunks, client_overrides={})
         context = _make_context()
 
-        # Always fail with TOO_MANY_PARTS so we blow through the retry budget.
         with (
             _patch_experimental_backfill_deps() as (mock_sync_execute, _mock_redis),
             patch("posthog.dags.sessions.wait_for_parts_to_merge"),
@@ -279,6 +276,5 @@ class TestTooManyPartsRetry:
                     config=config,
                 )
 
-        # First chunk: 1 initial call + num_chunks retries = num_chunks + 1 calls,
-        # then the next retry would exceed the budget and re-raises.
+        # 1 initial + num_chunks retries, then the next retry exceeds the budget and re-raises
         assert mock_sync_execute.call_count == num_chunks + 1
