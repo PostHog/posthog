@@ -7,22 +7,54 @@ Called by facade/api.py — do not call from outside this module.
 
 from uuid import UUID
 
+from django.conf import settings
+
 import structlog
 import posthoganalytics
 
 from posthog.cloud_utils import get_cached_instance_license
 from posthog.event_usage import groups
+from posthog.exceptions_capture import capture_exception
 from posthog.models.organization import Organization
 
 from ee.billing.billing_manager import BillingManager
 
 from .facade.enums import DocumentType
+from .integrations import (
+    pandadoc as pandadoc_client,
+    slack as slack_notifier,
+)
 from .models import LegalDocument
 
 logger = structlog.get_logger(__name__)
 
 # Addon types that entitle an organization to a BAA.
 BAA_ADDON_TYPES = frozenset({"boost", "scale", "enterprise"})
+
+
+def _pandadoc_template_id_for(document_type: str) -> str:
+    """
+    Resolve the PandaDoc template id for a given document type. One template
+    per type, configured via env. Returns an empty string if the matching env
+    var isn't set, which surfaces as a clear PandaDocError at send time.
+    """
+    if document_type == DocumentType.BAA:
+        return settings.PANDADOC_BAA_TEMPLATE_ID
+    if document_type == DocumentType.DPA:
+        return settings.PANDADOC_DPA_TEMPLATE_ID
+    return ""
+
+
+def template_id_matches_document(document: LegalDocument, template_id: str) -> bool:
+    """
+    Used by the inbound webhook to double-check the event belongs to the row we
+    looked up. Defends against misconfigured templates (e.g., somebody pointing
+    the BAA webhook at a DPA row) so we don't mark the wrong document signed.
+    """
+    expected = _pandadoc_template_id_for(document.document_type)
+    # If the env var isn't configured we skip the check rather than block every
+    # webhook — verify_webhook_signature already proves provenance.
+    return not expected or expected == template_id
 
 
 def has_qualifying_baa_addon(organization: Organization) -> bool:
@@ -53,9 +85,11 @@ def get_for_organization(document_id: UUID, organization_id: UUID) -> LegalDocum
         return None
 
 
-def get_by_webhook_secret(secret: str) -> LegalDocument | None:
+def get_by_pandadoc_document_id(pandadoc_document_id: str) -> LegalDocument | None:
+    if not pandadoc_document_id:
+        return None
     try:
-        return LegalDocument.objects.get(webhook_secret=secret)
+        return LegalDocument.objects.get(pandadoc_document_id=pandadoc_document_id)
     except LegalDocument.DoesNotExist:
         return None
 
@@ -66,10 +100,7 @@ def create_document(
     document_type: str,
     company_name: str,
     company_address: str,
-    representative_name: str,
-    representative_title: str,
     representative_email: str,
-    dpa_mode: str,
 ) -> LegalDocument:
     return LegalDocument.objects.create(
         organization_id=organization_id,
@@ -77,10 +108,7 @@ def create_document(
         document_type=document_type,
         company_name=company_name,
         company_address=company_address,
-        representative_name=representative_name,
-        representative_title=representative_title,
         representative_email=representative_email,
-        dpa_mode=dpa_mode,
     )
 
 
@@ -91,41 +119,142 @@ def mark_document_signed(document: LegalDocument, signed_document_url: str) -> L
     return document
 
 
-def fire_legal_document_event(document: LegalDocument, distinct_id: str) -> None:
+def set_pandadoc_document_id(document: LegalDocument, pandadoc_document_id: str) -> LegalDocument:
+    document.pandadoc_document_id = pandadoc_document_id
+    document.save(update_fields=["pandadoc_document_id", "updated_at"])
+    return document
+
+
+def submit_to_pandadoc(document: LegalDocument) -> str | None:
     """
-    We use Zapier to connect with our PandaDoc automation. The webhook secret is included as a
-    property so Zapier can pass it through to PandaDoc, which will echo it back to our public
-    signed-URL webhook for verification — also via Zapier.
+    Create the envelope on PandaDoc and send the signing email. Returns the
+    PandaDoc document id (also persisted on the row), or None if PandaDoc isn't
+    configured / the call failed — the caller decides what to do with the miss.
+
+    We never re-raise to the caller: the document is already persisted, the
+    customer gets an error-free 201 from the API, and ops sees a Slack + log
+    trace when we couldn't reach PandaDoc so they can re-send manually.
     """
-    event_name = "submitted BAA" if document.document_type == DocumentType.BAA else "clicked Request DPA"
+    template_id = _pandadoc_template_id_for(document.document_type)
+    if not template_id:
+        logger.warning(
+            "legal_document_pandadoc_template_not_configured",
+            document_id=str(document.id),
+            document_type=document.document_type,
+        )
+        return None
+
+    client = pandadoc_client.PandaDocClient()
+    try:
+        # Each PandaDoc template has one recipient with role "Client". PandaDoc
+        # fills the Client.Email / Client.Company / Client.StreetAddress fields
+        # in the document body directly from that recipient's contact data.
+        created = client.create_document_from_template(
+            template_id=template_id,
+            name=f"PostHog {document.document_type} — {document.company_name}",
+            recipients=[
+                pandadoc_client.PandaDocSenderPostHog(),
+                pandadoc_client.PandaDocRecipient(
+                    email=document.representative_email,
+                    company=document.company_name,
+                    street_address=document.company_address,
+                ),
+            ],
+            metadata={
+                "legal_document_id": str(document.id),
+                "organization_id": str(document.organization_id),
+                "document_type": document.document_type,
+            },
+        )
+        set_pandadoc_document_id(document, created.id)
+        client.send_document(
+            document_id=created.id,
+            subject=f"Please sign: PostHog {document.document_type}",
+            message=(
+                f"Hi,\n\n"
+                f"Please find attached the {document.document_type} for your review and signature. "
+                f"You can also forward this document to reassign it if needed.\n\n"
+                f"- The PostHog Team"
+            ),
+        )
+        return created.id
+    except pandadoc_client.PandaDocError as exc:
+        logger.exception(
+            "legal_document_pandadoc_submit_failed",
+            document_id=str(document.id),
+            error=str(exc),
+        )
+        capture_exception(exc, additional_properties={"legal_document_id": str(document.id)})
+        return None
+
+
+def notify_slack_on_submit(document: LegalDocument) -> None:
+    try:
+        slack_notifier.notify_submitted(
+            document_type=document.document_type,
+            company_name=document.company_name,
+            representative_email=document.representative_email,
+            pandadoc_document_id=document.pandadoc_document_id or None,
+        )
+    except Exception as exc:
+        # Slack errors are already swallowed inside the notifier, but protect
+        # the submit path from unexpected import/attr errors too.
+        logger.exception("legal_document_slack_submit_notify_failed", error=str(exc))
+        capture_exception(exc, additional_properties={"legal_document_id": str(document.id)})
+
+
+def notify_slack_on_signed(document: LegalDocument) -> None:
+    try:
+        slack_notifier.notify_signed(
+            document_type=document.document_type,
+            company_name=document.company_name,
+            pandadoc_document_id=document.pandadoc_document_id or None,
+        )
+    except Exception as exc:
+        logger.exception("legal_document_slack_signed_notify_failed", error=str(exc))
+        capture_exception(exc, additional_properties={"legal_document_id": str(document.id)})
+
+
+SUBMITTED_EVENT = "legal document submitted"
+SIGNED_EVENT = "legal document signed"
+
+
+def fire_legal_document_submitted_event(document: LegalDocument, distinct_id: str) -> None:
+    """
+    Capture the submission to PostHog for analytics. No longer a critical path —
+    the customer-facing work (PandaDoc + Slack) is driven directly by the
+    submit handler. This event is kept for product analytics on the
+    `/legal/new/:type` funnel.
+    """
+    _capture_lifecycle_event(document, SUBMITTED_EVENT, distinct_id)
+
+
+def fire_legal_document_signed_event(document: LegalDocument, distinct_id: str | None = None) -> None:
+    """Capture the signed milestone to PostHog for the same analytics funnel."""
+    _capture_lifecycle_event(document, SIGNED_EVENT, distinct_id)
+
+
+def _capture_lifecycle_event(document: LegalDocument, event_name: str, distinct_id: str | None) -> None:
     try:
         posthoganalytics.capture(
             event=event_name,
-            distinct_id=distinct_id,
+            distinct_id=distinct_id or f"legal_document:{document.id}",
             properties={
-                "documentType": document.document_type,
-                "companyName": document.company_name,
-                "companyAddress": document.company_address,
-                "yourName": document.representative_name,
-                "yourTitle": document.representative_title,
-                # posthog.com sent BAAs under `email` and DPAs under `representativeEmail`.
-                # Always emit both aliases so existing Zapier field mappings keep working.
-                "email": document.representative_email,
-                "representativeEmail": document.representative_email,
-                "mode": document.dpa_mode,
+                "document_type": document.document_type,
+                "company_name": document.company_name,
+                "company_address": document.company_address,
+                "representative_email": document.representative_email,
                 "organization_id": str(document.organization_id),
                 "organization_name": document.organization.name,
                 "legal_document_id": str(document.id),
-                # Pre-shared secret for the public signed-URL webhook. Lives only in
-                # the backend; Zapier reads it off the event and pipes it to PandaDoc,
-                # which posts it back to /api/legal_documents/signed where we look the
-                # row up by this secret.
-                "legal_document_secret": document.webhook_secret,
+                "pandadoc_document_id": document.pandadoc_document_id or None,
+                "status": document.status,
             },
             groups=groups(document.organization),
         )
-    except Exception as e:
-        # Don't fail the user's create just because analytics failed — the document
-        # is already persisted and the signed URL webhook still works once Zapier is
-        # re-fired manually from the admin.
-        logger.exception("Failed to capture legal document submission event", error=str(e))
+    except Exception as exc:
+        logger.exception("legal_document_event_capture_failed", event=event_name, error=str(exc))
+        capture_exception(
+            exc,
+            additional_properties={"legal_document_id": str(document.id), "event_name": event_name},
+        )
