@@ -126,7 +126,17 @@ export function initKea({
                 if (!errorsSilenced) {
                     console.error({ error, reducerKey, actionKey })
                 }
-                posthog.captureException(error)
+                if (error instanceof Error) {
+                    posthog.captureException(error)
+                } else {
+                    const fallbackMessage =
+                        error?.detail || error?.statusText || error?.message || 'Unknown kea loader error'
+                    posthog.captureException(new Error(fallbackMessage), {
+                        originalError: error,
+                        reducerKey,
+                        actionKey,
+                    })
+                }
             },
         }),
         subscriptionsPlugin,
