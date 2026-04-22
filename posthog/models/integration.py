@@ -188,6 +188,10 @@ class Integration(models.Model):
         return self.sensitive_config.get("refresh_token")
 
 
+def defer_repository_cache_fields(queryset: models.QuerySet[Integration]) -> models.QuerySet[Integration]:
+    return queryset.defer("repository_cache", "repository_cache_updated_at")
+
+
 @database_sync_to_async
 def aget_integration_by_id(integration_id: str, team_id: int) -> Integration | None:
     return Integration.objects.get(id=integration_id, team_id=team_id)
@@ -2022,6 +2026,10 @@ class GitHubUserAuthorization:
     refresh_token_expires_in: int | None
 
 
+class GitHubIntegrationError(Exception):
+    pass
+
+
 class GitHubIntegration:
     integration: Integration
 
@@ -2329,7 +2337,12 @@ class GitHubIntegration:
         def extract_repos(body: dict) -> list[dict]:
             repositories = body.get("repositories")
             if not isinstance(repositories, list):
-                return []
+                logger.warning(
+                    "GitHubIntegration: list_repositories invalid payload",
+                    integration_id=self.integration.id,
+                    payload_keys=sorted(body.keys()),
+                )
+                raise GitHubIntegrationError("GitHubIntegration: list_repositories invalid payload")
             return [
                 {
                     "id": repo["id"],
@@ -2342,6 +2355,15 @@ class GitHubIntegration:
                 and isinstance(repo.get("name"), str)
                 and isinstance(repo.get("full_name"), str)
             ]
+
+        def raise_repository_error(message: str, *, status_code: int | None = None, exc_info: bool = False) -> None:
+            logger.warning(
+                message,
+                integration_id=self.integration.id,
+                status_code=status_code,
+                exc_info=exc_info,
+            )
+            raise GitHubIntegrationError(message)
 
         # Work out which GitHub pages cover the requested window.
         first_page = offset // GITHUB_PER_PAGE + 1
@@ -2356,20 +2378,17 @@ class GitHubIntegration:
             try:
                 response = fetch(current_page)
             except requests.RequestException:
-                logger.warning("GitHubIntegration: list_repositories network error", exc_info=True)
-                return [], False
+                raise_repository_error("GitHubIntegration: list_repositories network error", exc_info=True)
 
             if response.status_code == 401:
                 try:
                     self.refresh_access_token()
                 except Exception:
-                    logger.warning("GitHubIntegration: token refresh after 401 failed", exc_info=True)
-                    return [], False
+                    raise_repository_error("GitHubIntegration: token refresh after 401 failed", exc_info=True)
                 try:
                     response = fetch(current_page)
                 except requests.RequestException:
-                    logger.warning("GitHubIntegration: list_repositories network error on retry", exc_info=True)
-                    return [], False
+                    raise_repository_error("GitHubIntegration: list_repositories network error on retry", exc_info=True)
 
             try:
                 body = response.json()
@@ -2382,9 +2401,10 @@ class GitHubIntegration:
                     continue
                 logger.warning(
                     "GitHubIntegration: list_repositories non-JSON response",
+                    integration_id=self.integration.id,
                     status_code=response.status_code,
                 )
-                return [], False
+                raise GitHubIntegrationError("GitHubIntegration: list_repositories non-JSON response")
 
             if response.status_code == 200 and isinstance(body, dict):
                 page_repos = extract_repos(body)
@@ -2402,12 +2422,13 @@ class GitHubIntegration:
 
             logger.warning(
                 "GitHubIntegration: failed to list repositories",
+                integration_id=self.integration.id,
                 status_code=response.status_code,
                 error=body if isinstance(body, dict) else None,
             )
-            return [], False
+            raise GitHubIntegrationError("GitHubIntegration: failed to list repositories")
         else:
-            return [], False
+            raise GitHubIntegrationError("GitHubIntegration: failed to list repositories after retries")
 
         # Fetch subsequent pages until we have enough items.
         while len(all_fetched) < needed and has_next_page:
@@ -2415,14 +2436,32 @@ class GitHubIntegration:
             try:
                 response = fetch(current_page)
             except requests.RequestException:
-                logger.warning("GitHubIntegration: list_repositories network error on page", page=current_page)
-                break
+                logger.warning(
+                    "GitHubIntegration: list_repositories network error on page",
+                    integration_id=self.integration.id,
+                    page=current_page,
+                    exc_info=True,
+                )
+                raise GitHubIntegrationError("GitHubIntegration: list_repositories network error on page")
             try:
                 body = response.json()
             except Exception:
-                break
+                logger.warning(
+                    "GitHubIntegration: list_repositories non-JSON response on page",
+                    integration_id=self.integration.id,
+                    page=current_page,
+                    status_code=response.status_code,
+                )
+                raise GitHubIntegrationError("GitHubIntegration: list_repositories non-JSON response on page")
             if response.status_code != 200 or not isinstance(body, dict):
-                break
+                logger.warning(
+                    "GitHubIntegration: failed to list repositories on page",
+                    integration_id=self.integration.id,
+                    page=current_page,
+                    status_code=response.status_code,
+                    error=body if isinstance(body, dict) else None,
+                )
+                raise GitHubIntegrationError("GitHubIntegration: failed to list repositories on page")
             page_repos = extract_repos(body)
             all_fetched.extend(page_repos)
             has_next_page = len(page_repos) == GITHUB_PER_PAGE
@@ -2489,9 +2528,13 @@ class GitHubIntegration:
             return cached_repositories
 
         repositories = self.list_all_repositories()
-        self.integration.repository_cache = repositories
-        self.integration.repository_cache_updated_at = timezone.now()
-        self.integration.save(update_fields=["repository_cache", "repository_cache_updated_at"])
+        refreshed_at = timezone.now()
+        update_fields = ["repository_cache_updated_at"]
+        if repositories != cached_repositories:
+            self.integration.repository_cache = repositories
+            update_fields.insert(0, "repository_cache")
+        self.integration.repository_cache_updated_at = refreshed_at
+        self.integration.save(update_fields=update_fields)
         return repositories
 
     def list_cached_repositories(self, *, limit: int = 100, offset: int = 0) -> tuple[list[dict], bool]:
@@ -2603,13 +2646,21 @@ class GitHubIntegration:
 
     def sync_branch_cache(self, repo: str) -> tuple[list[str], str | None]:
         branches = self.list_all_branches(repo)
+        cached = self._get_branch_cache(repo)
+        cached_default_branch = None if cached is None else cast(str | None, cached["default_branch"])
 
         try:
             default_branch = self.get_default_branch(repo)
         except Exception:
-            default_branch = None
+            logger.warning(
+                "GitHubIntegration: failed to refresh default branch",
+                integration_id=self.integration.id,
+                repo=repo,
+                exc_info=True,
+            )
+            default_branch = cached_default_branch if cached_default_branch in branches else None
 
-        if default_branch:
+        if default_branch and default_branch in branches:
             branches = [branch for branch in branches if branch != default_branch]
             branches.insert(0, default_branch)
 
