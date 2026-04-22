@@ -23,7 +23,7 @@ class TestFlagValueViewSet(APIBaseTest):
         self.assertEqual(data["results"], expected_values)
 
     def test_flag_values_multivariate_flag(self):
-        """Test that multivariate flags return true/false plus variant keys."""
+        """Test that multivariate flags return only variant keys, not true/false."""
         flag = FeatureFlag.objects.create(
             name="Multivariate Flag",
             key="multivariate-flag",
@@ -44,8 +44,6 @@ class TestFlagValueViewSet(APIBaseTest):
 
         data = response.json()
         expected_values = [
-            {"name": True},
-            {"name": False},
             {"name": "variant1"},
             {"name": "variant2"},
         ]
@@ -153,8 +151,6 @@ class TestFlagValueViewSet(APIBaseTest):
 
         data = response.json()
         expected_values = [
-            {"name": True},
-            {"name": False},
             {"name": "valid_variant"},
         ]
         self.assertEqual(data["results"], expected_values)

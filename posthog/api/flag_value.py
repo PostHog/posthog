@@ -24,7 +24,7 @@ class FlagValueResponseSerializer(serializers.Serializer):
 class FlagValueViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     """
     API endpoint for getting possible values for feature flags.
-    Returns true/false for boolean flags and variant keys for multivariate flags.
+    Returns true/false for boolean flags and only variant keys for multivariate flags.
     """
 
     permission_classes = [IsAuthenticated]
@@ -64,14 +64,19 @@ class FlagValueViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         except FeatureFlag.DoesNotExist:
             return response.Response({"error": "Feature flag not found"}, status=404)
 
-        # Always include true and false for any flag
-        values = [{"name": True}, {"name": False}]
+        # Check if this is a multivariate flag with variants
+        multivariate_config = flag.filters.get("multivariate")
+        has_variants = multivariate_config and multivariate_config.get("variants")
 
-        # Add variant keys if this is a multivariate flag
-        if flag.filters.get("multivariate") and flag.filters["multivariate"].get("variants"):
-            for variant in flag.filters["multivariate"]["variants"]:
+        if has_variants:
+            # For multivariate flags, only return the variant keys
+            values = []
+            for variant in multivariate_config["variants"]:
                 variant_key = variant.get("key")
                 if variant_key:
                     values.append({"name": variant_key})
+        else:
+            # For boolean flags, return true and false
+            values = [{"name": True}, {"name": False}]
 
         return response.Response({"results": values, "refreshing": False})
