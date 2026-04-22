@@ -4,6 +4,7 @@ import json
 import uuid
 import string
 import secrets
+from datetime import datetime
 from typing import TYPE_CHECKING, Any, Literal, Optional
 
 from django.db.models.signals import post_save
@@ -18,7 +19,7 @@ from django.conf import settings
 from django.contrib.postgres.fields import ArrayField
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, models, transaction
-from django.utils import timezone
+from django.utils import timezone as django_timezone
 
 import structlog
 import posthoganalytics
@@ -51,6 +52,7 @@ class Task(DeletedMetaFields, models.Model):
         ERROR_TRACKING = "error_tracking", "Error Tracking"
         EVAL_CLUSTERS = "eval_clusters", "Eval Clusters"
         USER_CREATED = "user_created", "User Created"
+        AUTOMATION = "automation", "Automation"
         SLACK = "slack", "Slack"
         SUPPORT_QUEUE = "support_queue", "Support Queue"
         SESSION_SUMMARIES = "session_summaries", "Session Summaries"
@@ -81,6 +83,7 @@ class Task(DeletedMetaFields, models.Model):
         max_length=255, null=True, blank=True
     )  # Format is organization/repo, for example posthog/posthog-js
 
+    # DEPRECATED - do not use
     signal_report = models.ForeignKey(
         "signals.SignalReport",
         on_delete=models.SET_NULL,
@@ -102,8 +105,13 @@ class Task(DeletedMetaFields, models.Model):
         help_text="If true, this task is for internal use and should not be exposed to end users.",
     )
 
-    created_at = models.DateTimeField(default=timezone.now)
+    created_at = models.DateTimeField(default=django_timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
+    ci_prompt = models.TextField(
+        blank=True,
+        null=True,
+        help_text="Custom prompt for CI fixes. If blank, a default prompt will be used.",
+    )
 
     class Meta:
         db_table = "posthog_task"
@@ -226,11 +234,11 @@ class Task(DeletedMetaFields, models.Model):
 
     def soft_delete(self):
         self.deleted = True
-        self.deleted_at = timezone.now()
+        self.deleted_at = django_timezone.now()
         self.save()
         self.capture_event(
             "task_deleted",
-            {"duration_seconds": round((timezone.now() - self.created_at).total_seconds(), 1)},
+            {"duration_seconds": round((django_timezone.now() - self.created_at).total_seconds(), 1)},
         )
 
     def delete(self, *args, **kwargs):
@@ -256,15 +264,18 @@ class Task(DeletedMetaFields, models.Model):
         sandbox_environment_id: str | None = None,
         internal: bool = False,
         output_schema: type[BaseModel] | dict | None = None,
+        interaction_origin: str | None = None,
     ) -> "Task":
         from products.tasks.backend.temporal.client import execute_task_processing_workflow
 
         created_by = User.objects.get(id=user_id)
 
+        from products.tasks.backend.services.sandbox import is_public_sandbox_repo
+
         github_integration = None
         if repository:
             github_integration = Integration.objects.filter(team=team, kind="github").first()
-            if not github_integration:
+            if not github_integration and not is_public_sandbox_repo(repository):
                 raise ValueError(f"Team {team.id} does not have a GitHub integration")
 
         sandbox_env = None
@@ -286,19 +297,18 @@ class Task(DeletedMetaFields, models.Model):
             **({"signal_report_id": signal_report_id} if signal_report_id else {}),
         )
 
-        extra_state: dict[str, str] | None = None
-        if slack_thread_url or slack_thread_context:
-            extra_state = {}
-            if slack_thread_url:
-                extra_state["slack_thread_url"] = slack_thread_url
-            if slack_thread_context:
-                extra_state["interaction_origin"] = "slack"
+        extra_state: dict[str, str] = {}
+        if slack_thread_url:
+            extra_state["slack_thread_url"] = slack_thread_url
+        if interaction_origin:
+            extra_state["interaction_origin"] = interaction_origin
+        elif slack_thread_context:
+            extra_state["interaction_origin"] = "slack"
 
         if sandbox_env is not None:
-            extra_state = extra_state or {}
             extra_state["sandbox_environment_id"] = str(sandbox_env.id)
 
-        task_run = task.create_run(mode=mode, extra_state=extra_state, branch=branch)
+        task_run = task.create_run(mode=mode, extra_state=extra_state or None, branch=branch)
 
         if start_workflow:
             execute_task_processing_workflow(
@@ -312,6 +322,115 @@ class Task(DeletedMetaFields, models.Model):
             )
 
         return task
+
+
+class TaskAutomationManager(models.Manager):
+    def get_queryset(self):
+        return (
+            super()
+            .get_queryset()
+            .select_related(
+                "task",
+                "task__team",
+                "task__created_by",
+                "task__github_integration",
+                "last_task_run",
+                "last_task_run__task",
+            )
+        )
+
+
+class TaskAutomationQuerySet(models.QuerySet):
+    def with_task_context(self):
+        return self.select_related(
+            "task",
+            "task__team",
+            "task__created_by",
+            "task__github_integration",
+            "last_task_run",
+            "last_task_run__task",
+        )
+
+
+class TaskAutomation(models.Model):
+    class RunStatus(models.TextChoices):
+        SUCCESS = "success", "Success"
+        FAILED = "failed", "Failed"
+        RUNNING = "running", "Running"
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    cron_expression = models.CharField(max_length=100)
+    timezone = models.CharField(max_length=128, default="UTC")
+    template_id = models.CharField(max_length=255, null=True, blank=True)
+    enabled = models.BooleanField(default=True)
+    task = models.OneToOneField(Task, on_delete=models.CASCADE, related_name="automation")
+    last_task_run = models.ForeignKey("TaskRun", on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
+    last_error = models.TextField(null=True, blank=True)
+    created_at = models.DateTimeField(default=django_timezone.now)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    objects = TaskAutomationManager()
+
+    class Meta:
+        db_table = "posthog_task_automation"
+        ordering = ["task__title", "-created_at"]
+
+    def __str__(self):
+        return self.name
+
+    @property
+    def schedule_id(self) -> str:
+        return f"task-automation-{self.id}"
+
+    @property
+    def team(self) -> Team:
+        return self.task.team
+
+    @property
+    def team_id(self) -> int:
+        return self.task.team_id
+
+    @property
+    def created_by(self) -> User | None:
+        return self.task.created_by
+
+    @property
+    def created_by_id(self) -> int | None:
+        return self.task.created_by_id
+
+    @property
+    def name(self) -> str:
+        return self.task.title
+
+    @property
+    def prompt(self) -> str:
+        return self.task.description
+
+    @property
+    def repository(self) -> str | None:
+        return self.task.repository
+
+    @property
+    def github_integration(self) -> Integration | None:
+        return self.task.github_integration
+
+    @property
+    def github_integration_id(self) -> int | None:
+        return self.task.github_integration_id
+
+    @property
+    def last_run_at(self) -> datetime | None:
+        return self.last_task_run.created_at if self.last_task_run else None
+
+    @property
+    def last_run_status(self) -> str | None:
+        if self.last_task_run is None:
+            return None
+        if self.last_task_run.status == TaskRun.Status.COMPLETED:
+            return self.RunStatus.SUCCESS
+        if self.last_task_run.status in [TaskRun.Status.FAILED, TaskRun.Status.CANCELLED]:
+            return self.RunStatus.FAILED
+        return self.RunStatus.RUNNING
 
 
 class TaskRun(models.Model):
@@ -373,7 +492,7 @@ class TaskRun(models.Model):
         help_text="Run state data for resuming or tracking execution state",
     )
 
-    created_at = models.DateTimeField(default=timezone.now)
+    created_at = models.DateTimeField(default=django_timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
     completed_at = models.DateTimeField(null=True, blank=True)
 
@@ -529,7 +648,7 @@ class TaskRun(models.Model):
     def mark_completed(self):
         """Mark the progress as completed."""
         self.status = self.Status.COMPLETED
-        self.completed_at = timezone.now()
+        self.completed_at = django_timezone.now()
         self.save(update_fields=["status", "completed_at"])
         self.publish_stream_state_event()
         self.capture_event(
@@ -555,7 +674,7 @@ class TaskRun(models.Model):
         """Mark the progress as failed with an error message."""
         self.status = self.Status.FAILED
         self.error_message = error
-        self.completed_at = timezone.now()
+        self.completed_at = django_timezone.now()
         self.save(update_fields=["status", "error_message", "completed_at"])
         self.publish_stream_state_event()
         self.capture_event(
@@ -590,7 +709,7 @@ class TaskRun(models.Model):
         """Emit a console-style log event in ACP notification format."""
         event = {
             "type": "notification",
-            "timestamp": timezone.now().isoformat(),
+            "timestamp": django_timezone.now().isoformat(),
             "notification": {
                 "jsonrpc": "2.0",
                 "method": "_posthog/console",
@@ -608,7 +727,7 @@ class TaskRun(models.Model):
         """Emit sandbox execution output as ACP notification."""
         event = {
             "type": "notification",
-            "timestamp": timezone.now().isoformat(),
+            "timestamp": django_timezone.now().isoformat(),
             "notification": {
                 "jsonrpc": "2.0",
                 "method": "_posthog/sandbox_output",
@@ -866,7 +985,7 @@ class CodeInvite(UUIDModel):
     def is_redeemable(self) -> bool:
         if not self.is_active:
             return False
-        if self.expires_at and self.expires_at <= timezone.now():
+        if self.expires_at and self.expires_at <= django_timezone.now():
             return False
         if self.max_redemptions > 0 and self.redemption_count >= self.max_redemptions:
             return False

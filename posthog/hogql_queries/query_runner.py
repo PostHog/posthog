@@ -1,4 +1,5 @@
 from abc import ABC, abstractmethod
+from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from time import perf_counter
@@ -92,11 +93,18 @@ from posthog.clickhouse.query_tagging import get_query_tag_value, tag_queries
 from posthog.errors import classify_query_error, clickhouse_error_type
 from posthog.event_usage import AnalyticsProps, groups, report_user_or_team_action
 from posthog.exceptions_capture import capture_exception
+from posthog.hogql_queries.insights.utils.entities import has_data_warehouse_node
+from posthog.hogql_queries.insights.utils.properties import has_any_property_filters
 from posthog.hogql_queries.query_cache import count_query_cache_hit
 from posthog.hogql_queries.query_cache_base import QueryCacheManagerBase
 from posthog.hogql_queries.query_cache_factory import get_query_cache_manager
 from posthog.hogql_queries.query_metadata import extract_query_metadata
 from posthog.hogql_queries.utils.event_usage import log_event_usage_from_query_metadata
+from posthog.hogql_queries.validation.validation import (
+    QueryValidationContext,
+    QueryValidationRule,
+    run_validation_rules,
+)
 from posthog.models import Team, User
 from posthog.models.team import WeekStartDay
 from posthog.rbac.user_access_control import UserAccessControlError
@@ -157,7 +165,7 @@ BLOCKING_EXECUTION_MODES: set[ExecutionMode] = {
     ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS,
 }
 
-_REFRESH_TO_EXECUTION_MODE: dict[str | bool, ExecutionMode] = {
+_REFRESH_TO_EXECUTION_MODE: dict[str | bool, ExecutionMode] = {  # ty: ignore[invalid-assignment]
     **ExecutionMode._value2member_map_,  # type: ignore
     True: ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
 }
@@ -293,7 +301,7 @@ def get_query_runner(
             modifiers=modifiers,
         )
     if kind == "RetentionQuery":
-        from .insights.retention_query_runner import RetentionQueryRunner
+        from .insights.retention.retention_query_runner import RetentionQueryRunner
 
         return RetentionQueryRunner(
             query=cast(RetentionQuery | dict[str, Any], query),
@@ -303,7 +311,7 @@ def get_query_runner(
             modifiers=modifiers,
         )
     if kind == "PathsQuery":
-        from .insights.paths_query_runner import PathsQueryRunner
+        from .insights.paths.paths_query_runner import PathsQueryRunner
 
         return PathsQueryRunner(
             query=cast(PathsQuery | dict[str, Any], query),
@@ -324,7 +332,7 @@ def get_query_runner(
             modifiers=modifiers,
         )
     if kind == "StickinessQuery":
-        from .insights.stickiness_query_runner import StickinessQueryRunner
+        from .insights.stickiness.stickiness_query_runner import StickinessQueryRunner
 
         return StickinessQueryRunner(
             query=cast(StickinessQuery | dict[str, Any], query),
@@ -334,7 +342,7 @@ def get_query_runner(
             modifiers=modifiers,
         )
     if kind == "LifecycleQuery":
-        from .insights.lifecycle_query_runner import LifecycleQueryRunner
+        from .insights.lifecycle.lifecycle_query_runner import LifecycleQueryRunner
 
         return LifecycleQueryRunner(
             query=cast(LifecycleQuery | dict[str, Any], query),
@@ -1018,7 +1026,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
 
         if not self.is_query_node(query):
             if isinstance(self.query_type, UnionType):
-                for query_type in get_args(self.query_type):  # type: ignore
+                for query_type in get_args(self.query_type):
                     try:
                         query = query_type.model_validate(query)
                         break
@@ -1040,7 +1048,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         pass
 
     @property
-    def query_type(self) -> type[Q]:
+    def query_type(self) -> Any:
         return self.__annotations__["query"]  # Enforcing the type annotation of `query` at runtime
 
     @property
@@ -1048,10 +1056,8 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         return self.__annotations__["cached_response"]
 
     def is_query_node(self, data) -> TypeGuard[Q]:
-        query_type = self.query_type
-        # Resolve type alias if present
-        if hasattr(query_type, "__value__"):
-            query_type = query_type.__value__
+        query_type: Any = self.query_type
+        query_type = getattr(query_type, "__value__", query_type)
         # Handle both UnionType and typing._UnionGenericAlias
         if isinstance(query_type, UnionType) or (type(query_type).__name__ == "_UnionGenericAlias"):
             return any(isinstance(data, t) for t in get_args(query_type))
@@ -1072,7 +1078,11 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         return self.limit_context
 
     def calculate(self) -> R:
+        self.validate()
         return self._calculate()
+
+    def validate(self) -> None:
+        run_validation_rules(self.validators(), self.validation_context)
 
     @abstractmethod
     def _calculate(self) -> R:
@@ -1464,7 +1474,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             if survey_query_metric_labels:
                 SURVEY_QUERY_EXECUTION_DURATION.labels(**survey_query_metric_labels).observe(query_duration_seconds)
 
-        fresh_response_dict = {
+        fresh_response_dict: dict[str, Any] = {
             **query_result.model_dump(),
             "is_cached": False,
             "last_refresh": last_refresh,
@@ -1493,7 +1503,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             fresh_response_dict["calculation_trigger"] = trigger
 
         # Don't cache debug queries with errors and export queries
-        errors: Optional[list] = fresh_response_dict.get("error", None)
+        errors: Optional[list[Any]] = fresh_response_dict.get("error", None)
         has_error = errors is not None and len(errors) > 0
         if not has_error and self.limit_context != LimitContext.EXPORT:
             cache_manager.set_cache_data(
@@ -1764,6 +1774,14 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         """
         return True
 
+    @property
+    def validation_context(self) -> QueryValidationContext[Q]:
+        return QueryValidationContext(query=self.query, team=self.team, user=self.user, runner=self)
+
+    def validators(self) -> Sequence[QueryValidationRule[Q]]:
+        """Overridden by subclasses to add validation rules."""
+        return ()
+
     def _is_stale(self, last_refresh: Optional[datetime], lazy: bool = False) -> bool:
         # If a custom cache age was provided (e.g., from Endpoint), use our override logic
         target_age = None
@@ -1813,8 +1831,15 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
 
         # The default logic below applies to all insights and a lot of other queries
         # Notable exception: `HogQLQuery`, which has `properties` and `dateRange` within `HogQLFilters`
-        if dashboard_filter.properties:
-            if self.query.properties and _has_any_property_filters(self.query.properties):
+        should_ignore_dashboard_properties = (
+            dashboard_filter.properties
+            and hasattr(self.query, "series")
+            and isinstance(self.query.series, list)
+            and has_data_warehouse_node(self.query.series)
+        )
+
+        if dashboard_filter.properties and not should_ignore_dashboard_properties:
+            if self.query.properties and has_any_property_filters(self.query.properties):
                 # Check if query expects only a list (e.g. WebOverviewQuery) vs union with PropertyGroupFilter
                 properties_field = self.query.__class__.model_fields.get("properties")
                 expects_only_list = properties_field and get_origin(properties_field.annotation) is list
@@ -1842,11 +1867,13 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         if dashboard_filter.date_from or dashboard_filter.date_to:
             if self.query.dateRange is None:
                 self.query.dateRange = DateRange()
-            self.query.dateRange.date_from = dashboard_filter.date_from
-            self.query.dateRange.date_to = dashboard_filter.date_to
+            date_range = self.query.dateRange
+            assert date_range is not None
+            date_range.date_from = dashboard_filter.date_from
+            date_range.date_to = dashboard_filter.date_to
 
             if dashboard_filter.explicitDate is not None:
-                self.query.dateRange.explicitDate = dashboard_filter.explicitDate
+                date_range.explicitDate = dashboard_filter.explicitDate
 
         if dashboard_filter.breakdown_filter:
             if hasattr(self.query, "breakdownFilter"):
@@ -1858,32 +1885,6 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                     )
                 )
         self.__post_init__()
-
-
-def _has_any_property_filters(
-    properties: object,
-) -> bool:
-    """Check if properties contain any actual filter values, not just empty group structure."""
-    if isinstance(properties, PropertyGroupFilter):
-        return any(_has_any_property_filters_in_group(v) for v in properties.values)
-    if isinstance(properties, list):
-        return len(properties) > 0
-    return bool(properties)
-
-
-def _has_any_property_filters_in_group(
-    group: PropertyGroupFilterValue,
-) -> bool:
-    if not group.values:
-        return False
-    for v in group.values:
-        if isinstance(v, PropertyGroupFilterValue):
-            if _has_any_property_filters_in_group(v):
-                return True
-        else:
-            # It's an actual property filter
-            return True
-    return False
 
 
 # Type constraint for analytics query responses
@@ -1902,7 +1903,7 @@ class AnalyticsQueryRunner(QueryRunner, Generic[AR]):
     """
 
     def calculate(self) -> AR:
-        response = self._calculate()
+        response = super().calculate()
         if not self.modifiers.timings:
             response.timings = None
         return response

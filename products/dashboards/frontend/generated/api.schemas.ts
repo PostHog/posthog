@@ -442,17 +442,82 @@ export interface CopyDashboardTileRequestApi {
     tileId: number
 }
 
-export interface DashboardGeneratedMetadataApi {
-    name: string
-    description: string
-}
-
 export interface ReorderTilesRequestApi {
     /**
      * Array of tile IDs in the desired display order (top to bottom, left to right).
      * @minItems 1
      */
     tile_order: number[]
+}
+
+/**
+ * InsightSerializer restricted to identifiers + result only.
+ */
+export interface InsightResultApi {
+    readonly id: number
+    readonly short_id: string
+    /** @nullable */
+    readonly name: string | null
+    /** @nullable */
+    readonly derived_name: string | null
+    readonly result: unknown
+}
+
+/**
+ * DashboardTileSerializer restricted to tile id + insight result fields.
+ */
+export interface DashboardTileResultApi {
+    id?: number
+    insight: InsightResultApi
+}
+
+export interface RunInsightsResponseApi {
+    /** Results for each insight tile on the dashboard. */
+    results: DashboardTileResultApi[]
+}
+
+/**
+ * * `add` - add
+ * `remove` - remove
+ * `set` - set
+ */
+export type ActionEnumApi = (typeof ActionEnumApi)[keyof typeof ActionEnumApi]
+
+export const ActionEnumApi = {
+    Add: 'add',
+    Remove: 'remove',
+    Set: 'set',
+} as const
+
+export interface BulkUpdateTagsRequestApi {
+    /**
+     * List of object IDs to update tags on.
+     * @maxItems 500
+     */
+    ids: number[]
+    /** 'add' merges with existing tags, 'remove' deletes specific tags, 'set' replaces all tags.
+
+* `add` - add
+* `remove` - remove
+* `set` - set */
+    action: ActionEnumApi
+    /** Tag names to add, remove, or set. */
+    tags: string[]
+}
+
+export interface BulkUpdateTagsItemApi {
+    id: number
+    tags: string[]
+}
+
+export interface BulkUpdateTagsErrorApi {
+    id: number
+    reason: string
+}
+
+export interface BulkUpdateTagsResponseApi {
+    updated: BulkUpdateTagsItemApi[]
+    skipped: BulkUpdateTagsErrorApi[]
 }
 
 export interface DataColorThemeApi {
@@ -616,18 +681,6 @@ export const DashboardsCopyTileCreateFormat = {
     Txt: 'txt',
 } as const
 
-export type DashboardsGenerateMetadataCreateParams = {
-    format?: DashboardsGenerateMetadataCreateFormat
-}
-
-export type DashboardsGenerateMetadataCreateFormat =
-    (typeof DashboardsGenerateMetadataCreateFormat)[keyof typeof DashboardsGenerateMetadataCreateFormat]
-
-export const DashboardsGenerateMetadataCreateFormat = {
-    Json: 'json',
-    Txt: 'txt',
-} as const
-
 export type DashboardsMoveTilePartialUpdateParams = {
     format?: DashboardsMoveTilePartialUpdateFormat
 }
@@ -652,6 +705,43 @@ export const DashboardsReorderTilesCreateFormat = {
     Txt: 'txt',
 } as const
 
+export type DashboardsRunInsightsRetrieveParams = {
+    format?: DashboardsRunInsightsRetrieveFormat
+    /**
+     * 'optimized' (default) returns LLM-friendly formatted text per insight. 'json' returns the raw query result objects.
+     */
+    output_format?: DashboardsRunInsightsRetrieveOutputFormat
+    /**
+     * Cache behavior. 'force_cache' (default) serves from cache even if stale. 'blocking' uses cache if fresh, otherwise recalculates. 'force_blocking' always recalculates.
+     */
+    refresh?: DashboardsRunInsightsRetrieveRefresh
+}
+
+export type DashboardsRunInsightsRetrieveFormat =
+    (typeof DashboardsRunInsightsRetrieveFormat)[keyof typeof DashboardsRunInsightsRetrieveFormat]
+
+export const DashboardsRunInsightsRetrieveFormat = {
+    Json: 'json',
+    Txt: 'txt',
+} as const
+
+export type DashboardsRunInsightsRetrieveOutputFormat =
+    (typeof DashboardsRunInsightsRetrieveOutputFormat)[keyof typeof DashboardsRunInsightsRetrieveOutputFormat]
+
+export const DashboardsRunInsightsRetrieveOutputFormat = {
+    Json: 'json',
+    Optimized: 'optimized',
+} as const
+
+export type DashboardsRunInsightsRetrieveRefresh =
+    (typeof DashboardsRunInsightsRetrieveRefresh)[keyof typeof DashboardsRunInsightsRetrieveRefresh]
+
+export const DashboardsRunInsightsRetrieveRefresh = {
+    Blocking: 'blocking',
+    ForceBlocking: 'force_blocking',
+    ForceCache: 'force_cache',
+} as const
+
 export type DashboardsSnapshotCreateParams = {
     format?: DashboardsSnapshotCreateFormat
 }
@@ -672,6 +762,18 @@ export type DashboardsStreamTilesRetrieveFormat =
     (typeof DashboardsStreamTilesRetrieveFormat)[keyof typeof DashboardsStreamTilesRetrieveFormat]
 
 export const DashboardsStreamTilesRetrieveFormat = {
+    Json: 'json',
+    Txt: 'txt',
+} as const
+
+export type DashboardsBulkUpdateTagsCreateParams = {
+    format?: DashboardsBulkUpdateTagsCreateFormat
+}
+
+export type DashboardsBulkUpdateTagsCreateFormat =
+    (typeof DashboardsBulkUpdateTagsCreateFormat)[keyof typeof DashboardsBulkUpdateTagsCreateFormat]
+
+export const DashboardsBulkUpdateTagsCreateFormat = {
     Json: 'json',
     Txt: 'txt',
 } as const

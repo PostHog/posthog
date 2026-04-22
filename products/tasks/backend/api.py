@@ -36,7 +36,13 @@ from posthog.storage import object_storage
 
 from ee.hogai.utils.aio import async_to_sync
 
-from .models import CodeInvite, CodeInviteRedemption, SandboxEnvironment, Task, TaskRun
+from .automation_service import (
+    delete_automation_schedule,
+    run_task_automation,
+    sync_automation_schedule,
+    update_automation_run_result,
+)
+from .models import CodeInvite, CodeInviteRedemption, SandboxEnvironment, Task, TaskAutomation, TaskRun
 from .repository_readiness import compute_repository_readiness
 from .serializers import (
     CodeInviteRedeemRequestSerializer,
@@ -46,6 +52,7 @@ from .serializers import (
     RepositoryReadinessResponseSerializer,
     SandboxEnvironmentListSerializer,
     SandboxEnvironmentSerializer,
+    TaskAutomationSerializer,
     TaskListQuerySerializer,
     TaskRunAppendLogRequestSerializer,
     TaskRunArtifactPresignRequestSerializer,
@@ -54,6 +61,7 @@ from .serializers import (
     TaskRunArtifactsUploadResponseSerializer,
     TaskRunCommandRequestSerializer,
     TaskRunCommandResponseSerializer,
+    TaskRunCreateRequestSchemaSerializer,
     TaskRunCreateRequestSerializer,
     TaskRunDetailSerializer,
     TaskRunRelayMessageRequestSerializer,
@@ -66,7 +74,13 @@ from .serializers import (
 from .services.connection_token import create_sandbox_connection_token
 from .stream.redis_stream import TaskRunRedisStream, TaskRunStreamError, get_task_run_stream_key
 from .temporal.client import execute_posthog_code_agent_relay_workflow, execute_task_processing_workflow
-from .temporal.process_task.utils import PrAuthorshipMode, cache_github_user_token, parse_run_state
+from .temporal.process_task.utils import (
+    PrAuthorshipMode,
+    cache_github_user_token,
+    get_provider_for_runtime_adapter,
+    get_reasoning_effort_error,
+    parse_run_state,
+)
 
 logger = logging.getLogger(__name__)
 TASK_RUN_STREAM_KEEPALIVE_INTERVAL_SECONDS = 20.0
@@ -197,13 +211,13 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             else:
                 qs = qs.filter(internal=False)
 
-        # Prefetch runs to avoid N+1 queries when fetching latest_run
-        qs = qs.prefetch_related("runs")
+        # select_related to avoid N+1 on created_by (UserBasicSerializer) and team (slug property)
+        qs = qs.select_related("created_by", "team").prefetch_related("runs")
 
         return qs
 
     def get_serializer_context(self):
-        return {**super().get_serializer_context(), "team": self.team}
+        return {**super().get_serializer_context(), "team": self.team, "team_id": self.team.id}
 
     def perform_create(self, serializer):
         logger.info(f"Creating task with data: {serializer.validated_data}")
@@ -237,6 +251,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         return Response(TaskSerializer(task).data)
 
+    @extend_schema(request=TaskRunCreateRequestSchemaSerializer)
     @validated_request(
         request_serializer=TaskRunCreateRequestSerializer,
         responses={
@@ -257,11 +272,27 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         pr_authorship_mode = request.validated_data.get("pr_authorship_mode")
         run_source = request.validated_data.get("run_source")
         signal_report_id = request.validated_data.get("signal_report_id")
+        runtime_adapter = request.validated_data.get("runtime_adapter")
+        model = request.validated_data.get("model")
+        reasoning_effort = request.validated_data.get("reasoning_effort")
         github_user_token = request.validated_data.get("github_user_token")
+        initial_permission_mode = request.validated_data.get("initial_permission_mode")
+
+        runtime_state_fields = {
+            "pr_authorship_mode": pr_authorship_mode,
+            "run_source": run_source,
+            "signal_report_id": signal_report_id,
+            "runtime_adapter": runtime_adapter,
+            "model": model,
+            "reasoning_effort": reasoning_effort,
+        }
 
         extra_state = None
         if pending_user_message is not None:
             extra_state = {"pending_user_message": pending_user_message}
+        if initial_permission_mode is not None:
+            extra_state = extra_state or {}
+            extra_state["initial_permission_mode"] = initial_permission_mode
 
         if resume_from_run_id:
             # prevent cross-task resume
@@ -279,24 +310,50 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             if prev_state.sandbox_environment_id and sandbox_environment_id is None:
                 sandbox_environment_id = prev_state.sandbox_environment_id
 
-            if pr_authorship_mode is None:
-                pr_authorship_mode = prev_state.pr_authorship_mode
-            if run_source is None:
-                run_source = prev_state.run_source
-            if signal_report_id is None:
-                signal_report_id = prev_state.signal_report_id
+            for field_name in runtime_state_fields:
+                if runtime_state_fields[field_name] is None:
+                    runtime_state_fields[field_name] = getattr(prev_state, field_name)
+
+            pr_authorship_mode = runtime_state_fields["pr_authorship_mode"]
+            run_source = runtime_state_fields["run_source"]
+            signal_report_id = runtime_state_fields["signal_report_id"]
+            runtime_adapter = runtime_state_fields["runtime_adapter"]
+            model = runtime_state_fields["model"]
+            reasoning_effort = runtime_state_fields["reasoning_effort"]
             if branch is None and prev_state.pr_base_branch is not None:
                 branch = prev_state.pr_base_branch
+
+        provider = get_provider_for_runtime_adapter(runtime_adapter)
 
         for key, value in {
             "pr_base_branch": branch,
             "pr_authorship_mode": pr_authorship_mode,
             "run_source": run_source,
             "signal_report_id": signal_report_id,
+            "runtime_adapter": runtime_adapter,
+            "provider": provider,
+            "model": model,
+            "reasoning_effort": reasoning_effort,
         }.items():
             if value is not None:
                 extra_state = extra_state or {}
-                extra_state[key] = value
+                extra_state[key] = value.value if hasattr(value, "value") else value
+
+        reasoning_effort_error = get_reasoning_effort_error(
+            runtime_adapter=runtime_adapter,
+            model=model,
+            reasoning_effort=reasoning_effort,
+        )
+        if reasoning_effort_error is not None:
+            return Response(
+                {
+                    "type": "validation_error",
+                    "code": "invalid_input",
+                    "detail": reasoning_effort_error,
+                    "attr": "reasoning_effort",
+                },
+                status=400,
+            )
 
         # Only require a user token when the task has a repo (no-repo cloud runs skip GitHub operations)
         if pr_authorship_mode == PrAuthorshipMode.USER and task.repository and not github_user_token:
@@ -334,6 +391,42 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         task.refresh_from_db()
 
         return Response(TaskSerializer(task, context=self.get_serializer_context()).data)
+
+
+@extend_schema(tags=["task-automations"])
+class TaskAutomationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
+    serializer_class = TaskAutomationSerializer
+    authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
+    permission_classes = [IsAuthenticated, APIScopePermission, TasksAccessPermission]
+    scope_object = "task"
+    queryset = TaskAutomation.objects.all()
+    filter_rewrite_rules = {"team_id": "task__team_id"}
+
+    def safely_get_queryset(self, queryset):
+        return queryset.filter(task__team=self.team).order_by("task__title", "-created_at")
+
+    def get_serializer_context(self):
+        return {**super().get_serializer_context(), "team": self.team, "team_id": self.team.id}
+
+    def perform_create(self, serializer):
+        automation = serializer.save()
+        sync_automation_schedule(automation)
+
+    def perform_update(self, serializer):
+        automation = serializer.save()
+        sync_automation_schedule(automation)
+
+    def perform_destroy(self, instance):
+        automation = cast(TaskAutomation, instance)
+        delete_automation_schedule(automation)
+        automation.delete()
+
+    @action(detail=True, methods=["post"], url_path="run", required_scopes=["task:write"])
+    def run(self, request, pk=None, **kwargs):
+        automation = cast(TaskAutomation, self.get_object())
+        run_task_automation(str(automation.id))
+        automation.refresh_from_db()
+        return Response(TaskAutomationSerializer(automation, context=self.get_serializer_context()).data)
 
 
 @extend_schema(tags=["task-runs"])
@@ -449,6 +542,8 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             task_run.save()
             task_run.publish_stream_state_event()
 
+        update_automation_run_result(task_run)
+
         # Signal Temporal and post Slack updates after commit to avoid
         # holding the row lock during external calls.
         if new_status in terminal_statuses and old_status != new_status:
@@ -534,7 +629,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         return queryset.filter(team=self.team, task_id=task_id)
 
     def get_serializer_context(self):
-        return {**super().get_serializer_context(), "team": self.team}
+        return {**super().get_serializer_context(), "team": self.team, "team_id": self.team.id}
 
     def perform_create(self, serializer):
         task_id = self.kwargs.get("parent_lookup_task_id")
@@ -860,7 +955,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         },
         summary="Send command to agent server",
         description="Forward a JSON-RPC command to the agent server running in the sandbox. "
-        "Supports user_message, cancel, and close commands.",
+        "Supports user_message, cancel, close, permission_response, and set_config_option commands.",
         strict_request_validation=True,
     )
     @action(

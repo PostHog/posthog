@@ -1,7 +1,7 @@
 import { z } from 'zod'
 
 import { getUserAgent } from '@/lib/constants'
-import { ErrorCode } from '@/lib/errors'
+import { ErrorCode, PostHogPermissionError } from '@/lib/errors'
 import { getSearchParamsFromRecord } from '@/lib/utils.js'
 import type {
     ApiEventDefinition,
@@ -123,7 +123,7 @@ export class ApiClient {
         method: 'GET' | 'POST' | 'PATCH' | 'PUT' | 'DELETE'
         path: string
         body?: Record<string, unknown>
-        query?: Record<string, string | number | boolean | (string | number)[] | null | undefined>
+        query?: Record<string, unknown>
         headers?: Record<string, string>
         responseType?: 'json' | 'text'
     }): Promise<T> {
@@ -136,7 +136,12 @@ export class ApiClient {
                 if (Array.isArray(v) && v.length === 0) {
                     continue
                 }
-                searchParams.append(k, Array.isArray(v) ? v.join(',') : String(v))
+                // JSON-stringify objects and arrays so backends that use json.loads() on query params work correctly
+                if (typeof v === 'object') {
+                    searchParams.append(k, JSON.stringify(v))
+                } else {
+                    searchParams.append(k, String(v))
+                }
             }
         }
         const qs = searchParams.toString()
@@ -162,7 +167,9 @@ export class ApiClient {
         const result = await this.fetchJson<T>(url, fetchOptions)
 
         if (!result.success) {
-            throw new Error(result.error.message)
+            // Re-throw the original error instance so callers can instanceof-check
+            // typed errors (e.g. PostHogPermissionError) that fetchJson throws.
+            throw result.error
         }
         return result.data as T
     }
@@ -217,6 +224,20 @@ export class ApiClient {
                         errorData = JSON.parse(errorText)
                     } catch {
                         errorData = { detail: errorText }
+                    }
+
+                    if (response.status === 403 && errorData?.code === 'permission_denied') {
+                        const scopeMatch = /required scope ['"]([^'"]+)['"]/.exec(errorData.detail || '')
+                        const missingScope = scopeMatch?.[1]
+                        console.error(
+                            `[API] Permission denied on ${method} ${url}: ${errorData.detail || 'unknown'}${missingScope ? ` (missing scope: ${missingScope})` : ''}`
+                        )
+                        throw new PostHogPermissionError({
+                            detail: errorData.detail || 'permission denied',
+                            missingScope,
+                            url,
+                            method,
+                        })
                     }
 
                     if (errorData.type === 'validation_error') {
@@ -840,12 +861,104 @@ export class ApiClient {
     }
 
     query({ projectId }: { projectId: string }): Endpoint {
+        const queryUrl = `${this.baseUrl}/api/environments/${projectId}/query/`
+
+        // Bridge assistant-facing schema shape to the query API shape.
+        // The LLM emits `filterGroup` as a flat array; the API expects a nested PropertyGroupFilter.
+        const normalizeQuery = (query: Record<string, unknown>): Record<string, unknown> => {
+            const normalized = { ...query }
+            if (Array.isArray(normalized.filterGroup)) {
+                if (normalized.filterGroup.length > 0) {
+                    normalized.filterGroup = {
+                        type: 'AND',
+                        values: [{ type: 'AND', values: normalized.filterGroup }],
+                    }
+                } else {
+                    delete normalized.filterGroup
+                }
+            }
+            return normalized
+        }
+
         return {
             execute: async ({ queryBody }: { queryBody: any }): Promise<Result<{ results: any[] }>> => {
-                return this.fetchJson<{ results: unknown[] }>(`${this.baseUrl}/api/environments/${projectId}/query/`, {
+                return this.fetchJson<{ results: unknown[] }>(queryUrl, {
                     method: 'POST',
                     body: JSON.stringify({ query: queryBody }),
                 })
+            },
+
+            runQuery: async ({
+                query,
+            }: {
+                query: Record<string, unknown>
+            }): Promise<{ results: unknown; formatted_results?: string }> => {
+                return this.request<{ results: unknown; formatted_results?: string }>({
+                    method: 'POST',
+                    path: `/api/environments/${projectId}/query/`,
+                    body: { query: normalizeQuery(query) },
+                })
+            },
+
+            trendsActors: async ({
+                query,
+            }: {
+                query: Record<string, unknown>
+            }): Promise<{
+                query: Record<string, unknown>
+                results: { columns: readonly string[]; results: (string | number | null)[][] }
+                hasMore: boolean
+                offset: number
+            }> => {
+                const normalized = normalizeQuery(query)
+                const includeRecordings = Boolean(normalized.includeRecordings)
+                const wrappedQuery = {
+                    kind: 'ActorsQuery',
+                    source: normalized,
+                    select: includeRecordings
+                        ? ['actor', 'event_count', 'matched_recordings']
+                        : ['actor', 'event_count'],
+                    orderBy: ['event_count DESC', 'actor_id DESC'],
+                    limit: 100,
+                }
+
+                const response = await this.request<{
+                    results: any[][]
+                    hasMore?: boolean
+                    offset?: number
+                }>({
+                    method: 'POST',
+                    path: `/api/environments/${projectId}/query/`,
+                    body: { query: wrappedQuery },
+                })
+
+                const baseUrl = this.getProjectBaseUrl(projectId)
+                const results = (response.results ?? []).map((row) => {
+                    const [actor, count] = row
+                    const properties = actor.properties ?? {}
+                    const distinctId = actor.distinct_ids?.[0] ?? null
+                    const base = [distinctId, properties.email, properties.name, count]
+                    if (includeRecordings) {
+                        const recordingLinks = (row[2] ?? [])
+                            .map((r: any) => r.session_id)
+                            .filter(Boolean)
+                            .map((sessionId: string) => `${baseUrl}/replay/home?sessionRecordingId=${sessionId}`)
+                        return [...base, recordingLinks]
+                    }
+                    return base
+                })
+
+                return {
+                    query: wrappedQuery,
+                    results: {
+                        columns: includeRecordings
+                            ? ['distinct_id', 'email', 'name', 'event_count', 'recordings']
+                            : ['distinct_id', 'email', 'name', 'event_count'],
+                        results,
+                    },
+                    hasMore: response.hasMore ?? false,
+                    offset: response.offset ?? 0,
+                }
             },
         }
     }

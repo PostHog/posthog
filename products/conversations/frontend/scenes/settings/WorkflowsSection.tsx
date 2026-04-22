@@ -3,6 +3,7 @@ import { LemonCard, Link } from '@posthog/lemon-ui'
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
 
 import { SecretApiKeySection } from './SecretApiKeySection'
+
 export function WorkflowsSection(): JSX.Element {
     return (
         <SceneSection

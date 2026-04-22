@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 import ast
+import warnings
 from pathlib import Path
 
 # Common suffixes/prefixes that contract dataclasses may use instead of mirroring the model name exactly.
@@ -12,7 +13,9 @@ _CONTRACT_STRIP_RE = re.compile(r"(Contract|Data|DTO|Out|In|Response|Request)$")
 
 def ast_parse_safe(file_path: Path) -> ast.Module | None:
     try:
-        return ast.parse(file_path.read_text())
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", SyntaxWarning)
+            return ast.parse(file_path.read_text())
     except (SyntaxError, OSError):
         return None
 
@@ -89,6 +92,14 @@ def get_frozen_dataclass_names(file_path: Path) -> list[str]:
             ):
                 names.append(node.name)
     return names
+
+
+def has_any_function_defs(file_path: Path) -> bool:
+    """Return True if file contains any top-level function definitions (public or private)."""
+    tree = ast_parse_safe(file_path)
+    if not tree:
+        return False
+    return any(isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) for node in ast.iter_child_nodes(tree))
 
 
 def get_public_function_names(file_path: Path) -> list[str]:

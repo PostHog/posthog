@@ -23,7 +23,7 @@ from posthog.hogql.database.s3_table import (
     DataWarehouseTable as HogQLDataWarehouseTable,
     build_function_call,
 )
-from posthog.hogql.escape_sql import escape_clickhouse_identifier
+from posthog.hogql.escape_sql import escape_clickhouse_identifier, escape_param_clickhouse
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
@@ -34,6 +34,11 @@ from posthog.settings import TEST
 from posthog.sync import database_sync_to_async
 from posthog.temporal.data_imports.pipelines.pipeline.consts import PARTITION_KEY
 
+from products.data_warehouse.backend.direct_postgres import (
+    DIRECT_POSTGRES_CATALOG_OPTION,
+    DIRECT_POSTGRES_SCHEMA_OPTION,
+    DIRECT_POSTGRES_TABLE_OPTION,
+)
 from products.data_warehouse.backend.models.external_data_schema import ExternalDataSchema
 from products.data_warehouse.backend.models.util import (
     CLICKHOUSE_HOGQL_MAPPING,
@@ -219,7 +224,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             if TEST:
                 raise Exception()
 
-            quoted_placeholders = {k: f"'{v}'" for k, v in placeholder_context.values.items()}
+            quoted_placeholders = {k: escape_param_clickhouse(v) for k, v in placeholder_context.values.items()}
             # chdb doesn't support parameterized queries
             chdb_query = f"DESCRIBE TABLE {s3_table_func}" % quoted_placeholders
 
@@ -334,7 +339,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             if TEST:
                 raise Exception()
 
-            quoted_placeholders = {k: f"'{v}'" for k, v in placeholder_context.values.items()}
+            quoted_placeholders = {k: escape_param_clickhouse(v) for k, v in placeholder_context.values.items()}
             # chdb doesn't support parameterized queries
             chdb_query = f"SELECT count() FROM {s3_table_func}" % quoted_placeholders
 
@@ -463,12 +468,27 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             fields[column] = self._get_hogql_field_for_column(column, type, clickhouse_type, is_nullable)
 
         if self.external_data_source and self.external_data_source.is_direct_postgres:
-            postgres_schema = (self.external_data_source.job_inputs or {}).get("schema", "public")
+            postgres_catalog = (
+                self.options.get(DIRECT_POSTGRES_CATALOG_OPTION)
+                if isinstance(self.options.get(DIRECT_POSTGRES_CATALOG_OPTION), str)
+                else None
+            )
+            postgres_schema = (
+                self.options.get(DIRECT_POSTGRES_SCHEMA_OPTION)
+                if isinstance(self.options.get(DIRECT_POSTGRES_SCHEMA_OPTION), str)
+                else (self.external_data_source.job_inputs or {}).get("schema", "public")
+            )
+            postgres_table_name = (
+                self.options.get(DIRECT_POSTGRES_TABLE_OPTION)
+                if isinstance(self.options.get(DIRECT_POSTGRES_TABLE_OPTION), str)
+                else self.name
+            )
             return DirectPostgresTable(
                 name=self.name,
                 fields=fields,
+                postgres_catalog=postgres_catalog,
                 postgres_schema=postgres_schema,
-                postgres_table_name=self.name,
+                postgres_table_name=postgres_table_name,
                 external_data_source_id=str(self.external_data_source_id),
                 connection_metadata=self.external_data_source.connection_metadata,
             )

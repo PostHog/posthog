@@ -731,6 +731,41 @@ logs_alerts: PostgresTable = PostgresTable(
     },
 )
 
+support_tickets: PostgresTable = PostgresTable(
+    name="support_tickets",
+    postgres_table_name="posthog_conversations_ticket",
+    access_scope="ticket",
+    fields={
+        "id": StringDatabaseField(name="id"),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "ticket_number": IntegerDatabaseField(name="ticket_number"),
+        "channel_source": StringDatabaseField(name="channel_source"),
+        "channel_detail": StringDatabaseField(name="channel_detail", nullable=True),
+        "distinct_id": StringDatabaseField(name="distinct_id"),
+        "status": StringDatabaseField(name="status"),
+        "priority": StringDatabaseField(name="priority", nullable=True),
+        "anonymous_traits": StringJSONDatabaseField(name="anonymous_traits"),
+        "_ai_resolved": BooleanDatabaseField(name="ai_resolved", hidden=True),
+        "ai_resolved": ExpressionField(
+            name="ai_resolved",
+            expr=ast.Call(name="toInt", args=[ast.Field(chain=["_ai_resolved"])]),
+        ),
+        "escalation_reason": StringDatabaseField(name="escalation_reason", nullable=True),
+        "message_count": IntegerDatabaseField(name="message_count"),
+        "unread_customer_count": IntegerDatabaseField(name="unread_customer_count"),
+        "unread_team_count": IntegerDatabaseField(name="unread_team_count"),
+        "last_message_at": DateTimeDatabaseField(name="last_message_at", nullable=True),
+        "last_message_text": StringDatabaseField(name="last_message_text", nullable=True),
+        "email_subject": StringDatabaseField(name="email_subject", nullable=True),
+        "email_from": StringDatabaseField(name="email_from", nullable=True),
+        "session_id": StringDatabaseField(name="session_id", nullable=True),
+        "session_context": StringJSONDatabaseField(name="session_context"),
+        "sla_due_at": DateTimeDatabaseField(name="sla_due_at", nullable=True),
+        "created_at": DateTimeDatabaseField(name="created_at"),
+        "updated_at": DateTimeDatabaseField(name="updated_at"),
+    },
+)
+
 early_access_features: PostgresTable = PostgresTable(
     name="early_access_features",
     postgres_table_name="posthog_earlyaccessfeature",
@@ -792,6 +827,7 @@ class SystemTables(TableNode):
         "session_recordings": TableNode(name="session_recordings", table=session_recordings),
         "source_schemas": TableNode(name="source_schemas", table=source_schemas),
         "source_sync_jobs": TableNode(name="source_sync_jobs", table=source_sync_jobs),
+        "support_tickets": TableNode(name="support_tickets", table=support_tickets),
         "surveys": TableNode(name="surveys", table=surveys),
         "teams": TableNode(name="teams", table=teams),
     }
