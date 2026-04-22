@@ -28,7 +28,7 @@ export const EndpointSceneHeader = ({ tabId }: EndpointSceneHeaderProps): JSX.El
     } = useValues(endpointSceneLogic({ tabId }))
     const { endpointName, endpointDescription } = useValues(endpointLogic({ tabId }))
     const { setEndpointDescription, updateEndpoint } = useActions(endpointLogic({ tabId }))
-    const { setLocalQuery, setCacheAge, setSyncFrequency, setIsMaterialized, resetBucketOverrides } = useActions(
+    const { discardQueryChanges, setCacheAge, setSyncFrequency, setIsMaterialized, resetBucketOverrides } = useActions(
         endpointSceneLogic({ tabId })
     )
 
@@ -96,7 +96,7 @@ export const EndpointSceneHeader = ({ tabId }: EndpointSceneHeaderProps): JSX.El
         setCacheAge(sourceCacheAge ?? null)
         setSyncFrequency(sourceSyncFrequency ?? null)
         setIsMaterialized(null)
-        setLocalQuery(null)
+        discardQueryChanges()
         resetBucketOverrides(viewingVersion?.bucket_overrides ?? endpoint.bucket_overrides ?? {})
     }
 

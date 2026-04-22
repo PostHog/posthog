@@ -1,5 +1,5 @@
 import equal from 'fast-deep-equal'
-import { actions, connect, events, kea, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, connect, events, getContext, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 
@@ -13,7 +13,14 @@ import { SQLEditorMode } from 'scenes/data-warehouse/editor/sqlEditorModes'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { DataTableNode, EndpointRunRequest, InsightVizNode, Node, NodeKind } from '~/queries/schema/schema-general'
+import {
+    DataTableNode,
+    EndpointRunRequest,
+    HogQLQuery,
+    InsightVizNode,
+    Node,
+    NodeKind,
+} from '~/queries/schema/schema-general'
 import { isHogQLQuery, isInsightQueryNode } from '~/queries/utils'
 import { Breadcrumb, ChartDisplayType, DataModelingSyncInterval, EndpointType, EndpointVersionType } from '~/types'
 
@@ -146,6 +153,7 @@ export const endpointSceneLogic = kea<endpointSceneLogicType>([
         setDebugMode: (debugMode: boolean) => ({ debugMode }),
         loadMaterializationPreview: true,
         keepSqlEditorMounted: (editorTabId: string) => ({ editorTabId }),
+        discardQueryChanges: true,
     }),
     reducers({
         localQuery: [
@@ -337,44 +345,87 @@ export const endpointSceneLogic = kea<endpointSceneLogicType>([
             if (cache.sqlEditorTabId === editorTabId) {
                 return
             }
+            cache.unsubscribeEditor?.()
+            cache.unsubscribeEditor = null
             cache.unmountSqlEditor?.()
             cache.sqlEditorTabId = editorTabId
-            cache.unmountSqlEditor = sqlEditorLogic({ tabId: editorTabId, mode: SQLEditorMode.Embedded }).mount()
-        },
-        setLocalQuery: ({ query }) => {
-            // Discarding changes sets localQuery to null. For HogQL endpoints the visible SQL is
-            // driven by sqlEditorLogic's queryInput, which isn't reset automatically — sync it back
-            // to the stored query so "Discard changes" actually reverts the editor.
-            if (query !== null || !cache.sqlEditorTabId) {
-                return
-            }
+            const editor = sqlEditorLogic({ tabId: editorTabId, mode: SQLEditorMode.Embedded })
+            cache.unmountSqlEditor = editor.mount()
+
+            // Initialize a freshly-mounted editor with the stored HogQL query and auto-run it.
             const storedQuery = values.viewingVersion?.query ?? values.endpoint?.query
-            if (!storedQuery || !isHogQLQuery(storedQuery)) {
-                return
+            if (storedQuery && isHogQLQuery(storedQuery) && editor.values.queryInput === null) {
+                editor.actions.setQueryInput(storedQuery.query)
+                editor.actions.setSourceQuery({
+                    kind: NodeKind.DataVisualizationNode,
+                    source: {
+                        kind: NodeKind.HogQLQuery,
+                        query: storedQuery.query,
+                        variables: storedQuery.variables,
+                    },
+                    display: ChartDisplayType.ActionsLineGraph,
+                })
+                editor.actions.runQuery(storedQuery.query)
             }
-            const editorLogic = sqlEditorLogic({ tabId: cache.sqlEditorTabId, mode: SQLEditorMode.Embedded })
-            const editorSource = editorLogic.values.sourceQuery?.source
-            const editorVariables = isHogQLQuery(editorSource) ? editorSource.variables : undefined
-            // Guard against re-entrance: once the editor matches the stored query, the sync useEffect
-            // in EndpointQuery will fire setLocalQuery(null) again — bail out if already in sync.
-            if (
-                editorLogic.values.queryInput === storedQuery.query &&
-                equal(editorVariables || {}, storedQuery.variables || {})
-            ) {
-                return
-            }
-            editorLogic.actions.setQueryInput(storedQuery.query)
-            editorLogic.actions.setSourceQuery({
-                kind: NodeKind.DataVisualizationNode,
-                source: {
+
+            // Bridge sqlEditorLogic -> endpointSceneLogic: whenever the editor's queryInput or
+            // sourceQuery change, recompute localQuery (the "has unsaved query changes" state).
+            cache.lastQueryInput = editor.values.queryInput
+            cache.lastSourceQuery = editor.values.sourceQuery
+            const { store } = getContext()
+            cache.unsubscribeEditor = store.subscribe(() => {
+                const queryInput = editor.values.queryInput
+                const sourceQuery = editor.values.sourceQuery
+                if (queryInput === cache.lastQueryInput && sourceQuery === cache.lastSourceQuery) {
+                    return
+                }
+                cache.lastQueryInput = queryInput
+                cache.lastSourceQuery = sourceQuery
+
+                const baseQuery = values.viewingVersion?.query ?? values.endpoint?.query
+                if (!baseQuery || !isHogQLQuery(baseQuery) || queryInput === null) {
+                    return
+                }
+                const sourceVariables = isHogQLQuery(sourceQuery?.source) ? sourceQuery.source.variables : undefined
+                const hasQueryChanges = queryInput !== baseQuery.query
+                const hasVariableChanges = !equal(sourceVariables || {}, baseQuery.variables || {})
+                if (!hasQueryChanges && !hasVariableChanges) {
+                    if (values.localQuery !== null) {
+                        actions.setLocalQuery(null)
+                    }
+                    return
+                }
+                actions.setLocalQuery({
                     kind: NodeKind.HogQLQuery,
-                    query: storedQuery.query,
-                    variables: storedQuery.variables,
-                },
-                display: ChartDisplayType.ActionsLineGraph,
+                    query: queryInput,
+                    variables: sourceVariables,
+                } as HogQLQuery)
             })
         },
+        discardQueryChanges: () => {
+            const storedQuery = values.viewingVersion?.query ?? values.endpoint?.query
+            if (storedQuery && isHogQLQuery(storedQuery) && cache.sqlEditorTabId) {
+                // Reset the SQL editor; the store.subscribe above will emit setLocalQuery(null).
+                const editor = sqlEditorLogic({ tabId: cache.sqlEditorTabId, mode: SQLEditorMode.Embedded })
+                const currentDisplay = editor.values.sourceQuery.display ?? ChartDisplayType.ActionsLineGraph
+                editor.actions.setQueryInput(storedQuery.query)
+                editor.actions.setSourceQuery({
+                    kind: NodeKind.DataVisualizationNode,
+                    source: {
+                        kind: NodeKind.HogQLQuery,
+                        query: storedQuery.query,
+                        variables: storedQuery.variables,
+                    },
+                    display: currentDisplay,
+                })
+                return
+            }
+            // Non-HogQL (Insights) or editor not mounted: clear localQuery directly.
+            actions.setLocalQuery(null)
+        },
         loadEndpoint: () => {
+            cache.unsubscribeEditor?.()
+            cache.unsubscribeEditor = null
             cache.unmountSqlEditor?.()
             cache.unmountSqlEditor = null
             cache.sqlEditorTabId = null
@@ -548,6 +599,8 @@ export const endpointSceneLogic = kea<endpointSceneLogicType>([
     })),
     events(({ cache }) => ({
         beforeUnmount: () => {
+            cache.unsubscribeEditor?.()
+            cache.unsubscribeEditor = null
             cache.unmountSqlEditor?.()
             cache.unmountSqlEditor = null
             cache.sqlEditorTabId = null

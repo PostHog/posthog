@@ -1,16 +1,13 @@
-import equal from 'fast-deep-equal'
 import { useActions, useValues } from 'kea'
 import { MouseEvent as ReactMouseEvent, ReactNode, useEffect, useMemo, useRef, useState } from 'react'
 
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { SQLEditor } from 'scenes/data-warehouse/editor/SQLEditor'
-import { sqlEditorLogic } from 'scenes/data-warehouse/editor/sqlEditorLogic'
 import { SQLEditorMode } from 'scenes/data-warehouse/editor/sqlEditorModes'
 
 import { Query } from '~/queries/Query/Query'
-import { HogQLQuery, Node, NodeKind } from '~/queries/schema/schema-general'
+import { Node } from '~/queries/schema/schema-general'
 import { isHogQLQuery } from '~/queries/utils'
-import { ChartDisplayType } from '~/types'
 
 import { endpointLogic } from '../endpointLogic'
 import { endpointSceneLogic } from '../endpointSceneLogic'
@@ -44,8 +41,7 @@ export function EndpointQuery({ tabId }: EndpointQueryProps): JSX.Element {
 
     // If it's a HogQL query, show the embedded SQL editor with results
     if (effectiveQuery && isHogQLQuery(effectiveQuery)) {
-        const hogqlQuery = effectiveQuery as HogQLQuery
-        return <EndpointHogQLQuery tabId={tabId} version={viewingVersion?.version} query={hogqlQuery} />
+        return <EndpointHogQLQuery tabId={tabId} version={viewingVersion?.version} />
     }
 
     // For other query types (Insights), show the Query component with editing enabled
@@ -64,63 +60,15 @@ export function EndpointQuery({ tabId }: EndpointQueryProps): JSX.Element {
     )
 }
 
-function EndpointHogQLQuery({
-    tabId,
-    version,
-    query,
-}: {
-    tabId: string
-    version?: number
-    query: HogQLQuery
-}): JSX.Element {
+function EndpointHogQLQuery({ tabId, version }: { tabId: string; version?: number }): JSX.Element {
     const sqlEditorTabId = useMemo(() => `endpoint-query-${tabId}-${version ?? 'latest'}`, [tabId, version])
-    const { setLocalQuery, keepSqlEditorMounted } = useActions(endpointSceneLogic({ tabId }))
-    const { queryInput, sourceQuery } = useValues(
-        sqlEditorLogic({ tabId: sqlEditorTabId, mode: SQLEditorMode.Embedded })
-    )
-    const { setQueryInput, setSourceQuery, runQuery } = useActions(
-        sqlEditorLogic({ tabId: sqlEditorTabId, mode: SQLEditorMode.Embedded })
-    )
+    const { keepSqlEditorMounted } = useActions(endpointSceneLogic({ tabId }))
 
     useEffect(() => {
-        // Keep the sqlEditorLogic mounted even when this component unmounts (tab switches)
+        // Hand off the editor lifecycle to endpointSceneLogic: it mounts/unmounts sqlEditorLogic,
+        // seeds it with the stored query on first mount, and bridges its state into localQuery.
         keepSqlEditorMounted(sqlEditorTabId)
     }, [sqlEditorTabId]) // eslint-disable-line react-hooks/exhaustive-deps
-
-    useEffect(() => {
-        // queryInput is null when the logic is freshly mounted — initialize and run.
-        // On remount (tab switch back), the logic is still alive so queryInput is already set.
-        if (queryInput === null) {
-            setQueryInput(query.query)
-            setSourceQuery({
-                kind: NodeKind.DataVisualizationNode,
-                source: {
-                    kind: NodeKind.HogQLQuery,
-                    query: query.query,
-                    variables: query.variables,
-                },
-                display: ChartDisplayType.ActionsLineGraph,
-            })
-            runQuery(query.query)
-        }
-    }, [query.query, query.variables, queryInput]) // eslint-disable-line react-hooks/exhaustive-deps
-
-    useEffect(() => {
-        const sourceVariables = isHogQLQuery(sourceQuery.source) ? sourceQuery.source.variables : undefined
-        const hasQueryChanges = queryInput !== query.query
-        const hasVariableChanges = !equal(sourceVariables || {}, query.variables || {})
-
-        if (!hasQueryChanges && !hasVariableChanges) {
-            setLocalQuery(null)
-            return
-        }
-
-        setLocalQuery({
-            kind: NodeKind.HogQLQuery,
-            query: queryInput,
-            variables: sourceVariables,
-        } as HogQLQuery)
-    }, [query.query, query.variables, queryInput, sourceQuery.source]) // eslint-disable-line react-hooks/exhaustive-deps
 
     return (
         <div className="flex min-w-0 gap-4">
