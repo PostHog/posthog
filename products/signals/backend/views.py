@@ -26,7 +26,6 @@ from django.db.models.functions import Cast, Coalesce
 import structlog
 from asgiref.sync import async_to_sync
 from django_filters.rest_framework import DjangoFilterBackend
-from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import extend_schema, extend_schema_view
 from rest_framework import exceptions, mixins, serializers, status, viewsets
 from rest_framework.authentication import SessionAuthentication
@@ -803,7 +802,7 @@ class SignalUserAutonomyConfigView(APIView):
         )
         return Response(SignalUserAutonomyConfigSerializer(config).data)
 
-    @extend_schema(responses={204: OpenApiTypes.NONE})
+    @extend_schema(responses={204: None})
     def delete(self, request, user_id, **kwargs):
         user = self._resolve_user(request, user_id)
         SignalUserAutonomyConfig.objects.filter(user=user).delete()

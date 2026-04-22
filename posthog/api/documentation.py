@@ -800,32 +800,6 @@ def _fix_pydantic_schema_for_openapi(schema):
     return schema
 
 
-_SCHEMA_DISCOVERY_NOISE = (
-    "encountered multiple names for the same choice set",
-    "non-optimally resolvable collision",
-)
-
-
-def clear_schema_discovery_warnings(result, generator, **kwargs):
-    """Remove cosmetic warnings emitted during schema discovery that cannot be
-    addressed via configuration alone:
-
-    - Enum naming: ``ENUM_NAME_OVERRIDES`` resolves the final naming, but the
-      discovery phase warns about candidates before overrides are applied.
-    - Path parameter typing: queryset-less ViewSets can't auto-derive the ``id``
-      type; method-level ``@extend_schema(parameters=...)`` provides it, but the
-      class-level warning still fires.
-
-    Clearing these from ``GENERATOR_STATS`` lets ``--fail-on-warn`` pass while
-    still catching real problems (missing serializers, operationId collisions,
-    component name issues)."""
-    from drf_spectacular.drainage import GENERATOR_STATS
-
-    for msg in [m for m in GENERATOR_STATS._warn_cache if any(p in m for p in _SCHEMA_DISCOVERY_NOISE)]:
-        del GENERATOR_STATS._warn_cache[msg]
-    return result
-
-
 def custom_postprocessing_hook(result, generator, request, public):
     all_tags = []
     paths: dict[str, dict] = {}
