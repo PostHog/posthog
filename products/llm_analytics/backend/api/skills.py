@@ -47,6 +47,7 @@ from .skill_serializers import (
 from .skill_services import (
     LLMSkillDuplicateNameConflictError,
     LLMSkillEditError,
+    LLMSkillFileLimitError,
     LLMSkillFileNotFoundError,
     LLMSkillFilePathConflictError,
     LLMSkillNotFoundError,
@@ -153,6 +154,38 @@ class LLMSkillViewSet(
             {"detail": f"Skill with name '{skill_name}' not found."},
             status=status.HTTP_404_NOT_FOUND,
         )
+
+    def _handle_skill_write_error(self, err: Exception, skill_name: str) -> Response | None:
+        """Render the error responses shared by create_file / delete_file / rename_file.
+
+        Returns None if the error is not one of the shared ones — callers re-raise.
+        """
+        if isinstance(err, LLMSkillNotFoundError):
+            return self._skill_not_found_response(skill_name)
+        if isinstance(err, LLMSkillVersionConflictError):
+            return Response(
+                {
+                    "detail": "The skill changed since you opened it. Reload the latest version and try again.",
+                    "current_version": err.current_version,
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
+        if isinstance(err, LLMSkillVersionLimitError):
+            return Response(
+                {
+                    "detail": (
+                        f"Skill has reached the maximum of {err.max_version} versions. "
+                        "Archive and recreate the skill to continue publishing."
+                    ),
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if isinstance(err, LLMSkillFileLimitError):
+            return Response(
+                {"detail": f"Skill has reached the maximum of {err.max_count} files."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        return None
 
     def _serialize_skill(self, skill: LLMSkill) -> dict[str, Any]:
         return cast(dict[str, Any], LLMSkillSerializer(skill, context=self.get_serializer_context()).data)
@@ -481,26 +514,16 @@ class LLMSkillViewSet(
                 content_type=payload.validated_data.get("content_type", "text/plain"),
                 base_version=payload.validated_data.get("base_version"),
             )
-        except LLMSkillNotFoundError:
-            return self._skill_not_found_response(skill_name)
-        except LLMSkillVersionConflictError as err:
-            return Response(
-                {
-                    "detail": "The skill changed since you opened it. Reload the latest version and try again.",
-                    "current_version": err.current_version,
-                },
-                status=status.HTTP_409_CONFLICT,
-            )
-        except LLMSkillVersionLimitError as err:
-            return Response(
-                {
-                    "detail": (
-                        f"Skill has reached the maximum of {err.max_version} versions. "
-                        "Archive and recreate the skill to continue publishing."
-                    ),
-                },
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+        except (
+            LLMSkillNotFoundError,
+            LLMSkillVersionConflictError,
+            LLMSkillVersionLimitError,
+            LLMSkillFileLimitError,
+        ) as err:
+            response = self._handle_skill_write_error(err, skill_name)
+            if response is None:
+                raise
+            return response
         except LLMSkillFilePathConflictError as err:
             return Response(
                 {"detail": f"File '{err.path}' already exists in skill '{skill_name}'."},
@@ -546,26 +569,16 @@ class LLMSkillViewSet(
                 path=file_path,
                 base_version=query.validated_data.get("base_version"),
             )
-        except LLMSkillNotFoundError:
-            return self._skill_not_found_response(skill_name)
-        except LLMSkillVersionConflictError as err:
-            return Response(
-                {
-                    "detail": "The skill changed since you opened it. Reload the latest version and try again.",
-                    "current_version": err.current_version,
-                },
-                status=status.HTTP_409_CONFLICT,
-            )
-        except LLMSkillVersionLimitError as err:
-            return Response(
-                {
-                    "detail": (
-                        f"Skill has reached the maximum of {err.max_version} versions. "
-                        "Archive and recreate the skill to continue publishing."
-                    ),
-                },
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+        except (
+            LLMSkillNotFoundError,
+            LLMSkillVersionConflictError,
+            LLMSkillVersionLimitError,
+            LLMSkillFileLimitError,
+        ) as err:
+            response = self._handle_skill_write_error(err, skill_name)
+            if response is None:
+                raise
+            return response
         except LLMSkillFileNotFoundError as err:
             return Response(
                 {"detail": f"File '{err.path}' not found in skill '{skill_name}'."},
@@ -612,26 +625,16 @@ class LLMSkillViewSet(
                 new_path=payload.validated_data["new_path"],
                 base_version=payload.validated_data.get("base_version"),
             )
-        except LLMSkillNotFoundError:
-            return self._skill_not_found_response(skill_name)
-        except LLMSkillVersionConflictError as err:
-            return Response(
-                {
-                    "detail": "The skill changed since you opened it. Reload the latest version and try again.",
-                    "current_version": err.current_version,
-                },
-                status=status.HTTP_409_CONFLICT,
-            )
-        except LLMSkillVersionLimitError as err:
-            return Response(
-                {
-                    "detail": (
-                        f"Skill has reached the maximum of {err.max_version} versions. "
-                        "Archive and recreate the skill to continue publishing."
-                    ),
-                },
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+        except (
+            LLMSkillNotFoundError,
+            LLMSkillVersionConflictError,
+            LLMSkillVersionLimitError,
+            LLMSkillFileLimitError,
+        ) as err:
+            response = self._handle_skill_write_error(err, skill_name)
+            if response is None:
+                raise
+            return response
         except LLMSkillFileNotFoundError as err:
             return Response(
                 {"detail": f"File '{err.path}' not found in skill '{skill_name}'."},

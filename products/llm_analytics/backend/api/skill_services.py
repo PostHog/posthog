@@ -10,6 +10,7 @@ from ..models.skills import LLMSkill, LLMSkillFile, annotate_llm_skill_version_h
 
 MAX_SKILL_VERSION = 2000
 MAX_SKILL_BODY_BYTES = 1_000_000
+MAX_SKILL_FILE_COUNT = 50
 
 
 class LLMSkillNotFoundError(Exception):
@@ -24,6 +25,11 @@ class LLMSkillVersionConflictError(Exception):
 @dataclass
 class LLMSkillVersionLimitError(Exception):
     max_version: int
+
+
+@dataclass
+class LLMSkillFileLimitError(Exception):
+    max_count: int
 
 
 @dataclass
@@ -342,6 +348,8 @@ def create_skill_file(
         existing_files = list(LLMSkillFile.objects.filter(skill=current_latest))
         if any(f.path == path for f in existing_files):
             raise LLMSkillFilePathConflictError(path=path)
+        if len(existing_files) >= MAX_SKILL_FILE_COUNT:
+            raise LLMSkillFileLimitError(max_count=MAX_SKILL_FILE_COUNT)
 
         next_files = [*existing_files, LLMSkillFile(path=path, content=content, content_type=content_type)]
         next_skill = _create_next_version_with_files(team, user, current_latest, next_files)
@@ -388,6 +396,8 @@ def rename_skill_file(
             raise LLMSkillFileNotFoundError(path=old_path)
         if any(f.path == new_path for f in existing_files):
             raise LLMSkillFilePathConflictError(path=new_path)
+        if len(existing_files) > MAX_SKILL_FILE_COUNT:
+            raise LLMSkillFileLimitError(max_count=MAX_SKILL_FILE_COUNT)
 
         next_files = [
             LLMSkillFile(

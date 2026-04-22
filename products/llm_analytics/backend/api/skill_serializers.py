@@ -66,6 +66,16 @@ def validate_skill_body_size(body: str) -> str:
     return body
 
 
+def _validate_skill_file_path(value: str) -> str:
+    normalized = value.replace("\\", "/")
+    parts = normalized.split("/")
+    if any(part == ".." for part in parts):
+        raise serializers.ValidationError("File paths must not contain '..' traversal segments.")
+    if normalized.startswith("/"):
+        raise serializers.ValidationError("File paths must be relative, not absolute.")
+    return value
+
+
 class LLMSkillFetchQuerySerializer(serializers.Serializer):
     version = serializers.IntegerField(
         min_value=1,
@@ -144,13 +154,7 @@ class LLMSkillFileInputSerializer(serializers.Serializer):
     )
 
     def validate_path(self, value: str) -> str:
-        normalized = value.replace("\\", "/")
-        parts = normalized.split("/")
-        if any(part == ".." for part in parts):
-            raise serializers.ValidationError("File paths must not contain '..' traversal segments.")
-        if normalized.startswith("/"):
-            raise serializers.ValidationError("File paths must be relative, not absolute.")
-        return value
+        return _validate_skill_file_path(value)
 
     def validate_content(self, value: str) -> str:
         if len(value.encode("utf-8")) > MAX_SKILL_FILE_BYTES:
@@ -452,16 +456,6 @@ class LLMSkillFileCreateSerializer(LLMSkillFileInputSerializer):
             "when another write has landed in the meantime."
         ),
     )
-
-
-def _validate_skill_file_path(value: str) -> str:
-    normalized = value.replace("\\", "/")
-    parts = normalized.split("/")
-    if any(part == ".." for part in parts):
-        raise serializers.ValidationError("File paths must not contain '..' traversal segments.")
-    if normalized.startswith("/"):
-        raise serializers.ValidationError("File paths must be relative, not absolute.")
-    return value
 
 
 class LLMSkillFileRenameSerializer(serializers.Serializer):

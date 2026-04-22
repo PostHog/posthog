@@ -608,17 +608,22 @@ class TestLLMSkillAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
-    def test_create_file_respects_base_version(self, mock_feature_enabled):
-        self.create_skill(name="crud-create-bv", body="# V1")
+    def test_create_file_enforces_max_file_count(self, mock_feature_enabled):
+        from ..skill_services import MAX_SKILL_FILE_COUNT
+
+        skill = self.create_skill(name="crud-max")
+        LLMSkillFile.objects.bulk_create(
+            [LLMSkillFile(skill=skill, path=f"f{i}.md", content="x") for i in range(MAX_SKILL_FILE_COUNT)]
+        )
 
         response = self.client.post(
-            self._url("name/crud-create-bv/files"),
-            data={"path": "a.md", "content": "A", "base_version": 99},
+            self._url("name/crud-max/files"),
+            data={"path": "overflow.md", "content": "x"},
             format="json",
         )
 
-        assert response.status_code == status.HTTP_409_CONFLICT
-        assert response.json()["current_version"] == 1
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert str(MAX_SKILL_FILE_COUNT) in response.json()["detail"]
 
     def test_create_file_on_unknown_skill_returns_404(self, mock_feature_enabled):
         response = self.client.post(
@@ -648,17 +653,6 @@ class TestLLMSkillAPI(APIBaseTest):
         response = self.client.delete(self._url("name/crud-delete-missing/files/nope.md"))
 
         assert response.status_code == status.HTTP_404_NOT_FOUND
-
-    def test_delete_file_respects_base_version(self, mock_feature_enabled):
-        skill = self.create_skill(name="crud-delete-bv")
-        LLMSkillFile.objects.create(skill=skill, path="target.md", content="T")
-
-        response = self.client.delete(self._url("name/crud-delete-bv/files/target.md") + "?base_version=99")
-
-        assert response.status_code == status.HTTP_409_CONFLICT
-        assert response.json()["current_version"] == 1
-        # File still present on the (unchanged) latest version
-        assert LLMSkillFile.objects.filter(skill__name="crud-delete-bv", path="target.md").exists()
 
     def test_delete_file_rejects_path_traversal(self, mock_feature_enabled):
         self.create_skill(name="crud-delete-traversal")
@@ -724,19 +718,36 @@ class TestLLMSkillAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
-    def test_rename_file_respects_base_version(self, mock_feature_enabled):
-        skill = self.create_skill(name="crud-rename-bv")
-        LLMSkillFile.objects.create(skill=skill, path="a.md", content="A")
+    @parameterized.expand(
+        [
+            ("create",),
+            ("delete",),
+            ("rename",),
+        ]
+    )
+    def test_file_write_respects_base_version(self, mock_feature_enabled, endpoint):
+        skill_name = f"crud-{endpoint}-bv"
+        skill = self.create_skill(name=skill_name, body="# V1")
+        LLMSkillFile.objects.create(skill=skill, path="target.md", content="T")
 
-        response = self.client.post(
-            self._url("name/crud-rename-bv/files-rename"),
-            data={"old_path": "a.md", "new_path": "b.md", "base_version": 99},
-            format="json",
-        )
+        if endpoint == "create":
+            response = self.client.post(
+                self._url(f"name/{skill_name}/files"),
+                data={"path": "new.md", "content": "N", "base_version": 99},
+                format="json",
+            )
+        elif endpoint == "delete":
+            response = self.client.delete(self._url(f"name/{skill_name}/files/target.md") + "?base_version=99")
+        else:
+            response = self.client.post(
+                self._url(f"name/{skill_name}/files-rename"),
+                data={"old_path": "target.md", "new_path": "renamed.md", "base_version": 99},
+                format="json",
+            )
 
         assert response.status_code == status.HTTP_409_CONFLICT
         assert response.json()["current_version"] == 1
-        assert LLMSkillFile.objects.filter(skill__name="crud-rename-bv", path="a.md").exists()
+        assert LLMSkillFile.objects.filter(skill__name=skill_name, path="target.md").exists()
 
     def test_file_crud_sequence_is_chainable_with_base_version(self, mock_feature_enabled):
         """Agents should be able to chain create/rename/delete via base_version."""
