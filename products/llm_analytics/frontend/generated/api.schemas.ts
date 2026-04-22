@@ -1744,9 +1744,18 @@ export interface LLMSkillApi {
  */
 export type PatchedLLMSkillPublishApiMetadata = { [key: string]: unknown }
 
+export interface LLMSkillEditOperationApi {
+    /** Text to find in the current skill body. Must match exactly once. */
+    old: string
+    /** Replacement text. */
+    new: string
+}
+
 export interface PatchedLLMSkillPublishApi {
-    /** Full skill body (SKILL.md instruction content) to publish as a new version. */
+    /** Full skill body (SKILL.md instruction content) to publish as a new version. Mutually exclusive with edits. */
     body?: string
+    /** List of find/replace operations to apply to the current skill body. Each edit's 'old' text must match exactly once. Edits are applied sequentially. Mutually exclusive with body. */
+    edits?: LLMSkillEditOperationApi[]
     /**
      * Updated description for the new version.
      * @maxLength 4096
