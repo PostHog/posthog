@@ -32,6 +32,49 @@ describe('CyclotronJobQueue', () => {
         expect(queue).toBeDefined()
     })
 
+    describe('v2 client validation', () => {
+        it.each([
+            {
+                description: 'producer mapping routes to postgres-v2 but v2 URL is not set',
+                v2URL: undefined as string | undefined,
+                producerMapping: '*:kafka,hogflow:postgres-v2',
+                producerTeamMapping: '',
+                expectThrow: /CDP_CYCLOTRON_JOB_QUEUE_PRODUCER_MAPPING routes to postgres-v2/,
+            },
+            {
+                description: 'producer team mapping routes to postgres-v2 but v2 URL is not set',
+                v2URL: undefined as string | undefined,
+                producerMapping: '*:kafka',
+                producerTeamMapping: '1:*:kafka,1:hogflow:postgres-v2',
+                expectThrow: /CDP_CYCLOTRON_JOB_QUEUE_PRODUCER_TEAM_MAPPING routes to postgres-v2/,
+            },
+            {
+                description: 'producer mapping routes to postgres-v2 and v2 URL is set',
+                v2URL: 'postgres://localhost:5432',
+                producerMapping: '*:kafka,hogflow:postgres-v2',
+                producerTeamMapping: '',
+                expectThrow: null,
+            },
+            {
+                description: 'producer mapping does not route to postgres-v2 and v2 URL is not set',
+                v2URL: undefined as string | undefined,
+                producerMapping: '*:kafka,hogflow:kafka',
+                producerTeamMapping: '',
+                expectThrow: null,
+            },
+        ])('$description', ({ v2URL, producerMapping, producerTeamMapping, expectThrow }) => {
+            config.CYCLOTRON_NODE_DATABASE_URL = v2URL
+            config.CDP_CYCLOTRON_JOB_QUEUE_PRODUCER_MAPPING = producerMapping
+            config.CDP_CYCLOTRON_JOB_QUEUE_PRODUCER_TEAM_MAPPING = producerTeamMapping
+            const create = () => new CyclotronJobQueue(config.CONSUMER_BATCH_SIZE, config.KAFKA_CLIENT_RACK, config)
+            if (expectThrow) {
+                expect(create).toThrow(expectThrow)
+            } else {
+                expect(create).not.toThrow()
+            }
+        })
+    })
+
     describe('producer setup', () => {
         const buildQueue = (mapping: string, teamMapping?: string) => {
             config.CDP_CYCLOTRON_JOB_QUEUE_PRODUCER_MAPPING = mapping

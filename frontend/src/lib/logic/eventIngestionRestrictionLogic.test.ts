@@ -110,4 +110,20 @@ describe('eventIngestionRestrictionLogic', () => {
                 hasProjectNoticeRestriction: false,
             })
     })
+
+    it('coerces null api response to empty array', async () => {
+        // api.get resolves to null when the response body isn't valid JSON
+        // (e.g. 204 No Content, CDN/proxy HTML error pages) — guard against it
+        jest.spyOn(api, 'get').mockResolvedValue(null)
+
+        logic.mount()
+        logic.values.eventIngestionRestrictions
+
+        await expectLogic(logic)
+            .toDispatchActions(['loadEventIngestionRestrictions', 'loadEventIngestionRestrictionsSuccess'])
+            .toMatchValues({
+                eventIngestionRestrictions: [],
+                hasProjectNoticeRestriction: false,
+            })
+    })
 })

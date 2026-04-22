@@ -5,9 +5,9 @@ ORM queries, validation, calculations, business rules.
 Called by api/api.py facade. Do not call from outside this module.
 """
 
+from datetime import datetime
 from uuid import UUID
 
-from django.conf import settings
 from django.db import (
     models as db_models,
     transaction,
@@ -17,18 +17,14 @@ from django.utils import timezone
 
 import structlog
 
-from .facade.enums import ReviewDecision, ReviewState, RunPurpose, RunStatus, SnapshotResult
-from .models import Artifact, Repo, Run, RunSnapshot
+from .classifier import SnapshotClassifier
+from .db import WRITER_DB
+from .facade.enums import ReviewDecision, ReviewState, RunPurpose, RunStatus, SnapshotResult, ToleratedReason
+from .models import Artifact, QuarantinedIdentifier, Repo, Run, RunSnapshot, ToleratedHash
 from .signing import sign_snapshot_hash, verify_signed_hash
 from .storage import ArtifactStorage
 
 logger = structlog.get_logger(__name__)
-
-# Derive the writer alias from the app label — must match db_routing.yaml.
-# Falls back to "default" when the product database isn't configured.
-_APP_LABEL = "visual_review"
-_WRITER_ALIAS = f"{_APP_LABEL}_db_writer"
-WRITER_DB = _WRITER_ALIAS if _WRITER_ALIAS in settings.DATABASES else "default"
 
 
 class RepoNotFoundError(Exception):
@@ -223,7 +219,7 @@ REVIEW_STATE_FILTERS: dict[str, Q] = {
     & _ON_PR
     & Q(purpose=RunPurpose.REVIEW),
     "clean": (Q(status=RunStatus.COMPLETED) & ~_HAS_CHANGES) | Q(approved=True),
-    "processing": Q(status__in=[RunStatus.PENDING, RunStatus.PROCESSING]) & _CURRENT,
+    "processing": Q(status=RunStatus.PROCESSING) & _CURRENT,
     "stale": Q(superseded_by__isnull=False) & Q(approved=False) & _HAS_CHANGES,
 }
 
@@ -248,6 +244,17 @@ def get_review_state_counts(team_id: int) -> dict[str, int]:
 def get_run(run_id: UUID, team_id: int | None = None) -> Run:
     try:
         qs = Run.objects.select_related("repo")
+        if team_id is not None:
+            qs = qs.filter(team_id=team_id)
+        return qs.get(id=run_id)
+    except Run.DoesNotExist as e:
+        raise RunNotFoundError(f"Run {run_id} not found") from e
+
+
+def _get_run_for_update(run_id: UUID, team_id: int | None = None) -> Run:
+    """Get a run with a row-level lock on the writer DB. Must be called inside a transaction."""
+    try:
+        qs = Run.objects.using(WRITER_DB).select_for_update().select_related("repo")
         if team_id is not None:
             qs = qs.filter(team_id=team_id)
         return qs.get(id=run_id)
@@ -573,45 +580,21 @@ def complete_run(run_id: UUID) -> Run:
     # Fetch baseline once — used for classification and removal detection
     baseline = _resolve_baselines(repo, run.run_type, run.branch)
 
-    # Classify existing snapshots against baseline
-    for snapshot in run.snapshots.using(WRITER_DB).all():
-        baseline_hash = baseline.get(snapshot.identifier)
-        baseline_artifact = get_artifact(repo.id, baseline_hash) if baseline_hash else None
+    # Pre-load tolerated hashes scoped to this run's identifiers and baseline hashes
+    run_identifiers = set(run.snapshots.using(WRITER_DB).values_list("identifier", flat=True))
+    baseline_hashes_in_use = set(baseline.values())
+    tolerated_lookup: dict[tuple[str, str, str], ToleratedHash] = {}
+    if run_identifiers and baseline_hashes_in_use:
+        now = timezone.now()
+        for t in ToleratedHash.objects.filter(
+            repo=repo,
+            identifier__in=run_identifiers,
+            baseline_hash__in=baseline_hashes_in_use,
+        ).filter(Q(expires_at__isnull=True) | Q(expires_at__gt=now)):
+            tolerated_lookup[(t.identifier, t.baseline_hash, t.alternate_hash)] = t
 
-        if baseline_hash is None:
-            result = SnapshotResult.NEW
-        elif snapshot.current_hash == baseline_hash:
-            result = SnapshotResult.UNCHANGED
-        else:
-            result = SnapshotResult.CHANGED
-
-        snapshot.result = result
-        snapshot.baseline_hash = baseline_hash or ""
-        snapshot.baseline_artifact = baseline_artifact
-        snapshot.current_artifact = get_artifact(repo.id, snapshot.current_hash)
-        snapshot.save(
-            using=WRITER_DB, update_fields=["result", "baseline_hash", "baseline_artifact", "current_artifact"]
-        )
-
-    # Detect removed: baseline identifiers with no RunSnapshot row
-    if baseline:
-        produced = set(run.snapshots.using(WRITER_DB).values_list("identifier", flat=True))
-        for identifier in baseline:
-            if identifier not in produced:
-                b_hash = baseline[identifier]
-                b_artifact = get_artifact(repo.id, b_hash) if b_hash else None
-                RunSnapshot.objects.using(WRITER_DB).get_or_create(
-                    run=run,
-                    team_id=repo.team_id,
-                    identifier=identifier,
-                    defaults={
-                        "current_hash": "",
-                        "baseline_hash": b_hash or "",
-                        "baseline_artifact": b_artifact,
-                        "result": SnapshotResult.REMOVED,
-                        "metadata": {},
-                    },
-                )
+    classifier = SnapshotClassifier(run, baseline, tolerated_lookup)
+    classifier.classify()
 
     # Update total and counts from actual RunSnapshot rows
     run.total_snapshots = run.snapshots.using(WRITER_DB).count()
@@ -624,7 +607,7 @@ def complete_run(run_id: UUID) -> Run:
 
     # Optimization: if no changes, skip diff processing entirely
     if run.changed_count == 0 and run.new_count == 0:
-        mark_run_completed(run_id)
+        finalize_run(run_id)
         return get_run(run_id)
 
     # Mark as processing and trigger diff task
@@ -690,14 +673,42 @@ def verify_uploads_and_create_artifacts(run_id: UUID) -> int:
     return created_count
 
 
-def mark_run_completed(run_id: UUID, error_message: str = "") -> Run:
+def _stamp_quarantine(run: Run) -> None:
+    """Evaluate quarantine policy and freeze it on each snapshot."""
+    now = timezone.now()
+    quarantined_ids = set(
+        QuarantinedIdentifier.objects.using(WRITER_DB)
+        .filter(repo_id=run.repo_id, run_type=run.run_type, team_id=run.team_id)
+        .filter(Q(expires_at__isnull=True) | Q(expires_at__gt=now))
+        .values_list("identifier", flat=True)
+    )
+
+    if not quarantined_ids:
+        run.snapshots.using(WRITER_DB).filter(is_quarantined=True).update(is_quarantined=False)
+        return
+
+    snapshots = run.snapshots.using(WRITER_DB)
+    snapshots.filter(identifier__in=quarantined_ids, is_quarantined=False).update(is_quarantined=True)
+    snapshots.filter(is_quarantined=True).exclude(identifier__in=quarantined_ids).update(is_quarantined=False)
+
+
+def finalize_run(run_id: UUID, error_message: str = "") -> Run:
     run = get_run_with_snapshots(run_id)
 
-    snapshots = list(run.snapshots.all())
+    # Stamp quarantine state — evaluated now and frozen on each snapshot
+    _stamp_quarantine(run)
 
-    changed_count = sum(1 for s in snapshots if s.result == SnapshotResult.CHANGED)
-    new_count = sum(1 for s in snapshots if s.result == SnapshotResult.NEW)
-    removed_count = sum(1 for s in snapshots if s.result == SnapshotResult.REMOVED)
+    snapshots = list(run.snapshots.using(WRITER_DB).select_related("tolerated_hash_match").all())
+
+    # Gating counts exclude quarantined identifiers — they don't block PRs
+    changed_count = sum(1 for s in snapshots if s.result == SnapshotResult.CHANGED and not s.is_quarantined)
+    new_count = sum(1 for s in snapshots if s.result == SnapshotResult.NEW and not s.is_quarantined)
+    removed_count = sum(1 for s in snapshots if s.result == SnapshotResult.REMOVED and not s.is_quarantined)
+    tolerated_match_count = sum(
+        1
+        for s in snapshots
+        if s.tolerated_hash_match is not None and s.tolerated_hash_match.reason == ToleratedReason.HUMAN
+    )
 
     run.status = RunStatus.FAILED if error_message else RunStatus.COMPLETED
     run.error_message = error_message
@@ -705,7 +716,18 @@ def mark_run_completed(run_id: UUID, error_message: str = "") -> Run:
     run.changed_count = changed_count
     run.new_count = new_count
     run.removed_count = removed_count
-    run.save(update_fields=["status", "error_message", "completed_at", "changed_count", "new_count", "removed_count"])
+    run.tolerated_match_count = tolerated_match_count
+    run.save(
+        update_fields=[
+            "status",
+            "error_message",
+            "completed_at",
+            "changed_count",
+            "new_count",
+            "removed_count",
+            "tolerated_match_count",
+        ]
+    )
 
     repo = run.repo
     if error_message:
@@ -720,7 +742,7 @@ def mark_run_completed(run_id: UUID, error_message: str = "") -> Run:
             parts.append(f"{removed_count} removed")
         # During migration VR is observational — always green so drift doesn't block PRs.
         # Flip to "failure" when VR becomes the gate.
-        _post_commit_status(run, repo, "success", f"Visual changes detected: {', '.join(parts)}")
+        _post_commit_status(run, repo, "failure", f"Visual changes detected: {', '.join(parts)}")
         _post_review_prompt_comment(run, repo)
     else:
         _post_commit_status(run, repo, "success", "No visual changes")
@@ -1144,42 +1166,51 @@ def _post_review_prompt_comment(run: Run, repo: Repo) -> None:
         logger.warning("visual_review.pr_comment_error", run_id=str(run.id), pr_number=run.pr_number, exc_info=True)
 
 
-def auto_approve_run(run_id: UUID, user_id: int) -> tuple[Run, str]:
-    """Auto-approve a completed run and return signed baseline YAML.
+@transaction.atomic(using=WRITER_DB)
+def approve_all(
+    run_id: UUID,
+    user_id: int,
+    team_id: int | None = None,
+    review_decision: ReviewDecision = ReviewDecision.HUMAN_APPROVED,
+    commit_to_github: bool = True,
+) -> tuple[Run, str]:
+    """Approve all actionable snapshots and return signed baseline YAML.
 
-    Used by the CLI during the transition period to keep baselines in sync
-    with jest-image-snapshot. Approves all CHANGED + NEW snapshots via the
-    normal approve_run path, then builds a fresh signed YAML.
+    Collects all CHANGED + NEW snapshots, approves them via approve_run,
+    and builds a signed baseline YAML. REMOVED snapshots are handled by
+    approve_run (marked as approved + pruned from baseline).
 
-    Idempotent: if the run is already approved, rebuilds the YAML from
-    the current state. If there are no changes to approve, returns the
-    run as-is with a signed YAML of all current hashes.
+    The caller controls review_decision:
+    - HUMAN_APPROVED: UI "Approve all changes" button
+    - AUTO_APPROVED: CLI --auto-approve during CI
+
+    Set commit_to_github=False for CLI (writes baseline locally).
     """
-    run = get_run_with_snapshots(run_id)
+    run = _get_run_for_update(run_id, team_id=team_id)
     repo = run.repo
 
     if run.status != RunStatus.COMPLETED:
-        raise ValueError(f"Run must be completed before auto-approve (current status: {run.status})")
+        raise ValueError(f"Run must be completed before approval (current status: {run.status})")
 
     if is_run_stale(run):
         raise StaleRunError("This run has been superseded by a newer run.")
 
-    # Collect snapshots that need approval (changed + new)
+    # Collect all actionable snapshots (changed + new have hashes to approve)
     needs_approval = [
         {"identifier": s.identifier, "new_hash": s.current_hash}
         for s in run.snapshots.all()
         if s.result in (SnapshotResult.CHANGED, SnapshotResult.NEW)
     ]
 
-    if needs_approval and not run.approved:
+    if not run.approved:
         approve_run(
             run_id=run_id,
             user_id=user_id,
+            team_id=team_id,
             approved_snapshots=needs_approval,
-            commit_to_github=False,
+            review_decision=review_decision,
+            commit_to_github=commit_to_github,
         )
-        # Override to AUTO_APPROVED (approve_run sets HUMAN_APPROVED)
-        Run.objects.filter(id=run_id, team_id=repo.team_id).update(review_decision=ReviewDecision.AUTO_APPROVED)
         run = get_run_with_snapshots(run_id)
 
     snapshots = list(run.snapshots.all().order_by("identifier"))
@@ -1213,16 +1244,53 @@ def auto_approve_run(run_id: UUID, user_id: int) -> tuple[Run, str]:
 
 
 @transaction.atomic(using=WRITER_DB)
-def approve_run(run_id: UUID, user_id: int, approved_snapshots: list[dict], commit_to_github: bool = True) -> Run:
-    """
-    Approve visual changes for a run.
+def approve_snapshots(run_id: UUID, user_id: int, approved_snapshots: list[dict], team_id: int | None = None) -> Run:
+    """Approve specific snapshots within a run (DB only, no GitHub commit).
 
-    If commit_to_github is True and run has a PR:
-    1. Validates PR SHA matches run's commit_sha
-    2. Commits updated baseline to GitHub
-    3. Updates baseline hashes for approved snapshots in DB
+    Used for per-snapshot "Accept change" in the UI. Does not finalize
+    the run — that happens via approve_run.
     """
-    run = get_run(run_id)
+    run = _get_run_for_update(run_id, team_id=team_id)
+
+    if run.purpose == RunPurpose.OBSERVE:
+        raise ValueError("Observational runs cannot be approved")
+
+    if is_run_stale(run):
+        raise StaleRunError("This run has been superseded by a newer run. Approve the latest run instead.")
+
+    approvals = {s["identifier"]: s["new_hash"] for s in approved_snapshots}
+    _validate_approval(run, approvals)
+
+    now = timezone.now()
+    for snapshot in run.snapshots.filter(identifier__in=approvals.keys()):
+        new_hash = approvals[snapshot.identifier]
+        snapshot.review_state = ReviewState.APPROVED
+        snapshot.reviewed_at = now
+        snapshot.reviewed_by_id = user_id
+        snapshot.approved_hash = new_hash
+        snapshot.save(update_fields=["review_state", "reviewed_at", "reviewed_by_id", "approved_hash"])
+
+    return run
+
+
+@transaction.atomic(using=WRITER_DB)
+def approve_run(
+    run_id: UUID,
+    user_id: int,
+    approved_snapshots: list[dict],
+    team_id: int | None = None,
+    review_decision: ReviewDecision = ReviewDecision.HUMAN_APPROVED,
+    commit_to_github: bool = True,
+) -> Run:
+    """Approve snapshots and finalize the run — commit baseline, post status.
+
+    This is the full approval path: validate, commit to GitHub, mark
+    snapshots approved, mark removed as approved, mark run approved,
+    and post a success commit status.
+
+    Set commit_to_github=False only for CLI auto-approve (writes locally).
+    """
+    run = _get_run_for_update(run_id, team_id=team_id)
     repo = run.repo
 
     if run.purpose == RunPurpose.OBSERVE:
@@ -1231,16 +1299,55 @@ def approve_run(run_id: UUID, user_id: int, approved_snapshots: list[dict], comm
     if is_run_stale(run):
         raise StaleRunError("This run has been superseded by a newer run. Approve the latest run instead.")
 
-    # Build lookup of identifier -> new_hash
     approvals = {s["identifier"]: s["new_hash"] for s in approved_snapshots}
+    _validate_approval(run, approvals)
 
-    # Validate all identifiers exist in this run
+    # Commit to GitHub first — do this before DB changes so we can fail cleanly
+    if commit_to_github and run.pr_number and repo.repo_full_name:
+        _commit_baseline_to_github(run, repo, approved_snapshots)
+
+    # Mark approved snapshots
+    now = timezone.now()
+    for snapshot in run.snapshots.filter(identifier__in=approvals.keys()):
+        new_hash = approvals[snapshot.identifier]
+        snapshot.review_state = ReviewState.APPROVED
+        snapshot.reviewed_at = now
+        snapshot.reviewed_by_id = user_id
+        snapshot.approved_hash = new_hash
+        snapshot.save(update_fields=["review_state", "reviewed_at", "reviewed_by_id", "approved_hash"])
+
+    # Mark removed snapshots as approved (cleanup, not actionable)
+    run.snapshots.filter(result=SnapshotResult.REMOVED).update(
+        review_state=ReviewState.APPROVED,
+        reviewed_at=now,
+        reviewed_by_id=user_id,
+    )
+
+    # Re-evaluate quarantine at approval time
+    _stamp_quarantine(run)
+
+    # Finalize run
+    run.approved = True
+    run.review_decision = review_decision
+    run.approved_at = now
+    run.approved_by_id = user_id
+    run.save(update_fields=["approved", "review_decision", "approved_at", "approved_by_id"])
+
+    if commit_to_github:
+        _post_commit_status(run, repo, "success", "Visual changes approved")
+
+    return run
+
+
+def _validate_approval(run: Run, approvals: dict[str, str]) -> None:
+    """Validate snapshot identifiers, hash matches, and artifact existence."""
+    repo = run.repo
+
     run_identifiers = set(run.snapshots.values_list("identifier", flat=True))
     unknown = set(approvals.keys()) - run_identifiers
     if unknown:
         raise ValueError(f"Unknown snapshot identifiers: {', '.join(sorted(unknown))}")
 
-    # Validate approved hashes match snapshot current_hash (prevents baseline corruption)
     for snapshot in run.snapshots.filter(identifier__in=approvals.keys()):
         expected_hash = approvals[snapshot.identifier]
         if expected_hash != snapshot.current_hash:
@@ -1249,37 +1356,10 @@ def approve_run(run_id: UUID, user_id: int, approved_snapshots: list[dict], comm
                 f"approved {expected_hash[:12]} but current is {snapshot.current_hash[:12]}"
             )
 
-    # Validate all artifacts exist before making any changes
     for identifier, new_hash in approvals.items():
         artifact = get_artifact(repo.id, new_hash)
         if not artifact:
             raise ArtifactNotFoundError(f"Artifact not found for hash {new_hash} (snapshot: {identifier})")
-
-    # Commit to GitHub first (if enabled and PR exists)
-    # Do this before DB changes so we can fail cleanly
-    if commit_to_github and run.pr_number and repo.repo_full_name:
-        _commit_baseline_to_github(run, repo, approved_snapshots)
-
-    # Record approval on each snapshot without mutating result/baseline
-    # This preserves the diff history while tracking what was approved
-    for snapshot in run.snapshots.filter(identifier__in=approvals.keys()):
-        new_hash = approvals[snapshot.identifier]
-        snapshot.review_state = ReviewState.APPROVED
-        snapshot.reviewed_at = timezone.now()
-        snapshot.reviewed_by_id = user_id
-        snapshot.approved_hash = new_hash
-        snapshot.save(update_fields=["review_state", "reviewed_at", "reviewed_by_id", "approved_hash"])
-
-    # Mark run approved
-    run.approved = True
-    run.review_decision = ReviewDecision.HUMAN_APPROVED
-    run.approved_at = timezone.now()
-    run.approved_by_id = user_id
-    run.save(update_fields=["approved", "review_decision", "approved_at", "approved_by_id"])
-
-    _post_commit_status(run, repo, "success", "Visual changes approved")
-
-    return run
 
 
 # --- Snapshot Operations ---
@@ -1318,6 +1398,118 @@ def get_snapshot_history(repo_id: UUID, identifier: str, limit: int = 15) -> lis
         }
         for entry in entries
     ]
+
+
+@transaction.atomic(using=WRITER_DB)
+def mark_snapshot_as_tolerated(run_id: UUID, snapshot_id: UUID, user_id: int, team_id: int) -> RunSnapshot:
+    """Mark a changed snapshot as a known tolerated alternate (human decision).
+
+    Creates a ToleratedHash entry tied to the current baseline, reclassifies the
+    snapshot as UNCHANGED, and recalculates run summary counts.
+    """
+    run = _get_run_for_update(run_id, team_id=team_id)
+    try:
+        snapshot = RunSnapshot.objects.get(id=snapshot_id, run=run, team_id=team_id)
+    except RunSnapshot.DoesNotExist:
+        raise RunNotFoundError(f"Snapshot {snapshot_id} not found in run {run_id}")
+
+    if snapshot.result != SnapshotResult.CHANGED:
+        raise ValueError(f"Can only mark CHANGED snapshots as tolerated (current: {snapshot.result})")
+
+    if not snapshot.current_hash:
+        raise ValueError("Snapshot has no current hash")
+
+    tolerated, _ = ToleratedHash.objects.get_or_create(
+        repo_id=run.repo_id,
+        identifier=snapshot.identifier,
+        baseline_hash=snapshot.baseline_hash,
+        alternate_hash=snapshot.current_hash,
+        defaults={
+            "team_id": team_id,
+            "reason": ToleratedReason.HUMAN,
+            "source_run": run,
+            "created_by_id": user_id,
+        },
+    )
+
+    # result stays CHANGED — it's the technical truth (hashes differ).
+    # review_state captures the human decision to tolerate.
+    snapshot.review_state = ReviewState.TOLERATED
+    snapshot.reviewed_at = timezone.now()
+    snapshot.reviewed_by_id = user_id
+    snapshot.tolerated_hash_match = tolerated
+    snapshot.save(update_fields=["review_state", "reviewed_at", "reviewed_by_id", "tolerated_hash_match"])
+
+    # Update tolerated_match_count (only human-tolerated, not auto-threshold)
+    tolerated_count = (
+        RunSnapshot.objects.using(WRITER_DB)
+        .filter(run=run, tolerated_hash_match__isnull=False, tolerated_hash_match__reason=ToleratedReason.HUMAN)
+        .count()
+    )
+    Run.objects.using(WRITER_DB).filter(id=run.id).update(tolerated_match_count=tolerated_count)
+
+    return snapshot
+
+
+def get_tolerated_hashes_for_identifier(repo_id: UUID, identifier: str) -> list[ToleratedHash]:
+    """List all tolerated hashes for a snapshot identifier, most recent first."""
+    return list(ToleratedHash.objects.filter(repo_id=repo_id, identifier=identifier).order_by("-created_at"))
+
+
+# --- Quarantine ---
+
+
+def list_quarantined_identifiers(
+    repo_id: UUID, team_id: int, identifier: str | None = None, run_type: str | None = None
+) -> list[QuarantinedIdentifier]:
+    qs = QuarantinedIdentifier.objects.using(WRITER_DB).filter(repo_id=repo_id, team_id=team_id)
+    if run_type:
+        qs = qs.filter(run_type=run_type)
+    if identifier:
+        qs = qs.filter(identifier=identifier)
+    else:
+        now = timezone.now()
+        qs = qs.filter(Q(expires_at__isnull=True) | Q(expires_at__gt=now))
+    return list(qs.order_by("-created_at"))
+
+
+@transaction.atomic(using=WRITER_DB)
+def quarantine_identifier(
+    repo_id: UUID,
+    identifier: str,
+    run_type: str,
+    reason: str,
+    user_id: int,
+    team_id: int,
+    expires_at: datetime | None = None,
+) -> QuarantinedIdentifier:
+    get_repo(repo_id, team_id)  # raises RepoNotFoundError if repo not owned by team
+    now = timezone.now()
+    QuarantinedIdentifier.objects.using(WRITER_DB).select_for_update().filter(
+        repo_id=repo_id,
+        identifier=identifier,
+        run_type=run_type,
+        team_id=team_id,
+    ).filter(Q(expires_at__isnull=True) | Q(expires_at__gt=now)).update(expires_at=now)
+    return QuarantinedIdentifier.objects.using(WRITER_DB).create(
+        repo_id=repo_id,
+        identifier=identifier,
+        run_type=run_type,
+        team_id=team_id,
+        reason=reason,
+        expires_at=expires_at,
+        created_by_id=user_id,
+    )
+
+
+def unquarantine_identifier(repo_id: UUID, identifier: str, run_type: str, team_id: int) -> None:
+    get_repo(repo_id, team_id)  # raises RepoNotFoundError if repo not owned by team
+    QuarantinedIdentifier.objects.using(WRITER_DB).filter(
+        repo_id=repo_id,
+        identifier=identifier,
+        run_type=run_type,
+        team_id=team_id,
+    ).filter(Q(expires_at__isnull=True) | Q(expires_at__gt=timezone.now())).update(expires_at=timezone.now())
 
 
 def update_snapshot_diff(

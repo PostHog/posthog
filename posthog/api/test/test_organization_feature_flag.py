@@ -1,9 +1,17 @@
 from datetime import timedelta
 from typing import Any
 
-from posthog.test.base import APIBaseTest, QueryMatchingTest, snapshot_postgres_queries
+from posthog.test.base import (
+    APIBaseTest,
+    ClickhouseTestMixin,
+    QueryMatchingTest,
+    _create_event,
+    flush_persons_and_events,
+    snapshot_postgres_queries,
+)
 from unittest.mock import ANY, patch
 
+from django.core.cache import cache
 from django.utils import timezone
 
 from rest_framework import status
@@ -63,6 +71,7 @@ class TestOrganizationFeatureFlagGet(APIBaseTest, QueryMatchingTest):
                 "filters": flag.get_filters(),
                 "created_at": flag.created_at.strftime("%Y-%m-%dT%H:%M:%S.%f") + "Z",
                 "active": flag.active,
+                "evaluations_7d": 0,
             }
             for flag in [self.feature_flag_1, self.feature_flag_2]
         ]
@@ -1266,3 +1275,59 @@ class TestOrganizationFeatureFlagCopySchedules(APIBaseTest):
                 team=target_team,
             )
             self.assertEqual(target_schedules.count(), 1)
+
+
+class TestOrganizationFeatureFlagEvaluations(ClickhouseTestMixin, APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        cache.clear()
+        self.other_team = self.organization.teams.create(name="Other")
+        FeatureFlag.objects.create(team=self.team, key="shared_flag", created_by=self.user, active=True)
+        FeatureFlag.objects.create(team=self.other_team, key="shared_flag", created_by=self.user, active=False)
+
+    def _url(self, key: str) -> str:
+        return f"/api/organizations/{self.organization.id}/feature_flags/{key}/"
+
+    def test_response_includes_evaluations_field(self):
+        response = self.client.get(self._url("shared_flag"))
+        assert response.status_code == status.HTTP_200_OK
+        body = response.json()
+        assert len(body) == 2
+        for entry in body:
+            assert "evaluations_7d" in entry
+
+    def test_evaluation_counts_match_events(self):
+        _create_event(
+            team=self.team,
+            distinct_id="u1",
+            event="$feature_flag_called",
+            properties={"$feature_flag": "shared_flag", "$feature_flag_response": True},
+        )
+        _create_event(
+            team=self.team,
+            distinct_id="u2",
+            event="$feature_flag_called",
+            properties={"$feature_flag": "shared_flag", "$feature_flag_response": True},
+        )
+        _create_event(
+            team=self.other_team,
+            distinct_id="u3",
+            event="$feature_flag_called",
+            properties={"$feature_flag": "shared_flag", "$feature_flag_response": False},
+        )
+        flush_persons_and_events()
+
+        body = self.client.get(self._url("shared_flag")).json()
+        by_team = {entry["team_id"]: entry["evaluations_7d"] for entry in body}
+
+        assert by_team[self.team.id] == 2
+        assert by_team[self.other_team.id] == 1
+
+    def test_clickhouse_failure_returns_null_evaluations(self):
+        with patch(
+            "posthog.api.organization_feature_flag.get_cached_evaluations_7d_by_team",
+            return_value=None,
+        ):
+            body = self.client.get(self._url("shared_flag")).json()
+        for entry in body:
+            assert entry["evaluations_7d"] is None

@@ -49,6 +49,7 @@ case "$RS_SVC" in
     export CAPTURE_MODE=events
     export LOG_LEVEL=debug
     export DEBUG=1
+    export KAFKA_ERROR_TRACKING_TOPIC=${KAFKA_ERROR_TRACKING_TOPIC:-ingestion-errortracking-main}
     ;;
 
   capture-replay)

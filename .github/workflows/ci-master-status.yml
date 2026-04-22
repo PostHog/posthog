@@ -11,13 +11,14 @@ on:
             - 'Dagster CI'
             - 'E2E CI Playwright'
             - 'Rust CI'
+            - 'LLM Services CI'
         branches: [master]
         types: [completed]
 
 env:
     SLACK_CHANNEL: 'C09ADEV3AJD'
     # Keep in sync with workflow_run.workflows trigger above
-    REQUIRED_WORKFLOWS: 'Backend CI,Node.js CI,Frontend CI,Storybook,Security,Dagster CI,E2E CI Playwright,Rust CI'
+    REQUIRED_WORKFLOWS: 'Backend CI,Node.js CI,Frontend CI,Storybook,Security,Dagster CI,E2E CI Playwright,Rust CI,LLM Services CI'
 
 permissions:
     contents: read

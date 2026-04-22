@@ -20,6 +20,8 @@ import type {
     ExternalDataSchemaApi,
     ExternalDataSchemasListParams,
     ExternalDataSourceSerializersApi,
+    ExternalDataSourcesBulkUpdateSchemasPartialUpdateParams,
+    ExternalDataSourcesCheckCdcPrerequisitesCreate200,
     ExternalDataSourcesConnectionsListParams,
     ExternalDataSourcesListParams,
     PaginatedDataModelingJobListApi,
@@ -35,6 +37,8 @@ import type {
     PatchedDataWarehouseSavedQueryApi,
     PatchedDataWarehouseSavedQueryDraftApi,
     PatchedDataWarehouseSavedQueryFolderApi,
+    PatchedExternalDataSchemaApi,
+    PatchedExternalDataSourceBulkUpdateSchemasApi,
     PatchedExternalDataSourceSerializersApi,
     PatchedQueryTabStateApi,
     ProvisionWarehouseRequestApi,
@@ -600,6 +604,159 @@ export const externalDataSchemasCreate = async (
     })
 }
 
+export const getExternalDataSchemasRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/external_data_schemas/${id}/`
+}
+
+export const externalDataSchemasRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<ExternalDataSchemaApi> => {
+    return apiMutator<ExternalDataSchemaApi>(getExternalDataSchemasRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getExternalDataSchemasUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/external_data_schemas/${id}/`
+}
+
+export const externalDataSchemasUpdate = async (
+    projectId: string,
+    id: string,
+    externalDataSchemaApi: NonReadonly<ExternalDataSchemaApi>,
+    options?: RequestInit
+): Promise<ExternalDataSchemaApi> => {
+    return apiMutator<ExternalDataSchemaApi>(getExternalDataSchemasUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(externalDataSchemaApi),
+    })
+}
+
+export const getExternalDataSchemasPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/external_data_schemas/${id}/`
+}
+
+export const externalDataSchemasPartialUpdate = async (
+    projectId: string,
+    id: string,
+    patchedExternalDataSchemaApi: NonReadonly<PatchedExternalDataSchemaApi>,
+    options?: RequestInit
+): Promise<ExternalDataSchemaApi> => {
+    return apiMutator<ExternalDataSchemaApi>(getExternalDataSchemasPartialUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedExternalDataSchemaApi),
+    })
+}
+
+export const getExternalDataSchemasDestroyUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/external_data_schemas/${id}/`
+}
+
+export const externalDataSchemasDestroy = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getExternalDataSchemasDestroyUrl(projectId, id), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
+export const getExternalDataSchemasCancelCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/external_data_schemas/${id}/cancel/`
+}
+
+export const externalDataSchemasCancelCreate = async (
+    projectId: string,
+    id: string,
+    externalDataSchemaApi: NonReadonly<ExternalDataSchemaApi>,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getExternalDataSchemasCancelCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(externalDataSchemaApi),
+    })
+}
+
+export const getExternalDataSchemasDeleteDataDestroyUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/external_data_schemas/${id}/delete_data/`
+}
+
+export const externalDataSchemasDeleteDataDestroy = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getExternalDataSchemasDeleteDataDestroyUrl(projectId, id), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
+export const getExternalDataSchemasIncrementalFieldsCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/external_data_schemas/${id}/incremental_fields/`
+}
+
+export const externalDataSchemasIncrementalFieldsCreate = async (
+    projectId: string,
+    id: string,
+    externalDataSchemaApi: NonReadonly<ExternalDataSchemaApi>,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getExternalDataSchemasIncrementalFieldsCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(externalDataSchemaApi),
+    })
+}
+
+export const getExternalDataSchemasReloadCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/external_data_schemas/${id}/reload/`
+}
+
+export const externalDataSchemasReloadCreate = async (
+    projectId: string,
+    id: string,
+    externalDataSchemaApi: NonReadonly<ExternalDataSchemaApi>,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getExternalDataSchemasReloadCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(externalDataSchemaApi),
+    })
+}
+
+export const getExternalDataSchemasResyncCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/external_data_schemas/${id}/resync/`
+}
+
+export const externalDataSchemasResyncCreate = async (
+    projectId: string,
+    id: string,
+    externalDataSchemaApi: NonReadonly<ExternalDataSchemaApi>,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getExternalDataSchemasResyncCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(externalDataSchemaApi),
+    })
+}
+
 /**
  * Create, Read, Update and Delete External data Sources.
  */
@@ -726,6 +883,47 @@ export const externalDataSourcesDestroy = async (
         ...options,
         method: 'DELETE',
     })
+}
+
+/**
+ * Create, Read, Update and Delete External data Sources.
+ */
+export const getExternalDataSourcesBulkUpdateSchemasPartialUpdateUrl = (
+    projectId: string,
+    id: string,
+    params?: ExternalDataSourcesBulkUpdateSchemasPartialUpdateParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/external_data_sources/${id}/bulk_update_schemas/?${stringifiedParams}`
+        : `/api/projects/${projectId}/external_data_sources/${id}/bulk_update_schemas/`
+}
+
+export const externalDataSourcesBulkUpdateSchemasPartialUpdate = async (
+    projectId: string,
+    id: string,
+    patchedExternalDataSourceBulkUpdateSchemasApi: PatchedExternalDataSourceBulkUpdateSchemasApi,
+    params?: ExternalDataSourcesBulkUpdateSchemasPartialUpdateParams,
+    options?: RequestInit
+): Promise<PaginatedExternalDataSchemaListApi> => {
+    return apiMutator<PaginatedExternalDataSchemaListApi>(
+        getExternalDataSourcesBulkUpdateSchemasPartialUpdateUrl(projectId, id, params),
+        {
+            ...options,
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(patchedExternalDataSourceBulkUpdateSchemasApi),
+        }
+    )
 }
 
 /**
@@ -888,6 +1086,29 @@ export const externalDataSourcesWebhookInfoRetrieve = async (
         ...options,
         method: 'GET',
     })
+}
+
+/**
+ * Validate CDC prerequisites against a live Postgres connection.
+
+Used by the source wizard to surface ✅/❌ checks before source creation,
+and by the self-managed setup popup to verify user-created publications.
+ */
+export const getExternalDataSourcesCheckCdcPrerequisitesCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/external_data_sources/check_cdc_prerequisites/`
+}
+
+export const externalDataSourcesCheckCdcPrerequisitesCreate = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<ExternalDataSourcesCheckCdcPrerequisitesCreate200> => {
+    return apiMutator<ExternalDataSourcesCheckCdcPrerequisitesCreate200>(
+        getExternalDataSourcesCheckCdcPrerequisitesCreateUrl(projectId),
+        {
+            ...options,
+            method: 'POST',
+        }
+    )
 }
 
 /**

@@ -24,7 +24,7 @@ const sessionRecordingGet = (): ToolBase<typeof SessionRecordingGetSchema, Schem
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.SessionRecording>({
             method: 'GET',
-            path: `/api/projects/${projectId}/session_recordings/${params.id}/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/session_recordings/${encodeURIComponent(String(params.id))}/`,
         })
         return result
     },
@@ -39,7 +39,7 @@ const sessionRecordingDelete = (): ToolBase<typeof SessionRecordingDeleteSchema,
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<unknown>({
             method: 'DELETE',
-            path: `/api/projects/${projectId}/session_recordings/${params.id}/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/session_recordings/${encodeURIComponent(String(params.id))}/`,
         })
         return result
     },
@@ -57,7 +57,7 @@ const sessionRecordingPlaylistsList = (): ToolBase<
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.PaginatedSessionRecordingPlaylistList>({
             method: 'GET',
-            path: `/api/projects/${projectId}/session_recording_playlists/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/session_recording_playlists/`,
             query: {
                 created_by: params.created_by,
                 limit: params.limit,
@@ -81,7 +81,7 @@ const sessionRecordingPlaylistGet = (): ToolBase<
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.SessionRecordingPlaylist>({
             method: 'GET',
-            path: `/api/projects/${projectId}/session_recording_playlists/${params.short_id}/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/session_recording_playlists/${encodeURIComponent(String(params.short_id))}/`,
         })
         return result
     },
@@ -121,7 +121,7 @@ const sessionRecordingPlaylistCreate = (): ToolBase<
         }
         const result = await context.api.request<Schemas.SessionRecordingPlaylist>({
             method: 'POST',
-            path: `/api/projects/${projectId}/session_recording_playlists/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/session_recording_playlists/`,
             body,
         })
         return result
@@ -161,7 +161,7 @@ const sessionRecordingPlaylistUpdate = (): ToolBase<
         }
         const result = await context.api.request<Schemas.SessionRecordingPlaylist>({
             method: 'PATCH',
-            path: `/api/projects/${projectId}/session_recording_playlists/${params.short_id}/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/session_recording_playlists/${encodeURIComponent(String(params.short_id))}/`,
             body,
         })
         return result
@@ -597,7 +597,7 @@ const AssistantRecordingsQuery = z.object({
     properties: z
         .array(AssistantRecordingsQueryPropertyFilter)
         .describe(
-            'Property filters to narrow results. Each filter has a `key`, `value`, `operator`, and `type`.\n\nSupported types:\n- `person`: Filter by person properties (e.g. email, country).\n- `session`: Filter by session properties (e.g. $session_duration, $channel_type, $entry_current_url).\n- `event`: Filter by properties of events in the session (e.g. $current_url, $browser).\n- `recording`: Filter by recording metrics (e.g. console_error_count, click_count, activity_score).'
+            'Property filters to narrow results. Each filter has a `key`, `value`, `operator`, and `type`.\n\nSupported types:\n- `person`: Filter by person properties (e.g. email, country).\n- `session`: Filter by session properties (e.g. $session_duration, $channel_type, $entry_current_url).\n- `event`: Filter by properties of events in the session (e.g. $current_url, $browser).\n- `recording`: Filter by recording metrics (e.g. console_error_count, click_count, activity_score).\n- `cohort`: Filter recordings to persons belonging to a cohort. Example: `{ type: "cohort", key: "id", value: 42, operator: "in" }`.'
         )
         .optional(),
 })

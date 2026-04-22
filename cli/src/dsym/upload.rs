@@ -6,7 +6,7 @@ use tracing::info;
 use crate::{
     api::{self, releases::ReleaseBuilder, symbol_sets::SymbolSetUpload},
     dsym::{find_dsym_bundles, DsymFile, PlistInfo},
-    sourcemaps::args::ReleaseArgs,
+    sourcemaps::args::{pack_version, ReleaseArgs},
     utils::git::get_git_info,
 };
 
@@ -19,11 +19,6 @@ pub struct Args {
 
     #[clap(flatten)]
     pub release: ReleaseArgs,
-
-    /// The build number (e.g., 42, CFBundleVersion).
-    /// If not provided, will be extracted from dSYM Info.plist.
-    #[arg(long)]
-    pub build: Option<String>,
 
     /// The main dSYM file name (e.g., MyApp.app.dSYM).
     /// Used to extract version info from the correct dSYM when multiple are present.
@@ -54,7 +49,6 @@ pub fn upload(args: &Args) -> Result<()> {
     let Args {
         directory,
         release,
-        build,
         main_dsym,
         include_source,
         force,
@@ -137,23 +131,22 @@ pub fn upload(args: &Args) -> Result<()> {
         .version
         .clone()
         .or_else(|| plist_info.as_ref().and_then(|p| p.short_version.clone()));
-    let resolved_build = build
+    let resolved_build = release_args
+        .build
         .clone()
         .or_else(|| plist_info.as_ref().and_then(|p| p.bundle_version.clone()));
-
-    // Build full version string: "version+build" or just "version" or just "build"
-    let full_version = match (&resolved_release_version, &resolved_build) {
-        (Some(v), Some(b)) => Some(format!("{v}+{b}")),
-        (Some(v), None) => Some(v.clone()),
-        (None, Some(b)) => Some(b.clone()),
-        (None, None) => None,
-    };
 
     if let Some(ref name) = resolved_release_name {
         info!("Release name: {}", name);
     }
-    if let Some(ref ver) = full_version {
+    if let Some(ref ver) = resolved_release_version {
         info!("Release version: {}", ver);
+    }
+
+    let full_version = pack_version(&resolved_release_version, &resolved_build);
+
+    if let Some(ref build) = resolved_build {
+        info!("Build: {}", build);
     }
 
     // Set up release info

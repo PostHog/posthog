@@ -103,7 +103,7 @@ const insightsList = (): ToolBase<typeof InsightsListSchema, WithPostHogUrl<Sche
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.PaginatedInsightList>({
             method: 'GET',
-            path: `/api/projects/${projectId}/insights/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/insights/`,
             query: {
                 limit: params.limit,
                 offset: params.offset,
@@ -152,7 +152,7 @@ const insightGet = (): ToolBase<typeof InsightGetSchema, WithPostHogUrl<Schemas.
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.Insight>({
             method: 'GET',
-            path: `/api/projects/${projectId}/insights/${params.id}/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/insights/${encodeURIComponent(String(params.id))}/`,
         })
         const filtered = omitResponseFields(result, [
             'result',
@@ -205,7 +205,7 @@ const insightCreate = (): ToolBase<typeof InsightCreateSchema, WithPostHogUrl<Sc
         }
         const result = await context.api.request<Schemas.Insight>({
             method: 'POST',
-            path: `/api/projects/${projectId}/insights/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/insights/`,
             body,
         })
         const filtered = omitResponseFields(result, [
@@ -259,7 +259,7 @@ const insightUpdate = (): ToolBase<typeof InsightUpdateSchema, WithPostHogUrl<Sc
         }
         const result = await context.api.request<Schemas.Insight>({
             method: 'PATCH',
-            path: `/api/projects/${projectId}/insights/${params.id}/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/insights/${encodeURIComponent(String(params.id))}/`,
             body,
         })
         const filtered = omitResponseFields(result, [
@@ -284,7 +284,7 @@ const insightDelete = (): ToolBase<typeof InsightDeleteSchema, Schemas.Insight> 
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.Insight>({
             method: 'PATCH',
-            path: `/api/projects/${projectId}/insights/${params.id}/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/insights/${encodeURIComponent(String(params.id))}/`,
             body: { deleted: true },
         })
         return result
