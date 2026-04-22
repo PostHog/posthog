@@ -320,31 +320,33 @@ def send_notifications_for_breaches(
     return email_targets
 
 
-def send_notifications_for_errors(alert: AlertConfiguration, error: dict) -> None:
+def send_notifications_for_errors(alert: AlertConfiguration, error: dict) -> list[str]:
     logger.info("Sending alert error notifications", alert_id=alert.id, error=error)
+    email_targets = alert.get_subscribed_users_emails()
 
     # TODO: uncomment this after checking errors sent
-    # subject = f"PostHog alert {alert.name} check failed to evaluate"
-    # campaign_key = f"alert-firing-notification-{alert.id}-{timezone.now().timestamp()}"
-    # insight_url = f"/project/{alert.team.pk}/insights/{alert.insight.short_id}"
-    # alert_url = f"{insight_url}?alert_id={alert.id}"
-    # message = EmailMessage(
-    #     campaign_key=campaign_key,
-    #     subject=subject,
-    #     template_name="alert_check_failed_to_evaluate",
-    #     template_context={
-    #         "alert_error": error,
-    #         "insight_url": insight_url,
-    #         "insight_name": alert.insight.name,
-    #         "alert_url": alert_url,
-    #         "alert_name": alert.name,
-    #     },
-    # )
-    # targets = alert.get_subscribed_users_emails()
-    # for target in targets:
-    #     message.add_recipient(email=target)
+    # if email_targets:
+    #     subject = f"PostHog alert {alert.name} check failed to evaluate"
+    #     campaign_key = f"alert-firing-notification-{alert.id}-{timezone.now().timestamp()}"
+    #     insight_url = f"/project/{alert.team.pk}/insights/{alert.insight.short_id}"
+    #     alert_url = f"{insight_url}?alert_id={alert.id}"
+    #     message = EmailMessage(
+    #         campaign_key=campaign_key,
+    #         subject=subject,
+    #         template_name="alert_check_failed_to_evaluate",
+    #         template_context={
+    #             "alert_error": error,
+    #             "insight_url": insight_url,
+    #             "insight_name": alert.insight.name,
+    #             "alert_url": alert_url,
+    #             "alert_name": alert.name,
+    #         },
+    #     )
+    #     for target in email_targets:
+    #         message.add_recipient(email=target)
+    #     message.send()
 
-    # message.send()
+    return email_targets
 
 
 def dispatch_alert_notification(
@@ -375,9 +377,7 @@ def dispatch_alert_notification(
                     alert_check_id=alert_check.id,
                 )
                 return None
-            logger.info("Sending alert error notifications", alert_id=alert.id, error=alert_check.error)
-            send_notifications_for_errors(alert, alert_check.error)
-            return alert.get_subscribed_users_emails()
+            return send_notifications_for_errors(alert, alert_check.error)
         case AlertState.FIRING:
             if not breaches:
                 raise ValueError(

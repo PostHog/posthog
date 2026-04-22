@@ -33,7 +33,7 @@ from posthog.tasks.test.utils_email_tests import mock_email_messages
 
 
 @freeze_time("2024-06-02T08:55:00.000Z")
-@patch("posthog.tasks.alerts.utils.send_notifications_for_errors")
+@patch("posthog.tasks.alerts.utils.send_notifications_for_errors", return_value=[])
 @patch("posthog.tasks.alerts.utils.send_notifications_for_breaches", return_value=[])
 class TestAlertChecks(APIBaseTest, ClickhouseDestroyTablesMixin):
     def setUp(self) -> None:

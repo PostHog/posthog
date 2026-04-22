@@ -369,7 +369,6 @@ class TestNotifyAlert:
         mock_errors.assert_not_called()
 
         refreshed = await sync_to_async(AlertCheck.objects.get)(pk=check.id)
-        # targets_notified carries exactly the list the send returned — no duplicate query.
         assert refreshed.targets_notified == {"users": ["alice@posthog.com"]}
 
         refreshed_alert = await sync_to_async(AlertConfiguration.objects.get)(pk=alert_with_user.pk)
@@ -408,7 +407,10 @@ class TestNotifyAlert:
 
         with (
             patch("posthog.tasks.alerts.utils.send_notifications_for_breaches") as mock_breaches,
-            patch("posthog.tasks.alerts.utils.send_notifications_for_errors") as mock_errors,
+            patch(
+                "posthog.tasks.alerts.utils.send_notifications_for_errors",
+                return_value=["alice@posthog.com"],
+            ) as mock_errors,
         ):
             env = ActivityEnvironment()
             await env.run(
@@ -420,7 +422,7 @@ class TestNotifyAlert:
         mock_breaches.assert_not_called()
 
         refreshed = await sync_to_async(AlertCheck.objects.get)(pk=check.id)
-        assert refreshed.targets_notified != {}
+        assert refreshed.targets_notified == {"users": ["alice@posthog.com"]}
 
     async def test_idempotent_when_already_notified(self, alert_with_user) -> None:
         # Simulate a previous successful notification by setting targets_notified.
