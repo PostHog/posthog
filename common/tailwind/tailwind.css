@@ -1,26 +1,18 @@
 @import 'tailwindcss';
 
-/* Quill design system — scoped imports.
- * All quill CSS vars are gated behind [data-quill] so they don't clash
- * with PostHog's existing CSS custom properties (--border, --accent, etc.).
- * Add data-quill attribute to wrapper elements where quill components render.
- * During migration, move the attribute up the DOM tree; when it reaches
- * <html> the scope is effectively global and can be removed. */
-@import '@posthog/quill/tokens.scoped.css';
+/* Quill design system — scoped CSS vars only.
+ * Uses color-system.scoped.css (not tokens.scoped.css) to avoid quill's
+ * @theme inline block which globally overrides Tailwind's font, spacing,
+ * shadow, and radius scales. The scoped CSS vars under [data-quill] are
+ * sufficient — quill components resolve styles via CSS custom properties
+ * at runtime, not Tailwind theme keys at build time.
+ * During migration, move the data-quill attribute up the DOM tree; when
+ * it reaches <html> the scope is effectively global and can be removed. */
+@import '@posthog/quill/color-system.scoped.css';
 @import '@posthog/quill/base.scoped.css';
 
 /* Scan Quill's compiled JS for Tailwind class strings */
 @import '@posthog/quill/tailwind.css';
-
-/* Undo quill's font-family overrides — PostHog owns its own font stack.
- * Quill's @theme inline registers --font-sans and --font-mono globally
- * which would replace PostHog's fonts. Reset to Tailwind v4 defaults. */
-@theme inline {
-    --font-sans:
-        ui-sans-serif, system-ui, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol',
-        'Noto Color Emoji';
-    --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
-}
 
 /* if this shows a warning, change the type of file in vscode to 'tailwind CSS' */
 @config "./tailwind.config.js";
