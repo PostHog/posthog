@@ -56,18 +56,19 @@ class CreateExportAssetsInputs:
     subscription_id: int
     max_asset_count: int = DEFAULT_MAX_ASSET_COUNT
     previous_value: typing.Optional[str] = None
+    # When set, the activity persists the per-insight snapshot directly onto
+    # SubscriptionDelivery.content_snapshot. Keeps multi-MB query_results off
+    # the Temporal payload wire (~2 MiB gRPC cap).
+    delivery_id: typing.Optional[str] = None
 
 
 @dataclasses.dataclass
 class CreateExportAssetsResult:
-    """Export batch metadata plus per-insight snapshots aligned with exported_asset_ids order."""
-
     exported_asset_ids: list[int]
     total_insight_count: int
     team_id: int = 0
     distinct_id: str = ""
     target_type: str = ""
-    insight_snapshots: list[dict[str, typing.Any]] = dataclasses.field(default_factory=list)
 
 
 @dataclasses.dataclass
@@ -139,12 +140,16 @@ class CreateDeliveryRecordInputs:
 
 @dataclasses.dataclass
 class UpdateDeliveryRecordInputs:
-    """Patch a SubscriptionDelivery row. None on optional collections means leave the column unchanged."""
+    """Patch a SubscriptionDelivery row. None on optional collections means leave the column unchanged.
+
+    `content_snapshot` is intentionally absent — per-insight query results can be
+    multi-MB and must not cross the Temporal payload boundary. The owning activity
+    (`create_export_assets`) writes the snapshot directly to Postgres.
+    """
 
     delivery_id: uuid.UUID
     status: str
     exported_asset_ids: typing.Optional[list[int]] = None
-    content_snapshot: typing.Optional[dict[str, typing.Any]] = None
     recipient_results: typing.Optional[list[dict[str, typing.Any]]] = None
     error: typing.Optional[dict[str, typing.Any]] = None
     finished: bool = False

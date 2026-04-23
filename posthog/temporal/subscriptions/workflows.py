@@ -172,7 +172,6 @@ class ProcessSubscriptionWorkflow(PostHogWorkflow):
         delivery_id: uuid.UUID | None = None
         final_status = DeliveryStatus.SKIPPED
         delivery_exported_asset_ids: list[int] = []
-        delivery_content_snapshot: dict = {}
         delivery_recipient_results: list[dict] = []
 
         try:
@@ -196,12 +195,16 @@ class ProcessSubscriptionWorkflow(PostHogWorkflow):
                 ),
             )
 
-            # Phase 1: Prepare — create ExportedAssets
+            # Phase 1: Prepare — create ExportedAssets and persist insight snapshots
+            # onto SubscriptionDelivery.content_snapshot (written from within the
+            # activity to avoid shipping multi-MB query_results across Temporal's
+            # ~2 MiB payload boundary).
             prepare_result = await temporalio.workflow.execute_activity(
                 create_export_assets,
                 CreateExportAssetsInputs(
                     subscription_id=inputs.subscription_id,
                     previous_value=inputs.previous_value,
+                    delivery_id=str(delivery_id) if delivery_id is not None else None,
                 ),
                 start_to_close_timeout=dt.timedelta(minutes=5),
                 retry_policy=temporalio.common.RetryPolicy(
@@ -216,8 +219,6 @@ class ProcessSubscriptionWorkflow(PostHogWorkflow):
                 return
 
             delivery_exported_asset_ids = prepare_result.exported_asset_ids
-            delivery_content_snapshot["total_insight_count"] = prepare_result.total_insight_count
-            delivery_content_snapshot["insights"] = prepare_result.insight_snapshots
 
             # Phase 2: Fan-out export — one activity per insight, independent retry
             export_tasks = []
@@ -257,35 +258,10 @@ class ProcessSubscriptionWorkflow(PostHogWorkflow):
                     f"{len(non_user_errors)} export(s) failed: {', '.join(distinct_classes)}",
                 )
 
-            # Phase 2.5: Persist content_snapshot early so the summary activity can
-            # read the full per-insight query_results from the DB. The finally
-            # block also writes content_snapshot, but that runs after the summary
-            # activity — without this early write the summary would always see
-            # the create_delivery_record skeleton (id/short_id/name only).
-            change_summary: str | None = None
-            if delivery_id is not None and delivery_content_snapshot:
-                try:
-                    await temporalio.workflow.execute_activity(
-                        update_delivery_record,
-                        UpdateDeliveryRecordInputs(
-                            delivery_id=delivery_id,
-                            status=DeliveryStatus.STARTING,
-                            exported_asset_ids=delivery_exported_asset_ids or None,
-                            content_snapshot=delivery_content_snapshot,
-                        ),
-                        start_to_close_timeout=dt.timedelta(minutes=1),
-                        retry_policy=temporalio.common.RetryPolicy(
-                            initial_interval=dt.timedelta(seconds=5),
-                            maximum_interval=dt.timedelta(seconds=30),
-                            maximum_attempts=3,
-                        ),
-                    )
-                except Exception:
-                    temporalio.workflow.logger.warning(
-                        "process_subscription.content_snapshot_persist_failed",
-                        extra={"subscription_id": inputs.subscription_id},
-                    )
+            # content_snapshot is already in Postgres — create_export_assets wrote
+            # it from within the activity so the LLM summary can read it from DB.
 
+            change_summary: str | None = None
             # Phase 2.5: Generate LLM change summary (best-effort, skip if not enabled)
             if delivery_id is not None:
                 try:
@@ -368,7 +344,6 @@ class ProcessSubscriptionWorkflow(PostHogWorkflow):
                             delivery_id=delivery_id,
                             status=final_status,
                             exported_asset_ids=delivery_exported_asset_ids or None,
-                            content_snapshot=delivery_content_snapshot or None,
                             recipient_results=delivery_recipient_results or None,
                             error={"message": str(caught_error)[:500], "type": type(caught_error).__name__}
                             if caught_error

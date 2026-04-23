@@ -169,6 +169,23 @@ async def create_export_assets(inputs: CreateExportAssetsInputs) -> CreateExport
 
     insight_snapshots = await build_insight_snapshots()
 
+    # Persist insight snapshots directly on SubscriptionDelivery.content_snapshot
+    # instead of returning them across the Temporal activity boundary — per-insight
+    # query_results can reach multi-MB and will trip Temporal's ~2 MiB payload cap.
+    if inputs.delivery_id is not None:
+
+        @database_sync_to_async(thread_sensitive=False)
+        def _merge_content_snapshot() -> None:
+            delivery = SubscriptionDelivery.objects.get(pk=inputs.delivery_id)
+            delivery.content_snapshot = {
+                **(delivery.content_snapshot or {}),
+                "total_insight_count": total_insight_count,
+                "insights": insight_snapshots,
+            }
+            delivery.save(update_fields=["content_snapshot", "last_updated_at"])
+
+        await _merge_content_snapshot()
+
     await LOGGER.ainfo(
         "create_export_assets.assets_created",
         subscription_id=inputs.subscription_id,
@@ -181,7 +198,6 @@ async def create_export_assets(inputs: CreateExportAssetsInputs) -> CreateExport
         team_id=team.id,
         distinct_id=str(subscription.created_by.distinct_id) if subscription.created_by else str(team.id),
         target_type=subscription.target_type,
-        insight_snapshots=insight_snapshots,
     )
 
 
@@ -451,10 +467,6 @@ async def update_delivery_record(inputs: UpdateDeliveryRecordInputs) -> None:
         if inputs.exported_asset_ids is not None:
             delivery.exported_asset_ids = inputs.exported_asset_ids
             update_fields.append("exported_asset_ids")
-        if inputs.content_snapshot is not None:
-            # Merge so workflow patches (e.g. total_insight_count) do not wipe create_delivery_record snapshot.
-            delivery.content_snapshot = {**(delivery.content_snapshot or {}), **inputs.content_snapshot}
-            update_fields.append("content_snapshot")
         if inputs.recipient_results is not None:
             delivery.recipient_results = inputs.recipient_results
             update_fields.append("recipient_results")

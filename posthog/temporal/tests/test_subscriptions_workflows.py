@@ -39,6 +39,7 @@ from posthog.temporal.subscriptions.activities import (
 from posthog.temporal.subscriptions.types import (
     CreateDeliveryRecordInputs,
     CreateExportAssetsInputs,
+    CreateExportAssetsResult,
     DeliverSubscriptionInputs,
     DeliveryStatus,
     ProcessSubscriptionWorkflowInputs,
@@ -491,13 +492,15 @@ async def test_create_export_assets_creates_exported_assets(
 @patch("posthog.slo.events.posthoganalytics")
 @freeze_time("2022-02-02T08:55:00.000Z")
 @pytest.mark.asyncio
-async def test_create_export_assets_includes_insight_snapshots(
+async def test_create_export_assets_persists_insight_snapshots_to_delivery_content(
     mock_analytics: MagicMock,
     mock_build_snapshot: MagicMock,
     temporal_client: Client,
     team,
     user,
 ):
+    # Insight snapshots are persisted directly to SubscriptionDelivery.content_snapshot
+    # from within the activity — they no longer traverse the Temporal payload boundary.
     mock_build_snapshot.return_value = {
         "id": 1,
         "short_id": "snap01",
@@ -511,14 +514,27 @@ async def test_create_export_assets_includes_insight_snapshots(
     subscription = await sync_to_async(create_subscription)(team=team, insight=insight, created_by=user)
 
     env = ActivityEnvironment()
+    delivery_id = await env.run(
+        create_delivery_record,
+        CreateDeliveryRecordInputs(
+            subscription_id=subscription.id,
+            team_id=team.id,
+            trigger_type=SubscriptionTriggerType.SCHEDULED,
+            temporal_workflow_id="wf-prep-1",
+            idempotency_key="idem-prep-1",
+        ),
+    )
     result = await env.run(
         create_export_assets,
-        CreateExportAssetsInputs(subscription_id=subscription.id),
+        CreateExportAssetsInputs(subscription_id=subscription.id, delivery_id=str(delivery_id)),
     )
 
     assert len(result.exported_asset_ids) == 1
-    assert len(result.insight_snapshots) == 1
-    assert result.insight_snapshots[0]["query_hash"] == "cache_key_test"
+
+    delivery = await sync_to_async(SubscriptionDelivery.objects.get)(pk=delivery_id)
+    assert delivery.content_snapshot["total_insight_count"] == 1
+    assert len(delivery.content_snapshot["insights"]) == 1
+    assert delivery.content_snapshot["insights"][0]["query_hash"] == "cache_key_test"
     mock_build_snapshot.assert_called_once()
     mock_analytics.capture.assert_not_called()
 
@@ -569,7 +585,10 @@ async def test_create_delivery_record_persists_row_and_idempotency_key_dedupes(t
 
 @freeze_time("2022-02-02T08:55:00.000Z")
 @pytest.mark.asyncio
-async def test_update_delivery_record_merges_snapshot_and_finalizes(team, user):
+async def test_update_delivery_record_patches_status_and_results_without_touching_content(team, user):
+    # content_snapshot is owned by create_export_assets and must NOT be patched
+    # through update_delivery_record — the dataclass no longer accepts that field
+    # (that keeps multi-MB query_results off the Temporal payload wire).
     insight = await sync_to_async(Insight.objects.create)(team=team, short_id="upd01", name="Update delivery")
     subscription = await sync_to_async(create_subscription)(team=team, insight=insight, created_by=user)
 
@@ -585,6 +604,10 @@ async def test_update_delivery_record_merges_snapshot_and_finalizes(team, user):
             scheduled_at=None,
         ),
     )
+    # Snapshot the content written by create_delivery_record so we can assert
+    # update_delivery_record does not modify it.
+    original_row = await sync_to_async(SubscriptionDelivery.objects.get)(pk=delivery_id)
+    initial_content_snapshot = original_row.content_snapshot
 
     await env.run(
         update_delivery_record,
@@ -592,10 +615,6 @@ async def test_update_delivery_record_merges_snapshot_and_finalizes(team, user):
             delivery_id=delivery_id,
             status=DeliveryStatus.COMPLETED,
             exported_asset_ids=[101, 102],
-            content_snapshot={
-                "total_insight_count": 1,
-                "insights": [{"id": 99, "short_id": "x", "name": "snap", "query_hash": "qh"}],
-            },
             recipient_results=[{"recipient": "r@example.com", "status": "success"}],
             error=None,
             finished=True,
@@ -606,9 +625,7 @@ async def test_update_delivery_record_merges_snapshot_and_finalizes(team, user):
     assert row.status == SubscriptionDelivery.Status.COMPLETED
     assert row.exported_asset_ids == [101, 102]
     assert row.recipient_results == [{"recipient": "r@example.com", "status": "success"}]
-    assert row.content_snapshot["total_insight_count"] == 1
-    assert row.content_snapshot["insights"] == [{"id": 99, "short_id": "x", "name": "snap", "query_hash": "qh"}]
-    assert "dashboard" in row.content_snapshot
+    assert row.content_snapshot == initial_content_snapshot
     assert row.finished_at is not None
 
 
@@ -1291,3 +1308,120 @@ async def test_partial_export_failure_delivers_successful_assets(
     else:
         assert "error_type" not in props
         assert props["asset_errors"] == []
+
+
+def test_create_export_assets_result_contains_only_small_metadata_fields():
+    # Temporal activity payloads are capped at ~2 MiB (TMPRL1103). Guard by
+    # structural contract: any field added to this dataclass must be
+    # size-bounded by construction (primitives, IDs, short strings, or small
+    # lists of primitives). Multi-MB data — serialized query results, rendered
+    # HTML, image bytes — must be persisted from inside the activity (e.g.
+    # SubscriptionDelivery.content_snapshot via Postgres), not returned.
+    import dataclasses
+
+    expected_fields = {
+        "exported_asset_ids",
+        "total_insight_count",
+        "team_id",
+        "distinct_id",
+        "target_type",
+    }
+    actual_fields = {f.name for f in dataclasses.fields(CreateExportAssetsResult)}
+    assert actual_fields == expected_fields, (
+        f"CreateExportAssetsResult fields changed: added={actual_fields - expected_fields}, "
+        f"removed={expected_fields - actual_fields}. If adding a field, confirm it is "
+        f"size-bounded — Temporal activity payloads are capped at ~2 MiB (TMPRL1103). "
+        f"Persist multi-MB data from within the activity rather than returning it."
+    )
+
+
+@patch("posthog.temporal.exports.activities.exporter")
+@patch("posthog.slo.events.posthoganalytics")
+@patch("ee.tasks.subscriptions.get_metric_meter")
+@patch("posthog.temporal.subscriptions.activities.send_email_subscription_report")
+@patch("posthog.temporal.subscriptions.activities.build_insight_delivery_snapshot")
+@pytest.mark.asyncio
+async def test_workflow_survives_large_insight_snapshot(
+    mock_build_snapshot: MagicMock,
+    mock_send_email: MagicMock,
+    mock_metric_meter: MagicMock,
+    mock_analytics: MagicMock,
+    mock_exporter: MagicMock,
+    temporal_client: Client,
+    subscriptions_worker,
+    team,
+    user,
+):
+    # Regression test for Temporal payload size limit (TMPRL1103, ~2 MiB).
+    # A raw HogQL query with `LIMIT 50000` over 7 narrow columns produces ~4.4 MB
+    # of serialized query results. If those results are shuttled through an activity
+    # return value, the workflow fails before emails are ever dispatched.
+    insight = await sync_to_async(Insight.objects.create)(team=team, short_id="bigrpt", name="Large Report")
+
+    subscription = await sync_to_async(create_subscription)(
+        team=team,
+        insight=insight,
+        created_by=user,
+        target_value="test@posthog.com",
+    )
+
+    # Mirror the production repro: 50k rows of 7 short column values. Each row
+    # serializes to ~85-90 bytes, yielding a ~4 MB payload — about 2x Temporal's limit.
+    rows = [["01-Apr-26", "google", "cpc", "campaign-slug-1234", "TXN1234567", 1, 12.34] for _ in range(50_000)]
+    mock_build_snapshot.return_value = {
+        "id": insight.id,
+        "short_id": insight.short_id,
+        "name": insight.name,
+        "query_hash": "fake_hash",
+        "cache_key": "fake_cache_key",
+        "comparison_enabled": False,
+        "query_results": {
+            "columns": ["Date", "source", "medium", "campaign", "transactionID", "Orders", "Revenue"],
+            "results": rows,
+        },
+    }
+
+    def fake_export(asset_obj, **kwargs):
+        asset_obj.content_location = "s3://bucket/big.png"
+        asset_obj.save(update_fields=["content_location"])
+
+    mock_exporter.export_asset_direct = fake_export
+
+    async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
+        async with Worker(
+            activity_environment.client,
+            task_queue=settings.TEMPORAL_TASK_QUEUE,
+            workflows=[HandleSubscriptionValueChangeWorkflow, ProcessSubscriptionWorkflow],
+            activities=SUBSCRIPTION_PROCESS_ACTIVITIES,
+            interceptors=[SloInterceptor()],
+            workflow_runner=UnsandboxedWorkflowRunner(),
+            activity_executor=ThreadPoolExecutor(max_workers=50),
+            debug_mode=True,
+        ):
+            await activity_environment.client.execute_workflow(
+                HandleSubscriptionValueChangeWorkflow.run,
+                ProcessSubscriptionWorkflowInputs(
+                    subscription_id=subscription.id,
+                    team_id=subscription.team_id,
+                    distinct_id=str(subscription.created_by.distinct_id),  # type: ignore[union-attr]
+                    trigger_type=SubscriptionTriggerType.MANUAL,
+                ),
+                id=str(uuid.uuid4()),
+                task_queue=settings.TEMPORAL_TASK_QUEUE,
+            )
+
+    # Workflow must complete end-to-end despite the ~4 MB snapshot.
+    assert mock_send_email.call_count == 1
+
+    deliveries = await sync_to_async(list)(
+        SubscriptionDelivery.objects.filter(subscription=subscription).order_by("-created_at")
+    )
+    assert len(deliveries) == 1
+    assert deliveries[0].status == DeliveryStatus.COMPLETED
+
+    # Content snapshot must be persisted with full fidelity — the whole point of the
+    # SubscriptionDelivery history feature. Postgres JSONB has no 2 MiB ceiling.
+    content = deliveries[0].content_snapshot
+    assert "insights" in content
+    assert len(content["insights"]) == 1
+    assert len(content["insights"][0]["query_results"]["results"]) == 50_000
