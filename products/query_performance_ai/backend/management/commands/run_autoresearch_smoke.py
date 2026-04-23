@@ -6,6 +6,10 @@ with env vars for the proxy + LLM gateway, and live-streams pi's stdout to
 the operator's terminal. On success, harvests workspace artifacts for
 inspection.
 
+A typical run completes in just under 3 minutes against the default
+``SELECT sleep(0.5), 1`` smoke query. ``_CAMPAIGN_TIMEOUT_S`` below is the
+hard upper bound (45 minutes, matching prod), not the expected duration.
+
 This mirrors what the production Temporal activity
 ``run_autoresearch_campaign_in_sandbox`` does, minus Task/TaskRun/S3 plumbing,
 so what you observe here is what the weekly job will observe.
