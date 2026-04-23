@@ -907,9 +907,12 @@ class PasswordResetCompleteSerializer(serializers.Serializer):
         except ValidationError as e:
             raise serializers.ValidationError({"password": e.messages})
 
-        user.set_password(password)
-        user.requested_password_reset_at = None
-        user.save()
+        with transaction.atomic():
+            user.set_password(password)
+            user.requested_password_reset_at = None
+            user.passkeys_enabled_for_2fa = False
+            user.save()
+            WebauthnCredential.objects.filter(user=user).delete()
 
         report_user_password_reset(user)
         return {"email": user.email}

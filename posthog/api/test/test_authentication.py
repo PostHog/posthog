@@ -43,6 +43,7 @@ from posthog.models.organization_domain import OrganizationDomain
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team.team import Team
 from posthog.models.utils import generate_random_token_personal, hash_key_value
+from posthog.models.webauthn_credential import WebauthnCredential
 
 VALID_TEST_PASSWORD = "mighty-strong-secure-1337!!"
 
@@ -1406,6 +1407,30 @@ class TestPasswordResetAPI(APIBaseTest):
             },
         )
         self.assertEqual(mock_capture.call_count, 2)
+
+    def test_password_reset_revokes_existing_passkeys(self):
+        self.user.is_email_verified = False
+        self.user.passkeys_enabled_for_2fa = True
+        self.user.requested_password_reset_at = datetime.now()
+        self.user.save()
+        WebauthnCredential.objects.create(
+            user=self.user,
+            credential_id=b"test-credential-id",
+            label="Test Passkey",
+            public_key=b"test-public-key",
+            algorithm=-7,
+            counter=0,
+            transports=["internal"],
+            verified=True,
+        )
+
+        token = password_reset_token_generator.make_token(self.user)
+        response = self.client.post(f"/api/reset/{self.user.uuid}/", {"token": token, "password": VALID_TEST_PASSWORD})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        self.user.refresh_from_db()
+        self.assertFalse(WebauthnCredential.objects.filter(user=self.user).exists())
+        self.assertFalse(self.user.passkeys_enabled_for_2fa)
 
     def test_cant_set_short_password(self):
         token = password_reset_token_generator.make_token(self.user)
