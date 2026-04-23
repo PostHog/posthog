@@ -1643,6 +1643,8 @@ export type RetentionFilter = {
     /** @description The type of property to aggregate on (event or person). Defaults to event.
      * @default event */
     aggregationPropertyType?: 'event' | 'person'
+    /** For data warehouse based retention insights when the aggregation target can't be mapped to persons or groups. */
+    customAggregationTarget?: boolean
 
     //frontend only
     meanRetentionCalculation?: RetentionFilterLegacy['mean_retention_calculation']
