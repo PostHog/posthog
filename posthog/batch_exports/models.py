@@ -187,6 +187,12 @@ BATCH_EXPORT_INTERVALS = [
     ("every 15 minutes", "every 15 minutes"),
 ]
 
+BATCH_EXPORT_INTERVAL_TO_START_JITTER = {
+    "hour": timedelta(minutes=15),
+    "day": timedelta(minutes=20),
+    "week": timedelta(minutes=30),
+}
+
 
 class BatchExport(ModelActivityMixin, UUIDTModel):
     """
@@ -303,12 +309,8 @@ class BatchExport(ModelActivityMixin, UUIDTModel):
         the start hour of the export, therefore we don't want to make the jitter
         too large.
         """
-        if self.interval == "hour":
-            return timedelta(minutes=15)
-        elif self.interval == "day":
-            return timedelta(minutes=30)
-        elif self.interval == "week":
-            return timedelta(hours=1)
+        if self.interval in ("hour", "day", "week"):
+            return BATCH_EXPORT_INTERVAL_TO_START_JITTER[self.interval]
         elif self.interval.startswith("every"):
             # This yields 1 minute for 5 minute batch exports, which is the only
             # "every" interval in use currently.

@@ -75,7 +75,6 @@ tools:
         description: >
             List log alert configurations in the current project, newest first. Returns alert name, state, threshold,
             filters, and scheduling details. Use this to review existing alerts before creating or modifying them.
-        mcp_version: 1
         response:
             include:
                 - id
@@ -148,7 +147,6 @@ tools:
         description: >
             Get a log alert configuration by ID. Returns full details including current state, threshold settings,
             filters, and scheduling information.
-        mcp_version: 1
         response:
             include:
                 - id

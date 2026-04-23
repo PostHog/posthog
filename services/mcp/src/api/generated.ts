@@ -20103,6 +20103,26 @@ export namespace Schemas {
       content_type?: string;
     }
 
+    export interface LLMSkillFileCreate {
+      /**
+       * File path relative to skill root, e.g. 'scripts/setup.sh' or 'references/guide.md'.
+       * @maxLength 500
+       */
+      path: string;
+      /** Text content of the file. */
+      content: string;
+      /**
+       * MIME type of the file content.
+       * @maxLength 100
+       */
+      content_type?: string;
+      /**
+       * Latest version you are editing from. If provided, the request fails with 409 when another write has landed in the meantime.
+       * @minimum 1
+       */
+      base_version?: number;
+    }
+
     export interface LLMSkillFileEdit {
       /**
        * Path of the bundled file to edit. Must match an existing file on the current skill version.
@@ -20111,6 +20131,24 @@ export namespace Schemas {
       path: string;
       /** Sequential find/replace operations to apply to this file's content. */
       edits: LLMSkillEditOperation[];
+    }
+
+    export interface LLMSkillFileRename {
+      /**
+       * Current file path to rename.
+       * @maxLength 500
+       */
+      old_path: string;
+      /**
+       * New file path. Must not already exist in the skill.
+       * @maxLength 500
+       */
+      new_path: string;
+      /**
+       * Latest version you are editing from. If provided, the request fails with 409 when another write has landed in the meantime.
+       * @minimum 1
+       */
+      base_version?: number;
     }
 
     /**
@@ -20278,15 +20316,22 @@ export namespace Schemas {
       Broken: 'broken',
     } as const;
 
-    export interface LogsAlertSparklineBucket {
-      /** Bucket start timestamp (UTC, hourly). */
-      timestamp: string;
-      /** Count of breached checks in this hour. */
-      breached: number;
-      /** Count of errored checks in this hour. */
-      errored: number;
-      /** Count of checks that transitioned the alert from firing to resolved in this hour. */
-      resolved: number;
+    export interface LogsAlertStateInterval {
+      /** Interval start (UTC, inclusive). */
+      start: string;
+      /** Interval end (UTC, exclusive). */
+      end: string;
+      /** Alert state during this interval.
+
+    * `not_firing` - Not firing
+    * `firing` - Firing
+    * `pending_resolve` - Pending resolve
+    * `errored` - Errored
+    * `snoozed` - Snoozed
+    * `broken` - Broken */
+      state: LogsAlertConfigurationStateEnum;
+      /** Whether the alert was enabled during this interval. Disabled alerts keep their state but are inactive. */
+      enabled: boolean;
     }
 
     export interface LogsAlertConfiguration {
@@ -20368,8 +20413,8 @@ export namespace Schemas {
        * @nullable
        */
       readonly last_error_message: string | null;
-      /** 24 hourly buckets of breached + errored check counts for the last 24h, ordered oldest-first. Drives the activity column on the alert list — empty sparkline = healthy alert. Ok checks are not included: retention caps OK rows at MAX_EVALUATION_PERIODS (~50min at 5-min cadence), so only events that survive the prune (breached + errored) are meaningful over a 24h window. */
-      readonly sparkline: readonly LogsAlertSparklineBucket[];
+      /** Continuous state intervals over the last 24h, ordered oldest-first. Each interval covers a span during which (state, enabled) was constant. Derived from LogsAlertEvent rows walked in chronological order; consecutive identical intervals are collapsed. Drives the 'Last 24h' status bar on the alert list. */
+      readonly state_timeline: readonly LogsAlertStateInterval[];
       /** Notification destination types configured for this alert — e.g. 'slack', 'webhook'. Empty list means no notifications will fire. One or more destinations should be added after creating an alert. */
       readonly destination_types: readonly DestinationTypesEnum[];
       /** When the alert was created. */
@@ -26666,8 +26711,8 @@ export namespace Schemas {
        * @nullable
        */
       readonly last_error_message?: string | null;
-      /** 24 hourly buckets of breached + errored check counts for the last 24h, ordered oldest-first. Drives the activity column on the alert list — empty sparkline = healthy alert. Ok checks are not included: retention caps OK rows at MAX_EVALUATION_PERIODS (~50min at 5-min cadence), so only events that survive the prune (breached + errored) are meaningful over a 24h window. */
-      readonly sparkline?: readonly LogsAlertSparklineBucket[];
+      /** Continuous state intervals over the last 24h, ordered oldest-first. Each interval covers a span during which (state, enabled) was constant. Derived from LogsAlertEvent rows walked in chronological order; consecutive identical intervals are collapsed. Drives the 'Last 24h' status bar on the alert list. */
+      readonly state_timeline?: readonly LogsAlertStateInterval[];
       /** Notification destination types configured for this alert — e.g. 'slack', 'webhook'. Empty list means no notifications will fire. One or more destinations should be added after creating an alert. */
       readonly destination_types?: readonly DestinationTypesEnum[];
       /** When the alert was created. */
@@ -38361,6 +38406,14 @@ export namespace Schemas {
      * @minimum 1
      */
     version?: number;
+    };
+
+    export type LlmSkillsNameFilesDestroyParams = {
+    /**
+     * Latest version you are editing from. If provided, the request fails with 409 when another write has landed in the meantime.
+     * @minimum 1
+     */
+    base_version?: number;
     };
 
     export type LlmSkillsResolveNameRetrieveParams = {
