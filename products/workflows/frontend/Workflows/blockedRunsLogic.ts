@@ -14,11 +14,23 @@ export interface BlockedRun {
     message: string
 }
 
+export interface BlockedRunsState {
+    results: BlockedRun[]
+    hasNext: boolean
+    offset: number
+}
+
 export interface BlockedRunsLogicProps {
     id: string
 }
 
 const PAGE_SIZE = 100
+
+const DEFAULT_BLOCKED_RUNS_STATE: BlockedRunsState = {
+    results: [],
+    hasNext: false,
+    offset: 0,
+}
 
 export const blockedRunsLogic = kea<blockedRunsLogicType>([
     path(['products', 'workflows', 'frontend', 'Workflows', 'blockedRunsLogic']),
@@ -34,9 +46,9 @@ export const blockedRunsLogic = kea<blockedRunsLogicType>([
     }),
     loaders(({ props, values }) => ({
         blockedRuns: [
-            { results: [] as BlockedRun[], hasNext: false, offset: 0 },
+            DEFAULT_BLOCKED_RUNS_STATE,
             {
-                loadBlockedRuns: async () => {
+                loadBlockedRuns: async (): Promise<BlockedRunsState> => {
                     const response = await api.hogFlows.getBlockedRuns(props.id, PAGE_SIZE, 0)
                     return {
                         results: response.results,
@@ -44,7 +56,7 @@ export const blockedRunsLogic = kea<blockedRunsLogicType>([
                         offset: PAGE_SIZE,
                     }
                 },
-                loadMoreBlockedRuns: async () => {
+                loadMoreBlockedRuns: async (): Promise<BlockedRunsState> => {
                     const current = values.blockedRuns
                     const response = await api.hogFlows.getBlockedRuns(props.id, PAGE_SIZE, current.offset)
                     return {

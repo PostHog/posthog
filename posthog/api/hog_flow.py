@@ -711,6 +711,30 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
         if not event_uuid or not action_id or not instance_id:
             return Response({"error": "event_uuid, action_id, and instance_id are required"}, status=400)
 
+        # Validate instance_id belongs to a blocked run for this workflow
+        from posthog.clickhouse.client.execute import sync_execute
+
+        validation_result = sync_execute(
+            """
+            SELECT message
+            FROM log_entries
+            WHERE team_id = %(team_id)s
+              AND log_source = 'hog_flow'
+              AND log_source_id = %(log_source_id)s
+              AND instance_id = %(instance_id)s
+              AND positionCaseInsensitiveUTF8(message, 'duplicate execution detected') > 0
+              AND timestamp >= toDate(NOW() - INTERVAL 30 DAY)
+            LIMIT 1
+            """,
+            {"team_id": self.team_id, "log_source_id": str(hog_flow.id), "instance_id": instance_id},
+        )
+        if not validation_result:
+            return Response({"error": f"Blocked run {instance_id} not found for this workflow"}, status=404)
+
+        _, logged_event_uuid = self._parse_blocked_run_message(validation_result[0][0])
+        if logged_event_uuid != event_uuid:
+            return Response({"error": "event_uuid does not match the blocked run"}, status=400)
+
         clickhouse_event = self._fetch_clickhouse_event(event_uuid)
         if not clickhouse_event:
             return Response({"error": f"Event {event_uuid} not found"}, status=404)
@@ -739,11 +763,9 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
 
         hog_flow = self.get_object()
 
-        max_replay_batch = 1000
-        query = self.BLOCKED_RUNS_SQL + "\nLIMIT %(limit)s"
         results = sync_execute(
-            query,
-            {"team_id": self.team_id, "log_source_id": str(hog_flow.id), "limit": max_replay_batch},
+            self.BLOCKED_RUNS_SQL,
+            {"team_id": self.team_id, "log_source_id": str(hog_flow.id)},
         )
 
         # Parse blocked runs and collect event UUIDs

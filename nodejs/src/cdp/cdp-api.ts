@@ -697,11 +697,13 @@ export class CdpApi {
 
             if (invocations.length > 0) {
                 await this.cyclotronJobQueue.queueInvocations(invocations)
-            }
 
-            if (logEntries.length > 0) {
-                this.hogFunctionMonitoringService.queueLogs(logEntries, 'hog_flow')
-                await this.hogFunctionMonitoringService.flush()
+                // Only write replay markers after invocations are successfully queued,
+                // otherwise failed runs would disappear from the blocked list permanently
+                if (logEntries.length > 0) {
+                    this.hogFunctionMonitoringService.queueLogs(logEntries, 'hog_flow')
+                    await this.hogFunctionMonitoringService.flush()
+                }
             }
 
             logger.info('⚡️', 'Bulk replay completed', { id, team_id, succeeded, failed })

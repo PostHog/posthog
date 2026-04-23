@@ -1637,6 +1637,7 @@ class TestHogFlowBlockedRuns(ClickhouseTestMixin, APIBaseTest):
             person_id=person_id,
             person_properties={"email": "test@example.com"},
         )
+        self._insert_blocked_log(flow_id, "inv-001", "action_1", str(event_uuid))
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/hog_flows/{flow_id}/replay_blocked_run",
@@ -1654,6 +1655,28 @@ class TestHogFlowBlockedRuns(ClickhouseTestMixin, APIBaseTest):
         assert items[0]["clickhouse_event"]["uuid"] == str(event_uuid)
         assert items[0]["clickhouse_event"]["person_id"] == str(person_id)
         assert "person_properties" in items[0]["clickhouse_event"]
+
+    def test_replay_blocked_run_invalid_instance_id(self):
+        flow_id = self._create_flow()
+        self._insert_blocked_log(flow_id, "inv-001", "action_1", "550e8400-e29b-41d4-a716-446655440000")
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}/replay_blocked_run",
+            {"event_uuid": "550e8400-e29b-41d4-a716-446655440000", "action_id": "action_1", "instance_id": "bogus-id"},
+        )
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+        assert "not found" in response.json()["error"]
+
+    def test_replay_blocked_run_mismatched_event_uuid(self):
+        flow_id = self._create_flow()
+        self._insert_blocked_log(flow_id, "inv-001", "action_1", "550e8400-e29b-41d4-a716-446655440000")
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}/replay_blocked_run",
+            {"event_uuid": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee", "action_id": "action_1", "instance_id": "inv-001"},
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "does not match" in response.json()["error"]
 
     def test_replay_blocked_run_missing_params(self):
         flow_id = self._create_flow()

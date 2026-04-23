@@ -6084,7 +6084,7 @@ const api = {
         async replayBlockedRun(
             hogFlowId: HogFlow['id'],
             data: { event_uuid: string; action_id: string; instance_id: string }
-        ): Promise<{ status: string; invocation_id: string }> {
+        ): Promise<{ status: string }> {
             return await new ApiRequest().hogFlow(hogFlowId).withAction('replay_blocked_run').create({ data })
         },
         async replayAllBlockedRuns(
