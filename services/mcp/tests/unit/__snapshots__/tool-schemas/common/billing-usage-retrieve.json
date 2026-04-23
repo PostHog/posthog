@@ -10,7 +10,7 @@
                     "type": "null"
                 }
             ],
-            "description": "Comma-separated dimensions to break down by (e.g. \"type\", \"team\"). Omit for a single aggregate series."
+            "description": "JSON-encoded array of dimensions to break down by, NOT a comma-separated string. Valid dimensions are \"type\" (by usage type) and \"team\" (by project). Pass as e.g. `[\"type\",\"team\"]` or `[\"team\"]`. Omit for a single aggregate series. Sending a bare string like \"type,team\" will fail with a 400 error."
         },
         "end_date": {
             "anyOf": [
