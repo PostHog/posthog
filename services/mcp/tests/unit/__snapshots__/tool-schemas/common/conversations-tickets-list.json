@@ -11,6 +11,8 @@
                 "slack_bot_mention",
                 "slack_channel_message",
                 "slack_emoji_reaction",
+                "teams_bot_mention",
+                "teams_channel_message",
                 "widget_api",
                 "widget_embedded"
             ],
@@ -18,7 +20,7 @@
         },
         "channel_source": {
             "description": "Filter by the channel the ticket originated from.",
-            "enum": ["email", "slack", "widget"],
+            "enum": ["email", "slack", "teams", "widget"],
             "type": "string"
         },
         "date_from": {

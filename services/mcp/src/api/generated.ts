@@ -3032,6 +3032,11 @@ export namespace Schemas {
     } as const;
 
     export interface RetentionEntity {
+      /**
+       * Data warehouse field used as the actor identifier
+       * @nullable
+       */
+      aggregation_target_field?: string | null;
       /** @nullable */
       custom_name?: string | null;
       id?: string | number | null;
@@ -3045,6 +3050,16 @@ export namespace Schemas {
        * @nullable
        */
       properties?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
+      /**
+       * Data warehouse table name
+       * @nullable
+       */
+      table_name?: string | null;
+      /**
+       * Data warehouse timestamp field
+       * @nullable
+       */
+      timestamp_field?: string | null;
       type?: EntityType | null;
       /** @nullable */
       uuid?: string | null;
@@ -3070,6 +3085,11 @@ export namespace Schemas {
       aggregationType?: AggregationType | null;
       /** @nullable */
       cumulative?: boolean | null;
+      /**
+       * For data warehouse based retention insights when the aggregation target can't be mapped to persons or groups.
+       * @nullable
+       */
+      customAggregationTarget?: boolean | null;
       dashboardDisplay?: RetentionDashboardDisplayType | null;
       /** controls the display of the retention graph */
       display?: ChartDisplayType | null;
@@ -7425,6 +7445,8 @@ export namespace Schemas {
      * * `slack_channel_message` - Channel message
     * `slack_bot_mention` - Bot mention
     * `slack_emoji_reaction` - Emoji reaction
+    * `teams_channel_message` - Teams channel message
+    * `teams_bot_mention` - Teams bot mention
     * `widget_embedded` - Widget
     * `widget_api` - API
      */
@@ -7435,6 +7457,8 @@ export namespace Schemas {
       SlackChannelMessage: 'slack_channel_message',
       SlackBotMention: 'slack_bot_mention',
       SlackEmojiReaction: 'slack_emoji_reaction',
+      TeamsChannelMessage: 'teams_channel_message',
+      TeamsBotMention: 'teams_bot_mention',
       WidgetEmbedded: 'widget_embedded',
       WidgetApi: 'widget_api',
     } as const;
@@ -7443,6 +7467,7 @@ export namespace Schemas {
      * * `widget` - Widget
     * `email` - Email
     * `slack` - Slack
+    * `teams` - Microsoft Teams
      */
     export type ChannelSourceEnum = typeof ChannelSourceEnum[keyof typeof ChannelSourceEnum];
 
@@ -7451,6 +7476,7 @@ export namespace Schemas {
       Widget: 'widget',
       Email: 'email',
       Slack: 'slack',
+      Teams: 'teams',
     } as const;
 
     export type DisplayType = typeof DisplayType[keyof typeof DisplayType];
@@ -16289,11 +16315,12 @@ export namespace Schemas {
     * `BuildBetter` - BuildBetter
     * `Convex` - Convex
     * `ClickHouse` - ClickHouse
+    * `Plain` - Plain
      */
-    export type SourceTypeF0aEnum = typeof SourceTypeF0aEnum[keyof typeof SourceTypeF0aEnum];
+    export type SourceTypeEe8Enum = typeof SourceTypeEe8Enum[keyof typeof SourceTypeEe8Enum];
 
 
-    export const SourceTypeF0aEnum = {
+    export const SourceTypeEe8Enum = {
       Ashby: 'Ashby',
       Supabase: 'Supabase',
       CustomerIO: 'CustomerIO',
@@ -16436,6 +16463,7 @@ export namespace Schemas {
       BuildBetter: 'BuildBetter',
       Convex: 'Convex',
       ClickHouse: 'ClickHouse',
+      Plain: 'Plain',
     } as const;
 
     /**
@@ -16449,7 +16477,7 @@ export namespace Schemas {
       readonly status: string;
       client_secret: string;
       account_id: string;
-      readonly source_type: SourceTypeF0aEnum;
+      readonly source_type: SourceTypeEe8Enum;
       /** @nullable */
       readonly latest_error: string | null;
       /**
@@ -23760,7 +23788,7 @@ export namespace Schemas {
       /** @nullable */
       readonly created_by: number | null;
       readonly status: string;
-      readonly source_type: SourceTypeF0aEnum;
+      readonly source_type: SourceTypeEe8Enum;
     }
 
     export type TableColumnsItem = {[key: string]: unknown};
@@ -26067,7 +26095,7 @@ export namespace Schemas {
       readonly status?: string;
       client_secret?: string;
       account_id?: string;
-      readonly source_type?: SourceTypeF0aEnum;
+      readonly source_type?: SourceTypeEe8Enum;
       /** @nullable */
       readonly latest_error?: string | null;
       /**
@@ -37072,6 +37100,10 @@ export namespace Schemas {
      * @minimum 0
      */
     offset?: number;
+    /**
+     * Optional case-insensitive repository name search query.
+     */
+    search?: string;
     };
 
     export type EnvironmentsLogsAlertsListParams = {
@@ -39503,6 +39535,8 @@ export namespace Schemas {
       SlackBotMention: 'slack_bot_mention',
       SlackChannelMessage: 'slack_channel_message',
       SlackEmojiReaction: 'slack_emoji_reaction',
+      TeamsBotMention: 'teams_bot_mention',
+      TeamsChannelMessage: 'teams_channel_message',
       WidgetApi: 'widget_api',
       WidgetEmbedded: 'widget_embedded',
     } as const;
@@ -39513,6 +39547,7 @@ export namespace Schemas {
     export const ConversationsTicketsListChannelSource = {
       Email: 'email',
       Slack: 'slack',
+      Teams: 'teams',
       Widget: 'widget',
     } as const;
 
@@ -41213,6 +41248,10 @@ export namespace Schemas {
      * @minimum 0
      */
     offset?: number;
+    /**
+     * Optional case-insensitive repository name search query.
+     */
+    search?: string;
     };
 
     export type LiveDebuggerBreakpointsListParams = {
