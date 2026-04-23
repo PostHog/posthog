@@ -950,6 +950,161 @@ class TaskRunCreateRequestSerializer(serializers.Serializer):
         return attrs
 
 
+class TaskRunBootstrapCreateRequestSerializer(serializers.Serializer):
+    """Request body for creating a task run without starting execution yet."""
+
+    PR_AUTHORSHIP_MODE_CHOICES = [mode.value for mode in PrAuthorshipMode]
+    RUN_SOURCE_CHOICES = [source.value for source in RunSource]
+    RUNTIME_ADAPTER_CHOICES = [adapter.value for adapter in RuntimeAdapter]
+    REASONING_EFFORT_CHOICES = [effort.value for effort in PUBLIC_REASONING_EFFORTS]
+
+    environment = serializers.ChoiceField(
+        choices=[environment.value for environment in TaskRun.Environment],
+        required=False,
+        default=TaskRun.Environment.LOCAL,
+        help_text="Execution environment for the new run. Use 'cloud' for remote sandbox runs and 'local' for desktop sessions.",
+    )
+    mode = serializers.ChoiceField(
+        choices=["interactive", "background"],
+        required=False,
+        default="background",
+        help_text="Execution mode: 'interactive' for user-connected runs, 'background' for autonomous runs",
+    )
+    branch = serializers.CharField(
+        required=False,
+        allow_null=True,
+        default=None,
+        max_length=255,
+        help_text="Git branch to checkout in the sandbox",
+    )
+    sandbox_environment_id = serializers.UUIDField(
+        required=False,
+        default=None,
+        help_text="Optional sandbox environment to apply for this cloud run.",
+    )
+    pr_authorship_mode = serializers.ChoiceField(
+        choices=PR_AUTHORSHIP_MODE_CHOICES,
+        required=False,
+        default=None,
+        help_text="Whether pull requests for this run should be authored by the user or the bot.",
+    )
+    run_source = serializers.ChoiceField(
+        choices=RUN_SOURCE_CHOICES,
+        required=False,
+        default=None,
+        help_text="High-level source that triggered this run, used to distinguish manual and signal-based cloud runs.",
+    )
+    signal_report_id = serializers.CharField(
+        required=False,
+        default=None,
+        allow_blank=False,
+        help_text="Optional signal report identifier when this run was started from Inbox.",
+    )
+    runtime_adapter = serializers.ChoiceField(
+        choices=RUNTIME_ADAPTER_CHOICES,
+        required=False,
+        default=None,
+        help_text="Agent runtime adapter to launch for this run. Use 'claude' for the Claude runtime or 'codex' for the Codex runtime.",
+    )
+    model = serializers.CharField(
+        required=False,
+        default=None,
+        allow_blank=False,
+        help_text="LLM model identifier to run in the selected runtime.",
+    )
+    reasoning_effort = serializers.ChoiceField(
+        choices=REASONING_EFFORT_CHOICES,
+        required=False,
+        default=None,
+        help_text="Reasoning effort to request for models that expose an effort control.",
+    )
+    github_user_token = serializers.CharField(
+        required=False,
+        default=None,
+        allow_blank=False,
+        write_only=True,
+        help_text="Ephemeral GitHub user token from PostHog Code for user-authored cloud pull requests.",
+    )
+    initial_permission_mode = serializers.ChoiceField(
+        choices=ALL_INITIAL_PERMISSION_MODE_CHOICES,
+        required=False,
+        default=None,
+        help_text=(
+            "Initial permission mode for the agent session. Claude runtimes accept PostHog permission "
+            "presets like 'plan'. Codex runtimes accept native Codex modes like 'auto' and "
+            "'read-only'."
+        ),
+    )
+
+    def validate(self, attrs):
+        errors: dict[str, str] = {}
+        initial_permission_mode = attrs.get("initial_permission_mode")
+        runtime_adapter = attrs.get("runtime_adapter")
+        if initial_permission_mode is not None:
+            if runtime_adapter is None:
+                errors["initial_permission_mode"] = "This field requires runtime_adapter to be set."
+            else:
+                allowed_permission_modes = (
+                    list(CODEX_INITIAL_PERMISSION_MODE_CHOICES)
+                    if runtime_adapter == RuntimeAdapter.CODEX.value
+                    else list(INITIAL_PERMISSION_MODE_CHOICES)
+                )
+
+                if initial_permission_mode not in allowed_permission_modes:
+                    allowed_values = ", ".join(f"'{value}'" for value in allowed_permission_modes)
+                    errors["initial_permission_mode"] = (
+                        f"Invalid choice '{initial_permission_mode}' for runtime_adapter "
+                        f"'{runtime_adapter}'. Supported values: {allowed_values}."
+                    )
+
+        runtime_fields = ("runtime_adapter", "model")
+        has_runtime_selection = any(attrs.get(field) is not None for field in (*runtime_fields, "reasoning_effort"))
+        if not has_runtime_selection:
+            if errors:
+                raise serializers.ValidationError(errors)
+            return attrs
+
+        for field in runtime_fields:
+            if attrs.get(field) is None:
+                errors[field] = "This field is required when selecting a cloud runtime."
+
+        reasoning_effort_error = get_reasoning_effort_error(
+            runtime_adapter=attrs.get("runtime_adapter"),
+            model=attrs.get("model"),
+            reasoning_effort=attrs.get("reasoning_effort"),
+        )
+        if reasoning_effort_error is not None:
+            errors["reasoning_effort"] = reasoning_effort_error
+
+        if errors:
+            raise serializers.ValidationError(errors)
+
+        return attrs
+
+
+class TaskRunStartRequestSerializer(serializers.Serializer):
+    pending_user_message = serializers.CharField(
+        required=False,
+        default=None,
+        allow_blank=True,
+        help_text="Initial or follow-up user message to include in the run prompt.",
+    )
+    pending_user_artifact_ids = serializers.ListField(
+        required=False,
+        default=list,
+        child=serializers.CharField(max_length=128),
+        help_text="Identifiers for run artifacts that should be attached to the next user message delivered to the sandbox.",
+    )
+
+    def validate(self, attrs):
+        pending_user_message = attrs.get("pending_user_message")
+        if pending_user_message is not None:
+            trimmed_message = pending_user_message.strip()
+            attrs["pending_user_message"] = trimmed_message or None
+
+        return attrs
+
+
 class ClaudeTaskRunCreateSchemaSerializer(TaskRunCreateRequestSerializer):
     runtime_adapter = serializers.ChoiceField(
         choices=[RuntimeAdapter.CLAUDE.value],
