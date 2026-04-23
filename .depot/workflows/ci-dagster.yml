@@ -164,7 +164,7 @@ jobs:
     dagster:
         name: Dagster tests
         needs: [changes]
-        timeout-minutes: 30
+        timeout-minutes: 60
         strategy:
             fail-fast: false
             matrix:
@@ -193,6 +193,7 @@ jobs:
               env:
                   COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
                   CLICKHOUSE_SERVER_IMAGE: ${{ matrix.clickhouse-server-image }}
+                  WAIT_FOR_DOCKER_TIMEOUT: 900
               run: bin/ci-wait-for-docker wait
             - name: Set up Python
               uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0

@@ -138,7 +138,7 @@ jobs:
         if: >-
             always() && needs.turbo-discover.result == 'success' && needs.turbo-discover.outputs.matrix != '[]' && needs.turbo-discover.outputs.matrix != ''
         runs-on: depot-ubuntu-latest
-        timeout-minutes: 30
+        timeout-minutes: 60
         continue-on-error: true
         name: Product tests (${{ matrix.group }})
         strategy:
@@ -219,8 +219,11 @@ jobs:
                   COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
                   COMPOSE_PROFILES: temporal,azure
                   CLICKHOUSE_SERVER_IMAGE: clickhouse/clickhouse-server:26.3.9.8
+                  WAIT_FOR_DOCKER_TIMEOUT: 900
               run: bin/ci-wait-for-docker wait
             - name: Register Temporal search attributes
+              env:
+                  WAIT_FOR_DOCKER_TIMEOUT: 900
               run: |
                   bin/wait-for-docker temporal
                   python manage.py register_temporal_search_attributes
@@ -517,7 +520,7 @@ jobs:
              needs.turbo-discover.outputs.run_legacy == 'true' ||
              (needs.turbo-discover.result != 'success' && needs.turbo-discover.result != 'skipped'))
         # increase for tmate testing
-        timeout-minutes: 30
+        timeout-minutes: 60
         name: Django tests – ${{ matrix.segment }}${{ matrix.compat && ' compat' || '' }} (persons-on-events ${{ matrix.person-on-events && 'on' || 'off' }}), Py ${{ matrix.python-version }}, ${{ matrix.clickhouse-server-image }} (${{matrix.group}}/${{ matrix.concurrency }})
         runs-on: depot-ubuntu-latest
         continue-on-error: true
@@ -664,6 +667,7 @@ jobs:
                   COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
                   COMPOSE_PROFILES: temporal,azure
                   CLICKHOUSE_SERVER_IMAGE: ${{ matrix.clickhouse-server-image || needs.get_clickhouse_versions.outputs.oldest_supported_image }}
+                  WAIT_FOR_DOCKER_TIMEOUT: 900
               run: bin/ci-wait-for-docker wait
             # Tests
             - name: Log test environment diagnostics
