@@ -5220,26 +5220,17 @@ class TestDestroySourceCleansUpCompanionTables(APIBaseTest):
 
 
 class TestExternalDataSourceCreateSerializerValidation(APIBaseTest):
-    def test_create_rejects_missing_source_type(self):
+    @parameterized.expand(
+        [
+            ("missing_source_type", {"payload": {"host": "localhost"}}),
+            ("missing_payload", {"source_type": "Postgres"}),
+            ("invalid_source_type", {"source_type": "InvalidType", "payload": {"host": "localhost"}}),
+        ]
+    )
+    def test_create_rejects_invalid_input(self, _name: str, data: dict) -> None:
         response = self.client.post(
             f"/api/environments/{self.team.pk}/external_data_sources/",
-            {"payload": {"host": "localhost"}},
-            format="json",
-        )
-        assert response.status_code == 400
-
-    def test_create_rejects_missing_payload(self):
-        response = self.client.post(
-            f"/api/environments/{self.team.pk}/external_data_sources/",
-            {"source_type": "Postgres"},
-            format="json",
-        )
-        assert response.status_code == 400
-
-    def test_create_rejects_invalid_source_type(self):
-        response = self.client.post(
-            f"/api/environments/{self.team.pk}/external_data_sources/",
-            {"source_type": "InvalidType", "payload": {"host": "localhost"}},
+            data,
             format="json",
         )
         assert response.status_code == 400
