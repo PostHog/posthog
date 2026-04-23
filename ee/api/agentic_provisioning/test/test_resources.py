@@ -219,8 +219,17 @@ class TestProvisioningResources(StripeProvisioningTestBase):
             team=foreign_team, defaults={"stripe_project_id": "proj_shared"}
         )
 
+        original_update_or_create = TeamProvisioningConfig.objects.update_or_create
+        calls: list[int] = []
+
+        def raise_once_then_passthrough(*args, **kwargs):
+            calls.append(1)
+            if len(calls) == 1:
+                raise IntegrityError
+            return original_update_or_create(*args, **kwargs)
+
         token = self._get_bearer_token()
-        with patch.object(TeamProvisioningConfig.objects, "update_or_create", side_effect=IntegrityError):
+        with patch.object(TeamProvisioningConfig.objects, "update_or_create", side_effect=raise_once_then_passthrough):
             res = self._post_signed_with_bearer(
                 "/api/agentic/provisioning/resources",
                 data={"service_id": "analytics", "project_id": "proj_shared"},
