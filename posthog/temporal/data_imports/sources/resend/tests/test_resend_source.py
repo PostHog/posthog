@@ -45,9 +45,9 @@ class TestResendSource:
 
         assert {schema.name for schema in schemas} == set(ENDPOINTS)
         for schema in schemas:
-            assert schema.supports_incremental is True
-            assert schema.supports_append is True
-            assert any(field["field"] == "created_at" for field in schema.incremental_fields)
+            assert schema.supports_incremental is False
+            assert schema.supports_append is False
+            assert schema.incremental_fields == []
 
     def test_get_schemas_filtered_by_names(self):
         schemas = self.source.get_schemas(self.config, self.team_id, names=["emails"])

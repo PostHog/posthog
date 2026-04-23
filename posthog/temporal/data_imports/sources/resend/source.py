@@ -18,7 +18,7 @@ from posthog.temporal.data_imports.sources.resend.resend import (
     resend_source,
     validate_credentials as validate_resend_credentials,
 )
-from posthog.temporal.data_imports.sources.resend.settings import ENDPOINTS, INCREMENTAL_FIELDS
+from posthog.temporal.data_imports.sources.resend.settings import ENDPOINTS
 
 from products.data_warehouse.backend.types import ExternalDataSourceType
 
@@ -65,18 +65,12 @@ Grant the key **full access** or a read-enabled access token so the following re
     def get_schemas(
         self, config: ResendSourceConfig, team_id: int, with_counts: bool = False, names: list[str] | None = None
     ) -> list[SourceSchema]:
-        schemas = []
-        for endpoint in ENDPOINTS:
-            incremental_fields = INCREMENTAL_FIELDS.get(endpoint) or []
-            has_incremental = bool(incremental_fields)
-            schemas.append(
-                SourceSchema(
-                    name=endpoint,
-                    supports_incremental=has_incremental,
-                    supports_append=has_incremental,
-                    incremental_fields=incremental_fields,
-                )
-            )
+        # Resend's API does not expose server-side filters on created_at; sync as
+        # full-refresh only. Within-sync resumption is handled by ResumableSource.
+        schemas = [
+            SourceSchema(name=endpoint, supports_incremental=False, supports_append=False, incremental_fields=[])
+            for endpoint in ENDPOINTS
+        ]
         if names is not None:
             names_set = set(names)
             schemas = [s for s in schemas if s.name in names_set]

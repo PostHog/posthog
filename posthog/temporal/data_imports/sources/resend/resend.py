@@ -128,7 +128,6 @@ def _iter_contacts_fanout(
     """For each audience, fetch its contacts and inject `_audience_id` onto each row."""
     resume_config = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
     skip_until: Optional[str] = resume_config.last_completed_parent_id if resume_config else None
-    skipping = skip_until is not None
 
     audiences_config = RESEND_ENDPOINTS[config.parent] if config.parent else None
     if audiences_config is None:
@@ -137,15 +136,22 @@ def _iter_contacts_fanout(
     audiences_data = _fetch(f"{RESEND_BASE_URL}{audiences_config.path}", _get_headers(api_key), None, logger)
     audiences = audiences_data.get("data") or []
 
-    for audience in audiences:
-        audience_id = audience.get("id")
-        if not audience_id:
-            continue
+    # Resume at the audience after the last completed one. If the last completed audience
+    # no longer exists (e.g. deleted between syncs) we fall back to a full resync rather
+    # than silently skipping every audience and losing all new ones.
+    start_idx = 0
+    if skip_until is not None:
+        found_idx = next((i for i, aud in enumerate(audiences) if aud.get("id") == skip_until), None)
+        if found_idx is not None:
+            start_idx = found_idx + 1
+        else:
+            logger.warning(
+                f"Resend contacts: last completed audience {skip_until} not found in current audiences, "
+                "resuming from the start"
+            )
 
-        if skipping:
-            if audience_id == skip_until:
-                skipping = False
-            continue
+    for audience in audiences[start_idx:]:
+        audience_id = audience["id"]
 
         path = config.path.replace("{audience_id}", audience_id)
         for batch in _iter_flat_endpoint(api_key, config, logger, path=path):

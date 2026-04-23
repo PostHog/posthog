@@ -197,6 +197,31 @@ class TestContactsFanout:
         assert mock_get.call_count == 2
         assert mock_get.call_args_list[1].args[0] == f"{RESEND_BASE_URL}/audiences/aud_3/contacts"
 
+    @patch("posthog.temporal.data_imports.sources.resend.resend.requests.get")
+    def test_fanout_resumes_from_start_when_completed_parent_deleted(self, mock_get: MagicMock) -> None:
+        # If the last completed audience was deleted between syncs we must fall back to a
+        # full resync rather than silently skipping every remaining audience.
+        audiences = [{"id": "aud_1"}, {"id": "aud_2"}]
+        contacts_1 = [{"id": "c1"}]
+        contacts_2 = [{"id": "c2"}]
+
+        mock_get.side_effect = [
+            _mock_response(json_payload={"data": audiences}),
+            _mock_response(json_payload={"data": contacts_1}),
+            _mock_response(json_payload={"data": contacts_2}),
+        ]
+
+        manager = _mock_manager(can_resume=True, state=ResendResumeConfig(last_completed_parent_id="aud_deleted"))
+        logger = MagicMock()
+
+        tables = list(get_rows("re_test", "contacts", logger, manager))
+
+        all_rows: list[dict] = []
+        for table in tables:
+            all_rows.extend(table.to_pylist())
+        assert sorted(row["_audience_id"] for row in all_rows) == ["aud_1", "aud_2"]
+        logger.warning.assert_called_once()
+
 
 class TestSourceResponseShape:
     @parameterized.expand([(name,) for name in ENDPOINTS])
@@ -215,8 +240,9 @@ class TestSourceResponseShape:
 
 
 class TestRetryable:
+    @patch("tenacity.nap.time.sleep")
     @patch("posthog.temporal.data_imports.sources.resend.resend.requests.get")
-    def test_429_retries_until_success(self, mock_get: MagicMock) -> None:
+    def test_429_retries_until_success(self, mock_get: MagicMock, _mock_sleep: MagicMock) -> None:
         mock_get.side_effect = [
             _mock_response(status_code=429),
             _mock_response(json_payload={"data": [{"id": "a1"}]}),
