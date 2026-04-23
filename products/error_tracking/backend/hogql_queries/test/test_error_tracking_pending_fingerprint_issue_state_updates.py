@@ -8,7 +8,6 @@ from posthog.hogql import ast
 from posthog.hogql.database.schema.error_tracking_fingerprint_issue_state import (
     _ISSUE_STATE_COLUMNS,
     RAW_TABLE_NAME,
-    ErrorTrackingFingerprintIssueStateTable,
     _build_union_with_pending_updates,
     _pending_update_select,
     select_from_error_tracking_fingerprint_issue_state_table,
@@ -79,12 +78,3 @@ class TestPendingUpdateUnionBuilder(BaseTest):
         # With pending updates - the scan targets the UNION ALL wrapper aliased as the raw table.
         assert isinstance(select.select_from.table, ast.SelectSetQuery)
         self.assertEqual(select.select_from.alias, RAW_TABLE_NAME)
-
-    def test_table_pending_updates_default_empty(self) -> None:
-        table = ErrorTrackingFingerprintIssueStateTable()
-        self.assertEqual(table.pending_updates, [])
-
-    def test_table_carries_pending_updates(self) -> None:
-        rows = [self._sanitized_row()]
-        table = ErrorTrackingFingerprintIssueStateTable(pending_updates=rows)
-        self.assertEqual(table.pending_updates, rows)

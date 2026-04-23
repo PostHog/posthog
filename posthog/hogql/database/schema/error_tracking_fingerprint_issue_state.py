@@ -1,7 +1,5 @@
 from typing import Any, Optional
 
-from pydantic import Field
-
 from posthog.hogql.ast import SelectQuery
 from posthog.hogql.constants import HogQLQuerySettings
 from posthog.hogql.context import HogQLContext
@@ -19,6 +17,9 @@ from posthog.hogql.database.models import (
     UUIDDatabaseField,
 )
 from posthog.hogql.errors import ResolutionError
+
+# Key used to pass pending fingerprint-issue-state updates through HogQLContext.data_to_ingest.
+PENDING_UPDATES_HOGQL_CONTEXT_KEY = "error_tracking_fingerprints"
 
 ERROR_TRACKING_FINGERPRINT_ISSUE_STATE_FIELDS: dict[str, FieldOrTable] = {
     "team_id": IntegerDatabaseField(name="team_id", nullable=False),
@@ -57,8 +58,7 @@ def join_with_error_tracking_fingerprint_issue_state_table(
 
     if not join_to_add.fields_accessed:
         raise ResolutionError("No fields requested from error_tracking_fingerprint_issue_state")
-    join_table = join_to_add.lazy_join.join_table
-    pending_updates = getattr(join_table, "pending_updates", None) or []
+    pending_updates = context.data_to_ingest.get(PENDING_UPDATES_HOGQL_CONTEXT_KEY) or []
     join_expr = ast.JoinExpr(
         table=select_from_error_tracking_fingerprint_issue_state_table(
             join_to_add.fields_accessed, pending_updates=pending_updates
@@ -183,7 +183,6 @@ class RawErrorTrackingFingerprintIssueStateTable(Table):
 
 class ErrorTrackingFingerprintIssueStateTable(LazyTable):
     fields: dict[str, FieldOrTable] = ERROR_TRACKING_FINGERPRINT_ISSUE_STATE_FIELDS
-    pending_updates: list[dict[str, Any]] = Field(default_factory=list)
 
     def lazy_select(
         self,
@@ -191,8 +190,9 @@ class ErrorTrackingFingerprintIssueStateTable(LazyTable):
         context: HogQLContext,
         node: SelectQuery,
     ):
+        pending_updates = context.data_to_ingest.get(PENDING_UPDATES_HOGQL_CONTEXT_KEY) or []
         return select_from_error_tracking_fingerprint_issue_state_table(
-            table_to_add.fields_accessed, pending_updates=self.pending_updates
+            table_to_add.fields_accessed, pending_updates=pending_updates
         )
 
     def to_printed_clickhouse(self, context):

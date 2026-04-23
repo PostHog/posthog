@@ -6,7 +6,7 @@ from posthog.schema import CachedErrorTrackingQueryResponse, ErrorTrackingQuery,
 from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.database import Database
+from posthog.hogql.database.schema.error_tracking_fingerprint_issue_state import PENDING_UPDATES_HOGQL_CONTEXT_KEY
 
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
@@ -80,13 +80,7 @@ class ErrorTrackingQueryRunner(AnalyticsQueryRunner[ErrorTrackingQueryResponse])
         ctx = HogQLContext(team_id=self.team.pk, team=self.team, user=self.user, enable_select_queries=True)
         raw = self.query.pendingFingerprintIssueStateUpdates or []
         if raw:
-            database = Database.create_for(
-                team=self.team, user=self.user, modifiers=self.modifiers, timings=self.timings
-            )
-            database.get_table("events").fields["fingerprint_issue_state"].join_table.pending_updates = [  # type: ignore[attr-defined]
-                row.model_dump(mode="json") for row in raw
-            ]
-            ctx.database = database
+            ctx.data_to_ingest[PENDING_UPDATES_HOGQL_CONTEXT_KEY] = [row.model_dump(mode="json") for row in raw]
         return ctx
 
     def _calculate(self):
