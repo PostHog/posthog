@@ -868,9 +868,11 @@ const StickinessOperator = z.enum(['gte', 'lte', 'exact'])
 
 const positive_integer = z.coerce.number().int()
 
+const non_negative_integer = z.coerce.number().int()
+
 const StickinessCriteria = z.object({
     operator: StickinessOperator,
-    value: positive_integer,
+    value: non_negative_integer,
 })
 
 const AssistantStickinessFilter = z.object({

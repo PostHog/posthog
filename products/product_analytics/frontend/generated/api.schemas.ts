@@ -3113,7 +3113,7 @@ export const StickinessOperatorApi = {
 
 export interface StickinessCriteriaApi {
     operator: StickinessOperatorApi
-    /** @minimum 1 */
+    /** @minimum 0 */
     value: number
 }
 

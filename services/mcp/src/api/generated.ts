@@ -3377,7 +3377,7 @@ export namespace Schemas {
 
     export interface StickinessCriteria {
       operator: StickinessOperator;
-      /** @minimum 1 */
+      /** @minimum 0 */
       value: number;
     }
 

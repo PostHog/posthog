@@ -35526,7 +35526,7 @@
                     "$ref": "#/definitions/StickinessOperator"
                 },
                 "value": {
-                    "$ref": "#/definitions/positive_integer"
+                    "$ref": "#/definitions/non_negative_integer"
                 }
             },
             "required": ["operator", "value"],
@@ -40035,6 +40035,10 @@
         },
         "positive_integer": {
             "minimum": 1,
+            "type": "integer"
+        },
+        "non_negative_integer": {
+            "minimum": 0,
             "type": "integer"
         }
     }

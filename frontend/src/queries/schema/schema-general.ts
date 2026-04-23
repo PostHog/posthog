@@ -59,7 +59,7 @@ import {
     TrendsFilterType,
 } from '~/types'
 
-import { integer, numerical_key, positive_integer } from './type-utils'
+import { integer, non_negative_integer, numerical_key, positive_integer } from './type-utils'
 
 export { ChartDisplayCategory }
 
@@ -1760,7 +1760,7 @@ export type StickinessComputationMode = (typeof StickinessComputationModes)[keyo
 
 export interface StickinessCriteria {
     operator: StickinessOperator
-    value: positive_integer
+    value: non_negative_integer
 }
 
 export type StickinessFilter = {

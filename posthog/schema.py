@@ -8230,7 +8230,7 @@ class StickinessCriteria(BaseModel):
         extra="forbid",
     )
     operator: StickinessOperator
-    value: conint(ge=1)
+    value: conint(ge=0)
 
 
 class StickinessFilter(BaseModel):
