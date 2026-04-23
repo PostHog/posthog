@@ -2546,15 +2546,12 @@ class GitHubIntegration:
         return repositories
 
     def _filter_cached_repositories(self, repositories: list[dict], search: str) -> list[dict]:
-        search_query = search.strip().lower()
+        search_query = search.strip().casefold()
         if not search_query:
             return repositories
 
         return [
-            repository
-            for repository in repositories
-            if search_query in str(repository.get("full_name", "")).lower()
-            or search_query in str(repository.get("name", "")).lower()
+            repository for repository in repositories if search_query in str(repository.get("full_name", "")).casefold()
         ]
 
     def list_cached_repositories(

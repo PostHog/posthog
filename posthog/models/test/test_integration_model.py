@@ -1054,8 +1054,25 @@ class TestGitHubIntegrationModel(BaseTest):
         assert has_more is True
         mock_list_all.assert_called_once_with()
 
+    @parameterized.expand(
+        [
+            ("blank_search_returns_all", "   ", 10, 0, [1, 2, 3, 4], False),
+            ("no_match_returns_empty", "missing", 10, 0, [], False),
+            ("casefold_matches_owner_prefix", "POSTHOG", 10, 0, [1, 2, 3, 4], False),
+            ("pagination_applies_after_filter", "posthog", 1, 1, [2], True),
+        ]
+    )
     @patch("posthog.models.integration.GitHubIntegration.list_all_repositories")
-    def test_list_cached_repositories_filters_search_before_pagination(self, mock_list_all):
+    def test_list_cached_repositories_filters_search_before_pagination(
+        self,
+        _name,
+        search,
+        limit,
+        offset,
+        expected_ids,
+        expected_has_more,
+        mock_list_all,
+    ):
         fetched_repositories = [
             {"id": 1, "name": "posthog", "full_name": "PostHog/posthog"},
             {"id": 2, "name": "posthog-js", "full_name": "PostHog/posthog-js"},
@@ -1068,10 +1085,12 @@ class TestGitHubIntegrationModel(BaseTest):
         )
         mock_list_all.return_value = fetched_repositories
 
-        repos, has_more = GitHubIntegration(integration).list_cached_repositories(search="posthog", limit=1, offset=1)
+        repos, has_more = GitHubIntegration(integration).list_cached_repositories(
+            search=search, limit=limit, offset=offset
+        )
 
-        assert repos == [{"id": 2, "name": "posthog-js", "full_name": "PostHog/posthog-js"}]
-        assert has_more is True
+        assert [repo["id"] for repo in repos] == expected_ids
+        assert has_more is expected_has_more
         mock_list_all.assert_called_once_with()
 
     @patch("posthog.models.integration.GitHubIntegration.list_branches")
