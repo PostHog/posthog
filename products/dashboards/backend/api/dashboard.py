@@ -737,8 +737,11 @@ class DashboardSerializer(DashboardMetadataSerializer):
     @staticmethod
     def _upsert_tile(instance: Dashboard, tile_data: dict, **extra_defaults: Any) -> tuple[DashboardTile, bool]:
         tile_defaults = {k: tile_data[k] for k in DashboardSerializer.TILE_DISPLAY_FIELDS if k in tile_data}
+        # Look up through the unfiltered manager so already-soft-deleted rows are found and
+        # updated in place, instead of falling through to CREATE and hitting the
+        # dash_tile_exactly_one_related_object check constraint.
         # nosemgrep: idor-lookup-without-team -- dashboard=instance constrains to team
-        return DashboardTile.objects.update_or_create(
+        return DashboardTile.objects_including_soft_deleted.update_or_create(
             id=tile_data.get("id", None),
             dashboard=instance,
             defaults={**tile_defaults, **extra_defaults, "dashboard": instance},
