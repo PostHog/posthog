@@ -253,9 +253,7 @@ export const PlatformAddonComparison = ({ product }: { product: BillingProductV2
         .map((type) => product.addons?.find((addon) => addon.type === type && !addon.legacy_product))
         .filter((addon): addon is BillingProductV2AddonType => !!addon)
     const legacyAddon = product.addons?.find((addon) => addon.legacy_product && addon.subscribed) ?? null
-    const [isCompareOpen, setIsCompareOpen] = useState(
-        comparableAddons.some((addon) => addon.subscribed) || !!legacyAddon
-    )
+    const [isCompareOpen, setIsCompareOpen] = useState(false)
 
     if (comparableAddons.length === 0) {
         return null
