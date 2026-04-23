@@ -19,7 +19,6 @@ on:
             - master
 permissions:
     contents: read
-    pull-requests: read
 env:
     SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da' # unsafe - for testing only
     REDIS_URL: redis://localhost
@@ -62,14 +61,11 @@ env:
     AZURE_INFERENCE_ENDPOINT: ${{ secrets.AZURE_INFERENCE_ENDPOINT }}
 concurrency:
     group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
-    # Cancel in-progress runs on PRs when new commits are pushed
-    # SHA verification ensures we don't commit stale snapshots if runs aren't cancelled in time
     cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
     changes:
-        runs-on: depot-ubuntu-latest
+        runs-on: depot-ubuntu-latest # was: ubuntu-latest. Mapped standard GitHub runner to Depot equivalent.
         timeout-minutes: 5
-        continue-on-error: true
         # Only run on PRs from the same repo (not forks) or on master push
         if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
         name: Determine need to run E2E checks
@@ -93,6 +89,7 @@ jobs:
                         - 'posthog/!(temporal/**)/**'
                         - 'bin/*'
                         - frontend/**/*
+                        - playwright/snapshots.yml
                         - requirements.txt
                         - requirements-dev.txt
                         - package.json
@@ -116,7 +113,7 @@ jobs:
               id: read-versions
               if: github.event_name == 'push' || steps.changes.outputs.shouldRun == 'true'
               run: |
-                  oldest_supported=$(jq -r '.oldest_supported' .github/clickhouse-versions.json)
+                  oldest_supported=$(jq -r '.versions.oldest_supported' .github/clickhouse-versions.json)
                   if [ -z "$oldest_supported" ] || [ "$oldest_supported" = "null" ]; then
                     echo "::error::No oldest_supported version found in .github/clickhouse-versions.json"
                     exit 1
@@ -128,7 +125,6 @@ jobs:
         if: needs.changes.outputs.shouldRun == 'true'
         # WARNING: Runner size is tuned to avoid CPU scheduling contention. Talk to #team-devex before changing.
         runs-on: depot-ubuntu-latest-16
-        continue-on-error: true
         timeout-minutes: 45
         steps:
             - uses: actions/checkout@v6
@@ -189,7 +185,7 @@ jobs:
                   version: '0.10.2' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
                   enable-cache: true
                   cache-dependency-glob: uv.lock
-                  save-cache: false
+                  save-cache: ${{ github.ref == 'refs/heads/master' }}
             - name: Determine if hogql-parser has changed compared to master
               shell: bash
               id: hogql-parser-diff
@@ -286,17 +282,38 @@ jobs:
                   # KLUDGE: rrweb thinks they're alongside and the django's collectstatic fails
                   cp frontend/node_modules/@posthog/rrweb/dist/image-bitmap-data-url-worker-*.js.map frontend/dist/ && python manage.py collectstatic --noinput
             - name: Create test database
+              shell: bash
               run: |
                   createdb posthog_e2e_test || echo "Database already exists"
-                  # Drop and recreate clickhouse test database
-                  echo 'DROP DATABASE if exists posthog_test' | curl 'http://localhost:8123/' --data-binary @-
-                  echo 'create database posthog_test' | curl 'http://localhost:8123/' --data-binary @-
+
+                  run_clickhouse_query() {
+                      local query="$1"
+
+                      for attempt in {1..10}; do
+                          if printf '%s' "$query" | curl --silent --show-error --fail 'http://localhost:8123/' --data-binary @-; then
+                              echo
+                              return 0
+                          fi
+
+                          echo "ClickHouse query failed on attempt ${attempt}/10, retrying in 3s..."
+                          sleep 3
+                      done
+
+                      echo "ClickHouse query failed after 10 attempts: $query" >&2
+                      return 1
+                  }
+
+                  # Drop and recreate clickhouse test database. The HTTP endpoint can briefly
+                  # reset connections while the container is still settling after startup.
+                  run_clickhouse_query 'SELECT 1'
+                  run_clickhouse_query 'DROP DATABASE IF EXISTS posthog_test SYNC'
+                  run_clickhouse_query 'CREATE DATABASE posthog_test'
             - name: Cache Rust dependencies
               uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2
               with:
                   shared-key: 'v2-rust-backend'
                   workspaces: rust
-                  save-if: false
+                  save-if: ${{ github.ref == 'refs/heads/master' }}
             - name: Install sqlx-cli
               run: cargo install sqlx-cli --version 0.8.0 --features postgres --no-default-features --locked
             - name: Apply postgres and clickhouse migrations and setup dev
@@ -362,12 +379,16 @@ jobs:
                   COMPOSE_FILE: docker-compose.dev.yml
                   COMPOSE_PROFILES: capture,ingestion
               run: bin/ci-wait-for-docker wait plugins ingestion-general ingestion-sessionreplay recording-api ingestion-error-tracking ingestion-logs ingestion-traces
+            - name: Clean snapshot directory
+              run: find playwright/__snapshots__ -name '*.png' -delete 2>/dev/null || true
             - name: Run Playwright tests
               id: playwright-tests
               shell: bash
               # WARNING: Worker count is tuned to avoid CPU scheduling contention. Talk to #team-devex before changing.
-              # Shadow trial: pure check mode — no --update-snapshots retry, no snapshot mutations.
-              run: pnpm --filter=@posthog/playwright exec playwright test --workers=4 --max-failures=5
+              # Reduced from 6+4 to 4+2 to minimize CPU scheduling contention (see PR #46853)
+              # Capture-only: VR is the gate for visual changes, Playwright just captures screenshots
+              run: |
+                  pnpm --filter=@posthog/playwright exec playwright test --workers=4 --max-failures=5 --update-snapshots
             - name: Verify changed Playwright tests are stable
               if: success() && github.event_name == 'pull_request'
               shell: bash
@@ -375,6 +396,8 @@ jobs:
                   BASE_SHA="${{ github.event.pull_request.base.sha }}"
                   git fetch --no-tags --prune --depth=50 origin "$BASE_SHA"
                   .github/scripts/verify-playwright-new-tests-and-snapshots.sh "$BASE_SHA" 10
+            # Shadow trial: VR create/upload side effects stripped.
+            # ── Artifacts on failure / always ─────────────────────────────────────
             - name: Capture docker logs
               if: always()
               run: |
@@ -388,19 +411,40 @@ jobs:
                   docker logs posthog-ingestion-error-tracking-1 > playwright/test-results/docker-ingestion-error-tracking.log 2>&1 || echo "No ingestion-error-tracking container" > playwright/test-results/docker-ingestion-error-tracking.log
                   docker logs posthog-ingestion-logs-1 > playwright/test-results/docker-ingestion-logs.log 2>&1 || echo "No ingestion-logs container" > playwright/test-results/docker-ingestion-logs.log
                   docker logs posthog-ingestion-traces-1 > playwright/test-results/docker-ingestion-traces.log 2>&1 || echo "No ingestion-traces container" > playwright/test-results/docker-ingestion-traces.log
-    # Aggregator job reports overall status
+            - name: Archive test artifacts
+              if: always()
+              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              with:
+                  name: playwright-test-results
+                  path: |
+                      playwright/playwright-report/
+                      playwright/playwright-report-attempt-*/
+                      playwright/test-results/
+                      playwright/test-results-attempt-*/
+                      /tmp/celery.log
+                      /tmp/server.log
+                      /tmp/temporal-worker.log
+                      /tmp/playwright-output-attempt-*.log
+                  retention-days: 30
+                  if-no-files-found: ignore
+            - name: Upload test results
+              if: always()
+              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              with:
+                  name: junit-results-playwright
+                  path: playwright/junit-results.xml
+                  if-no-files-found: ignore
+            # Shadow trial: capture-run-time and vr-complete downstream jobs also stripped.
     playwright_tests:
         needs: [playwright]
         name: Playwright tests pass
-        runs-on: depot-ubuntu-latest
+        runs-on: depot-ubuntu-latest # was: ubuntu-latest. Mapped standard GitHub runner to Depot equivalent.
         timeout-minutes: 5
         if: always()
-        continue-on-error: true
         steps:
-            - name: Check matrix outcome
+            - name: Check outcome
               run: |
                   if [[ "${{ needs.playwright.result }}" != "success" && "${{ needs.playwright.result }}" != "skipped" ]]; then
                     echo "Playwright tests failed."
                     exit 1
                   fi
-                  echo "All jobs passed or were skipped successfully."

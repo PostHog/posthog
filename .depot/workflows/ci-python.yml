@@ -23,10 +23,10 @@ jobs:
     # Job to decide if we should run python ci
     # See https://github.com/dorny/paths-filter#conditional-execution for more details
     changes:
-        runs-on: depot-ubuntu-latest
+        runs-on: depot-ubuntu-latest # was: ubuntu-latest. Mapped standard GitHub runner to Depot equivalent.
         timeout-minutes: 5
         name: Determine need to run python checks
-        continue-on-error: true
+        # Set job outputs to values from filter step
         outputs:
             python: ${{ steps.filter.outputs.python || 'true' }}
         steps:
@@ -67,9 +67,13 @@ jobs:
         needs: changes
         if: needs.changes.outputs.python == 'true'
         timeout-minutes: 30
-        name: Python code quality
-        runs-on: depot-ubuntu-latest
-        continue-on-error: true
+        strategy:
+            fail-fast: false
+            matrix:
+                include: ${{ vars.BLACKSMITH_SHADOW_ENABLED == 'true' && fromJson('[{"runner":"depot-ubuntu-latest","is_shadow":false},{"runner":"blacksmith-2vcpu-ubuntu-2404","is_shadow":true}]') || fromJson('[{"runner":"depot-ubuntu-latest","is_shadow":false}]') }}
+        name: Python code quality (${{ matrix.runner }})
+        runs-on: ${{ matrix.runner }}
+        continue-on-error: ${{ matrix.is_shadow }}
         steps:
             - uses: actions/checkout@v6
               with:
@@ -85,7 +89,7 @@ jobs:
                   version: '0.10.2' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
                   enable-cache: true
                   cache-dependency-glob: uv.lock
-                  save-cache: false
+                  save-cache: ${{ github.ref == 'refs/heads/master' }}
             - name: Check uv and Python version compatibility
               shell: bash
               run: |
@@ -116,10 +120,9 @@ jobs:
               shell: bash
               run: |
                   echo "::add-matcher::.github/ty-problem-matcher.json"
-            - name: Check ty type checking (informational)
+            - name: Check ty type checking
               shell: bash
-              continue-on-error: true
-              run: "echo \"\U0001F440 Running ty type checker (informational - does not block CI)\"\necho \"\U0001F4CA Trial run to evaluate ty vs mypy. Feedback welcome in #team-devex\"\necho \"\"\n./bin/ty.py check posthog ee common dags || echo \"⚠️ ty found type issues (annotations below)\"\n"
+              run: "echo \"\U0001F4CA Feedback welcome in #team-devex\"\nuv run ty check\n"
             - name: Add mypy Problem Matcher
               shell: bash
               run: |
@@ -134,7 +137,14 @@ jobs:
             - name: Check static typing
               shell: bash -e {0}
               run: |
-                  mypy --version && mypy --cache-fine-grained . | mypy-baseline filter || (echo "run 'pnpm run mypy-baseline-sync' to update the baseline" && exit 1)
+                  mypy --version && mypy --cache-fine-grained .
+            - name: Save mypy cache
+              # Shadow restores the saved cache for apples-to-apples timing.
+              if: github.ref == 'refs/heads/master' && !matrix.is_shadow
+              uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5
+              with:
+                  path: .mypy_cache
+                  key: mypy-cache-${{ runner.os }}-3.12-${{ hashFiles('**/pyproject.toml', '**/mypy.ini') }}
             - name: Check if "schema.py" is up to date
               shell: bash
               run: |
@@ -147,10 +157,22 @@ jobs:
               shell: bash
               run: |
                   pytest common/hogli/tests/ -v --cov=common/hogli --cov-report=term --junitxml=junit-hogli.xml
+            - name: Upload test results
+              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              if: always() && !matrix.is_shadow
+              with:
+                  name: junit-results-hogli
+                  path: junit-hogli.xml
             - name: Run dependency detection script tests
               shell: bash
               run: |
                   pytest bin/test/test_find_python_dependencies.py -v --junitxml=junit-dependency-detection.xml
+            - name: Upload test results for dependency detection
+              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              if: always() && !matrix.is_shadow
+              with:
+                  name: junit-results-dependency-detection
+                  path: junit-dependency-detection.xml
                   # - name: Check if "taxonomy.json/taxonomy.tsx" is up to date
                   #   if: needs.changes.outputs.python == 'true'
                   #   shell: bash
@@ -162,10 +184,9 @@ jobs:
     python_tests:
         needs: [changes, code-quality]
         name: Python code quality checks
-        runs-on: depot-ubuntu-latest
+        runs-on: depot-ubuntu-latest # was: ubuntu-latest. Mapped standard GitHub runner to Depot equivalent.
         timeout-minutes: 5
         if: always()
-        continue-on-error: true
         steps:
             - name: Check Python CI status
               run: |
