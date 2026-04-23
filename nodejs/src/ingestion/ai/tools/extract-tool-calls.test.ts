@@ -761,6 +761,8 @@ describe('processAiToolCallExtraction', () => {
         ['single-element array', ['only_tool'], 'only_tool', 1],
         ['sanitizes commas within tool names from arrays', ['a,b', 'c'], 'a_b,c', 2],
         ['empty array is dropped', [], undefined, undefined],
+        ['empty string is dropped', '', undefined, undefined],
+        ['whitespace-only string is dropped', '   ', undefined, undefined],
         ['malformed JSON that looks like an array is passed through', '[not, valid, json', '[not, valid, json', 3],
     ])('normalizes user-provided $ai_tools_called (%s)', (_desc, input, expectedTools, expectedCount) => {
         const event = createEvent('$ai_generation', { $ai_tools_called: input })

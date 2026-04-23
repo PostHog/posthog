@@ -43,7 +43,8 @@ function normalizeUserProvidedToolsCalled(value: unknown): string | null {
             }
         }
         if (names === null) {
-            return value
+            // Treat empty / whitespace-only strings the same as empty arrays.
+            return value.trim().length > 0 ? value : null
         }
     } else {
         return String(value)
