@@ -88,7 +88,9 @@ export function FeatureFlagTestingView({ flag }: FeatureFlagTestingViewProps): R
                         {flag.payload && (
                             <div className="text-sm">
                                 <span className="font-medium">Payload: </span>
-                                <code className="text-xs bg-bg-light p-1 rounded">{JSON.stringify(flag.payload)}</code>
+                                <code className="text-xs bg-bg-light p-1 rounded">
+                                    {JSON.stringify(flag.payload) ?? 'null'}
+                                </code>
                             </div>
                         )}
                     </Stack>
