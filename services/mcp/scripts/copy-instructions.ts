@@ -19,5 +19,6 @@ for (const prompt of PROMPTS) {
     const src = resolve(REPO_ROOT, prompt.src)
     const dest = resolve(ROOT_DIR, prompt.dest)
     mkdirSync(dirname(dest), { recursive: true })
-    cpSync(src, dest, { recursive: true })
+    // `force: true` so watch-mode rebuilds don't EEXIST when the dest already exists.
+    cpSync(src, dest, { recursive: true, force: true })
 }
