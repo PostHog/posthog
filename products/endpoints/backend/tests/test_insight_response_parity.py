@@ -519,3 +519,93 @@ class TestInsightResponseParity(ClickhouseTestMixin, APIBaseTest):
         # Rows unchanged (still tuples, no substitution happened)
         assert rows == [("hello", 1.0)]
         assert isinstance(rows[0], tuple)
+
+    def test_materialized_trends_series_with_no_rows_is_not_a_mismatch(self):
+        """A WHERE clause (e.g. a breakdown filter) can legitimately drop every row
+        for one or more series. The materialized table still holds all series —
+        it's just that the filtered read returned zero rows for some of them.
+        That must be treated as an empty series, not as query/table drift.
+
+        Regression for MaterializedSeriesMismatchError being raised when a
+        breakdown-value filter eliminated a full series' rows.
+        """
+        endpoint = create_endpoint_with_version(
+            name="trends_sparse_series",
+            team=self.team,
+            query=TrendsQuery(
+                series=[
+                    EventsNode(event="$pageview"),
+                    EventsNode(event="$pageview", math="dau"),
+                    EventsNode(event="$pageleave"),  # third series with no matching rows
+                ],
+                dateRange={"date_from": "2026-01-01", "date_to": "2026-01-10"},
+            ).model_dump(),
+            created_by=self.user,
+            is_active=True,
+        )
+
+        self._materialize_endpoint(endpoint)
+
+        # Only series 0 and 1 have rows — series 2 got filtered out entirely.
+        dates = [date(2026, 1, d) for d in range(1, 11)]
+        flat_response = HogQLQueryResponse(
+            results=[
+                (0, dates, [1.0] * 10),
+                (1, dates, [1.0] * 10),
+            ],
+            columns=["__series_index", "date", "total"],
+            types=["Int64", "Array(Date)", "Array(Float64)"],
+            hasMore=False,
+        )
+
+        with mock.patch(
+            "products.endpoints.backend.api.process_query_model",
+            return_value=flat_response,
+        ):
+            mat_resp = self._run_endpoint(endpoint)
+
+        assert mat_resp.status_code == status.HTTP_200_OK, mat_resp.json()
+        mat_results = mat_resp.json()["results"]
+        # Two series have data, the third is empty — all three should be represented
+        # in the shape, but the empty one may collapse to no result rows.
+        assert len(mat_results) >= 2, f"Expected at least 2 series in response, got {len(mat_results)}"
+        for r in mat_results:
+            assert "data" in r and "labels" in r and "days" in r
+
+    def test_materialized_trends_extra_series_index_still_raises(self):
+        """Genuine drift — materialized table has a series index the current query
+        doesn't define — must still trip the mismatch guard so we re-materialize.
+        """
+        from products.endpoints.backend.insight_transformers import (
+            MaterializedSeriesMismatchError,
+            transform_materialized_insight_response,
+        )
+
+        endpoint = create_endpoint_with_version(
+            name="trends_genuine_drift",
+            team=self.team,
+            query=TrendsQuery(
+                series=[EventsNode(event="$pageview")],
+                dateRange={"date_from": "2026-01-01", "date_to": "2026-01-10"},
+            ).model_dump(),
+            created_by=self.user,
+            is_active=True,
+        )
+
+        dates = [date(2026, 1, d) for d in range(1, 11)]
+        # Materialized table contains 2 series (0 and 1) but current query only defines 1.
+        result_dict = {
+            "columns": ["__series_index", "date", "total"],
+            "types": ["Int64", "Array(Date)", "Array(Float64)"],
+            "results": [
+                [0, dates, [1.0] * 10],
+                [1, dates, [1.0] * 10],
+            ],
+        }
+
+        with pytest.raises(MaterializedSeriesMismatchError):
+            transform_materialized_insight_response(
+                result_dict,
+                endpoint.get_version().query,
+                self.team,
+            )

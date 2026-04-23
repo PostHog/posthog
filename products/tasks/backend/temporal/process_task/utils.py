@@ -256,11 +256,25 @@ def get_user_mcp_server_configs(
     return configs
 
 
+def _resolve_mcp_consumer(interaction_origin: str | None) -> str:
+    """Map the task's interaction origin to the `x-posthog-mcp-consumer` value.
+
+    Slack-launched runs send `"slack"`; everything else (the PostHog Code UI,
+    API callers, missing origin) is treated as PostHog Code. The MCP server
+    gates UI-apps payloads on the literal `"posthog-code"` — keep in sync with
+    `POSTHOG_CODE_CONSUMER` in `services/mcp/src/lib/client-detection.ts`.
+    """
+    if interaction_origin == "slack":
+        return "slack"
+    return "posthog-code"
+
+
 def get_sandbox_ph_mcp_configs(
     token: str,
     project_id: int,
     *,
     scopes: PosthogMcpScopes = "read_only",
+    interaction_origin: str | None = None,
 ) -> list[McpServerConfig]:
     """Return PostHog MCP server configurations for sandbox agents.
 
@@ -278,6 +292,7 @@ def get_sandbox_ph_mcp_configs(
         {"name": "x-posthog-project-id", "value": str(project_id)},
         {"name": "x-posthog-mcp-version", "value": "2"},
         {"name": "x-posthog-read-only", "value": str(read_only).lower()},
+        {"name": "x-posthog-mcp-consumer", "value": _resolve_mcp_consumer(interaction_origin)},
     ]
     return [McpServerConfig(type="http", name="posthog", url=url, headers=headers)]
 

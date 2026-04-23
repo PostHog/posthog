@@ -1,6 +1,6 @@
 {
     "name": "@posthog/quill",
-    "version": "0.1.1-alpha.0",
+    "version": "0.1.2-alpha.0",
     "description": "PostHog's unified design system — primitives, components, and blocks designed to be compiled by the consumer's Tailwind v4.",
     "license": "MIT",
     "repository": {
@@ -29,6 +29,9 @@
         "./base.css": "./dist/base.css",
         "./tokens.css": "./dist/tokens.css",
         "./color-system.css": "./dist/color-system.css",
+        "./tokens.scoped.css": "./dist/tokens.scoped.css",
+        "./base.scoped.css": "./dist/base.scoped.css",
+        "./color-system.scoped.css": "./dist/color-system.scoped.css",
         "./package.json": "./package.json"
     },
     "publishConfig": {

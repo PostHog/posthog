@@ -114,3 +114,6 @@ tools:
     organization-integrations-destroy:
         operation: organization_integrations_destroy
         enabled: false
+    integrations-github-repos-refresh-create:
+        operation: integrations_github_repos_refresh_create
+        enabled: false
