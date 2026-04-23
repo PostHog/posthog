@@ -62,7 +62,6 @@ Call `experiment-create` with:
   "name": "Descriptive experiment name",
   "feature_flag_key": "kebab-case-key",
   "description": "Hypothesis: [what you expect to happen]",
-  "type": "product",
   "parameters": {
     "feature_flag_variants": [
       { "key": "control", "name": "Control", "split_percent": 50 },
