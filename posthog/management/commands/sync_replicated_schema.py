@@ -35,7 +35,7 @@ class Command(BaseCommand):
             logger.info("✅ Skipping sync_replicated_schema because is_cloud=true")
             return
 
-        with tags_context(product=Product.INTERNAL, feature=Feature.SCHEMA_INTROSPECTION):
+        with tags_context(product=Product.INTERNAL, feature=Feature.MIGRATION):
             host_tables, create_table_queries, out_of_sync_hosts = self.analyze_cluster_tables()
 
             if len(host_tables) <= 1:

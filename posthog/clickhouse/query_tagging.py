@@ -70,6 +70,7 @@ class Feature(StrEnum):
     USAGE_REPORT = "usage_report"
     BILLING_ETL = "billing_etl"
     QUOTA_LIMITING = "quota_limiting"
+    MIGRATION = "migration"
 
 
 class TemporalTags(BaseModel):
