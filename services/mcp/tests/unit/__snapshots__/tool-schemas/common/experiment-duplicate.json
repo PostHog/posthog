@@ -2,9 +2,11 @@
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
         "allow_unknown_events": {
+            "default": false,
             "type": "boolean"
         },
         "archived": {
+            "default": false,
             "description": "Whether the experiment is archived.",
             "type": "boolean"
         },
@@ -40,6 +42,16 @@
             ],
             "description": "Comment about the experiment conclusion."
         },
+        "deleted": {
+            "anyOf": [
+                {
+                    "type": "boolean"
+                },
+                {
+                    "type": "null"
+                }
+            ]
+        },
         "description": {
             "anyOf": [
                 {
@@ -52,6 +64,179 @@
             ],
             "description": "Description of the experiment hypothesis and expected outcomes."
         },
+        "end_date": {
+            "anyOf": [
+                {
+                    "format": "date-time",
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$",
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ]
+        },
+        "exposure_criteria": {
+            "anyOf": [
+                {
+                    "properties": {
+                        "exposure_config": {
+                            "anyOf": [
+                                {
+                                    "properties": {
+                                        "event": {
+                                            "description": "Custom exposure event name.",
+                                            "type": "string"
+                                        },
+                                        "kind": {
+                                            "default": "ExperimentEventExposureConfig",
+                                            "enum": ["ExperimentEventExposureConfig"],
+                                            "type": "string"
+                                        },
+                                        "properties": {
+                                            "description": "Event property filters. Pass an empty array if no filters needed.",
+                                            "items": {
+                                                "properties": {
+                                                    "key": {
+                                                        "type": "string"
+                                                    },
+                                                    "label": {
+                                                        "anyOf": [
+                                                            {
+                                                                "type": "string"
+                                                            },
+                                                            {
+                                                                "type": "null"
+                                                            }
+                                                        ]
+                                                    },
+                                                    "operator": {
+                                                        "anyOf": [
+                                                            {
+                                                                "enum": [
+                                                                    "exact",
+                                                                    "is_not",
+                                                                    "icontains",
+                                                                    "not_icontains",
+                                                                    "regex",
+                                                                    "not_regex",
+                                                                    "gt",
+                                                                    "gte",
+                                                                    "lt",
+                                                                    "lte",
+                                                                    "is_set",
+                                                                    "is_not_set",
+                                                                    "is_date_exact",
+                                                                    "is_date_before",
+                                                                    "is_date_after",
+                                                                    "between",
+                                                                    "not_between",
+                                                                    "min",
+                                                                    "max",
+                                                                    "in",
+                                                                    "not_in",
+                                                                    "is_cleaned_path_exact",
+                                                                    "flag_evaluates_to",
+                                                                    "semver_eq",
+                                                                    "semver_neq",
+                                                                    "semver_gt",
+                                                                    "semver_gte",
+                                                                    "semver_lt",
+                                                                    "semver_lte",
+                                                                    "semver_tilde",
+                                                                    "semver_caret",
+                                                                    "semver_wildcard",
+                                                                    "icontains_multi",
+                                                                    "not_icontains_multi"
+                                                                ],
+                                                                "type": "string"
+                                                            },
+                                                            {
+                                                                "type": "null"
+                                                            }
+                                                        ]
+                                                    },
+                                                    "type": {
+                                                        "default": "event",
+                                                        "description": "Event properties",
+                                                        "enum": ["event"],
+                                                        "type": "string"
+                                                    },
+                                                    "value": {
+                                                        "anyOf": [
+                                                            {
+                                                                "anyOf": [
+                                                                    {
+                                                                        "items": {
+                                                                            "anyOf": [
+                                                                                {
+                                                                                    "type": "string"
+                                                                                },
+                                                                                {
+                                                                                    "type": "number"
+                                                                                },
+                                                                                {
+                                                                                    "type": "boolean"
+                                                                                }
+                                                                            ]
+                                                                        },
+                                                                        "type": "array"
+                                                                    },
+                                                                    {
+                                                                        "type": "string"
+                                                                    },
+                                                                    {
+                                                                        "type": "number"
+                                                                    },
+                                                                    {
+                                                                        "type": "boolean"
+                                                                    }
+                                                                ]
+                                                            },
+                                                            {
+                                                                "type": "null"
+                                                            }
+                                                        ]
+                                                    }
+                                                },
+                                                "required": ["key"],
+                                                "type": "object"
+                                            },
+                                            "type": "array"
+                                        }
+                                    },
+                                    "required": ["event", "properties"],
+                                    "type": "object"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ]
+                        },
+                        "filterTestAccounts": {
+                            "anyOf": [
+                                {
+                                    "type": "boolean"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ]
+                        }
+                    },
+                    "type": "object"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Exposure configuration including filter test accounts and custom exposure events."
+        },
+        "feature_flag_key": {
+            "description": "Unique key for the experiment's feature flag. Letters, numbers, hyphens, and underscores only. Search existing flags with the feature-flags-get-all tool first — reuse an existing flag when possible.",
+            "type": "string"
+        },
+        "filters": {},
         "holdout_id": {
             "anyOf": [
                 {
@@ -2190,6 +2375,9 @@
             "maxLength": 400,
             "type": "string"
         },
+        "only_count_matured_users": {
+            "type": "boolean"
+        },
         "parameters": {
             "anyOf": [
                 {
@@ -2278,6 +2466,62 @@
             ],
             "description": "Variant definitions and rollout configuration. Set feature_flag_variants to customize the split (default: 50/50 control/test). Each variant needs a key and split_percent (the variant's share of traffic); percentages must sum to 100. Set rollout_percentage (0-100, default 100) to limit what fraction of users enter the experiment. Set minimum_detectable_effect (percentage, suggest 20-30) to control statistical power."
         },
+        "primary_metrics_ordered_uuids": {
+            "anyOf": [
+                {},
+                {
+                    "type": "null"
+                }
+            ]
+        },
+        "saved_metrics_ids": {
+            "anyOf": [
+                {
+                    "items": {},
+                    "type": "array"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "IDs of shared saved metrics to attach to this experiment. Each item has 'id' (saved metric ID) and 'metadata' with 'type' (primary or secondary)."
+        },
+        "scheduling_config": {
+            "anyOf": [
+                {},
+                {
+                    "type": "null"
+                }
+            ]
+        },
+        "secondary_metrics": {
+            "anyOf": [
+                {},
+                {
+                    "type": "null"
+                }
+            ]
+        },
+        "secondary_metrics_ordered_uuids": {
+            "anyOf": [
+                {},
+                {
+                    "type": "null"
+                }
+            ]
+        },
+        "start_date": {
+            "anyOf": [
+                {
+                    "format": "date-time",
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$",
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ]
+        },
         "stats_config": {
             "anyOf": [
                 {},
@@ -2286,11 +2530,33 @@
                 }
             ]
         },
+        "type": {
+            "anyOf": [
+                {
+                    "anyOf": [
+                        {
+                            "description": "* `web` - web\n* `product` - product",
+                            "enum": ["web", "product"],
+                            "type": "string"
+                        },
+                        {
+                            "const": null,
+                            "type": "null"
+                        }
+                    ]
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Experiment type: web for frontend UI changes, product for backend/API changes.\n\n* `web` - web\n* `product` - product"
+        },
         "update_feature_flag_params": {
+            "default": false,
             "description": "When true, sync feature flag configuration from parameters to the linked feature flag. Draft experiments always sync regardless of update_feature_flag_params, so only required for non-drafts.",
             "type": "boolean"
         }
     },
-    "required": ["id"],
+    "required": ["id", "name", "feature_flag_key"],
     "type": "object"
 }

@@ -3365,6 +3365,8 @@ export interface ExperimentParameters {
     feature_flag_variants?: ExperimentVariant[]
     /** Minimum detectable effect as a percentage. Lower values need more users but catch smaller changes. Suggest 20–30% for most experiments. */
     minimum_detectable_effect?: number
+    /** Overall rollout percentage (0-100). Controls what fraction of all users enter the experiment. Users outside the rollout never see any variant and are excluded from analysis. Default: 100. */
+    rollout_percentage?: number
 }
 
 /** Slim exposure config for experiment API payloads. */
@@ -5857,6 +5859,10 @@ export interface UsageMetric {
     format: UsageMetricFormat
     display: UsageMetricDisplay
     interval: integer
+    /** Daily values over the current interval period. Only populated when display is 'sparkline'. */
+    timeseries?: number[]
+    /** ISO date strings for sparkline tooltip labels. Only populated when display is 'sparkline'. */
+    timeseries_labels?: string[]
 }
 
 export interface UsageMetricsQueryResponse extends AnalyticsQueryResponseBase {

@@ -1785,8 +1785,8 @@
             "readOnlyHint": false
         }
     },
-    "experiment-get-all": {
-        "description": "Get all experiments in the project.",
+    "experiment-list": {
+        "description": "List experiments in the current project. This is the primary tool for resolving experiment references — load the finding-experiments skill for guidance on searching by name, status, recency, or description.\n\nSupports filtering by status (\"draft\", \"running\", \"stopped\", \"complete\" which maps to stopped, or \"all\"), archived state (defaults to non-archived), feature_flag_id, created_by_id, and free-text search on name. Supports ordering by an allowlisted set of fields (model fields plus computed \"duration\" and \"status\"). Returns paginated results with each experiment's status, dates, feature flag key, and metrics summary. Use the returned ID for get/update/lifecycle tools.",
         "category": "Experiments",
         "feature": "experiments",
         "summary": "Get all experiments",
@@ -1801,7 +1801,7 @@
         }
     },
     "experiment-get": {
-        "description": "Get details of a specific experiment by ID.",
+        "description": "Get a single experiment by ID. If you don't have the ID, load the finding-experiments skill to resolve the user's reference first.\n\nReturns the full experiment object including: status (draft/running/stopped), start_date and end_date, linked feature_flag (with variants, filters, active state), metrics and metrics_secondary arrays, conclusion and conclusion_comment if ended, parameters (including feature_flag_variants and recommended_running_time), stats_config, and type (web/product).",
         "category": "Experiments",
         "feature": "experiments",
         "summary": "Get experiment details",
@@ -1816,7 +1816,7 @@
         }
     },
     "experiment-create": {
-        "description": "Create a comprehensive A/B test experiment. PROCESS: 1) Understand experiment goal and hypothesis 2) Search existing feature flags with 'feature-flags-get-all' tool first and suggest reuse or new key 3) Help user define success metrics by asking what they want to optimize 4) MOST IMPORTANT: Use 'event-definitions-list' tool to find available events in their project 5) For funnel metrics, provide the series array with EventsNode entries for each step 6) Configure variants (default 50/50 control/test unless they specify otherwise) 7) Set targeting criteria if needed.",
+        "description": "RULES (follow before calling):\n1. Load the creating-experiments skill for the full\n   creation workflow.\n\n2. If the user mentions a rollout percentage (e.g. \"25%\"),\n   load the configuring-experiment-rollout skill and\n   ask the user to clarify BEFORE calling this tool.\n   A percentage is always ambiguous — it can mean a\n   variant split change OR an overall rollout change.\n\n3. Do NOT pass metrics on creation. Create the draft\n   first, then add metrics via experiment-update. Use\n   the configuring-experiment-analytics skill for\n   metric guidance.\n\n\nCreates a new experiment in draft status (ignore the \"type\" param, since no-code/toolbar experiments must be created in the PostHog UI). Requires name and feature_flag_key. Feature flag is auto-created — do not create one separately. Defaults: 50/50 control/test, 100% rollout, Bayesian stats. Launch the experiment with the launch tool when ready.",
         "category": "Experiments",
         "feature": "experiments",
         "summary": "Create experiment",
@@ -1831,7 +1831,7 @@
         }
     },
     "experiment-update": {
-        "description": "Update an existing experiment by ID. Can update name, description, variants, metrics, and other properties. Use lifecycle tools for state transitions: experiment-launch to start, experiment-end to stop, experiment-reset to return to draft, experiment-pause/experiment-resume to temporarily halt. NOTE: feature_flag_key cannot be changed after creation.",
+        "description": "RULES (follow before calling):\n1. If changing rollout or variants on a RUNNING\n   experiment, you MUST warn the user about user\n   experience AND statistical implications BEFORE\n   making the change and get explicit confirmation.\n   Load the configuring-experiment-rollout skill for\n   the full warning. Do NOT silently apply the change\n   — even if the user asked directly.\n\n2. If the user mentions a percentage, clarify whether\n   they mean variant split or overall rollout BEFORE\n   calling.\n\n3. If adding or changing metrics, load the\n   configuring-experiment-analytics skill first. Call\n   read-data-schema to discover available events BEFORE\n   suggesting or using any event name. Never suggest\n   event names you haven't confirmed exist.\n\n4. For running experiments, set\n   update_feature_flag_params=true when changing\n   parameters — without it, changes save but do NOT\n   sync to the feature flag.\n\n\nUpdate an experiment by ID. If you don't have the ID, load the finding-experiments skill to resolve the user's reference first. Metrics can be changed at any time including while running. Cannot add/remove variants on non-draft experiments (changing percentages between existing variants is allowed). Cannot change holdout on non-draft experiments.\n\nDo NOT use this to change lifecycle state — use the dedicated launch, end, pause, resume, archive, or ship_variant tools instead.",
         "category": "Experiments",
         "feature": "experiments",
         "summary": "Update experiment",
@@ -1846,7 +1846,7 @@
         }
     },
     "experiment-delete": {
-        "description": "Delete an experiment by ID.",
+        "description": "Delete an experiment by ID. If you don't have the ID, load the finding-experiments skill to resolve the user's reference first. Always confirm by name before deleting.",
         "category": "Experiments",
         "feature": "experiments",
         "summary": "Delete experiment",
@@ -1861,7 +1861,7 @@
         }
     },
     "experiment-launch": {
-        "description": "Launch a draft experiment. Activates the linked feature flag, sets start_date to now, and transitions the experiment to running. Returns 400 if the experiment has already been launched.",
+        "description": "Requires an experiment ID. If you don't have the ID, load the finding-experiments skill to resolve the user's reference first.\n\nLaunch a draft experiment. Validates the feature flag has at least 2 multivariate variants with \"control\" as the first variant. Activates the feature flag (sets active=true), sets start_date to the current server time, recomputes metric fingerprints, and transitions status from draft to running.\n\nReturns 400 if the experiment has already been launched (\"Experiment has already been launched.\") or if the flag configuration is invalid.\n\nNo request body needed.",
         "category": "Experiments",
         "feature": "experiments",
         "summary": "Launch experiment",
@@ -1876,7 +1876,7 @@
         }
     },
     "experiment-end": {
-        "description": "End a running experiment. Sets end_date to now but does NOT modify the feature flag. Optionally provide a conclusion and comment. Returns 400 if the experiment is not running.",
+        "description": "Requires an experiment ID. If you don't have the ID, load the finding-experiments skill to resolve the user's reference first.\n\nEnd a running experiment without shipping a variant. Sets end_date to now and transitions status to stopped. The feature flag is NOT modified — users continue seeing their assigned variants and exposure events ($feature_flag_called) continue to fire, but only data up to end_date is included in results.\n\nOptionally provide conclusion (\"won\", \"lost\", \"inconclusive\", \"stopped_early\", \"invalid\") and conclusion_comment.\n\nReturns 400 if the experiment is in draft (\"Experiment has not been launched yet.\") or already stopped (\"Experiment has already ended.\").\n\nOther options: use ship_variant to end AND roll out a winner. Use pause to temporarily deactivate the flag without ending.",
         "category": "Experiments",
         "feature": "experiments",
         "summary": "End experiment",
@@ -1891,7 +1891,7 @@
         }
     },
     "experiment-archive": {
-        "description": "Archive an ended experiment to hide it from the default list view. Returns 400 if the experiment is already archived or has not ended.",
+        "description": "Requires an experiment ID. If you don't have the ID, load the finding-experiments skill to resolve the user's reference first.\n\nArchive a stopped experiment to hide it from the default list view. The experiment must be stopped (end_date set) — cannot archive draft or running experiments.\n\nReturns 400 if already archived (\"Experiment is already archived.\") or not yet stopped (\"Experiment must be ended before it can be archived.\").\n\nNo request body needed. Can be restored later by setting archived=false via update.",
         "category": "Experiments",
         "feature": "experiments",
         "summary": "Archive experiment",
@@ -1906,7 +1906,7 @@
         }
     },
     "experiment-ship-variant": {
-        "description": "Ship a variant to 100% of users and optionally end the experiment. Requires variant_key. Can include conclusion and conclusion_comment. Returns 400 if the experiment is in draft state.",
+        "description": "Requires an experiment ID. If you don't have the ID, load the finding-experiments skill to resolve the user's reference first.\n\nShip a variant to 100% of users by rewriting the feature flag. Requires variant_key — the key of the variant to ship (e.g. \"test\" or \"control\"). The flag is rewritten so the selected variant gets 100% rollout via a new catch-all release group prepended to existing groups (preserved for rollback).\n\nCan be called on both running and stopped experiments. If the experiment is still running, it is also ended (end_date set, status becomes stopped). If already stopped, only the flag is rewritten — supports the \"end first, ship later\" workflow.\n\nOptionally provide conclusion (\"won\", \"lost\", \"inconclusive\", \"stopped_early\", \"invalid\") and conclusion_comment.\n\nReturns 400 if: experiment is in draft (\"Experiment has not been launched yet.\"), variant_key not found on the flag, or no linked feature flag. Returns 409 if an approval policy requires review before the flag change takes effect — includes a change_request_id in the response.",
         "category": "Experiments",
         "feature": "experiments",
         "summary": "Ship experiment variant",
@@ -1914,14 +1914,14 @@
         "required_scopes": ["experiment:write"],
         "new_mcp": true,
         "annotations": {
-            "destructiveHint": false,
+            "destructiveHint": true,
             "idempotentHint": false,
             "openWorldHint": true,
             "readOnlyHint": false
         }
     },
     "experiment-pause": {
-        "description": "Pause a running experiment by deactivating its feature flag. Users fall back to the default experience and no new exposures are recorded. Returns 400 if the experiment is not running or is already paused.",
+        "description": "Requires an experiment ID. If you don't have the ID, load the finding-experiments skill to resolve the user's reference first.\n\nPause a running experiment by deactivating its feature flag (sets flag active=false). The flag is no longer returned by the /decide endpoint, so users fall back to the application default (typically control). No new exposure events ($feature_flag_called) are recorded while paused. The experiment stays in running status — it is not ended.\n\nReturns 400 if: experiment is in draft (\"Experiment has not been launched yet.\"), already stopped (\"Experiment has already ended.\"), no linked flag (\"Experiment does not have a feature flag linked.\"), or already paused (\"Experiment is already paused.\").\n\nNo request body needed. Use resume to reactivate.",
         "category": "Experiments",
         "feature": "experiments",
         "summary": "Pause experiment",
@@ -1936,7 +1936,7 @@
         }
     },
     "experiment-resume": {
-        "description": "Resume a paused experiment by reactivating its feature flag. Returns 400 if the experiment is not paused.",
+        "description": "Requires an experiment ID. If you don't have the ID, load the finding-experiments skill to resolve the user's reference first.\n\nResume a paused experiment by reactivating its feature flag (sets flag active=true). Users are re-bucketed deterministically into the same variants they had before the pause, and exposure tracking ($feature_flag_called) resumes.\n\nReturns 400 if: experiment is in draft (\"Experiment has not been launched yet.\"), already stopped (\"Experiment has already ended.\"), no linked flag (\"Experiment does not have a feature flag linked.\"), or not currently paused (\"Experiment is not paused.\").\n\nNo request body needed.",
         "category": "Experiments",
         "feature": "experiments",
         "summary": "Resume experiment",
@@ -1951,11 +1951,56 @@
         }
     },
     "experiment-reset": {
-        "description": "Reset an experiment back to draft state. Clears start/end dates, conclusion, and archived flag. The feature flag is left unchanged. Returns 400 if the experiment is already in draft state.",
+        "description": "Requires an experiment ID. If you don't have the ID, load the finding-experiments skill to resolve the user's reference first.\n\nReset an experiment back to draft state. Clears start_date, end_date, conclusion, conclusion_comment, and archived flag (all set to null/false). The feature flag is left unchanged — users continue to see their currently assigned variants.\n\nPreviously collected events still exist in the database but won't be included in results unless start_date is manually adjusted after re-launch.\n\nReturns 400 if the experiment is already in draft (\"Experiment is already in draft state.\").\n\nNo request body needed.",
         "category": "Experiments",
         "feature": "experiments",
         "summary": "Reset experiment",
         "title": "Reset experiment",
+        "required_scopes": ["experiment:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "experiment-timeseries-results": {
+        "description": "Get day-by-day experiment results for a specific metric. Requires metric_uuid and fingerprint as query parameters (both available from the experiment's metrics array — each metric has a uuid and the fingerprint is computed from its configuration).\n\nReturns a timeseries object keyed by date (YYYY-MM-DD) with per-variant statistical results for each day, overall status (\"pending\", \"completed\", \"partial\", \"failed\"), computed_at timestamp, and recalculation_status if a recalculation is in progress.",
+        "category": "Experiments",
+        "feature": "experiments",
+        "summary": "Get experiment timeseries results",
+        "title": "Get experiment timeseries results",
+        "required_scopes": ["experiment:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "experiment-stats": {
+        "description": "Get aggregate experiment velocity statistics for the current project. Returns: launched_last_30d (experiments launched in the last 30 days), launched_previous_30d (the 30 days before that), percent_change between the two periods, active_experiments (currently running count), and completed_last_30d (experiments ended in the last 30 days). No parameters needed.",
+        "category": "Experiments",
+        "feature": "experiments",
+        "summary": "Get experiment velocity stats",
+        "title": "Get experiment velocity stats",
+        "required_scopes": ["experiment:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "experiment-duplicate": {
+        "description": "Create a copy of an experiment as a new draft. The duplicate includes the original's metrics, parameters, and configuration but starts fresh with no dates or results. Rejects experiments that use legacy metrics (ExperimentTrendsQuery/ExperimentFunnelsQuery).\n\nIMPORTANT: always provide a unique feature_flag_key that differs from the original experiment's flag key. If omitted or if the same key is provided, the duplicate will reuse the original experiment's feature flag — meaning changes to one experiment's flag (e.g. shipping a variant, pausing) will affect both experiments. Always confirm the new flag key with the user before duplicating. Optionally provide a custom name (defaults to \"Original Name (Copy)\").",
+        "category": "Experiments",
+        "feature": "experiments",
+        "summary": "Duplicate experiment",
+        "title": "Duplicate experiment",
         "required_scopes": ["experiment:write"],
         "new_mcp": true,
         "annotations": {
