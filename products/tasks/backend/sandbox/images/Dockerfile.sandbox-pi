@@ -20,14 +20,21 @@ RUN set -eux; \
     cp -r "$src/skills/autoresearch-finalize" /root/.pi/agent/skills/; \
     rm -rf "$src"
 
-# Track upstream ClickHouse's default branch — the autoresearch agent just needs recent source
-# to ground itself in, exact version parity with our prod cluster isn't worth the coupling.
+# Pinned to a specific upstream SHA — the autoresearch agent just needs recent ClickHouse
+# source to ground itself in, exact version parity with our prod cluster isn't worth the
+# coupling. Fetch-by-SHA (not by branch) means the server only returns the specified commit;
+# branch force-moves on upstream cannot affect what lands here. Bump by hand when the source
+# is too stale to be useful.
+ARG CLICKHOUSE_SRC_SHA=2cfc72ed95fd4594a38f5cba68d14dc20baf6951
 RUN set -eux; \
-    git clone --depth 1 --single-branch \
-        https://github.com/ClickHouse/ClickHouse.git /opt/clickhouse; \
-    find /opt/clickhouse -maxdepth 2 -type d \
+    dst=/opt/clickhouse; \
+    git init -q "$dst"; \
+    git -C "$dst" remote add origin https://github.com/ClickHouse/ClickHouse.git; \
+    git -C "$dst" -c protocol.version=2 fetch --depth 1 origin "$CLICKHOUSE_SRC_SHA"; \
+    git -C "$dst" reset --hard FETCH_HEAD; \
+    find "$dst" -maxdepth 2 -type d \
         \( -name tests -o -name docs -o -name website -o -name contrib \) \
         -prune -exec rm -rf {} +; \
-    rm -rf /opt/clickhouse/.git
+    rm -rf "$dst/.git"
 
 CMD ["/bin/bash"]
