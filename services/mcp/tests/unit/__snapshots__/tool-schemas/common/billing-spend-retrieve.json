@@ -1,0 +1,72 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "breakdowns": {
+            "anyOf": [
+                {
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Comma-separated dimensions to break down by (e.g. \"type\", \"team\"). Omit for a single aggregate series."
+        },
+        "end_date": {
+            "anyOf": [
+                {
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "End date (YYYY-MM-DD), inclusive."
+        },
+        "interval": {
+            "anyOf": [
+                {
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Time bucket size, one of \"day\" or \"week\". Default \"day\"."
+        },
+        "start_date": {
+            "anyOf": [
+                {
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Start date (YYYY-MM-DD), or \"all\" for earliest available data."
+        },
+        "team_ids": {
+            "anyOf": [
+                {
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Comma-separated team (project) IDs to filter by. Omit for all teams in the org."
+        },
+        "usage_types": {
+            "anyOf": [
+                {
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Comma-separated usage type identifiers to filter on. Valid values: event_count_in_period, enhanced_persons_event_count_in_period, group_analytics, recording_count_in_period, mobile_recording_count_in_period, billable_feature_flag_requests_count_in_period, exceptions_captured_in_period, survey_responses_count_in_period, ai_event_count_in_period, rows_synced_in_period, free_historical_rows_synced_in_period, data_pipelines, cdp_billable_invocations_in_period, rows_exported_in_period, ai_credits_used_in_period, workflow_emails_sent_in_period, workflow_billable_invocations_in_period, logs_mb_in_period. E.g. \"event_count_in_period,recording_count_in_period\". Omit for all types."
+        }
+    },
+    "type": "object"
+}
