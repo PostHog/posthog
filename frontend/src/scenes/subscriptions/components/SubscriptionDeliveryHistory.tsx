@@ -85,16 +85,16 @@ const DELIVERY_TABLE_EXPANDABLE = {
         row.change_summary ? <ExpandedSummaryRow summary={row.change_summary} /> : <></>,
 }
 
-// When a test or story wants a row visible in its expanded state on first render.
-function buildExpandable(initiallyExpandedDeliveryIds?: ReadonlySet<string>): typeof DELIVERY_TABLE_EXPANDABLE & {
+// Only called from storybook visual tests — production use ignores the optional set.
+function buildExpandable(initiallyExpandedIds?: ReadonlySet<string>): typeof DELIVERY_TABLE_EXPANDABLE & {
     isRowExpanded?: (row: SubscriptionDeliveryApi) => number
 } {
-    if (!initiallyExpandedDeliveryIds || initiallyExpandedDeliveryIds.size === 0) {
+    if (!initiallyExpandedIds || initiallyExpandedIds.size === 0) {
         return DELIVERY_TABLE_EXPANDABLE
     }
     return {
         ...DELIVERY_TABLE_EXPANDABLE,
-        isRowExpanded: (row) => (initiallyExpandedDeliveryIds.has(row.id) ? 1 : -1),
+        isRowExpanded: (row) => (initiallyExpandedIds.has(row.id) ? 1 : -1),
     }
 }
 
@@ -244,8 +244,12 @@ export type SubscriptionDeliveryHistoryProps = {
     /** When set, empty table shows this as the primary action (e.g. send a test delivery). */
     onTestDelivery?: () => void
     testDeliveryLoading?: boolean
-    /** Delivery ids whose AI summary row should render pre-expanded (used by storybook visual tests). */
-    initiallyExpandedDeliveryIds?: ReadonlySet<string>
+    /**
+     * STORYBOOK-ONLY: delivery ids whose AI summary row should render pre-expanded
+     * on first render. Used exclusively by visual regression tests to capture the
+     * expanded-row state; production callers should not pass this prop.
+     */
+    __storyOnlyInitiallyExpandedDeliveryIds?: ReadonlySet<string>
 }
 
 export function SubscriptionDeliveryHistory({
@@ -256,7 +260,7 @@ export function SubscriptionDeliveryHistory({
     onDeliveryStatusFilterChange,
     onTestDelivery,
     testDeliveryLoading = false,
-    initiallyExpandedDeliveryIds,
+    __storyOnlyInitiallyExpandedDeliveryIds,
 }: SubscriptionDeliveryHistoryProps): JSX.Element {
     const rowCount = deliveriesPage?.results.length ?? 0
     const hasPagination = Boolean(deliveriesPage?.next || deliveriesPage?.previous)
@@ -267,7 +271,7 @@ export function SubscriptionDeliveryHistory({
         (deliveryStatusFilter != null && deliveriesPage != null)
     const showStatusFilter = Boolean(onDeliveryStatusFilterChange)
     const tableEmptyState = deliveryStatusFilter != null ? 'No deliveries match this filter' : 'No deliveries yet'
-    const expandable = buildExpandable(initiallyExpandedDeliveryIds)
+    const expandable = buildExpandable(__storyOnlyInitiallyExpandedDeliveryIds)
 
     return (
         <>

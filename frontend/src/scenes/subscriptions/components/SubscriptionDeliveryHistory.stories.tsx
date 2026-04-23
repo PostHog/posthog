@@ -63,7 +63,7 @@ export const WithExpandedSummary: Story = {
         deliveriesPageLoading: false,
         loadDeliveriesPage: noopLoadPage,
         onTestDelivery: noopTestDelivery,
-        initiallyExpandedDeliveryIds: EXPANDED_SUMMARY_STORY_IDS,
+        __storyOnlyInitiallyExpandedDeliveryIds: EXPANDED_SUMMARY_STORY_IDS,
     },
 }
 
