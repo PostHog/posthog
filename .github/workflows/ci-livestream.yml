@@ -33,5 +33,16 @@ jobs:
                   working-directory: livestream
                   args: --timeout=5m
 
+            - name: Check easyjson generated code is up to date
+              run: |
+                  go install github.com/mailru/easyjson/easyjson@latest
+                  cd livestream
+                  easyjson events/kafka.go
+                  easyjson events/filter.go
+                  git diff --exit-code -- events/*_easyjson.go || {
+                    echo "::error::easyjson generated files are out of date. Run 'easyjson events/kafka.go && easyjson events/filter.go' in livestream/ and commit the result."
+                    exit 1
+                  }
+
             - name: Run tests
               run: cd livestream && go test -v
