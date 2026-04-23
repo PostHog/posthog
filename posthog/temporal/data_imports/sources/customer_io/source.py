@@ -5,6 +5,7 @@ from asgiref.sync import async_to_sync
 
 from posthog.schema import (
     ExternalDataSourceType as SchemaExternalDataSourceType,
+    ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
@@ -69,8 +70,7 @@ class CustomerIOSource(
             label="Customer.io",
             docsUrl="https://posthog.com/docs/cdp/sources/customer-io",
             fields=cast(list[FieldType], []),
-            featureFlag="dwh_customer_io",
-            unreleasedSource=True,
+            releaseStatus=ReleaseStatus.ALPHA,
             webhookSetupCaption="""To set up the webhook manually:
 
 1. Go to your [Customer.io workspace > Data & Integrations > Integrations > Reporting Webhooks](https://fly.customer.io/settings/webhooks/new/reporting_webhook)
