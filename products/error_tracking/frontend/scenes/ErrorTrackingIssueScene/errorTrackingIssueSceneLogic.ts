@@ -38,7 +38,7 @@ import {
 } from '../../components/IssueFilters/issueFiltersLogic'
 import { errorTrackingIssueEventsQuery, errorTrackingIssueQuery, errorTrackingSimilarIssuesQuery } from '../../queries'
 import { syncSearchParams } from '../../utils'
-import { ERROR_TRACKING_DETAILS_RESOLUTION, dateRangeToIsoBounds } from '../../utils'
+import { ERROR_TRACKING_DETAILS_RESOLUTION, dateRangeToIsoBounds, runLoaderSafely } from '../../utils'
 import {
     DEFAULT_CATEGORY,
     ErrorTrackingIssueSceneCategory,
@@ -170,7 +170,8 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
     loaders(({ values, actions, props }) => ({
         issue: {
             setIssue: ({ issue }) => issue,
-            loadIssue: async () => await api.errorTracking.getIssue(props.id, props.fingerprint),
+            loadIssue: async () =>
+                await runLoaderSafely(() => api.errorTracking.getIssue(props.id, props.fingerprint), null),
             createExternalReference: async ({ integrationId, config }) => {
                 if (values.issue) {
                     const response = await api.errorTracking.createExternalReference(props.id, integrationId, config)
@@ -209,68 +210,70 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
             },
         },
         initialEvent: {
-            loadInitialEvent: async ({ timestamp }) => {
-                const response = await api.query(
-                    errorTrackingIssueQuery({
-                        issueId: props.id,
-                        dateRange: getNarrowDateRange(timestamp),
-                        filterTestAccounts: false,
-                        withAggregations: false,
-                        withFirstEvent: false,
-                        withLastEvent: true,
-                    }),
-                    { refresh: 'blocking' }
-                )
-                const issue = response.results[0]
-                let positionEvent = null
-                if (issue.last_event) {
-                    positionEvent = issue.last_event
-                } else {
-                    return null
-                }
-                const initialEvent: ErrorEventType = {
-                    event: '$exception',
-                    uuid: positionEvent.uuid,
-                    distinct_id: positionEvent.distinct_id,
-                    timestamp: positionEvent.timestamp,
-                    person: { distinct_ids: [], properties: {} },
-                    properties: JSON.parse(positionEvent.properties),
-                }
-                if (!values.selectedEvent) {
-                    actions.selectEvent(initialEvent)
-                }
-                return initialEvent
-            },
+            loadInitialEvent: async ({ timestamp }) =>
+                await runLoaderSafely(async () => {
+                    const response = await api.query(
+                        errorTrackingIssueQuery({
+                            issueId: props.id,
+                            dateRange: getNarrowDateRange(timestamp),
+                            filterTestAccounts: false,
+                            withAggregations: false,
+                            withFirstEvent: false,
+                            withLastEvent: true,
+                        }),
+                        { refresh: 'blocking' }
+                    )
+                    const issue = response.results[0]
+                    let positionEvent = null
+                    if (issue.last_event) {
+                        positionEvent = issue.last_event
+                    } else {
+                        return null
+                    }
+                    const initialEvent: ErrorEventType = {
+                        event: '$exception',
+                        uuid: positionEvent.uuid,
+                        distinct_id: positionEvent.distinct_id,
+                        timestamp: positionEvent.timestamp,
+                        person: { distinct_ids: [], properties: {} },
+                        properties: JSON.parse(positionEvent.properties),
+                    }
+                    if (!values.selectedEvent) {
+                        actions.selectEvent(initialEvent)
+                    }
+                    return initialEvent
+                }, null),
         },
         summary: {
-            loadSummary: async () => {
-                const response = await api.query(
-                    errorTrackingIssueQuery({
-                        issueId: props.id,
-                        dateRange: values.dateRange,
-                        filterTestAccounts: values.filterTestAccounts,
-                        filterGroup: values.filterGroup,
-                        searchQuery: values.searchQuery,
-                        volumeResolution: ERROR_TRACKING_DETAILS_RESOLUTION,
-                        withAggregations: true,
-                        withFirstEvent: false,
-                        withLastEvent: false,
-                    }),
-                    { refresh: 'blocking' }
-                )
-                if (!response.results.length) {
-                    return null
-                }
-                const summary = response.results[0]
-                if (!summary.aggregations) {
-                    return null
-                }
-                return {
-                    first_seen: summary.first_seen,
-                    last_seen: summary.last_seen,
-                    aggregations: summary.aggregations,
-                }
-            },
+            loadSummary: async () =>
+                await runLoaderSafely(async () => {
+                    const response = await api.query(
+                        errorTrackingIssueQuery({
+                            issueId: props.id,
+                            dateRange: values.dateRange,
+                            filterTestAccounts: values.filterTestAccounts,
+                            filterGroup: values.filterGroup,
+                            searchQuery: values.searchQuery,
+                            volumeResolution: ERROR_TRACKING_DETAILS_RESOLUTION,
+                            withAggregations: true,
+                            withFirstEvent: false,
+                            withLastEvent: false,
+                        }),
+                        { refresh: 'blocking' }
+                    )
+                    if (!response.results.length) {
+                        return null
+                    }
+                    const summary = response.results[0]
+                    if (!summary.aggregations) {
+                        return null
+                    }
+                    return {
+                        first_seen: summary.first_seen,
+                        last_seen: summary.last_seen,
+                        aggregations: summary.aggregations,
+                    }
+                }, null),
         },
         issueFingerprints: [
             [] as ErrorTrackingFingerprint[],
@@ -281,31 +284,33 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
         similarIssues: [
             [] as SimilarIssue[],
             {
-                loadSimilarIssues: async (refresh: boolean = false) => {
-                    const query = errorTrackingSimilarIssuesQuery({
-                        issueId: props.id,
-                        limit: 10,
-                        maxDistance: values.similarIssuesMaxDistance,
-                    })
-                    const response = await api.query(query, {
-                        refresh: refresh ? 'force_blocking' : 'blocking',
-                    })
-                    return response.results
-                },
+                loadSimilarIssues: async (refresh: boolean = false) =>
+                    await runLoaderSafely(async () => {
+                        const query = errorTrackingSimilarIssuesQuery({
+                            issueId: props.id,
+                            limit: 10,
+                            maxDistance: values.similarIssuesMaxDistance,
+                        })
+                        const response = await api.query(query, {
+                            refresh: refresh ? 'force_blocking' : 'blocking',
+                        })
+                        return response.results
+                    }, [] as SimilarIssue[]),
             },
         ],
         spikeEvents: [
             [] as ErrorTrackingSpikeEvent[],
             {
-                loadSpikeEvents: async () => {
-                    const { dateFrom, dateTo } = dateRangeToIsoBounds(values.dateRange)
-                    const response = await api.errorTracking.getSpikeEvents({
-                        issueIds: [props.id],
-                        dateFrom,
-                        dateTo,
-                    })
-                    return response.results
-                },
+                loadSpikeEvents: async () =>
+                    await runLoaderSafely(async () => {
+                        const { dateFrom, dateTo } = dateRangeToIsoBounds(values.dateRange)
+                        const response = await api.errorTracking.getSpikeEvents({
+                            issueIds: [props.id],
+                            dateFrom,
+                            dateTo,
+                        })
+                        return response.results
+                    }, [] as ErrorTrackingSpikeEvent[]),
             },
         ],
     })),

@@ -149,14 +149,22 @@ export const incidentStatusLogic = kea<incidentStatusLogicType>([
         setPageVisibility: (visible: boolean) => ({ visible }),
     }),
 
-    loaders(() => ({
+    loaders(({ values }) => ({
         summary: [
             null as IncidentIoSummary | null,
             {
                 loadSummary: async () => {
-                    const response = await fetch(`${INCIDENT_IO_STATUS_PAGE_BASE}/api/v1/summary`)
-                    const data: IncidentIoSummary = await response.json()
-                    return data
+                    // The status page is an external service (posthogstatus.com). DNS, CORS,
+                    // offline, or a cold tab being resumed can all reject the fetch with
+                    // TypeError. Keep the previously loaded summary (if any) rather than
+                    // surfacing an unhandled rejection to global error tracking.
+                    try {
+                        const response = await fetch(`${INCIDENT_IO_STATUS_PAGE_BASE}/api/v1/summary`)
+                        const data: IncidentIoSummary = await response.json()
+                        return data
+                    } catch {
+                        return values.summary
+                    }
                 },
             },
         ],

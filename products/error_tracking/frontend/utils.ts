@@ -97,6 +97,32 @@ export function isThirdPartyScriptError(value: ErrorTrackingException['value']):
     return value === THIRD_PARTY_SCRIPT_ERROR
 }
 
+// Detects transient fetch-layer failures (offline, DNS, CORS, aborted navigations).
+// These surface either as a bare TypeError/AbortError or, once wrapped by lib/api,
+// as an ApiError with no status code. We swallow them inside loaders so they don't
+// become unhandled rejections in self-monitoring.
+export function isTransientNetworkError(error: unknown): boolean {
+    if (!(error instanceof Error)) {
+        return false
+    }
+    if (error.name === 'AbortError' || error.name === 'TypeError') {
+        return true
+    }
+    const status = (error as { status?: number }).status
+    return status === undefined && /failed to fetch/i.test(error.message)
+}
+
+export async function runLoaderSafely<T, F>(run: () => Promise<T>, fallback: F): Promise<T | F> {
+    try {
+        return await run()
+    } catch (error) {
+        if (isTransientNetworkError(error)) {
+            return fallback
+        }
+        throw error
+    }
+}
+
 const customOptions: Record<string, string> = {
     dStart: 'Today', // today
     mStart: 'Month',
