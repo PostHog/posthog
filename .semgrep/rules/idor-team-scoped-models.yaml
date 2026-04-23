@@ -491,6 +491,7 @@ rules:
                               |Project
                               |ProxyRecord
                               |Role
+                              |RoleExternalReference
                               |RoleMembership
                           )$
                 - focus-metavariable: $SINK
@@ -553,6 +554,7 @@ rules:
                         |Project
                         |ProxyRecord
                         |Role
+                        |RoleExternalReference
                         |RoleMembership
                     )$
           - pattern-not: $M.objects. ... .$METHOD2(..., organization=$O, ...)
