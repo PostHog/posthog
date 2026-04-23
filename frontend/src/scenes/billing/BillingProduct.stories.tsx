@@ -292,8 +292,8 @@ export const BillingProductTemporarilyFree: Story = {
     },
 }
 
-const renderPlatformAddonsStory = (scenario: Parameters<typeof makeBillingWithPlatformAddons>[0]): JSX.Element => {
-    const billing = makeBillingWithPlatformAddons(scenario)
+const renderPlatformAddonsStory = (scenario: Parameters<typeof makeBillingWithPlatformAddons>[1]): JSX.Element => {
+    const billing = makeBillingWithPlatformAddons(billingJson, scenario)
     useStorybookMocks({
         get: {
             '/api/billing/': billing,
