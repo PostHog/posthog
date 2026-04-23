@@ -1,3 +1,4 @@
+import { getPostHogClient } from '@/lib/analytics'
 import { MCP_DOCS_URL, OAUTH_SCOPES_SUPPORTED, getAuthorizationServerUrl } from '@/lib/constants'
 import {
     buildInsufficientScopeChallenge,
@@ -6,6 +7,7 @@ import {
     formatPermissionErrorMessage,
 } from '@/lib/errors'
 import { RequestLogger, withLogging } from '@/lib/logging'
+import { extractClientInfoFromBody } from '@/lib/mcp-client-info'
 import { buildRedirectUrl, matchAuthServerRedirect } from '@/lib/routing'
 import { hash, sanitizeHeaderValue } from '@/lib/utils'
 import type { CloudRegion } from '@/tools/types'
@@ -82,7 +84,11 @@ const onThenErrorHandler = async (response: Response): Promise<Response> => {
     return response
 }
 
-const onCatchErrorHandler = async (error: Error): Promise<Response> => {
+const onCatchErrorHandler = async (
+    error: Error,
+    log: RequestLogger,
+    ctx: ExecutionContext<RequestProperties>
+): Promise<Response> => {
     const permissionError = findPostHogPermissionError(error)
     if (permissionError) {
         return new Response(formatPermissionErrorMessage(permissionError), {
@@ -93,7 +99,38 @@ const onCatchErrorHandler = async (error: Error): Promise<Response> => {
             },
         })
     }
-    return generateErrorResponseFromMessage(error.message) || new Response('Internal server error', { status: 500 })
+
+    const knownErrorResponse = generateErrorResponseFromMessage(error.message)
+    if (knownErrorResponse) {
+        return knownErrorResponse
+    }
+
+    // Unrecognized error → opaque 500 to the client. Surface the underlying
+    // error in the wide log and PostHog so we can debug without scraping CF
+    // request traces.
+    log.extend({
+        errorName: error?.name,
+        errorMessage: error?.message,
+        errorStack: error?.stack,
+    })
+
+    try {
+        const client = getPostHogClient()
+        const distinctId = ctx.props?.userHash
+        client.captureException(error, distinctId, {
+            team: 'posthog_ai',
+            source: 'mcp_request_handler',
+            mcp_transport: ctx.props?.transport,
+            mcp_version: ctx.props?.version,
+            has_organization_id: !!ctx.props?.organizationId,
+            has_project_id: !!ctx.props?.projectId,
+        })
+        ctx.waitUntil(client.flush())
+    } catch {
+        // Never let observability break the request.
+    }
+
+    return new Response('Internal server error', { status: 500 })
 }
 
 const generateErrorResponseFromMessage = (message: string): Response | null => {
@@ -235,6 +272,19 @@ const handleRequest = async (
     const rawUserAgent = request.headers.get('User-Agent') || undefined
     const clientUserAgent = sanitizeHeaderValue(rawUserAgent)
 
+    // Self-identification signal set by a wrapping consumer app (e.g. PostHog's
+    // Tasks sandbox) when the wrapped MCP client's name is too generic to
+    // distinguish (e.g. both direct and sandboxed Claude Code send `claude-code`).
+    const mcpConsumer = sanitizeHeaderValue(request.headers.get('x-posthog-mcp-consumer') || undefined)
+
+    // Extract MCP `clientInfo` eagerly from the JSON-RPC initialize message in the
+    // request body (streamable-http only). The framework's async
+    // `getInitializeRequest()` relies on Durable Object storage which is only
+    // written after `onStart`/`init()` runs, so on the first connect `init()` has
+    // no client info to read. Parsing the body here gives `init()` the values
+    // synchronously via `RequestProperties`.
+    const clientInfo = await extractClientInfoFromBody(request)
+
     Object.assign(ctx.props, {
         apiToken: token,
         userHash: hash(token),
@@ -242,6 +292,10 @@ const handleRequest = async (
         organizationId,
         projectId,
         clientUserAgent,
+        mcpConsumer,
+        mcpClientName: clientInfo.clientName,
+        mcpClientVersion: clientInfo.clientVersion,
+        mcpProtocolVersion: clientInfo.protocolVersion,
         requestStartTime: Date.now(),
     })
 
@@ -267,6 +321,12 @@ const handleRequest = async (
     const extraContextProps = { features, tools, region: regionParam, version, readOnly }
     Object.assign(ctx.props, extraContextProps)
     log.extend(extraContextProps)
+    if (mcpConsumer) {
+        log.extend({ mcpConsumer })
+    }
+    if (clientInfo.clientName) {
+        log.extend({ mcpClientName: clientInfo.clientName })
+    }
 
     let server: Promise<Response> | null = null
     if (url.pathname.startsWith('/mcp')) {
@@ -278,7 +338,7 @@ const handleRequest = async (
     }
 
     if (server !== null) {
-        return server.then(onThenErrorHandler).catch(onCatchErrorHandler)
+        return server.then(onThenErrorHandler).catch((error: Error) => onCatchErrorHandler(error, log, ctx))
     }
 
     log.extend({ error: 'route_not_found' })

@@ -150,8 +150,8 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 },
             )
 
-    @patch("posthog.api.services.query.get_query_runner")
-    def test_hogql_autocomplete_bypasses_query_runner(self, mock_get_query_runner):
+    @patch("posthog.api.services.query.get_query_runner_or_none")
+    def test_hogql_autocomplete_bypasses_query_runner(self, mock_get_query_runner_or_none):
         query = HogQLAutocomplete(
             kind="HogQLAutocomplete",
             query="select event from events",
@@ -163,7 +163,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         result = process_query_model(self.team, query, user=self.user)
 
         self.assertIn("suggestions", result.model_dump())  # type: ignore
-        mock_get_query_runner.assert_not_called()
+        mock_get_query_runner_or_none.assert_not_called()
 
     @also_test_with_materialized_columns(["key"])
     @snapshot_clickhouse_queries
@@ -608,6 +608,21 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         }
         response = self.client.post(f"/api/environments/{self.team.id}/query/", {"query": query})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    @patch("posthog.hogql_queries.query_runner.QueryRunner.run", side_effect=RuntimeError("source query failed"))
+    def test_data_visualization_source_error_is_not_chained_to_wrapper_runner_lookup(self, _mock_run):
+        query = {
+            "kind": "DataVisualizationNode",
+            "source": {
+                "kind": "HogQLQuery",
+                "query": "SELECT 1",
+            },
+        }
+
+        with self.assertRaises(RuntimeError) as raised:
+            process_query_dict(team=self.team, query_json=query)
+
+        self.assertIsNone(raised.exception.__context__)
 
     def test_query_not_supported(self):
         query = {

@@ -266,7 +266,7 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):  # TODO: Rename to include "Env" 
         if team_from_token := self._get_team_from_request():
             team = team_from_token
         elif self._is_project_view:
-            team = Team.objects.get(
+            team = Team.objects.select_related("organization").get(
                 id=self.project_id  # KLUDGE: This is just for the period of transition to project environments
             )
         elif self.param_derived_from_user_current_team == "team_id":
@@ -275,13 +275,25 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):  # TODO: Rename to include "Env" 
             team = user.team
         else:
             try:
-                team = Team.objects.get(id=self.team_id)
+                team = Team.objects.select_related("organization").get(id=self.team_id)
             except (Team.DoesNotExist, ValueError):
                 raise NotFound(
                     detail="Project not found."  # TODO: "Environment" instead of "Project" when project environments are rolled out
                 )
 
-        tag_queries(team_id=team.pk)
+        org_id: Optional[UUID] = None
+        ai_data_processing_approved: Optional[bool] = None
+        try:
+            organization = team.organization
+            org_id = organization.pk
+            ai_data_processing_approved = organization.is_ai_data_processing_approved
+        except Organization.DoesNotExist:
+            pass
+        tag_queries(
+            team_id=team.pk,
+            org_id=org_id,
+            ai_data_processing_approved=ai_data_processing_approved,
+        )
         return team
 
     @cached_property

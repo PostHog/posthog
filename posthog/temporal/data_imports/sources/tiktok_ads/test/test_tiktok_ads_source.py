@@ -44,7 +44,7 @@ class TestTikTokAdsSource:
 
         assert config.name.value == "TikTokAds"
         assert config.label == "TikTok Ads"
-        assert config.betaSource is True
+        assert config.releaseStatus == "beta"
         assert len(config.fields) == 2
 
         advertiser_field = config.fields[0]

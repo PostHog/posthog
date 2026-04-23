@@ -66,6 +66,7 @@ export function TaxonomicBreakdownFilter({
         breakdownOptionsOpened,
         isMultipleBreakdownsEnabled,
         taxonomicBreakdownType,
+        hasGlobalBreakdownOptions,
     } = useValues(taxonomicBreakdownFilterLogic(logicProps))
     const { toggleBreakdownOptions } = useActions(taxonomicBreakdownFilterLogic(logicProps))
     const { hogQL, canEditInSqlEditor } = useValues(insightDataLogic(insightProps))
@@ -132,14 +133,14 @@ export function TaxonomicBreakdownFilter({
 
     return (
         <BindLogic logic={taxonomicBreakdownFilterLogic} props={logicProps}>
-            {(showLabel || (!showInlineOptions && isMultipleBreakdownsEnabled)) && (
+            {(showLabel || (!showInlineOptions && isMultipleBreakdownsEnabled && hasGlobalBreakdownOptions)) && (
                 <div className="flex items-center gap-2">
                     {showLabel && (
                         <LemonLabel info="Use breakdown to see the aggregation (total volume, active users, etc.) for each value of that property. For example, breaking down by Current URL with total volume will give you the event volume for each URL your users have visited.">
                             Breakdown by
                         </LemonLabel>
                     )}
-                    {!showInlineOptions && isMultipleBreakdownsEnabled && (
+                    {!showInlineOptions && isMultipleBreakdownsEnabled && hasGlobalBreakdownOptions && (
                         <Popover
                             overlay={<GlobalBreakdownOptionsMenu />}
                             visible={breakdownOptionsOpened}
@@ -163,7 +164,7 @@ export function TaxonomicBreakdownFilter({
                     size={size}
                 />
             </div>
-            {showInlineOptions && isMultipleBreakdownsEnabled && (
+            {showInlineOptions && isMultipleBreakdownsEnabled && hasGlobalBreakdownOptions && (
                 <div className="mt-2 border-t pt-2">
                     <GlobalBreakdownOptionsMenu />
                 </div>
