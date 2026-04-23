@@ -7,6 +7,7 @@ import { dayjs } from 'lib/dayjs'
 import { urls } from 'scenes/urls'
 
 import { BulletList, parseBullets } from './ClusterDescriptionComponents'
+import { formatEvalTitle } from './traceSummaryLoader'
 import { Cluster, ClusterItemInfo, ClusteringLevel, TraceSummary } from './types'
 
 interface ClusterTraceListProps {
@@ -135,7 +136,9 @@ function TraceListItem({
                         {summary.evaluationVerdict}
                     </LemonTag>
                 )}
-                <span className="font-medium text-sm flex-1 min-w-0 truncate">{summary?.title || 'Loading...'}</span>
+                <span className="font-medium text-sm flex-1 min-w-0 truncate">
+                    {isEvalLevel ? formatEvalTitle(summary, 100) || 'Loading...' : summary?.title || 'Loading...'}
+                </span>
                 {linkHref && (
                     <Link
                         to={linkHref}

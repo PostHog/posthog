@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconChevronDown, IconChevronRight, IconGear, IconQuestion, IconStack } from '@posthog/icons'
+import { IconChevronDown, IconChevronRight, IconGear, IconInfo, IconQuestion, IconStack } from '@posthog/icons'
 import { LemonButton, LemonSegmentedButton, LemonSelect, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
@@ -19,6 +19,7 @@ import { clustersAdminLogic } from './clustersAdminLogic'
 import { ClusterScatterPlot } from './ClusterScatterPlot'
 import { clustersLogic } from './clustersLogic'
 import { NOISE_CLUSTER_ID } from './constants'
+import { EvaluationFilterBar } from './EvaluationFilterBar'
 import { Cluster, ClusteringLevel, getJobIdFromRunId } from './types'
 
 export function ClustersView(): JSX.Element {
@@ -29,6 +30,7 @@ export function ClustersView(): JSX.Element {
         currentRun,
         currentRunLoading,
         sortedClusters,
+        filteredSortedClusters,
         effectiveRunId,
         expandedClusterIds,
         traceSummaries,
@@ -189,41 +191,44 @@ export function ClustersView(): JSX.Element {
                 </div>
 
                 <div className="flex items-center gap-4">
-                    {currentRun && (
-                        <div className="flex items-center gap-2 text-muted text-sm whitespace-nowrap">
-                            <span>
-                                {currentRun.totalItemsAnalyzed}{' '}
-                                {clusteringLevel === 'generation'
+                    {currentRun &&
+                        (() => {
+                            const outlierCluster = sortedClusters.find(
+                                (c: Cluster) => c.cluster_id === NOISE_CLUSTER_ID
+                            )
+                            const regularClusterCount = sortedClusters.filter(
+                                (c: Cluster) => c.cluster_id !== NOISE_CLUSTER_ID
+                            ).length
+                            const outlierCount = outlierCluster?.size || 0
+                            const itemNoun =
+                                clusteringLevel === 'generation'
                                     ? 'generations'
                                     : clusteringLevel === 'evaluation'
                                       ? 'evaluations'
-                                      : 'traces'}{' '}
-                                analyzed
-                            </span>
-                            <span>|</span>
-                            <span>
-                                {(() => {
-                                    const outlierCluster = sortedClusters.find(
-                                        (c: Cluster) => c.cluster_id === NOISE_CLUSTER_ID
-                                    )
-                                    const regularClusterCount = sortedClusters.filter(
-                                        (c: Cluster) => c.cluster_id !== NOISE_CLUSTER_ID
-                                    ).length
-                                    const outlierCount = outlierCluster?.size || 0
-
-                                    if (outlierCount > 0) {
-                                        return `${regularClusterCount} clusters, ${outlierCount} outliers`
+                                      : 'traces'
+                            const clustersLabel =
+                                outlierCount > 0
+                                    ? `${regularClusterCount} clusters, ${outlierCount} outliers`
+                                    : `${regularClusterCount} clusters`
+                            const windowLabel = `${dayjs(currentRun.windowStart).format('MMM D')} - ${dayjs(
+                                currentRun.windowEnd
+                            ).format('MMM D, YYYY')}`
+                            return (
+                                <Tooltip
+                                    title={
+                                        <div className="flex flex-col gap-1">
+                                            <span>
+                                                {currentRun.totalItemsAnalyzed} {itemNoun} analyzed
+                                            </span>
+                                            <span>{clustersLabel}</span>
+                                            <span>{windowLabel}</span>
+                                        </div>
                                     }
-                                    return `${regularClusterCount} clusters`
-                                })()}
-                            </span>
-                            <span>|</span>
-                            <span>
-                                {dayjs(currentRun.windowStart).format('MMM D')} -{' '}
-                                {dayjs(currentRun.windowEnd).format('MMM D, YYYY')}
-                            </span>
-                        </div>
-                    )}
+                                >
+                                    <IconInfo className="text-muted text-base shrink-0" />
+                                </Tooltip>
+                            )
+                        })()}
 
                     <LemonButton
                         type="secondary"
@@ -273,7 +278,7 @@ export function ClustersView(): JSX.Element {
                         data-attr="clusters-scatter-plot-toggle"
                     >
                         <div className="flex items-center gap-4">
-                            <ClusterDistributionBar clusters={sortedClusters} runId={effectiveRunId || ''} />
+                            <ClusterDistributionBar clusters={filteredSortedClusters} runId={effectiveRunId || ''} />
                             <LemonButton
                                 size="small"
                                 noPadding
@@ -329,10 +334,20 @@ export function ClustersView(): JSX.Element {
                 </div>
             )}
 
+            {/* Eval-only post-hoc filter (renders below the scatter, above the cards) */}
+            {!currentRunLoading && sortedClusters.length > 0 && <EvaluationFilterBar />}
+
+            {/* Empty result after filtering */}
+            {!currentRunLoading && sortedClusters.length > 0 && filteredSortedClusters.length === 0 && (
+                <div className="border rounded-lg p-6 text-center text-muted">
+                    No clusters match the current evaluation filters.
+                </div>
+            )}
+
             {/* Cluster Cards */}
-            {!currentRunLoading && sortedClusters.length > 0 && (
+            {!currentRunLoading && filteredSortedClusters.length > 0 && (
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                    {sortedClusters.map((cluster: Cluster) => (
+                    {filteredSortedClusters.map((cluster: Cluster) => (
                         <ClusterCard
                             key={cluster.cluster_id}
                             cluster={cluster}
