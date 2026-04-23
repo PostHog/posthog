@@ -116,7 +116,7 @@ export function TrendsLineChartD3({ context }: TrendsLineChartD3Props): JSX.Elem
                 // (LineChart.tsx), so a filled CI band would also reposition the main
                 // line. Adding CI requires a library primitive for fill-between-series.
 
-                if (showMovingAverage && r.data.length >= 2) {
+                if (showMovingAverage && r.data.length >= movingAverageIntervals) {
                     series.push({
                         key: `${r.id}-ma`,
                         label: `${r.label ?? ''} (Moving avg)`,
