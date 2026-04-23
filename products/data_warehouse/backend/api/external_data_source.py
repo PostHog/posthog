@@ -393,6 +393,11 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
     )
     access_method = serializers.ChoiceField(choices=ExternalDataSource.AccessMethod.choices, read_only=True)
     supports_webhooks = serializers.SerializerMethodField(read_only=True)
+    # Required-at-serializer would break PATCH (same serializer is reused for update
+    # with partial=False-compatible paths), so the field is optional here and the
+    # `create` viewset method below enforces presence + choice validity. The serializer
+    # keeps the ChoiceField so the value surfaces on reads and in the generated OpenAPI/
+    # MCP schemas; `update` strips it to make the field write-once.
     created_via = serializers.ChoiceField(
         choices=ExternalDataSource.CreatedVia.choices,
         required=False,
