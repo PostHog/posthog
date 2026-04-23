@@ -233,6 +233,7 @@ tools:
             - holdout_id
             - conclusion
             - conclusion_comment
+            - archived
             - allow_unknown_events
             - update_feature_flag_params
         ui_app: experiment

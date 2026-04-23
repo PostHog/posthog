@@ -4,6 +4,10 @@
         "allow_unknown_events": {
             "type": "boolean"
         },
+        "archived": {
+            "description": "Whether the experiment is archived.",
+            "type": "boolean"
+        },
         "conclusion": {
             "anyOf": [
                 {

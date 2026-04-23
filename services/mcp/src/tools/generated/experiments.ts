@@ -164,7 +164,6 @@ const ExperimentUpdateSchema = ExperimentsPartialUpdateParams.omit({ project_id:
         secondary_metrics: true,
         saved_metrics_ids: true,
         filters: true,
-        archived: true,
         deleted: true,
         type: true,
         exposure_criteria: true,
@@ -194,6 +193,9 @@ const experimentUpdate = (): ToolBase<typeof ExperimentUpdateSchema, WithPostHog
             }
             if (params.parameters !== undefined) {
                 body['parameters'] = params.parameters
+            }
+            if (params.archived !== undefined) {
+                body['archived'] = params.archived
             }
             if (params.metrics !== undefined) {
                 body['metrics'] = params.metrics
