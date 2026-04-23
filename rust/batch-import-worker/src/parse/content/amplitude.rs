@@ -1023,6 +1023,19 @@ mod tests {
     }
 
     #[test]
+    fn test_parse_timestamp_falls_back_to_client_event_time_when_event_time_is_in_future() {
+        let amp_event = AmplitudeEvent {
+            event_time: Some("2099-01-01 00:00:00".to_string()),
+            client_event_time: Some("2024-06-01 12:00:00".to_string()),
+            server_received_time: Some("2024-06-01 12:00:05".to_string()),
+            ..Default::default()
+        };
+
+        let ts = parse_timestamp(&amp_event).unwrap();
+        assert_eq!(ts, parse_timestamp_string("2024-06-01 12:00:00").unwrap());
+    }
+
+    #[test]
     fn test_distinct_id_fallback() {
         // Test with user_id
         let amp_event = AmplitudeEvent {
