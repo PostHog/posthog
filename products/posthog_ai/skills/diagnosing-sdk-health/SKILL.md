@@ -79,11 +79,19 @@ Group by severity (`danger` first, then `warning`, then `none`). Skip SDKs with
 Each SDK's `releases` array has per-version rows. Each row includes UI-matching copy and
 ready-to-use links:
 
-- `status_reason` — **verbatim badge tooltip text** matching the UI (e.g. `"Released
+- `status_reason` — badge tooltip text that **closely** matches the UI (e.g. `"Released
 5 months ago. Upgrade recommended."`, `"You have the latest available. Click 'Releases ↗'
 above to check for any since."`, or `"Released 2 months ago. Upgrading is a good idea,
-but it's not urgent yet."`). Quote directly.
-- `released_ago` — human-readable relative age (e.g. `"5 months ago"`)
+but it's not urgent yet."`). Quote directly. **Caveat**: the relative-age segment
+  ("5 months ago" etc.) is computed with Python's `humanize.naturaltime` on the backend
+  and JavaScript's `dayjs().fromNow()` in the browser, and the two libraries have
+  different thresholds at some boundaries (e.g. humanize says `"30 days ago"` where dayjs
+  says `"a month ago"`; humanize says `"4 months ago"` at 148 days where dayjs says
+  `"5 months ago"`). The overall template is identical; the age phrasing may be one
+  threshold off. If a user cites an exact age from the UI that doesn't match, don't
+  "correct" them — the UI is showing dayjs output and both are internally consistent.
+- `released_ago` — human-readable relative age (e.g. `"5 months ago"`) — same
+  humanize-vs-dayjs caveat as above.
 - `is_outdated`, `is_old`, `is_current_or_newer` — booleans if you need to branch
 - `sql_query` — complete SQL statement to see the last 50 events captured by this version.
   Suggest it as a copy-paste snippet OR pass it to `posthog:execute-sql` to drill in.
@@ -118,9 +126,11 @@ The backend applies these rules (you don't need to re-check them):
 
 These response fields are **user-facing UI copy** — quote them verbatim, don't reword:
 
-- `banners[]` — top-level "Time for an update!" alert text
-- `releases[].status_reason` — per-version badge tooltip text
-- `readable_name` — human-readable SDK name
+- `banners[]` — top-level "Time for an update!" alert text. Byte-for-byte match with UI.
+- `releases[].status_reason` — per-version badge tooltip text. Template matches the UI,
+  but the relative-age phrasing (`"5 months ago"` etc.) can be one boundary threshold
+  off because the backend uses `humanize` and the UI uses `dayjs`. See Step 5 caveat.
+- `readable_name` — human-readable SDK name. Byte-for-byte match with UI.
 
 `reason` (per-SDK) is a programmatic summary meant for ranking/filtering, not for quoting
 to users. Prefer `banners[]` and `status_reason` for user-visible output.

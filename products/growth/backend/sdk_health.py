@@ -430,7 +430,11 @@ def _build_banner(sdk_type: str, alert: OutdatedTrafficAlert) -> str:
     belt-and-braces worthwhile.
     """
     readable = SDK_READABLE_NAME.get(sdk_type, sdk_type)
-    threshold_int = int(alert.threshold_percent)
+    # round() not int() so any fp artifact near integer values (e.g. 0.1 * 100 =
+    # 10.000000000000002) renders correctly. For hypothetical half-integer thresholds
+    # Python's banker's rounding applies (10.5 → 10, 11.5 → 12) — no half-integer
+    # threshold exists today.
+    threshold_int = round(alert.threshold_percent)
     version = _safe_version_display(alert.version)
     return (
         f"Version {version} of the {readable} SDK has captured more than {threshold_int}% of events in the last 7 days."

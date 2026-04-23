@@ -477,13 +477,17 @@ class TestUiParityStrings(SimpleTestCase):
     def test_status_reason(self, _name, is_outdated, is_current_or_newer, released_ago, expected):
         assert _build_status_reason(is_outdated, is_current_or_newer, released_ago) == expected
 
-    def test_sql_query_matches_ui_template(self):
+    def test_sql_query_matches_ui_template_exact(self):
+        # Exact-string match (not substring containment) so any whitespace / punctuation
+        # drift against queryForSdkVersion() in SdkDoctorComponents.tsx breaks this test.
+        # If you change one side, change the other — the comment in the TS file points here.
         sql = _build_sql_query("posthog-node", "1.230.1")
-        assert "SELECT * FROM events" in sql
-        assert "INTERVAL 7 DAY" in sql
-        assert "properties.$lib = 'posthog-node'" in sql
-        assert "properties.$lib_version = '1.230.1'" in sql
-        assert "LIMIT 50" in sql
+        expected = (
+            "SELECT * FROM events WHERE timestamp >= NOW() - INTERVAL 7 DAY "
+            "AND properties.$lib = 'posthog-node' AND properties.$lib_version = '1.230.1' "
+            "ORDER BY timestamp DESC LIMIT 50"
+        )
+        assert sql == expected
 
     def test_activity_page_url_contains_project_prefix_and_version(self):
         url = _build_activity_page_url(2, "web", "1.298.0")
@@ -506,6 +510,38 @@ class TestUiParityStrings(SimpleTestCase):
     def test_banner_matches_ui_copy(self):
         banner = _build_banner("posthog-python", OutdatedTrafficAlert(version="7.0.0", threshold_percent=10.0))
         assert banner == "Version 7.0.0 of the Python SDK has captured more than 10% of events in the last 7 days."
+
+    def test_banner_threshold_percent_rounds_near_integer_floats(self):
+        # int() floors toward zero, so int(9.9999999) = 9 — wrong. round() handles both
+        # above-integer and below-integer fp artifacts correctly. Pins the greptile fix.
+        below = _build_banner("posthog-python", OutdatedTrafficAlert(version="7.0.0", threshold_percent=9.9999999))
+        above = _build_banner("posthog-python", OutdatedTrafficAlert(version="7.0.0", threshold_percent=10.0000001))
+        assert "more than 10% of events" in below
+        assert "more than 9% of events" not in below
+        assert "more than 10% of events" in above
+
+    @parameterized.expand(
+        [
+            # (days_ago, expected_humanize_output)
+            # These values are what humanize.naturaltime currently emits. The skill tells
+            # agents to treat status_reason as UI-matching, but the UI uses dayjs().fromNow()
+            # which can differ at boundaries. Pin the humanize side so we notice if
+            # humanize itself changes; for full UI parity see the SKILL's caveat in the
+            # copy-faithfulness section.
+            (1, "a day ago"),
+            (5, "5 days ago"),
+            (13, "13 days ago"),
+            (30, "30 days ago"),  # humanize: "30 days"; dayjs would say "a month ago"
+            (60, "a month ago"),  # humanize: "a month"; dayjs would say "2 months ago"
+            (148, "4 months ago"),  # humanize: "4 months"; dayjs would say "5 months ago"
+            (365, "a year ago"),
+        ]
+    )
+    def test_released_ago_matches_humanize_spec(self, days, expected):
+        from products.growth.backend.sdk_health import _released_ago
+
+        release_iso = (NOW - timedelta(days=days)).isoformat()
+        assert _released_ago(release_iso, now=NOW) == expected
 
     @parameterized.expand(
         [
