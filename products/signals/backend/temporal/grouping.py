@@ -16,7 +16,7 @@ import structlog
 import temporalio
 from pydantic import BaseModel, Field
 from temporalio import workflow
-from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
+from temporalio.common import MetricCounter, RetryPolicy, WorkflowIDReusePolicy
 from temporalio.workflow import ParentClosePolicy
 
 from posthog.schema import EmbeddingModelName
@@ -64,6 +64,40 @@ logger = structlog.get_logger(__name__)
 
 WEIGHT_THRESHOLD = float(os.getenv("SIGNAL_WEIGHT_THRESHOLD", "1.0"))
 MAX_QUERIES = 3
+
+
+def _signal_emitted_counter(team_id: int, source_product: str, source_type: str) -> MetricCounter:
+    return (
+        workflow.metric_meter()
+        .with_additional_attributes(
+            {
+                "team_id": str(team_id),
+                "source_product": source_product,
+                "source_type": source_type,
+            }
+        )
+        .create_counter(
+            "signals_grouping_signals_emitted",
+            "Number of signals successfully assigned to a report and emitted to ClickHouse.",
+        )
+    )
+
+
+def _signal_batch_dropped_counter(team_id: int, source_product: str, source_type: str) -> MetricCounter:
+    return (
+        workflow.metric_meter()
+        .with_additional_attributes(
+            {
+                "team_id": str(team_id),
+                "source_product": source_product,
+                "source_type": source_type,
+            }
+        )
+        .create_counter(
+            "signals_grouping_signals_batch_dropped",
+            "Number of signals dropped during per-signal batch processing (matching/assignment/emission failed).",
+        )
+    )
 
 
 @dataclass
@@ -1108,8 +1142,11 @@ async def _process_signal_batch(
                     assign_result.run_count,
                 )
 
+            _signal_emitted_counter(team_id, signal.source_product, signal.source_type).add(1)
+
         except Exception:
             dropped += 1
+            _signal_batch_dropped_counter(team_id, signal.source_product, signal.source_type).add(1)
             workflow.logger.exception(
                 "Failed to process signal in batch",
                 team_id=team_id,

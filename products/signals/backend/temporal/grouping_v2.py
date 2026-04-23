@@ -7,7 +7,7 @@ from django.conf import settings
 import temporalio
 from asgiref.sync import sync_to_async
 from temporalio import activity, workflow
-from temporalio.common import RetryPolicy
+from temporalio.common import MetricCounter, MetricGauge, RetryPolicy
 from temporalio.service import RPCError, RPCStatusCode
 
 from posthog.storage import object_storage
@@ -27,6 +27,54 @@ from products.signals.backend.temporal.types import (
 
 PAUSE_SLEEP_SECONDS = 30
 PAUSE_MAX_RUN_DURATION = timedelta(minutes=30)
+
+
+def _team_meter_attrs(team_id: int) -> dict[str, str]:
+    return {"team_id": str(team_id)}
+
+
+def _pending_batches_gauge(team_id: int) -> MetricGauge:
+    return (
+        workflow.metric_meter()
+        .with_additional_attributes(_team_meter_attrs(team_id))
+        .create_gauge(
+            "signals_grouping_v2_pending_batches",
+            "Number of signal batches currently buffered in the grouping v2 workflow, awaiting processing.",
+        )
+    )
+
+
+def _batches_received_counter(team_id: int) -> MetricCounter:
+    return (
+        workflow.metric_meter()
+        .with_additional_attributes(_team_meter_attrs(team_id))
+        .create_counter(
+            "signals_grouping_v2_batches_received",
+            "Number of signal batches received by the grouping v2 workflow via submit_batch.",
+        )
+    )
+
+
+def _batches_processed_counter(team_id: int) -> MetricCounter:
+    return (
+        workflow.metric_meter()
+        .with_additional_attributes(_team_meter_attrs(team_id))
+        .create_counter(
+            "signals_grouping_v2_batches_processed",
+            "Number of signal batches successfully processed by the grouping v2 workflow.",
+        )
+    )
+
+
+def _batch_errors_counter(team_id: int) -> MetricCounter:
+    return (
+        workflow.metric_meter()
+        .with_additional_attributes(_team_meter_attrs(team_id))
+        .create_counter(
+            "signals_grouping_v2_batch_errors",
+            "Number of signal batches that failed to be processed by the grouping v2 workflow.",
+        )
+    )
 
 
 @activity.defn
@@ -57,6 +105,7 @@ class TeamSignalGroupingV2Workflow:
         self._cached_type_examples: Optional[FetchSignalTypeExamplesOutput] = None
         self._type_examples_fetched_at: Optional[datetime] = None
         self._paused_until: Optional[datetime] = None
+        self._team_id: int | None = None
 
     @staticmethod
     def workflow_id_for(team_id: int) -> str:
@@ -66,6 +115,10 @@ class TeamSignalGroupingV2Workflow:
     async def submit_batch(self, object_key: str) -> None:
         """Receive an S3 object key containing a batch of signals."""
         self._batch_key_buffer.append(object_key)
+        # team_id is set in run(); signals are only dispatched once run() is active.
+        if self._team_id is not None:
+            _batches_received_counter(self._team_id).add(1)
+            _pending_batches_gauge(self._team_id).set(len(self._batch_key_buffer))
 
     @temporalio.workflow.signal
     async def set_paused_until(self, timestamp: datetime) -> None:
@@ -97,9 +150,11 @@ class TeamSignalGroupingV2Workflow:
     @temporalio.workflow.run
     async def run(self, input: TeamSignalGroupingV2Input) -> None:
         # Restore state carried over from continue_as_new
+        self._team_id = input.team_id
         self._batch_key_buffer.extend(input.pending_batch_keys)
         self._paused_until = input.paused_until
         start_time = workflow.now()
+        _pending_batches_gauge(input.team_id).set(len(self._batch_key_buffer))
 
         while True:
             # If paused, sleep in 30s increments until unpaused or pause expires
@@ -121,6 +176,7 @@ class TeamSignalGroupingV2Workflow:
 
             # Pop the next key
             object_key = self._batch_key_buffer.pop(0)
+            _pending_batches_gauge(input.team_id).set(len(self._batch_key_buffer))
 
             # Download the batch from S3
             read_result: ReadSignalsFromS3Output = await workflow.execute_activity(
@@ -145,7 +201,9 @@ class TeamSignalGroupingV2Workflow:
                 dropped, type_examples = await _process_signal_batch(signals, cached_type_examples=cached)
                 self._cached_type_examples = type_examples
                 self._type_examples_fetched_at = self._type_examples_fetched_at if cached is not None else now
+                _batches_processed_counter(input.team_id).add(1)
             except Exception:
+                _batch_errors_counter(input.team_id).add(1)
                 workflow.logger.exception(
                     "Failed to process signal batch",
                     team_id=input.team_id,

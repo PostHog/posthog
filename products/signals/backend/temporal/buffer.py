@@ -11,7 +11,7 @@ import structlog
 import temporalio
 from asgiref.sync import sync_to_async
 from temporalio import activity, workflow
-from temporalio.common import RetryPolicy
+from temporalio.common import MetricCounter, MetricGauge, RetryPolicy
 
 from posthog.storage import object_storage
 from posthog.temporal.common.client import async_connect
@@ -21,6 +21,74 @@ from products.signals.backend.temporal.safety_filter import SafetyFilterInput, s
 from products.signals.backend.temporal.types import BufferSignalsInput, EmitSignalInputs, TeamSignalGroupingV2Input
 
 logger = structlog.get_logger(__name__)
+
+
+def _team_meter_attrs(team_id: int) -> dict[str, str]:
+    return {"team_id": str(team_id)}
+
+
+def _source_meter_attrs(team_id: int, source_product: str, source_type: str) -> dict[str, str]:
+    return {
+        "team_id": str(team_id),
+        "source_product": source_product,
+        "source_type": source_type,
+    }
+
+
+def _buffer_size_gauge(team_id: int) -> MetricGauge:
+    return (
+        workflow.metric_meter()
+        .with_additional_attributes(_team_meter_attrs(team_id))
+        .create_gauge(
+            "signals_buffer_current_size",
+            "Number of signals currently buffered in the buffer workflow, awaiting flush.",
+        )
+    )
+
+
+def _signals_received_counter(team_id: int, source_product: str, source_type: str) -> MetricCounter:
+    return (
+        workflow.metric_meter()
+        .with_additional_attributes(_source_meter_attrs(team_id, source_product, source_type))
+        .create_counter(
+            "signals_buffer_signals_received",
+            "Number of signals received by the buffer workflow via submit_signal.",
+        )
+    )
+
+
+def _signals_safety_dropped_counter(team_id: int, source_product: str, source_type: str) -> MetricCounter:
+    return (
+        workflow.metric_meter()
+        .with_additional_attributes(_source_meter_attrs(team_id, source_product, source_type))
+        .create_counter(
+            "signals_buffer_signals_safety_dropped",
+            "Number of signals dropped by the safety filter before flushing to object storage.",
+        )
+    )
+
+
+def _signals_flushed_counter(team_id: int) -> MetricCounter:
+    return (
+        workflow.metric_meter()
+        .with_additional_attributes(_team_meter_attrs(team_id))
+        .create_counter(
+            "signals_buffer_signals_flushed",
+            "Number of safe signals flushed to object storage from the buffer workflow.",
+        )
+    )
+
+
+def _batches_flushed_counter(team_id: int) -> MetricCounter:
+    return (
+        workflow.metric_meter()
+        .with_additional_attributes(_team_meter_attrs(team_id))
+        .create_counter(
+            "signals_buffer_batches_flushed",
+            "Number of signal batches flushed from the buffer workflow to the grouping v2 workflow.",
+        )
+    )
+
 
 # TODO: Check if the size of the buffer doesn't overload memory for the Temporal workflow handling the batch
 BUFFER_MAX_SIZE = 20
@@ -117,6 +185,7 @@ class BufferSignalsWorkflow:
 
     def __init__(self) -> None:
         self._signal_buffer: list[EmitSignalInputs] = []
+        self._team_id: int | None = None
 
     @staticmethod
     def workflow_id_for(team_id: int) -> str:
@@ -129,10 +198,16 @@ class BufferSignalsWorkflow:
     @temporalio.workflow.signal
     async def submit_signal(self, signal: EmitSignalInputs) -> None:
         self._signal_buffer.append(signal)
+        # team_id is set in run(); signals are only dispatched once run() is active.
+        if self._team_id is not None:
+            _signals_received_counter(self._team_id, signal.source_product, signal.source_type).add(1)
+            _buffer_size_gauge(self._team_id).set(len(self._signal_buffer))
 
     @temporalio.workflow.run
     async def run(self, input: BufferSignalsInput) -> None:
+        self._team_id = input.team_id
         self._signal_buffer.extend(input.pending_signals)
+        _buffer_size_gauge(input.team_id).set(len(self._signal_buffer))
 
         while True:
             # Wait for at least one signal
@@ -151,6 +226,7 @@ class BufferSignalsWorkflow:
             # Drain buffer
             batch = list(self._signal_buffer)
             self._signal_buffer.clear()
+            _buffer_size_gauge(input.team_id).set(len(self._signal_buffer))
 
             # Filter out malicious signals
             safety_results = await asyncio.gather(
@@ -169,6 +245,7 @@ class BufferSignalsWorkflow:
                 if result.safe:
                     safe_signals.append(signal)
                 else:
+                    _signals_safety_dropped_counter(input.team_id, signal.source_product, signal.source_type).add(1)
                     workflow.logger.warning(
                         f"Safety filter dropped signal: {result.threat_type}",
                         team_id=signal.team_id,
@@ -198,6 +275,9 @@ class BufferSignalsWorkflow:
                 start_to_close_timeout=timedelta(minutes=2),
                 retry_policy=RetryPolicy(maximum_attempts=3),
             )
+
+            _signals_flushed_counter(input.team_id).add(flush_result.signal_count)
+            _batches_flushed_counter(input.team_id).add(1)
 
             # Signal-with-start the grouping v2 workflow (creates it if not running)
             await workflow.execute_activity(
