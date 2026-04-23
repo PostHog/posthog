@@ -691,10 +691,10 @@ class ExternalDataSourceCreateSerializer(serializers.Serializer):
         help_text="Connection credentials and a 'schemas' array. Keys depend on source_type.",
     )
     prefix = serializers.CharField(
-        required=False, allow_null=True, allow_blank=True, help_text="Table name prefix in HogQL."
+        max_length=100, required=False, allow_null=True, allow_blank=True, help_text="Table name prefix in HogQL."
     )
     description = serializers.CharField(
-        required=False, allow_null=True, allow_blank=True, help_text="Human-readable description."
+        max_length=400, required=False, allow_null=True, allow_blank=True, help_text="Human-readable description."
     )
     access_method = serializers.ChoiceField(
         choices=ExternalDataSource.AccessMethod.choices,
