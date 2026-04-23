@@ -53,11 +53,11 @@ LLMA_EVALUATION_PRODUCT = "llm-analytics"
 
 # Embedding model. Eval text representations are short (typically <1000 chars:
 # evaluator name + one-line description + verdict + reasoning), so the 1536-dim
-# small model is a better fit than the 3072-dim large model used by trace/generation
-# summary embeddings — comparable semantic quality at this length, ~5x cheaper on
-# OpenAI's embeddings API, and half the storage in ClickHouse. Stage B filters
-# raw_document_embeddings by this `model_name` so eval clustering only reads from
-# the matching subtable in the union view.
+# small model is the default choice over the 3072-dim large model used by
+# trace/generation summary embeddings — ~5x cheaper on OpenAI's embeddings API
+# and half the storage in ClickHouse. Stage B filters raw_document_embeddings by
+# this `model_name` so eval clustering only reads from the matching subtable in
+# the union view.
 LLMA_EVALUATION_EMBEDDING_MODEL = "text-embedding-3-small-1536"
 
 # Event emitted by Stage B
