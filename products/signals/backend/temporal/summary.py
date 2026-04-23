@@ -1,17 +1,20 @@
 import json
 import asyncio
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import timedelta
 
 from django.db import transaction
 
 import structlog
 import temporalio
+import posthoganalytics
 from temporalio import workflow
 from temporalio.common import RetryPolicy
 
+from posthog.event_usage import groups
 from posthog.kafka_client.routing import get_producer
 from posthog.kafka_client.topics import KAFKA_SIGNALS_REPORT_COMPLETED
+from posthog.models import Organization, Team
 from posthog.sync import database_sync_to_async
 
 from products.signals.backend.models import SignalReport
@@ -35,6 +38,35 @@ from products.signals.backend.temporal.signal_queries import (
 from products.signals.backend.temporal.types import SignalData, SignalReportSummaryWorkflowInputs
 
 logger = structlog.get_logger(__name__)
+
+
+def _capture_report_event(
+    event: str,
+    team: Team,
+    organization: Organization,
+    report_id: str,
+    signal_count: int,
+    run_count: int,
+    source_products: list[str],
+    result: str | None = None,
+    failure_reason: str | None = None,
+) -> None:
+    properties: dict = {
+        "report_id": report_id,
+        "signal_count": signal_count,
+        "run_count": run_count,
+        "source_products": source_products,
+    }
+    if result is not None:
+        properties["result"] = result
+    if failure_reason is not None:
+        properties["failure_reason"] = failure_reason
+    posthoganalytics.capture(
+        event=event,
+        distinct_id=str(team.uuid),
+        properties=properties,
+        groups=groups(organization, team),
+    )
 
 
 @dataclass
@@ -94,17 +126,28 @@ class SignalReportSummaryWorkflow:
             workflow.logger.error(f"No signals found for report {inputs.report_id}, marking as failed")
             await workflow.execute_activity(
                 mark_report_failed_activity,
-                MarkReportFailedInput(team_id=inputs.team_id, report_id=inputs.report_id, error="No signals found"),
+                MarkReportFailedInput(
+                    team_id=inputs.team_id,
+                    report_id=inputs.report_id,
+                    error="No signals found",
+                    failure_reason="no_signals_found",
+                ),
                 start_to_close_timeout=timedelta(minutes=1),
                 retry_policy=RetryPolicy(maximum_attempts=3),
             )
             # No loop, as no signals to process
             return False
         signal_count = len(fetch_result.signals)
+        source_products = sorted({s.source_product for s in fetch_result.signals})
         # 2. Mark report as in_progress to prevent duplicate runs while this workflow is active
         await workflow.execute_activity(
             mark_report_in_progress_activity,
-            MarkReportInProgressInput(team_id=inputs.team_id, report_id=inputs.report_id, signal_count=signal_count),
+            MarkReportInProgressInput(
+                team_id=inputs.team_id,
+                report_id=inputs.report_id,
+                signal_count=signal_count,
+                source_products=source_products,
+            ),
             start_to_close_timeout=timedelta(minutes=1),
             retry_policy=RetryPolicy(maximum_attempts=3),
         )
@@ -128,6 +171,9 @@ class SignalReportSummaryWorkflow:
                         team_id=inputs.team_id,
                         report_id=inputs.report_id,
                         error=f"Failed safety review: {safety_result.explanation}",
+                        failure_reason="safety_judge_rejected",
+                        signal_count=signal_count,
+                        source_products=source_products,
                     ),
                     start_to_close_timeout=timedelta(minutes=1),
                     retry_policy=RetryPolicy(maximum_attempts=3),
@@ -181,6 +227,8 @@ class SignalReportSummaryWorkflow:
                         team_id=inputs.team_id,
                         report_id=inputs.report_id,
                         reason=f"Not actionable: {decision.explanation}",
+                        signal_count=signal_count,
+                        source_products=source_products,
                     ),
                     start_to_close_timeout=timedelta(minutes=1),
                     retry_policy=RetryPolicy(maximum_attempts=3),
@@ -197,6 +245,8 @@ class SignalReportSummaryWorkflow:
                         title=decision.title,
                         summary=decision.summary,
                         reason=f"Requires human input: {decision.explanation}",
+                        signal_count=signal_count,
+                        source_products=source_products,
                     ),
                     start_to_close_timeout=timedelta(minutes=1),
                     retry_policy=RetryPolicy(maximum_attempts=3),
@@ -212,6 +262,7 @@ class SignalReportSummaryWorkflow:
                     title=decision.title,
                     summary=decision.summary,
                     processed_signal_count=signal_count,
+                    source_products=source_products,
                 ),
                 start_to_close_timeout=timedelta(minutes=1),
                 retry_policy=RetryPolicy(maximum_attempts=3),
@@ -234,7 +285,14 @@ class SignalReportSummaryWorkflow:
         except Exception as e:
             await workflow.execute_activity(
                 mark_report_failed_activity,
-                MarkReportFailedInput(team_id=inputs.team_id, report_id=inputs.report_id, error=str(e)),
+                MarkReportFailedInput(
+                    team_id=inputs.team_id,
+                    report_id=inputs.report_id,
+                    error=str(e),
+                    failure_reason="agentic_activity_error",
+                    signal_count=signal_count,
+                    source_products=source_products,
+                ),
                 start_to_close_timeout=timedelta(minutes=1),
                 retry_policy=RetryPolicy(maximum_attempts=3),
             )
@@ -246,6 +304,7 @@ class MarkReportInProgressInput:
     team_id: int
     report_id: str
     signal_count: int
+    source_products: list[str] = field(default_factory=list)
 
 
 @temporalio.activity.defn
@@ -259,23 +318,35 @@ async def mark_report_in_progress_activity(input: MarkReportInProgressInput) -> 
     try:
 
         @transaction.atomic
-        def do_update():
+        def do_update() -> int:
             report = SignalReport.objects.select_for_update().get(id=input.report_id, team_id=input.team_id)
             updated_fields = report.transition_to(SignalReport.Status.IN_PROGRESS, signals_at_run_increment=3)
             report.save(update_fields=updated_fields)
+            return report.run_count
 
-        await database_sync_to_async(do_update, thread_sensitive=False)()
-        logger.debug(
-            f"Marked report {input.report_id} as in_progress",
-            report_id=input.report_id,
-            signal_count=input.signal_count,
-        )
+        run_count = await database_sync_to_async(do_update, thread_sensitive=False)()
     except Exception as e:
         logger.exception(
             f"Failed to mark report {input.report_id} as in_progress: {e}",
             report_id=input.report_id,
         )
         raise
+
+    team = await Team.objects.select_related("organization").aget(pk=input.team_id)
+    _capture_report_event(
+        event="signal_report_started",
+        team=team,
+        organization=team.organization,
+        report_id=input.report_id,
+        signal_count=input.signal_count,
+        run_count=run_count,
+        source_products=input.source_products,
+    )
+    logger.debug(
+        f"Marked report {input.report_id} as in_progress",
+        report_id=input.report_id,
+        signal_count=input.signal_count,
+    )
 
 
 @dataclass
@@ -285,6 +356,7 @@ class MarkReportReadyInput:
     title: str
     summary: str
     processed_signal_count: int
+    source_products: list[str] = field(default_factory=list)
 
 
 @temporalio.activity.defn
@@ -293,7 +365,7 @@ async def mark_report_ready_activity(input: MarkReportReadyInput) -> bool:
     try:
 
         @transaction.atomic
-        def do_update() -> bool:
+        def do_update() -> tuple[bool, int]:
             report = SignalReport.objects.select_for_update().get(id=input.report_id, team_id=input.team_id)
             updated_fields = report.transition_to(SignalReport.Status.READY, title=input.title, summary=input.summary)
             report.save(update_fields=updated_fields)
@@ -303,16 +375,9 @@ async def mark_report_ready_activity(input: MarkReportReadyInput) -> bool:
                 # re-promote it back to candidate and loop to also process new signals
                 candidate_fields = report.transition_to(SignalReport.Status.CANDIDATE)
                 report.save(update_fields=candidate_fields)
-            return has_new_signals
+            return has_new_signals, report.run_count
 
-        has_new_signals = await database_sync_to_async(do_update, thread_sensitive=False)()
-        logger.debug(
-            f"Marked report {input.report_id} as ready",
-            report_id=input.report_id,
-            title=input.title,
-            has_new_signals=has_new_signals,
-        )
-        return has_new_signals
+        has_new_signals, run_count = await database_sync_to_async(do_update, thread_sensitive=False)()
     except Exception as e:
         logger.exception(
             f"Failed to mark report {input.report_id} as ready: {e}",
@@ -320,12 +385,34 @@ async def mark_report_ready_activity(input: MarkReportReadyInput) -> bool:
         )
         raise
 
+    team = await Team.objects.select_related("organization").aget(pk=input.team_id)
+    _capture_report_event(
+        event="signal_report_completed",
+        team=team,
+        organization=team.organization,
+        report_id=input.report_id,
+        signal_count=input.processed_signal_count,
+        run_count=run_count,
+        source_products=input.source_products,
+        result="ready",
+    )
+    logger.debug(
+        f"Marked report {input.report_id} as ready",
+        report_id=input.report_id,
+        title=input.title,
+        has_new_signals=has_new_signals,
+    )
+    return has_new_signals
+
 
 @dataclass
 class MarkReportFailedInput:
     team_id: int
     report_id: str
     error: str
+    failure_reason: str | None = None
+    signal_count: int = 0
+    source_products: list[str] = field(default_factory=list)
 
 
 @temporalio.activity.defn
@@ -334,23 +421,37 @@ async def mark_report_failed_activity(input: MarkReportFailedInput) -> None:
     try:
 
         @transaction.atomic
-        def do_update():
+        def do_update() -> int:
             report = SignalReport.objects.select_for_update().get(id=input.report_id, team_id=input.team_id)
             updated_fields = report.transition_to(SignalReport.Status.FAILED, error=input.error)
             report.save(update_fields=updated_fields)
+            return report.run_count
 
-        await database_sync_to_async(do_update, thread_sensitive=False)()
-        logger.debug(
-            f"Marked report {input.report_id} as failed",
-            report_id=input.report_id,
-            error=input.error,
-        )
+        run_count = await database_sync_to_async(do_update, thread_sensitive=False)()
     except Exception as e:
         logger.exception(
             f"Failed to mark report {input.report_id} as failed: {e}",
             report_id=input.report_id,
         )
         raise
+
+    team = await Team.objects.select_related("organization").aget(pk=input.team_id)
+    _capture_report_event(
+        event="signal_report_completed",
+        team=team,
+        organization=team.organization,
+        report_id=input.report_id,
+        signal_count=input.signal_count,
+        run_count=run_count,
+        source_products=input.source_products,
+        result="failed",
+        failure_reason=input.failure_reason,
+    )
+    logger.debug(
+        f"Marked report {input.report_id} as failed",
+        report_id=input.report_id,
+        error=input.error,
+    )
 
 
 @dataclass
@@ -360,6 +461,8 @@ class MarkReportPendingInput:
     title: str
     summary: str
     reason: str
+    signal_count: int = 0
+    source_products: list[str] = field(default_factory=list)
 
 
 @temporalio.activity.defn
@@ -368,19 +471,15 @@ async def mark_report_pending_input_activity(input: MarkReportPendingInput) -> N
     try:
 
         @transaction.atomic
-        def do_update():
+        def do_update() -> int:
             report = SignalReport.objects.select_for_update().get(id=input.report_id, team_id=input.team_id)
             updated_fields = report.transition_to(
                 SignalReport.Status.PENDING_INPUT, title=input.title, summary=input.summary, error=input.reason
             )
             report.save(update_fields=updated_fields)
+            return report.run_count
 
-        await database_sync_to_async(do_update, thread_sensitive=False)()
-        logger.debug(
-            f"Marked report {input.report_id} as pending_input",
-            report_id=input.report_id,
-            reason=input.reason,
-        )
+        run_count = await database_sync_to_async(do_update, thread_sensitive=False)()
     except Exception as e:
         logger.exception(
             f"Failed to mark report {input.report_id} as pending_input: {e}",
@@ -388,12 +487,31 @@ async def mark_report_pending_input_activity(input: MarkReportPendingInput) -> N
         )
         raise
 
+    team = await Team.objects.select_related("organization").aget(pk=input.team_id)
+    _capture_report_event(
+        event="signal_report_completed",
+        team=team,
+        organization=team.organization,
+        report_id=input.report_id,
+        signal_count=input.signal_count,
+        run_count=run_count,
+        source_products=input.source_products,
+        result="pending_input",
+    )
+    logger.debug(
+        f"Marked report {input.report_id} as pending_input",
+        report_id=input.report_id,
+        reason=input.reason,
+    )
+
 
 @dataclass
 class ResetReportToPotentialInput:
     team_id: int
     report_id: str
     reason: str
+    signal_count: int = 0
+    source_products: list[str] = field(default_factory=list)
 
 
 @temporalio.activity.defn
@@ -402,23 +520,36 @@ async def reset_report_to_potential_activity(input: ResetReportToPotentialInput)
     try:
 
         @transaction.atomic
-        def do_update():
+        def do_update() -> int:
             report = SignalReport.objects.select_for_update().get(id=input.report_id, team_id=input.team_id)
             updated_fields = report.transition_to(SignalReport.Status.POTENTIAL, reset_weight=True, error=input.reason)
             report.save(update_fields=updated_fields)
+            return report.run_count
 
-        await database_sync_to_async(do_update, thread_sensitive=False)()
-        logger.debug(
-            f"Reset report {input.report_id} to potential",
-            report_id=input.report_id,
-            reason=input.reason,
-        )
+        run_count = await database_sync_to_async(do_update, thread_sensitive=False)()
     except Exception as e:
         logger.exception(
             f"Failed to reset report {input.report_id} to potential: {e}",
             report_id=input.report_id,
         )
         raise
+
+    team = await Team.objects.select_related("organization").aget(pk=input.team_id)
+    _capture_report_event(
+        event="signal_report_completed",
+        team=team,
+        organization=team.organization,
+        report_id=input.report_id,
+        signal_count=input.signal_count,
+        run_count=run_count,
+        source_products=input.source_products,
+        result="not_actionable",
+    )
+    logger.debug(
+        f"Reset report {input.report_id} to potential",
+        report_id=input.report_id,
+        reason=input.reason,
+    )
 
 
 @dataclass
