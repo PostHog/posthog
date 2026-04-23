@@ -58,12 +58,21 @@ class CreateExportAssetsInputs:
     previous_value: typing.Optional[str] = None
     # When set, the activity persists the per-insight snapshot directly onto
     # SubscriptionDelivery.content_snapshot. Keeps multi-MB query_results off
-    # the Temporal payload wire (~2 MiB gRPC cap).
-    delivery_id: typing.Optional[str] = None
+    # the Temporal payload wire (~2 MiB gRPC cap). When unset (standalone
+    # callers or pre-rollout workflow retries replaying old input shape), the
+    # activity falls back to looking up the delivery row by workflow_id.
+    delivery_id: typing.Optional[uuid.UUID] = None
 
 
 @dataclasses.dataclass
 class CreateExportAssetsResult:
+    """Small metadata envelope for create_export_assets.
+
+    Multi-MB snapshot data is written to Postgres from inside the activity via
+    `delivery_id`, not returned here — the activity return payload crosses
+    Temporal's ~2 MiB gRPC boundary and must stay size-bounded by construction.
+    """
+
     exported_asset_ids: list[int]
     total_insight_count: int
     team_id: int = 0

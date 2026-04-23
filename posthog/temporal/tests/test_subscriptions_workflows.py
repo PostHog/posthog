@@ -1,4 +1,6 @@
+import json
 import uuid
+import dataclasses
 from collections.abc import Callable, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
@@ -526,7 +528,7 @@ async def test_create_export_assets_persists_insight_snapshots_to_delivery_conte
     )
     result = await env.run(
         create_export_assets,
-        CreateExportAssetsInputs(subscription_id=subscription.id, delivery_id=str(delivery_id)),
+        CreateExportAssetsInputs(subscription_id=subscription.id, delivery_id=delivery_id),
     )
 
     assert len(result.exported_asset_ids) == 1
@@ -630,6 +632,80 @@ async def test_update_delivery_record_patches_status_and_results_without_touchin
     assert row.recipient_results == [{"recipient": "r@example.com", "status": "success"}]
     assert row.content_snapshot == initial_content_snapshot
     assert row.finished_at is not None
+
+
+@freeze_time("2022-02-02T08:55:00.000Z")
+@pytest.mark.asyncio
+async def test_update_delivery_record_merges_content_snapshot_for_legacy_replay(team, user):
+    # Rolling-deploy compat path: when a pre-patch workflow replays Phase 2.5
+    # on a new worker, it re-issues update_delivery_record with a populated
+    # content_snapshot. The activity must shallow-merge so that earlier keys
+    # (e.g. dashboard metadata written by create_delivery_record, or insights
+    # already written to Postgres by the new create_export_assets activity)
+    # are preserved, not overwritten, when the replayed payload only covers a
+    # subset of keys.
+    insight = await sync_to_async(Insight.objects.create)(team=team, short_id="lgcy01", name="Legacy replay")
+    subscription = await sync_to_async(create_subscription)(team=team, insight=insight, created_by=user)
+
+    env = ActivityEnvironment()
+    delivery_id = await env.run(
+        create_delivery_record,
+        CreateDeliveryRecordInputs(
+            subscription_id=subscription.id,
+            team_id=team.id,
+            trigger_type=SubscriptionTriggerType.MANUAL,
+            temporal_workflow_id="wf-lgcy",
+            idempotency_key="idem-lgcy",
+            scheduled_at=None,
+        ),
+    )
+
+    # Simulate "create_export_assets already wrote insights to DB" — this is
+    # the state on a pre-patch workflow retry where the new activity persisted
+    # the snapshot before the workflow reaches the legacy Phase 2.5 replay.
+    await sync_to_async(
+        SubscriptionDelivery.objects.filter(pk=delivery_id).update,
+    )(content_snapshot={"id": 1, "short_id": "abc", "insights": [{"id": 99, "name": "inline-write"}]})
+
+    # Legacy replay with insights set should overwrite the insights key but
+    # preserve id/short_id set by create_delivery_record.
+    await env.run(
+        update_delivery_record,
+        UpdateDeliveryRecordInputs(
+            delivery_id=delivery_id,
+            status=DeliveryStatus.STARTING,
+            content_snapshot={
+                "total_insight_count": 1,
+                "insights": [{"id": 99, "name": "replayed-insights"}],
+            },
+        ),
+    )
+
+    row = await sync_to_async(SubscriptionDelivery.objects.get)(pk=delivery_id)
+    # Top-level merge preserved id/short_id from the pre-existing content_snapshot.
+    assert row.content_snapshot["id"] == 1
+    assert row.content_snapshot["short_id"] == "abc"
+    # Replay's keys took precedence for the keys it included.
+    assert row.content_snapshot["total_insight_count"] == 1
+    assert row.content_snapshot["insights"] == [{"id": 99, "name": "replayed-insights"}]
+
+    # Legacy replay without the `insights` key (new activity returned
+    # insight_snapshots=None) must NOT wipe the insights already persisted by
+    # the new activity.
+    await env.run(
+        update_delivery_record,
+        UpdateDeliveryRecordInputs(
+            delivery_id=delivery_id,
+            status=DeliveryStatus.STARTING,
+            content_snapshot={"total_insight_count": 2},  # no insights key
+        ),
+    )
+
+    row = await sync_to_async(SubscriptionDelivery.objects.get)(pk=delivery_id)
+    # insights from the previous replay are preserved.
+    assert row.content_snapshot["insights"] == [{"id": 99, "name": "replayed-insights"}]
+    # total_insight_count was updated.
+    assert row.content_snapshot["total_insight_count"] == 2
 
 
 @freeze_time("2022-02-02T08:55:00.000Z")
@@ -1313,15 +1389,18 @@ async def test_partial_export_failure_delivers_successful_assets(
         assert props["asset_errors"] == []
 
 
-def test_create_export_assets_result_contains_only_small_metadata_fields():
-    # Temporal activity payloads are capped at ~2 MiB (TMPRL1103). Guard by
-    # structural contract: any field added to this dataclass must be
-    # size-bounded by construction (primitives, IDs, short strings, or small
-    # lists of primitives). Multi-MB data — serialized query results, rendered
-    # HTML, image bytes — must be persisted from inside the activity (e.g.
-    # SubscriptionDelivery.content_snapshot via Postgres), not returned.
-    import dataclasses
-
+def test_create_export_assets_result_fields_stable_reminder():
+    # Reminder-style guard: fails if a field is added to CreateExportAssetsResult
+    # without the author noticing. Temporal activity payloads are capped at
+    # ~2 MiB (TMPRL1103), so any new field must be size-bounded by construction
+    # — primitives, IDs, short strings, or small lists of primitives. Multi-MB
+    # data must be persisted from inside the activity (e.g. SubscriptionDelivery
+    # .content_snapshot via Postgres), not returned.
+    #
+    # Only the field name set is checked here — the test can't catch field
+    # *type* bloat (e.g. someone changing `target_type: str` to
+    # `target_type: dict[str, Any]`). That risk is caught at review time by the
+    # AGENTS.md rule on activity payload size.
     small_metadata_fields = {
         "exported_asset_ids",
         "total_insight_count",
@@ -1340,6 +1419,17 @@ def test_create_export_assets_result_contains_only_small_metadata_fields():
         f"removed={expected_fields - actual_fields}. If adding a field, confirm it is "
         f"size-bounded — Temporal activity payloads are capped at ~2 MiB (TMPRL1103). "
         f"Persist multi-MB data from within the activity rather than returning it."
+    )
+
+    # Byte-ceiling sanity check: an empty result instance with default values
+    # stays well under any plausible payload concern. Catches accidental large
+    # defaults on new fields (e.g. a mutable default factory that pulls data).
+    empty = CreateExportAssetsResult(exported_asset_ids=[], total_insight_count=0)
+
+    encoded_size = len(json.dumps(dataclasses.asdict(empty), default=str).encode("utf-8"))
+    assert encoded_size < 1024, (
+        f"Empty CreateExportAssetsResult serialized to {encoded_size} bytes — larger than expected. "
+        f"New fields should not carry non-trivial default values."
     )
 
 

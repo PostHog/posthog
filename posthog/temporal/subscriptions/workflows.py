@@ -1,5 +1,6 @@
 import json
 import uuid
+import typing
 import asyncio
 import datetime as dt
 
@@ -31,6 +32,7 @@ from posthog.temporal.subscriptions.snapshot_activities import snapshot_subscrip
 from posthog.temporal.subscriptions.types import (
     CreateDeliveryRecordInputs,
     CreateExportAssetsInputs,
+    CreateExportAssetsResult,
     DeliverSubscriptionInputs,
     DeliverSubscriptionResult,
     DeliveryStatus,
@@ -43,6 +45,60 @@ from posthog.temporal.subscriptions.types import (
     TrackedSubscriptionInputs,
     UpdateDeliveryRecordInputs,
 )
+
+_PATCH_ID_CONTENT_SNAPSHOT_DIRECT_WRITE = "subscriptions-content-snapshot-direct-write"
+
+
+async def _replay_legacy_snapshot_write(
+    *,
+    delivery_id: uuid.UUID,
+    prepare_result: CreateExportAssetsResult,
+    delivery_exported_asset_ids: list[int],
+    subscription_id: int,
+) -> None:
+    """Re-issue the old Phase 2.5 update_delivery_record command for pre-patch workflows.
+
+    A pre-rollout workflow's history contains an execute_activity(
+    update_delivery_record, ...) command at this point. To keep replay
+    deterministic on a new worker, we must re-issue the same command — but
+    without clobbering state that the new activity has already written.
+
+    The reconstructed content_snapshot only includes `insights` if the activity
+    actually returned them (pre-patch activity result from history). When the
+    new activity ran (insight_snapshots=None), it already persisted the
+    snapshot to Postgres, so we omit that key to avoid the shallow-merge
+    overwriting what was just written.
+
+    TODO(vasco, follow-up PR after subscriptions task queue drains): delete
+    this helper, the PATCH_ID constant, and the deprecated dataclass fields.
+    """
+    legacy_content_snapshot: dict[str, typing.Any] = {
+        "total_insight_count": prepare_result.total_insight_count,
+    }
+    if prepare_result.insight_snapshots is not None:
+        legacy_content_snapshot["insights"] = prepare_result.insight_snapshots
+
+    try:
+        await temporalio.workflow.execute_activity(
+            update_delivery_record,
+            UpdateDeliveryRecordInputs(
+                delivery_id=delivery_id,
+                status=DeliveryStatus.STARTING,
+                exported_asset_ids=delivery_exported_asset_ids or None,
+                content_snapshot=legacy_content_snapshot,
+            ),
+            start_to_close_timeout=dt.timedelta(minutes=1),
+            retry_policy=temporalio.common.RetryPolicy(
+                initial_interval=dt.timedelta(seconds=5),
+                maximum_interval=dt.timedelta(seconds=30),
+                maximum_attempts=3,
+            ),
+        )
+    except Exception:
+        temporalio.workflow.logger.warning(
+            "process_subscription.content_snapshot_persist_failed",
+            extra={"subscription_id": subscription_id},
+        )
 
 
 def _build_outcome_assets(
@@ -199,12 +255,18 @@ class ProcessSubscriptionWorkflow(PostHogWorkflow):
             # onto SubscriptionDelivery.content_snapshot (written from within the
             # activity to avoid shipping multi-MB query_results across Temporal's
             # ~2 MiB payload boundary).
+            #
+            # Adding the new `delivery_id` input field is a safe, non-breaking
+            # change per Temporal's schema evolution guidance — activity inputs
+            # are not part of the workflow command state machine, so this does
+            # not need a workflow.patched() gate (unlike the Phase 2.5 removal
+            # below, which is a command-sequence change).
             prepare_result = await temporalio.workflow.execute_activity(
                 create_export_assets,
                 CreateExportAssetsInputs(
                     subscription_id=inputs.subscription_id,
                     previous_value=inputs.previous_value,
-                    delivery_id=str(delivery_id) if delivery_id is not None else None,
+                    delivery_id=delivery_id,
                 ),
                 start_to_close_timeout=dt.timedelta(minutes=5),
                 retry_policy=temporalio.common.RetryPolicy(
@@ -258,60 +320,24 @@ class ProcessSubscriptionWorkflow(PostHogWorkflow):
                     f"{len(non_user_errors)} export(s) failed: {', '.join(distinct_classes)}",
                 )
 
-            # content_snapshot is already in Postgres — create_export_assets
-            # writes it directly from inside the activity, so the LLM summary
-            # activity below can read it back from the DB with full fidelity.
-            #
-            # Rolling-deploy gate: in-flight workflows from before this change
-            # recorded an execute_activity(update_delivery_record, ...) command
-            # in their history here. To keep their replay deterministic when a
-            # new worker picks them up, re-issue the same command for those
-            # workflows only. workflow.patched() writes a permanent marker into
-            # each workflow's history on first evaluation — pre-rollout
-            # workflows see False (no marker in history) and take the old
-            # branch for the rest of their lifetime; post-rollout workflows see
-            # True and skip it.
-            #
-            # TODO(follow-up PR): once all pre-patch workflows have drained
-            # (max ~2h execution timeout + deploy window), remove this branch,
-            # the UpdateDeliveryRecordInputs.content_snapshot field, and the
-            # CreateExportAssetsResult.insight_snapshots field. See PR #55943
-            # discussion for context.
-            if not temporalio.workflow.patched("subscriptions-content-snapshot-direct-write"):
+            # Rolling-deploy compat: re-issue the old Phase 2.5 command for
+            # in-flight pre-patch workflows so their replay stays deterministic.
+            # Post-patch workflows skip this entirely — the content_snapshot is
+            # already in Postgres via create_export_assets writing directly.
+            if not temporalio.workflow.patched(_PATCH_ID_CONTENT_SNAPSHOT_DIRECT_WRITE):
                 if delivery_id is not None:
-                    # Reconstruct the old accumulator so the replayed command
-                    # payload is the same shape pre-patch code would have sent.
-                    # prepare_result.insight_snapshots is populated on pre-patch
-                    # workflow histories; None on post-patch (which won't reach
-                    # this branch anyway once the patch marker is recorded).
-                    legacy_content_snapshot: dict = {
-                        "total_insight_count": prepare_result.total_insight_count,
-                        "insights": prepare_result.insight_snapshots or [],
-                    }
-                    try:
-                        await temporalio.workflow.execute_activity(
-                            update_delivery_record,
-                            UpdateDeliveryRecordInputs(
-                                delivery_id=delivery_id,
-                                status=DeliveryStatus.STARTING,
-                                exported_asset_ids=delivery_exported_asset_ids or None,
-                                content_snapshot=legacy_content_snapshot,
-                            ),
-                            start_to_close_timeout=dt.timedelta(minutes=1),
-                            retry_policy=temporalio.common.RetryPolicy(
-                                initial_interval=dt.timedelta(seconds=5),
-                                maximum_interval=dt.timedelta(seconds=30),
-                                maximum_attempts=3,
-                            ),
-                        )
-                    except Exception:
-                        temporalio.workflow.logger.warning(
-                            "process_subscription.content_snapshot_persist_failed",
-                            extra={"subscription_id": inputs.subscription_id},
-                        )
+                    await _replay_legacy_snapshot_write(
+                        delivery_id=delivery_id,
+                        prepare_result=prepare_result,
+                        delivery_exported_asset_ids=delivery_exported_asset_ids,
+                        subscription_id=inputs.subscription_id,
+                    )
 
+            # Generate LLM change summary (best-effort, skip if not enabled).
+            # Reads content_snapshot back from Postgres — it was persisted
+            # inline by create_export_assets above, or by the legacy-replay
+            # helper on pre-patch workflows.
             change_summary: str | None = None
-            # Phase 2.5: Generate LLM change summary (best-effort, skip if not enabled)
             if delivery_id is not None:
                 try:
                     snapshot_result = await temporalio.workflow.execute_activity(

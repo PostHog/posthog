@@ -1,3 +1,4 @@
+import json
 import uuid
 import typing
 import datetime as dt
@@ -41,6 +42,70 @@ from ee.tasks.subscriptions.slack_subscriptions import (
 )
 
 LOGGER = get_logger(__name__)
+
+
+async def _resolve_target_delivery_id(inputs: CreateExportAssetsInputs) -> uuid.UUID | None:
+    """Find the SubscriptionDelivery row that create_export_assets should write to.
+
+    Priority order:
+    1. `inputs.delivery_id` set by the steady-state workflow — use it directly.
+    2. Look up by the current activity's workflow_id (handles pre-rollout
+       workflow retries that replay the old input shape without delivery_id).
+    3. None — standalone callers (tests, management commands) proceed without
+       persisting the snapshot.
+    """
+    if inputs.delivery_id is not None:
+        return inputs.delivery_id
+
+    try:
+        workflow_id = temporalio.activity.info().workflow_id
+    except RuntimeError:
+        # Not running inside a Temporal activity (e.g. unit test calling directly)
+        return None
+
+    @database_sync_to_async(thread_sensitive=False)
+    def _lookup() -> uuid.UUID | None:
+        row = (
+            SubscriptionDelivery.objects.filter(
+                temporal_workflow_id=workflow_id,
+                subscription_id=inputs.subscription_id,
+                finished_at__isnull=True,
+            )
+            .order_by("-created_at")
+            .values_list("id", flat=True)
+            .first()
+        )
+        return row
+
+    return await _lookup()
+
+
+async def _persist_content_snapshot(
+    *,
+    delivery_id: uuid.UUID,
+    total_insight_count: int,
+    insight_snapshots: list[dict[str, typing.Any]],
+) -> int:
+    """Merge insight snapshots onto SubscriptionDelivery.content_snapshot.
+
+    Returns the serialized size of the insight_snapshots payload so callers can
+    log it — the whole point of owning this write is staying under size cliffs,
+    so measuring proximity to the next one is worth the cycles.
+    """
+    snapshot_bytes = len(json.dumps(insight_snapshots, default=str).encode("utf-8"))
+
+    @database_sync_to_async(thread_sensitive=False)
+    def _merge() -> None:
+        delivery = SubscriptionDelivery.objects.get(pk=delivery_id)
+        delivery.content_snapshot = {
+            **(delivery.content_snapshot or {}),
+            "total_insight_count": total_insight_count,
+            "insights": insight_snapshots,
+        }
+        delivery.save(update_fields=["content_snapshot", "last_updated_at"])
+
+    await _merge()
+    return snapshot_bytes
 
 
 @temporalio.activity.defn
@@ -172,32 +237,24 @@ async def create_export_assets(inputs: CreateExportAssetsInputs) -> CreateExport
     # Persist insight snapshots directly on SubscriptionDelivery.content_snapshot
     # instead of returning them across the Temporal activity boundary — per-insight
     # query_results can reach multi-MB and will trip Temporal's ~2 MiB payload cap.
-    if inputs.delivery_id is not None:
-        # Capture the narrowed value for the inner closure — mypy won't narrow
-        # Optional through a nested function because the outer value could in
-        # principle change between the check and the closure's execution.
-        delivery_id_for_write: str = inputs.delivery_id
-
-        @database_sync_to_async(thread_sensitive=False)
-        def _merge_content_snapshot() -> None:
-            delivery = SubscriptionDelivery.objects.get(pk=delivery_id_for_write)
-            delivery.content_snapshot = {
-                **(delivery.content_snapshot or {}),
-                "total_insight_count": total_insight_count,
-                "insights": insight_snapshots,
-            }
-            delivery.save(update_fields=["content_snapshot", "last_updated_at"])
-
-        await _merge_content_snapshot()
-    else:
-        # Expected only for standalone callers (tests, management commands).
-        # In the production workflow, create_delivery_record always runs first
-        # and passes its delivery_id through — so hitting this branch in prod
-        # indicates a regression to the old shuttle-through-Temporal flow.
-        LOGGER.warning(
-            "create_export_assets.snapshot_not_persisted",
+    #
+    # Resolve the target row. In the steady state the workflow passes delivery_id
+    # directly. For pre-rollout workflow retries replaying the old input shape
+    # (no delivery_id) and standalone callers, fall back to locating the row via
+    # the activity's workflow_id so we don't silently drop the snapshot.
+    target_delivery_id = await _resolve_target_delivery_id(inputs)
+    if target_delivery_id is not None:
+        snapshot_bytes = await _persist_content_snapshot(
+            delivery_id=target_delivery_id,
+            total_insight_count=total_insight_count,
+            insight_snapshots=insight_snapshots,
+        )
+        await LOGGER.ainfo(
+            "create_export_assets.content_snapshot_persisted",
             subscription_id=inputs.subscription_id,
-            reason="delivery_id_not_provided",
+            delivery_id=str(target_delivery_id),
+            insight_count=len(insight_snapshots),
+            snapshot_bytes=snapshot_bytes,
         )
 
     await LOGGER.ainfo(
