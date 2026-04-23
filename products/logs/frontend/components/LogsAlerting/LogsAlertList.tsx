@@ -94,22 +94,28 @@ export function LogsAlertList(): JSX.Element {
             render: (_, alert) => <LogsAlertStateTimeline timeline={alert.state_timeline} className="h-6 w-72" />,
         },
         {
-            title: 'Notification destinations',
+            title: 'Notifications',
             dataIndex: 'destination_types',
             render: (_, alert) => {
                 const types = alert.destination_types ?? []
                 const notifUrl = urls.logsAlertDetail(alert.id, 'notifications')
                 if (types.length === 0) {
                     return (
-                        <div className="flex items-center gap-1.5">
+                        <div className="flex items-center gap-1">
                             <LemonTag type="warning">None</LemonTag>
-                            <span className="text-xs text-muted">— click bell to configure</span>
                             <LemonButton
                                 size="small"
                                 type="tertiary"
-                                icon={<IconBell />}
+                                icon={
+                                    <span className="relative inline-flex text-danger">
+                                        <IconBell />
+                                        <span aria-hidden className="absolute inset-0 flex items-center justify-center">
+                                            <span className="block h-px w-[140%] rotate-45 bg-danger" />
+                                        </span>
+                                    </span>
+                                }
                                 to={notifUrl}
-                                tooltip="Configure notifications"
+                                tooltip="No notification destinations configured — click to configure"
                             />
                         </div>
                     )
