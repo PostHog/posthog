@@ -3,8 +3,9 @@ from types import SimpleNamespace
 from typing import TYPE_CHECKING, Optional
 
 from django.conf import settings
+from django.contrib.postgres.indexes import GinIndex
 from django.db import models
-from django.db.models import QuerySet
+from django.db.models import Q, QuerySet
 from django.db.models.signals import post_delete, post_save
 from django.dispatch.dispatcher import receiver
 
@@ -75,6 +76,21 @@ class HogFunction(FileSystemSyncMixin, UUIDTModel):
     class Meta:
         indexes = [
             models.Index(fields=["type", "enabled", "team"]),
+            # Partial index that supports the global template popularity
+            # aggregation on GET /api/projects/<id>/hog_function_templates.
+            models.Index(
+                fields=["template_id"],
+                name="hog_func_active_template_idx",
+                condition=Q(deleted=False, enabled=True, template_id__isnull=False),
+            ),
+            # Supports `filters @> ...` containment lookups driven by the
+            # ?filter_groups= / ?filters= query params on /hog_functions.
+            GinIndex(
+                fields=["filters"],
+                name="hog_func_filters_gin_idx",
+                condition=Q(filters__isnull=False),
+                opclasses=["jsonb_path_ops"],
+            ),
         ]
 
     team = models.ForeignKey("Team", on_delete=models.CASCADE)
