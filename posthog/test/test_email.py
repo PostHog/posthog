@@ -223,6 +223,42 @@ class TestEmail(BaseTest):
         # Check that utm_tags are not sanitized (to preserve valid URL query parameters)
         self.assertEqual(sanitized["utm_tags"], "utm_source=posthog&utm_medium=email&utm_campaign=test")
 
+    def test_sanitize_email_properties_handles_dataclasses(self) -> None:
+        # Regression test: facade contracts (frozen dataclasses) used to raise TypeError,
+        # silently killing tasks like send_error_tracking_issue_assigned via autoretry.
+        import dataclasses
+        from uuid import UUID
+
+        @dataclasses.dataclass(frozen=True)
+        class Inner:
+            id: UUID
+            name: str | None
+            description: str | None
+
+        @dataclasses.dataclass(frozen=True)
+        class Outer:
+            id: UUID
+            issue: Inner
+
+        outer = Outer(
+            id=UUID("00000000-0000-0000-0000-000000000001"),
+            issue=Inner(
+                id=UUID("00000000-0000-0000-0000-000000000002"),
+                name='<script>alert("xss")</script>',
+                description=None,
+            ),
+        )
+
+        sanitized = sanitize_email_properties({"assignment": outer})
+
+        self.assertEqual(sanitized["assignment"]["id"], "00000000-0000-0000-0000-000000000001")
+        self.assertEqual(sanitized["assignment"]["issue"]["id"], "00000000-0000-0000-0000-000000000002")
+        self.assertEqual(
+            sanitized["assignment"]["issue"]["name"],
+            "&lt;script&gt;alert(&quot;xss&quot;)&lt;/script&gt;",
+        )
+        self.assertIsNone(sanitized["assignment"]["issue"]["description"])
+
     def test_sanitize_email_properties_raises_for_unsupported_types(self) -> None:
         # Test that sanitize_email_properties raises TypeError for unsupported types
         properties = {
