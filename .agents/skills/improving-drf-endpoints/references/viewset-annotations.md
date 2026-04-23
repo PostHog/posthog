@@ -222,3 +222,7 @@ Using the wrong format means the override hash doesn't match and the warning per
 even though it looks like it should work.
 
 CI enforces zero warnings via `spectacular --fail-on-warn`.
+
+**Diagnostic tool:** run `python manage.py find_enum_collisions` to find unresolved
+collisions — it shows the field name, hash, enum values, hash path (ChoiceField vs
+type-hint), which components use it, and suggests the override format to add.

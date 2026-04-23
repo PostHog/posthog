@@ -405,6 +405,7 @@ SPECTACULAR_SETTINGS = {
         "IntegrationKindEnum": "posthog.models.integration.Integration.IntegrationKind",
         "LLMProviderEnum": "products.llm_analytics.backend.models.provider_keys.LLMProvider",
         "HogFlowStatusEnum": "posthog.models.hog_flow.hog_flow.HogFlow.State",
+        "MCPAuthTypeEnum": "products.mcp_store.backend.models.AUTH_TYPE_CHOICES",
         # --- Inline value lists (type-hint enums, no x-spec-enum-id) ---
         "PropertyGroupOperator": ["AND", "OR"],
         "PropertyFilterTypeEnum": [
