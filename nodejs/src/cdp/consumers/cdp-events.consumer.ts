@@ -326,7 +326,6 @@ export class CdpEventsConsumer<
                             hogFlowName: item.hogFlow.name,
                             eventUuid,
                             personId,
-                            tokensRemaining: rateLimit.tokens,
                         })
 
                         return
