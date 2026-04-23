@@ -340,13 +340,17 @@ def run(cfg: BackfillConfig, *, dry_run: bool, print_counts: bool) -> None:
 
         lookback_start = cfg.flip_at - _days(cfg.lookback_days)
         total_inserted = 0
-        day = lookback_start.replace(hour=0, minute=0, second=0, microsecond=0)
+        # Start the day loop at lookback_start exactly (not midnight) so the backfill
+        # window matches the identification window. Midnight-alignment would pick up
+        # events between midnight and lookback_start that identification never counted,
+        # making events_to_copy undercount on the first iteration.
+        day = lookback_start
         while day < cfg.flip_at:
             day_end = min(day + _days(1), cfg.flip_at)
-            logger.info("backfill_day_start", day=day.date().isoformat())
+            logger.info("backfill_day_start", day_start=day.isoformat(), day_end=day_end.isoformat())
             inserted = backfill_chunk(cfg, identified.trace_ids, day, day_end)
             total_inserted += inserted
-            logger.info("backfill_day_done", day=day.date().isoformat(), rows_inserted=inserted)
+            logger.info("backfill_day_done", day_start=day.isoformat(), rows_inserted=inserted)
             day = day_end
 
         logger.info("backfill_complete", team_id=cfg.team_id, total_rows_inserted=total_inserted)

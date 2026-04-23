@@ -1,6 +1,7 @@
 import json
 import uuid
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
 import pytest
 from posthog.test.base import BaseTest, ClickhouseTestMixin
@@ -78,8 +79,8 @@ EXTRACTED_COLUMNS = [
 ]
 
 
-def _make_cfg(team_id: int, **overrides) -> BackfillConfig:
-    base = {
+def _make_cfg(team_id: int, **overrides: Any) -> BackfillConfig:
+    base: dict[str, Any] = {
         "team_id": team_id,
         "flip_at": FLIP_AT,
         "lookback_days": 7,
