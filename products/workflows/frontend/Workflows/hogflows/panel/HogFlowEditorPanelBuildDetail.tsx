@@ -105,7 +105,7 @@ export function HogFlowEditorPanelBuildDetail(): JSX.Element | null {
                                             ...action,
                                             config: {
                                                 ...action.config,
-                                                message_category_id: categoryId,
+                                                message_category_id: categoryId || undefined,
                                                 message_category_type: categoryId
                                                     ? categories.find((cat) => cat.id === categoryId)?.category_type
                                                     : undefined,
