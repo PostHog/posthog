@@ -31,7 +31,7 @@ class TestSupportAgentPromptBuilder(BaseTest):
             patch.object(builder, "_get_billing_prompt", new_callable=AsyncMock, return_value=""),
         ):
             messages = await builder.get_prompts(state=MagicMock(), config={})
-        joined = "\n".join(m.content for m in messages)
+        joined = "\n".join(str(m.content) for m in messages)
         assert "business_knowledge_chunks" in joined
         assert "UNTRUSTED" in joined
         assert "Product FAQ" in joined
@@ -43,5 +43,5 @@ class TestSupportAgentPromptBuilder(BaseTest):
             patch.object(builder, "_get_billing_prompt", new_callable=AsyncMock, return_value=""),
         ):
             messages = await builder.get_prompts(state=MagicMock(), config={})
-        joined = "\n".join(m.content for m in messages)
+        joined = "\n".join(str(m.content) for m in messages)
         assert "business_knowledge_chunks" not in joined

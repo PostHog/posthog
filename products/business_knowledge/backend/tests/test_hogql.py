@@ -10,7 +10,7 @@ from posthog.test.base import BaseTest
 
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.parser import parse_select
-from posthog.hogql.printer import print_ast
+from posthog.hogql.printer import prepare_and_print_ast
 
 from posthog.models.team import Team
 
@@ -28,7 +28,8 @@ class TestBusinessKnowledgeHogQLIsolation(BaseTest):
 
     def _render(self, sql: str, team: Team) -> str:
         context = HogQLContext(team_id=team.id, enable_select_queries=True)
-        return print_ast(parse_select(sql), context=context, dialect="clickhouse")
+        printed, _ = prepare_and_print_ast(parse_select(sql), context=context, dialect="clickhouse")
+        return printed
 
     def test_chunks_query_injects_team_id_predicate(self) -> None:
         # Whatever SQL the agent writes, the printed ClickHouse output must
@@ -50,9 +51,9 @@ class TestBusinessKnowledgeHogQLIsolation(BaseTest):
         assert f"= {self.team.id}" in printed or f"{self.team.id})" in printed
 
     def test_all_three_tables_are_registered(self) -> None:
-        from posthog.hogql.database.database import create_hogql_database
+        from posthog.hogql.database.database import Database
 
-        db = create_hogql_database(team=self.team)
+        db = Database.create_for(team=self.team)
         # Registered under the `system` node.
         assert db.has_table(["business_knowledge_sources"]) or db.has_table(["system", "business_knowledge_sources"])
         assert db.has_table(["business_knowledge_documents"]) or db.has_table(
