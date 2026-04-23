@@ -9,7 +9,7 @@ import { NotFound } from 'lib/components/NotFound'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
 import { FeatureFlagReleaseConditions } from 'scenes/feature-flags/FeatureFlagReleaseConditions'
-import { useMaxTool } from 'scenes/max/useMaxTool'
+import { useMaxTool } from 'scenes/max/useMaxTool' // test change
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
