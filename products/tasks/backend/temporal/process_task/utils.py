@@ -11,13 +11,8 @@ from django.core.cache import cache
 from pydantic import BaseModel
 
 from posthog.models.integration import GitHubIntegration, Integration
+from posthog.models.user_integration import ReauthorizationRequired, UserGitHubIntegration, UserIntegration
 from posthog.temporal.oauth import TOKEN_EXPIRATION_SECONDS, PosthogMcpScopes, has_write_scopes
-from posthog.models.user_social_identity import (
-    GITHUB_PROVIDER,
-    ReauthorizationRequired,
-    UserGitHubIntegration,
-    UserSocialIdentity,
-)
 
 from products.mcp_store.backend.facade.api import get_active_installations
 from products.tasks.backend.constants import InitialPermissionMode
@@ -341,10 +336,10 @@ def get_user_github_integration(user: User | None) -> UserGitHubIntegration | No
     """Return the requesting user's GitHub integration wrapper, if linked."""
     if user is None:
         return None
-    identity = UserSocialIdentity.objects.filter(user=user, provider=GITHUB_PROVIDER).first()
-    if identity is None:
+    integration = UserIntegration.objects.filter(user=user, kind="github").first()
+    if integration is None:
         return None
-    return UserGitHubIntegration(identity)
+    return UserGitHubIntegration(integration)
 
 
 # TTL for the per-run GitHub user token cache. Kept for backward-compat with callers
@@ -379,7 +374,7 @@ def get_sandbox_github_token(
 
     1. Caller-supplied token cached at run-create time (backward compat for the
        PostHog Code CLI — wins when present so self-managed tokens still work).
-    2. Server-side ``UserSocialIdentity`` for the task creator, refreshing on demand.
+    2. Server-side ``UserIntegration`` for the task creator, refreshing on demand.
 
     ``BOT`` authorship falls through to the team's ``Integration`` installation token.
     """
@@ -393,7 +388,7 @@ def get_sandbox_github_token(
             raise ReauthorizationRequired(
                 f"User-authored run {run_id} requires a linked GitHub account with repo access."
             )
-        return user_github_integration.get_usable_access_token()
+        return user_github_integration.get_usable_user_access_token()
 
     if github_integration_id is None:
         return None

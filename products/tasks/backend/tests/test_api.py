@@ -22,7 +22,7 @@ from rest_framework.test import APIClient
 
 from posthog.models import Integration, Organization, OrganizationMembership, PersonalAPIKey, Team, User
 from posthog.models.personal_api_key import hash_key_value
-from posthog.models.user_social_identity import GITHUB_PROVIDER, UserSocialIdentity
+from posthog.models.user_integration import UserIntegration
 from posthog.models.utils import generate_random_token_personal
 from posthog.storage import object_storage
 
@@ -54,20 +54,28 @@ from products.tasks.backend.stream.redis_stream import (
 from products.tasks.backend.temporal.process_task.utils import get_cached_github_user_token
 
 
-def _grant_user_github_access(user: User, *, refresh_ttl_seconds: int = 15897600) -> UserSocialIdentity:
+def _grant_user_github_access(user: User, *, refresh_ttl_seconds: int = 15897600) -> UserIntegration:
     now = int(time.time())
-    return UserSocialIdentity.objects.create(
+    return UserIntegration.objects.create(
         user=user,
-        provider=GITHUB_PROVIDER,
-        uid="99",
-        extra_data={
-            "login": "octocat",
-            "id": 99,
+        kind="github",
+        integration_id="12345",
+        config={
+            "installation_id": "12345",
+            "expires_in": 3600,
             "refreshed_at": now,
-            "access_token_expires_at": now + 28800,
-            "refresh_token_expires_at": now + refresh_ttl_seconds,
+            "repository_selection": "selected",
+            "account": {"type": "User", "name": "octocat"},
+            "github_user": {"login": "octocat", "id": 99},
+            "user_token_refreshed_at": now,
+            "user_access_token_expires_at": now + 28800,
+            "user_refresh_token_expires_at": now + refresh_ttl_seconds,
         },
-        sensitive_config={"access_token": "gho_access", "refresh_token": "ghr_refresh"},
+        sensitive_config={
+            "access_token": "ghs_install",
+            "user_access_token": "gho_access",
+            "user_refresh_token": "ghr_refresh",
+        },
     )
 
 
@@ -1044,9 +1052,9 @@ class TestTaskAPI(BaseTaskAPITest):
         task.repository = "posthog/posthog"
         task.created_by = self.user
         task.save(update_fields=["repository", "created_by"])
-        identity = _grant_user_github_access(self.user)
-        identity.extra_data["refresh_token_expires_at"] = int(time.time()) - 1
-        identity.save(update_fields=["extra_data"])
+        integration = _grant_user_github_access(self.user)
+        integration.config["user_refresh_token_expires_at"] = int(time.time()) - 1
+        integration.save(update_fields=["config"])
 
         response = self.client.post(
             f"/api/projects/@current/tasks/{task.id}/run/",
