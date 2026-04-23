@@ -87,8 +87,6 @@ tools:
                 description: Start date (YYYY-MM-DD), or "all" for earliest available data.
             end_date:
                 description: End date (YYYY-MM-DD), inclusive.
-            usage_types:
-                description: Comma-separated usage types to include. Omit for all types.
             team_ids:
                 description: Comma-separated team (project) IDs to filter by. Omit for all teams in the org.
             breakdowns:
@@ -129,13 +127,6 @@ tools:
                 description: Start date (YYYY-MM-DD), or "all" for earliest available data.
             end_date:
                 description: End date (YYYY-MM-DD), inclusive.
-            usage_types:
-                description: >
-                    Comma-separated usage types to include (e.g. events, recordings, exceptions,
-                    survey_responses, rows_synced, cdp_trigger_events, rows_exported,
-                    feature_flag_requests, api_queries_read_bytes, llm_events, ai_credits,
-                    workflow_emails, workflow_destinations_dispatched, logs_mb_ingested). Omit for
-                    all types.
             team_ids:
                 description: Comma-separated team (project) IDs to filter by. Omit for all teams in the org.
             breakdowns:

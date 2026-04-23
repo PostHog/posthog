@@ -25,9 +25,6 @@ const BillingSpendRetrieveSchema = BillingSpendRetrieveQueryParams.extend({
         'Start date (YYYY-MM-DD), or "all" for earliest available data.'
     ),
     end_date: BillingSpendRetrieveQueryParams.shape['end_date'].describe('End date (YYYY-MM-DD), inclusive.'),
-    usage_types: BillingSpendRetrieveQueryParams.shape['usage_types'].describe(
-        'Comma-separated usage types to include. Omit for all types.'
-    ),
     team_ids: BillingSpendRetrieveQueryParams.shape['team_ids'].describe(
         'Comma-separated team (project) IDs to filter by. Omit for all teams in the org.'
     ),
@@ -64,9 +61,6 @@ const BillingUsageRetrieveSchema = BillingUsageRetrieveQueryParams.extend({
         'Start date (YYYY-MM-DD), or "all" for earliest available data.'
     ),
     end_date: BillingUsageRetrieveQueryParams.shape['end_date'].describe('End date (YYYY-MM-DD), inclusive.'),
-    usage_types: BillingUsageRetrieveQueryParams.shape['usage_types'].describe(
-        'Comma-separated usage types to include (e.g. events, recordings, exceptions, survey_responses, rows_synced, cdp_trigger_events, rows_exported, feature_flag_requests, api_queries_read_bytes, llm_events, ai_credits, workflow_emails, workflow_destinations_dispatched, logs_mb_ingested). Omit for all types.'
-    ),
     team_ids: BillingUsageRetrieveQueryParams.shape['team_ids'].describe(
         'Comma-separated team (project) IDs to filter by. Omit for all teams in the org.'
     ),
