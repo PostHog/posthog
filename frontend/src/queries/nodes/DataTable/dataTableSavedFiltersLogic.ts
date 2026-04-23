@@ -2,7 +2,7 @@ import { actions, afterMount, kea, key, listeners, path, props, reducers, select
 import { router } from 'kea-router'
 import { v4 as uuidv4 } from 'uuid'
 
-import { teamLogic } from 'scenes/teamLogic'
+import { getCurrentTeamId } from 'lib/utils/getAppContext'
 
 import { DataTableNode } from '~/queries/schema/schema-general'
 
@@ -23,14 +23,13 @@ export interface DataTableSavedFiltersLogicProps {
 }
 
 // Scope by team so saved filters don't leak across projects (e.g. after impersonation).
-const getStorageKey = (uniqueKey: string, teamId: number | null): string =>
-    `datatable-saved-filters.${teamId ?? 'unknown'}.${uniqueKey}`
+const getStorageKey = (uniqueKey: string, teamId: number): string => `datatable-saved-filters.${teamId}.${uniqueKey}`
 
 export const dataTableSavedFiltersLogic = kea<dataTableSavedFiltersLogicType>([
     props({} as DataTableSavedFiltersLogicProps),
     // Include the team id so a team switch yields a fresh logic instance
     // rather than reusing one whose storageKey is frozen to the old team.
-    key((props) => `${teamLogic.values.currentTeamId ?? 'unknown'}.${props.uniqueKey}`),
+    key((props) => `${getCurrentTeamId()}.${props.uniqueKey}`),
     path(['queries', 'nodes', 'DataTable', 'dataTableSavedFiltersLogic']),
 
     actions({
@@ -49,7 +48,7 @@ export const dataTableSavedFiltersLogic = kea<dataTableSavedFiltersLogicType>([
             [] as DataTableSavedFilter[],
             {
                 persist: true,
-                storageKey: getStorageKey(props.uniqueKey, teamLogic.values.currentTeamId),
+                storageKey: getStorageKey(props.uniqueKey, getCurrentTeamId()),
             },
             {
                 createSavedFilter: (state, { name }) => {

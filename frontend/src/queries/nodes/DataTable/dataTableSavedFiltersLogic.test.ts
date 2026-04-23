@@ -2,7 +2,7 @@ import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 import { v4 as uuidv4 } from 'uuid'
 
-import { teamLogic } from 'scenes/teamLogic'
+import { getCurrentTeamId } from 'lib/utils/getAppContext'
 
 import { DataTableNode, NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
@@ -11,6 +11,17 @@ import { PropertyFilterType, PropertyOperator } from '~/types'
 import { dataTableSavedFiltersLogic } from './dataTableSavedFiltersLogic'
 
 jest.mock('uuid')
+
+const switchAppContextTeamId = (newId: number): void => {
+    const appContext = window.POSTHOG_APP_CONTEXT
+    if (!appContext?.current_team) {
+        throw new Error('test harness has no current_team to mutate')
+    }
+    window.POSTHOG_APP_CONTEXT = {
+        ...appContext,
+        current_team: { ...appContext.current_team, id: newId },
+    }
+}
 
 const mockQuery: DataTableNode = {
     kind: NodeKind.DataTableNode,
@@ -417,10 +428,7 @@ describe('dataTableSavedFiltersLogic', () => {
                 logic.actions.createSavedFilter('Team A Filter')
                 logic.unmount()
 
-                teamLogic.actions.loadCurrentTeamSuccess({
-                    ...teamLogic.values.currentTeam!,
-                    id: teamLogic.values.currentTeamId! + 1,
-                } as any)
+                switchAppContextTeamId(getCurrentTeamId() + 1)
 
                 logic = dataTableSavedFiltersLogic({
                     uniqueKey: 'test-table',
@@ -437,14 +445,8 @@ describe('dataTableSavedFiltersLogic', () => {
 
             it('should return a fresh instance when the team changes without an unmount', () => {
                 logic.actions.createSavedFilter('Team A Filter')
-                const originalTeamId = teamLogic.values.currentTeamId!
 
-                // Switch the current team without unmounting the logic — this
-                // simulates the case greptile flagged (no full page reload).
-                teamLogic.actions.loadCurrentTeamSuccess({
-                    ...teamLogic.values.currentTeam!,
-                    id: originalTeamId + 1,
-                } as any)
+                switchAppContextTeamId(getCurrentTeamId() + 1)
 
                 const switchedLogic = dataTableSavedFiltersLogic({
                     uniqueKey: 'test-table',
@@ -453,7 +455,7 @@ describe('dataTableSavedFiltersLogic', () => {
                 })
                 switchedLogic.mount()
 
-                // Because the kea key includes the team id, this must be a
+                // Because the kea key uses getCurrentTeamId(), this must be a
                 // different instance from `logic`, with its own empty state.
                 expect(switchedLogic).not.toBe(logic)
                 expectLogic(switchedLogic).toMatchValues({
