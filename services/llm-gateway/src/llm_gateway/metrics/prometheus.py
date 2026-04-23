@@ -102,6 +102,24 @@ RATE_LIMIT_EXCEEDED = Counter(
     labelnames=["scope"],
 )
 
+PRODUCT_COST_WINDOW_USD = Gauge(
+    "llm_gateway_product_cost_window_usd",
+    "Current accumulated cost (USD) for a product within its configured window",
+    labelnames=["product"],
+)
+
+PRODUCT_COST_LIMIT_USD = Gauge(
+    "llm_gateway_product_cost_limit_usd",
+    "Configured cost cap (USD) for a product within its configured window",
+    labelnames=["product"],
+)
+
+PRODUCT_COST_WINDOW_SECONDS = Gauge(
+    "llm_gateway_product_cost_window_seconds",
+    "Length of the cost-limit window (seconds) for a product",
+    labelnames=["product"],
+)
+
 PROVIDER_ERRORS = Counter(
     "llm_gateway_provider_errors_total",
     "Provider API errors",

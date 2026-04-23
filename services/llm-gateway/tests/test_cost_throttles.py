@@ -165,6 +165,47 @@ class TestProductCostThrottle:
         key = throttle._get_cache_key(context)
         assert key == "cost:product:wizard"
 
+    @pytest.mark.asyncio
+    async def test_get_status_for_product_reports_used_and_limit(self) -> None:
+        get_settings.cache_clear()
+        from llm_gateway.rate_limiting.cost_throttles import ProductCostThrottle
+
+        throttle = ProductCostThrottle(redis=None)
+        context = make_context(product="llm_gateway")
+        await throttle.record_cost(context, 42.0)
+
+        status = await throttle.get_status_for_product("llm_gateway")
+
+        assert status is not None
+        assert status.used_usd == pytest.approx(42.0)
+        assert status.limit_usd == 1000.0
+        assert status.remaining_usd == pytest.approx(958.0)
+        assert status.exceeded is False
+        get_settings.cache_clear()
+
+    @pytest.mark.asyncio
+    async def test_get_status_for_product_returns_none_for_unknown(self) -> None:
+        from llm_gateway.rate_limiting.cost_throttles import ProductCostThrottle
+
+        throttle = ProductCostThrottle(redis=None)
+
+        assert await throttle.get_status_for_product("not_a_real_product") is None
+
+    @pytest.mark.asyncio
+    async def test_get_status_for_product_ignores_team_multiplier_suffix(self) -> None:
+        """Gauge readings track the shared pool, not per-team-multiplier sub-pools."""
+        get_settings.cache_clear()
+        from llm_gateway.rate_limiting.cost_throttles import ProductCostThrottle
+
+        throttle = ProductCostThrottle(redis=None)
+        context = make_context(product="llm_gateway")
+        await throttle.record_cost(context, 10.0)
+
+        status = await throttle.get_status_for_product("llm_gateway")
+        assert status is not None
+        assert status.used_usd == pytest.approx(10.0)
+        get_settings.cache_clear()
+
 
 class TestUserCostBurstThrottle:
     @pytest.mark.asyncio
