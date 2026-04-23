@@ -849,6 +849,10 @@ function formatHogQLValue(value: any): string {
         throw new Error(
             `null cannot be interpolated for SQL. if a null check is needed, make 'IS NULL' part of your query`
         )
+    } else if (value === undefined) {
+        throw new Error(
+            `undefined cannot be interpolated for SQL. a template-tag parameter was undefined — guard the callsite so the hogql\`...\` tag is only built once required values are defined`
+        )
     } else {
         throw new Error(`Unsupported interpolated value type: ${typeof value}`)
     }

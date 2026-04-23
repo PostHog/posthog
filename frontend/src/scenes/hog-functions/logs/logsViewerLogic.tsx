@@ -89,6 +89,10 @@ export const toAbsoluteClickhouseTimestamp = (timestamp: Dayjs): string => {
     return timestamp.tz(teamTimezone).format('YYYY-MM-DD HH:mm:ss.SSS')
 }
 
+const hasLogSourceIdentifiers = (request: LogEntryParams): boolean => {
+    return Boolean(request.sourceType) && Boolean(request.sourceId)
+}
+
 const buildBoundaryFilters = (request: LogEntryParams): string => {
     return hogql`
         AND log_source = ${request.sourceType}
@@ -115,6 +119,10 @@ const buildSearchFilters = ({ searchGroups, levels, instanceId }: LogEntryParams
 }
 
 const loadLogs = async (request: LogEntryParams): Promise<LogEntry[]> => {
+    if (!hasLogSourceIdentifiers(request)) {
+        return []
+    }
+
     const query = hogql`
         SELECT instance_id, timestamp, level, message
         FROM log_entries
@@ -148,6 +156,10 @@ const loadLogs = async (request: LogEntryParams): Promise<LogEntry[]> => {
 }
 
 const loadGroupedLogs = async (request: LogEntryParams, excludeInstanceIds?: string[]): Promise<LogEntry[]> => {
+    if (!hasLogSourceIdentifiers(request)) {
+        return []
+    }
+
     const excludeFilter =
         excludeInstanceIds && excludeInstanceIds.length > 0 ? hogql`AND instance_id NOT IN ${excludeInstanceIds}` : ''
 
@@ -516,9 +528,24 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
         if (props.groupByInstanceId !== oldProps.groupByInstanceId) {
             actions.setIsGrouped(props.groupByInstanceId ?? true)
         }
+        // When sharing a logic instance via logicKey, the source identifiers may change without remount.
+        // Reload once they're defined so the viewer can render after a transient undefined on mount.
+        const identifiersNowReady =
+            Boolean(props.sourceType) &&
+            Boolean(props.sourceId) &&
+            (props.sourceType !== oldProps.sourceType || props.sourceId !== oldProps.sourceId)
+        if (identifiersNowReady) {
+            actions.loadLogs()
+        }
     }),
     listeners(({ actions, cache, values }) => ({
         loadLogs: () => {
+            if (!hasLogSourceIdentifiers(values.logEntryParams)) {
+                // Source identifiers aren't ready yet (e.g., viewer mounted before props populated);
+                // skip loading so the hogql template isn't handed undefined. A subsequent propsChanged
+                // or setFilters will retrigger loadLogs once identifiers are populated.
+                return
+            }
             if (values.isGrouped) {
                 actions.loadGroupedLogs()
             } else {

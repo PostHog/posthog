@@ -1,9 +1,13 @@
+import { expectLogic } from 'kea-test-utils'
+
+import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { teamLogic } from 'scenes/teamLogic'
 
+import { initKeaTests } from '~/test/init'
 import { LogEntryLevel } from '~/types'
 
-import { groupLogs, LogEntry, toAbsoluteClickhouseTimestamp } from './logsViewerLogic'
+import { groupLogs, LogEntry, logsViewerLogic, toAbsoluteClickhouseTimestamp } from './logsViewerLogic'
 
 const makeEntry = (instanceId: string, timestamp: string, level: LogEntryLevel = 'INFO'): LogEntry => ({
     instanceId,
@@ -153,6 +157,53 @@ describe('logsViewerLogic', () => {
             const groups = groupLogs(entries)
 
             expect(groups.map((g) => g.instanceId)).toEqual(['c', 'b', 'a'])
+        })
+    })
+
+    describe('missing source identifiers', () => {
+        let queryHogQLSpy: jest.SpyInstance
+
+        beforeEach(() => {
+            initKeaTests()
+            queryHogQLSpy = jest
+                .spyOn(api, 'queryHogQL')
+                .mockResolvedValue({ results: [] } as unknown as Awaited<ReturnType<typeof api.queryHogQL>>)
+        })
+
+        afterEach(() => {
+            queryHogQLSpy.mockRestore()
+        })
+
+        it('does not query when sourceId is missing — previously crashed with "Unsupported interpolated value type: undefined"', async () => {
+            const logic = logsViewerLogic({
+                logicKey: 'test-missing-source-id',
+                sourceType: 'hog_function',
+                // sourceId intentionally undefined to simulate viewer mounting before props populated
+                sourceId: undefined as unknown as string,
+            })
+            logic.mount()
+
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(queryHogQLSpy).not.toHaveBeenCalled()
+            expect(logic.isMounted()).toBeTruthy()
+
+            logic.unmount()
+        })
+
+        it('does not query when sourceType is missing', async () => {
+            const logic = logsViewerLogic({
+                logicKey: 'test-missing-source-type',
+                sourceType: undefined as unknown as 'hog_function',
+                sourceId: 'some-id',
+            })
+            logic.mount()
+
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(queryHogQLSpy).not.toHaveBeenCalled()
+
+            logic.unmount()
         })
     })
 })

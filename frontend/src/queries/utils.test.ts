@@ -80,6 +80,13 @@ describe('hogql tag', () => {
             "SELECT * FROM events WHERE properties.path = 'C:\\\\Users\\\\test'"
         )
     })
+
+    it('throws a descriptive error when interpolating undefined', () => {
+        const value: string | undefined = undefined
+        expect(() => hogql`SELECT * FROM events WHERE properties.foo = ${value}`).toThrow(
+            /undefined cannot be interpolated for SQL/
+        )
+    })
 })
 
 describe('escapeHogQLString', () => {
