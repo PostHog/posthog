@@ -22,10 +22,12 @@ def _resolve_name(installation: MCPServerInstallation) -> str:
     return installation.url
 
 
-def _is_oauth_ready(installation: MCPServerInstallation) -> bool:
+def _is_oauth_ready(installation: MCPServerInstallation, sensitive: dict) -> bool:
+    # `sensitive` is passed in (rather than read here) so the caller can share
+    # the value with any follow-up logging — avoids a second decrypt of the
+    # EncryptedJSONField for installations that aren't ready.
     if installation.auth_type != "oauth":
         return True
-    sensitive = installation.sensitive_configuration or {}
     if sensitive.get("needs_reauth"):
         return False
     if not sensitive.get("access_token"):
@@ -51,8 +53,10 @@ def get_active_installations(team_id: int, user_id: int) -> list[ActiveInstallat
 
     results: list[ActiveInstallationInfo] = []
     for installation in installations:
-        if not _is_oauth_ready(installation):
-            sensitive = installation.sensitive_configuration or {}
+        # Read the encrypted field once per installation and share it with the
+        # readiness check + the skip-log to avoid double-decrypting.
+        sensitive = installation.sensitive_configuration or {}
+        if not _is_oauth_ready(installation, sensitive):
             # INFO (not DEBUG) so operators can answer "why doesn't my agent see my server?"
             # without re-deploying with elevated log levels.
             logger.info(
