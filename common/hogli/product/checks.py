@@ -555,6 +555,10 @@ class ProductYamlOwnersCheck(ProductCheck):
 
         gh_teams, fetch_err = get_team_slugs()
         if gh_teams is None:
+            import os
+
+            if os.environ.get("GITHUB_ACTIONS") == "true":
+                return CheckResult(lines=[f"⚠ {fetch_err}, skipping in CI"])
             return CheckResult(
                 lines=[f"✗ {fetch_err}"],
                 issues=[fetch_err],
