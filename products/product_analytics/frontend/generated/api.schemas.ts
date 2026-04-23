@@ -2703,6 +2703,11 @@ export const EntityTypeApi = {
 } as const
 
 export interface RetentionEntityApi {
+    /**
+     * Data warehouse field used as the actor identifier
+     * @nullable
+     */
+    aggregation_target_field?: string | null
     /** @nullable */
     custom_name?: string | null
     id?: string | number | null
@@ -2739,6 +2744,16 @@ export interface RetentionEntityApi {
               | WorkflowVariablePropertyFilterApi
           )[]
         | null
+    /**
+     * Data warehouse table name
+     * @nullable
+     */
+    table_name?: string | null
+    /**
+     * Data warehouse timestamp field
+     * @nullable
+     */
+    timestamp_field?: string | null
     type?: EntityTypeApi | null
     /** @nullable */
     uuid?: string | null
