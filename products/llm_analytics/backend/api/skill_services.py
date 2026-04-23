@@ -9,6 +9,8 @@ from posthog.models import Team, User
 from ..models.skills import LLMSkill, LLMSkillFile, annotate_llm_skill_version_history_metadata
 
 MAX_SKILL_VERSION = 2000
+MAX_SKILL_BODY_BYTES = 1_000_000
+MAX_SKILL_FILE_BYTES = 1_000_000
 
 
 class LLMSkillNotFoundError(Exception):
@@ -25,8 +27,49 @@ class LLMSkillVersionLimitError(Exception):
     max_version: int
 
 
+@dataclass
+class LLMSkillEditError(Exception):
+    # `file_path` extends this dataclass (rather than a subclass) so the publish view can catch a
+    # single exception type for both body edits and per-file edits. `edit_index` is optional because
+    # path-level failures (e.g. missing file) aren't tied to any particular edit.
+    message: str
+    edit_index: int | None = None
+    file_path: str | None = None
+
+
 class LLMSkillDuplicateNameConflictError(Exception):
     pass
+
+
+def apply_skill_body_edits(body: str, edits: list[dict[str, str]]) -> str:
+    """Apply sequential find/replace edits to a skill body.
+
+    Each edit's 'old' text must match exactly once in the current body.
+    """
+    text = body
+    for i, edit in enumerate(edits):
+        old = edit["old"]
+        new = edit["new"]
+        count = text.count(old)
+        if count == 0:
+            raise LLMSkillEditError(
+                message="Text to replace was not found in the skill body.",
+                edit_index=i,
+            )
+        if count > 1:
+            raise LLMSkillEditError(
+                message=f"Text to replace matches {count} times — provide more context to make it unique.",
+                edit_index=i,
+            )
+        text = text.replace(old, new, 1)
+
+    if len(text.encode("utf-8")) > MAX_SKILL_BODY_BYTES:
+        raise LLMSkillEditError(
+            message=f"Resulting skill body exceeds the {MAX_SKILL_BODY_BYTES} byte size limit.",
+            edit_index=len(edits) - 1,
+        )
+
+    return text
 
 
 def get_active_skill_queryset(team: Team) -> QuerySet[LLMSkill]:
@@ -89,18 +132,57 @@ def _carry_forward(payload_value: Any, current_value: Any) -> Any:
     return payload_value if payload_value is not None else current_value
 
 
+def apply_skill_file_edits(file_content: str, edits: list[dict[str, str]], *, file_path: str) -> str:
+    """Apply sequential find/replace edits to a single bundled skill file.
+
+    Each edit's 'old' text must match exactly once. Result size capped at MAX_SKILL_FILE_BYTES.
+    """
+    text = file_content
+    for i, edit in enumerate(edits):
+        old = edit["old"]
+        new = edit["new"]
+        count = text.count(old)
+        if count == 0:
+            raise LLMSkillEditError(
+                message=f"Text to replace was not found in file '{file_path}'.",
+                edit_index=i,
+                file_path=file_path,
+            )
+        if count > 1:
+            raise LLMSkillEditError(
+                message=(
+                    f"Text to replace matches {count} times in file '{file_path}' — "
+                    "provide more context to make it unique."
+                ),
+                edit_index=i,
+                file_path=file_path,
+            )
+        text = text.replace(old, new, 1)
+
+    if len(text.encode("utf-8")) > MAX_SKILL_FILE_BYTES:
+        raise LLMSkillEditError(
+            message=f"Edited file '{file_path}' exceeds the {MAX_SKILL_FILE_BYTES} byte size limit.",
+            edit_index=len(edits) - 1,
+            file_path=file_path,
+        )
+
+    return text
+
+
 def publish_skill_version(
     team: Team,
     *,
     user: User,
     skill_name: str,
     body: str | None = None,
+    edits: list[dict[str, str]] | None = None,
     description: str | None = None,
     license: str | None = None,
     compatibility: str | None = None,
     allowed_tools: list[str] | None = None,
     metadata: dict[str, Any] | None = None,
     files: list[dict[str, str]] | None = None,
+    file_edits: list[dict[str, Any]] | None = None,
     base_version: int,
 ) -> LLMSkill:
     with transaction.atomic():
@@ -118,12 +200,21 @@ def publish_skill_version(
         if current_latest.version >= MAX_SKILL_VERSION:
             raise LLMSkillVersionLimitError(max_version=MAX_SKILL_VERSION)
 
+        if edits is not None:
+            resolved_body = apply_skill_body_edits(current_latest.body, edits)
+        else:
+            resolved_body = _carry_forward(body, current_latest.body)
+
+        resolved_file_edits: dict[str, str] | None = None
+        if file_edits is not None:
+            resolved_file_edits = _resolve_file_edits(current_latest, file_edits)
+
         LLMSkill.objects.filter(pk=current_latest.pk).update(is_latest=False)
         published_skill = LLMSkill.objects.create(
             team=team,
             name=current_latest.name,
             description=_carry_forward(description, current_latest.description),
-            body=_carry_forward(body, current_latest.body),
+            body=resolved_body,
             license=_carry_forward(license, current_latest.license),
             compatibility=_carry_forward(compatibility, current_latest.compatibility),
             allowed_tools=_carry_forward(allowed_tools, current_latest.allowed_tools),
@@ -146,26 +237,53 @@ def publish_skill_version(
                 ]
             )
         else:
-            _copy_files(current_latest, published_skill)
+            _copy_files(current_latest, published_skill, edited_content=resolved_file_edits)
 
         refreshed = get_active_skill_queryset(team).filter(pk=published_skill.pk).first()
         return refreshed if refreshed is not None else published_skill
 
 
-def _copy_files(source_skill: LLMSkill, target_skill: LLMSkill) -> None:
-    source_files = list(LLMSkillFile.objects.filter(skill=source_skill))
-    if source_files:
-        LLMSkillFile.objects.bulk_create(
-            [
-                LLMSkillFile(
-                    skill=target_skill,
-                    path=f.path,
-                    content=f.content,
-                    content_type=f.content_type,
-                )
-                for f in source_files
-            ]
+def _resolve_file_edits(current_skill: LLMSkill, file_edits: list[dict[str, Any]]) -> dict[str, str]:
+    """Apply each file's edits against the current file content; return {path: new_content}."""
+    source_files = {f.path: f for f in LLMSkillFile.objects.filter(skill=current_skill)}
+    resolved: dict[str, str] = {}
+    for entry in file_edits:
+        path = entry["path"]
+        if path not in source_files:
+            raise LLMSkillEditError(
+                message=f"File '{path}' not found in the current skill version.",
+                file_path=path,
+            )
+        resolved[path] = apply_skill_file_edits(
+            source_files[path].content,
+            entry["edits"],
+            file_path=path,
         )
+    return resolved
+
+
+def _copy_files(
+    source_skill: LLMSkill,
+    target_skill: LLMSkill,
+    *,
+    edited_content: dict[str, str] | None = None,
+) -> None:
+    """Carry files forward to the new version, optionally overriding content for specific paths."""
+    source_files = list(LLMSkillFile.objects.filter(skill=source_skill))
+    if not source_files:
+        return
+    overrides = edited_content or {}
+    LLMSkillFile.objects.bulk_create(
+        [
+            LLMSkillFile(
+                skill=target_skill,
+                path=f.path,
+                content=overrides.get(f.path, f.content),
+                content_type=f.content_type,
+            )
+            for f in source_files
+        ]
+    )
 
 
 def duplicate_skill(

@@ -4,7 +4,7 @@ import * as React from 'react'
 
 import { Button } from './button'
 import { cn } from './lib/utils'
-import { MenuLabel } from './menuLabel'
+import { MenuLabel } from './menu-label'
 
 const Select = SelectPrimitive.Root
 
@@ -66,6 +66,7 @@ function SelectContent({
     return (
         <SelectPrimitive.Portal>
             <SelectPrimitive.Positioner
+                data-quill
                 side={side}
                 sideOffset={sideOffset}
                 align={align}

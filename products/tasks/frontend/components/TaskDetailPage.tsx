@@ -187,6 +187,7 @@ export function TaskDetailPage({ taskId }: TaskDetailPageProps): JSX.Element {
                         streamEntries={streamEntries}
                         isPolling={shouldPoll}
                         isStreaming={isStreaming}
+                        initialPrompt={task.description}
                         run={selectedRun}
                     />
                 </div>

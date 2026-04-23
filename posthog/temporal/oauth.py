@@ -26,6 +26,7 @@ MCP_READ_SCOPES: list[str] = [
     "feature_flag:read",
     "hog_flow:read",
     "insight:read",
+    "insight_variable:read",
     "llm_prompt:read",
     "logs:read",
     "organization:read",
@@ -47,6 +48,7 @@ MCP_WRITE_SCOPES: list[str] = [
     "experiment:write",
     "feature_flag:write",
     "insight:write",
+    "insight_variable:write",
     "llm_prompt:write",
     "survey:write",
 ]
@@ -55,6 +57,8 @@ INTERNAL_SCOPES: list[str] = [
     "task:write",
     "llm_gateway:read",
 ]
+
+TOKEN_EXPIRATION_SECONDS = 60 * 60 * 6  # 6 hours
 
 PosthogMcpScopes = McpScopePreset | list[str]
 
@@ -99,7 +103,7 @@ def create_oauth_access_token_for_user(user, team_id: int, *, scopes: PosthogMcp
         user=user,
         application=app,
         token=token_value,
-        expires=timezone.now() + timedelta(hours=6),
+        expires=timezone.now() + timedelta(seconds=TOKEN_EXPIRATION_SECONDS),
         scope=" ".join(resolved),
         scoped_teams=[team_id],
     )

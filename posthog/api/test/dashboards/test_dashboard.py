@@ -932,6 +932,53 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         )
         self.assertEqual(response["attr"], "use_template")
 
+    @parameterized.expand(
+        [
+            ("same_team_only_team", "self", "team", status.HTTP_201_CREATED),
+            ("global", "none", "global", status.HTTP_201_CREATED),
+            ("other_team_only_team", "other", "team", status.HTTP_400_BAD_REQUEST),
+        ]
+    )
+    def test_use_template_respects_team_scoping(self, _name: str, owner: str, scope: str, expected_status: int) -> None:
+        from products.dashboards.backend.models.dashboard_templates import DashboardTemplate
+
+        if owner == "self":
+            template_team: Team | None = self.team
+        elif owner == "other":
+            other_org = Organization.objects.create(name="other org")
+            template_team = Team.objects.create(organization=other_org, name="other team")
+        else:
+            template_team = None
+
+        template_name = f"probe-{owner}"
+        DashboardTemplate.objects.create(
+            team=template_team,
+            template_name=template_name,
+            scope=scope,
+            dashboard_description="probe-description",
+            dashboard_filters={},
+            tiles=[{"type": "TEXT", "body": "probe-tile-body", "layouts": {}, "color": None}],
+            tags=["probe-tag"],
+        )
+
+        dashboard_id, response = self.dashboard_api.create_dashboard(
+            {"name": "probe", "use_template": template_name},
+            expected_status=expected_status,
+        )
+
+        if expected_status == status.HTTP_201_CREATED:
+            self.assertEqual(response["creation_mode"], "template")
+            dashboard = Dashboard.objects.get(id=dashboard_id, team=self.team)
+            self.assertEqual(dashboard.description, "probe-description")
+            tag_names = list(dashboard.tagged_items.values_list("tag__name", flat=True))
+            self.assertIn("probe-tag", tag_names)
+        else:
+            self.assertEqual(response["attr"], "use_template")
+            for dashboard in Dashboard.objects.filter(team=self.team, name="probe"):
+                self.assertNotIn("probe-description", dashboard.description or "")
+                tag_names = list(dashboard.tagged_items.values_list("tag__name", flat=True))
+                self.assertNotIn("probe-tag", tag_names)
+
     def test_dashboard_creation_validation(self):
         existing_dashboard = Dashboard.objects.create(team=self.team, name="existing dashboard", created_by=self.user)
 

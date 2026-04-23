@@ -43,6 +43,7 @@ from .skill_serializers import (
 )
 from .skill_services import (
     LLMSkillDuplicateNameConflictError,
+    LLMSkillEditError,
     LLMSkillNotFoundError,
     LLMSkillVersionConflictError,
     LLMSkillVersionLimitError,
@@ -233,12 +234,14 @@ class LLMSkillViewSet(
                 user=cast(User, request.user),
                 skill_name=skill_name,
                 body=payload.validated_data.get("body"),
+                edits=payload.validated_data.get("edits"),
                 description=payload.validated_data.get("description"),
                 license=payload.validated_data.get("license"),
                 compatibility=payload.validated_data.get("compatibility"),
                 allowed_tools=payload.validated_data.get("allowed_tools"),
                 metadata=payload.validated_data.get("metadata"),
                 files=payload.validated_data.get("files"),
+                file_edits=payload.validated_data.get("file_edits"),
                 base_version=payload.validated_data["base_version"],
             )
         except IntegrityError as err:
@@ -265,6 +268,13 @@ class LLMSkillViewSet(
                 },
                 status=status.HTTP_400_BAD_REQUEST,
             )
+        except LLMSkillEditError as err:
+            error_body: dict[str, Any] = {"detail": err.message}
+            if err.edit_index is not None:
+                error_body["edit_index"] = err.edit_index
+            if err.file_path is not None:
+                error_body["file_path"] = err.file_path
+            return Response(error_body, status=status.HTTP_400_BAD_REQUEST)
 
         report_user_action(
             cast(User, request.user),

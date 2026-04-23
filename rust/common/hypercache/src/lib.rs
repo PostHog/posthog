@@ -183,6 +183,10 @@ pub struct HyperCacheConfig {
     pub token_based: bool,
     pub enable_etag: bool,
     pub django_cache_version: String,
+    /// When set, `HyperCacheWriter::set` records each successful write into this Redis
+    /// sorted set with an expiry-timestamp score, mirroring Python's
+    /// `HyperCache._track_expiry`. `None` disables expiry tracking.
+    pub expiry_sorted_set_key: Option<String>,
 }
 
 impl HyperCacheConfig {
@@ -204,6 +208,7 @@ impl HyperCacheConfig {
             token_based: false,
             enable_etag: false,
             django_cache_version: "1".to_string(),
+            expiry_sorted_set_key: None,
         }
     }
 
@@ -226,6 +231,7 @@ impl HyperCacheConfig {
             token_based: false,
             enable_etag: false,
             django_cache_version,
+            expiry_sorted_set_key: None,
         }
     }
 
@@ -240,9 +246,11 @@ impl HyperCacheConfig {
         self.get_base_cache_key(key)
     }
 
-    /// Generate base cache key (used by both Redis and S3, but Redis adds prefix)
-    fn get_base_cache_key(&self, key: &KeyType) -> String {
-        let key_str = if self.token_based {
+    /// Mirror Python's `HyperCache.get_cache_identifier`: api_token for token-based
+    /// caches, team_id as string otherwise. Used for both key generation and
+    /// expiry-tracking sorted-set membership.
+    pub fn get_cache_identifier(&self, key: &KeyType) -> String {
+        if self.token_based {
             match key {
                 KeyType::Team(team) => team.api_token().to_string(),
                 KeyType::String(s) => s.clone(),
@@ -254,19 +262,21 @@ impl HyperCacheConfig {
                 KeyType::String(s) => s.clone(),
                 KeyType::Int(i) => i.to_string(),
             }
-        };
-
-        if self.token_based {
-            format!(
-                "cache/team_tokens/{}/{}/{}",
-                key_str, self.namespace, self.object_name
-            )
-        } else {
-            format!(
-                "cache/teams/{}/{}/{}",
-                key_str, self.namespace, self.object_name
-            )
         }
+    }
+
+    /// Generate base cache key (used by both Redis and S3, but Redis adds prefix)
+    fn get_base_cache_key(&self, key: &KeyType) -> String {
+        let key_str = self.get_cache_identifier(key);
+        let scope = if self.token_based {
+            "team_tokens"
+        } else {
+            "teams"
+        };
+        format!(
+            "cache/{}/{}/{}/{}",
+            scope, key_str, self.namespace, self.object_name
+        )
     }
 }
 
