@@ -2,7 +2,6 @@ import re
 import dataclasses
 from datetime import datetime
 from typing import Any, Optional
-from urllib.parse import urlencode
 
 from requests import Request, Response
 
@@ -425,9 +424,8 @@ def _build_next_query(model_name: str, last_record_id: str, date_filter: Optiona
 
 
 class SalesforceEndpointPaginator(BasePaginator):
-    def __init__(self, instance_url: str, should_use_incremental_field: bool):
+    def __init__(self, should_use_incremental_field: bool):
         super().__init__()
-        self.instance_url = instance_url
         self.should_use_incremental_field = should_use_incremental_field
         self._model_name: Optional[str] = None
         self._last_record_id: Optional[str] = None
@@ -444,7 +442,7 @@ class SalesforceEndpointPaginator(BasePaginator):
         # When seeded via set_resume_state, skip the initial request and jump directly
         # to the next page after the saved checkpoint.
         if self._has_next_page and self._model_name and self._last_record_id:
-            self._redirect_to_next_page(request)
+            self._advance_query(request)
 
     def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
         res = response.json()
@@ -468,7 +466,7 @@ class SalesforceEndpointPaginator(BasePaginator):
             # Pull the initial-query date filter once, then cache it on the paginator so
             # resume can restore it without re-parsing the original request.
             if self._date_filter is None:
-                query = request.params.get("q", "")
+                query = (request.params or {}).get("q", "")
                 date_match = _DATE_FILTER_RE.search(query)
 
                 if not date_match:
@@ -478,14 +476,18 @@ class SalesforceEndpointPaginator(BasePaginator):
 
                 self._date_filter = date_match.group(1)
 
-        self._redirect_to_next_page(request)
+        self._advance_query(request)
 
-    def _redirect_to_next_page(self, request: Request) -> None:
-        assert self._model_name is not None and self._last_record_id is not None
+    def _advance_query(self, request: Request) -> None:
+        # Mutate ``request.params["q"]`` rather than ``request.url`` so ``requests`` does
+        # not end up merging the old and new query strings into duplicate ``q`` params
+        # when it prepares the next request.
+        if self._model_name is None or self._last_record_id is None:
+            raise ValueError("Cannot advance paginator: model_name or last_record_id is not set")
         date_filter = self._date_filter if self.should_use_incremental_field else None
-        query = _build_next_query(self._model_name, self._last_record_id, date_filter)
-        _next_page = "/services/data/v61.0/query" + "?" + urlencode({"q": query})
-        request.url = f"{self.instance_url}{_next_page}"
+        if request.params is None:
+            request.params = {}
+        request.params["q"] = _build_next_query(self._model_name, self._last_record_id, date_filter)
 
     def get_resume_state(self) -> Optional[dict[str, Any]]:
         if not (self._has_next_page and self._model_name and self._last_record_id):
@@ -526,9 +528,7 @@ def salesforce_source(
         "client": {
             "base_url": instance_url,
             "auth": SalesforceAuth(refresh_token, access_token, instance_url),
-            "paginator": SalesforceEndpointPaginator(
-                instance_url=instance_url, should_use_incremental_field=should_use_incremental_field
-            ),
+            "paginator": SalesforceEndpointPaginator(should_use_incremental_field=should_use_incremental_field),
         },
         "resource_defaults": {},
         "resources": [get_resource(endpoint, should_use_incremental_field)],
@@ -538,22 +538,11 @@ def salesforce_source(
     if resumable_source_manager.can_resume():
         resume_config = resumable_source_manager.load_state()
         if resume_config is not None:
-            initial_paginator_state = {
-                "model_name": resume_config.model_name,
-                "last_record_id": resume_config.last_record_id,
-            }
-            if resume_config.date_filter is not None:
-                initial_paginator_state["date_filter"] = resume_config.date_filter
+            initial_paginator_state = dataclasses.asdict(resume_config)
 
     def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
         if state and state.get("model_name") and state.get("last_record_id"):
-            resumable_source_manager.save_state(
-                SalesforceResumeConfig(
-                    model_name=state["model_name"],
-                    last_record_id=state["last_record_id"],
-                    date_filter=state.get("date_filter"),
-                )
-            )
+            resumable_source_manager.save_state(SalesforceResumeConfig(**state))
 
     return rest_api_resource(
         config,

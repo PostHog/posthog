@@ -4,7 +4,7 @@ import pytest
 from unittest import mock
 
 from parameterized import parameterized
-from requests import Request
+from requests import Request, Session
 
 from posthog.temporal.data_imports.sources.salesforce.salesforce import (
     SalesforceEndpointPaginator,
@@ -13,6 +13,7 @@ from posthog.temporal.data_imports.sources.salesforce.salesforce import (
 )
 
 INSTANCE_URL = "https://example.my.salesforce.com"
+QUERY_PATH = "/services/data/v61.0/query"
 
 
 def _mock_response(records: list[dict[str, Any]]) -> mock.MagicMock:
@@ -36,7 +37,7 @@ def _two_records(model: str = "Account") -> list[dict[str, Any]]:
 
 class TestSalesforceEndpointPaginator:
     def test_update_state_populates_cursor(self) -> None:
-        paginator = SalesforceEndpointPaginator(instance_url=INSTANCE_URL, should_use_incremental_field=False)
+        paginator = SalesforceEndpointPaginator(should_use_incremental_field=False)
         paginator.update_state(_mock_response(_two_records()))
 
         assert paginator.has_next_page is True
@@ -44,45 +45,49 @@ class TestSalesforceEndpointPaginator:
         assert paginator._model_name == "Account"
 
     def test_update_state_empty_page_terminates(self) -> None:
-        paginator = SalesforceEndpointPaginator(instance_url=INSTANCE_URL, should_use_incremental_field=False)
+        paginator = SalesforceEndpointPaginator(should_use_incremental_field=False)
         paginator.update_state(_mock_empty_response())
 
         assert paginator.has_next_page is False
 
-    def test_update_request_non_incremental_builds_keyset_url(self) -> None:
-        paginator = SalesforceEndpointPaginator(instance_url=INSTANCE_URL, should_use_incremental_field=False)
+    def test_update_request_non_incremental_replaces_query_param(self) -> None:
+        paginator = SalesforceEndpointPaginator(should_use_incremental_field=False)
         paginator.update_state(_mock_response(_two_records("Lead")))
 
-        request = Request(method="GET", url=f"{INSTANCE_URL}/services/data/v61.0/query", params={"q": "irrelevant"})
+        request = Request(method="GET", url=f"{INSTANCE_URL}{QUERY_PATH}", params={"q": "irrelevant"})
         paginator.update_request(request)
 
-        assert request.url == (
-            f"{INSTANCE_URL}/services/data/v61.0/query"
-            "?q=SELECT+FIELDS%28ALL%29+FROM+Lead+WHERE+Id+%3E+%27001B9%27+ORDER+BY+Id+ASC+LIMIT+200"
-        )
+        assert request.url == f"{INSTANCE_URL}{QUERY_PATH}"
+        assert request.params == {
+            "q": "SELECT FIELDS(ALL) FROM Lead WHERE Id > '001B9' ORDER BY Id ASC LIMIT 200",
+        }
 
     def test_update_request_incremental_caches_date_filter(self) -> None:
-        paginator = SalesforceEndpointPaginator(instance_url=INSTANCE_URL, should_use_incremental_field=True)
+        paginator = SalesforceEndpointPaginator(should_use_incremental_field=True)
         paginator.update_state(_mock_response(_two_records("Account")))
 
         initial_query = (
             "SELECT FIELDS(ALL) FROM Account WHERE SystemModstamp >= 2024-01-01T00:00:00.000+0000 "
             "ORDER BY Id ASC LIMIT 200"
         )
-        request = Request(method="GET", url=f"{INSTANCE_URL}/services/data/v61.0/query", params={"q": initial_query})
+        request = Request(method="GET", url=f"{INSTANCE_URL}{QUERY_PATH}", params={"q": initial_query})
         paginator.update_request(request)
 
         assert paginator._date_filter == "2024-01-01T00:00:00.000+0000"
-        assert "Id+%3E+%27001B9%27" in (request.url or "")
-        assert "SystemModstamp+%3E%3D+2024-01-01T00%3A00%3A00.000%2B0000" in (request.url or "")
+        assert request.params == {
+            "q": (
+                "SELECT FIELDS(ALL) FROM Account WHERE Id > '001B9' "
+                "AND SystemModstamp >= 2024-01-01T00:00:00.000+0000 ORDER BY Id ASC LIMIT 200"
+            ),
+        }
 
     def test_update_request_incremental_without_date_filter_raises(self) -> None:
-        paginator = SalesforceEndpointPaginator(instance_url=INSTANCE_URL, should_use_incremental_field=True)
+        paginator = SalesforceEndpointPaginator(should_use_incremental_field=True)
         paginator.update_state(_mock_response(_two_records("Account")))
 
         request = Request(
             method="GET",
-            url=f"{INSTANCE_URL}/services/data/v61.0/query",
+            url=f"{INSTANCE_URL}{QUERY_PATH}",
             params={"q": "SELECT FIELDS(ALL) FROM Account ORDER BY Id ASC LIMIT 200"},
         )
 
@@ -90,14 +95,33 @@ class TestSalesforceEndpointPaginator:
             paginator.update_request(request)
 
     def test_update_request_no_op_when_no_next_page(self) -> None:
-        paginator = SalesforceEndpointPaginator(instance_url=INSTANCE_URL, should_use_incremental_field=False)
+        paginator = SalesforceEndpointPaginator(should_use_incremental_field=False)
         paginator.update_state(_mock_empty_response())
 
-        original_url = f"{INSTANCE_URL}/services/data/v61.0/query"
-        request = Request(method="GET", url=original_url, params={"q": "anything"})
+        request = Request(method="GET", url=f"{INSTANCE_URL}{QUERY_PATH}", params={"q": "anything"})
         paginator.update_request(request)
 
-        assert request.url == original_url
+        assert request.url == f"{INSTANCE_URL}{QUERY_PATH}"
+        assert request.params == {"q": "anything"}
+
+    def test_prepared_request_has_single_q_param_after_pagination(self) -> None:
+        # Guards against the duplicate-``q`` regression: ``requests`` merges a query
+        # string on the URL with ``request.params`` when preparing, so the paginator
+        # must only mutate ``params`` — never the URL.
+        paginator = SalesforceEndpointPaginator(should_use_incremental_field=False)
+        paginator.update_state(_mock_response(_two_records("Lead")))
+
+        request = Request(
+            method="GET",
+            url=f"{INSTANCE_URL}{QUERY_PATH}",
+            params={"q": "SELECT FIELDS(ALL) FROM Lead ORDER BY Id ASC LIMIT 200"},
+        )
+        paginator.update_request(request)
+
+        prepared = Session().prepare_request(request)
+        assert prepared.url is not None
+        assert prepared.url.count("q=") == 1
+        assert "Id+%3E+%27001B9%27" in prepared.url
 
     @parameterized.expand(
         [
@@ -131,7 +155,7 @@ class TestSalesforceEndpointPaginator:
         date_filter: Optional[str],
         expected: Optional[dict[str, Any]],
     ) -> None:
-        paginator = SalesforceEndpointPaginator(instance_url=INSTANCE_URL, should_use_incremental_field=incremental)
+        paginator = SalesforceEndpointPaginator(should_use_incremental_field=incremental)
         if advance:
             paginator.update_state(_mock_response(_two_records("Account")))
         if date_filter is not None:
@@ -140,7 +164,7 @@ class TestSalesforceEndpointPaginator:
         assert paginator.get_resume_state() == expected
 
     def test_set_resume_state_round_trip(self) -> None:
-        paginator = SalesforceEndpointPaginator(instance_url=INSTANCE_URL, should_use_incremental_field=True)
+        paginator = SalesforceEndpointPaginator(should_use_incremental_field=True)
         paginator.set_resume_state(
             {
                 "model_name": "Lead",
@@ -157,7 +181,7 @@ class TestSalesforceEndpointPaginator:
         }
 
     def test_set_resume_state_ignores_incomplete(self) -> None:
-        paginator = SalesforceEndpointPaginator(instance_url=INSTANCE_URL, should_use_incremental_field=False)
+        paginator = SalesforceEndpointPaginator(should_use_incremental_field=False)
         paginator.set_resume_state({"model_name": "Lead"})
 
         assert paginator.has_next_page is False
@@ -170,22 +194,21 @@ class TestSalesforceEndpointPaginator:
         ]
     )
     def test_init_request(self, _name: str, seed: bool) -> None:
-        paginator = SalesforceEndpointPaginator(instance_url=INSTANCE_URL, should_use_incremental_field=False)
-        original_url = f"{INSTANCE_URL}/services/data/v61.0/query"
-        request = Request(method="GET", url=original_url, params={"q": "initial"})
+        paginator = SalesforceEndpointPaginator(should_use_incremental_field=False)
+        request = Request(method="GET", url=f"{INSTANCE_URL}{QUERY_PATH}", params={"q": "initial"})
 
         if seed:
             paginator.set_resume_state({"model_name": "Lead", "last_record_id": "00QXYZ"})
 
         paginator.init_request(request)
 
+        assert request.url == f"{INSTANCE_URL}{QUERY_PATH}"
         if seed:
-            assert request.url == (
-                f"{INSTANCE_URL}/services/data/v61.0/query"
-                "?q=SELECT+FIELDS%28ALL%29+FROM+Lead+WHERE+Id+%3E+%2700QXYZ%27+ORDER+BY+Id+ASC+LIMIT+200"
-            )
+            assert request.params == {
+                "q": "SELECT FIELDS(ALL) FROM Lead WHERE Id > '00QXYZ' ORDER BY Id ASC LIMIT 200",
+            }
         else:
-            assert request.url == original_url
+            assert request.params == {"q": "initial"}
 
 
 class TestSalesforceSourceResumeWiring:
