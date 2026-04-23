@@ -2,7 +2,13 @@ import { expectLogic } from 'kea-test-utils'
 
 import { cohortsModel } from '~/models/cohortsModel'
 import { initKeaTests } from '~/test/init'
-import { AnyPropertyFilter, FeatureFlagEvaluationRuntime, PropertyFilterType, PropertyOperator } from '~/types'
+import {
+    AnyPropertyFilter,
+    FeatureFlagEvaluationRuntime,
+    FeatureFlagGroupType,
+    PropertyFilterType,
+    PropertyOperator,
+} from '~/types'
 
 import { featureFlagConditionWarningLogic } from './featureFlagConditionWarningLogic'
 
@@ -470,6 +476,90 @@ describe('featureFlagConditionWarningLogic', () => {
             logic.mount()
 
             expect(logic.values.warning).toBeUndefined()
+        })
+    })
+
+    describe('server runtime - mixed user/group targeting', () => {
+        it('warns when groups have different aggregation_group_type_index values', () => {
+            const filterGroups: FeatureFlagGroupType[] = [
+                {
+                    properties: [],
+                    rollout_percentage: 100,
+                    variant: null,
+                    aggregation_group_type_index: null,
+                },
+                {
+                    properties: [],
+                    rollout_percentage: 100,
+                    variant: null,
+                    aggregation_group_type_index: 0,
+                },
+            ]
+
+            const logic = featureFlagConditionWarningLogic({
+                properties: [],
+                filterGroups,
+                evaluationRuntime: FeatureFlagEvaluationRuntime.SERVER,
+            })
+            logic.mount()
+
+            expect(logic.values.warning).toBe('mixed user and group targeting')
+        })
+
+        it('does not warn when all groups share the same aggregation', () => {
+            const filterGroups: FeatureFlagGroupType[] = [
+                {
+                    properties: [],
+                    rollout_percentage: 100,
+                    variant: null,
+                    aggregation_group_type_index: null,
+                },
+                {
+                    properties: [],
+                    rollout_percentage: 100,
+                    variant: null,
+                    aggregation_group_type_index: null,
+                },
+            ]
+
+            const logic = featureFlagConditionWarningLogic({
+                properties: [],
+                filterGroups,
+                evaluationRuntime: FeatureFlagEvaluationRuntime.SERVER,
+            })
+            logic.mount()
+
+            expectLogic(logic).toMatchValues({
+                warning: undefined,
+            })
+        })
+
+        it('does not warn for client-only runtime even with mixed targeting', () => {
+            const filterGroups: FeatureFlagGroupType[] = [
+                {
+                    properties: [],
+                    rollout_percentage: 100,
+                    variant: null,
+                    aggregation_group_type_index: null,
+                },
+                {
+                    properties: [],
+                    rollout_percentage: 100,
+                    variant: null,
+                    aggregation_group_type_index: 0,
+                },
+            ]
+
+            const logic = featureFlagConditionWarningLogic({
+                properties: [],
+                filterGroups,
+                evaluationRuntime: FeatureFlagEvaluationRuntime.CLIENT,
+            })
+            logic.mount()
+
+            expectLogic(logic).toMatchValues({
+                warning: undefined,
+            })
         })
     })
 

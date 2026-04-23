@@ -4,22 +4,24 @@ import { IconInfo } from '@posthog/icons'
 
 import { Link } from 'lib/lemon-ui/Link'
 
-import { AnyPropertyFilter, FeatureFlagEvaluationRuntime } from '~/types'
+import { AnyPropertyFilter, FeatureFlagEvaluationRuntime, FeatureFlagGroupType } from '~/types'
 
 import { featureFlagConditionWarningLogic } from './featureFlagConditionWarningLogic'
 
 export interface FeatureFlagConditionWarningProps {
     evaluationRuntime?: FeatureFlagEvaluationRuntime
     properties: AnyPropertyFilter[]
+    filterGroups?: FeatureFlagGroupType[]
     className?: string
 }
 
 export function FeatureFlagConditionWarning({
     properties,
+    filterGroups,
     className,
     evaluationRuntime = FeatureFlagEvaluationRuntime.ALL,
 }: FeatureFlagConditionWarningProps): JSX.Element | null {
-    const { warning } = useValues(featureFlagConditionWarningLogic({ properties, evaluationRuntime }))
+    const { warning } = useValues(featureFlagConditionWarningLogic({ properties, evaluationRuntime, filterGroups }))
 
     if (!warning) {
         return null
