@@ -3,10 +3,8 @@ from unittest.mock import patch
 
 from parameterized import parameterized
 from rest_framework import status
-from rest_framework.test import APIRequestFactory
 
 from ...models.skills import LLMSkill, LLMSkillFile
-from ..skills import LLMSkillViewSet
 
 
 @patch("products.llm_analytics.backend.api.skills.posthoganalytics.feature_enabled", return_value=True)
@@ -851,24 +849,53 @@ class TestLLMSkillAPI(APIBaseTest):
         # rejects it earlier for some setups.
         assert response.status_code in {status.HTTP_400_BAD_REQUEST, status.HTTP_404_NOT_FOUND}
 
-    def test_delete_file_requires_write_scope(self, mock_feature_enabled):
-        # delete_file is registered via @get_file.mapping.delete, which would otherwise
-        # inherit get_file's llm_skill:read scope. Verify DELETE requires llm_skill:write.
-        request = APIRequestFactory().delete("/api/environments/1/llm_skills/name/x/files/a.md")
-        view = LLMSkillViewSet()
-        view.action = "delete_file"
-        assert view.dangerously_get_required_scopes(request, view) == ["llm_skill:write"]
+    # Scope enforcement for the shared get_file/delete_file URL lives in
+    # LLMSkillViewSet.dangerously_get_required_scopes (see skills.py). It is NOT enforced by
+    # the @action decorator on get_file — required_scopes is intentionally absent there to
+    # avoid being injected as a URL-pattern initkwarg that would short-circuit the per-method
+    # branching. Removing the dangerously_get_required_scopes block in skills.py would
+    # silently reintroduce the read-scope DELETE bypass — keep these tests as the safety net.
 
-        view.action = "get_file"
-        assert view.dangerously_get_required_scopes(request, view) == ["llm_skill:write"]
+    @parameterized.expand(
+        [
+            ("read_scope_denied", ["llm_skill:read"], status.HTTP_403_FORBIDDEN),
+            ("write_scope_allowed", ["llm_skill:write"], status.HTTP_200_OK),
+        ]
+    )
+    def test_delete_file_pak_scope_end_to_end(self, mock_feature_enabled, _label, scopes, expected_status):
+        skill = self.create_skill(name="pak-scope-delete")
+        LLMSkillFile.objects.create(skill=skill, path="doomed.md", content="bye")
+        api_key = self.create_personal_api_key_with_scopes(scopes)
+        self.client.logout()
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {api_key}")
 
-    def test_get_file_uses_read_scope(self, mock_feature_enabled):
-        request = APIRequestFactory().get("/api/environments/1/llm_skills/name/x/files/a.md")
-        view = LLMSkillViewSet()
-        view.action = "get_file"
-        # GET on get_file should fall through to the action's own required_scopes=['llm_skill:read']
-        # (dangerously_get_required_scopes returns None so the action decorator's scope wins).
-        assert view.dangerously_get_required_scopes(request, view) is None
+        response = self.client.delete(self._url("name/pak-scope-delete/files/doomed.md"))
+
+        assert response.status_code == expected_status, response.json()
+        # If the read-scope request was wrongly allowed through, the file would be gone.
+        if scopes == ["llm_skill:read"]:
+            assert LLMSkillFile.objects.filter(skill=skill, path="doomed.md").exists()
+
+    # write scope implies read in PostHog's scope check (see permissions.py), so a write-scoped
+    # key can still GET. We just need to confirm read scope is enough — and that HEAD doesn't 403
+    # after dropping required_scopes from get_file's @action (regression guard for the codex bot
+    # finding on this PR).
+    @parameterized.expand(
+        [
+            ("get_with_read_scope", "get"),
+            ("head_with_read_scope", "head"),
+        ]
+    )
+    def test_get_file_pak_read_scope_end_to_end(self, mock_feature_enabled, _label, method):
+        skill = self.create_skill(name="pak-scope-get")
+        LLMSkillFile.objects.create(skill=skill, path="readable.md", content="hello")
+        api_key = self.create_personal_api_key_with_scopes(["llm_skill:read"])
+        self.client.logout()
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {api_key}")
+
+        response = getattr(self.client, method)(self._url("name/pak-scope-get/files/readable.md"))
+
+        assert response.status_code == status.HTTP_200_OK
 
     def test_rename_file_moves_file_and_bumps_version(self, mock_feature_enabled):
         skill = self.create_skill(name="crud-rename")
