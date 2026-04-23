@@ -221,8 +221,9 @@ class TestPartnerRateLimits(StripeProvisioningTestBase):
         )
         assert res.status_code == 429
 
-        # Auth code should not have been consumed
-        assert cache.get(f"{AUTH_CODE_CACHE_PREFIX}{code}") is not None
+        # Auth code is consumed before the rate-limit check so a leaked code
+        # can't be replayed to exhaust the bucket
+        assert cache.get(f"{AUTH_CODE_CACHE_PREFIX}{code}") is None
 
     def test_token_exchange_refresh_rate_limited(self):
         self.partner_app.provisioning_rate_limit_token_exchanges = 1

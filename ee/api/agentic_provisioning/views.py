@@ -935,6 +935,12 @@ def _exchange_authorization_code(request: Request) -> Response:
         _capture_provisioning_event("token_exchange", "missing_signature", grant_type="authorization_code")
         return Response({"error": "invalid_request", "error_description": "Authentication required"}, status=401)
 
+    # Consume the code before rate limiting so a leaked auth code can't be replayed
+    # to burn the partner's bucket. Auth codes are single-use by spec, so the
+    # tradeoff (rate-limited client loses the code) is acceptable — clients can
+    # re-initiate the OAuth flow if rate-limited.
+    cache.delete(cache_key)
+
     partner_id = code_data.get("partner_id", "")
     if partner_id:
         try:
@@ -943,8 +949,6 @@ def _exchange_authorization_code(request: Request) -> Response:
                 return error
         except (OAuthApplication.DoesNotExist, ValidationError, ValueError):
             logger.warning("partner_rate_limit_app_missing", partner_id=partner_id)
-
-    cache.delete(cache_key)
 
     user_id = code_data["user_id"]
     team_id = code_data["team_id"]
@@ -1020,7 +1024,10 @@ def _exchange_refresh_token(request: Request) -> Response:
     scoped_teams = old_refresh.scoped_teams
     old_scope = old_refresh.access_token.scope if old_refresh.access_token else StripeIntegration.SCOPES
 
-    if oauth_app and oauth_app.is_provisioning_partner:
+    # provisioning_partner_type is a stable marker set at partner registration;
+    # checking it instead of is_provisioning_partner prevents a bypass when an admin
+    # clears provisioning_auth_method to disable a partner without revoking tokens.
+    if oauth_app and oauth_app.provisioning_partner_type:
         if error := _enforce_partner_rate_limit(oauth_app, "token_exchanges"):
             return error
 
@@ -1279,7 +1286,7 @@ def provisioning_resources_create(request: Request) -> Response:
         return error
 
     app = access_token.application
-    if app and app.is_provisioning_partner:
+    if app and app.provisioning_partner_type:
         if error := _enforce_partner_rate_limit(app, "resource_creates"):
             # Resource endpoints use {"status": "error"} envelope, not {"type": "error"}
             retry_after = error["Retry-After"] if "Retry-After" in error else "3600"
