@@ -505,7 +505,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
             "created_by": UserBasicSerializer(endpoint.created_by).data if hasattr(endpoint, "created_by") else None,
             "is_materialized": version.is_materialized,
             "current_version": endpoint.current_version,
-            "current_version_id": str(version.id) if version else None,
+            "current_version_id": str(version.id),
             "versions_count": endpoint.versions.count(),
             "derived_from_insight": endpoint.derived_from_insight,
             "last_executed_at": endpoint.last_executed_at.isoformat() if endpoint.last_executed_at else None,
