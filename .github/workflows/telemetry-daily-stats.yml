@@ -2,7 +2,7 @@ name: CI telemetry daily stats
 
 on:
     schedule:
-        - cron: '17 6 * * *' # daily at 06:17 UTC
+        - cron: '0 10 * * *' # daily at 10:00 UTC
     workflow_dispatch: {}
 
 permissions: {}
@@ -30,11 +30,11 @@ jobs:
               run: |
                   set -euo pipefail
                   for attempt in 1 2 3 4 5; do
-                      if gh api "repos/$REPO/stats/commit_activity" > activity.json 2>/dev/null \
+                      if gh api "repos/$REPO/stats/commit_activity" > activity.json \
                           && [ "$(jq 'length' activity.json)" -gt 0 ]; then
                           exit 0
                       fi
-                      sleep 15
+                      [ "$attempt" -lt 5 ] && sleep 15
                   done
                   echo "Failed to fetch commit activity after 5 attempts"
                   exit 1
@@ -59,7 +59,6 @@ jobs:
                               properties: {
                                   total: .total,
                                   days: .days,
-                                  week_start: (.week | todate),
                                   captured_at: $captured_at,
                                   repository: $repo
                               }
