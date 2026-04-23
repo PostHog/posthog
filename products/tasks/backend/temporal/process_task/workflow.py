@@ -203,6 +203,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         possible_events: list[asyncio.Task[TaskEvent]] = [
             asyncio.create_task(self._wait_for_task_external_event()),
             asyncio.create_task(self._wait_for_inactivity(inactivity_timeout)),
+            asyncio.create_task(self._wait_for_max_runtime()),
         ]
         if ci_follow_up_scheduled:
             possible_events.append(asyncio.create_task(self._wait_for_ci_follow_up()))
