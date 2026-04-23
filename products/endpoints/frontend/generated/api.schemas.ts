@@ -160,8 +160,11 @@ export interface EndpointResponseApi {
     is_materialized: boolean
     /** Latest version number. */
     current_version: number
-    /** UUID of the current EndpointVersion row. */
-    current_version_id: string
+    /**
+     * UUID of the current EndpointVersion row.
+     * @nullable
+     */
+    current_version_id?: string | null
     /** Total number of versions for this endpoint. */
     versions_count: number
     /**
@@ -308,8 +311,11 @@ export interface EndpointVersionResponseApi {
     is_materialized: boolean
     /** Latest version number. */
     current_version: number
-    /** UUID of the current EndpointVersion row. */
-    current_version_id: string
+    /**
+     * UUID of the current EndpointVersion row.
+     * @nullable
+     */
+    current_version_id?: string | null
     /** Total number of versions for this endpoint. */
     versions_count: number
     /**
