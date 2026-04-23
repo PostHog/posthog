@@ -1,5 +1,7 @@
 """Tests for the high-level eval labeling entry point (building agent inputs)."""
 
+from typing import Any
+
 import numpy as np
 
 from posthog.temporal.llm_analytics.evaluation_clustering.data import EvaluationMetadata
@@ -12,7 +14,7 @@ from posthog.temporal.llm_analytics.trace_clustering.models import ClusterItem, 
 
 
 def _meta(eval_id: str, **kwargs) -> EvaluationMetadata:
-    defaults = {
+    defaults: dict[str, Any] = {
         "eval_event_id": eval_id,
         "evaluation_id": "cfg-accuracy",
         "evaluation_name": "Accuracy",
