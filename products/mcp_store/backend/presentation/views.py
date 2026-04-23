@@ -1204,7 +1204,8 @@ class MCPOAuthRedirectViewSet(viewsets.ViewSet):
             return oauth_state
 
     @staticmethod
-    def _exchange_and_store_tokens(installation: MCPServerInstallation,
+    def _exchange_and_store_tokens(
+        installation: MCPServerInstallation,
         code: str,
         pkce_verifier: str,
     ) -> None:
