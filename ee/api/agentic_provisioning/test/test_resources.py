@@ -254,24 +254,24 @@ class TestProvisioningResources(StripeProvisioningTestBase):
             organization=self.organization,
             name="Race winner",
         )
-        TeamProvisioningConfig.objects.update_or_create(
-            team=winner_team, defaults={"stripe_project_id": "proj_race_same_org"}
-        )
 
+        project_id = "proj_race_same_org"
         original_update_or_create = TeamProvisioningConfig.objects.update_or_create
-        calls: list[int] = []
+        raced: list[int] = []
 
-        def raise_once_then_passthrough(*args, **kwargs):
-            calls.append(1)
-            if len(calls) == 1:
+        def race_then_raise(*args, **kwargs):
+            defaults = kwargs.get("defaults", {})
+            if "stripe_project_id" in defaults and not raced:
+                raced.append(1)
+                original_update_or_create(team=winner_team, defaults={"stripe_project_id": project_id})
                 raise IntegrityError
             return original_update_or_create(*args, **kwargs)
 
         token = self._get_bearer_token()
-        with patch.object(TeamProvisioningConfig.objects, "update_or_create", side_effect=raise_once_then_passthrough):
+        with patch.object(TeamProvisioningConfig.objects, "update_or_create", side_effect=race_then_raise):
             res = self._post_signed_with_bearer(
                 "/api/agentic/provisioning/resources",
-                data={"service_id": "analytics", "project_id": "proj_race_same_org"},
+                data={"service_id": "analytics", "project_id": project_id},
                 token=token,
             )
 
