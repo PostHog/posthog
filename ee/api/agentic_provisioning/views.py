@@ -1183,6 +1183,9 @@ def _resolve_or_create_project_team(
         return _ensure_team_in_token_scopes(access_token, scoped_teams, existing.team)
 
     base_team = Team.objects.get(id=scoped_teams[0])
+    if not _user_can_access_team(user, base_team):
+        return None, scoped_teams
+
     project_name = configuration.get("project_name", "Default project")
     new_team = Team.objects.create_with_data(
         initiating_user=user,
@@ -1328,8 +1331,8 @@ def provisioning_resources_create(request: Request) -> Response:
                 status=409,
             )
         if team is None:
-            _capture_provisioning_event("resource_created", "error", error_code="forbidden", project_id=project_id)
-            return _error_response("forbidden", "Resource not accessible with this token", status=403)
+            _capture_provisioning_event("resource_created", "error", error_code="not_found", project_id=project_id)
+            return _error_response("not_found", "Resource not found", status=404)
     else:
         team_id = scoped_teams[0]
         try:

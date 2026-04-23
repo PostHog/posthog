@@ -345,8 +345,8 @@ class TestProvisioningResources(StripeProvisioningTestBase):
             data={"service_id": "analytics", "project_id": "proj_restricted"},
             token=token,
         )
-        assert res.status_code == 403
-        assert res.json()["error"]["code"] == "forbidden"
+        assert res.status_code == 404
+        assert res.json()["error"]["code"] == "not_found"
 
         access_token = OAuthAccessToken.objects.get(token=token)
         assert restricted_team.id not in (access_token.scoped_teams or [])
@@ -401,8 +401,8 @@ class TestProvisioningResources(StripeProvisioningTestBase):
                 token=token,
             )
 
-        assert res.status_code == 403
-        assert res.json()["error"]["code"] == "forbidden"
+        assert res.status_code == 404
+        assert res.json()["error"]["code"] == "not_found"
 
         access_token = OAuthAccessToken.objects.get(token=token)
         assert restricted_team.id not in (access_token.scoped_teams or [])
