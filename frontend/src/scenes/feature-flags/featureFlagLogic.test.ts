@@ -151,6 +151,17 @@ describe('schedule timezone helpers', () => {
             expect(restored.format('YYYY-MM-DD HH:mm')).toBe('2026-02-05 10:30')
         }
     )
+
+    // end_date is persisted as end-of-day (HH:mm:ss.999) — verify sub-second precision survives the trip.
+    it.each([['America/New_York'], ['America/Los_Angeles'], ['UTC'], ['Asia/Tokyo']])(
+        'preserves millisecond precision through the round trip in %s',
+        (timezone) => {
+            const endOfDay = dayjs('2026-02-05T00:00:00').tz(timezone, true).endOf('day')
+            const iso = endOfDay.toISOString()
+            const restored = scheduleDateFromStoredISO(iso, timezone)
+            expect(restored.format('YYYY-MM-DD HH:mm:ss.SSS')).toBe('2026-02-05 23:59:59.999')
+        }
+    )
 })
 
 describe('featureFlagLogic', () => {

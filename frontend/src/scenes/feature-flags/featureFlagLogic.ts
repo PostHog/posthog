@@ -170,7 +170,8 @@ export function scheduleDateToProjectTzISO(localDayjs: Dayjs, timezone: string):
 export function scheduleDateFromStoredISO(isoString: string, timezone: string): Dayjs {
     // Convert the stored UTC moment to the project timezone, then present that wall clock
     // as a browser-local Dayjs so the calendar renders the same values the user picked.
-    return dayjs(dayjs.utc(isoString).tz(timezone).format('YYYY-MM-DDTHH:mm:ss'))
+    // Sub-second precision is preserved so end-of-day sentinels (.999 ms) round-trip unchanged.
+    return dayjs(dayjs.utc(isoString).tz(timezone).format('YYYY-MM-DDTHH:mm:ss.SSS'))
 }
 
 export const PAIRED_PRESETS: Record<Exclude<PairedPresetKey, 'custom_pair'>, PairedPresetDefinition> = {

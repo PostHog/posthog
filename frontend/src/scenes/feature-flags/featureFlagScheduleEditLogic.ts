@@ -1,5 +1,5 @@
 import { CronExpressionParser } from 'cron-parser'
-import { actions, key, kea, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, connect, key, kea, listeners, path, props, reducers, selectors } from 'kea'
 
 import api from 'lib/api'
 import { Dayjs, dayjs } from 'lib/dayjs'
@@ -16,7 +16,9 @@ import {
 } from './featureFlagLogic'
 import type { featureFlagScheduleEditLogicType } from './featureFlagScheduleEditLogicType'
 
-function projectTimezone(): string {
+// Used from reducers, which don't receive `values` — we still need a synchronous read at
+// action-dispatch time. Selectors and listeners use the reactive `projectTimezone` selector instead.
+function projectTimezoneImperative(): string {
     return teamLogic.findMounted()?.values.currentTeam?.timezone || 'UTC'
 }
 
@@ -28,6 +30,9 @@ export const featureFlagScheduleEditLogic = kea<featureFlagScheduleEditLogicType
     path((id) => ['scenes', 'feature-flags', 'featureFlagScheduleEditLogic', id]),
     props({} as FeatureFlagScheduleEditLogicProps),
     key(({ id }) => id),
+    connect(() => ({
+        values: [teamLogic, ['currentTeam']],
+    })),
     actions({
         openEdit: (schedule: ScheduledChangeType) => ({ schedule }),
         closeEdit: true,
@@ -55,7 +60,9 @@ export const featureFlagScheduleEditLogic = kea<featureFlagScheduleEditLogicType
             null as Dayjs | null,
             {
                 openEdit: (_, { schedule }) =>
-                    schedule.scheduled_at ? scheduleDateFromStoredISO(schedule.scheduled_at, projectTimezone()) : null,
+                    schedule.scheduled_at
+                        ? scheduleDateFromStoredISO(schedule.scheduled_at, projectTimezoneImperative())
+                        : null,
                 setEditScheduledAt: (_, { date }) => date,
                 closeEdit: () => null,
             },
@@ -80,7 +87,9 @@ export const featureFlagScheduleEditLogic = kea<featureFlagScheduleEditLogicType
             null as Dayjs | null,
             {
                 openEdit: (_, { schedule }) =>
-                    schedule.end_date ? scheduleDateFromStoredISO(schedule.end_date, projectTimezone()) : null,
+                    schedule.end_date
+                        ? scheduleDateFromStoredISO(schedule.end_date, projectTimezoneImperative())
+                        : null,
                 setEditEndDate: (_, { date }) => date,
                 closeEdit: () => null,
             },
@@ -118,6 +127,9 @@ export const featureFlagScheduleEditLogic = kea<featureFlagScheduleEditLogicType
     }),
     selectors({
         isEditOpen: [(s) => [s.editingSchedule], (schedule): boolean => schedule !== null],
+        // Reactive timezone input — selectors that depend on it recompute when the project
+        // timezone changes, which matters if the user switches projects while the edit dialog is open.
+        projectTimezone: [(s) => [s.currentTeam], (currentTeam): string => currentTeam?.timezone || 'UTC'],
         editRepeatsValue: [
             (s) => [s.editIsRecurring, s.editCronExpression, s.editRecurrenceInterval],
             (isRecurring, cron, interval): RecurrenceInterval | 'none' | 'cron' =>
@@ -137,12 +149,12 @@ export const featureFlagScheduleEditLogic = kea<featureFlagScheduleEditLogicType
                 s.editEndDate,
                 s.editIsRecurring,
                 s.editPayloadValue,
+                s.projectTimezone,
             ],
-            (schedule, scheduledAt, cron, interval, endDate, isRecurring, payloadValue): boolean => {
+            (schedule, scheduledAt, cron, interval, endDate, isRecurring, payloadValue, tz): boolean => {
                 if (!schedule) {
                     return false
                 }
-                const tz = projectTimezone()
                 const origScheduledAt = schedule.scheduled_at ? dayjs(schedule.scheduled_at).toISOString() : null
                 const newScheduledAt = scheduledAt ? scheduleDateToProjectTzISO(scheduledAt, tz) : null
                 if (origScheduledAt !== newScheduledAt) {
@@ -175,10 +187,9 @@ export const featureFlagScheduleEditLogic = kea<featureFlagScheduleEditLogicType
             },
         ],
         editValidationErrors: [
-            (s) => [s.editScheduledAt, s.editCronExpression, s.editEndDate, s.editIsRecurring],
-            (scheduledAt, cron, endDate, isRecurring): Record<string, string> => {
+            (s) => [s.editScheduledAt, s.editCronExpression, s.editEndDate, s.editIsRecurring, s.projectTimezone],
+            (scheduledAt, cron, endDate, isRecurring, tz): Record<string, string> => {
                 const errors: Record<string, string> = {}
-                const tz = projectTimezone()
                 // editScheduledAt is a browser-local Dayjs whose wall clock mirrors the project
                 // timezone, so we reinterpret it in project tz before comparing to "now".
                 const scheduledAtInstant = scheduledAt ? scheduledAt.tz(tz, true) : null
@@ -236,7 +247,7 @@ export const featureFlagScheduleEditLogic = kea<featureFlagScheduleEditLogicType
                 return
             }
             try {
-                const timezone = projectTimezone()
+                const timezone = values.projectTimezone
                 // Use the later of now or the existing date so that paused/old
                 // schedules don't snap to an already-elapsed time. The existing
                 // date is a browser-local Dayjs whose wall clock mirrors the
@@ -263,7 +274,7 @@ export const featureFlagScheduleEditLogic = kea<featureFlagScheduleEditLogicType
             }
 
             const patch: Record<string, unknown> = {}
-            const timezone = projectTimezone()
+            const timezone = values.projectTimezone
 
             // Compare and build patch with only changed fields. The calendar emits browser-local
             // Dayjs values whose wall clock matches the project timezone; convert them back to a
