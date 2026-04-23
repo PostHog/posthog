@@ -1,3 +1,4 @@
+import dataclasses
 from typing import Any, Optional
 
 import requests
@@ -8,6 +9,20 @@ from posthog.temporal.data_imports.sources.attio.settings import ATTIO_ENDPOINTS
 from posthog.temporal.data_imports.sources.common.rest_source import RESTAPIConfig, rest_api_resource
 from posthog.temporal.data_imports.sources.common.rest_source.paginators import BasePaginator
 from posthog.temporal.data_imports.sources.common.rest_source.typing import Endpoint, EndpointResource
+from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+
+
+@dataclasses.dataclass
+class AttioResumeConfig:
+    """Resume state for Attio endpoints.
+
+    Every Attio endpoint paginates by offset/limit (via ``AttioOffsetPaginator``),
+    so the checkpoint is the offset of the next page to fetch. On resume the
+    paginator re-enters at that offset; duplicates across restarts are deduped
+    by the endpoint's ``primary_keys`` during merge.
+    """
+
+    offset: int
 
 
 class AttioOffsetPaginator(BasePaginator):
@@ -74,6 +89,18 @@ class AttioOffsetPaginator(BasePaginator):
                 request.params = {}
             request.params["offset"] = self._current_offset
             request.params["limit"] = self._limit
+
+    def get_resume_state(self) -> Optional[dict[str, Any]]:
+        # rest_client only calls this when has_next_page is True, so update_request
+        # has already advanced _current_offset to the next page to fetch.
+        return {"offset": self._current_offset}
+
+    def set_resume_state(self, state: dict[str, Any]) -> None:
+        offset = state.get("offset")
+        if offset is not None:
+            self._current_offset = int(offset)
+            self._next_offset = int(offset)
+            self._has_next_page = True
 
 
 def _flatten_item(item: dict[str, Any]) -> dict[str, Any]:
@@ -146,6 +173,7 @@ def attio_source(
     endpoint: str,
     team_id: int,
     job_id: str,
+    resumable_source_manager: ResumableSourceManager[AttioResumeConfig],
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Optional[Any] = None,
     incremental_field: str | None = None,
@@ -175,7 +203,28 @@ def attio_source(
         "resources": [get_resource(endpoint)],
     }
 
-    resource = rest_api_resource(config, team_id, job_id, None).add_map(_flatten_item)
+    # Seed the paginator when a saved checkpoint exists. A zero-offset checkpoint is
+    # equivalent to a fresh run, so don't bother seeding in that case.
+    initial_paginator_state: Optional[dict[str, Any]] = None
+    if resumable_source_manager.can_resume():
+        resume_config = resumable_source_manager.load_state()
+        if resume_config is not None and resume_config.offset > 0:
+            initial_paginator_state = {"offset": resume_config.offset}
+
+    def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
+        # rest_client passes None when the paginator has no next page, i.e. the
+        # sync is done — leave the last checkpoint in Redis; TTL handles cleanup.
+        if state and state.get("offset") is not None:
+            resumable_source_manager.save_state(AttioResumeConfig(offset=int(state["offset"])))
+
+    resource = rest_api_resource(
+        config,
+        team_id,
+        job_id,
+        None,
+        resume_hook=save_checkpoint,
+        initial_paginator_state=initial_paginator_state,
+    ).add_map(_flatten_item)
 
     return SourceResponse(
         name=endpoint,

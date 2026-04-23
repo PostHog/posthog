@@ -9,12 +9,14 @@ from posthog.schema import (
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
 from posthog.temporal.data_imports.sources.attio.attio import (
+    AttioResumeConfig,
     attio_source,
     validate_credentials as validate_attio_credentials,
 )
 from posthog.temporal.data_imports.sources.attio.settings import ATTIO_ENDPOINTS
-from posthog.temporal.data_imports.sources.common.base import FieldType, SimpleSource
+from posthog.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
+from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 from posthog.temporal.data_imports.sources.generated_configs import AttioSourceConfig
 
@@ -22,7 +24,7 @@ from products.data_warehouse.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
-class AttioSource(SimpleSource[AttioSourceConfig]):
+class AttioSource(ResumableSource[AttioSourceConfig, AttioResumeConfig]):
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.ATTIO
@@ -89,12 +91,21 @@ You can generate an API key in your Attio workspace settings. Check out [this gu
     ) -> tuple[bool, str | None]:
         return validate_attio_credentials(config.api_key)
 
-    def source_for_pipeline(self, config: AttioSourceConfig, inputs: SourceInputs) -> SourceResponse:
+    def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[AttioResumeConfig]:
+        return ResumableSourceManager[AttioResumeConfig](inputs, AttioResumeConfig)
+
+    def source_for_pipeline(
+        self,
+        config: AttioSourceConfig,
+        resumable_source_manager: ResumableSourceManager[AttioResumeConfig],
+        inputs: SourceInputs,
+    ) -> SourceResponse:
         return attio_source(
             api_key=config.api_key,
             endpoint=inputs.schema_name,
             team_id=inputs.team_id,
             job_id=inputs.job_id,
+            resumable_source_manager=resumable_source_manager,
             should_use_incremental_field=inputs.should_use_incremental_field,
             db_incremental_field_last_value=inputs.db_incremental_field_last_value
             if inputs.should_use_incremental_field
