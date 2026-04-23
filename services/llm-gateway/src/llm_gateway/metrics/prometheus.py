@@ -104,19 +104,30 @@ RATE_LIMIT_EXCEEDED = Counter(
 
 PRODUCT_COST_WINDOW_USD = Gauge(
     "llm_gateway_product_cost_window_usd",
-    "Current accumulated cost (USD) for a product within its configured window",
+    (
+        "Current accumulated cost (USD) for a product within its configured window. "
+        "Reflects only the shared pool — spend from teams with a team_rate_limit_multipliers "
+        "override lives in a separate per-multiplier Redis bucket and is not included here."
+    ),
     labelnames=["product"],
 )
 
 PRODUCT_COST_LIMIT_USD = Gauge(
     "llm_gateway_product_cost_limit_usd",
-    "Configured cost cap (USD) for a product within its configured window",
+    (
+        "Configured cost cap (USD) for a product within its configured window. "
+        "This is the base (team_mult=1) cap that pairs with llm_gateway_product_cost_window_usd; "
+        "teams with a team_rate_limit_multipliers override get a multiplied cap not reflected here."
+    ),
     labelnames=["product"],
 )
 
 PRODUCT_COST_WINDOW_SECONDS = Gauge(
     "llm_gateway_product_cost_window_seconds",
-    "Length of the cost-limit window (seconds) for a product",
+    (
+        "Remaining seconds until the shared-pool cost window resets for a product (Redis TTL of the "
+        "shared-pool counter; falls back to the configured window length when no spend has been recorded)."
+    ),
     labelnames=["product"],
 )
 
