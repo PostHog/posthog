@@ -15190,6 +15190,64 @@
             "title": "ErrorTrackingOrderBy",
             "type": "string"
         },
+        "ErrorTrackingPendingFingerprintIssueStateUpdate": {
+            "additionalProperties": false,
+            "description": "Client-side pending fingerprint issue state update UNIONed into the argMax subquery to hide Kafka->CH sync lag after mutations. This has to be kept in sync with the CH schema",
+            "properties": {
+                "assigned_role_id": {
+                    "type": ["string", "null"]
+                },
+                "assigned_user_id": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/integer"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "fingerprint": {
+                    "type": "string"
+                },
+                "first_seen": {
+                    "description": "ISO 8601 datetime string.",
+                    "type": "string"
+                },
+                "is_deleted": {
+                    "$ref": "#/definitions/integer"
+                },
+                "issue_description": {
+                    "type": ["string", "null"]
+                },
+                "issue_id": {
+                    "type": "string"
+                },
+                "issue_name": {
+                    "type": ["string", "null"]
+                },
+                "issue_status": {
+                    "type": "string"
+                },
+                "version": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Client-stamped monotonic version (`Date.now()` ms at mutation success)."
+                }
+            },
+            "required": [
+                "fingerprint",
+                "issue_id",
+                "issue_name",
+                "issue_description",
+                "issue_status",
+                "assigned_user_id",
+                "assigned_role_id",
+                "first_seen",
+                "is_deleted",
+                "version"
+            ],
+            "type": "object"
+        },
         "ErrorTrackingQuery": {
             "additionalProperties": false,
             "properties": {
@@ -15246,6 +15304,13 @@
                     "description": "Sort direction.",
                     "enum": ["ASC", "DESC"],
                     "type": "string"
+                },
+                "pendingFingerprintIssueStateUpdates": {
+                    "description": "Pending fingerprint issue state updates UNIONed into the fingerprint issue state subquery (V3 only). The backend caps the list at 50 entries; extras are dropped silently.",
+                    "items": {
+                        "$ref": "#/definitions/ErrorTrackingPendingFingerprintIssueStateUpdate"
+                    },
+                    "type": "array"
                 },
                 "personId": {
                     "type": "string"
