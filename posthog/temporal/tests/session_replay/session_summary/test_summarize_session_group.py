@@ -221,7 +221,7 @@ async def test_get_llm_single_session_summary_activity_emits_summary_ready_event
 
 
 @pytest.mark.asyncio
-async def test_get_llm_single_session_summary_activity_re_emits_existing_summary_ready_event(
+async def test_get_llm_single_session_summary_activity_does_not_emit_summary_ready_event_for_existing_summary(
     mocker: MockerFixture,
     mock_session_id: str,
     mock_single_session_summary_inputs: Callable,
@@ -252,12 +252,7 @@ async def test_get_llm_single_session_summary_activity_re_emits_existing_summary
 
     await get_llm_single_session_summary_activity(input_data)
 
-    capture_session_summary_ready.assert_called_once()
-    emitted_summary = capture_session_summary_ready.call_args.args[0]
-    assert emitted_summary.session_id == mock_session_id
-    assert emitted_summary.team_id == ateam.id
-    assert capture_session_summary_ready.call_args.kwargs["summary_origin"] == "single"
-    assert capture_session_summary_ready.call_args.kwargs["team_api_token"] == ateam.api_token
+    capture_session_summary_ready.assert_not_called()
     call_llm.assert_not_called()
 
 

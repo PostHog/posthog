@@ -163,7 +163,7 @@ async def test_store_video_session_summary_activity_emits_summary_ready_event(
 
 
 @pytest.mark.asyncio
-async def test_store_video_session_summary_activity_re_emits_existing_summary_ready_event(
+async def test_store_video_session_summary_activity_does_not_emit_existing_summary_ready_event(
     mocker: MockerFixture,
     ateam,
     auser,
@@ -185,6 +185,9 @@ async def test_store_video_session_summary_activity_re_emits_existing_summary_re
     get_data_class_from_redis = mocker.patch(
         "posthog.temporal.session_replay.session_summary.activities.a6b_store_video_session_summary.get_data_class_from_redis"
     )
+    logger = mocker.patch(
+        "posthog.temporal.session_replay.session_summary.activities.a6b_store_video_session_summary.logger"
+    )
 
     inputs = VideoSummarySingleSessionInputs(
         session_id="video-session-existing",
@@ -203,6 +206,7 @@ async def test_store_video_session_summary_activity_re_emits_existing_summary_re
 
     await store_video_session_summary_activity(inputs, analysis)
 
-    capture_session_summary_ready.assert_called_once()
-    assert capture_session_summary_ready.call_args.kwargs["team_api_token"] == ateam.api_token
+    capture_session_summary_ready.assert_not_called()
     get_data_class_from_redis.assert_not_called()
+    logger.warning.assert_called_once()
+    logger.exception.assert_not_called()

@@ -1,5 +1,4 @@
 from typing import Literal
-from urllib.parse import urljoin
 
 from django.conf import settings
 
@@ -15,8 +14,7 @@ logger = structlog.get_logger(__name__)
 
 
 def _build_replay_url(summary: SingleSessionSummary) -> str:
-    replay_path = f"/project/{summary.team_id}/replay/{summary.session_id}"
-    return urljoin(f"{settings.SITE_URL.rstrip('/')}/", replay_path.lstrip("/"))
+    return f"{settings.SITE_URL.rstrip('/')}/project/{summary.team_id}/replay/{summary.session_id}"
 
 
 def capture_session_summary_ready(

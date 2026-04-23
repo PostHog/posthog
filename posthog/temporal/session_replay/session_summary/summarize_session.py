@@ -180,7 +180,7 @@ def _store_final_summary_in_db_from_activity(
     inputs: SingleSessionSummaryInputs,
     session_summary: SessionSummarySerializer,
     llm_input: SingleSessionSummaryLlmInputs,
-) -> None:
+) -> SingleSessionSummary:
     """Store the final summary in the DB from the activity"""
     exception_event_ids = get_exception_event_ids_from_summary(session_summary)
     # Getting the user explicitly from the DB as we can't pass models between activities
@@ -212,13 +212,7 @@ def _store_final_summary_in_db_from_activity(
         distinct_id=llm_input.distinct_id,
         created_by=user,
     )
-    if _is_single_session_summary_key(inputs.redis_key_base):
-        team_api_token = Team.objects.only("api_token").get(id=inputs.team_id).api_token
-        capture_session_summary_ready(
-            stored_summary,
-            summary_origin="single",
-            team_api_token=team_api_token,
-        )
+    return stored_summary
 
 
 @temporalio.activity.defn
@@ -234,26 +228,6 @@ async def get_llm_single_session_summary_activity(
         extra_summary_context=inputs.extra_summary_context,
     )
     if summary_exists.get(inputs.session_id):
-        if _is_single_session_summary_key(inputs.redis_key_base):
-            existing_summary = await database_sync_to_async(
-                SingleSessionSummary.objects.get_summary,
-                thread_sensitive=False,
-            )(
-                team_id=inputs.team_id,
-                session_id=inputs.session_id,
-                extra_summary_context=inputs.extra_summary_context,
-            )
-            if existing_summary:
-                team_api_token = await database_sync_to_async(
-                    lambda: Team.objects.only("api_token").get(id=inputs.team_id).api_token,
-                    thread_sensitive=False,
-                )()
-                await asyncio.to_thread(
-                    capture_session_summary_ready,
-                    existing_summary,
-                    summary_origin="single",
-                    team_api_token=team_api_token,
-                )
         # Stored successfully, no need to summarize again
         return None
     # Base key includes session ids, so when summarizing this session again, but with different inputs (or order) - we don't use cache
@@ -307,9 +281,20 @@ async def get_llm_single_session_summary_activity(
         trigger_session_id=llm_input.trigger_session_id,
     )
     # Store the final summary in the DB
-    await database_sync_to_async(_store_final_summary_in_db_from_activity, thread_sensitive=False)(
+    stored_summary = await database_sync_to_async(_store_final_summary_in_db_from_activity, thread_sensitive=False)(
         inputs, session_summary, llm_input
     )
+    if _is_single_session_summary_key(inputs.redis_key_base):
+        team_api_token = await database_sync_to_async(
+            lambda: Team.objects.only("api_token").get(id=inputs.team_id).api_token,
+            thread_sensitive=False,
+        )()
+        await asyncio.to_thread(
+            capture_session_summary_ready,
+            stored_summary,
+            summary_origin="single",
+            team_api_token=team_api_token,
+        )
     # Returning nothing as output is stored in Redis + Postgres
     return None
 
