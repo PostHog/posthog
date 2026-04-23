@@ -124,7 +124,7 @@ function ensurePinnedDom(): void {
 
 let globalScrollEndListenerActive = false
 
-function initGlobalScrollEndListener(onScrollEnd: (id: string) => void): void {
+function initGlobalScrollEndListener(): void {
     if (globalScrollEndListenerActive) {
         return
     }
@@ -132,13 +132,18 @@ function initGlobalScrollEndListener(onScrollEnd: (id: string) => void): void {
     document.addEventListener(
         'scrollend',
         (e) => {
-            if (!pinnedOwner || !pinnedElement) {
-                return
+            if (pinnedOwner && pinnedElement) {
+                const scrolledInsidePinned = e.target instanceof Node && pinnedElement.contains(e.target as Node)
+                if (!scrolledInsidePinned) {
+                    unpinTooltip(pinnedOwner)
+                }
             }
-            if (e.target instanceof Node && pinnedElement.contains(e.target as Node)) {
-                return
+            if (hoverOwner && hoverElement) {
+                const scrolledInsideHover = e.target instanceof Node && hoverElement.contains(e.target as Node)
+                if (!scrolledInsideHover) {
+                    hideTooltip(hoverOwner)
+                }
             }
-            onScrollEnd(pinnedOwner)
         },
         { capture: true, passive: true }
     )
@@ -311,6 +316,30 @@ function applyPosition(
     tooltipEl.style.top = `${clampedTop}px`
 }
 
+export function positionTooltipAt(id: string, left: number, top: number): void {
+    if (activeRenderId !== id || !hoverElement) {
+        return
+    }
+    hoverElement.style.position = 'absolute'
+    hoverElement.style.left = `${left}px`
+    hoverElement.style.top = `${top}px`
+}
+
+export function resetTooltipPosition(id: string): void {
+    if (activeRenderId !== id || !hoverElement) {
+        return
+    }
+    hoverElement.style.left = ''
+    hoverElement.style.top = ''
+}
+
+export function measureTooltip(id: string): DOMRect | null {
+    if (activeRenderId !== id || !hoverElement) {
+        return null
+    }
+    return hoverElement.getBoundingClientRect()
+}
+
 export function positionTooltip(
     tooltipEl: HTMLElement,
     canvasBounds: DOMRect,
@@ -347,6 +376,9 @@ export function useInsightTooltip(options?: { isPinnable?: boolean }): {
     hideTooltip: () => void
     cleanupTooltip: () => void
     positionTooltip: typeof positionTooltip
+    positionTooltipAt: (left: number, top: number) => void
+    resetTooltipPosition: () => void
+    measureTooltip: () => DOMRect | null
     pinTooltip: ((onUnpin?: () => void) => void) | null
 } {
     const isPinnable = options?.isPinnable ?? false
@@ -357,11 +389,9 @@ export function useInsightTooltip(options?: { isPinnable?: boolean }): {
     const tooltipId = tooltipIdRef.current
 
     useOnMountEffect(() => {
+        initGlobalScrollEndListener()
         if (isPinnable) {
-            initGlobalScrollEndListener((id) => unpinTooltip(id))
             initGlobalUnpinListeners()
-        } else {
-            initGlobalScrollEndListener((id) => unpinTooltip(id))
         }
 
         return () => {
@@ -374,6 +404,12 @@ export function useInsightTooltip(options?: { isPinnable?: boolean }): {
     const hide = useCallback((): void => hideTooltip(tooltipId), [tooltipId])
     const cleanup = useCallback((): void => cleanupTooltip(tooltipId), [tooltipId])
     const pin = useCallback((onUnpin?: () => void): void => pinTooltip(tooltipId, onUnpin), [tooltipId])
+    const positionAt = useCallback(
+        (left: number, top: number): void => positionTooltipAt(tooltipId, left, top),
+        [tooltipId]
+    )
+    const resetPosition = useCallback((): void => resetTooltipPosition(tooltipId), [tooltipId])
+    const measure = useCallback((): DOMRect | null => measureTooltip(tooltipId), [tooltipId])
 
     return {
         tooltipId,
@@ -382,6 +418,9 @@ export function useInsightTooltip(options?: { isPinnable?: boolean }): {
         hideTooltip: hide,
         cleanupTooltip: cleanup,
         positionTooltip,
+        positionTooltipAt: positionAt,
+        resetTooltipPosition: resetPosition,
+        measureTooltip: measure,
         pinTooltip: isPinnable ? pin : null,
     }
 }
