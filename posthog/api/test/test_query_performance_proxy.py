@@ -12,7 +12,7 @@ from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 TEST_HOST = "clickhouse-test.internal"
 
 
-@override_settings(CLICKHOUSE_TEST_CLUSTER_HOST=TEST_HOST)
+@override_settings(CLICKHOUSE_TEST_CLUSTER_HOST=TEST_HOST, DEBUG=True)
 class TestQueryPerformanceProxyViewSet(APIBaseTest):
     def setUp(self):
         super().setUp()
@@ -80,6 +80,24 @@ class TestQueryPerformanceProxyViewSet(APIBaseTest):
                 body={"sql": "SELECT 1"},
             )
         assert resp.status_code == 503
+        assert mocked.call_count == 0
+
+    def test_returns_503_when_debug_unset(self):
+        # The endpoint is dev-only. Even with a valid token and a configured
+        # test cluster host, it must refuse when DEBUG is False so a
+        # misconfigured production deploy can't expose ClickHouse.
+        token = self._make_token(["clickhouse_perf:test_read"])
+        with (
+            override_settings(DEBUG=False),
+            patch("posthog.api.query_performance_proxy.sync_execute") as mocked,
+        ):
+            resp = self._post(
+                "/api/query_performance_proxy/execute-test/",
+                token=token,
+                body={"sql": "SELECT 1"},
+            )
+        assert resp.status_code == 503
+        assert "DEBUG" in resp.json()["error"]
         assert mocked.call_count == 0
 
     # --- settings are the real guardrail -----------------------------------

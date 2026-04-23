@@ -1,32 +1,15 @@
 """OAuth-gated ClickHouse proxy for query-performance autoresearch.
 
-One endpoint: ``POST /api/query_performance_proxy/execute-test/``. The cluster
-behind ``CLICKHOUSE_TEST_CLUSTER_HOST`` must be team-scoped at the ClickHouse
-level — this proxy does no team filtering of its own. Deploy it against a test
-cluster that contains only data the caller is authorized to see (today: team 2,
-"PostHog, the company"), or against a ClickHouse user whose row policies
-enforce the same restriction.
-
-What this proxy enforces:
-
-- ``scope_object = "INTERNAL"`` plus explicit OAuth scope ``clickhouse_perf:test_read``
-  — gates who can reach the endpoint.
-- ``settings={"max_execution_time": 60, "readonly": 2}`` on every query —
-  bounds runtime and keeps reads read-only via the native ClickHouse client.
-
-What the ClickHouse user the proxy connects as must enforce:
-
-- ``readonly = 2`` pinned in the user's profile via ``<constraints>`` so a
-  query-level override can't escape it.
-- Row policies restricting the user to the team slice we're OK exposing.
-- Grants limited to the tables the autoresearch agent is allowed to read.
-
-We deliberately don't try to parse and validate SQL here. A regex-based
-readonly / statement-kind check gives false confidence — the only honest
-enforcement is the ClickHouse user profile plus the server-side settings we
-pass. We also route through the native ClickHouse client (rather than
-re-implementing HTTP proxying) so the same pooling / tagging / observability
-machinery the rest of PostHog uses applies here too.
+* Runs queries on the test cluster
+* Requires DEBUG=1 for now (i.e. is disabled in prod)
+* Requires a `CLICKHOUSE_TEST_CLUSTER_HOST` env variable
+* The test cluster must only contain data we are willing to point an autoresearch LLM at
+    * For now this is only our own (team 2) data
+* Requires ``scope_object = "INTERNAL"`` plus explicit OAuth scope ``clickhouse_perf:test_read``
+  * a token with this scope is created for autoresearch sandboxes
+* Add ``settings={"max_execution_time": 60, "readonly": 2}``
+    * In the future, will also set a test cluster user, this is not needed while DEBUG=1 is enforced
+* Don't try to validate the SQL, we are protected by the nature of how limited the data on the test cluster is
 """
 
 from __future__ import annotations
@@ -60,10 +43,6 @@ _ACTION_SCOPES: dict[str, list[str]] = {
     "execute_test": ["clickhouse_perf:test_read"],
 }
 
-# Query-level settings we force on every submission. ``readonly = 2`` lets the
-# query run but blocks mutations server-side. ``max_execution_time`` caps
-# unbounded analytical queries so a bad pick can't wedge the cluster worker.
-# ``log_comment`` makes the proxy's traffic identifiable in system.query_log.
 _QUERY_SETTINGS: dict[str, object] = {
     "max_execution_time": 60,
     "readonly": 2,
@@ -72,24 +51,28 @@ _QUERY_SETTINGS: dict[str, object] = {
 
 
 class QueryPerformanceProxyViewSet(viewsets.ViewSet):
-    """Proxy for SELECT-only ClickHouse queries used by autoresearch sandboxes.
-
-    Scope dispatch goes through :meth:`dangerously_get_required_scopes` so the
-    action keeps its own scope without pulling in ``TeamAndOrgViewSetMixin``
-    (which is designed for team-nested routes). ``scope_object = "INTERNAL"``
-    still signals to ``ScopeBasePermission`` that the usual CRUD-derived
-    default doesn't apply.
-    """
-
     authentication_classes = [OAuthAccessTokenAuthentication]
     permission_classes = [IsAuthenticated, APIScopePermission]
     scope_object = "INTERNAL"
 
     def dangerously_get_required_scopes(self, request: Request, view) -> list[str] | None:
+        """
+        Scope dispatch goes through :meth:`dangerously_get_required_scopes` so the
+        action keeps its own scope without pulling in ``TeamAndOrgViewSetMixin``
+        (which is designed for team-nested routes). ``scope_object = "INTERNAL"``
+        still signals to ``ScopeBasePermission`` that the usual CRUD-derived
+        default doesn't apply.
+        """
         return _ACTION_SCOPES.get(getattr(view, "action", "") or "")
 
     @action(detail=False, methods=["POST"], url_path="execute-test")
     def execute_test(self, request: Request) -> Response:
+        # Dev-only for now
+        if not settings.DEBUG:
+            return Response(
+                {"error": "query_performance_proxy is only available when DEBUG is set"},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
         if not settings.CLICKHOUSE_TEST_CLUSTER_HOST:
             return Response(
                 {"error": "CLICKHOUSE_TEST_CLUSTER_HOST is not configured; test endpoint disabled"},
@@ -104,33 +87,19 @@ class QueryPerformanceProxyViewSet(viewsets.ViewSet):
 
 
 def _run_autoresearch_query(sql: str) -> Response:
-    """Execute the caller's SQL against the autoresearch cluster.
-
-    Builds a SyncClient pointed at ``CLICKHOUSE_TEST_CLUSTER_HOST`` and hands
-    it to ``sync_execute`` so PostHog's standard query-tagging, metrics, and
-    error-wrapping still apply. Credentials and TLS config come from the
-    usual ``CLICKHOUSE_*`` settings for now; a follow-up will split out a
-    dedicated ``CLICKHOUSE_AUTORESEARCH_USER`` / _PASSWORD pair via the
-    existing ``init_clickhouse_users`` mechanism.
-    """
     client = SyncClient(
         host=settings.CLICKHOUSE_TEST_CLUSTER_HOST,
-        database=settings.CLICKHOUSE_DATABASE,
-        user=settings.CLICKHOUSE_USER,
-        password=settings.CLICKHOUSE_PASSWORD,
-        secure=settings.CLICKHOUSE_SECURE,
-        ca_certs=settings.CLICKHOUSE_CA,
-        verify=settings.CLICKHOUSE_VERIFY,
+        database=settings.CLICKHOUSE_TEST_CLUSTER_DATABASE,
+        user=settings.CLICKHOUSE_TEST_CLUSTER_USER,
+        password=settings.CLICKHOUSE_TEST_CLUSTER_PASSWORD,
+        secure=settings.CLICKHOUSE_TEST_CLUSTER_SECURE,
+        ca_certs=settings.CLICKHOUSE_TEST_CLUSTER_CA,
+        verify=settings.CLICKHOUSE_TEST_CLUSTER_VERIFY,
     )
     start = time.monotonic()
     try:
         rows = sync_execute(sql, settings=_QUERY_SETTINGS, sync_client=client, readonly=True, flush=False)
     except InternalCHQueryError as e:
-        # ClickHouse error messages often embed a C++ stack trace after a
-        # "Stack trace (when copying this message, always include the lines
-        # below):" marker. That's useful server-side but not something we
-        # want to hand back to the caller — the first line (the exception
-        # type + message) is enough for the agent to debug a bad query.
         return Response(
             {
                 "error": "clickhouse query failed",
@@ -140,9 +109,6 @@ def _run_autoresearch_query(sql: str) -> Response:
             status=status.HTTP_502_BAD_GATEWAY,
         )
     except Exception:
-        # Don't echo the exception — it can leak host/port/TLS internals
-        # (ConnectionRefusedError, SSL errors, DNS failures). Log it
-        # server-side so operators can still diagnose.
         logger.exception("query_performance_proxy: failed to reach ClickHouse")
         return Response(
             {"error": "clickhouse unreachable"},
@@ -152,9 +118,6 @@ def _run_autoresearch_query(sql: str) -> Response:
 
     return Response(
         {
-            # Rows go out as native JSON — each row is a list of scalar
-            # values (None for NULL). The caller decides how to persist
-            # them for downstream diffing.
             "result": rows if isinstance(rows, list) else [],
             "elapsed_ms": round(elapsed_ms, 3),
             "rows_read": len(rows) if isinstance(rows, list) else None,

@@ -306,16 +306,46 @@ QUERYSERVICE_VERIFY: bool = get_from_env("QUERYSERVICE_VERIFY", CLICKHOUSE_VERIF
 CLICKHOUSE_CONN_POOL_MIN: int = get_from_env("CLICKHOUSE_CONN_POOL_MIN", 20, type_cast=int)
 CLICKHOUSE_CONN_POOL_MAX: int = get_from_env("CLICKHOUSE_CONN_POOL_MAX", 1000, type_cast=int)
 
-# Query-performance autoresearch proxy endpoint: hostname of the ClickHouse
-# cluster a sandbox is allowed to reach. The cluster behind this host must be
-# team-scoped at the ClickHouse layer (row policies, or a dedicated test
-# cluster containing only data the caller is authorized to see). Required —
-# unset leaves the proxy endpoint disabled (503), which is the safe default:
-# a missing deploy-time env var should never silently fall back to the main
-# cluster. In local dev, set to {CLICKHOUSE_HOST} in .env.
+# Query-performance autoresearch proxy endpoint: connection parameters for the
+# ClickHouse cluster a sandbox is allowed to reach. The cluster behind this
+# host must be team-scoped at the ClickHouse layer (row policies, or a
+# dedicated test cluster containing only data the caller is authorized to
+# see). ``CLICKHOUSE_TEST_CLUSTER_HOST`` is required — unset leaves the proxy
+# endpoint disabled (503), which is the safe default: a missing deploy-time
+# env var should never silently fall back to the main cluster. In local dev,
+# the other CLICKHOUSE_TEST_CLUSTER_* vars fall back to the main cluster
+# values so an operator can just set the host. In prod (DEBUG off) the fallback
+# is a safe empty/default — but the endpoint refuses regardless until DEBUG is
+# on (see posthog/api/query_performance_proxy.py).
 CLICKHOUSE_TEST_CLUSTER_HOST: str = os.getenv(
     "CLICKHOUSE_TEST_CLUSTER_HOST",
     CLICKHOUSE_HOST if DEBUG else "",
+)
+CLICKHOUSE_TEST_CLUSTER_DATABASE: str = os.getenv(
+    "CLICKHOUSE_TEST_CLUSTER_DATABASE",
+    CLICKHOUSE_DATABASE if DEBUG else "",
+)
+CLICKHOUSE_TEST_CLUSTER_USER: str = os.getenv(
+    "CLICKHOUSE_TEST_CLUSTER_USER",
+    CLICKHOUSE_USER if DEBUG else "",
+)
+CLICKHOUSE_TEST_CLUSTER_PASSWORD: str = os.getenv(
+    "CLICKHOUSE_TEST_CLUSTER_PASSWORD",
+    CLICKHOUSE_PASSWORD if DEBUG else "",
+)
+CLICKHOUSE_TEST_CLUSTER_SECURE: bool = get_from_env(
+    "CLICKHOUSE_TEST_CLUSTER_SECURE",
+    CLICKHOUSE_SECURE,
+    type_cast=str_to_bool,
+)
+CLICKHOUSE_TEST_CLUSTER_CA: str | None = os.getenv(
+    "CLICKHOUSE_TEST_CLUSTER_CA",
+    CLICKHOUSE_CA,
+)
+CLICKHOUSE_TEST_CLUSTER_VERIFY: bool = get_from_env(
+    "CLICKHOUSE_TEST_CLUSTER_VERIFY",
+    CLICKHOUSE_VERIFY,
+    type_cast=str_to_bool,
 )
 
 CLICKHOUSE_STABLE_HOST: str = get_from_env("CLICKHOUSE_STABLE_HOST", CLICKHOUSE_HOST)
