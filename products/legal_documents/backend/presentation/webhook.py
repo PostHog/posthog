@@ -88,6 +88,14 @@ def legal_document_pandadoc_webhook(request: Request) -> Response:
         events = [events]
 
     processed_any = False
+    # Set when a completed event raises a retriable failure. We finish
+    # iterating the rest of the batch first — every facade method is
+    # idempotent, so whatever else applies now is a no-op on the replay —
+    # and surface the 503 at the end. Short-circuiting mid-batch would
+    # silently drop trailing events until PandaDoc's retry replayed the
+    # whole payload.
+    deferred_retry = False
+
     for event in events:
         if not isinstance(event, dict):
             continue
@@ -135,10 +143,8 @@ def legal_document_pandadoc_webhook(request: Request) -> Response:
                     pandadoc_document_id=pandadoc_document_id,
                     error=str(exc),
                 )
-                return Response(
-                    {"detail": "Signed document unavailable; please retry."},
-                    status=status.HTTP_503_SERVICE_UNAVAILABLE,
-                )
+                deferred_retry = True
+                continue
             if dto is None:
                 logger.info("pandadoc_webhook_no_matching_document", pandadoc_document_id=pandadoc_document_id)
                 continue
@@ -147,8 +153,15 @@ def legal_document_pandadoc_webhook(request: Request) -> Response:
 
         # Other states (document.sent, document.viewed, …) — nothing to do.
 
+    if deferred_retry:
+        return Response(
+            {"detail": "Signed document unavailable; please retry."},
+            status=status.HTTP_503_SERVICE_UNAVAILABLE,
+        )
+
     if processed_any:
         return Response({"status": "ok"}, status=status.HTTP_200_OK)
+
     # Nothing applied to this instance — 2xx so PandaDoc doesn't retry, since
     # the sibling instance that owns the row will handle its own copy.
     return Response(status=status.HTTP_204_NO_CONTENT)
