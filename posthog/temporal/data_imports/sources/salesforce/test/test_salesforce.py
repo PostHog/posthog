@@ -184,7 +184,8 @@ class TestSalesforceEndpointPaginator:
         paginator = SalesforceEndpointPaginator(should_use_incremental_field=False)
         paginator.set_resume_state({"model_name": "Lead"})
 
-        assert paginator.has_next_page is False
+        assert paginator._model_name is None
+        assert paginator._last_record_id is None
         assert paginator.get_resume_state() is None
 
     @parameterized.expand(
