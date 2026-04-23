@@ -284,6 +284,8 @@ export enum AccessControlResourceType {
     Experiment = 'experiment',
     ExperimentSavedMetric = 'experiment_saved_metric',
     ExternalDataSource = 'external_data_source',
+    WarehouseObjects = 'warehouse_objects',
+    WarehouseTable = 'warehouse_table',
     WebAnalytics = 'web_analytics',
     ActivityLog = 'activity_log',
     ErrorTracking = 'error_tracking',
@@ -2393,6 +2395,7 @@ export interface EndpointVersionMaterializationType {
     error?: string
     last_materialized_at?: string
     saved_query_id?: string
+    sync_frequency?: DataModelingSyncInterval
 }
 
 export interface DashboardBasicType extends WithAccessControl {
@@ -5318,6 +5321,7 @@ export type APIScopeObject =
     | 'usage_metric'
     | 'user'
     | 'visual_review'
+    | 'warehouse_objects'
     | 'warehouse_table'
     | 'warehouse_view'
     | 'web_analytics'
@@ -5544,6 +5548,7 @@ export interface DataWarehouseTable {
     external_data_source?: ExternalDataSource
     external_schema?: SimpleExternalDataSourceSchema
     options?: { csv_allow_double_quotes?: boolean | null }
+    user_access_level?: AccessControlLevel
 }
 
 export type DataWarehouseTableTypes = 'CSV' | 'Parquet' | 'JSON' | 'CSVWithNames'
@@ -5632,6 +5637,7 @@ export interface DataWarehouseSavedQuery {
     origin?: DataWarehouseSavedQueryOrigin
     is_test?: boolean
     expires_at?: string
+    user_access_level?: AccessControlLevel
 }
 
 export interface DataWarehouseSavedQueryFolder {
