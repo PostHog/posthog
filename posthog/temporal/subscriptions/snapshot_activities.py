@@ -251,6 +251,22 @@ def _load_insight_images(exported_asset_ids: list[int], team_id: int) -> dict[in
 
 @temporalio.activity.defn
 async def snapshot_subscription_insights(inputs: SnapshotInsightsInputs) -> SnapshotInsightsResult:
+    try:
+        return await _run_snapshot_subscription_insights(inputs)
+    except Exception:
+        # Temporal's workflow-level logger swallows activity failures on pods
+        # where `configure_logger` raised at startup (e.g. Kafka log producer
+        # init failure). Emit the traceback via structlog so operators can see
+        # why the activity died instead of finding a bare `starting` log.
+        await LOGGER.aexception(
+            "snapshot_subscription_insights.failed",
+            subscription_id=inputs.subscription_id,
+            delivery_id=inputs.delivery_id,
+        )
+        raise
+
+
+async def _run_snapshot_subscription_insights(inputs: SnapshotInsightsInputs) -> SnapshotInsightsResult:
     await LOGGER.ainfo(
         "snapshot_subscription_insights.starting",
         subscription_id=inputs.subscription_id,

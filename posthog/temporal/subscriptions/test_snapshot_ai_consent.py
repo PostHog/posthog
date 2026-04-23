@@ -122,3 +122,29 @@ async def test_skips_summary_when_summary_not_enabled(team, user):
     )
 
     assert result.summary_text is None
+
+
+async def test_unhandled_exception_is_logged_and_reraised(team, user, monkeypatch):
+    subscription = await _create_subscription(team, user)
+    await _set_ai_consent(subscription, approved=True)
+    delivery = await _create_delivery(
+        subscription,
+        {"insights": [{"id": subscription.insight_id, "name": "Pageviews", "query_results": {"result": []}}]},
+    )
+
+    def boom(*args, **kwargs):
+        raise RuntimeError("boom while building states")
+
+    monkeypatch.setattr(
+        "posthog.temporal.subscriptions.snapshot_activities._build_states_from_content_snapshot",
+        boom,
+    )
+
+    with pytest.raises(RuntimeError, match="boom while building states"):
+        await _run(
+            SnapshotInsightsInputs(
+                subscription_id=subscription.id,
+                team_id=subscription.team_id,
+                delivery_id=str(delivery.id),
+            )
+        )
