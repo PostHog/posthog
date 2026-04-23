@@ -28,6 +28,7 @@ import { PropertyFilterDatePicker } from '../PropertyFilters/components/Property
 import { dateFilterLogic } from './dateFilterLogic'
 import { FixedRangeWithTimePicker } from './FixedRangeWithTimePicker'
 import { JumpToTimestampPicker } from './JumpToTimestampPicker'
+import { RelativeDateRangeSelector } from './RelativeDateRangeSelector'
 import { RollingDateRangeFilter } from './RollingDateRangeFilter'
 import { DateOption } from './rollingDateRangeFilterLogic'
 
@@ -50,6 +51,7 @@ export interface DateFilterProps {
     fullWidth?: boolean
     resolvedDateRange?: ResolvedDateRangeResponse
     showJumpToTimestamp?: boolean
+    showCustomRelativeRange?: boolean
 }
 
 interface RawDateFilterProps extends DateFilterProps {
@@ -99,6 +101,7 @@ export const DateFilter = forwardRef<HTMLButtonElement, RawDateFilterProps>(func
         showExplicitDateToggle = false,
         resolvedDateRange,
         showJumpToTimestamp = false,
+        showCustomRelativeRange = false,
     },
     ref
 ) {
@@ -121,6 +124,7 @@ export const DateFilter = forwardRef<HTMLButtonElement, RawDateFilterProps>(func
         openDateToNow,
         openFixedDate,
         openJumpToTimestamp,
+        openCustomRelativeRange,
         close,
         setRangeDateFrom,
         setExplicitDate,
@@ -139,6 +143,7 @@ export const DateFilter = forwardRef<HTMLButtonElement, RawDateFilterProps>(func
         isDateToNow,
         isFixedDate,
         isRollingDateRange,
+        isCustomRelativeRange,
         dateFromHasTimePrecision,
         fixedRangeGranularity,
     } = useValues(dateFilterLogic(logicProps))
@@ -215,6 +220,8 @@ export const DateFilter = forwardRef<HTMLButtonElement, RawDateFilterProps>(func
             />
         ) : view === DateFilterView.JumpToTimestamp ? (
             <JumpToTimestampPicker onApply={(dateFrom, dateTo) => setDate(dateFrom, dateTo)} onClose={open} />
+        ) : view === DateFilterView.CustomRelativeRange ? (
+            <RelativeDateRangeSelector onApply={(dateFrom, dateTo) => setDate(dateFrom, dateTo)} onClose={open} />
         ) : (
             <div className="deprecated-space-y-px" ref={optionsRef} onClick={(e) => e.stopPropagation()}>
                 {dateOptions.map(({ key, values, inactive }) => {
@@ -297,6 +304,11 @@ export const DateFilter = forwardRef<HTMLButtonElement, RawDateFilterProps>(func
                         <LemonButton onClick={openFixedRange} active={isFixedRange} fullWidth>
                             Custom fixed date range…
                         </LemonButton>
+                        {showCustomRelativeRange && (
+                            <LemonButton onClick={openCustomRelativeRange} active={isCustomRelativeRange} fullWidth>
+                                Custom relative range…
+                            </LemonButton>
+                        )}
                     </>
                 )}
                 {showExplicitDateToggle && (

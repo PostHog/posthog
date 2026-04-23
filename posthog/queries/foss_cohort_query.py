@@ -538,7 +538,16 @@ class FOSSCohortQuery(EventQuery):
             relative_date = self._get_relative_interval_from_explicit_date(target_datetime, self._team.timezone_info)
             self._check_earliest_date(relative_date)
 
-            return f"timestamp > %({date_param})s", {f"{date_param}": target_datetime}
+            params: dict[str, Any] = {date_param: target_datetime}
+            clause = f"timestamp > %({date_param})s"
+
+            if prop.explicit_datetime_to:
+                date_to_param = f"{prepend}_explicit_date_to_{idx}"
+                target_datetime_to = relative_date_parse(prop.explicit_datetime_to, self._team.timezone_info)
+                params[date_to_param] = target_datetime_to
+                clause = f"{clause} AND timestamp < %({date_to_param})s"
+
+            return clause, params
         else:
             date_value = parse_and_validate_positive_integer(prop.time_value, "time_value")
             date_interval = validate_interval(prop.time_interval)
