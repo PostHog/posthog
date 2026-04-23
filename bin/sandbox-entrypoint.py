@@ -555,10 +555,6 @@ def user_phase() -> None:
             "claude",
         ]
     )
-    # Auto-respawn on crash (pairs with pane-died hook in tmux.sandbox.conf).
-    # Scoped to claude window only so setup/phrocs close normally.
-    run([*tmux, "set-window-option", "-t", "posthog:claude", "remain-on-exit", "on"])
-
     run(
         [
             *tmux,
