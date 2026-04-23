@@ -1131,13 +1131,13 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
                 status=status.HTTP_502_BAD_GATEWAY,
             )
 
-        queryset = installation.tools.filter(removed_at__isnull=True).order_by("tool_name")
-        serializer = MCPServerInstallationToolSerializer(queryset, many=True)
+        tools = list(installation.tools.filter(removed_at__isnull=True).order_by("tool_name"))
+        serializer = MCPServerInstallationToolSerializer(tools, many=True)
         logger.info(
             "Tools refreshed",
             installation_id=str(installation.id),
             team_id=self.team_id,
-            tool_count=queryset.count(),
+            tool_count=len(tools),
         )
         return Response({"results": serializer.data})
 
