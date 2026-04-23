@@ -7,14 +7,20 @@ import contextvars
 from collections.abc import Generator
 from contextlib import contextmanager, suppress
 from enum import StrEnum
-from typing import Any, Optional
+from typing import TYPE_CHECKING, Any, Optional
+
+if TYPE_CHECKING:
+    from posthog.models.team import Team
 
 # from posthog.clickhouse.client.connection import Workload
 # from posthog.schema import PersonsOnEventsMode
+import structlog
 from cachetools import cached
 from pydantic import BaseModel, ConfigDict
 
 from posthog.schema import ProductKey
+
+logger = structlog.get_logger(__name__)
 
 
 class AccessMethod(StrEnum):
@@ -168,6 +174,8 @@ class QueryTags(BaseModel):
     # ai events rollout
     ai_query_source: Optional[str] = None
 
+    ai_data_processing_approved: Optional[bool] = None
+
     # experiments
     experiment_feature_flag_key: Optional[str] = None
     experiment_id: Optional[int] = None
@@ -305,6 +313,30 @@ def tag_queries(**kwargs) -> None:
     updated_tags = current_tags.model_copy(deep=True)
     updated_tags.update(**kwargs)
     query_tags.set(updated_tags)
+
+
+def get_team_query_tags(team: "int | Team") -> dict[str, Any]:
+    from posthog.models.organization import Organization
+    from posthog.models.team import Team
+
+    team_team: Team
+    if isinstance(team, int):
+        resolved = Team.objects.select_related("organization").filter(id=team).first()
+        if resolved is None:
+            logger.warning("get_team_query_tags_team_not_found", team_id=team)
+            return {"team_id": team}
+        team_team = resolved
+    else:
+        team_team = team
+
+    tags: dict[str, Any] = {"team_id": team_team.pk}
+    try:
+        organization = team_team.organization
+        tags["org_id"] = organization.pk
+        tags["ai_data_processing_approved"] = organization.is_ai_data_processing_approved
+    except Organization.DoesNotExist:
+        logger.warning("get_team_query_tags_org_not_found", team_id=team_team.pk)
+    return tags
 
 
 def clear_tag(key):

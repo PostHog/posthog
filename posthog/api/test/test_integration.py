@@ -3,6 +3,7 @@ from datetime import timedelta
 import pytest
 from unittest.mock import MagicMock, patch
 
+from django.conf import settings as django_settings
 from django.core.cache import cache
 from django.test.client import Client as HttpClient
 from django.utils import timezone
@@ -10,6 +11,7 @@ from django.utils import timezone
 from rest_framework import status
 
 from posthog.api.integration import IntegrationViewSet
+from posthog.api.oauth.test_dcr import generate_rsa_key
 from posthog.models.integration import (
     GITHUB_REPOSITORY_REFRESH_COOLDOWN_SECONDS,
     PRIVATE_CHANNEL_WITHOUT_ACCESS,
@@ -646,7 +648,7 @@ class TestIntegrationAPIKeyAccess:
         assert data["repositories"][0]["name"] == "repo1"
         assert data["repositories"][1]["name"] == "repo2"
         assert data["has_more"] is False
-        mock_list_repos.assert_called_once_with(limit=100, offset=0)
+        mock_list_repos.assert_called_once_with(search="", limit=100, offset=0)
 
     @patch("posthog.models.integration.GitHubIntegration.list_cached_repositories")
     def test_github_repos_pagination(self, mock_list_repos, client: HttpClient):
@@ -670,7 +672,7 @@ class TestIntegrationAPIKeyAccess:
         data = response.json()
         assert len(data["repositories"]) == 100
         assert data["has_more"] is True
-        mock_list_repos.assert_called_once_with(limit=100, offset=100)
+        mock_list_repos.assert_called_once_with(search="", limit=100, offset=100)
 
     @patch("posthog.models.integration.GitHubIntegration.list_cached_repositories")
     def test_github_repos_has_more_false_when_partial_page(self, mock_list_repos, client: HttpClient):
@@ -717,7 +719,31 @@ class TestIntegrationAPIKeyAccess:
         data = response.json()
         assert len(data["repositories"]) == 10
         assert data["has_more"] is True
-        mock_list_repos.assert_called_once_with(limit=10, offset=50)
+        mock_list_repos.assert_called_once_with(search="", limit=10, offset=50)
+
+    @patch("posthog.models.integration.GitHubIntegration.list_cached_repositories")
+    def test_github_repos_passes_search_before_pagination(self, mock_list_repos, client: HttpClient):
+        repos = [{"id": 2, "name": "posthog-js", "full_name": "org/posthog-js"}]
+        mock_list_repos.return_value = (repos, False)
+
+        key_value = "test_key_123"
+        PersonalAPIKey.objects.create(
+            label="Test Key",
+            user=self.user,
+            secure_value=hash_key_value(key_value),
+            scopes=["integration:read"],
+        )
+
+        response = client.get(
+            f"/api/environments/{self.team.pk}/integrations/{self.github_integration.id}/github_repos/?search=posthog&limit=1&offset=1",
+            HTTP_AUTHORIZATION=f"Bearer {key_value}",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert data["repositories"] == repos
+        assert data["has_more"] is False
+        mock_list_repos.assert_called_once_with(search="posthog", limit=1, offset=1)
 
     @patch("posthog.models.integration.GitHubIntegration.sync_repository_cache")
     def test_refresh_github_repos_with_write_scope_succeeds(self, mock_sync_repository_cache, client: HttpClient):
@@ -1113,6 +1139,13 @@ class TestStripeIntegration:
 
 
 class TestStripeIntegrationOAuthTokens:
+    @pytest.fixture(autouse=True)
+    def _override_oidc_key(self, settings):
+        settings.OAUTH2_PROVIDER = {
+            **django_settings.OAUTH2_PROVIDER,
+            "OIDC_RSA_PRIVATE_KEY": generate_rsa_key(),
+        }
+
     @pytest.fixture(autouse=True)
     def setup(self, db):
         self.organization = Organization.objects.create(name="Test Org")

@@ -24,6 +24,7 @@ import { RadioIndicator } from './radio-group'
 function Menubar({ className, ...props }: MenubarPrimitive.Props): React.ReactElement {
     return (
         <MenubarPrimitive
+            data-quill
             data-slot="menubar"
             className={cn('flex h-9 items-center rounded-lg border bg-background p-1', className)}
             {...props}

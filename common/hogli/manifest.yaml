@@ -303,9 +303,6 @@ build:
     build:taxonomy-json:
         bin_script: build-taxonomy-json.py
         description: Generate core filter definitions taxonomy JSON for frontend
-    build:bot-definitions:
-        cmd: python livestream/bot/generate_definitions.py
-        description: Generate livestream bot definitions JSON from bot_definitions.py
     build:schema:
         steps:
             - build:schema-json
@@ -410,7 +407,7 @@ docker:
         hidden: true
     docker:server:
         bin_script: docker-server
-        description: Run dual-mode server (Granian/Unit) with Prometheus metrics support
+        description: Run NGINX Unit application server
         hidden: true
     docker:server-unit:
         bin_script: docker-server-unit
@@ -637,10 +634,6 @@ tools:
     create:notebook:node:
         bin_script: create-notebook-node.sh
         description: Create a new NotebookNode file and update types and editor references
-        hidden: true
-    tool:granian-metrics:
-        bin_script: granian_metrics.py
-        description: HTTP server that aggregates Prometheus metrics from Granian workers
         hidden: true
     sync:storage:
         bin_script: sync-storage

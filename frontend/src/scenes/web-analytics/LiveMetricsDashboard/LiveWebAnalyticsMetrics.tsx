@@ -25,14 +25,13 @@ import { LiveEventsFeed, LiveEventsFeedColumn } from 'scenes/activity/live/LiveE
 import { WebAnalyticsDomainSelector } from '../WebAnalyticsFilters'
 import { BreakdownLiveCard } from './BreakdownLiveCard'
 import { getBrowserLogo } from './browserLogos'
-import { LiveBotTrafficCard } from './LiveBotTrafficCard'
 import { CONTENT_CARD_SPAN, LiveContentCardId, LiveStatCardId } from './liveCards'
 import { LiveChartCard } from './LiveChartCard'
 import { LiveStatCard, LiveStatDivider } from './LiveStatCard'
 import { LiveTopPathsTable } from './LiveTopPathsTable'
 import { LiveTopReferrersTable } from './LiveTopReferrersTable'
 import { liveWebAnalyticsLayoutLogic } from './liveWebAnalyticsLayoutLogic'
-import { BotEventsPerMinuteChart, UsersPerMinuteChart } from './liveWebAnalyticsMetricsCharts'
+import { UsersPerMinuteChart } from './liveWebAnalyticsMetricsCharts'
 import { liveWebAnalyticsMetricsLogic } from './liveWebAnalyticsMetricsLogic'
 import { BrowserBreakdownItem, CountryBreakdownItem, DeviceBreakdownItem } from './LiveWebAnalyticsMetricsTypes'
 import { LiveWorldMap } from './LiveWorldMap'
@@ -122,8 +121,6 @@ export const LiveWebAnalyticsMetrics = (): JSX.Element => {
         totalPageviews,
         totalUniqueVisitors,
         totalBrowsers,
-        botBreakdown,
-        totalBotEvents,
         liveUserCount,
         selectedHost,
         isLoading,
@@ -240,33 +237,6 @@ export const LiveWebAnalyticsMetrics = (): JSX.Element => {
                         renderIcon={renderCountryIcon}
                         emptyMessage="No country data"
                         statLabel="unique visitors"
-                        isLoading={isLoading}
-                    />
-                )
-            case 'bot_events_chart':
-                if (!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_BOT_ANALYSIS]) {
-                    return null
-                }
-                return (
-                    <LiveChartCard
-                        title="Bot requests per minute"
-                        subtitle={timezone}
-                        subtitleTooltip="Metrics are shown in your local timezone"
-                        isLoading={isLoading}
-                        contentClassName="h-64 md:h-80"
-                    >
-                        <BotEventsPerMinuteChart data={chartData} />
-                    </LiveChartCard>
-                )
-            case 'bot_traffic':
-                if (!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_BOT_ANALYSIS]) {
-                    return null
-                }
-                return (
-                    <LiveBotTrafficCard
-                        data={botBreakdown}
-                        totalBotEvents={totalBotEvents}
-                        totalEvents={totalPageviews}
                         isLoading={isLoading}
                     />
                 )

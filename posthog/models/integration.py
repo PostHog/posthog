@@ -2545,7 +2545,18 @@ class GitHubIntegration:
         self.integration.save(update_fields=update_fields)
         return repositories
 
-    def list_cached_repositories(self, *, limit: int = 100, offset: int = 0) -> tuple[list[dict], bool]:
+    def _filter_cached_repositories(self, repositories: list[dict], search: str) -> list[dict]:
+        search_query = search.strip().casefold()
+        if not search_query:
+            return repositories
+
+        return [
+            repository for repository in repositories if search_query in str(repository.get("full_name", "")).casefold()
+        ]
+
+    def list_cached_repositories(
+        self, *, search: str = "", limit: int = 100, offset: int = 0
+    ) -> tuple[list[dict], bool]:
         cached_repositories = self._get_repository_cache()
         updated_at = self.integration.repository_cache_updated_at
         has_cached_snapshot = updated_at is not None
@@ -2567,8 +2578,9 @@ class GitHubIntegration:
         if cached_repositories is None:
             cached_repositories = []
 
-        result = cached_repositories[offset : offset + limit]
-        has_more = offset + limit < len(cached_repositories)
+        filtered_repositories = self._filter_cached_repositories(cached_repositories, search)
+        result = filtered_repositories[offset : offset + limit]
+        has_more = offset + limit < len(filtered_repositories)
         return result, has_more
 
     def list_all_cached_repositories(self, max_repos: int | None = None) -> list[dict]:
@@ -2599,8 +2611,10 @@ class GitHubIntegration:
         return cached_repositories
 
     @database_sync_to_async
-    def list_cached_repositories_async(self, *, limit: int = 100, offset: int = 0) -> tuple[list[dict], bool]:
-        return self.list_cached_repositories(limit=limit, offset=offset)
+    def list_cached_repositories_async(
+        self, *, search: str = "", limit: int = 100, offset: int = 0
+    ) -> tuple[list[dict], bool]:
+        return self.list_cached_repositories(search=search, limit=limit, offset=offset)
 
     @database_sync_to_async
     def list_all_cached_repositories_async(self, max_repos: int | None = None) -> list[dict]:

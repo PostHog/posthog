@@ -11,11 +11,6 @@ from products.mcp_store.backend.oauth import discover_oauth_metadata
 logger = logging.getLogger(__name__)
 
 
-class MCPServerAdmin(admin.ModelAdmin):
-    list_display = ("name", "url", "oauth_client_id", "created_at", "updated_at")
-    list_filter = ("created_at", "updated_at")
-
-
 class MCPServerTemplateAdminForm(forms.ModelForm):
     """Separate plain-text inputs for client_id / client_secret so operators can
     paste credentials from the provider's dev portal. Values are merged into the

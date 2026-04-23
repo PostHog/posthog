@@ -16,6 +16,18 @@ APPROVAL_STATES = [
     ("do_not_use", "Do not use"),
 ]
 
+# Catalog categories used by the marketplace UI to group templates. Pinned to a
+# finite choice list so the frontend can render predictable filter chips. New
+# rows default to "dev" until they're reclassified in the admin.
+CATEGORY_CHOICES = [
+    ("business", "Business Operations"),
+    ("data", "Data & Analytics"),
+    ("design", "Design & Content"),
+    ("dev", "Developer Tools & APIs"),
+    ("infra", "Infrastructure"),
+    ("productivity", "Productivity & Collaboration"),
+]
+
 
 class SensitiveConfig(TypedDict, total=False):
     api_key: str
@@ -24,8 +36,9 @@ class SensitiveConfig(TypedDict, total=False):
     token_retrieved_at: int
     expires_in: int
     needs_reauth: bool
-    # Set on custom (non-template) OAuth installs.
-    # `dcr_is_user_provided` is true when the creds came from
+    # Set on custom (non-template) OAuth installs. Each user gets their own
+    # DCR client so the upstream provider can quarantine a single user without
+    # affecting others. `dcr_is_user_provided` is true when the creds came from
     # the install form instead of a DCR handshake.
     dcr_client_id: str
     dcr_client_secret: str
@@ -41,64 +54,6 @@ InstallSource = Literal["posthog", "twig", "posthog-code"]
 INSTALL_SOURCE_CHOICES = [("posthog", "posthog"), ("twig", "twig"), ("posthog-code", "posthog-code")]
 
 
-# TRICKY: this is not a 1:1 mapping to MCPServer objects.
-# The URL in RECOMMENDED_SERVERS is the MCP server URL, not the OAuth server URL.
-RECOMMENDED_SERVERS = [
-    {
-        "name": "Attio",
-        "url": "https://mcp.attio.com/mcp",
-        "description": "Manage Attio CRM contacts, companies, and deals.",
-        "auth_type": "oauth",
-    },
-    {
-        "name": "Canva",
-        "url": "https://mcp.canva.com/mcp",
-        "description": "Create, edit, and manage Canva designs and assets.",
-        "auth_type": "oauth",
-    },
-    {
-        "name": "Atlassian",
-        "url": "https://mcp.atlassian.com/v1/mcp",
-        "description": "Integrate with Atlassian products like Jira and Confluence.",
-        "auth_type": "oauth",
-    },
-    {
-        "name": "Linear",
-        "url": "https://mcp.linear.app/mcp",
-        "description": "Manage Linear issues, projects, and teams.",
-        "auth_type": "oauth",
-    },
-    {
-        "name": "Monday",
-        "url": "https://mcp.monday.com/mcp",
-        "description": "Manage Monday.com boards, items, and workflows.",
-        "auth_type": "oauth",
-    },
-    {
-        "name": "Notion",
-        "url": "https://mcp.notion.com/mcp",
-        "description": "Search and manage Notion pages, databases, and knowledge base content.",
-        "auth_type": "oauth",
-    },
-]
-
-
-class MCPServer(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
-    """Legacy shared-DCR server record. Being superseded by MCPServerTemplate (for
-    curated pre-registered apps) and by per-installation creds stored in
-    MCPServerInstallation.sensitive_configuration (for user-added servers).
-    Kept during rollout; slated for removal once data migration completes."""
-
-    name = models.CharField(max_length=200)
-    url = models.URLField(max_length=2048, unique=True)  # OAuth issuer URL
-    description = models.TextField(blank=True, default="")
-    oauth_metadata = models.JSONField(default=dict, blank=True)
-    oauth_client_id = models.CharField(max_length=500, blank=True, default="")
-
-    class Meta:
-        db_table = "mcp_store_mcpserver"
-
-
 class MCPServerTemplate(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
     """A curated, pre-registered MCP server. PostHog operators register a real
     OAuth app with the provider ahead of time and paste the client_id /
@@ -109,9 +64,11 @@ class MCPServerTemplate(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
 
     name = models.CharField(max_length=200)
     url = models.URLField(max_length=2048, unique=True)
+    docs_url = models.URLField(max_length=2048, blank=True, default="")
     description = models.TextField(blank=True, default="")
     auth_type = models.CharField(max_length=20, choices=AUTH_TYPE_CHOICES, default="oauth")
     icon_key = models.CharField(max_length=100, blank=True, default="")
+    category = models.CharField(max_length=20, choices=CATEGORY_CHOICES, default="dev")
     oauth_issuer_url = models.URLField(max_length=2048, blank=True, default="")
     oauth_metadata = models.JSONField(default=dict, blank=True)
     oauth_credentials = EncryptedJSONField(default=dict, blank=True)

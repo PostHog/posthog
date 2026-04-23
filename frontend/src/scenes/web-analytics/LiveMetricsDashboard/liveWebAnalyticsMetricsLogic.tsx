@@ -9,7 +9,6 @@ import { dayjs } from 'lib/dayjs'
 import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { hashCodeForString } from 'lib/utils'
 import { liveEventsHostOrigin } from 'lib/utils/apiHost'
-import { CATEGORY_LABELS } from 'lib/utils/botDetection'
 import { deduplicateEvents } from 'scenes/activity/live/deduplicateEvents'
 import { teamLogic } from 'scenes/teamLogic'
 import { webAnalyticsFilterLogic } from 'scenes/web-analytics/webAnalyticsFilterLogic'
@@ -28,7 +27,6 @@ import { createStreamConnection } from './createStreamConnection'
 import { LiveMetricsSlidingWindow } from './LiveMetricsSlidingWindow'
 import type { liveWebAnalyticsMetricsLogicType } from './liveWebAnalyticsMetricsLogicType'
 import {
-    BotBreakdownItem,
     BrowserBreakdownItem,
     ChartDataPoint,
     CountryBreakdownItem,
@@ -127,29 +125,12 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
                                       ? DIRECT_REFERRER
                                       : undefined
 
-                            // Server-side classification from livestream ($virt_* properties)
-                            const virtBotName = event.properties?.$virt_bot_name as string | undefined
-                            const virtCategory = event.properties?.$virt_traffic_category as string | undefined
-                            const virtIsBot = event.properties?.$virt_is_bot as boolean | undefined
-
-                            let botData: { name: string; category: string } | undefined
-                            if (virtIsBot && virtBotName) {
-                                botData = {
-                                    name: virtBotName,
-                                    category:
-                                        (CATEGORY_LABELS as Record<string, string>)[virtCategory ?? ''] ??
-                                        virtCategory ??
-                                        '',
-                                }
-                            }
-
                             window.addDataPoint(eventTs, event.distinct_id, {
                                 pageviews: isPageview ? 1 : 0,
                                 device: deviceType ? { deviceId: deviceKey, deviceType } : undefined,
                                 browser: browser ? { deviceId: deviceKey, browserType: browser } : undefined,
                                 pathname: isPageview ? pathname : undefined,
                                 referringDomain: normalizedReferrer,
-                                bot: botData,
                             })
                         }
                     }
@@ -221,13 +202,6 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
                     const ts = currentBucketTs - i * 60
                     const bucket = bucketMap.get(ts)
 
-                    let botEvents = 0
-                    if (bucket?.bots) {
-                        for (const { count } of bucket.bots.values()) {
-                            botEvents += count
-                        }
-                    }
-
                     result.push({
                         minute: dayjs.unix(ts).format('HH:mm'),
                         timestamp: ts * 1000,
@@ -235,7 +209,6 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
                         newUsers: bucket?.newUserCount ?? 0,
                         returningUsers: bucket?.returningUserCount ?? 0,
                         pageviews: bucket?.pageviews ?? 0,
-                        botEvents,
                     })
                 }
 
@@ -304,15 +277,6 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
             (s) => [s.slidingWindow, s.eventsVersion],
             (slidingWindow: LiveMetricsSlidingWindow): number => slidingWindow.getTotalBrowsers(),
         ],
-        botBreakdown: [
-            (s) => [s.slidingWindow, s.eventsVersion],
-            (slidingWindow: LiveMetricsSlidingWindow): BotBreakdownItem[] => slidingWindow.getBotBreakdown(6),
-            { resultEqualityCheck: equal },
-        ],
-        totalBotEvents: [
-            (s) => [s.slidingWindow, s.eventsVersion],
-            (slidingWindow: LiveMetricsSlidingWindow): number => slidingWindow.getTotalBotEvents(),
-        ],
         liveUserCount: [
             (s) => [s.recentUsersByLastSeen],
             (recentUsersByLastSeen: Map<string, number>): number => recentUsersByLastSeen.size,
@@ -373,7 +337,6 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
                     referrerResponse,
                     geoResponse,
                     recentUsersResponse,
-                    botResponse,
                 ] = await loadQueryData(dateFrom, handoff, values.selectedHost)
 
                 const bucketMap = new Map<number, SlidingWindowBucket>()
@@ -384,7 +347,6 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
                 addPathDataToBuckets(pathsResponse, bucketMap)
                 addReferrerDataToBuckets(referrerResponse, bucketMap)
                 addGeoDataToBuckets(geoResponse, bucketMap)
-                addBotDataToBuckets(botResponse, bucketMap)
 
                 actions.setInitialData(
                     [...bucketMap.entries()].map(([timestamp, bucket]) => ({ timestamp, bucket })),
@@ -585,7 +547,6 @@ const loadQueryData = async (
         HogQLQueryResponse,
         HogQLQueryResponse,
         HogQLQueryResponse | null,
-        HogQLQueryResponse,
     ]
 > => {
     const hostFilterClause = host ? `AND properties.$host = {host}` : ''
@@ -744,30 +705,6 @@ const loadQueryData = async (
         },
     }
 
-    const botQuery: HogQLQuery = {
-        kind: NodeKind.HogQLQuery,
-        query: `SELECT
-                    toStartOfMinute(timestamp) AS minute_bucket,
-                    \`$virt_bot_name\` AS bot_name,
-                    \`$virt_traffic_category\` AS bot_category,
-                    count() AS event_count
-                FROM events
-                WHERE
-                    timestamp >= toDateTime({dateFrom})
-                    AND timestamp <= toDateTime({dateTo})
-                    AND \`$virt_is_bot\` = true
-                    AND \`$virt_bot_name\` != ''
-                    AND event IN ('$pageview', '$pageleave', '$screen', '$http_log', '$autocapture')
-                    ${hostFilterClause}
-                GROUP BY minute_bucket, bot_name, bot_category
-                ORDER BY minute_bucket ASC`,
-        values: {
-            dateFrom: dateFrom.toISOString(),
-            dateTo: dateTo.toISOString(),
-            ...hostValues,
-        },
-    }
-
     const recentUsersQuery: HogQLQuery | null = host
         ? {
               kind: NodeKind.HogQLQuery,
@@ -795,7 +732,6 @@ const loadQueryData = async (
         performQuery(referrerQuery),
         performQuery(geoQuery),
         recentUsersQuery ? performQuery(recentUsersQuery) : Promise.resolve(null),
-        performQuery(botQuery),
     ])
 }
 
@@ -901,36 +837,6 @@ const addGeoDataToBuckets = (geoResponse: HogQLQueryResponse, bucketMap: Map<num
     }
 }
 
-const addBotDataToBuckets = (botResponse: HogQLQueryResponse, bucketMap: Map<number, SlidingWindowBucket>): void => {
-    const results = botResponse.results as [string, string, string, number][]
-
-    for (const [timestampStr, botName, rawCategory, eventCount] of results) {
-        if (!botName) {
-            continue
-        }
-        const timestamp = Date.parse(timestampStr)
-        const bucket = getOrCreateBucket(bucketMap, timestamp)
-
-        const categoryLabel = translateCategoryLabel(rawCategory)
-        if (!bucket.bots) {
-            bucket.bots = new Map<string, { count: number; category: string }>()
-        }
-        const existing = bucket.bots.get(botName)
-        bucket.bots.set(botName, {
-            count: (existing?.count ?? 0) + eventCount,
-            category: categoryLabel,
-        })
-    }
-}
-
-const translateCategoryLabel = (rawCategory: string | null | undefined): string => {
-    if (!rawCategory) {
-        return CATEGORY_LABELS.regular
-    }
-    const known = (CATEGORY_LABELS as Record<string, string>)[rawCategory]
-    return known ?? rawCategory
-}
-
 const getOrCreateBucket = (map: Map<number, SlidingWindowBucket>, timestamp: number): SlidingWindowBucket => {
     if (!map.has(timestamp)) {
         map.set(timestamp, createEmptyBucket())
@@ -950,6 +856,5 @@ const createEmptyBucket = (): SlidingWindowBucket => {
         referrers: new Map<string, number>(),
         uniqueUsers: new Set<string>(),
         countries: new Map<string, Set<string>>(),
-        bots: new Map<string, { count: number; category: string }>(),
     }
 }

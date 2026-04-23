@@ -859,7 +859,18 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         if "widget_public_token" in value:
             value.pop("widget_public_token")
         # Integration state is managed only by dedicated endpoints, not user input
-        for managed_key in ("slack_bot_token", "slack_team_id", "slack_enabled", "email_enabled"):
+        for managed_key in (
+            "slack_bot_token",
+            "slack_team_id",
+            "slack_enabled",
+            "email_enabled",
+            "teams_enabled",
+            "teams_tenant_id",
+            "teams_team_id",
+            "teams_team_name",
+            "teams_channel_id",
+            "teams_channel_name",
+        ):
             value.pop(managed_key, None)
         # Normalize multi-channel list: must be a list of non-empty strings, deduped, capped at 50
         if "slack_channel_ids" in value:

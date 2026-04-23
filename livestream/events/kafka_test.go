@@ -109,7 +109,7 @@ func TestParse(t *testing.T) {
 		Return(geo.GeoLookupResult{Latitude: 10., Longitude: 20., CountryCode: "US"}, nil).Once()
 	data, err := os.ReadFile("testdata/event.json")
 	assert.NoError(t, err)
-	got := parse(mockGeoLocator, nil, data)
+	got := parse(mockGeoLocator, data)
 	assert.Equal(t, PostHogEvent{
 		Token:     "this is token",
 		Timestamp: 1738073128810.,
@@ -219,7 +219,7 @@ func TestParse_NumericDistinctId(t *testing.T) {
 	// The wrapper has distinct_id at the top level, and the data field contains the inner event JSON
 	input := `{"distinct_id":21,"uuid":"test-uuid","ip":"","data":"{\"event\":\"$pageview\",\"properties\":{\"$lib\":\"posthog-ruby\"}}","token":"test-token"}`
 
-	got := parse(mockGeoLocator, nil, []byte(input))
+	got := parse(mockGeoLocator, []byte(input))
 
 	assert.Equal(t, "21", got.DistinctId)
 	assert.Equal(t, "$pageview", got.Event)
@@ -231,7 +231,7 @@ func TestParse_WrapperTimestampFallback(t *testing.T) {
 
 	input := `{"distinct_id":"user-123","uuid":"test-uuid","ip":"","data":"{\"event\":\"$pageview\",\"properties\":{}}","token":"test-token","timestamp":"2026-01-09T21:00:00.000Z"}`
 
-	got := parse(mockGeoLocator, nil, []byte(input))
+	got := parse(mockGeoLocator, []byte(input))
 
 	assert.Equal(t, "2026-01-09T21:00:00.000Z", got.Timestamp)
 	assert.Equal(t, "$pageview", got.Event)
@@ -242,7 +242,7 @@ func TestParse_InnerTimestampOverridesWrapper(t *testing.T) {
 
 	input := `{"distinct_id":"user-123","uuid":"test-uuid","ip":"","data":"{\"event\":\"$pageview\",\"properties\":{},\"timestamp\":\"2026-01-09T02:00:00.000Z\"}","token":"test-token","timestamp":"2026-01-10T21:00:00.000Z"}`
 
-	got := parse(mockGeoLocator, nil, []byte(input))
+	got := parse(mockGeoLocator, []byte(input))
 
 	assert.Equal(t, "2026-01-09T02:00:00.000Z", got.Timestamp)
 	assert.Equal(t, "$pageview", got.Event)
