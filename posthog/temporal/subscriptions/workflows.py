@@ -44,36 +44,6 @@ from posthog.temporal.subscriptions.types import (
     UpdateDeliveryRecordInputs,
 )
 
-# Rolling-deploy deprecation bundle (TODO slug: subscriptions-patched-cleanup)
-# ---------------------------------------------------------------------------
-# Step 1 of the two-step `patched()` -> `deprecate_patch()` -> deletion dance.
-# `workflow.deprecate_patch()` records a "deprecated" marker at the same
-# command-sequence position the original `workflow.patched()` guard occupied,
-# so workflows whose history already carries the `patched` marker replay
-# cleanly. The if-gate and legacy-replay helper are gone because pre-rollout
-# workflows (no marker in history) have drained by deploy time of this PR.
-#
-# Deploy-ordering precondition: `ProcessSubscriptionWorkflow.execution_timeout`
-# is 2h, so in theory any pre-rollout workflow completes 2h after #55943 deploys.
-# In practice, wait ≥24h after #55943's prod deploy before merging this PR —
-# the same buffer the predecessor comment prescribed. The same rule applies
-# from this PR's deploy to the step-2 cleanup below.
-#
-# The binding condition is "no workflow whose history was recorded pre-#55943
-# is still replayable" — continue-as-new chains and long signaled workflows
-# can outlive execution_timeout. Verify before merging each step by running:
-#   Temporal UI → WorkflowType="process-subscription" ExecutionStatus=Running
-#                 StartTime <= <preceding-PR-prod-deploy-timestamp>
-# and confirming zero results.
-#
-# Grep `subscriptions-patched-cleanup` to find every site. Step 2 (after
-# another ≥24h drain past this deploy) deletes: the `deprecate_patch()` call,
-# `_PATCH_ID_CONTENT_SNAPSHOT_DIRECT_WRITE`,
-# `CreateExportAssetsResult.insight_snapshots`,
-# `UpdateDeliveryRecordInputs.content_snapshot`, and the shallow-merge branch
-# in `update_delivery_record` that the deprecated field fed.
-_PATCH_ID_CONTENT_SNAPSHOT_DIRECT_WRITE = "subscriptions-content-snapshot-direct-write"
-
 
 def _build_outcome_assets(
     asset_ids: list[int],
@@ -294,18 +264,10 @@ class ProcessSubscriptionWorkflow(PostHogWorkflow):
                     f"{len(non_user_errors)} export(s) failed: {', '.join(distinct_classes)}",
                 )
 
-            # Phase 2.5 (legacy) — deprecated. The pre-rollout `update_delivery_record`
-            # command at this position has drained; `deprecate_patch()` records a
-            # "deprecated" marker so any straggler replay from the original deploy
-            # reaches this point without tripping non-determinism. Next cleanup PR
-            # removes the call once the "deprecated"-marker histories have drained
-            # (verify via the Temporal UI query in the top-of-file comment block).
-            temporalio.workflow.deprecate_patch(_PATCH_ID_CONTENT_SNAPSHOT_DIRECT_WRITE)
-
             # Generate LLM change summary (best-effort, skip if not enabled).
             # Reads content_snapshot back from Postgres — persisted inline by
             # create_export_assets above (via delivery_id, or via the
-            # workflow_id fallback lookup when replaying pre-rollout workflows).
+            # workflow_id fallback lookup).
             change_summary: str | None = None
             if delivery_id is not None:
                 try:
