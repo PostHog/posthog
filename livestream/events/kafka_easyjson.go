@@ -181,14 +181,6 @@ func easyjsonB70d1354DecodeGithubComPosthogPosthogLivestreamEvents1(in *jlexer.L
 			out.Lng = float64(in.Float64())
 		case "CountryCode":
 			out.CountryCode = string(in.String())
-		case "IsBot":
-			out.IsBot = bool(in.Bool())
-		case "TrafficType":
-			out.TrafficType = string(in.String())
-		case "TrafficCategory":
-			out.TrafficCategory = string(in.String())
-		case "BotName":
-			out.BotName = string(in.String())
 		default:
 			in.SkipRecursive()
 		}
@@ -281,26 +273,6 @@ func easyjsonB70d1354EncodeGithubComPosthogPosthogLivestreamEvents1(out *jwriter
 		const prefix string = ",\"CountryCode\":"
 		out.RawString(prefix)
 		out.String(string(in.CountryCode))
-	}
-	{
-		const prefix string = ",\"IsBot\":"
-		out.RawString(prefix)
-		out.Bool(bool(in.IsBot))
-	}
-	{
-		const prefix string = ",\"TrafficType\":"
-		out.RawString(prefix)
-		out.String(string(in.TrafficType))
-	}
-	{
-		const prefix string = ",\"TrafficCategory\":"
-		out.RawString(prefix)
-		out.String(string(in.TrafficCategory))
-	}
-	{
-		const prefix string = ",\"BotName\":"
-		out.RawString(prefix)
-		out.String(string(in.BotName))
 	}
 	out.RawByte('}')
 }
