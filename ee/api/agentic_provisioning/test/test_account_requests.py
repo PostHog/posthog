@@ -18,11 +18,11 @@ from posthog.models.team.team import Team
 from posthog.models.user import User
 
 from ee.api.agentic_provisioning import AUTH_CODE_CACHE_PREFIX, PENDING_AUTH_CACHE_PREFIX
-from ee.api.agentic_provisioning.test.base import HMAC_SECRET, StripeProvisioningTestBase
+from ee.api.agentic_provisioning.test.base import HMAC_SECRET, ProvisioningTestBase
 
 
 @override_settings(STRIPE_SIGNING_SECRET=HMAC_SECRET)
-class TestAccountRequests(StripeProvisioningTestBase):
+class TestAccountRequests(ProvisioningTestBase):
     def _account_request_payload(self, **overrides):
         payload = {
             "id": "acctreq_test123",
@@ -262,7 +262,7 @@ class TestAccountRequests(StripeProvisioningTestBase):
 
 
 @override_settings(STRIPE_SIGNING_SECRET=HMAC_SECRET)
-class TestPKCEPartnerExistingUserConsent(StripeProvisioningTestBase):
+class TestPKCEPartnerExistingUserConsent(ProvisioningTestBase):
     def setUp(self):
         super().setUp()
         self.pkce_partner = OAuthApplication.objects.create(

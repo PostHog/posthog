@@ -54,15 +54,15 @@ from ee.settings import BILLING_SERVICE_URL
 
 from . import AUTH_CODE_CACHE_PREFIX, PENDING_AUTH_CACHE_PREFIX
 from .authentication import ProvisioningAuthentication
-from .region_proxy import stripe_region_proxy
-from .signature import SUPPORTED_VERSIONS, verify_api_version, verify_stripe_signature
+from .region_proxy import region_proxy
+from .signature import SUPPORTED_VERSIONS, verify_api_version, verify_provisioning_signature
 
 logger = structlog.get_logger(__name__)
 
 AUTH_CODE_TTL_SECONDS = 300
 PENDING_AUTH_TTL_SECONDS = 600
 DEEP_LINK_TTL_SECONDS = 600
-DEEP_LINK_CACHE_PREFIX = "stripe_app_deep_link:"
+DEEP_LINK_CACHE_PREFIX = "provisioning_deep_link:"
 SUPPORTED_DEEP_LINK_PURPOSES = {"dashboard"}
 DEEP_LINK_RATE_LIMIT_PREFIX = "agentic_login_rate:"
 DEEP_LINK_RATE_LIMIT_MAX_ATTEMPTS = 10
@@ -77,10 +77,10 @@ CIMD_DOMAIN_RATE_LIMIT_WINDOW_SECONDS = 3600
 
 _SAFE_STATE_RE = re.compile(r"^[A-Za-z0-9_\-]{1,256}$")
 
-STRIPE_APP_NAME = "PostHog Stripe App"
-STRIPE_PROVISIONED_PAT_LABEL_PREFIX = "Stripe Projects"
+LEGACY_STRIPE_APP_NAME = "PostHog Stripe App"
+PROVISIONED_PAT_LABEL_PREFIX = "Stripe Projects"
 
-ACCESS_TOKEN_EXPIRY_SECONDS = 365 * 24 * 3600  # keep existing expiry; reduce after verifying Stripe handles refresh
+ACCESS_TOKEN_EXPIRY_SECONDS = 365 * 24 * 3600
 PARTNER_TOKEN_EXPIRY_SECONDS = 3600
 
 
@@ -227,7 +227,7 @@ VALID_SERVICE_IDS: set[str] = {FREE_PLAN_SERVICE_ID, PAY_AS_YOU_GO_SERVICE_ID, A
 @authentication_classes([])
 @permission_classes([])
 def provisioning_health(request: Request) -> Response:
-    error = verify_stripe_signature(request)
+    error = verify_provisioning_signature(request)
     if error:
         return error
     if error := verify_api_version(request):
@@ -245,7 +245,7 @@ def provisioning_health(request: Request) -> Response:
 @authentication_classes([])
 @permission_classes([])
 def provisioning_services(request: Request) -> Response:
-    error = verify_stripe_signature(request)
+    error = verify_provisioning_signature(request)
     if error:
         return error
     if error := verify_api_version(request):
@@ -263,7 +263,7 @@ def provisioning_services(request: Request) -> Response:
 @api_view(["POST"])
 @authentication_classes([])
 @permission_classes([])
-@stripe_region_proxy(strategy="body_region")
+@region_proxy(strategy="body_region")
 def account_requests(request: Request) -> Response:
     if error := verify_api_version(request):
         return error
@@ -334,6 +334,10 @@ def account_requests(request: Request) -> Response:
             {"type": "error", "error": {"code": "unauthorized", "message": "Authentication required"}},
             status=401,
         )
+
+    if not partner:
+        if error := _verify_hmac_if_present(request):
+            return error
 
     # Stripe Projects: require stripe account if no provisioning partner identified
     if not partner and not partner_account_id:
@@ -869,7 +873,7 @@ def agentic_authorize_confirm(request: Request) -> Response:
 @api_view(["POST"])
 @authentication_classes([])
 @permission_classes([])
-@stripe_region_proxy(strategy="token_lookup")
+@region_proxy(strategy="token_lookup")
 def oauth_token(request: Request) -> Response:
     grant_type = request.data.get("grant_type", "")
 
@@ -923,6 +927,9 @@ def _exchange_authorization_code(request: Request) -> Response:
     elif not has_hmac:
         _capture_provisioning_event("token_exchange", "missing_signature", grant_type="authorization_code")
         return Response({"error": "invalid_request", "error_description": "Authentication required"}, status=401)
+    else:
+        if error := _verify_hmac_if_present(request):
+            return error
 
     cache.delete(cache_key)
 
@@ -1102,7 +1109,7 @@ def _activate_billing_with_spt(team: Team, user: User, spt_token: str) -> bool:
             )
             return False
 
-        logger.info("stripe_app.spt_billing_activated", team_id=team.id, org_id=str(team.organization_id))
+        logger.info("provisioning.spt_billing_activated", team_id=team.id, org_id=str(team.organization_id))
         return True
     except Exception:
         capture_exception(additional_properties={"team_id": team.id, "org_id": str(team.organization_id)})
@@ -1133,7 +1140,7 @@ def _create_provisioned_pat(user: User, team: Team) -> str | None:
     """Create a Personal API Key for a provisioned user and return the raw key value."""
     try:
         api_key_value = generate_random_token_personal()
-        label = f"{STRIPE_PROVISIONED_PAT_LABEL_PREFIX} - {team.name}"[:40]
+        label = f"{PROVISIONED_PAT_LABEL_PREFIX} - {team.name}"[:40]
 
         PersonalAPIKey.objects.create(
             user=user,
@@ -1173,7 +1180,7 @@ def _resolve_or_create_project_team(
         .first()
     )
     if existing:
-        return existing.team, scoped_teams
+        return _ensure_team_in_token_scopes(access_token, scoped_teams, existing.team)
 
     base_team = Team.objects.get(id=scoped_teams[0])
     project_name = configuration.get("project_name", "Default project")
@@ -1190,30 +1197,55 @@ def _resolve_or_create_project_team(
         )
     except IntegrityError:
         new_team.delete()
-        race_winner = TeamProvisioningConfig.objects.filter(stripe_project_id=project_id).select_related("team").first()
+        race_winner = (
+            TeamProvisioningConfig.objects.filter(
+                stripe_project_id=project_id,
+                team__organization_id__in=Team.objects.filter(id__in=scoped_teams).values("organization_id"),
+            )
+            .select_related("team")
+            .first()
+        )
         if race_winner:
-            return race_winner.team, scoped_teams
-        return base_team, scoped_teams
+            return _ensure_team_in_token_scopes(access_token, scoped_teams, race_winner.team)
+        raise _ProjectIdCollisionError(project_id)
 
-    _add_team_to_token_scopes(access_token, new_team.id)
+    return _ensure_team_in_token_scopes(access_token, scoped_teams, new_team)
 
-    return new_team, [*scoped_teams, new_team.id]
+
+class _ProjectIdCollisionError(Exception):
+    """Raised when a stripe_project_id is already in use by a team outside the caller's orgs."""
+
+    def __init__(self, project_id: str) -> None:
+        super().__init__(project_id)
+        self.project_id = project_id
+
+
+def _ensure_team_in_token_scopes(
+    access_token: OAuthAccessToken, scoped_teams: list[int], team: Team
+) -> tuple[Team, list[int]]:
+    if team.id in scoped_teams:
+        return team, scoped_teams
+    _add_team_to_token_scopes(access_token, team.id)
+    return team, [*scoped_teams, team.id]
 
 
 def _add_team_to_token_scopes(access_token: OAuthAccessToken, team_id: int) -> None:
-    teams = list(access_token.scoped_teams or [])
-    if team_id not in teams:
-        teams.append(team_id)
-        access_token.scoped_teams = teams
-        access_token.save(update_fields=["scoped_teams"])
+    with transaction.atomic():
+        locked_access_token = OAuthAccessToken.objects.select_for_update().get(pk=access_token.pk)
+        teams = list(locked_access_token.scoped_teams or [])
+        if team_id not in teams:
+            teams.append(team_id)
+            locked_access_token.scoped_teams = teams
+            locked_access_token.save(update_fields=["scoped_teams"])
+            access_token.scoped_teams = teams
 
-    refresh_tokens = OAuthRefreshToken.objects.filter(access_token=access_token)
-    for rt in refresh_tokens:
-        rt_teams = list(rt.scoped_teams or [])
-        if team_id not in rt_teams:
-            rt_teams.append(team_id)
-            rt.scoped_teams = rt_teams
-            rt.save(update_fields=["scoped_teams"])
+        refresh_tokens = OAuthRefreshToken.objects.select_for_update().filter(access_token=locked_access_token)
+        for rt in refresh_tokens:
+            rt_teams = list(rt.scoped_teams or [])
+            if team_id not in rt_teams:
+                rt_teams.append(team_id)
+                rt.scoped_teams = rt_teams
+                rt.save(update_fields=["scoped_teams"])
 
 
 def _get_provisioning_service_id(team: Team) -> str:
@@ -1243,7 +1275,7 @@ def _set_provisioning_service_id(team: Team, service_id: str) -> None:
 @api_view(["POST"])
 @authentication_classes([])
 @permission_classes([])
-@stripe_region_proxy(strategy="bearer_lookup")
+@region_proxy(strategy="bearer_lookup")
 def provisioning_resources_create(request: Request) -> Response:
     auth_error, user, access_token = _authenticate_bearer(request)
     if auth_error:
@@ -1269,9 +1301,19 @@ def provisioning_resources_create(request: Request) -> Response:
     configuration = request.data.get("configuration") or {}
 
     if project_id:
-        team, scoped_teams = _resolve_or_create_project_team(
-            project_id, scoped_teams, user, configuration, access_token
-        )
+        try:
+            team, scoped_teams = _resolve_or_create_project_team(
+                project_id, scoped_teams, user, configuration, access_token
+            )
+        except _ProjectIdCollisionError:
+            _capture_provisioning_event(
+                "resource_created", "error", error_code="project_id_conflict", project_id=project_id
+            )
+            return _error_response(
+                "project_id_conflict",
+                "Project ID already linked to another organization",
+                status=409,
+            )
     else:
         team_id = scoped_teams[0]
         try:
@@ -1355,7 +1397,7 @@ def provisioning_resources_create(request: Request) -> Response:
 @api_view(["GET"])
 @authentication_classes([])
 @permission_classes([])
-@stripe_region_proxy(strategy="bearer_lookup")
+@region_proxy(strategy="bearer_lookup")
 def provisioning_resource_detail(request: Request, resource_id: str) -> Response:
     return _resolve_resource_response(request, resource_id)
 
@@ -1368,7 +1410,7 @@ def provisioning_resource_detail(request: Request, resource_id: str) -> Response
 @api_view(["POST"])
 @authentication_classes([])
 @permission_classes([])
-@stripe_region_proxy(strategy="bearer_lookup")
+@region_proxy(strategy="bearer_lookup")
 def provisioning_rotate_credentials(request: Request, resource_id: str) -> Response:
     auth_error, user, access_token = _authenticate_bearer(request)
     if auth_error:
@@ -1438,13 +1480,13 @@ def provisioning_rotate_credentials(request: Request, resource_id: str) -> Respo
 @api_view(["POST"])
 @authentication_classes([])
 @permission_classes([])
-@stripe_region_proxy(strategy="bearer_lookup")
+@region_proxy(strategy="bearer_lookup")
 def provisioning_update_service(request: Request, resource_id: str) -> Response:
     auth_error, user, access_token = _authenticate_bearer(request)
     if auth_error:
         return auth_error
 
-    error = verify_stripe_signature(request)
+    error = verify_provisioning_signature(request)
     if error:
         return error
     if error := verify_api_version(request):
@@ -1540,7 +1582,7 @@ def provisioning_update_service(request: Request, resource_id: str) -> Response:
 @api_view(["POST"])
 @authentication_classes([])
 @permission_classes([])
-@stripe_region_proxy(strategy="bearer_lookup")
+@region_proxy(strategy="bearer_lookup")
 def provisioning_resource_remove(request: Request, resource_id: str) -> Response:
     auth_error, user, access_token = _authenticate_bearer(request)
     if auth_error:
@@ -1688,7 +1730,7 @@ def _resolve_resource_response(request: Request, resource_id: str) -> Response:
 @api_view(["POST"])
 @authentication_classes([])
 @permission_classes([])
-@stripe_region_proxy(strategy="bearer_lookup")
+@region_proxy(strategy="bearer_lookup")
 def deep_links(request: Request) -> Response:
     auth_error, user, access_token = _authenticate_bearer(request)
     if auth_error:
@@ -1868,7 +1910,7 @@ def _verify_hmac_if_present(request: Request) -> Response | None:
     For non-HMAC partners (wizard, Bearer-only), skip HMAC and rely on Bearer auth alone.
     """
     if request.META.get("HTTP_STRIPE_SIGNATURE"):
-        return verify_stripe_signature(request)
+        return verify_provisioning_signature(request)
     return None
 
 
@@ -1902,7 +1944,7 @@ def _validate_scopes(scopes: list[str]) -> list[str] | None:
 
 
 def _error_response(code: str, message: str, resource_id: str = "", status: int = 400) -> Response:
-    logger.warning("stripe_app.error_response", code=code, message=message, resource_id=resource_id, status=status)
+    logger.warning("provisioning.error_response", code=code, message=message, resource_id=resource_id, status=status)
     return Response({"status": "error", "id": resource_id, "error": {"code": code, "message": message}}, status=status)
 
 
@@ -1941,29 +1983,27 @@ def _authenticate_bearer(request: Request) -> tuple[Response | None, Any, Any]:
             )
         return None, access_token.user, access_token
 
-    # Fall back to Stripe Projects HMAC check
-    from .authentication import _is_stripe_oauth_app
+    # Legacy fallback: accept tokens from the Stripe Projects app by client_id
+    if app and app.client_id == settings.STRIPE_POSTHOG_OAUTH_CLIENT_ID:
+        return None, access_token.user, access_token
 
-    if not _is_stripe_oauth_app(access_token.application):
-        return (_error_response("unauthorized", "Authentication failed", status=401), None, None)
-
-    return None, access_token.user, access_token
+    return (_error_response("unauthorized", "Authentication failed", status=401), None, None)
 
 
-def _get_stripe_oauth_app():
+def _get_legacy_stripe_oauth_app():
     if settings.STRIPE_POSTHOG_OAUTH_CLIENT_ID:
         try:
             return OAuthApplication.objects.get(client_id=settings.STRIPE_POSTHOG_OAUTH_CLIENT_ID)
         except OAuthApplication.DoesNotExist:
             logger.warning(
-                "stripe_app.oauth_app.client_id_not_found",
+                "provisioning.oauth_app.client_id_not_found",
                 client_id=settings.STRIPE_POSTHOG_OAUTH_CLIENT_ID,
             )
 
     from oauthlib.common import generate_token
 
     return OAuthApplication.objects.create(
-        name=STRIPE_APP_NAME,
+        name=LEGACY_STRIPE_APP_NAME,
         client_id=settings.STRIPE_POSTHOG_OAUTH_CLIENT_ID or generate_token(),
         client_secret="",
         client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
@@ -2006,7 +2046,7 @@ def _get_oauth_app_for_code(code_data: dict):
     """Resolve the OAuthApplication for a token exchange.
 
     If the auth code was created by a provisioning partner, use that app.
-    Otherwise fall back to the Stripe Projects app lookup.
+    Otherwise fall back to the legacy Stripe Projects app lookup.
     """
     partner_id = code_data.get("partner_id", "")
     if partner_id:
@@ -2015,7 +2055,7 @@ def _get_oauth_app_for_code(code_data: dict):
         except OAuthApplication.DoesNotExist:
             pass
 
-    return _get_stripe_oauth_app()
+    return _get_legacy_stripe_oauth_app()
 
 
 def _region_to_host(region: str) -> str:
