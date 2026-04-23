@@ -1399,6 +1399,18 @@ class TestMergeBaseBaselineHealing:
         assert merged == {"A": "h1", "B": "h2", "C": "h3"}
         assert healed == 2
 
+    def test_does_not_heal_identifiers_removed_from_current_run(self, repo, mocker):
+        branch_baseline = {"A": "h1"}
+        merge_base_baseline = {"A": "h1", "Removed": "h2"}
+        self._mock_github(mocker, branch_baseline=branch_baseline, merge_base_baseline=merge_base_baseline)
+
+        merged, healed = logic._resolve_baselines_with_merge_base(
+            repo, "storybook", "my-branch", current_identifiers={"A"}
+        )
+
+        assert merged == {"A": "h1"}
+        assert healed == 0
+
     def test_branch_wins_on_conflict(self, repo, mocker):
         branch_baseline = {"A": "branch_hash"}
         merge_base_baseline = {"A": "master_hash", "B": "h2"}
@@ -1536,3 +1548,25 @@ class TestMergeBaseBaselineHealing:
         snapshot = run.snapshots.get(identifier="flaky")
         assert snapshot.result == SnapshotResult.CHANGED
         assert snapshot.baseline_hash == "master_hash"
+
+    def test_complete_run_does_not_reintroduce_removed_story_from_merge_base(self, repo, mocker):
+        branch_baseline = {"kept": "h1"}
+        merge_base_baseline = {"kept": "h1", "RemovedStory": "h2"}
+        self._mock_github(mocker, branch_baseline=branch_baseline, merge_base_baseline=merge_base_baseline)
+
+        logic.get_or_create_artifact(repo_id=repo.id, content_hash="h1", storage_path="p/h1")
+        run, _ = logic.create_run(
+            repo_id=repo.id,
+            team_id=repo.team_id,
+            run_type=RunType.STORYBOOK,
+            commit_sha="abc",
+            branch="my-branch",
+            pr_number=1,
+            snapshots=[{"identifier": "kept", "content_hash": "h1"}],
+        )
+        mocker.patch("products.visual_review.backend.tasks.tasks.process_run_diffs.delay")
+
+        completed = logic.complete_run(run.id)
+
+        assert completed.removed_count == 0
+        assert set(run.snapshots.values_list("identifier", flat=True)) == {"kept"}

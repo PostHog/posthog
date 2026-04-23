@@ -427,14 +427,21 @@ def _resolve_baselines(repo, run_type: str, branch: str) -> dict[str, str]:
     return _resolve_baselines_at_ref(repo, github, run_type, branch)
 
 
-def _resolve_baselines_with_merge_base(repo: Repo, run_type: str, branch: str) -> tuple[dict[str, str], int]:
+def _resolve_baselines_with_merge_base(
+    repo: Repo, run_type: str, branch: str, current_identifiers: set[str] | None = None
+) -> tuple[dict[str, str], int]:
     """Fetch branch baseline merged with merge-base baseline.
 
     The branch baseline tracks approvals. The merge-base baseline
     fills in entries that were lost during a rebase (the bot commit
     rewrites the full file, and git rebase replays it destructively).
 
-    Branch entries win on conflict so approvals are preserved.
+    Branch entries win on conflict so approvals are preserved. When
+    ``current_identifiers`` is provided, only identifiers still present
+    in the current run are healed from the merge-base. This avoids
+    reintroducing stories that were intentionally removed and already
+    committed out of the branch baseline.
+
     Returns (merged_baseline, healed_count).
     """
     try:
@@ -469,7 +476,12 @@ def _resolve_baselines_with_merge_base(repo: Repo, run_type: str, branch: str) -
         return branch_baseline, 0
 
     healed = set(merge_base_baseline) - set(branch_baseline)
-    merged = {**merge_base_baseline, **branch_baseline}
+    if current_identifiers is not None:
+        healed &= current_identifiers
+
+    merged = dict(branch_baseline)
+    for identifier in healed:
+        merged[identifier] = merge_base_baseline[identifier]
 
     if healed:
         logger.info(
@@ -715,16 +727,21 @@ def complete_run(run_id: UUID) -> Run:
 
     repo = run.repo
 
+    run_identifiers = set(run.snapshots.using(WRITER_DB).values_list("identifier", flat=True))
+
     # Fetch baseline merged with merge-base to heal rebase-induced drift.
     # Branch baseline tracks approvals; merge-base fills entries lost when
-    # git rebase replays a full-file bot commit destructively.
-    baseline, healed_count = _resolve_baselines_with_merge_base(repo, run.run_type, run.branch)
+    # git rebase replays a full-file bot commit destructively. Only heal
+    # identifiers that still exist in this run so removed stories stay removed
+    # after their baseline cleanup commit lands.
+    baseline, healed_count = _resolve_baselines_with_merge_base(
+        repo, run.run_type, run.branch, current_identifiers=run_identifiers
+    )
     if healed_count:
         run.metadata["baseline_healed_from_merge_base"] = healed_count
         run.save(using=WRITER_DB, update_fields=["metadata"])
 
     # Pre-load tolerated hashes scoped to this run's identifiers and baseline hashes
-    run_identifiers = set(run.snapshots.using(WRITER_DB).values_list("identifier", flat=True))
     baseline_hashes_in_use = set(baseline.values())
     tolerated_lookup: dict[tuple[str, str, str], ToleratedHash] = {}
     if run_identifiers and baseline_hashes_in_use:

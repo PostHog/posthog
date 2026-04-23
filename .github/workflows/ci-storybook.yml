@@ -579,8 +579,10 @@ jobs:
                   # Fetch the *current* tip of the base branch, not pull_request.base.sha —
                   # base.sha is captured at webhook time and goes stale if the branch later
                   # merges a newer master, which makes `base.sha...HEAD` balloon to include
-                  # every merged-in master change.
-                  git fetch --no-tags --depth=50 origin "$BASE_REF"
+                  # every merged-in master change. Avoid a shallow fetch here: long-lived
+                  # PR branches can have a merge-base older than an arbitrary depth cutoff,
+                  # which makes `origin/$BASE_REF...HEAD` fail with "no merge base".
+                  git fetch --no-tags origin "$BASE_REF"
                   echo "### Changed files" >&2
                   git diff --name-only "origin/$BASE_REF"...HEAD >&2
 
