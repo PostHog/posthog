@@ -64,11 +64,9 @@ Example: "Your Stripe data isn't in PostHog yet. If you connect a Stripe source,
 
 ### 5. Offer to set up the source
 
-If the user wants to proceed, switch to the `setting-up-data-warehouse-source` workflow:
-
-1. Ask for their credentials (API key for SaaS, connection details for databases)
-2. Validate and preview with `posthog:external-data-sources-db-schema`
-3. Create the source with `posthog:external-data-sources-create`
+If the user wants to proceed, hand off to the **`setting-up-a-data-warehouse-source`** skill — it covers the full
+three-step flow (wizard → db-schema → create), sync-type selection, webhook registration, and prefix guidance.
+Do not duplicate that workflow here.
 
 ### 6. Show what's possible after import
 
@@ -93,6 +91,8 @@ Common join patterns:
 - `posthog:external-data-schemas-list`: Check what tables are already imported
 - `posthog:read-data-warehouse-schema`: See all queryable tables including views
 - `posthog:external-data-sources-wizard`: Get available source types
-- `posthog:external-data-sources-db-schema`: Validate credentials and preview tables
-- `posthog:external-data-sources-create`: Create the source connection
 - `posthog:execute-sql`: Run queries to demonstrate what's possible
+
+## Related skills
+
+- **`setting-up-a-data-warehouse-source`**: Full source creation workflow — hand off here once the user decides to connect a source
