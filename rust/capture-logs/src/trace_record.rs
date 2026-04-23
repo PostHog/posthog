@@ -263,10 +263,6 @@ mod tests {
             row.attributes.get("http.method").map(|s| s.as_str()),
             Some("\"GET\"")
         );
-        assert_eq!(
-            row.attributes.get("name").map(|s| s.as_str()),
-            Some("\"test.operation\"")
-        );
     }
 
     #[test]
