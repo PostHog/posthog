@@ -2,6 +2,7 @@ from posthog.schema import EntityType
 
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr
+from posthog.hogql.property import property_to_expr
 
 from posthog.hogql_queries.insights.retention.retention_base_query_builder import RetentionBaseQueryBuilder
 from posthog.queries.breakdown_props import ALL_USERS_COHORT_ID
@@ -36,10 +37,186 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
         start_interval_index_filter: int | None = None,
         selected_breakdown_value: str | list[str] | int | None = None,
     ) -> ast.SelectQuery:
-        return self.build_base_query_legacy(
-            start_interval_index_filter=start_interval_index_filter,
-            selected_breakdown_value=selected_breakdown_value,
+        start_entity_is_dwh = self.start_event.type == EntityType.DATA_WAREHOUSE
+
+        start_actor_column_name = (
+            self.start_event.aggregation_target_field if start_entity_is_dwh else self.aggregation_target_events_column
         )
+        assert start_actor_column_name
+        start_actor_field = ast.Field(chain=[start_actor_column_name])
+
+        start_timestamp_column_name = self.start_event.timestamp_field if start_entity_is_dwh else "timestamp"
+        assert start_timestamp_column_name
+        start_timestamp_field = ast.Field(chain=[start_timestamp_column_name])
+
+        start_of_interval_sql = self.query_date_range.get_start_of_interval_hogql(source=start_timestamp_field)
+        start_entity_expr = (
+            property_to_expr(self.start_event.properties, self.team)
+            if start_entity_is_dwh and self.start_event.properties
+            else (ast.Constant(value=True) if start_entity_is_dwh else self.start_entity_expr)
+        )
+        start_event_timestamps = parse_expr(
+            """
+            arraySort(
+                groupUniqArrayIf(
+                    {start_of_interval_sql},
+                    {start_entity_expr} and
+                    {filter_timestamp}
+                )
+            )
+            """,
+            {
+                "start_of_interval_sql": start_of_interval_sql,
+                "start_entity_expr": start_entity_expr,
+                "filter_timestamp": self.events_timestamp_filter(field=start_timestamp_field),
+            },
+        )
+
+        start_table_name = self.start_event.table_name if start_entity_is_dwh else "events"
+        start_where_expr = None if start_entity_is_dwh else ast.And(exprs=event_filters)
+
+        start_event_query = ast.SelectQuery(
+            select=[
+                ast.Alias(alias="actor_id", expr=start_actor_field),
+                ast.Alias(alias="start_event_timestamps", expr=start_event_timestamps),
+                ast.Alias(alias="return_event_timestamps", expr=ast.Array(exprs=[])),
+            ],
+            select_from=ast.JoinExpr(table=ast.Field(chain=[start_table_name])),
+            where=start_where_expr,
+            group_by=[ast.Field(chain=["actor_id"])],
+        )
+
+        return_entity_is_dwh = self.return_event.type == EntityType.DATA_WAREHOUSE
+
+        return_actor_column_name = (
+            self.return_event.aggregation_target_field
+            if return_entity_is_dwh
+            else self.aggregation_target_events_column
+        )
+        return_actor_field = ast.Field(chain=[return_actor_column_name])
+
+        return_timestamp_column_name = self.return_event.timestamp_field if return_entity_is_dwh else "timestamp"
+        return_timestamp_field = ast.Field(chain=[return_timestamp_column_name])
+        return_start_of_interval_sql = self.query_date_range.get_start_of_interval_hogql(source=return_timestamp_field)
+
+        return_table_name = self.return_event.table_name if return_entity_is_dwh else "events"
+        return_where_expr = None if return_entity_is_dwh else ast.And(exprs=event_filters)
+
+        return_entity_expr = (
+            property_to_expr(self.return_event.properties, self.team)
+            if return_entity_is_dwh and self.return_event.properties
+            else (ast.Constant(value=True) if return_entity_is_dwh else self.return_entity_expr)
+        )
+        return_event_timestamps = self._get_return_event_timestamps_expr(
+            minimum_occurrences=minimum_occurrences,
+            start_of_interval_sql=return_start_of_interval_sql,
+            return_entity_expr=return_entity_expr,
+            timestamp_field=return_timestamp_field,
+        )
+
+        return_event_query = ast.SelectQuery(
+            select=[
+                ast.Alias(alias="actor_id", expr=return_actor_field),
+                ast.Alias(alias="start_event_timestamps", expr=ast.Array(exprs=[])),
+                ast.Alias(alias="return_event_timestamps", expr=return_event_timestamps),
+            ],
+            select_from=ast.JoinExpr(table=ast.Field(chain=[return_table_name])),
+            where=return_where_expr,
+            group_by=[ast.Field(chain=["actor_id"])],
+        )
+
+        retention_events = ast.SelectSetQuery.create_from_queries([start_event_query, return_event_query], "UNION ALL")
+
+        base_query = ast.SelectQuery(
+            select=[
+                ast.Alias(alias="actor_id", expr=ast.Field(chain=["retention_events", "actor_id"])),
+                ast.Alias(
+                    alias="start_event_timestamps",
+                    expr=parse_expr(
+                        """
+                        arraySort(
+                            arrayDistinct(
+                                arrayFlatten(
+                                    groupArrayIf(
+                                        start_event_timestamps,
+                                        isNotNull(start_event_timestamps)
+                                    )
+                                )
+                            )
+                        )
+                        """
+                    ),
+                ),
+                date_range_expr,
+                ast.Alias(
+                    alias="return_event_timestamps",
+                    expr=parse_expr(
+                        """
+                        arraySort(
+                            arrayDistinct(
+                                arrayFlatten(
+                                    groupArrayIf(
+                                        return_event_timestamps,
+                                        isNotNull(return_event_timestamps)
+                                    )
+                                )
+                            )
+                        )
+                        """
+                    ),
+                ),
+                ast.Alias(
+                    alias="start_interval_index",
+                    expr=parse_expr(
+                        """
+                        arrayJoin(
+                            arrayFilter(
+                                x -> x > -1,
+                                arrayMap(
+                                (interval_index, interval_date) ->
+                                    if(
+                                        {is_valid_start_interval},
+                                        interval_index - 1,
+                                        -1
+                                    ),
+                                    arrayEnumerate(date_range),
+                                    date_range
+                                )
+                            )
+                        )
+                    """,
+                        {"is_valid_start_interval": is_valid_start_interval},
+                    ),
+                ),
+                ast.Alias(alias="intervals_from_base", expr=intervals_from_base_expr),
+            ],
+            select_from=ast.JoinExpr(table=retention_events, alias="retention_events"),
+            group_by=[ast.Field(chain=["retention_events", "actor_id"])],
+            having=ast.And(
+                exprs=[
+                    (
+                        ast.CompareOperation(
+                            op=ast.CompareOperationOp.Eq,
+                            left=ast.Field(chain=["start_interval_index"]),
+                            right=ast.Constant(value=start_interval_index_filter),
+                        )
+                        if start_interval_index_filter is not None
+                        else ast.Constant(value=1)
+                    ),
+                    (
+                        ast.CompareOperation(
+                            op=ast.CompareOperationOp.Eq,
+                            left=ast.Field(chain=["breakdown_value"]),
+                            right=ast.Constant(value=selected_breakdown_value),
+                        )
+                        if selected_breakdown_value is not None
+                        else ast.Constant(value=1)
+                    ),
+                ]
+            ),
+        )
+
+        return base_query
 
     # Original version of the fixed interval query.
     def build_base_query_legacy(
