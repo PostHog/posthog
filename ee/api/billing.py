@@ -536,6 +536,7 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         res = billing_manager.coupons_overview(organization)
         return Response(res, status=status.HTTP_200_OK)
 
+    @extend_schema(parameters=[BillingUsageRequestSerializer])
     @action(
         methods=["GET"],
         detail=False,
@@ -572,6 +573,7 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             else:
                 raise
 
+    @extend_schema(parameters=[BillingUsageRequestSerializer])
     @action(
         methods=["GET"],
         detail=False,

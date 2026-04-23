@@ -747,6 +747,51 @@
             "readOnlyHint": false
         }
     },
+    "billing-list": {
+        "description": "Fetch the organization's current billing state: subscribed products and addons, available features, plan tier, usage summary against limits, spending limits, and trial status. Use this to understand what the customer is paying for, which features they have access to, or aggregate usage for the current billing period. For time-series breakdowns of usage call billing-usage-retrieve; for cost (spend) breakdowns call billing-spend-retrieve.",
+        "category": "Billing",
+        "feature": "billing",
+        "summary": "Get billing overview",
+        "title": "Get billing overview",
+        "required_scopes": ["billing:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "billing-spend-retrieve": {
+        "description": "Fetch time-series spend (cost in USD) breakdowns for the organization across a date range. Same dimensional parameters as billing-usage-retrieve, but values are dollar amounts rather than usage volumes. Requires org admin-level access. Use this to investigate cost spikes, compare spend across periods, or attribute spend to specific products or teams.",
+        "category": "Billing",
+        "feature": "billing",
+        "summary": "Get spend breakdown",
+        "title": "Get spend breakdown",
+        "required_scopes": ["billing:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "billing-usage-retrieve": {
+        "description": "Fetch time-series usage breakdowns for the organization across a date range. Supports per-team (project) and per-usage-type dimensions. Requires org admin-level access. Use this to investigate usage spikes, compare periods, or attribute usage to specific projects. For a single-snapshot aggregate view call billing-list; for cost (spend) breakdowns call billing-spend-retrieve.",
+        "category": "Billing",
+        "feature": "billing",
+        "summary": "Get usage breakdown",
+        "title": "Get usage breakdown",
+        "required_scopes": ["billing:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "cdp-function-templates-list": {
         "description": "List available function templates. Templates are pre-built function configurations for common integrations (Slack, webhooks, email, etc.) and transformations (GeoIP, etc.). Filter by type (destination, site_destination, site_app, transformation, etc.) via the 'type' query parameter. Results are sorted by popularity (number of active functions using each template).",
         "category": "Function templates",

@@ -36011,6 +36011,60 @@ export namespace Schemas {
     offset?: number;
     };
 
+    export type BillingSpendRetrieveParams = {
+    /**
+     * @nullable
+     */
+    breakdowns?: string | null;
+    /**
+     * @nullable
+     */
+    end_date?: string | null;
+    /**
+     * @nullable
+     */
+    interval?: string | null;
+    /**
+     * @nullable
+     */
+    start_date?: string | null;
+    /**
+     * @nullable
+     */
+    team_ids?: string | null;
+    /**
+     * @nullable
+     */
+    usage_types?: string | null;
+    };
+
+    export type BillingUsageRetrieveParams = {
+    /**
+     * @nullable
+     */
+    breakdowns?: string | null;
+    /**
+     * @nullable
+     */
+    end_date?: string | null;
+    /**
+     * @nullable
+     */
+    interval?: string | null;
+    /**
+     * @nullable
+     */
+    start_date?: string | null;
+    /**
+     * @nullable
+     */
+    team_ids?: string | null;
+    /**
+     * @nullable
+     */
+    usage_types?: string | null;
+    };
+
     export type EnvironmentsAlertsListParams = {
     /**
      * Number of results to return per page.

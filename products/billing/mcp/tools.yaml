@@ -6,11 +6,29 @@
 # All other fields (title, description, enrich_url, etc.) are yours to configure.
 category: Billing
 feature: billing
-url_prefix: /billing
+url_prefix: /organization/billing
 tools:
     billing-list:
         operation: billing_list
-        enabled: false
+        enabled: true
+        scopes:
+            - billing:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get billing overview
+        description: >
+            Fetch the organization's current billing state: subscribed products and addons,
+            available features, plan tier, usage summary against limits, spending limits, and
+            trial status. Use this to understand what the customer is paying for, which features
+            they have access to, or aggregate usage for the current billing period. For
+            time-series breakdowns of usage call billing-usage-retrieve; for cost (spend)
+            breakdowns call billing-spend-retrieve.
+        url_prefix: /organization/billing/overview
+        exclude_params:
+            - limit
+            - offset
     billing-partial-update:
         operation: billing_partial_update
         enabled: false
@@ -49,7 +67,34 @@ tools:
         enabled: false
     billing-spend-retrieve:
         operation: billing_spend_retrieve
-        enabled: false
+        enabled: true
+        scopes:
+            - billing:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get spend breakdown
+        description: >
+            Fetch time-series spend (cost in USD) breakdowns for the organization across a date
+            range. Same dimensional parameters as billing-usage-retrieve, but values are dollar
+            amounts rather than usage volumes. Requires org admin-level access. Use this to
+            investigate cost spikes, compare spend across periods, or attribute spend to specific
+            products or teams.
+        url_prefix: /organization/billing/spend
+        param_overrides:
+            start_date:
+                description: Start date (YYYY-MM-DD), or "all" for earliest available data.
+            end_date:
+                description: End date (YYYY-MM-DD), inclusive.
+            usage_types:
+                description: Comma-separated usage types to include. Omit for all types.
+            team_ids:
+                description: Comma-separated team (project) IDs to filter by. Omit for all teams in the org.
+            breakdowns:
+                description: Comma-separated dimensions to break down by (e.g. "type", "team"). Omit for a single aggregate series.
+            interval:
+                description: Time bucket size, one of "day" or "week". Default "day".
     billing-startups-apply-create:
         operation: billing_startups_apply_create
         enabled: false
@@ -64,4 +109,36 @@ tools:
         enabled: false
     billing-usage-retrieve:
         operation: billing_usage_retrieve
-        enabled: false
+        enabled: true
+        scopes:
+            - billing:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get usage breakdown
+        description: >
+            Fetch time-series usage breakdowns for the organization across a date range. Supports
+            per-team (project) and per-usage-type dimensions. Requires org admin-level access.
+            Use this to investigate usage spikes, compare periods, or attribute usage to specific
+            projects. For a single-snapshot aggregate view call billing-list; for cost (spend)
+            breakdowns call billing-spend-retrieve.
+        url_prefix: /organization/billing/usage
+        param_overrides:
+            start_date:
+                description: Start date (YYYY-MM-DD), or "all" for earliest available data.
+            end_date:
+                description: End date (YYYY-MM-DD), inclusive.
+            usage_types:
+                description: >
+                    Comma-separated usage types to include (e.g. events, recordings, exceptions,
+                    survey_responses, rows_synced, cdp_trigger_events, rows_exported,
+                    feature_flag_requests, api_queries_read_bytes, llm_events, ai_credits,
+                    workflow_emails, workflow_destinations_dispatched, logs_mb_ingested). Omit for
+                    all types.
+            team_ids:
+                description: Comma-separated team (project) IDs to filter by. Omit for all teams in the org.
+            breakdowns:
+                description: Comma-separated dimensions to break down by (e.g. "type", "team"). Omit for a single aggregate series.
+            interval:
+                description: Time bucket size, one of "day" or "week". Default "day".
