@@ -79,10 +79,10 @@ def execute_query(
     metrics_file: Path,
     stdout_file: Path,
     primary_metric: str = "latency_ms",
-    # Mirror the proxy's `max_execution_time` — the transport should outlive
-    # the server-side cap so an overrun surfaces as a CH error response, not
-    # a client-side socket timeout that leaves the query running on the server.
-    timeout_s: int = 300,
+    # Slightly longer than the proxy's `max_execution_time = 300`, so an
+    # overrun surfaces as a CH error response rather than a client-side
+    # socket timeout that leaves the query running on the server.
+    timeout_s: int = 310,
 ) -> None:
     """Run ``sql_file`` through ``transport`` and write the artifact trio.
 
