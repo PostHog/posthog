@@ -16,43 +16,32 @@ export interface AutocaptureInteraction {
  *  interactions (as the user keeps typing), we surface them. */
 export const MAX_SHORTCUT_MATCHES = 3
 
-/** Extra keywords a user might type for each `$event_type`. Purely additive — the list always
- *  includes the eventType itself and its derived label, so entries here are synonyms for better
- *  discovery (e.g. typing `form` matches `submit`). Omit an eventType to fall back to just
- *  eventType + derived label. */
-const KEYWORD_SYNONYMS: Record<string, string[]> = {
-    click: ['clicked', 'tap', 'tapped'],
-    change: ['changed', 'typed'],
-    submit: ['submitted', 'form'],
-    touch: ['touched'],
-    scroll: ['scrolled'],
-    toggle: ['toggled', 'switch', 'switched'],
-    swipe: ['swiped'],
-    long_press: ['long press', 'press'],
-    pinch: ['pinched'],
-    pan: ['panned'],
-    rotation: ['rotate', 'rotated'],
-    value_changed: ['value change', 'value changed'],
-    menu_action: ['menu', 'menu action'],
-}
+/** Tokens shorter than this are skipped when deriving keywords from verbs (drops filler words
+ *  like "a", "in" which would flood matches on common letters). */
+const MIN_KEYWORD_TOKEN_LENGTH = 3
 
 function formatLabel(eventType: string): string {
     const spaced = eventType.replace(/_/g, ' ')
     return spaced.charAt(0).toUpperCase() + spaced.slice(1)
 }
 
-function buildKeywords(eventType: string): string[] {
+/** Keywords for an interaction are derived from the canonical sources: the `$event_type` key
+ *  itself, its display label, and the user-facing verb in `eventTypeToVerb` (both as a whole
+ *  phrase and split into word tokens). No hand-maintained synonym list — any new entry added
+ *  to `eventTypeToVerb` automatically gets sensible search terms. */
+function deriveKeywords(eventType: string): string[] {
     const label = formatLabel(eventType).toLowerCase()
-    return [...new Set([eventType, label, ...(KEYWORD_SYNONYMS[eventType] ?? [])])]
+    const verb = eventTypeToVerb[eventType].toLowerCase()
+    const verbTokens = verb.split(/\s+/).filter((token) => token.length >= MIN_KEYWORD_TOKEN_LENGTH)
+    return [...new Set([eventType, label, verb, ...verbTokens])]
 }
 
 /** Interactions derived from the canonical `eventTypeToVerb` map in `lib/utils.tsx`. Adding a new
- *  `$event_type` to that map automatically surfaces it here with a sensible default label and
- *  matching keywords (eventType + label). Extra user-facing synonyms live in `KEYWORD_SYNONYMS`. */
+ *  `$event_type` there automatically surfaces a shortcut with sensible keywords. */
 export const AUTOCAPTURE_INTERACTIONS: AutocaptureInteraction[] = Object.keys(eventTypeToVerb).map((eventType) => ({
     eventType,
     label: formatLabel(eventType),
-    keywords: buildKeywords(eventType),
+    keywords: deriveKeywords(eventType),
 }))
 
 function matchesKeyword(interaction: AutocaptureInteraction, trimmedQuery: string): boolean {

@@ -804,18 +804,6 @@ describe('infiniteListLogic', () => {
                 })
         })
 
-        it('returns no shortcut items for ambiguous prefixes that would match too many interactions', async () => {
-            // 's' matches submit/scroll/swipe/toggle (via switch) — suppressed until narrowed.
-            const listLogic = mountEventsLogic(true)
-
-            await expectLogic(listLogic, () => listLogic.actions.setSearchQuery('s'))
-                .toDispatchActions(['setSearchQuery', 'loadRemoteItems', 'loadRemoteItemsSuccess'])
-                .toFinishAllListeners()
-                .toMatchValues({
-                    keywordShortcutItems: [],
-                })
-        })
-
         it('returns no shortcut items when the search query does not match a keyword', async () => {
             const listLogic = mountEventsLogic(true)
 

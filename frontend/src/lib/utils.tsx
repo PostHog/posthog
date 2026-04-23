@@ -1043,7 +1043,7 @@ export function eventToDescription(
 // $event_type to verb map
 export const eventTypeToVerb: { [key: string]: string } = {
     click: 'clicked',
-    change: 'typed something into',
+    change: 'changed',
     submit: 'submitted',
     touch: 'touched a',
     value_changed: 'changed value in',

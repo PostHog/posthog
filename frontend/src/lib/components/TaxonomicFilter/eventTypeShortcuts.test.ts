@@ -21,34 +21,26 @@ describe('event type shortcuts', () => {
         })
 
         it.each([
+            // direct eventType matches
             { searchQuery: 'click', matches: ['click'] },
-            { searchQuery: 'clicked', matches: ['click'] },
-            { searchQuery: 'tap', matches: ['click'] },
             { searchQuery: 'submit', matches: ['submit'] },
-            { searchQuery: 'form', matches: ['submit'] },
-            { searchQuery: 'chan', matches: ['change'] },
+            { searchQuery: 'scroll', matches: ['scroll'] },
+            { searchQuery: 'pinch', matches: ['pinch'] },
+            // past-tense verb matches (from eventTypeToVerb values)
+            { searchQuery: 'clicked', matches: ['click'] },
+            { searchQuery: 'submitted', matches: ['submit'] },
+            { searchQuery: 'rotated', matches: ['rotation'] },
+            { searchQuery: 'long pressed', matches: ['long_press'] },
+            // prefix narrowing to a single interaction
             { searchQuery: 'scr', matches: ['scroll'] },
             { searchQuery: 'long', matches: ['long_press'] },
-            { searchQuery: 'cl', matches: ['click'] }, // 2 chars narrows to a single interaction
-            { searchQuery: 'ch', matches: ['change'] },
+            { searchQuery: 'pin', matches: ['pinch'] },
         ])('maps "$searchQuery" to shortcut(s) for $matches', ({ searchQuery, matches }) => {
             expect(buildAutocaptureSeriesShortcuts(searchQuery).map((s) => s.filterValue)).toEqual(matches)
         })
 
         it('matching is case-insensitive', () => {
             expect(buildAutocaptureSeriesShortcuts('CLICK')).toEqual(buildAutocaptureSeriesShortcuts('click'))
-        })
-
-        it('suppresses shortcuts when the query matches too many distinct interactions', () => {
-            // 's' prefix hits submit, scroll, swipe, and toggle (via 'switch') — too ambiguous.
-            const shortcuts = buildAutocaptureSeriesShortcuts('s')
-            expect(shortcuts).toEqual([])
-        })
-
-        it('re-surfaces shortcuts as the user narrows the query', () => {
-            expect(buildAutocaptureSeriesShortcuts('s')).toEqual([])
-            expect(buildAutocaptureSeriesShortcuts('sw').length).toBeGreaterThan(0) // swipe + toggle-via-switch
-            expect(buildAutocaptureSeriesShortcuts('swipe').map((s) => s.filterValue)).toEqual(['swipe'])
         })
 
         it('includes $autocapture as eventName and labels with "(autocapture)"', () => {
@@ -60,6 +52,11 @@ describe('event type shortcuts', () => {
                 propertyKey: '$event_type',
                 eventName: '$autocapture',
             })
+        })
+
+        it('change interaction matches both "change" and "changed" (the verb)', () => {
+            expect(buildAutocaptureSeriesShortcuts('change').map((s) => s.filterValue)).toContain('change')
+            expect(buildAutocaptureSeriesShortcuts('changed').map((s) => s.filterValue)).toContain('change')
         })
     })
 
@@ -74,24 +71,10 @@ describe('event type shortcuts', () => {
             })
             expect(clickShortcut.eventName).toBeUndefined()
         })
-
-        it('honours the same ambiguity cap as the series variant', () => {
-            // 't' is ambiguous (click-via-tap, touch, toggle, change-via-typed) — suppressed
-            expect(buildEventTypeFilterShortcuts('t')).toEqual([])
-            // 'tap' narrows to click — surfaces
-            expect(buildEventTypeFilterShortcuts('tap')).toHaveLength(1)
-        })
     })
 
     describe('ambiguity cap enforcement', () => {
-        it.each([
-            ['s', 'submit/scroll/swipe/toggle-via-switch'],
-            ['t', 'click-via-tap/touch/toggle/change-via-typed'],
-        ])('single-char "%s" (%s) matches too many interactions and is suppressed', (query) => {
-            expect(buildAutocaptureSeriesShortcuts(query).length).toBeLessThanOrEqual(0)
-        })
-
-        it('never surfaces more than MAX_SHORTCUT_MATCHES shortcuts for any query', () => {
+        it('never surfaces more than MAX_SHORTCUT_MATCHES shortcuts for any possible prefix', () => {
             const seenPrefixes = new Set<string>()
             for (const interaction of AUTOCAPTURE_INTERACTIONS) {
                 for (const keyword of interaction.keywords) {
@@ -107,7 +90,14 @@ describe('event type shortcuts', () => {
     })
 
     describe('derivation from eventTypeToVerb', () => {
-        it('every full keyword surfaces its interaction (via both builders)', () => {
+        it('every interaction has keywords including at least the eventType and derived label', () => {
+            for (const interaction of AUTOCAPTURE_INTERACTIONS) {
+                expect(interaction.keywords).toContain(interaction.eventType)
+                expect(interaction.keywords).toContain(interaction.label.toLowerCase())
+            }
+        })
+
+        it('every keyword surfaces its interaction (via both builders)', () => {
             for (const interaction of AUTOCAPTURE_INTERACTIONS) {
                 for (const keyword of interaction.keywords) {
                     const series = buildAutocaptureSeriesShortcuts(keyword)
@@ -118,22 +108,16 @@ describe('event type shortcuts', () => {
             }
         })
 
-        it('every canonical eventTypeToVerb key is represented with a sensible label', () => {
-            const shortcutByType = new Map(AUTOCAPTURE_INTERACTIONS.map((i) => [i.eventType, i]))
-            for (const eventType of Object.keys(eventTypeToVerb)) {
-                const shortcut = shortcutByType.get(eventType)
-                expect(shortcut).toBeDefined() // oxlint-disable-line jest/no-restricted-matchers
-                expect(shortcut?.label).toMatch(/^[A-Z]/) // label is capitalized
-                expect(shortcut?.keywords).toContain(eventType) // always matches the raw eventType
-            }
-        })
-
-        it('new eventTypeToVerb entries automatically get shortcuts with no extra config', () => {
-            // This isn't a runtime check — it's a reminder that the derivation above means
-            // adding `foo: 'foo'd'` to eventTypeToVerb surfaces a "Foo" shortcut matchable via
-            // `foo`. Synonyms are optional and layered via KEYWORD_SYNONYMS.
+        it('every canonical eventTypeToVerb key is represented', () => {
             const derivedEventTypes = new Set(AUTOCAPTURE_INTERACTIONS.map((i) => i.eventType))
             expect(derivedEventTypes).toEqual(new Set(Object.keys(eventTypeToVerb)))
+        })
+
+        it('label is capitalized and eventType appears in keywords', () => {
+            for (const interaction of AUTOCAPTURE_INTERACTIONS) {
+                expect(interaction.label).toMatch(/^[A-Z]/)
+                expect(interaction.keywords).toContain(interaction.eventType)
+            }
         })
     })
 })
