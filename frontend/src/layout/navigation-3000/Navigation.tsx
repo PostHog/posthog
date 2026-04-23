@@ -59,9 +59,14 @@ export function Navigation({
     // SidePanelInfo overrides scenePanelElement while the Info tab is open and
     // clears it on unmount, leaving it null even though Navigation's inline
     // panel div is still in the DOM. Re-register it when the side panel closes.
+    // On Navigation unmount, null the registration so the detached div does
+    // not stay pinned by sceneLayoutLogic's reducer.
     useEffect(() => {
         if (!sidePanelOpen && inlinePanelRef.current) {
             registerScenePanelElement(inlinePanelRef.current)
+        }
+        return () => {
+            registerScenePanelElement(null)
         }
     }, [sidePanelOpen, registerScenePanelElement])
 
