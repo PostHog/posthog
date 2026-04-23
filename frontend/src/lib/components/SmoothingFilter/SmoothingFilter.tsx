@@ -35,7 +35,11 @@ export function SmoothingFilter(): JSX.Element | null {
         labelInMenu: label,
     }))
 
-    return options.length ? (
+    if (!options.length) {
+        return null
+    }
+
+    return (
         <LemonSelect
             key={interval}
             value={smoothingIntervals || 1}
@@ -50,7 +54,5 @@ export function SmoothingFilter(): JSX.Element | null {
             size="small"
             disabledReason={editingDisabledReason}
         />
-    ) : (
-        <></>
     )
 }
