@@ -30,6 +30,7 @@ from posthog.temporal.llm_analytics.evaluation_clustering.workflow import LLMAEv
 
 with temporalio.workflow.unsafe.imports_passed_through():
     from posthog.temporal.llm_analytics.coordinator_metrics import (
+        increment_fetch_jobs_failed,
         increment_team_failed,
         increment_team_succeeded,
         record_jobs_dispatched,
@@ -101,6 +102,7 @@ async def _discover_teams_and_jobs() -> tuple[list[int], dict[int, list[JobConfi
         )
     except Exception:
         logger.warning("fetch_all_clustering_jobs_activity failed; proceeding with no jobs", exc_info=True)
+        increment_fetch_jobs_failed("eval_sampling", "evaluation")
 
     return team_ids, per_team_jobs
 
