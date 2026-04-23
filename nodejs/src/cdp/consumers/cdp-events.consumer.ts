@@ -312,7 +312,7 @@ export class CdpEventsConsumer<
                         const logEntry: LogEntry = {
                             timestamp: DateTime.now(),
                             level: 'warn',
-                            message: `Workflow invocation dropped due to rate limiting (event: ${eventUuid ?? 'unknown'}, person: ${personId ?? 'unknown'})`,
+                            message: `Workflow invocation dropped due to rate limiting for [Person:${personId ?? 'unknown'}] on [Event:${eventUuid ?? 'unknown'}]`,
                             team_id: item.teamId,
                             log_source: 'hog_flow',
                             log_source_id: item.functionId,
