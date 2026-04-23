@@ -15,7 +15,7 @@ from posthog.hogql.constants import LimitContext
 
 from posthog.api.services.query import process_query_dict
 from posthog.caching.utils import largest_teams
-from posthog.clickhouse.query_tagging import Feature, tag_queries
+from posthog.clickhouse.query_tagging import Feature, get_team_query_tags, tag_queries
 from posthog.errors import CHQueryErrorTooManySimultaneousQueries
 from posthog.event_usage import EventSource
 from posthog.exceptions_capture import capture_exception
@@ -209,14 +209,19 @@ def schedule_warming_for_teams_task():
 def warm_insight_cache_task(insight_id: int, dashboard_id: Optional[int]):
     try:
         # nosemgrep: idor-lookup-without-team (Celery task, ID from internal scheduling)
-        insight = Insight.objects.get(pk=insight_id)
+        insight = Insight.objects.select_related("team__organization").get(pk=insight_id)
     except Insight.DoesNotExist:
         logger.info(f"Warming insight cache failed 404 insight not found: {insight_id}")
         return
 
     dashboard = None
 
-    tag_queries(team_id=insight.team_id, insight_id=insight.pk, trigger="warmingV2", feature=Feature.CACHE_WARMUP)
+    tag_queries(
+        **get_team_query_tags(insight.team),
+        insight_id=insight.pk,
+        trigger="warmingV2",
+        feature=Feature.CACHE_WARMUP,
+    )
     if dashboard_id:
         tag_queries(dashboard_id=dashboard_id)
         dashboard = insight.dashboards.filter(pk=dashboard_id).first()

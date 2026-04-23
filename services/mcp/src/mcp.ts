@@ -25,7 +25,7 @@ import {
     toCloudRegion,
 } from '@/lib/constants'
 import { handleToolError, wrapError } from '@/lib/errors'
-import { buildInstructionsV1, buildInstructionsV2 } from '@/lib/instructions'
+import { buildInstructionsV1, buildInstructionsV2, type QueryToolInfo } from '@/lib/instructions'
 import { initMcpCatObservability } from '@/lib/mcpcat'
 import { SessionManager } from '@/lib/SessionManager'
 import { StateManager } from '@/lib/StateManager'
@@ -533,14 +533,6 @@ export class MCP extends McpAgent<Env> {
                 : Promise.resolve(undefined),
             context.stateManager.getEnvironmentPrompt(),
         ])
-        const standardInstructions =
-            version === 2
-                ? buildInstructionsV2(INSTRUCTIONS_TEMPLATE_V2, guidelines, groupTypes, metadata)
-                : buildInstructionsV1(INSTRUCTIONS_TEMPLATE_V1, metadata)
-        const instructions = useSingleExec ? '' : standardInstructions
-
-        this.server = new McpServer({ name: 'PostHog', version: '1.0.0' }, { instructions })
-
         // When project ID is provided, both switch tools are removed (project implies org).
         // When only organization ID is provided, only switch-organization is removed.
         const excludeTools: string[] = []
@@ -550,14 +542,8 @@ export class MCP extends McpAgent<Env> {
             excludeTools.push('switch-organization')
         }
 
-        // Register prompts and resources
-        await Promise.all([
-            registerPrompts(this.server),
-            registerResources(this.server, context),
-            registerUiAppResources(this.server, context),
-        ])
-
-        // Register tools
+        // Fetch tools up-front so we can build the query tool catalog (and the
+        // CLI exec tool's domain list) before constructing the system prompt.
         const { getToolsFromContext } = await import('@/tools')
         const allTools = await getToolsFromContext(context, {
             features,
@@ -575,6 +561,43 @@ export class MCP extends McpAgent<Env> {
             this._api.config.oauthClientName = oauthClientName
         }
 
+        const toolInfos = allTools.map((t) => ({
+            name: t.name,
+            category: getToolDefinition(t.name, version).category,
+        }))
+        const queryToolInfos: QueryToolInfo[] = allTools
+            .filter((t) => t.name.startsWith('query-'))
+            .map((t) => {
+                const def = getToolDefinition(t.name, version)
+                return {
+                    name: t.name,
+                    title: def.title,
+                    ...(def.system_prompt_hint ? { systemPromptHint: def.system_prompt_hint } : {}),
+                }
+            })
+
+        const standardInstructions =
+            version === 2
+                ? buildInstructionsV2(
+                      INSTRUCTIONS_TEMPLATE_V2,
+                      guidelines,
+                      groupTypes,
+                      metadata,
+                      toolInfos,
+                      queryToolInfos
+                  )
+                : buildInstructionsV1(INSTRUCTIONS_TEMPLATE_V1, metadata)
+        const instructions = useSingleExec ? '' : standardInstructions
+
+        this.server = new McpServer({ name: 'PostHog', version: '1.0.0' }, { instructions })
+
+        // Register prompts and resources
+        await Promise.all([
+            registerPrompts(this.server),
+            registerResources(this.server, context),
+            registerUiAppResources(this.server, context),
+        ])
+
         // In single-exec mode, register one "posthog" tool that wraps all tools
         // behind a CLI-like interface. Otherwise, register each tool individually.
         if (useSingleExec) {
@@ -587,11 +610,14 @@ export class MCP extends McpAgent<Env> {
                 sqlTool.description = formatPrompt(EXECUTE_SQL_PROMPT, { guidelines: guidelines.trim() })
             }
 
-            const toolInfos = allTools.map((t) => ({
-                name: t.name,
-                category: getToolDefinition(t.name, version).category,
-            }))
-            const commandReference = buildInstructionsV2(CLI_PROXY_COMMAND, guidelines, groupTypes, metadata, toolInfos)
+            const commandReference = buildInstructionsV2(
+                CLI_PROXY_COMMAND,
+                guidelines,
+                groupTypes,
+                metadata,
+                toolInfos,
+                queryToolInfos
+            )
 
             const execTool = createExecTool(
                 allTools,
