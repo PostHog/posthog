@@ -137,10 +137,11 @@ class Command(BaseCommand):
 
         for team in teams:
             for key, name in FEATURE_FLAGS_TO_ENABLE:
-                # Use _base_manager to also see soft-deleted flags (the default `objects`
-                # manager filters out deleted=True). Avoids an IntegrityError on re-run when
-                # the flag was previously soft-deleted via the UI.
-                existing = FeatureFlag._base_manager.filter(team=team, key=key).first()
+                # Use objects_including_soft_deleted so we can find (and un-delete) flags that
+                # were previously soft-deleted via the UI. The default `objects` manager
+                # filters them out, which would cause an IntegrityError on re-run from the
+                # unique (team, key) constraint.
+                existing = FeatureFlag.objects_including_soft_deleted.filter(team=team, key=key).first()
                 if existing is None:
                     FeatureFlag.objects.create(
                         team=team,
