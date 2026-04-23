@@ -215,6 +215,38 @@ class TestSessionRecordingAccessControl(APIBaseTest):
 
         self.assertTrue(can_modify)
 
+    @patch("posthog.session_recordings.models.session_recording.SessionRecording.load_metadata", return_value=True)
+    def test_viewer_can_mark_recording_as_viewed(self, mock_load_metadata):
+        self._create_access_control(self.viewer_user, access_level="viewer")
+
+        self.client.force_login(self.viewer_user)
+
+        viewed_response = self.client.patch(
+            f"/api/projects/{self.team.id}/session_recordings/{self.recording.session_id}/",
+            {"viewed": True},
+            content_type="application/json",
+        )
+        self.assertEqual(viewed_response.status_code, status.HTTP_200_OK)
+
+        analyzed_response = self.client.patch(
+            f"/api/projects/{self.team.id}/session_recordings/{self.recording.session_id}/",
+            {"analyzed": True},
+            content_type="application/json",
+        )
+        self.assertEqual(analyzed_response.status_code, status.HTTP_200_OK)
+
+    @patch("posthog.session_recordings.models.session_recording.SessionRecording.load_metadata", return_value=True)
+    def test_no_access_user_cannot_mark_recording_as_viewed(self, mock_load_metadata):
+        self._create_access_control(self.no_access_user, access_level="none")
+
+        self.client.force_login(self.no_access_user)
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/session_recordings/{self.recording.session_id}/",
+            {"viewed": True},
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
     def test_summarize_respects_access_control(self):
         self._create_access_control(self.no_access_user, resource_id=str(self.recording.id), access_level="none")
 

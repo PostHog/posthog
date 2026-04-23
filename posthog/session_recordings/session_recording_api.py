@@ -713,6 +713,28 @@ class SessionRecordingViewSet(
         else:
             return SessionRecordingSerializer
 
+    def dangerously_get_required_scopes(self, request: request.Request, view) -> list[str] | None:
+        # Used for the AccessControlViewSetMixin
+        super_method = getattr(super(), "dangerously_get_required_scopes", None)
+        if callable(super_method):
+            mixin_result = super_method(request, view)
+            if mixin_result is not None:
+                return mixin_result
+
+        # "viewed" and "analyzed" record the calling user's own read activity on the recording
+        # rather than editing the recording itself. Downgrade the required scope to :read so
+        # users with viewer-only RBAC access can still mark recordings as played.
+        if self.action in ("update", "partial_update"):
+            allowed_activity_fields = {"viewed", "analyzed", "player_metadata"}
+            try:
+                request_fields = set(request.data.keys())
+            except Exception:
+                request_fields = set()
+            if request_fields and request_fields.issubset(allowed_activity_fields):
+                return [f"{self.scope_object}:read"]
+
+        return None
+
     def safely_get_object(self, queryset) -> SessionRecording:
         return SessionRecording.get_or_build(session_id=self.kwargs["pk"], team=self.team)
 
