@@ -158,8 +158,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // (TCP on 50051) can't pass until after this completes.
     if config.min_pg_connections > 0 {
         let warmup_count = config.min_pg_connections as usize;
+        let server_warmup_count = (config.warmup_server_connections as usize).min(warmup_count);
         tracing::info!(
             count = warmup_count,
+            server_warmup = server_warmup_count,
             "Warming database connection pools before accepting traffic"
         );
         let separate_replica = config.replica_database_url() != config.primary_database_url;
@@ -184,13 +186,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     }
                 }
             }
-            // Run a query on each held connection to warm PgBouncer → PG.
+            // Run a query on a subset of held connections to warm PgBouncer → PG.
             // acquire() only establishes app → PgBouncer; in transaction pooling
             // mode PgBouncer doesn't open a server connection until a query runs.
-            // Holding all N connections forces PgBouncer to assign N distinct
-            // server connections rather than reusing one.
+            // We cap this to warmup_server_connections to avoid pinning too many
+            // PgBouncer backend connections — the remaining client connections are
+            // still warm (app → PgBouncer) and will get a server connection on
+            // first real query.
             let mut server_warmed = 0u32;
-            for conn in &mut conns {
+            for conn in conns.iter_mut().take(server_warmup_count) {
                 match sqlx::query("SELECT 1").execute(&mut **conn).await {
                     Ok(_) => server_warmed += 1,
                     Err(e) => {
@@ -233,6 +237,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let grpc_addr = config.grpc_address;
     let keepalive_interval = config.grpc_keepalive_interval();
     let keepalive_timeout = config.grpc_keepalive_timeout();
+    let max_connection_age = config.grpc_max_connection_age();
     let max_send = config.grpc_max_send_message_size;
     let max_recv = config.grpc_max_recv_message_size;
 
@@ -248,9 +253,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         };
         let incoming = tracked_tcp_incoming(listener);
-        if let Err(e) = Server::builder()
+        let mut server = Server::builder()
             .http2_keepalive_interval(keepalive_interval)
-            .http2_keepalive_timeout(keepalive_timeout)
+            .http2_keepalive_timeout(keepalive_timeout);
+        if let Some(age) = max_connection_age {
+            server = server.max_connection_age(age);
+        }
+        if let Err(e) = server
             .layer(GrpcMetricsLayer)
             .add_service(
                 PersonHogReplicaServer::new(service)

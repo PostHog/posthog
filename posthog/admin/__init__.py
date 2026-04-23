@@ -90,6 +90,8 @@ def register_all_admin():
     from products.legal_documents.backend.admin import LegalDocumentAdmin
     from products.legal_documents.backend.models import LegalDocument
     from products.links.backend.models import Link
+    from products.mcp_store.backend.admin import MCPServerAdmin, MCPServerTemplateAdmin
+    from products.mcp_store.backend.models import MCPServer, MCPServerTemplate
     from products.signals.backend.admin import SignalReportAdmin
     from products.signals.backend.models import SignalReport
     from products.surveys.backend.models import Survey
@@ -168,3 +170,6 @@ def register_all_admin():
     admin.site.register(SignalReport, SignalReportAdmin)
 
     admin.site.register(UserProductList, UserProductListAdmin)
+
+    admin.site.register(MCPServer, MCPServerAdmin)
+    admin.site.register(MCPServerTemplate, MCPServerTemplateAdmin)
