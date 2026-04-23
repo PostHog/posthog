@@ -350,7 +350,7 @@ impl<P: KafkaProducerTrait + 'static> Sink for KafkaSink<P> {
                 "capture_v1_kafka_produce_errors_total",
                 "cluster" => sink_str,
                 "mode" => mode,
-                "error" => tag.clone()
+                "error" => *tag
             )
             .increment(*count as u64);
         }
