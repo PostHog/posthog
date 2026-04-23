@@ -99,13 +99,13 @@ impl Event for FakeEvent {
         buf.push_str(&self.partition_key);
     }
 
-    fn serialize_into(&self, _ctx: &Context, buf: &mut String) -> Result<(), String> {
+    fn serialize_into(&self, _ctx: &Context, buf: &mut String) -> anyhow::Result<()> {
         match &self.payload {
             Ok(p) => {
                 buf.push_str(p);
                 Ok(())
             }
-            Err(e) => Err(e.clone()),
+            Err(e) => Err(anyhow::anyhow!(e.clone())),
         }
     }
 }
@@ -380,7 +380,6 @@ async fn send_error_retriable_queue_full() {
     let h = TestHarness::builder()
         .send_error(|| ProduceError::Kafka {
             code: RDKafkaErrorCode::QueueFull,
-            retriable: true,
         })
         .enqueue_retry_max(0)
         .build();
@@ -405,7 +404,6 @@ async fn queue_full_retry_succeeds_after_drain() {
     let h = TestHarness::builder()
         .send_error(|| ProduceError::Kafka {
             code: RDKafkaErrorCode::QueueFull,
-            retriable: true,
         })
         .send_error_count(2)
         .enqueue_retry_max(3)
@@ -431,7 +429,6 @@ async fn queue_full_retry_exhausted() {
     let h = TestHarness::builder()
         .send_error(|| ProduceError::Kafka {
             code: RDKafkaErrorCode::QueueFull,
-            retriable: true,
         })
         .enqueue_retry_max(2)
         .enqueue_poll_ms(1)
@@ -457,7 +454,6 @@ async fn queue_full_retry_zero_max_disables_retry() {
     let h = TestHarness::builder()
         .send_error(|| ProduceError::Kafka {
             code: RDKafkaErrorCode::QueueFull,
-            retriable: true,
         })
         .send_error_count(1)
         .enqueue_retry_max(0)
@@ -528,7 +524,6 @@ async fn ack_error_retriable_topic_auth() {
     let h = TestHarness::builder()
         .ack_error(|| ProduceError::Kafka {
             code: RDKafkaErrorCode::TopicAuthorizationFailed,
-            retriable: true,
         })
         .build();
     let event = FakeEvent::ok("evt-1");
@@ -835,7 +830,6 @@ async fn health_not_refreshed_on_full_send_error() {
         .produce_timeout(HEALTH_TEST_PRODUCE_TIMEOUT)
         .send_error(|| ProduceError::Kafka {
             code: RDKafkaErrorCode::QueueFull,
-            retriable: true,
         })
         .enqueue_retry_max(0)
         .build();

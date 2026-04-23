@@ -150,7 +150,7 @@ impl<P: KafkaProducerTrait + 'static> Sink for KafkaSink<P> {
                 .increment(1);
                 results.push(Box::new(KafkaResult::err(
                     uuid,
-                    KafkaSinkError::SerializationFailed(e),
+                    KafkaSinkError::SerializationFailed(format!("{e:#}")),
                     enqueued_at,
                 )));
                 continue;
