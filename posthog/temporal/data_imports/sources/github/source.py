@@ -39,7 +39,7 @@ class GithubSource(ResumableSource[GithubSourceConfig, GithubResumeConfig], OAut
         return SourceConfig(
             name=SchemaExternalDataSourceType.GITHUB,
             label="GitHub",
-            betaSource=True,
+            releaseStatus="beta",
             caption="Connect your GitHub repository to sync issues, pull requests, commits, and more.",
             iconPath="/static/services/github.png",
             iconClassName="dark:bg-white rounded",

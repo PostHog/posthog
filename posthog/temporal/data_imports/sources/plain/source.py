@@ -32,7 +32,7 @@ class PlainSource(SimpleSource[PlainSourceConfig]):
         return SourceConfig(
             name=SchemaExternalDataSourceType.PLAIN,
             label="Plain",
-            betaSource=True,
+            releaseStatus="beta",
             featureFlag="dwh_plain",
             caption="""Enter your Plain API key to automatically pull your Plain customer support data into the PostHog Data warehouse.
 

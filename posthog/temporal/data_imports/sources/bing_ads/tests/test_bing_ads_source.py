@@ -33,7 +33,7 @@ class TestBingAdsSource:
 
         assert config.name.value == "BingAds"
         assert config.label == "Bing Ads"
-        assert config.betaSource is True
+        assert config.releaseStatus == "beta"
         assert config.iconPath == "/static/services/bing-ads.svg"
         assert len(config.fields) == 2
 
