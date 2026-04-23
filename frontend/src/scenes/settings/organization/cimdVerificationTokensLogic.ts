@@ -9,14 +9,12 @@ import {
     cimdVerificationTokensDestroy,
     cimdVerificationTokensList,
 } from '~/generated/core/api'
-import { CIMDVerificationTokenApi } from '~/generated/core/api.schemas'
+import { CIMDVerificationTokenApi, CIMDVerificationTokenWithValueApi } from '~/generated/core/api.schemas'
 
 import type { cimdVerificationTokensLogicType } from './cimdVerificationTokensLogicType'
 
 export type CIMDVerificationToken = CIMDVerificationTokenApi
-export interface CIMDVerificationTokenWithValue extends CIMDVerificationTokenApi {
-    value: string
-}
+export type CIMDVerificationTokenWithValue = CIMDVerificationTokenWithValueApi
 
 export const cimdVerificationTokensLogic = kea<cimdVerificationTokensLogicType>([
     path(['scenes', 'settings', 'organization', 'cimdVerificationTokensLogic']),
@@ -81,9 +79,7 @@ export const cimdVerificationTokensLogic = kea<cimdVerificationTokensLogicType>(
                 return
             }
             try {
-                const created = (await cimdVerificationTokensCreate(orgId, {
-                    label,
-                } as unknown as CIMDVerificationTokenApi)) as CIMDVerificationTokenWithValue
+                const created = await cimdVerificationTokensCreate(orgId, { label })
                 actions.setJustCreatedToken(created)
                 actions.hideCreateDialog()
                 actions.loadTokens()

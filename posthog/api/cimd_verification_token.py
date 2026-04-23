@@ -16,7 +16,6 @@ from posthog.permissions import OrganizationAdminWritePermissions, TimeSensitive
 
 class CIMDVerificationTokenSerializer(serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
-    value = serializers.CharField(read_only=True, help_text="Plaintext token, only returned on creation")
 
     class Meta:
         model = CIMDVerificationToken
@@ -27,7 +26,6 @@ class CIMDVerificationTokenSerializer(serializers.ModelSerializer):
             "created_by",
             "created_at",
             "last_used_at",
-            "value",
         ]
         read_only_fields = [
             "id",
@@ -35,7 +33,6 @@ class CIMDVerificationTokenSerializer(serializers.ModelSerializer):
             "created_by",
             "created_at",
             "last_used_at",
-            "value",
         ]
 
     def validate_label(self, value: str) -> str:
@@ -43,6 +40,20 @@ class CIMDVerificationTokenSerializer(serializers.ModelSerializer):
         if not value:
             raise serializers.ValidationError("Label cannot be empty.")
         return value
+
+
+class CIMDVerificationTokenWithValueSerializer(CIMDVerificationTokenSerializer):
+    """Create-response variant that includes the plaintext token.
+
+    Only emitted from the create endpoint - storage-side we only persist the
+    hash, so subsequent reads use the base serializer.
+    """
+
+    value = serializers.CharField(read_only=True, help_text="Plaintext token, only returned on creation")
+
+    class Meta(CIMDVerificationTokenSerializer.Meta):
+        fields = [*CIMDVerificationTokenSerializer.Meta.fields, "value"]
+        read_only_fields = [*CIMDVerificationTokenSerializer.Meta.read_only_fields, "value"]
 
 
 @extend_schema(tags=["core"])
@@ -72,6 +83,7 @@ class CIMDVerificationTokenViewSet(
     def safely_get_queryset(self, queryset):
         return queryset.filter(organization_id=self.organization_id)
 
+    @extend_schema(responses={201: CIMDVerificationTokenWithValueSerializer})
     @sensitive_variables("plaintext", "output")
     def create(self, request, *args: Any, **kwargs: Any) -> Response:
         serializer = self.get_serializer(data=request.data)
@@ -81,8 +93,8 @@ class CIMDVerificationTokenViewSet(
             label=serializer.validated_data["label"],
             created_by=request.user if request.user.is_authenticated else None,
         )
-        output = self.get_serializer(token).data
-        output["value"] = plaintext
+        token.value = plaintext  # type: ignore[attr-defined]
+        output = CIMDVerificationTokenWithValueSerializer(token).data
         log_activity(
             organization_id=self.organization_id,
             team_id=None,

@@ -146,8 +146,6 @@ export interface CIMDVerificationTokenApi {
     readonly created_at: string
     /** @nullable */
     readonly last_used_at: string | null
-    /** Plaintext token, only returned on creation */
-    readonly value: string
 }
 
 export interface PaginatedCIMDVerificationTokenListApi {
@@ -157,6 +155,26 @@ export interface PaginatedCIMDVerificationTokenListApi {
     /** @nullable */
     previous?: string | null
     results: CIMDVerificationTokenApi[]
+}
+
+/**
+ * Create-response variant that includes the plaintext token.
+
+Only emitted from the create endpoint - storage-side we only persist the
+hash, so subsequent reads use the base serializer.
+ */
+export interface CIMDVerificationTokenWithValueApi {
+    readonly id: string
+    /** @maxLength 40 */
+    label: string
+    /** @nullable */
+    readonly mask_value: string | null
+    readonly created_by: UserBasicApi
+    readonly created_at: string
+    /** @nullable */
+    readonly last_used_at: string | null
+    /** Plaintext token, only returned on creation */
+    readonly value: string
 }
 
 export interface OrganizationDomainApi {

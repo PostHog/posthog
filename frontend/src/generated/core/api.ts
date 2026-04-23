@@ -12,6 +12,7 @@ import type {
     BulkUpdateTagsRequestApi,
     BulkUpdateTagsResponseApi,
     CIMDVerificationTokenApi,
+    CIMDVerificationTokenWithValueApi,
     CimdVerificationTokensListParams,
     DashboardTemplateApi,
     DomainsListParams,
@@ -191,8 +192,8 @@ export const cimdVerificationTokensCreate = async (
     organizationId: string,
     cIMDVerificationTokenApi: NonReadonly<CIMDVerificationTokenApi>,
     options?: RequestInit
-): Promise<CIMDVerificationTokenApi> => {
-    return apiMutator<CIMDVerificationTokenApi>(getCimdVerificationTokensCreateUrl(organizationId), {
+): Promise<CIMDVerificationTokenWithValueApi> => {
+    return apiMutator<CIMDVerificationTokenWithValueApi>(getCimdVerificationTokensCreateUrl(organizationId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
