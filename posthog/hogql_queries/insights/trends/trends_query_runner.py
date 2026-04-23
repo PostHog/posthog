@@ -648,9 +648,13 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
                     if str(cohort_id) == "0":
                         cohort_name = "all users"
                     else:
-                        cohort_name = cohort_name_cache.get(int(cohort_id)) or (
-                            Cohort.objects.get(pk=cohort_id, team__project_id=self.team.project_id).name or ""
-                        )
+                        cached = cohort_name_cache.get(int(cohort_id))
+                        if cached is not None:
+                            cohort_name = cached
+                        else:
+                            cohort_name = (
+                                Cohort.objects.get(pk=cohort_id, team__project_id=self.team.project_id).name or ""
+                            )
 
                     if real_series_count > 1:
                         series_object["label"] = "{} - {}".format(series_object["label"], cohort_name)

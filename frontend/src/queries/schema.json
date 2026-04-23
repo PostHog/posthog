@@ -32601,6 +32601,10 @@
                     "description": "Optional breakdown value for retention cohorts",
                     "type": ["string", "number", "null"]
                 },
+                "breakdown_value_label": {
+                    "description": "Display label for the breakdown value, resolved server-side (e.g. cohort name for cohort breakdowns)",
+                    "type": ["string", "null"]
+                },
                 "date": {
                     "format": "date-time",
                     "type": "string"
