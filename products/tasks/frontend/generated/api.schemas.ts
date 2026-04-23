@@ -1253,16 +1253,16 @@ export interface PatchedTaskRunSetOutputRequestApi {
     output?: unknown
 }
 
-export interface TaskRepositoriesResponseApi {
-    /** Distinct repositories in use by non-deleted, non-internal tasks for the current team. */
-    repositories: string[]
-}
-
 export interface TaskRunStartRequestApi {
     /** Initial or follow-up user message to include in the run prompt. */
     pending_user_message?: string
     /** Identifiers for run artifacts that should be attached to the next user message delivered to the sandbox. */
     pending_user_artifact_ids?: string[]
+}
+
+export interface TaskRepositoriesResponseApi {
+    /** Distinct repositories in use by non-deleted, non-internal tasks for the current team. */
+    repositories: string[]
 }
 
 /**
