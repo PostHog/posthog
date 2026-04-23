@@ -9,6 +9,7 @@ function CardGroup({
 }: React.ComponentProps<'div'> & { size?: 'default' | 'sm' }): React.ReactElement {
     return (
         <div
+            data-quill
             data-slot="card-group"
             data-size={size}
             className={cn(

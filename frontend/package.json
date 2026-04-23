@@ -49,7 +49,7 @@
         "build:survey-sdk-docs": "ts-node -r tsconfig-paths/register --transpile-only ./bin/docs/build-survey-sdk-docs.ts"
     },
     "dependencies": {
-        "@base-ui/react": "^1.3.0",
+        "@base-ui/react": "^1.4.0",
         "@dagrejs/dagre": "^1.1.5",
         "@dnd-kit/core": "^6.0.8",
         "@dnd-kit/modifiers": "^6.0.1",
@@ -83,6 +83,7 @@
         "@posthog/products-feature-flags": "workspace:*",
         "@posthog/products-games": "workspace:*",
         "@posthog/products-groups": "workspace:*",
+        "@posthog/products-legal-documents": "workspace:*",
         "@posthog/products-links": "workspace:*",
         "@posthog/products-live-debugger": "workspace:*",
         "@posthog/products-llm-analytics": "workspace:*",
@@ -108,9 +109,9 @@
         "@posthog/products-workflows": "workspace:*",
         "@posthog/react": "catalog:",
         "@posthog/replay-shared": "workspace:*",
-        "@posthog/rrweb": "0.0.26",
-        "@posthog/rrweb-plugin-console-record": "0.0.26",
-        "@posthog/rrweb-types": "0.0.26",
+        "@posthog/rrweb": "0.0.59",
+        "@posthog/rrweb-plugin-console-record": "0.0.59",
+        "@posthog/rrweb-types": "0.0.59",
         "@posthog/tailwind": "workspace:*",
         "@radix-ui/react-accordion": "^1.2.12",
         "@radix-ui/react-context-menu": "^2.2.16",
@@ -228,7 +229,7 @@
         "react-dom": "^18.3.1",
         "react-draggable": "^4.5.0",
         "react-email-editor": "^1.7.11",
-        "react-grid-layout": "^2.2.2",
+        "react-grid-layout": "^2.2.3",
         "react-intersection-observer": "^9.5.3",
         "react-markdown": "^9.0.0",
         "react-modal": "^3.15.1",
@@ -249,6 +250,7 @@
         "ts-pattern": "catalog:",
         "use-debounce": "catalog:",
         "use-resize-observer": "^8.0.0",
+        "zod": "^4.3.6",
         "zxcvbn": "^4.4.2"
     },
     "devDependencies": {

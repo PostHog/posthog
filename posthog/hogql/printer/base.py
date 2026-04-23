@@ -2,7 +2,7 @@ import re
 from collections.abc import Iterable
 from datetime import date, datetime
 from difflib import get_close_matches
-from typing import Any, Literal, Optional, Union, cast
+from typing import Any, ClassVar, Literal, Optional, Union, cast
 from uuid import UUID
 
 from django.conf import settings as django_settings
@@ -67,19 +67,24 @@ def resolve_field_type(expr: ast.Expr) -> ast.Type | None:
 class BasePrinter(Visitor[str]):
     # NOTE: Call "print_ast()", not this class directly.
     # Shared AST walker for all dialect printers (HogQL, ClickHouse, Postgres).
-    # Dialect-specific behavior currently lives behind `self.dialect` checks
-    # and is being progressively moved into subclass overrides.
+    # Each subclass sets ``DIALECT_NAME`` to identify itself for error messages and
+    # resolver wiring; dialect-specific rendering lives in subclass-overridden hooks.
+
+    DIALECT_NAME: ClassVar[HogQLDialect]
+
+    def __init_subclass__(cls, **kwargs: Any) -> None:
+        super().__init_subclass__(**kwargs)
+        if not hasattr(cls, "DIALECT_NAME"):
+            raise TypeError(f"{cls.__name__} must define DIALECT_NAME")
 
     def __init__(
         self,
         context: HogQLContext,
-        dialect: HogQLDialect,
         stack: list[AST] | None = None,
         settings: HogQLGlobalSettings | None = None,
         pretty: bool = False,
     ):
         self.context = context
-        self.dialect = dialect
         self.stack: list[AST] = stack or []  # Keep track of all traversed nodes.
         self.settings = settings
         self.pretty = pretty
@@ -98,13 +103,100 @@ class BasePrinter(Visitor[str]):
         """
         return "min2"
 
+    def _expands_placeholder_macros(self) -> bool:
+        """Whether placeholder-argument macros should be expanded into their SQL rendering.
+
+        SQL dialects expand (default); HogQL leaves them in their original form for round-trip printing.
+        """
+        return True
+
+    def _assert_set_operator_supported(self, set_operator: str) -> None:
+        """Raise if this dialect does not support the given set operator. Postgres overrides to permit all."""
+        if set_operator in ("INTERSECT ALL", "EXCEPT ALL"):
+            raise ImpossibleASTError(f"{set_operator} is not supported in the '{self.DIALECT_NAME}' dialect")
+
+    def _assert_recursive_cte_supported(self) -> None:
+        """Raise if this dialect does not support recursive CTEs. Postgres overrides to permit."""
+        raise ImpossibleASTError("Recursive CTEs are only supported in PostgreSQL dialect")
+
+    def _assert_qualify_supported(self) -> None:
+        """Raise if this dialect does not support the QUALIFY clause. Postgres overrides to permit."""
+        raise QueryError("QUALIFY is not supported in the '{}' dialect".format(self.DIALECT_NAME))
+
+    def _assert_with_ties_supported(self) -> None:
+        """Raise if this dialect does not support WITH TIES. Postgres overrides to reject."""
+        return
+
+    def _render_column_aliases_inline_suffix(self, column_aliases: list[str]) -> str:
+        """Suffix appended to ``AS alias`` when ``column_aliases`` are present. Postgres emits ``(col_a, col_b)``."""
+        return ""
+
+    def _render_column_aliases_appended(self, column_aliases: list[str]) -> str | None:
+        """String appended to the join-expression list when column aliases apply outside a SELECT alias.
+
+        Default returns ``None`` (not emitted); Postgres returns ``(col_a, col_b)``.
+        """
+        return None
+
+    def _dict_tuple_function_name(self) -> str:
+        """Name of the tuple-constructor function used when lowering a HogQL dict literal. Postgres uses ``ROW``."""
+        return "tuple"
+
+    def _render_column_aliased_field_name(self, type: "ast.FieldType", resolved_field) -> str:
+        """Column name to emit when the enclosing table type is ``ColumnAliasedTableType``.
+
+        Default uses the resolved database column name. Postgres overrides to use the alias declared on
+        the table type (Postgres renames the projection via the ``(a, b, c)`` syntax).
+        """
+        return self._print_identifier(resolved_field.name)
+
+    def _apply_window_function_rewrites(
+        self, identifier: str, exprs: list[str], cloned_node: "ast.WindowFunction"
+    ) -> str:
+        """Rewrite ``lag``/``lead`` into the ClickHouse ``lagInFrame``/``leadInFrame`` form.
+
+        The rewrite renames the function, wraps the value argument in ``toNullable``, and injects a default
+        window frame when none is present. Postgres overrides to return the identifier unchanged because its
+        native ``lag``/``lead`` already provides the desired semantics.
+        """
+        if identifier not in ("lag", "lead"):
+            return identifier
+        identifier = f"{identifier}InFrame"
+        # Wrap the first expression (value) and third expression (default) in toNullable()
+        # The second expression (offset) must remain a non-nullable integer
+        if len(exprs) > 0:
+            exprs[0] = f"toNullable({exprs[0]})"  # value
+        # If there's no window frame specified, add the default one
+        if not cloned_node.over_expr and not cloned_node.over_identifier:
+            cloned_node.over_expr = self._create_default_window_frame(cloned_node)
+        # If there's an over_identifier, we need to extract the new window expr just for this function
+        elif cloned_node.over_identifier:
+            # Find the last select query to look up the window definition
+            last_select = self._last_select()
+            if last_select and last_select.window_exprs and cloned_node.over_identifier in last_select.window_exprs:
+                base_window = last_select.window_exprs[cloned_node.over_identifier]
+                # Create a new window expr based on the referenced one
+                cloned_node.over_expr = ast.WindowExpr(
+                    partition_by=base_window.partition_by,
+                    order_by=base_window.order_by,
+                    frame_method="ROWS" if not base_window.frame_method else base_window.frame_method,
+                    frame_start=base_window.frame_start
+                    or ast.WindowFrameExpr(frame_type="PRECEDING", frame_value=None),
+                    frame_end=base_window.frame_end or ast.WindowFrameExpr(frame_type="FOLLOWING", frame_value=None),
+                )
+                cloned_node.over_identifier = None
+        # If there's an ORDER BY but no frame, add the default frame
+        elif cloned_node.over_expr and cloned_node.over_expr.order_by and not cloned_node.over_expr.frame_method:
+            cloned_node.over_expr = self._create_default_window_frame(cloned_node)
+        return identifier
+
     def _render_set_query_limit_percent(self, limit: ast.Expr, limit_str: str) -> str:
         """Render the LIMIT value for a set-operation query when `LIMIT … PERCENT` was used.
 
         `limit_str` is the already-visited limit expression. The default raises because
         most dialects don't support LIMIT percent; CH and PG override.
         """
-        raise QueryError(f"LIMIT percent is not allowed in {self.dialect} dialect")
+        raise QueryError(f"LIMIT percent is not allowed in {self.DIALECT_NAME} dialect")
 
     def _render_select_query_limit_clause(self, limit: ast.Expr, is_percent: bool) -> str:
         """Render the full LIMIT clause (including the keyword) for a single SELECT.
@@ -112,7 +204,7 @@ class BasePrinter(Visitor[str]):
         Default handles the non-percent case and raises for percent; CH and PG override.
         """
         if is_percent:
-            raise QueryError(f"LIMIT percent is not allowed in {self.dialect} dialect")
+            raise QueryError(f"LIMIT percent is not allowed in {self.DIALECT_NAME} dialect")
         return f"LIMIT {self.visit(limit)}"
 
     def _validate_within_group_for_aggregation(self, node: "ast.Call", func_meta) -> None:
@@ -154,9 +246,11 @@ class BasePrinter(Visitor[str]):
 
     def visit_cte(self, node: ast.CTE):
         if node.materialized is not None:
-            raise ImpossibleASTError(f"CTE materialization hints are not supported in the '{self.dialect}' dialect")
+            raise ImpossibleASTError(
+                f"CTE materialization hints are not supported in the '{self.DIALECT_NAME}' dialect"
+            )
         if node.using_key is not None:
-            raise ImpossibleASTError(f"CTE USING KEY is not supported in the '{self.dialect}' dialect")
+            raise ImpossibleASTError(f"CTE USING KEY is not supported in the '{self.DIALECT_NAME}' dialect")
 
         if node.cte_type == "subquery":
             if node.columns is not None:
@@ -178,8 +272,7 @@ class BasePrinter(Visitor[str]):
             if self.pretty:
                 query = query.strip()
             if expr.set_operator is not None:
-                if expr.set_operator in ("INTERSECT ALL", "EXCEPT ALL") and self.dialect != "postgres":
-                    raise ImpossibleASTError(f"{expr.set_operator} is not supported in the '{self.dialect}' dialect")
+                self._assert_set_operator_supported(expr.set_operator)
                 if self.pretty:
                     ret += f"\n{self.indent(1)}{expr.set_operator}\n{self.indent(1)}"
                 else:
@@ -263,8 +356,8 @@ class BasePrinter(Visitor[str]):
         ctes = [self.visit(cte) for cte in node.ctes.values()] if node.ctes else None
         has_recursive_cte = any(cte.recursive for cte in node.ctes.values()) if node.ctes else False
 
-        if has_recursive_cte and self.dialect != "postgres":
-            raise ImpossibleASTError("Recursive CTEs are only supported in PostgreSQL dialect")
+        if has_recursive_cte:
+            self._assert_recursive_cte_supported()
 
         window = (
             ", ".join(
@@ -282,8 +375,8 @@ class BasePrinter(Visitor[str]):
             else:
                 group_by = [self.visit(column) for column in node.group_by]
         having = self.visit(node.having) if node.having else None
-        if node.qualify is not None and self.dialect != "postgres":
-            raise QueryError("QUALIFY is not supported in the '{}' dialect".format(self.dialect))
+        if node.qualify is not None:
+            self._assert_qualify_supported()
         qualify = self.visit(node.qualify) if node.qualify else None
         order_by = [self.visit(column) for column in node.order_by] if node.order_by else None
 
@@ -357,8 +450,8 @@ class BasePrinter(Visitor[str]):
             )
 
         if limit is not None:
-            if node.limit_with_ties and self.dialect == "postgres":
-                raise QueryError("WITH TIES is not supported in postgres dialect")
+            if node.limit_with_ties:
+                self._assert_with_ties_supported()
             limit_str = self._render_select_query_limit_clause(limit, bool(node.limit_percent))
             clauses.append(limit_str)
             if node.limit_with_ties:
@@ -402,8 +495,13 @@ class BasePrinter(Visitor[str]):
         table_type: ast.TableType | ast.LazyTableType,
         node_type: ast.TableOrSelectType,
     ):
-        if self.dialect != "hogql":
-            raise NotImplementedError("BasePrinter._ensure_team_id_where_clause not overridden")
+        """Inject a ``team_id`` guard into the WHERE clause for SQL-lowering dialects.
+
+        Fail-fast by default: every SQL dialect must override this to enforce team isolation.
+        ``HogQLPrinter`` overrides to a no-op because it never produces a real query; CH and PG
+        enforce the guard.
+        """
+        raise NotImplementedError("BasePrinter._ensure_team_id_where_clause not overridden")
 
     def _get_table_predicates(
         self,
@@ -416,12 +514,25 @@ class BasePrinter(Visitor[str]):
             return []
 
         scope = ast.SelectQueryType(tables={"t": node_type})
-        return [resolve_types(clone_expr(pred), self.context, self.dialect, [scope]) for pred in predicates]
+        return [resolve_types(clone_expr(pred), self.context, self.DIALECT_NAME, [scope]) for pred in predicates]
 
     def _print_table_ref(self, table_type: ast.TableType | ast.LazyTableType, node: ast.JoinExpr) -> str:
-        if self.dialect == "hogql":
-            return table_type.table.to_printed_hogql()
-        raise ImpossibleASTError(f"Unsupported dialect {self.dialect}")
+        """Print a table reference. Fail-fast by default: each dialect must override.
+
+        ``HogQLPrinter`` returns the HogQL identifier; SQL dialects resolve to real table names.
+        """
+        raise ImpossibleASTError(f"Unsupported dialect {type(self).__name__}")
+
+    def _render_lazy_table_join_expr(self, node: ast.JoinExpr) -> str:
+        """Render a ``LazyTableType`` join target. SQL dialects resolve these before printing."""
+        table_type = cast(ast.LazyTableType, node.type)
+        raise ImpossibleASTError(f"Unexpected LazyTableType for: {table_type.table.to_printed_hogql()}")
+
+    def _render_untyped_join_expr(self, node: ast.JoinExpr) -> list[str]:
+        """Render a join target that isn't a known resolved type. SQL dialects reject; HogQL renders the raw node."""
+        raise QueryError(
+            f"Only selecting from a table or a subquery is supported. Unexpected type: {node.type.__class__.__name__}"
+        )
 
     def visit_join_expr(self, node: ast.JoinExpr) -> JoinExprResponse:
         # Constraints to add to the SELECT's WHERE clause (for most join types)
@@ -521,30 +632,20 @@ class BasePrinter(Visitor[str]):
         elif isinstance(node.type, ast.SelectQueryAliasType) and node.alias is not None:
             join_strings.append(self.visit(node.table))
             alias_str = f"AS {self._print_identifier(node.alias)}"
-            if node.column_aliases and self.dialect == "postgres":
-                col_names = ", ".join(self._print_identifier(c) for c in node.column_aliases)
-                alias_str += f" ({col_names})"
+            if node.column_aliases:
+                alias_str += self._render_column_aliases_inline_suffix(node.column_aliases)
             join_strings.append(alias_str)
 
         elif isinstance(node.type, ast.LazyTableType):
-            if self.dialect == "hogql":
-                join_strings.append(self._print_identifier(node.type.table.to_printed_hogql()))
-            else:
-                raise ImpossibleASTError(f"Unexpected LazyTableType for: {node.type.table.to_printed_hogql()}")
+            join_strings.append(self._render_lazy_table_join_expr(node))
 
-        elif self.dialect == "hogql":
-            join_strings.append(self.visit(node.table))
-            if node.alias is not None:
-                join_strings.append(f"AS {self._print_identifier(node.alias)}")
         else:
-            raise QueryError(
-                f"Only selecting from a table or a subquery is supported. Unexpected type: {node.type.__class__.__name__}"
-            )
+            join_strings.extend(self._render_untyped_join_expr(node))
 
         if node.column_aliases and not isinstance(node.type, ast.SelectQueryAliasType):
-            if self.dialect == "postgres":
-                col_aliases = ", ".join(self._print_identifier(ca) for ca in node.column_aliases)
-                join_strings.append(f"({col_aliases})")
+            appended = self._render_column_aliases_appended(node.column_aliases)
+            if appended is not None:
+                join_strings.append(appended)
 
         if node.table_final:
             raise QueryError("The FINAL keyword is not supported in HogQL as it causes slow queries")
@@ -649,7 +750,7 @@ class BasePrinter(Visitor[str]):
     def visit_tuple_access(self, node: ast.TupleAccess):
         visited_tuple = self.visit(node.tuple)
         visited_index = int(str(node.index))
-        symbol = "?." if self.dialect == "hogql" and node.nullish else "."
+        symbol = self._tuple_access_separator(bool(node.nullish))
         if isinstance(node.tuple, ast.Field) or isinstance(node.tuple, ast.Tuple) or isinstance(node.tuple, ast.Call):
             return f"{visited_tuple}{symbol}{visited_index}"
         return f"({visited_tuple}){symbol}{visited_index}"
@@ -658,24 +759,32 @@ class BasePrinter(Visitor[str]):
         return f"tuple({', '.join([self.visit(expr) for expr in node.exprs])})"
 
     def visit_array_access(self, node: ast.ArrayAccess):
-        symbol = "?." if self.dialect == "hogql" and node.nullish else ""
+        symbol = self._array_access_prefix(bool(node.nullish))
         return f"{self.visit(node.array)}{symbol}[{self.visit(node.property)}]"
 
+    def _tuple_access_separator(self, nullish: bool) -> str:
+        """Separator for tuple-access expressions. HogQL overrides to emit nullish ``?.`` when requested."""
+        return "."
+
+    def _array_access_prefix(self, nullish: bool) -> str:
+        """Prefix applied before ``[...]`` in array-access expressions. HogQL overrides for nullish ``?.``."""
+        return ""
+
     def visit_array_slice(self, node: ast.ArraySlice):
-        raise QueryError(f"Array slices are not allowed in {self.dialect} dialect")
+        raise QueryError(f"Array slices are not allowed in {self.DIALECT_NAME} dialect")
 
     def visit_array(self, node: ast.Array):
         return f"[{', '.join([self.visit(expr) for expr in node.exprs])}]"
 
     def visit_dict(self, node: ast.Dict):
-        tuple_function = "ROW" if self.dialect == "postgres" else "tuple"
+        tuple_function = self._dict_tuple_function_name()
         str = f"{tuple_function}('__hx_tag', '__hx_obj'"
         for key, value in node.items:
             str += f", {self.visit(key)}, {self.visit(value)}"
         return str + ")"
 
     def visit_try_cast(self, node: ast.TryCast):
-        raise QueryError(f"TRY_CAST is not allowed in {self.dialect} dialect")
+        raise QueryError(f"TRY_CAST is not allowed in {self.DIALECT_NAME} dialect")
 
     def visit_lambda(self, node: ast.Lambda):
         identifiers = [self._print_identifier(arg) for arg in node.args]
@@ -743,14 +852,14 @@ class BasePrinter(Visitor[str]):
             return f"less({left}, {right})"
         elif op == ast.CompareOperationOp.LtEq:
             return f"lessOrEquals({left}, {right})"
-        # only used for hogql direct printing (no prepare called)
-        elif op == ast.CompareOperationOp.InCohort and self.dialect == "hogql":
-            return f"{left} IN COHORT {right}"
-        # only used for hogql direct printing (no prepare called)
-        elif op == ast.CompareOperationOp.NotInCohort and self.dialect == "hogql":
-            return f"{left} NOT IN COHORT {right}"
-        else:
-            raise ImpossibleASTError(f"Unknown CompareOperationOp: {op.name}")
+        cohort = self._render_cohort_compare_op(op, left, right)
+        if cohort is not None:
+            return cohort
+        raise ImpossibleASTError(f"Unknown CompareOperationOp: {op.name}")
+
+    def _render_cohort_compare_op(self, op: ast.CompareOperationOp, left: str, right: str) -> str | None:
+        """Render ``InCohort`` / ``NotInCohort`` comparisons. Only HogQL supports these; others return None."""
+        return None
 
     def visit_compare_operation(self, node: ast.CompareOperation):
         left = self.visit(node.left)
@@ -833,8 +942,8 @@ class BasePrinter(Visitor[str]):
                     )
 
             # Handle format strings in function names before checking function type
-            # For HogQL, don't expand the macro, just display it in its original shape.
-            if func_meta.using_placeholder_arguments and self.dialect != "hogql":
+            # HogQL preserves the macro in its original shape; SQL dialects expand it.
+            if func_meta.using_placeholder_arguments and self._expands_placeholder_macros():
                 return self._render_placeholder_macro(
                     node=node,
                     clickhouse_name=func_meta.clickhouse_name,
@@ -941,8 +1050,9 @@ class BasePrinter(Visitor[str]):
 
             return self._render_posthog_function_call(node, func_meta)
         else:
-            if self.dialect == "hogql" and node.name.lower() in self._get_connection_supported_functions():
-                return f"{node.name}({', '.join([self.visit(arg) for arg in node.args])})"
+            passthrough = self._render_connection_supported_function(node)
+            if passthrough is not None:
+                return passthrough
 
             close_matches = get_close_matches(node.name, ALL_EXPOSED_FUNCTION_NAMES, 1)
             if len(close_matches) > 0:
@@ -950,6 +1060,13 @@ class BasePrinter(Visitor[str]):
                     f"Unsupported function call '{node.name}(...)'. Perhaps you meant '{close_matches[0]}(...)'?"
                 )
             raise QueryError(f"Unsupported function call '{node.name}(...)'")
+
+    def _render_connection_supported_function(self, node: "ast.Call") -> str | None:
+        """Pass a function call through unchanged if the underlying connection supports it.
+
+        Only HogQL (used against a direct-Postgres connection) opts in; other dialects return None.
+        """
+        return None
 
     def _render_function_call(self, node: "ast.Call", func_meta) -> str:
         """Render a standard HogQL function call. Default is the HogQL/pass-through shape; CH overrides."""
@@ -1074,8 +1191,8 @@ class BasePrinter(Visitor[str]):
                 # For column-aliased tables in postgres, use the aliased name
                 # (the DB handles renaming via the (a,b,c) syntax). For other
                 # dialects, use the real DB column name.
-                if isinstance(type.table_type, ast.ColumnAliasedTableType) and self.dialect == "postgres":
-                    field_sql = self._print_identifier(type.name)
+                if isinstance(type.table_type, ast.ColumnAliasedTableType):
+                    field_sql = self._render_column_aliased_field_name(type, resolved_field)
                 else:
                     # resolved_field may be an ast.Alias; in both cases .name is the physical column name to emit
                     if not isinstance(resolved_field, DatabaseField):
@@ -1332,36 +1449,7 @@ class BasePrinter(Visitor[str]):
         exprs = [self.visit(expr) for expr in node.exprs or []]
         cloned_node = cast(ast.WindowFunction, clone_expr(node))
 
-        # For compatibility with ClickHouse syntax, convert lag/lead to lagInFrame/leadInFrame and add default window frame if needed
-        if identifier in ("lag", "lead") and self.dialect != "postgres":
-            identifier = f"{identifier}InFrame"
-            # Wrap the first expression (value) and third expression (default) in toNullable()
-            # The second expression (offset) must remain a non-nullable integer
-            if len(exprs) > 0:
-                exprs[0] = f"toNullable({exprs[0]})"  # value
-            # If there's no window frame specified, add the default one
-            if not cloned_node.over_expr and not cloned_node.over_identifier:
-                cloned_node.over_expr = self._create_default_window_frame(cloned_node)
-            # If there's an over_identifier, we need to extract the new window expr just for this function
-            elif cloned_node.over_identifier:
-                # Find the last select query to look up the window definition
-                last_select = self._last_select()
-                if last_select and last_select.window_exprs and cloned_node.over_identifier in last_select.window_exprs:
-                    base_window = last_select.window_exprs[cloned_node.over_identifier]
-                    # Create a new window expr based on the referenced one
-                    cloned_node.over_expr = ast.WindowExpr(
-                        partition_by=base_window.partition_by,
-                        order_by=base_window.order_by,
-                        frame_method="ROWS" if not base_window.frame_method else base_window.frame_method,
-                        frame_start=base_window.frame_start
-                        or ast.WindowFrameExpr(frame_type="PRECEDING", frame_value=None),
-                        frame_end=base_window.frame_end
-                        or ast.WindowFrameExpr(frame_type="FOLLOWING", frame_value=None),
-                    )
-                    cloned_node.over_identifier = None
-            # If there's an ORDER BY but no frame, add the default frame
-            elif cloned_node.over_expr and cloned_node.over_expr.order_by and not cloned_node.over_expr.frame_method:
-                cloned_node.over_expr = self._create_default_window_frame(cloned_node)
+        identifier = self._apply_window_function_rewrites(identifier, exprs, cloned_node)
 
         # Handle any additional function arguments
         args = f"({', '.join(self.visit(arg) for arg in cloned_node.args)})" if cloned_node.args else ""
@@ -1444,7 +1532,9 @@ class BasePrinter(Visitor[str]):
             return str(name)
         return escape_hogql_identifier(name)
 
-    def _print_escaped_string(self, name: float | int | str | list | tuple | datetime | date | UUID | UUIDT) -> str:
+    def _print_escaped_string(
+        self, name: bool | float | int | str | list | tuple | datetime | date | UUID | UUIDT | None
+    ) -> str:
         return escape_hogql_string(name, timezone=self._get_timezone())
 
     def _unsafe_json_extract_trim_quotes(self, unsafe_field: str, unsafe_args: list[str]) -> str:

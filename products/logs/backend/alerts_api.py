@@ -1,10 +1,10 @@
 import datetime as dt
 from datetime import UTC, datetime
-from typing import Final, cast
+from typing import Final, TypedDict, cast
 from zoneinfo import ZoneInfo
 
-from django.db import transaction
-from django.db.models import OuterRef, QuerySet, Subquery
+from django.db import models, transaction
+from django.db.models import F, OuterRef, Prefetch, Q, QuerySet, Subquery
 
 from drf_spectacular.utils import extend_schema, extend_schema_field
 from loginas.utils import is_impersonated_session
@@ -50,6 +50,7 @@ ALLOWED_WINDOW_MINUTES = {5, 10, 15, 30, 60}
 MAX_ALERTS_PER_TEAM = 20
 MAX_SIMULATE_LOOKBACK_DAYS = 30
 MAX_SIMULATE_BUCKETS = 15_000
+STATE_TIMELINE_LOOKBACK_HOURS = 24
 _SENTINEL: Final = object()
 _NOT_ANNOTATED: Final = object()
 
@@ -58,17 +59,76 @@ def _any_field_changed(instance: LogsAlertConfiguration, validated_data: dict, f
     return any(f in validated_data and validated_data[f] != getattr(instance, f) for f in fields)
 
 
+class DestinationType(models.TextChoices):
+    SLACK = "slack"
+    WEBHOOK = "webhook"
+
+
+class LogsAlertStateIntervalSerializer(serializers.Serializer):
+    start = serializers.DateTimeField(help_text="Interval start (UTC, inclusive).")
+    end = serializers.DateTimeField(help_text="Interval end (UTC, exclusive).")
+    state = serializers.ChoiceField(
+        choices=LogsAlertConfiguration.State.choices,
+        help_text="Alert state during this interval.",
+    )
+    enabled = serializers.BooleanField(
+        help_text="Whether the alert was enabled during this interval. Disabled alerts keep their state but are inactive.",
+    )
+
+
+class StateInterval(TypedDict):
+    start: datetime
+    end: datetime
+    state: str
+    enabled: bool
+
+
+def _state_timeline_window_bounds() -> tuple[datetime, datetime]:
+    # Pixel-precise window — no hour quantization, since the frontend maps each event
+    # timestamp to an x-coordinate directly.
+    end = datetime.now(UTC)
+    return end - dt.timedelta(hours=STATE_TIMELINE_LOOKBACK_HOURS), end
+
+
 class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
-    created_by = UserBasicSerializer(read_only=True)
+    id = serializers.UUIDField(
+        read_only=True,
+        help_text="Unique identifier for this alert.",
+    )
+    name = serializers.CharField(
+        max_length=255,
+        help_text="Human-readable name for this alert.",
+    )
+    enabled = serializers.BooleanField(
+        default=True,
+        help_text="Whether the alert is actively being evaluated. Disabling resets the state to not_firing.",
+    )
     filters = serializers.JSONField(
         help_text="Filter criteria — subset of LogsViewerFilters. Must contain at least one of: "
         "severityLevels (list of severity strings), serviceNames (list of service name strings), "
         "or filterGroup (property filter group object)."
     )
+    threshold_count = serializers.IntegerField(
+        min_value=1,
+        help_text="Number of matching log entries that constitutes a threshold breach within the evaluation window.",
+    )
     threshold_operator = serializers.ChoiceField(
         choices=LogsAlertConfiguration.ThresholdOperator.choices,
         default=LogsAlertConfiguration.ThresholdOperator.ABOVE,
         help_text="Whether the alert fires when the count is above or below the threshold.",
+    )
+    window_minutes = serializers.IntegerField(
+        default=5,
+        help_text="Time window in minutes over which log entries are counted. Allowed values: 5, 10, 15, 30, 60.",
+    )
+    check_interval_minutes = serializers.IntegerField(
+        read_only=True,
+        help_text="How often the alert is evaluated, in minutes. Server-managed.",
+    )
+    state = serializers.ChoiceField(
+        choices=LogsAlertConfiguration.State.choices,
+        read_only=True,
+        help_text="Current alert state: not_firing, firing, pending_resolve, errored, or snoozed. Server-managed.",
     )
     evaluation_periods = serializers.IntegerField(
         default=1,
@@ -82,6 +142,35 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
         max_value=MAX_EVALUATION_PERIODS,
         help_text="How many periods within the evaluation window must breach the threshold to fire (N in N-of-M).",
     )
+    cooldown_minutes = serializers.IntegerField(
+        default=0,
+        min_value=0,
+        help_text="Minimum minutes between repeated notifications after the alert fires. 0 means no cooldown.",
+    )
+    snooze_until = serializers.DateTimeField(
+        required=False,
+        allow_null=True,
+        help_text="ISO 8601 timestamp until which the alert is snoozed. Set to null to unsnooze.",
+    )
+    next_check_at = serializers.DateTimeField(
+        read_only=True,
+        allow_null=True,
+        help_text="When the next evaluation is scheduled. Server-managed.",
+    )
+    last_notified_at = serializers.DateTimeField(
+        read_only=True,
+        allow_null=True,
+        help_text="When the last notification was sent. Server-managed.",
+    )
+    last_checked_at = serializers.DateTimeField(
+        read_only=True,
+        allow_null=True,
+        help_text="When the alert was last evaluated. Server-managed.",
+    )
+    consecutive_failures = serializers.IntegerField(
+        read_only=True,
+        help_text="Number of consecutive evaluation failures. Resets on success. Server-managed.",
+    )
     last_error_message = serializers.SerializerMethodField(
         help_text=(
             "Error message from the most recent errored check, or null if the alert's "
@@ -89,6 +178,135 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
             "denormalization so retention-aware cleanup rules stay the only source of truth."
         ),
     )
+    created_at = serializers.DateTimeField(
+        read_only=True,
+        help_text="When the alert was created.",
+    )
+    created_by = UserBasicSerializer(read_only=True)
+    updated_at = serializers.DateTimeField(
+        read_only=True,
+        allow_null=True,
+        help_text="When the alert was last modified.",
+    )
+    state_timeline = serializers.SerializerMethodField(
+        help_text=(
+            f"Continuous state intervals over the last {STATE_TIMELINE_LOOKBACK_HOURS}h, ordered oldest-first. "
+            "Each interval covers a span during which (state, enabled) was constant. Derived from "
+            "LogsAlertEvent rows walked in chronological order; consecutive identical intervals are "
+            "collapsed. Drives the 'Last 24h' status bar on the alert list."
+        ),
+    )
+    destination_types = serializers.SerializerMethodField(
+        help_text=(
+            "Notification destination types configured for this alert — e.g. 'slack', 'webhook'. "
+            "Empty list means no notifications will fire. One or more destinations should be added "
+            "after creating an alert."
+        ),
+    )
+
+    @extend_schema_field(LogsAlertStateIntervalSerializer(many=True))
+    def get_state_timeline(self, obj: LogsAlertConfiguration) -> list[StateInterval]:
+        window = self.context.get("state_timeline_window") or _state_timeline_window_bounds()
+        window_start, window_end = window
+
+        # Events are prefetched as `_state_timeline_events` on the list endpoint; fall
+        # back to a direct query for callers that build this serializer outside the viewset
+        # (admin, tests).
+        events = getattr(obj, "_state_timeline_events", None)
+        if events is None:
+            events = list(
+                LogsAlertEvent.objects.filter(alert=obj, created_at__gte=window_start)
+                .order_by("created_at")
+                .only("kind", "created_at", "state_before", "state_after")
+            )
+
+        # Seed state at window_start: the first in-window event tells us what state was
+        # active just before it fired. Fallback to the alert's current state when there are
+        # no events at all in the window.
+        seed_state = events[0].state_before if events else obj.state
+
+        # Seed enabled at window_start: prefer the latest ENABLE/DISABLE at-or-before
+        # window_start (annotated on the queryset), then infer from the first in-window
+        # toggle (opposite kind), else fall back to alert.enabled (constant if never toggled).
+        pre_window_toggle = getattr(obj, "_pre_window_toggle_kind", _NOT_ANNOTATED)
+        if pre_window_toggle is _NOT_ANNOTATED:
+            pre_window_toggle = (
+                LogsAlertEvent.objects.filter(
+                    alert=obj,
+                    kind__in=(LogsAlertEvent.Kind.ENABLE, LogsAlertEvent.Kind.DISABLE),
+                    created_at__lt=window_start,
+                )
+                .order_by("-created_at")
+                .values_list("kind", flat=True)
+                .first()
+            )
+        if pre_window_toggle is not None:
+            seed_enabled = pre_window_toggle == LogsAlertEvent.Kind.ENABLE
+        else:
+            first_in_window_toggle = next(
+                (e for e in events if e.kind in (LogsAlertEvent.Kind.ENABLE, LogsAlertEvent.Kind.DISABLE)),
+                None,
+            )
+            if first_in_window_toggle is not None:
+                # Before a toggle fired, enabled was the opposite of what the toggle set it to.
+                seed_enabled = first_in_window_toggle.kind == LogsAlertEvent.Kind.DISABLE
+            else:
+                seed_enabled = obj.enabled
+
+        intervals: list[StateInterval] = []
+        current_start = window_start
+        current_state = seed_state
+        current_enabled = seed_enabled
+
+        for event in events:
+            if event.kind == LogsAlertEvent.Kind.ENABLE:
+                new_enabled, new_state = True, event.state_after
+            elif event.kind == LogsAlertEvent.Kind.DISABLE:
+                new_enabled, new_state = False, event.state_after
+            else:
+                new_enabled, new_state = current_enabled, event.state_after
+
+            if new_state == current_state and new_enabled == current_enabled:
+                continue
+
+            intervals.append(
+                {
+                    "start": current_start,
+                    "end": event.created_at,
+                    "state": current_state,
+                    "enabled": current_enabled,
+                }
+            )
+            current_start = event.created_at
+            current_state = new_state
+            current_enabled = new_enabled
+
+        intervals.append(
+            {
+                "start": current_start,
+                "end": window_end,
+                "state": current_state,
+                "enabled": current_enabled,
+            }
+        )
+        return intervals
+
+    @extend_schema_field(serializers.ListField(child=serializers.ChoiceField(choices=list(DestinationType))))
+    def get_destination_types(self, obj: LogsAlertConfiguration) -> list[str]:
+        # N+1 is acceptable: max 20 alerts per team, each query is a fast indexed lookup.
+        team_id = obj.team_id
+        template_ids = (
+            HogFunction.objects.filter(
+                team_id=team_id,
+                deleted=False,
+                template_id__in=["template-slack", "template-webhook"],
+                filters__properties__contains=[{"key": "alert_id", "value": str(obj.id)}],
+            )
+            .values_list("template_id", flat=True)
+            .distinct()
+        )
+        type_map = {"template-slack": "slack", "template-webhook": "webhook"}
+        return sorted(type_map[tid] for tid in template_ids if tid in type_map)
 
     @extend_schema_field(serializers.CharField(allow_null=True))
     def get_last_error_message(self, obj: LogsAlertConfiguration) -> str | None:
@@ -131,6 +349,8 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
             "last_checked_at",
             "consecutive_failures",
             "last_error_message",
+            "state_timeline",
+            "destination_types",
             "created_at",
             "created_by",
             "updated_at",
@@ -144,6 +364,8 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
             "last_checked_at",
             "consecutive_failures",
             "last_error_message",
+            "state_timeline",
+            "destination_types",
             "created_at",
             "created_by",
             "updated_at",
@@ -249,6 +471,23 @@ def _validate_filters(filters: dict) -> None:
         )
 
 
+class LogsAlertEventSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = LogsAlertEvent
+        fields = [
+            "id",
+            "created_at",
+            "kind",
+            "state_before",
+            "state_after",
+            "threshold_breached",
+            "result_count",
+            "error_message",
+            "query_duration_ms",
+        ]
+        read_only_fields = fields
+
+
 class LogsAlertSimulateBucketSerializer(serializers.Serializer):
     timestamp = serializers.DateTimeField(help_text="Bucket start timestamp.")
     count = serializers.IntegerField(help_text="Number of matching logs in this bucket.")
@@ -331,7 +570,7 @@ class LogsAlertSimulateResponseSerializer(serializers.Serializer):
 
 
 class LogsAlertCreateDestinationSerializer(serializers.Serializer):
-    type = serializers.ChoiceField(choices=["slack", "webhook"], help_text="Destination type — slack or webhook.")
+    type = serializers.ChoiceField(choices=list(DestinationType), help_text="Destination type — slack or webhook.")
     slack_workspace_id = serializers.IntegerField(
         required=False, help_text="Integration ID for the Slack workspace. Required when type=slack."
     )
@@ -480,7 +719,46 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             .order_by("-created_at")
             .values("error_message")[:1]
         )
-        return queryset.filter(team_id=self.team_id).annotate(_latest_error_message=Subquery(latest_error))
+        # Anchor the prefetch window and the serializer's window to the same instant so
+        # they can't drift mid-request. Use a precise `now - 24h` (no hour quantization)
+        # — the frontend maps event timestamps to x-coordinates directly.
+        self._state_timeline_window = _state_timeline_window_bounds()
+        window_start, _ = self._state_timeline_window
+        # Scope by team so Postgres can use the team index on the alert FK join — without
+        # it the prefetch scans every team's events.
+        timeline_events = (
+            LogsAlertEvent.objects.filter(alert__team_id=self.team_id, created_at__gte=window_start)
+            # alert_id is required — Prefetch groups events by FK after fetching; deferring
+            # it triggers a lazy load per event (N+1).
+            .only("alert_id", "kind", "created_at", "state_before", "state_after")
+            .order_by("created_at")
+        )
+        # Latest ENABLE/DISABLE at-or-before window_start — lets the serializer seed
+        # `enabled` correctly when the window has no toggle events.
+        latest_pre_window_toggle = (
+            LogsAlertEvent.objects.filter(
+                alert=OuterRef("pk"),
+                kind__in=(LogsAlertEvent.Kind.ENABLE, LogsAlertEvent.Kind.DISABLE),
+                created_at__lt=window_start,
+            )
+            .order_by("-created_at")
+            .values("kind")[:1]
+        )
+        return (
+            queryset.filter(team_id=self.team_id)
+            .annotate(
+                _latest_error_message=Subquery(latest_error),
+                _pre_window_toggle_kind=Subquery(latest_pre_window_toggle),
+            )
+            .prefetch_related(Prefetch("events", queryset=timeline_events, to_attr="_state_timeline_events"))
+        )
+
+    def get_serializer_context(self) -> dict:
+        context = super().get_serializer_context()
+        context["state_timeline_window"] = (
+            getattr(self, "_state_timeline_window", None) or _state_timeline_window_bounds()
+        )
+        return context
 
     @extend_schema(
         request=LogsAlertCreateDestinationSerializer,
@@ -560,6 +838,43 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         )
         serializer.is_valid(raise_exception=True)
         return serializer.save(team=team)
+
+    @extend_schema(
+        request=None,
+        responses={200: LogsAlertEventSerializer(many=True)},
+        description=(
+            "Paginated event history for this alert, newest first. Returns state transitions, "
+            "errored checks, and user-initiated control-plane rows (reset, enable/disable, "
+            "snooze/unsnooze, threshold change) — quiet no-op check rows (where state didn't "
+            "change and there was no error) are filtered out since only the last 10 are kept "
+            "and they carry no forensic value. Optional `?kind=...` narrows to a single kind."
+        ),
+    )
+    @action(detail=True, methods=["GET"], url_path="events")
+    def events(self, request: Request, *args: object, **kwargs: object) -> Response:
+        alert = self.get_object()
+        queryset = (
+            LogsAlertEvent.objects.filter(alert=alert)
+            .filter(
+                ~Q(kind=LogsAlertEvent.Kind.CHECK) | Q(error_message__isnull=False) | ~Q(state_before=F("state_after"))
+            )
+            .order_by("-created_at")
+        )
+
+        kind = request.query_params.get("kind")
+        if kind is not None:
+            valid_kinds = LogsAlertEvent.Kind.values
+            if kind not in valid_kinds:
+                raise ValidationError({"kind": f"Must be one of {sorted(valid_kinds)}."})
+            queryset = queryset.filter(kind=kind)
+
+        page = self.paginate_queryset(queryset)
+        if page is not None:
+            serializer = LogsAlertEventSerializer(page, many=True)
+            return self.get_paginated_response(serializer.data)
+
+        serializer = LogsAlertEventSerializer(queryset, many=True)
+        return Response(serializer.data)
 
     @extend_schema(
         request=None,

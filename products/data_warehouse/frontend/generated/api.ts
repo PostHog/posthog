@@ -24,6 +24,8 @@ import type {
     ExternalDataSourcesCheckCdcPrerequisitesCreate200,
     ExternalDataSourcesConnectionsListParams,
     ExternalDataSourcesListParams,
+    InsightVariableApi,
+    InsightVariablesListParams,
     PaginatedDataModelingJobListApi,
     PaginatedDataWarehouseModelPathListApi,
     PaginatedDataWarehouseSavedQueryDraftListApi,
@@ -31,14 +33,17 @@ import type {
     PaginatedExternalDataSchemaListApi,
     PaginatedExternalDataSourceConnectionOptionListApi,
     PaginatedExternalDataSourceSerializersListApi,
+    PaginatedInsightVariableListApi,
     PaginatedQueryTabStateListApi,
     PaginatedTableListApi,
     PaginatedViewLinkListApi,
     PatchedDataWarehouseSavedQueryApi,
     PatchedDataWarehouseSavedQueryDraftApi,
     PatchedDataWarehouseSavedQueryFolderApi,
+    PatchedExternalDataSchemaApi,
     PatchedExternalDataSourceBulkUpdateSchemasApi,
     PatchedExternalDataSourceSerializersApi,
+    PatchedInsightVariableApi,
     PatchedQueryTabStateApi,
     ProvisionWarehouseRequestApi,
     ProvisionWarehouseResponseApi,
@@ -603,6 +608,159 @@ export const externalDataSchemasCreate = async (
     })
 }
 
+export const getExternalDataSchemasRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/external_data_schemas/${id}/`
+}
+
+export const externalDataSchemasRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<ExternalDataSchemaApi> => {
+    return apiMutator<ExternalDataSchemaApi>(getExternalDataSchemasRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getExternalDataSchemasUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/external_data_schemas/${id}/`
+}
+
+export const externalDataSchemasUpdate = async (
+    projectId: string,
+    id: string,
+    externalDataSchemaApi: NonReadonly<ExternalDataSchemaApi>,
+    options?: RequestInit
+): Promise<ExternalDataSchemaApi> => {
+    return apiMutator<ExternalDataSchemaApi>(getExternalDataSchemasUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(externalDataSchemaApi),
+    })
+}
+
+export const getExternalDataSchemasPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/external_data_schemas/${id}/`
+}
+
+export const externalDataSchemasPartialUpdate = async (
+    projectId: string,
+    id: string,
+    patchedExternalDataSchemaApi: NonReadonly<PatchedExternalDataSchemaApi>,
+    options?: RequestInit
+): Promise<ExternalDataSchemaApi> => {
+    return apiMutator<ExternalDataSchemaApi>(getExternalDataSchemasPartialUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedExternalDataSchemaApi),
+    })
+}
+
+export const getExternalDataSchemasDestroyUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/external_data_schemas/${id}/`
+}
+
+export const externalDataSchemasDestroy = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getExternalDataSchemasDestroyUrl(projectId, id), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
+export const getExternalDataSchemasCancelCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/external_data_schemas/${id}/cancel/`
+}
+
+export const externalDataSchemasCancelCreate = async (
+    projectId: string,
+    id: string,
+    externalDataSchemaApi: NonReadonly<ExternalDataSchemaApi>,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getExternalDataSchemasCancelCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(externalDataSchemaApi),
+    })
+}
+
+export const getExternalDataSchemasDeleteDataDestroyUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/external_data_schemas/${id}/delete_data/`
+}
+
+export const externalDataSchemasDeleteDataDestroy = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getExternalDataSchemasDeleteDataDestroyUrl(projectId, id), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
+export const getExternalDataSchemasIncrementalFieldsCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/external_data_schemas/${id}/incremental_fields/`
+}
+
+export const externalDataSchemasIncrementalFieldsCreate = async (
+    projectId: string,
+    id: string,
+    externalDataSchemaApi: NonReadonly<ExternalDataSchemaApi>,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getExternalDataSchemasIncrementalFieldsCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(externalDataSchemaApi),
+    })
+}
+
+export const getExternalDataSchemasReloadCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/external_data_schemas/${id}/reload/`
+}
+
+export const externalDataSchemasReloadCreate = async (
+    projectId: string,
+    id: string,
+    externalDataSchemaApi: NonReadonly<ExternalDataSchemaApi>,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getExternalDataSchemasReloadCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(externalDataSchemaApi),
+    })
+}
+
+export const getExternalDataSchemasResyncCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/external_data_schemas/${id}/resync/`
+}
+
+export const externalDataSchemasResyncCreate = async (
+    projectId: string,
+    id: string,
+    externalDataSchemaApi: NonReadonly<ExternalDataSchemaApi>,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getExternalDataSchemasResyncCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(externalDataSchemaApi),
+    })
+}
+
 /**
  * Create, Read, Update and Delete External data Sources.
  */
@@ -1044,6 +1202,112 @@ export const externalDataSourcesWizardRetrieve = async (projectId: string, optio
     return apiMutator<void>(getExternalDataSourcesWizardRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getInsightVariablesListUrl = (projectId: string, params?: InsightVariablesListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/insight_variables/?${stringifiedParams}`
+        : `/api/projects/${projectId}/insight_variables/`
+}
+
+export const insightVariablesList = async (
+    projectId: string,
+    params?: InsightVariablesListParams,
+    options?: RequestInit
+): Promise<PaginatedInsightVariableListApi> => {
+    return apiMutator<PaginatedInsightVariableListApi>(getInsightVariablesListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getInsightVariablesCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/insight_variables/`
+}
+
+export const insightVariablesCreate = async (
+    projectId: string,
+    insightVariableApi: NonReadonly<InsightVariableApi>,
+    options?: RequestInit
+): Promise<InsightVariableApi> => {
+    return apiMutator<InsightVariableApi>(getInsightVariablesCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(insightVariableApi),
+    })
+}
+
+export const getInsightVariablesRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/insight_variables/${id}/`
+}
+
+export const insightVariablesRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<InsightVariableApi> => {
+    return apiMutator<InsightVariableApi>(getInsightVariablesRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getInsightVariablesUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/insight_variables/${id}/`
+}
+
+export const insightVariablesUpdate = async (
+    projectId: string,
+    id: string,
+    insightVariableApi: NonReadonly<InsightVariableApi>,
+    options?: RequestInit
+): Promise<InsightVariableApi> => {
+    return apiMutator<InsightVariableApi>(getInsightVariablesUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(insightVariableApi),
+    })
+}
+
+export const getInsightVariablesPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/insight_variables/${id}/`
+}
+
+export const insightVariablesPartialUpdate = async (
+    projectId: string,
+    id: string,
+    patchedInsightVariableApi: NonReadonly<PatchedInsightVariableApi>,
+    options?: RequestInit
+): Promise<InsightVariableApi> => {
+    return apiMutator<InsightVariableApi>(getInsightVariablesPartialUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedInsightVariableApi),
+    })
+}
+
+export const getInsightVariablesDestroyUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/insight_variables/${id}/`
+}
+
+export const insightVariablesDestroy = async (projectId: string, id: string, options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getInsightVariablesDestroyUrl(projectId, id), {
+        ...options,
+        method: 'DELETE',
     })
 }
 

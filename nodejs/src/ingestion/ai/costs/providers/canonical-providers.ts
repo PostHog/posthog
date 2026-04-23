@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-04-20 11:00:56 UTC
+// Generated at: 2026-04-23 10:29:30 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -19,6 +19,7 @@ export type CanonicalProvider =
     | 'atlas-cloud-fp8'
     | 'atlas-cloud-int4'
     | 'azure'
+    | 'baidu-fp8'
     | 'baseten-fp4'
     | 'cerebras-fp16'
     | 'chutes-bf16'
@@ -104,9 +105,9 @@ export type CanonicalProvider =
     | 'sambanova-high-throughput'
     | 'sambanova-turbo'
     | 'seed-fp8'
+    | 'siliconflow'
     | 'siliconflow-fp8'
     | 'siliconflow-int4'
-    | 'stealth'
     | 'stepfun-fp8'
     | 'streamlake'
     | 'switchpoint'

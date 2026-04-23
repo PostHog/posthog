@@ -6,8 +6,14 @@ from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, f
 from parameterized import parameterized
 
 from posthog.hogql import ast
+from posthog.hogql.parser import parse_select
 
 from products.endpoints.backend.materialization import (
+    DownstreamCTEShape,
+    _build_cte_read_graph,
+    _classify_downstream_cte,
+    _downstream_ctes,
+    _topological_order,
     analyze_variables_for_materialization,
     transform_query_for_materialization,
 )
@@ -1337,8 +1343,6 @@ class TestMaterializedQueryExecution(APIBaseTest):
         assert True  # See _transform_select_for_materialized_table implementation
 
     def test_select_transformation_with_alias(self):
-        from posthog.hogql.parser import parse_select
-
         from products.endpoints.backend.materialization import transform_select_for_materialized_table
 
         query_str = "SELECT count() as total, toStartOfDay(timestamp) as date FROM events"
@@ -1361,8 +1365,6 @@ class TestMaterializedQueryExecution(APIBaseTest):
         assert transformed[1].is_aggregate is False
 
     def test_select_transformation_without_alias(self):
-        from posthog.hogql.parser import parse_select
-
         from products.endpoints.backend.materialization import transform_select_for_materialized_table
 
         query_str = "SELECT count() FROM events"
@@ -1618,8 +1620,6 @@ class TestTransformQuerySnapshots(APIBaseTest):
         assert group_by_columns.count("event") == 1, f"GROUP BY has duplicate 'event': {group_by_columns}"
 
     def test_ast_node_not_shared_between_select_and_group_by(self):
-        from posthog.hogql.parser import parse_select
-
         from products.endpoints.backend.materialization import MaterializationTransformer
 
         query_str = "SELECT count() FROM events WHERE toDate(timestamp) >= {variables.from_date}"
@@ -2182,4 +2182,416 @@ class TestMaterializationEquivalence(ClickhouseTestMixin, APIBaseTest):
             ),
             {"var-1": {"code_name": "event_name", "value": "$pageview"}},
             {"event_name": "$pageview"},
+        )
+
+    def test_cte_variable_with_downstream_cte_chain(self):
+        # Variable lives in `base`, but top-level reads from `agg`, which itself
+        # reads from `base`. The transform must propagate the variable column
+        # through `agg` (SELECT + GROUP BY) so the final filter is meaningful.
+        self._assert_equivalent(
+            (
+                "WITH base AS ("
+                "  SELECT event, distinct_id FROM events WHERE event = {variables.event_name}"
+                "), "
+                "agg AS ("
+                "  SELECT distinct_id, count() AS cnt FROM base GROUP BY distinct_id"
+                ") "
+                "SELECT distinct_id, cnt FROM agg ORDER BY distinct_id"
+            ),
+            {"var-1": {"code_name": "event_name", "value": "$pageview"}},
+            {"event_name": "$pageview"},
+        )
+
+    def test_cte_variable_with_transitive_chain_three_hops(self):
+        self._assert_equivalent(
+            (
+                "WITH base AS ("
+                "  SELECT event, distinct_id FROM events WHERE event = {variables.event_name}"
+                "), "
+                "mid AS ("
+                "  SELECT distinct_id FROM base"
+                "), "
+                "terminal AS ("
+                "  SELECT distinct_id, count() AS cnt FROM mid GROUP BY distinct_id"
+                ") "
+                "SELECT distinct_id, cnt FROM terminal ORDER BY distinct_id"
+            ),
+            {"var-1": {"code_name": "event_name", "value": "$pageview"}},
+            {"event_name": "$pageview"},
+        )
+
+    def test_cte_variable_with_cross_join_of_propagating_ctes(self):
+        # Two sibling CTEs both read from the variable-carrying `base`. The
+        # terminal CTE CROSS JOINs them; propagation must add an equi-predicate
+        # on the variable column to preserve per-value semantics.
+        self._assert_equivalent(
+            (
+                "WITH base AS ("
+                "  SELECT event, distinct_id FROM events WHERE event = {variables.event_name}"
+                "), "
+                "left_side AS ("
+                "  SELECT distinct_id FROM base"
+                "), "
+                "right_side AS ("
+                "  SELECT distinct_id AS did2 FROM base"
+                "), "
+                "combined AS ("
+                "  SELECT l.distinct_id AS did_l, r.did2 AS did_r FROM left_side l CROSS JOIN right_side r"
+                ") "
+                "SELECT did_l, did_r FROM combined ORDER BY did_l, did_r"
+            ),
+            {"var-1": {"code_name": "event_name", "value": "$pageview"}},
+            {"event_name": "$pageview"},
+        )
+
+    def test_cte_variable_with_distinct_downstream(self):
+        self._assert_equivalent(
+            (
+                "WITH base AS ("
+                "  SELECT event, distinct_id FROM events WHERE event = {variables.event_name}"
+                "), "
+                "uniq AS ("
+                "  SELECT DISTINCT distinct_id FROM base"
+                ") "
+                "SELECT distinct_id FROM uniq ORDER BY distinct_id"
+            ),
+            {"var-1": {"code_name": "event_name", "value": "$pageview"}},
+            {"event_name": "$pageview"},
+        )
+
+    def test_cte_variable_with_aggregation_in_downstream_chain(self):
+        self._assert_equivalent(
+            (
+                "WITH base AS ("
+                "  SELECT event, distinct_id FROM events WHERE event = {variables.event_name}"
+                "), "
+                "per_user AS ("
+                "  SELECT distinct_id, count() AS cnt FROM base GROUP BY distinct_id"
+                "), "
+                "final AS ("
+                "  SELECT sum(cnt) AS total FROM per_user"
+                ") "
+                "SELECT total FROM final"
+            ),
+            {"var-1": {"code_name": "event_name", "value": "$pageview"}},
+            {"event_name": "$pageview"},
+        )
+
+
+class TestCTEGraph(APIBaseTest):
+    """Unit tests for the CTE reference graph and downstream/topological helpers."""
+
+    @staticmethod
+    def _parse(query_str: str) -> ast.SelectQuery:
+        parsed = parse_select(query_str)
+        assert isinstance(parsed, ast.SelectQuery)
+        return parsed
+
+    def test_no_ctes_returns_empty_graph(self):
+        node = self._parse("SELECT count() FROM events")
+        assert _build_cte_read_graph(node) == {}
+
+    def test_single_cte_with_no_cte_references(self):
+        node = self._parse("WITH a AS (SELECT 1 AS x) SELECT x FROM a")
+        graph = _build_cte_read_graph(node)
+        assert graph == {"a": set()}
+
+    def test_cte_reads_from_another_cte(self):
+        node = self._parse("WITH a AS (SELECT 1 AS x), b AS (SELECT x FROM a) SELECT x FROM b")
+        graph = _build_cte_read_graph(node)
+        assert graph["a"] == set()
+        assert graph["b"] == {"a"}
+
+    def test_cte_reads_via_nested_subquery(self):
+        node = self._parse("WITH a AS (SELECT 1 AS x), b AS (SELECT * FROM (SELECT x FROM a)) SELECT * FROM b")
+        graph = _build_cte_read_graph(node)
+        assert graph["b"] == {"a"}
+
+    def test_cte_reads_via_cross_join(self):
+        node = self._parse(
+            "WITH a AS (SELECT 1 AS x), b AS (SELECT 2 AS y), c AS (SELECT * FROM a CROSS JOIN b) SELECT * FROM c"
+        )
+        graph = _build_cte_read_graph(node)
+        assert graph["c"] == {"a", "b"}
+
+    def test_cte_reads_via_left_join(self):
+        node = self._parse(
+            "WITH a AS (SELECT 1 AS x), b AS (SELECT 1 AS y), c AS (SELECT * FROM a LEFT JOIN b ON 1=1) SELECT * FROM c"
+        )
+        graph = _build_cte_read_graph(node)
+        assert graph["c"] == {"a", "b"}
+
+    def test_downstream_direct_reader(self):
+        node = self._parse("WITH a AS (SELECT 1 AS x), b AS (SELECT x FROM a) SELECT x FROM b")
+        graph = _build_cte_read_graph(node)
+        assert _downstream_ctes(graph, "a") == {"b"}
+
+    def test_downstream_transitive_chain(self):
+        node = self._parse("WITH a AS (SELECT 1 AS x), b AS (SELECT x FROM a), c AS (SELECT x FROM b) SELECT x FROM c")
+        graph = _build_cte_read_graph(node)
+        assert _downstream_ctes(graph, "a") == {"b", "c"}
+
+    def test_downstream_excludes_siblings(self):
+        node = self._parse("WITH a AS (SELECT 1 AS x), b AS (SELECT 2 AS y), c AS (SELECT x FROM a) SELECT x FROM c")
+        graph = _build_cte_read_graph(node)
+        assert _downstream_ctes(graph, "a") == {"c"}
+        assert _downstream_ctes(graph, "b") == set()
+
+    def test_topological_order_respects_dependencies(self):
+        node = self._parse("WITH a AS (SELECT 1 AS x), b AS (SELECT x FROM a), c AS (SELECT x FROM b) SELECT x FROM c")
+        graph = _build_cte_read_graph(node)
+        order = _topological_order(graph, {"b", "c"})
+        assert order.index("b") < order.index("c")
+
+
+class TestDownstreamCTEClassifier(APIBaseTest):
+    """Unit tests for the downstream CTE shape classifier."""
+
+    @staticmethod
+    def _get_cte(query_str: str, cte_name: str) -> ast.Expr:
+        parsed = parse_select(query_str)
+        assert isinstance(parsed, ast.SelectQuery) and parsed.ctes
+        return parsed.ctes[cte_name].expr
+
+    def test_projection_shape(self):
+        expr = self._get_cte(
+            "WITH base AS (SELECT 1 AS x), proj AS (SELECT x FROM base) SELECT * FROM proj",
+            "proj",
+        )
+        plan = _classify_downstream_cte("proj", expr, {"base", "proj"}, ["event_name"])
+        assert plan.reject_reason is None
+        assert plan.shape == DownstreamCTEShape.PROJECTION
+        assert plan.propagating_sources == [("base", "base")]
+
+    def test_aggregation_shape(self):
+        expr = self._get_cte(
+            "WITH base AS (SELECT 1 AS x), agg AS (SELECT x, count() FROM base GROUP BY x) SELECT * FROM agg",
+            "agg",
+        )
+        plan = _classify_downstream_cte("agg", expr, {"base", "agg"}, ["event_name"])
+        assert plan.reject_reason is None
+        assert plan.shape == DownstreamCTEShape.AGGREGATION
+
+    def test_distinct_shape(self):
+        expr = self._get_cte(
+            "WITH base AS (SELECT 1 AS x), u AS (SELECT DISTINCT x FROM base) SELECT * FROM u",
+            "u",
+        )
+        plan = _classify_downstream_cte("u", expr, {"base", "u"}, ["event_name"])
+        assert plan.reject_reason is None
+        assert plan.shape == DownstreamCTEShape.DISTINCT
+
+    def test_multi_join_shape(self):
+        expr = self._get_cte(
+            "WITH base AS (SELECT 1 AS x), base2 AS (SELECT 1 AS x), "
+            "combined AS (SELECT base.x FROM base CROSS JOIN base2) "
+            "SELECT * FROM combined",
+            "combined",
+        )
+        plan = _classify_downstream_cte("combined", expr, {"base", "base2", "combined"}, ["event_name"])
+        assert plan.reject_reason is None
+        assert plan.shape == DownstreamCTEShape.MULTI_JOIN
+        assert len(plan.propagating_sources) == 2
+
+    def test_union_all_shape(self):
+        expr = self._get_cte(
+            "WITH base AS (SELECT 1 AS x), u AS (SELECT x FROM base UNION ALL SELECT x FROM base) SELECT * FROM u",
+            "u",
+        )
+        plan = _classify_downstream_cte("u", expr, {"base", "u"}, ["event_name"])
+        assert plan.reject_reason is None
+        assert plan.shape == DownstreamCTEShape.UNION_ALL
+        assert len(plan.leg_plans) == 2
+
+    def test_left_join_rejected(self):
+        expr = self._get_cte(
+            "WITH base AS (SELECT 1 AS x), base2 AS (SELECT 1 AS x), "
+            "combined AS (SELECT base.x FROM base LEFT JOIN base2 ON base.x = base2.x) "
+            "SELECT * FROM combined",
+            "combined",
+        )
+        plan = _classify_downstream_cte("combined", expr, {"base", "base2", "combined"}, ["event_name"])
+        assert plan.reject_reason is not None
+        assert "LEFT JOIN" in plan.reject_reason
+
+    def test_full_outer_join_rejected(self):
+        expr = self._get_cte(
+            "WITH base AS (SELECT 1 AS x), base2 AS (SELECT 1 AS x), "
+            "combined AS (SELECT base.x FROM base FULL OUTER JOIN base2 ON base.x = base2.x) "
+            "SELECT * FROM combined",
+            "combined",
+        )
+        plan = _classify_downstream_cte("combined", expr, {"base", "base2", "combined"}, ["event_name"])
+        assert plan.reject_reason is not None
+        assert "FULL OUTER JOIN" in plan.reject_reason
+
+    def test_nested_subquery_reference_rejected(self):
+        expr = self._get_cte(
+            "WITH base AS (SELECT 1 AS x), nested AS (SELECT * FROM (SELECT x FROM base)) SELECT * FROM nested",
+            "nested",
+        )
+        plan = _classify_downstream_cte("nested", expr, {"base", "nested"}, ["event_name"])
+        assert plan.reject_reason is not None
+        assert "nested subquery" in plan.reject_reason
+
+    def test_column_name_collision_rejected(self):
+        expr = self._get_cte(
+            "WITH base AS (SELECT 1 AS x), clash AS (SELECT x, 'a' AS event_name FROM base) SELECT * FROM clash",
+            "clash",
+        )
+        plan = _classify_downstream_cte("clash", expr, {"base", "clash"}, ["event_name"])
+        assert plan.reject_reason is not None
+        assert "collides with existing column" in plan.reject_reason
+
+    def test_union_leg_unable_to_propagate_rejected(self):
+        expr = self._get_cte(
+            "WITH base AS (SELECT 1 AS x), u AS (SELECT x FROM base UNION ALL SELECT 1 AS x) SELECT * FROM u",
+            "u",
+        )
+        plan = _classify_downstream_cte("u", expr, {"base", "u"}, ["event_name"])
+        assert plan.reject_reason is not None
+        assert "UNION leg" in plan.reject_reason
+
+
+class TestDownstreamAnalysisRejections(APIBaseTest):
+    """Analyzer-level rejection tests for downstream CTE shapes we don't support."""
+
+    def test_downstream_left_join_between_propagating_ctes_rejected(self):
+        query = {
+            "kind": "HogQLQuery",
+            "query": (
+                "WITH base AS (SELECT event, distinct_id FROM events WHERE event = {variables.event_name}), "
+                "alt AS (SELECT distinct_id FROM base), "
+                "combined AS (SELECT b.event FROM base b LEFT JOIN alt a ON b.distinct_id = a.distinct_id) "
+                "SELECT event FROM combined"
+            ),
+            "variables": {"var-1": {"code_name": "event_name", "value": "$pageview"}},
+        }
+        can_materialize, reason, _ = analyze_variables_for_materialization(query)
+        assert can_materialize is False
+        assert "LEFT JOIN" in reason
+
+    def test_downstream_full_join_rejected(self):
+        query = {
+            "kind": "HogQLQuery",
+            "query": (
+                "WITH base AS (SELECT event, distinct_id FROM events WHERE event = {variables.event_name}), "
+                "alt AS (SELECT distinct_id FROM base), "
+                "combined AS (SELECT b.event FROM base b FULL OUTER JOIN alt a ON b.distinct_id = a.distinct_id) "
+                "SELECT event FROM combined"
+            ),
+            "variables": {"var-1": {"code_name": "event_name", "value": "$pageview"}},
+        }
+        can_materialize, reason, _ = analyze_variables_for_materialization(query)
+        assert can_materialize is False
+        assert "FULL OUTER JOIN" in reason
+
+    def test_downstream_nested_subquery_reference_rejected(self):
+        query = {
+            "kind": "HogQLQuery",
+            "query": (
+                "WITH base AS (SELECT event, distinct_id FROM events WHERE event = {variables.event_name}), "
+                "wrap AS (SELECT * FROM (SELECT distinct_id FROM base)) "
+                "SELECT distinct_id FROM wrap"
+            ),
+            "variables": {"var-1": {"code_name": "event_name", "value": "$pageview"}},
+        }
+        can_materialize, reason, _ = analyze_variables_for_materialization(query)
+        assert can_materialize is False
+        assert "nested subquery" in reason
+
+    def test_downstream_union_leg_unable_to_propagate_rejected(self):
+        query = {
+            "kind": "HogQLQuery",
+            "query": (
+                "WITH base AS (SELECT event, distinct_id FROM events WHERE event = {variables.event_name}), "
+                "u AS (SELECT distinct_id FROM base UNION ALL SELECT distinct_id FROM events) "
+                "SELECT distinct_id FROM u"
+            ),
+            "variables": {"var-1": {"code_name": "event_name", "value": "$pageview"}},
+        }
+        can_materialize, reason, _ = analyze_variables_for_materialization(query)
+        assert can_materialize is False
+        assert "UNION leg" in reason
+
+    def test_downstream_column_name_collision_rejected(self):
+        query = {
+            "kind": "HogQLQuery",
+            "query": (
+                "WITH base AS (SELECT event, distinct_id FROM events WHERE event = {variables.event_name}), "
+                "clash AS (SELECT distinct_id, 'x' AS event_name FROM base) "
+                "SELECT distinct_id FROM clash"
+            ),
+            "variables": {"var-1": {"code_name": "event_name", "value": "$pageview"}},
+        }
+        can_materialize, reason, _ = analyze_variables_for_materialization(query)
+        assert can_materialize is False
+        assert "collides with existing column" in reason
+
+
+@pytest.mark.usefixtures("unittest_snapshot")
+class TestDownstreamTransformSnapshots(APIBaseTest):
+    """Snapshot tests pinning the transformed SQL for downstream propagation."""
+
+    snapshot: Any
+
+    def _transform(self, query_str: str, variables: dict) -> str:
+        hogql_query = {"kind": "HogQLQuery", "query": query_str, "variables": variables}
+        can_materialize, reason, var_infos = analyze_variables_for_materialization(hogql_query)
+        assert can_materialize, f"Expected materializable, got: {reason}"
+        transformed = transform_query_for_materialization(hogql_query, var_infos, self.team)
+        return transformed["query"]
+
+    def test_transform_downstream_projection_propagation(self):
+        assert (
+            self._transform(
+                (
+                    "WITH base AS (SELECT event, distinct_id FROM events WHERE event = {variables.event_name}), "
+                    "proj AS (SELECT distinct_id FROM base) "
+                    "SELECT distinct_id FROM proj"
+                ),
+                {"var-1": {"code_name": "event_name", "value": "$pageview"}},
+            )
+            == self.snapshot
+        )
+
+    def test_transform_downstream_aggregation_propagation(self):
+        assert (
+            self._transform(
+                (
+                    "WITH base AS (SELECT event, distinct_id FROM events WHERE event = {variables.event_name}), "
+                    "agg AS (SELECT distinct_id, count() AS cnt FROM base GROUP BY distinct_id) "
+                    "SELECT distinct_id, cnt FROM agg"
+                ),
+                {"var-1": {"code_name": "event_name", "value": "$pageview"}},
+            )
+            == self.snapshot
+        )
+
+    def test_transform_downstream_distinct_propagation(self):
+        assert (
+            self._transform(
+                (
+                    "WITH base AS (SELECT event, distinct_id FROM events WHERE event = {variables.event_name}), "
+                    "u AS (SELECT DISTINCT distinct_id FROM base) "
+                    "SELECT distinct_id FROM u"
+                ),
+                {"var-1": {"code_name": "event_name", "value": "$pageview"}},
+            )
+            == self.snapshot
+        )
+
+    def test_transform_downstream_cross_join_propagation(self):
+        assert (
+            self._transform(
+                (
+                    "WITH base AS (SELECT event, distinct_id FROM events WHERE event = {variables.event_name}), "
+                    "left_side AS (SELECT distinct_id AS did_l FROM base), "
+                    "right_side AS (SELECT distinct_id AS did_r FROM base), "
+                    "combined AS (SELECT l.did_l, r.did_r FROM left_side l CROSS JOIN right_side r) "
+                    "SELECT did_l, did_r FROM combined"
+                ),
+                {"var-1": {"code_name": "event_name", "value": "$pageview"}},
+            )
+            == self.snapshot
         )

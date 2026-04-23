@@ -145,7 +145,7 @@ wrappers:
         mcp_version: 2
         title: List session recordings
         description_file: ./prompts/query-session-recordings-list.md
-        response_format: json
+        system_prompt_hint: Session replay metadata and activity
         url_prefix: /replay
         exclude_properties:
             - response

@@ -39,6 +39,10 @@ const buttonVariants = cva(
                 true: 'justify-start',
                 false: '',
             },
+            inert: {
+                true: 'cursor-default not-disabled:hover:bg-transparent not-disabled:active:translate-y-0',
+                false: '',
+            },
         },
         defaultVariants: {
             variant: 'default',
@@ -57,6 +61,7 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
         return (
             <ButtonPrimitive
                 ref={ref}
+                data-quill
                 data-slot="button"
                 className={cn(buttonVariants({ variant, size, className, focusableWhenDisabled, left }))}
                 {...props}
