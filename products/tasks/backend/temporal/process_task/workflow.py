@@ -182,6 +182,10 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 )
                 await workflow.sleep(remaining.total_seconds())
         else:
+            workflow.logger.warning(
+                "Max runtime timer started without start time set",
+                run_id=self.context.run_id,
+            )
             await workflow.sleep(MAX_RUNTIME.total_seconds())
         return TaskEvent.TIMEOUT_REACHED
 
