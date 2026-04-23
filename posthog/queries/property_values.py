@@ -113,19 +113,15 @@ def get_person_property_values_for_key(key: str, team: Team, value: Optional[str
 
 # distinct_id lives in person_distinct_id2, not in person.properties — so the generic
 # SELECT_PERSON_PROP_VALUES_SQL path would always return an empty list. We query the
-# distinct-id table directly and let argMax hide tombstoned rows.
+# distinct-id table directly and let argMax hide tombstoned rows. The count is always 1
+# per distinct_id since GROUP BY already deduplicates.
 _SELECT_DISTINCT_IDS_SQL = """
-SELECT distinct_id AS value, count() AS c
-FROM (
-    SELECT distinct_id, argMax(is_deleted, version) AS is_deleted
-    FROM person_distinct_id2
-    WHERE team_id = %(team_id)s{value_filter}
-    GROUP BY distinct_id
-    HAVING is_deleted = 0
-    LIMIT 100000
-)
-GROUP BY value
-ORDER BY c DESC, value ASC
+SELECT distinct_id AS value, 1 AS c
+FROM person_distinct_id2
+WHERE team_id = %(team_id)s{value_filter}
+GROUP BY distinct_id
+HAVING argMax(is_deleted, version) = 0
+ORDER BY value ASC
 LIMIT 20
 """
 

@@ -937,21 +937,20 @@ class TestProperty(BaseTest):
             "The 'event' property filter does not work in 'person' scope",
         )
 
-    def test_person_distinct_id_property(self):
+    @parameterized.expand(
+        [
+            ("event_scope", "event", "person.pdi.distinct_id = 'abc'"),
+            ("person_scope", "person", "pdi.distinct_id = 'abc'"),
+        ]
+    )
+    def test_person_distinct_id_property(self, _name, scope, expected_expr):
         # distinct_id is not stored in person.properties — it's exposed via the pdi lazy join.
         self.assertEqual(
             self._property_to_expr(
                 {"type": "person", "key": "distinct_id", "value": "abc", "operator": "exact"},
-                scope="event",
+                scope=scope,
             ),
-            self._parse_expr("person.pdi.distinct_id = 'abc'"),
-        )
-        self.assertEqual(
-            self._property_to_expr(
-                {"type": "person", "key": "distinct_id", "value": "abc", "operator": "exact"},
-                scope="person",
-            ),
-            self._parse_expr("pdi.distinct_id = 'abc'"),
+            self._parse_expr(expected_expr),
         )
 
     def test_entity_to_expr_actions_type_with_id(self):
