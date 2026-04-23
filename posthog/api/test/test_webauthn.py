@@ -233,8 +233,8 @@ class TestWebAuthnLogin(APIBaseTest):
         self.assertEqual(me_response.status_code, status.HTTP_200_OK)
         self.assertEqual(me_response.json()["email"], self.user.email)
 
-    @patch("posthog.api.webauthn.is_email_available", return_value=True)
-    @patch("posthog.api.webauthn.EmailVerifier.create_token_and_send_email_verification")
+    @patch("posthog.api.authentication.is_email_available", return_value=True)
+    @patch("posthog.api.authentication.EmailVerifier.create_token_and_send_email_verification")
     @patch("posthog.auth.verify_passkey_authentication_response")
     def test_login_blocks_explicitly_unverified_email_accounts(
         self, mock_verify, mock_send_email_verification, mock_is_email_available
