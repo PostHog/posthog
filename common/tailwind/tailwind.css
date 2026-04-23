@@ -18,7 +18,10 @@
  * This bridges the scoped CSS vars (--border, --accent, etc.) to
  * Tailwind utilities (border-border, bg-accent, etc.) so quill's
  * compiled class names resolve correctly.
- * Only colors — no font, spacing, shadow, or radius overrides. */
+ * Colors only — no font, spacing, shadow, or radius overrides.
+ * Radius can't go here because PostHog defines its own --radius
+ * scale globally and @theme inline would override it. Quill's
+ * radius resolves via CSS vars inside [data-quill] instead. */
 @theme inline {
     --color-background: var(--background);
     --color-foreground: var(--foreground);
