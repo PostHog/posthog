@@ -16,7 +16,7 @@ import type { featureFlagConditionWarningLogicType } from './featureFlagConditio
 export interface FeatureFlagConditionWarningLogicProps {
     properties: AnyPropertyFilter[]
     evaluationRuntime: FeatureFlagEvaluationRuntime
-    filterGroups?: FeatureFlagGroupType[]
+    filterGroups: FeatureFlagGroupType[] | undefined
 }
 
 const REGEX_LOOKAHEAD = /(?<!\\)\(\?[=!]/ // (?= or (?!

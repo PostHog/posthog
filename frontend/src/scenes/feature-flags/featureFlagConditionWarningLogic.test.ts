@@ -31,6 +31,7 @@ describe('featureFlagConditionWarningLogic', () => {
             const logic = featureFlagConditionWarningLogic({
                 properties,
                 evaluationRuntime: FeatureFlagEvaluationRuntime.CLIENT,
+                filterGroups: undefined,
             })
             logic.mount()
 
@@ -54,6 +55,7 @@ describe('featureFlagConditionWarningLogic', () => {
             const logic = featureFlagConditionWarningLogic({
                 properties,
                 evaluationRuntime: FeatureFlagEvaluationRuntime.SERVER,
+                filterGroups: undefined,
             })
             logic.mount()
 
@@ -81,6 +83,7 @@ describe('featureFlagConditionWarningLogic', () => {
             const logic = featureFlagConditionWarningLogic({
                 properties,
                 evaluationRuntime: FeatureFlagEvaluationRuntime.SERVER,
+                filterGroups: undefined,
             })
             logic.mount()
 
@@ -93,6 +96,7 @@ describe('featureFlagConditionWarningLogic', () => {
             const logic = featureFlagConditionWarningLogic({
                 properties: [],
                 evaluationRuntime: FeatureFlagEvaluationRuntime.SERVER,
+                filterGroups: undefined,
             })
             logic.mount()
 
@@ -116,6 +120,7 @@ describe('featureFlagConditionWarningLogic', () => {
             const logic = featureFlagConditionWarningLogic({
                 properties,
                 evaluationRuntime: FeatureFlagEvaluationRuntime.SERVER,
+                filterGroups: undefined,
             })
             logic.mount()
 
@@ -137,6 +142,7 @@ describe('featureFlagConditionWarningLogic', () => {
             const logic = featureFlagConditionWarningLogic({
                 properties,
                 evaluationRuntime: FeatureFlagEvaluationRuntime.SERVER,
+                filterGroups: undefined,
             })
             logic.mount()
 
@@ -160,6 +166,7 @@ describe('featureFlagConditionWarningLogic', () => {
             const logic = featureFlagConditionWarningLogic({
                 properties,
                 evaluationRuntime: FeatureFlagEvaluationRuntime.SERVER,
+                filterGroups: undefined,
             })
             logic.mount()
 
@@ -181,6 +188,7 @@ describe('featureFlagConditionWarningLogic', () => {
             const logic = featureFlagConditionWarningLogic({
                 properties,
                 evaluationRuntime: FeatureFlagEvaluationRuntime.SERVER,
+                filterGroups: undefined,
             })
             logic.mount()
 
@@ -207,6 +215,7 @@ describe('featureFlagConditionWarningLogic', () => {
                 const logic = featureFlagConditionWarningLogic({
                     properties,
                     evaluationRuntime: FeatureFlagEvaluationRuntime.SERVER,
+                    filterGroups: undefined,
                 })
                 logic.mount()
 
@@ -231,6 +240,7 @@ describe('featureFlagConditionWarningLogic', () => {
             const logic = featureFlagConditionWarningLogic({
                 properties,
                 evaluationRuntime: FeatureFlagEvaluationRuntime.SERVER,
+                filterGroups: undefined,
             })
             logic.mount()
 
@@ -254,6 +264,7 @@ describe('featureFlagConditionWarningLogic', () => {
             const logic = featureFlagConditionWarningLogic({
                 properties,
                 evaluationRuntime: FeatureFlagEvaluationRuntime.SERVER,
+                filterGroups: undefined,
             })
             logic.mount()
 
@@ -288,6 +299,7 @@ describe('featureFlagConditionWarningLogic', () => {
             const logic = featureFlagConditionWarningLogic({
                 properties,
                 evaluationRuntime: FeatureFlagEvaluationRuntime.SERVER,
+                filterGroups: undefined,
             })
             logic.mount()
 
@@ -318,6 +330,7 @@ describe('featureFlagConditionWarningLogic', () => {
             const logic = featureFlagConditionWarningLogic({
                 properties,
                 evaluationRuntime: FeatureFlagEvaluationRuntime.SERVER,
+                filterGroups: undefined,
             })
             logic.mount()
 
@@ -345,6 +358,7 @@ describe('featureFlagConditionWarningLogic', () => {
             const logic = featureFlagConditionWarningLogic({
                 properties,
                 evaluationRuntime: FeatureFlagEvaluationRuntime.SERVER,
+                filterGroups: undefined,
             })
             logic.mount()
 
@@ -368,6 +382,7 @@ describe('featureFlagConditionWarningLogic', () => {
             const logic = featureFlagConditionWarningLogic({
                 properties,
                 evaluationRuntime: FeatureFlagEvaluationRuntime.ALL,
+                filterGroups: undefined,
             })
             logic.mount()
 
@@ -391,6 +406,7 @@ describe('featureFlagConditionWarningLogic', () => {
             const logic = featureFlagConditionWarningLogic({
                 properties,
                 evaluationRuntime: FeatureFlagEvaluationRuntime.SERVER,
+                filterGroups: undefined,
             })
             logic.mount()
 
@@ -423,6 +439,7 @@ describe('featureFlagConditionWarningLogic', () => {
             const logic = featureFlagConditionWarningLogic({
                 properties,
                 evaluationRuntime: FeatureFlagEvaluationRuntime.SERVER,
+                filterGroups: undefined,
             })
             logic.mount()
 
@@ -442,6 +459,7 @@ describe('featureFlagConditionWarningLogic', () => {
             const logic = featureFlagConditionWarningLogic({
                 properties,
                 evaluationRuntime: FeatureFlagEvaluationRuntime.SERVER,
+                filterGroups: undefined,
             })
             logic.mount()
 
@@ -472,6 +490,7 @@ describe('featureFlagConditionWarningLogic', () => {
             const logic = featureFlagConditionWarningLogic({
                 properties,
                 evaluationRuntime: FeatureFlagEvaluationRuntime.SERVER,
+                filterGroups: undefined,
             })
             logic.mount()
 
@@ -544,6 +563,7 @@ describe('featureFlagConditionWarningLogic', () => {
             const logic = featureFlagConditionWarningLogic({
                 properties,
                 evaluationRuntime: FeatureFlagEvaluationRuntime.SERVER,
+                filterGroups: undefined,
             })
             logic.mount()
 
@@ -565,6 +585,7 @@ describe('featureFlagConditionWarningLogic', () => {
             const logic = featureFlagConditionWarningLogic({
                 properties,
                 evaluationRuntime: FeatureFlagEvaluationRuntime.SERVER,
+                filterGroups: undefined,
             })
             logic.mount()
 
@@ -586,6 +607,7 @@ describe('featureFlagConditionWarningLogic', () => {
             const logic = featureFlagConditionWarningLogic({
                 properties,
                 evaluationRuntime: FeatureFlagEvaluationRuntime.SERVER,
+                filterGroups: undefined,
             })
             logic.mount()
 
