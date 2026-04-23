@@ -122,6 +122,15 @@ def _is_valid_posthog_code_callback_url(url: str) -> bool:
     return False
 
 
+def _hostname_for_logging(url: str) -> str:
+    # User-supplied URLs can contain credentials, paths, query strings, or
+    # fragments; log only the hostname needed for operator correlation.
+    try:
+        return urlparse(url).hostname or ""
+    except ValueError:
+        return ""
+
+
 def _get_oauth_redirect_uri() -> str:
     """Get the global OAuth redirect URI."""
     return f"{settings.SITE_URL}/api/mcp_store/oauth_redirect/"
@@ -786,7 +795,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
             logger.info(
                 "DCR client registered for installation",
                 installation_id=str(installation.id),
-                server_url=mcp_url,
+                server_hostname=_hostname_for_logging(mcp_url),
                 team_id=self.team_id,
             )
 

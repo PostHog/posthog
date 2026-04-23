@@ -11,7 +11,7 @@ from rest_framework import status
 from rest_framework.test import APIClient
 
 from products.mcp_store.backend.models import MCPOAuthState, MCPServerInstallation, MCPServerTemplate
-from products.mcp_store.backend.presentation.views import _is_valid_posthog_code_callback_url
+from products.mcp_store.backend.presentation.views import _hostname_for_logging, _is_valid_posthog_code_callback_url
 
 ALLOW_URL = patch("products.mcp_store.backend.presentation.views.is_url_allowed", return_value=(True, None))
 
@@ -30,6 +30,22 @@ class TestIsValidPosthogCodeCallbackUrl(TestCase):
     )
     def test_callback_url_validation(self, _name, url, expected):
         assert _is_valid_posthog_code_callback_url(url) == expected
+
+
+class TestHostnameForLogging(TestCase):
+    @parameterized.expand(
+        [
+            ("hostname_only", "https://mcp.example.com/mcp", "mcp.example.com"),
+            (
+                "strips_userinfo_path_query_and_fragment",
+                "https://user:secret@mcp.example.com:8443/mcp?api_key=sk-test#fragment",
+                "mcp.example.com",
+            ),
+            ("malformed_url", "https://[not-an-ip", ""),
+        ]
+    )
+    def test_hostname_for_logging(self, _name, url, expected):
+        assert _hostname_for_logging(url) == expected
 
 
 class TestMCPServerAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
