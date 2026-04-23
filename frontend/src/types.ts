@@ -5234,6 +5234,7 @@ export type APIScopeObject =
     | 'annotation'
     | 'approvals'
     | 'batch_export'
+    | 'billing'
     | 'cohort'
     | 'comment'
     | 'customer_analytics'
