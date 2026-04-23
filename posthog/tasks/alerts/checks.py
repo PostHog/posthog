@@ -30,10 +30,10 @@ from posthog.tasks.alerts.utils import (
     WRAPPER_NODE_KINDS,
     AlertEvaluationResult,
     calculation_interval_to_order,
+    disable_invalid_alert,
+    dispatch_alert_notification,
     next_check_time,
-    send_notifications_for_breaches,
-    send_notifications_for_disabled,
-    send_notifications_for_errors,
+    record_alert_delivery,
     skip_because_of_weekend,
     validate_alert_config,
 )
@@ -319,7 +319,7 @@ def check_alert(alert_id: str) -> None:
                 insight.query, alert.condition, alert.config, threshold_config, alert.calculation_interval
             )
     except ValueError as e:
-        _disable_invalid_alert(alert, str(e))
+        disable_invalid_alert(alert, str(e))
         return
 
     # we will attempt to check alert
@@ -399,7 +399,7 @@ def check_alert_and_notify_atomically(alert: AlertConfiguration) -> None:
     triggered_metadata = (
         getattr(alert_evaluation_result, "triggered_metadata", None) if alert_evaluation_result else None
     )
-    alert_check = add_alert_check(
+    alert_check, should_notify = add_alert_check(
         alert,
         value,
         breaches,
@@ -412,32 +412,30 @@ def check_alert_and_notify_atomically(alert: AlertConfiguration) -> None:
     )
 
     # 3. Notify users if needed
-    if not alert_check.targets_notified:
+    if not should_notify:
         return
 
     try:
-        match alert_check.state:
-            case AlertState.NOT_FIRING:
-                logger.info("Check state is %s", alert_check.state, alert_id=alert.id)
-            case AlertState.ERRORED:
-                logger.info("Sending alert error notifications", alert_id=alert.id, error=alert_check.error)
-                if isinstance(alert_check.error, dict):
-                    send_notifications_for_errors(alert, alert_check.error)
-            case AlertState.FIRING:
-                assert breaches is not None
-                if _investigation_should_gate_notification(alert, previous_state):
-                    # Hold notification — the investigation workflow will dispatch
-                    # it after the verdict, or the safety-net task will force-fire
-                    # if the investigation stalls.
-                    logger.info(
-                        "alert.notification_gated_on_investigation",
-                        alert_id=str(alert.id),
-                        alert_check_id=str(alert_check.id),
-                    )
-                else:
-                    send_notifications_for_breaches(alert, breaches)
-                    AlertCheck.objects.filter(id=alert_check.id).update(notification_sent_at=datetime.now(UTC))
-                _maybe_start_investigation_agent(alert, alert_check, previous_state)
+        if alert_check.state == AlertState.FIRING and _investigation_should_gate_notification(alert, previous_state):
+            # Hold notification — the investigation workflow will dispatch it after
+            # the verdict, or the safety-net task will force-fire if the investigation
+            # stalls.
+            logger.info(
+                "alert.notification_gated_on_investigation",
+                alert_id=str(alert.id),
+                alert_check_id=str(alert_check.id),
+            )
+        else:
+            targets = dispatch_alert_notification(alert, alert_check, breaches)
+            if targets is not None:
+                record_alert_delivery(alert, alert_check, targets)
+                # notification_sent_at is the check-level idempotency marker read by
+                # the investigation safety-net and workflow dispatchers; set it in
+                # lock-step with record_alert_delivery so gating semantics match
+                # regardless of which path actually dispatched.
+                AlertCheck.objects.filter(id=alert_check.id).update(notification_sent_at=datetime.now(UTC))
+        if alert_check.state == AlertState.FIRING:
+            _maybe_start_investigation_agent(alert, alert_check, previous_state)
     except Exception as err:
         error_message = f"AlertCheckError: error sending notifications for alert_id = {alert.id}"
         logger.exception(error_message, exc_info=err)
@@ -560,28 +558,6 @@ def _start_investigation_workflow(alert: AlertConfiguration, alert_check: AlertC
     )
 
 
-def _disable_invalid_alert(alert: AlertConfiguration, reason: str) -> None:
-    logger.warning("check_alert.auto_disabling", alert_id=alert.id, reason=reason)
-    AlertConfiguration.objects.filter(pk=alert.pk).update(
-        enabled=False,
-        state=AlertState.ERRORED,
-        last_checked_at=datetime.now(UTC),
-    )
-    alert.refresh_from_db()
-
-    targets_to_notify = alert.get_subscribed_users_emails()
-    AlertCheck.objects.create(
-        alert_configuration=alert,
-        calculated_value=None,
-        condition=alert.condition,
-        targets_notified={"users": targets_to_notify} if targets_to_notify else {},
-        state=AlertState.ERRORED,
-        error={"message": reason},
-    )
-    if targets_to_notify:
-        send_notifications_for_disabled(alert, reason, targets_to_notify)
-
-
 def check_alert_for_insight(alert: AlertConfiguration) -> AlertEvaluationResult:
     """
     Matches insight type with alert checking logic.
@@ -620,36 +596,36 @@ def add_alert_check(
     triggered_dates: list[str] | None = None,
     interval: str | None = None,
     triggered_metadata: dict | None = None,
-) -> AlertCheck:
-    notify = False
-    targets_notified = {}
+) -> tuple[AlertCheck, bool]:
+    """Persist an AlertCheck row and return it plus a decision on whether notification is needed.
+
+    `targets_notified` is always created empty; `notify_alert_activity` fills it on
+    successful delivery and treats a non-empty value as the idempotency sentinel on retry.
+    `last_notified_at` is likewise set by the notify activity on success, not here.
+    """
+    should_notify = False
 
     if error:
         alert.state = AlertState.ERRORED
-        notify = True
+        should_notify = True
     elif breaches:
         alert.state = AlertState.FIRING
-        notify = True
+        should_notify = True
     else:
         alert.state = AlertState.NOT_FIRING  # Set the Alert to not firing if the threshold is no longer met
         # TODO: Optionally send a resolved notification when alert goes from firing to not_firing?
 
-    now = datetime.now(UTC)
     alert.last_checked_at = datetime.now(UTC)
 
     # IMPORTANT: update next_check_at according to interval
     # ensure we don't recheck alert until the next interval is due
     alert.next_check_at = next_check_time(alert)
 
-    if notify:
-        alert.last_notified_at = now
-        targets_notified = {"users": alert.get_subscribed_users_emails()}
-
     alert_check = AlertCheck.objects.create(
         alert_configuration=alert,
         calculated_value=value,
         condition=alert.condition,
-        targets_notified=targets_notified,
+        targets_notified={},
         state=alert.state,
         triggered_metadata=triggered_metadata,
         error=error,
@@ -659,6 +635,6 @@ def add_alert_check(
         interval=interval,
     )
 
-    alert.save()
+    alert.save(update_fields=["state", "last_checked_at", "next_check_at"])
 
-    return alert_check
+    return alert_check, should_notify

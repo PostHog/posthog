@@ -62,7 +62,7 @@ export function RevenueAnalyticsScene(): JSX.Element {
 
                 <LemonBanner type="info" className="mb-4">
                     <strong>Revenue analytics is currently in maintenance mode.</strong> This product is not being
-                    actively developed at the moment, so bug reports and fixes might be far and between. Revenue
+                    actively developed at the moment, so bug reports and fixes might be few and far between. Revenue
                     analytics will be re-released in the future as part of{' '}
                     {enabledFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS] ? (
                         <Link to={urls.customerAnalytics()}>Customer analytics</Link>

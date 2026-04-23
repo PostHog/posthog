@@ -1,7 +1,7 @@
 """Verifies that the workflow activity persists the agent's verdict onto the AlertCheck."""
 
 import pytest
-from posthog.test.base import BaseTest
+from posthog.test.base import NonAtomicBaseTest
 from unittest.mock import patch
 
 from posthog.schema import AlertState
@@ -16,7 +16,7 @@ from posthog.temporal.ai.anomaly_investigation.workflow import (
 )
 
 
-class TestInvestigationVerdictPersistence(BaseTest):
+class TestInvestigationVerdictPersistence(NonAtomicBaseTest):
     def setUp(self) -> None:
         super().setUp()
         self.insight = Insight.objects.create(team=self.team, name="test insight")
@@ -36,7 +36,7 @@ class TestInvestigationVerdictPersistence(BaseTest):
         )
 
     @pytest.mark.asyncio
-    @patch("posthog.temporal.ai.anomaly_investigation.workflow.run_investigation")
+    @patch("posthog.temporal.ai.anomaly_investigation.runner.run_investigation")
     @patch("temporalio.activity.heartbeat")
     @patch("temporalio.activity.info")
     async def test_true_positive_verdict_is_persisted(self, mock_info, _heartbeat, mock_run) -> None:
@@ -68,7 +68,7 @@ class TestInvestigationVerdictPersistence(BaseTest):
         assert self.alert_check.investigation_notebook_id is not None
 
     @pytest.mark.asyncio
-    @patch("posthog.temporal.ai.anomaly_investigation.workflow.run_investigation")
+    @patch("posthog.temporal.ai.anomaly_investigation.runner.run_investigation")
     @patch("temporalio.activity.heartbeat")
     @patch("temporalio.activity.info")
     async def test_false_positive_verdict_is_persisted(self, mock_info, _heartbeat, mock_run) -> None:

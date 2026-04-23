@@ -25,7 +25,7 @@ import structlog
 from posthog.schema import AlertState
 
 from posthog.models.alert import AlertCheck
-from posthog.tasks.alerts.utils import send_notifications_for_breaches
+from posthog.tasks.alerts.utils import dispatch_alert_notification, record_alert_delivery
 
 logger = structlog.get_logger(__name__)
 
@@ -64,7 +64,11 @@ def run_investigation_notification_safety_net() -> int:
                 if locked.notification_sent_at is not None or locked.notification_suppressed_by_agent:
                     continue
                 breaches = _fallback_breach_descriptions(locked)
-                send_notifications_for_breaches(alert, breaches)
+                targets = dispatch_alert_notification(alert, locked, breaches)
+                if targets is not None:
+                    record_alert_delivery(alert, locked, targets)
+                # Set notification_sent_at in lock-step with record_alert_delivery so
+                # gating/idempotency reads that still use this marker stay consistent.
                 locked.notification_sent_at = timezone.now()
                 locked.save(update_fields=["notification_sent_at"])
         except Exception:
