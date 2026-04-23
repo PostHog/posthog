@@ -3101,6 +3101,11 @@ export namespace Schemas {
       retentionCustomBrackets?: number[] | null;
       /** Whether retention is with regard to initial cohort size, or that of the previous period. */
       retentionReference?: RetentionReference | null;
+      /**
+       * For data warehouse based retention insights when the aggregation target can't be mapped to persons or groups.
+       * @nullable
+       */
+      customAggregationTarget?: boolean | null;
       retentionType?: RetentionType | null;
       returningEntity?: RetentionEntity | null;
       /**

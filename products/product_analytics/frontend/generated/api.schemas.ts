@@ -2794,6 +2794,11 @@ export interface RetentionFilterApi {
     retentionCustomBrackets?: number[] | null
     /** Whether retention is with regard to initial cohort size, or that of the previous period. */
     retentionReference?: RetentionReferenceApi | null
+    /**
+     * For data warehouse based retention insights when the aggregation target can't be mapped to persons or groups.
+     * @nullable
+     */
+    customAggregationTarget?: boolean | null
     retentionType?: RetentionTypeApi | null
     returningEntity?: RetentionEntityApi | null
     /**
