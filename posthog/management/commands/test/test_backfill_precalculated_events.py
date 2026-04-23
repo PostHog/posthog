@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.conf import settings
 from django.core.management import call_command
-from django.core.management.base import CommandError
+from django.core.management.base import CommandError, OutputWrapper
 
 from parameterized import parameterized
 from temporalio.common import WorkflowIDReusePolicy
@@ -797,7 +797,7 @@ class TestRunTemporalWorkflow(BaseTest):
     def setUp(self):
         super().setUp()
         self.command = Command()
-        self.command.stdout = StringIO()
+        self.command.stdout = OutputWrapper(StringIO())
         self.filters = [
             BehavioralEventFilter(
                 condition_hash="hash_1",
