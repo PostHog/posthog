@@ -113,7 +113,7 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
             else (ast.Constant(value=True) if return_entity_is_dwh else self.return_entity_expr)
         )
         return_event_timestamps = self._get_return_event_timestamps_expr(
-            minimum_occurrences=minimum_occurrences,
+            minimum_occurrences=self.minimum_occurrences,
             start_of_interval_sql=return_start_of_interval_sql,
             return_entity_expr=return_entity_expr,
             timestamp_field=return_timestamp_field,
@@ -252,9 +252,8 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
             },
         )
 
-        minimum_occurrences = self.query.retentionFilter.minimumOccurrences or 1
         minimum_occurrences_aliases = self._get_minimum_occurrences_aliases(
-            minimum_occurrences=minimum_occurrences,
+            minimum_occurrences=self.minimum_occurrences,
             start_of_interval_sql=start_of_interval_sql,
             return_entity_expr=self.return_entity_expr,
         )
@@ -284,7 +283,7 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
                 },
             )
             return_event_data = self._get_return_event_timestamps_expr(
-                minimum_occurrences=minimum_occurrences,
+                minimum_occurrences=self.minimum_occurrences,
                 start_of_interval_sql=start_of_interval_sql,
                 return_entity_expr=self.return_entity_expr,
             )
@@ -293,7 +292,7 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
             return_event_values = (start_event_data, return_event_data)
         else:
             return_event_timestamps = self._get_return_event_timestamps_expr(
-                minimum_occurrences=minimum_occurrences,
+                minimum_occurrences=self.minimum_occurrences,
                 start_of_interval_sql=start_of_interval_sql,
                 return_entity_expr=self.return_entity_expr,
             )

@@ -75,6 +75,10 @@ class RetentionBaseQueryBuilder(ABC):
     def is_custom_bracket_retention(self) -> bool:
         return self.runner.is_custom_bracket_retention
 
+    @property
+    def minimum_occurrences(self) -> int:
+        return self.query.retentionFilter.minimumOccurrences or 1
+
     def build(
         self,
         start_interval_index_filter: Optional[int] = None,
