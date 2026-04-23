@@ -17,6 +17,13 @@ from posthog.temporal.llm_analytics.trace_clustering.metrics import (
 
 class TestActivityAndWorkflowTypes:
     def test_activity_types_match_actual_defns(self):
+        from posthog.temporal.llm_analytics.evaluation_clustering.activities import (
+            compute_evaluation_cluster_aggregates_activity,
+            emit_evaluation_cluster_events_activity,
+            fetch_evaluation_metadata_activity,
+            generate_evaluation_cluster_labels_activity,
+            perform_evaluation_clustering_compute_activity,
+        )
         from posthog.temporal.llm_analytics.trace_clustering.activities import (
             emit_cluster_events_activity,
             generate_cluster_labels_activity,
@@ -27,13 +34,21 @@ class TestActivityAndWorkflowTypes:
             perform_clustering_compute_activity.__name__,
             generate_cluster_labels_activity.__name__,
             emit_cluster_events_activity.__name__,
+            perform_evaluation_clustering_compute_activity.__name__,
+            fetch_evaluation_metadata_activity.__name__,
+            generate_evaluation_cluster_labels_activity.__name__,
+            compute_evaluation_cluster_aggregates_activity.__name__,
+            emit_evaluation_cluster_events_activity.__name__,
         }
         assert CLUSTERING_ACTIVITY_TYPES == actual_names
 
     def test_workflow_types_match_actual_defns(self):
+        from posthog.temporal.llm_analytics.evaluation_clustering.constants import (
+            CLUSTERING_WORKFLOW_NAME as EVAL_CLUSTERING_WORKFLOW_NAME,
+        )
         from posthog.temporal.llm_analytics.trace_clustering.constants import WORKFLOW_NAME
 
-        assert CLUSTERING_WORKFLOW_TYPES == {WORKFLOW_NAME}
+        assert CLUSTERING_WORKFLOW_TYPES == {WORKFLOW_NAME, EVAL_CLUSTERING_WORKFLOW_NAME}
 
 
 class TestClusteringMetricsInterceptor:

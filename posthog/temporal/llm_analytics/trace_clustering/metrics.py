@@ -49,13 +49,22 @@ CLUSTERING_LATENCY_HISTOGRAM_BUCKETS = [
 # ---------------------------------------------------------------------------
 
 CLUSTERING_ACTIVITY_TYPES = {
+    # trace / generation clustering (shared module)
     "perform_clustering_compute_activity",
     "generate_cluster_labels_activity",
     "emit_cluster_events_activity",
+    # evaluation clustering (Stage B) — shares the llma_clustering_* metric family
+    # via analysis_level="evaluation"
+    "perform_evaluation_clustering_compute_activity",
+    "fetch_evaluation_metadata_activity",
+    "generate_evaluation_cluster_labels_activity",
+    "compute_evaluation_cluster_aggregates_activity",
+    "emit_evaluation_cluster_events_activity",
 }
 
 CLUSTERING_WORKFLOW_TYPES = {
     "llma-trace-clustering",
+    "llma-evaluation-clustering",
 }
 
 # ---------------------------------------------------------------------------
@@ -167,13 +176,19 @@ class _ClusteringWorkflowInterceptor(WorkflowInboundInterceptor):
         if workflow_info.workflow_type not in CLUSTERING_WORKFLOW_TYPES:
             return await super().execute_workflow(input)
 
-        # Parse analysis_level from workflow args for metric labels
-        analysis_level = "trace"
-        if input.args:
-            try:
-                analysis_level = input.args[0].analysis_level
-            except (IndexError, AttributeError):
-                pass
+        # analysis_level label: the trace/generation workflow carries it in the input
+        # (same workflow type handles both levels), while evaluation clustering is a
+        # distinct workflow type whose input shape has no such field — infer from the
+        # workflow name instead.
+        if workflow_info.workflow_type == "llma-evaluation-clustering":
+            analysis_level = "evaluation"
+        else:
+            analysis_level = "trace"
+            if input.args:
+                try:
+                    analysis_level = input.args[0].analysis_level
+                except (IndexError, AttributeError):
+                    pass
 
         increment_workflow_started(analysis_level)
 
