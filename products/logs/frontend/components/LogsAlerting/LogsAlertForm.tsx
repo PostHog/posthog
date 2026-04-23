@@ -2,7 +2,7 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { memo, useCallback, useMemo, useRef, useState } from 'react'
 
 import { IconInfo } from '@posthog/icons'
-import { LemonCollapse, LemonDropdown, LemonInput, LemonSegmentedButton, LemonSelect } from '@posthog/lemon-ui'
+import { LemonDivider, LemonDropdown, LemonInput, LemonSegmentedButton, LemonSelect } from '@posthog/lemon-ui'
 
 import { InfiniteSelectResults } from 'lib/components/TaxonomicFilter/InfiniteSelectResults'
 import { TaxonomicFilterSearchInput } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
@@ -21,7 +21,6 @@ import { SeverityLevelsFilter } from 'products/logs/frontend/components/LogsView
 import { ThresholdOperatorEnumApi } from 'products/logs/frontend/generated/api.schemas'
 
 import { logsAlertFormLogic } from './logsAlertFormLogic'
-import { LogsAlertNotifications } from './LogsAlertNotifications'
 
 const WINDOW_OPTIONS = [
     { value: 5, label: '5 minutes' },
@@ -109,166 +108,129 @@ export function LogsAlertForm(): JSX.Element {
     )
 
     return (
-        <div className="space-y-4">
-            <LemonField name="name" label="Name">
-                <LemonInput placeholder="e.g. API 5xx errors" fullWidth />
-            </LemonField>
+        <div className="space-y-6 max-w-2xl">
+            <div className="space-y-3">
+                <h3 className="text-base font-semibold m-0">Filters</h3>
+                <p className="text-xs text-secondary m-0">Every 5 minutes, query for logs matching these filters.</p>
+                <LemonField name="severityLevels" label="Severity">
+                    <SeverityLevelsFilter
+                        value={alertForm.severityLevels}
+                        onChange={(levels) => setAlertFormValue('severityLevels', levels)}
+                    />
+                </LemonField>
+                <LemonField.Pure label="Service">
+                    <ServiceFilter
+                        value={alertForm.serviceNames}
+                        onChange={(names) => setAlertFormValue('serviceNames', names)}
+                    />
+                </LemonField.Pure>
+                <LemonField name="filterGroup" label="Attributes">
+                    <AlertFilterGroup filterGroup={alertForm.filterGroup} onChange={handleFilterGroupChange} />
+                </LemonField>
+            </div>
 
-            <LemonCollapse
-                multiple
-                defaultActiveKeys={['filters', 'rules']}
-                panels={[
-                    {
-                        key: 'filters',
-                        header: 'Filters',
-                        content: (
-                            <div className="space-y-2">
-                                <p className="text-xs text-secondary m-0">
-                                    Every minute, query for logs matching these filters.
-                                </p>
+            <LemonDivider />
 
-                                <LemonField name="severityLevels" label="Severity">
-                                    <SeverityLevelsFilter
-                                        value={alertForm.severityLevels}
-                                        onChange={(levels) => setAlertFormValue('severityLevels', levels)}
-                                    />
-                                </LemonField>
+            <div className="space-y-3">
+                <h3 className="text-base font-semibold m-0">Rules</h3>
+                <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-sm">Alert if count goes</span>
+                    <LemonSegmentedButton
+                        value={alertForm.thresholdOperator}
+                        onChange={(value) => setAlertFormValue('thresholdOperator', value)}
+                        options={[
+                            { value: ThresholdOperatorEnumApi.Above, label: 'above' },
+                            { value: ThresholdOperatorEnumApi.Below, label: 'below' },
+                        ]}
+                        size="small"
+                    />
+                    <LemonInput
+                        type="number"
+                        min={1}
+                        value={alertForm.thresholdCount}
+                        onChange={(val) => setAlertFormValue('thresholdCount', val ?? 1)}
+                        className="w-24"
+                        size="small"
+                    />
+                    <span className="text-sm">in the last</span>
+                    <LemonSelect
+                        value={alertForm.windowMinutes}
+                        onChange={(val) => setAlertFormValue('windowMinutes', val ?? 10)}
+                        options={WINDOW_OPTIONS}
+                        size="small"
+                    />
+                </div>
+            </div>
 
-                                <LemonField.Pure label="Service">
-                                    <ServiceFilter
-                                        value={alertForm.serviceNames}
-                                        onChange={(names) => setAlertFormValue('serviceNames', names)}
-                                    />
-                                </LemonField.Pure>
+            <LemonDivider />
 
-                                <LemonField name="filterGroup" label="Attributes">
-                                    <AlertFilterGroup
-                                        filterGroup={alertForm.filterGroup}
-                                        onChange={handleFilterGroupChange}
-                                    />
-                                </LemonField>
-                            </div>
-                        ),
-                    },
-                    {
-                        key: 'rules',
-                        header: 'Rules',
-                        content: (
-                            <div className="flex items-center gap-2 flex-wrap">
-                                <span className="text-sm">Alert if count goes</span>
-                                <LemonSegmentedButton
-                                    value={alertForm.thresholdOperator}
-                                    onChange={(value) => setAlertFormValue('thresholdOperator', value)}
-                                    options={[
-                                        {
-                                            value: ThresholdOperatorEnumApi.Above,
-                                            label: 'above',
-                                        },
-                                        {
-                                            value: ThresholdOperatorEnumApi.Below,
-                                            label: 'below',
-                                        },
-                                    ]}
-                                    size="small"
-                                />
-                                <LemonInput
-                                    type="number"
-                                    min={1}
-                                    value={alertForm.thresholdCount}
-                                    onChange={(val) => setAlertFormValue('thresholdCount', val ?? 1)}
-                                    className="w-24"
-                                    size="small"
-                                />
-                                <span className="text-sm">in the last</span>
-                                <LemonSelect
-                                    value={alertForm.windowMinutes}
-                                    onChange={(val) => setAlertFormValue('windowMinutes', val ?? 10)}
-                                    options={WINDOW_OPTIONS}
-                                    size="small"
-                                />
-                            </div>
-                        ),
-                    },
-                    {
-                        key: 'advanced',
-                        header: 'Advanced',
-                        content: (
-                            <div className="space-y-4">
-                                <LemonField.Pure
-                                    label={
-                                        <span className="inline-flex items-center gap-1">
-                                            Reduce noise
-                                            <Tooltip title="Require the condition to be met multiple times before the alert fires. This prevents notifications on brief, one-off spikes.">
-                                                <IconInfo className="text-base text-secondary" />
-                                            </Tooltip>
-                                        </span>
+            <div className="space-y-4">
+                <h3 className="text-base font-semibold m-0">Advanced</h3>
+                <LemonField.Pure
+                    label={
+                        <span className="inline-flex items-center gap-1">
+                            Reduce noise
+                            <Tooltip title="Require the condition to be met multiple times before the alert fires. This prevents notifications on brief, one-off spikes.">
+                                <IconInfo className="text-base text-secondary" />
+                            </Tooltip>
+                        </span>
+                    }
+                >
+                    <div className="space-y-2">
+                        <div className="flex items-center gap-2 flex-wrap">
+                            <LemonInput
+                                type="number"
+                                min={1}
+                                max={alertForm.evaluationPeriods}
+                                value={alertForm.datapointsToAlarm}
+                                onChange={(val) => setAlertFormValue('datapointsToAlarm', val ?? 1)}
+                                className="w-16"
+                                size="small"
+                            />
+                            <span className="text-sm">of</span>
+                            <LemonInput
+                                type="number"
+                                min={alertForm.datapointsToAlarm}
+                                max={10}
+                                value={alertForm.evaluationPeriods}
+                                onChange={(val) => {
+                                    const newPeriods = val ?? alertForm.datapointsToAlarm
+                                    setAlertFormValue('evaluationPeriods', newPeriods)
+                                    if (alertForm.datapointsToAlarm > newPeriods) {
+                                        setAlertFormValue('datapointsToAlarm', newPeriods)
                                     }
-                                >
-                                    <div className="space-y-2">
-                                        <div className="flex items-center gap-2 flex-wrap">
-                                            <LemonInput
-                                                type="number"
-                                                min={1}
-                                                max={alertForm.evaluationPeriods}
-                                                value={alertForm.datapointsToAlarm}
-                                                onChange={(val) => setAlertFormValue('datapointsToAlarm', val ?? 1)}
-                                                className="w-16"
-                                                size="small"
-                                            />
-                                            <span className="text-sm">of</span>
-                                            <LemonInput
-                                                type="number"
-                                                min={alertForm.datapointsToAlarm}
-                                                max={10}
-                                                value={alertForm.evaluationPeriods}
-                                                onChange={(val) => {
-                                                    const newPeriods = val ?? alertForm.datapointsToAlarm
-                                                    setAlertFormValue('evaluationPeriods', newPeriods)
-                                                    if (alertForm.datapointsToAlarm > newPeriods) {
-                                                        setAlertFormValue('datapointsToAlarm', newPeriods)
-                                                    }
-                                                }}
-                                                className="w-16"
-                                                size="small"
-                                            />
-                                            <span className="text-sm">checks must match to fire</span>
-                                            <CheckDotsTooltip
-                                                datapoints={alertForm.datapointsToAlarm}
-                                                periods={alertForm.evaluationPeriods}
-                                            />
-                                        </div>
-                                        <p className="text-xs text-secondary m-0">
-                                            The alert auto-resolves once the condition is no longer met.
-                                        </p>
-                                    </div>
-                                </LemonField.Pure>
-
-                                <LemonField.Pure
-                                    label="Notification cooldown"
-                                    help="After firing, wait this long before sending another notification. Set to 0 to notify on every check."
-                                >
-                                    <div className="flex items-center gap-2">
-                                        <LemonInput
-                                            type="number"
-                                            min={0}
-                                            value={alertForm.cooldownMinutes}
-                                            onChange={(val) => setAlertFormValue('cooldownMinutes', val ?? 0)}
-                                            className="w-24"
-                                            size="small"
-                                        />
-                                        <span className="text-sm">minutes</span>
-                                    </div>
-                                </LemonField.Pure>
-                            </div>
-                        ),
-                    },
-                    {
-                        key: 'notifications',
-                        header: 'Notifications',
-                        content: <LogsAlertNotifications />,
-                    },
-                ]}
-            />
+                                }}
+                                className="w-16"
+                                size="small"
+                            />
+                            <span className="text-sm">checks must match to fire</span>
+                            <CheckDotsTooltip
+                                datapoints={alertForm.datapointsToAlarm}
+                                periods={alertForm.evaluationPeriods}
+                            />
+                        </div>
+                        <p className="text-xs text-secondary m-0">
+                            The alert auto-resolves once the condition is no longer met.
+                        </p>
+                    </div>
+                </LemonField.Pure>
+                <LemonField.Pure
+                    label="Notification cooldown"
+                    help="After firing, wait this long before sending another notification. Set to 0 to notify on every check."
+                >
+                    <div className="flex items-center gap-2">
+                        <LemonInput
+                            type="number"
+                            min={0}
+                            value={alertForm.cooldownMinutes}
+                            onChange={(val) => setAlertFormValue('cooldownMinutes', val ?? 0)}
+                            className="w-24"
+                            size="small"
+                        />
+                        <span className="text-sm">minutes</span>
+                    </div>
+                </LemonField.Pure>
+            </div>
         </div>
     )
 }

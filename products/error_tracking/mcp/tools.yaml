@@ -375,6 +375,7 @@ wrappers:
             idempotent: true
         title: Query error tracking issues
         description_file: ./prompts/query-error-tracking-issues.md
+        system_prompt_hint: Error filtering and aggregation (error-tracking category)
         ui_resource_uri: ui://posthog/error-issue-list.html
         property_defaults:
             limit: 50

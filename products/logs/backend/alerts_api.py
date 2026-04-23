@@ -50,7 +50,7 @@ ALLOWED_WINDOW_MINUTES = {5, 10, 15, 30, 60}
 MAX_ALERTS_PER_TEAM = 20
 MAX_SIMULATE_LOOKBACK_DAYS = 30
 MAX_SIMULATE_BUCKETS = 15_000
-SPARKLINE_LOOKBACK_HOURS = 24
+STATE_TIMELINE_LOOKBACK_HOURS = 24
 _SENTINEL: Final = object()
 _NOT_ANNOTATED: Final = object()
 
@@ -64,25 +64,30 @@ class DestinationType(models.TextChoices):
     WEBHOOK = "webhook"
 
 
-class LogsAlertSparklineBucketSerializer(serializers.Serializer):
-    timestamp = serializers.DateTimeField(help_text="Bucket start timestamp (UTC, hourly).")
-    breached = serializers.IntegerField(help_text="Count of breached checks in this hour.")
-    errored = serializers.IntegerField(help_text="Count of errored checks in this hour.")
-    resolved = serializers.IntegerField(
-        help_text="Count of checks that transitioned the alert from firing to resolved in this hour."
+class LogsAlertStateIntervalSerializer(serializers.Serializer):
+    start = serializers.DateTimeField(help_text="Interval start (UTC, inclusive).")
+    end = serializers.DateTimeField(help_text="Interval end (UTC, exclusive).")
+    state = serializers.ChoiceField(
+        choices=LogsAlertConfiguration.State.choices,
+        help_text="Alert state during this interval.",
+    )
+    enabled = serializers.BooleanField(
+        help_text="Whether the alert was enabled during this interval. Disabled alerts keep their state but are inactive.",
     )
 
 
-class SparklineBucket(TypedDict):
-    timestamp: datetime
-    breached: int
-    errored: int
-    resolved: int
+class StateInterval(TypedDict):
+    start: datetime
+    end: datetime
+    state: str
+    enabled: bool
 
 
-def _sparkline_window_start() -> datetime:
-    current_hour = datetime.now(UTC).replace(minute=0, second=0, microsecond=0)
-    return current_hour - dt.timedelta(hours=SPARKLINE_LOOKBACK_HOURS - 1)
+def _state_timeline_window_bounds() -> tuple[datetime, datetime]:
+    # Pixel-precise window — no hour quantization, since the frontend maps each event
+    # timestamp to an x-coordinate directly.
+    end = datetime.now(UTC)
+    return end - dt.timedelta(hours=STATE_TIMELINE_LOOKBACK_HOURS), end
 
 
 class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
@@ -183,14 +188,12 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
         allow_null=True,
         help_text="When the alert was last modified.",
     )
-    sparkline = serializers.SerializerMethodField(
+    state_timeline = serializers.SerializerMethodField(
         help_text=(
-            f"{SPARKLINE_LOOKBACK_HOURS} hourly buckets of breached + errored check counts "
-            "for the last 24h, ordered oldest-first. Drives the activity column on the "
-            "alert list — empty sparkline = healthy alert. Ok checks are not included: "
-            "retention caps OK rows at MAX_EVALUATION_PERIODS (~50min at 5-min cadence), "
-            "so only events that survive the prune (breached + errored) are meaningful "
-            "over a 24h window."
+            f"Continuous state intervals over the last {STATE_TIMELINE_LOOKBACK_HOURS}h, ordered oldest-first. "
+            "Each interval covers a span during which (state, enabled) was constant. Derived from "
+            "LogsAlertEvent rows walked in chronological order; consecutive identical intervals are "
+            "collapsed. Drives the 'Last 24h' status bar on the alert list."
         ),
     )
     destination_types = serializers.SerializerMethodField(
@@ -201,42 +204,92 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
         ),
     )
 
-    @extend_schema_field(LogsAlertSparklineBucketSerializer(many=True))
-    def get_sparkline(self, obj: LogsAlertConfiguration) -> list[SparklineBucket]:
-        start = self.context.get("sparkline_start") or _sparkline_window_start()
+    @extend_schema_field(LogsAlertStateIntervalSerializer(many=True))
+    def get_state_timeline(self, obj: LogsAlertConfiguration) -> list[StateInterval]:
+        window = self.context.get("state_timeline_window") or _state_timeline_window_bounds()
+        window_start, window_end = window
 
-        buckets: list[SparklineBucket] = [
-            {
-                "timestamp": start + dt.timedelta(hours=i),
-                "breached": 0,
-                "errored": 0,
-                "resolved": 0,
-            }
-            for i in range(SPARKLINE_LOOKBACK_HOURS)
-        ]
-
-        events = getattr(obj, "recent_checks", None)
+        # Events are prefetched as `_state_timeline_events` on the list endpoint; fall
+        # back to a direct query for callers that build this serializer outside the viewset
+        # (admin, tests).
+        events = getattr(obj, "_state_timeline_events", None)
         if events is None:
-            events = LogsAlertEvent.objects.filter(
-                alert=obj,
-                kind=LogsAlertEvent.Kind.CHECK,
-                created_at__gte=start,
+            events = list(
+                LogsAlertEvent.objects.filter(alert=obj, created_at__gte=window_start)
+                .order_by("created_at")
+                .only("kind", "created_at", "state_before", "state_after")
             )
 
-        for event in events:
-            hour_offset = int((event.created_at - start).total_seconds() // 3600)
-            if 0 <= hour_offset < SPARKLINE_LOOKBACK_HOURS:
-                if event.error_message:
-                    buckets[hour_offset]["errored"] += 1
-                elif event.threshold_breached:
-                    buckets[hour_offset]["breached"] += 1
-                elif (
-                    event.state_before in (AlertState.FIRING, AlertState.PENDING_RESOLVE)
-                    and event.state_after == AlertState.NOT_FIRING
-                ):
-                    buckets[hour_offset]["resolved"] += 1
+        # Seed state at window_start: the first in-window event tells us what state was
+        # active just before it fired. Fallback to the alert's current state when there are
+        # no events at all in the window.
+        seed_state = events[0].state_before if events else obj.state
 
-        return buckets
+        # Seed enabled at window_start: prefer the latest ENABLE/DISABLE at-or-before
+        # window_start (annotated on the queryset), then infer from the first in-window
+        # toggle (opposite kind), else fall back to alert.enabled (constant if never toggled).
+        pre_window_toggle = getattr(obj, "_pre_window_toggle_kind", _NOT_ANNOTATED)
+        if pre_window_toggle is _NOT_ANNOTATED:
+            pre_window_toggle = (
+                LogsAlertEvent.objects.filter(
+                    alert=obj,
+                    kind__in=(LogsAlertEvent.Kind.ENABLE, LogsAlertEvent.Kind.DISABLE),
+                    created_at__lt=window_start,
+                )
+                .order_by("-created_at")
+                .values_list("kind", flat=True)
+                .first()
+            )
+        if pre_window_toggle is not None:
+            seed_enabled = pre_window_toggle == LogsAlertEvent.Kind.ENABLE
+        else:
+            first_in_window_toggle = next(
+                (e for e in events if e.kind in (LogsAlertEvent.Kind.ENABLE, LogsAlertEvent.Kind.DISABLE)),
+                None,
+            )
+            if first_in_window_toggle is not None:
+                # Before a toggle fired, enabled was the opposite of what the toggle set it to.
+                seed_enabled = first_in_window_toggle.kind == LogsAlertEvent.Kind.DISABLE
+            else:
+                seed_enabled = obj.enabled
+
+        intervals: list[StateInterval] = []
+        current_start = window_start
+        current_state = seed_state
+        current_enabled = seed_enabled
+
+        for event in events:
+            if event.kind == LogsAlertEvent.Kind.ENABLE:
+                new_enabled, new_state = True, event.state_after
+            elif event.kind == LogsAlertEvent.Kind.DISABLE:
+                new_enabled, new_state = False, event.state_after
+            else:
+                new_enabled, new_state = current_enabled, event.state_after
+
+            if new_state == current_state and new_enabled == current_enabled:
+                continue
+
+            intervals.append(
+                {
+                    "start": current_start,
+                    "end": event.created_at,
+                    "state": current_state,
+                    "enabled": current_enabled,
+                }
+            )
+            current_start = event.created_at
+            current_state = new_state
+            current_enabled = new_enabled
+
+        intervals.append(
+            {
+                "start": current_start,
+                "end": window_end,
+                "state": current_state,
+                "enabled": current_enabled,
+            }
+        )
+        return intervals
 
     @extend_schema_field(serializers.ListField(child=serializers.ChoiceField(choices=list(DestinationType))))
     def get_destination_types(self, obj: LogsAlertConfiguration) -> list[str]:
@@ -296,7 +349,7 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
             "last_checked_at",
             "consecutive_failures",
             "last_error_message",
-            "sparkline",
+            "state_timeline",
             "destination_types",
             "created_at",
             "created_by",
@@ -311,7 +364,7 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
             "last_checked_at",
             "consecutive_failures",
             "last_error_message",
-            "sparkline",
+            "state_timeline",
             "destination_types",
             "created_at",
             "created_by",
@@ -666,22 +719,45 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             .order_by("-created_at")
             .values("error_message")[:1]
         )
-        # Anchor the prefetch window and the serializer's bucket grid to the same
-        # instant so they can't drift across an hour-boundary rollover mid-request.
-        self._sparkline_start = _sparkline_window_start()
-        sparkline_events = LogsAlertEvent.objects.filter(
-            kind=LogsAlertEvent.Kind.CHECK,
-            created_at__gte=self._sparkline_start,
-        ).order_by("created_at")
+        # Anchor the prefetch window and the serializer's window to the same instant so
+        # they can't drift mid-request. Use a precise `now - 24h` (no hour quantization)
+        # — the frontend maps event timestamps to x-coordinates directly.
+        self._state_timeline_window = _state_timeline_window_bounds()
+        window_start, _ = self._state_timeline_window
+        # Scope by team so Postgres can use the team index on the alert FK join — without
+        # it the prefetch scans every team's events.
+        timeline_events = (
+            LogsAlertEvent.objects.filter(alert__team_id=self.team_id, created_at__gte=window_start)
+            # alert_id is required — Prefetch groups events by FK after fetching; deferring
+            # it triggers a lazy load per event (N+1).
+            .only("alert_id", "kind", "created_at", "state_before", "state_after")
+            .order_by("created_at")
+        )
+        # Latest ENABLE/DISABLE at-or-before window_start — lets the serializer seed
+        # `enabled` correctly when the window has no toggle events.
+        latest_pre_window_toggle = (
+            LogsAlertEvent.objects.filter(
+                alert=OuterRef("pk"),
+                kind__in=(LogsAlertEvent.Kind.ENABLE, LogsAlertEvent.Kind.DISABLE),
+                created_at__lt=window_start,
+            )
+            .order_by("-created_at")
+            .values("kind")[:1]
+        )
         return (
             queryset.filter(team_id=self.team_id)
-            .annotate(_latest_error_message=Subquery(latest_error))
-            .prefetch_related(Prefetch("events", queryset=sparkline_events, to_attr="recent_checks"))
+            .annotate(
+                _latest_error_message=Subquery(latest_error),
+                _pre_window_toggle_kind=Subquery(latest_pre_window_toggle),
+            )
+            .prefetch_related(Prefetch("events", queryset=timeline_events, to_attr="_state_timeline_events"))
         )
 
     def get_serializer_context(self) -> dict:
         context = super().get_serializer_context()
-        context["sparkline_start"] = getattr(self, "_sparkline_start", None) or _sparkline_window_start()
+        context["state_timeline_window"] = (
+            getattr(self, "_state_timeline_window", None) or _state_timeline_window_bounds()
+        )
         return context
 
     @extend_schema(

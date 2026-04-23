@@ -3,7 +3,7 @@ mod replica;
 mod retry;
 
 pub use leader::LeaderBackend;
-pub use replica::ReplicaBackend;
+pub use replica::{ReplicaBackend, ReplicaBackendConfig};
 
 use async_trait::async_trait;
 use personhog_proto::personhog::types::v1::{

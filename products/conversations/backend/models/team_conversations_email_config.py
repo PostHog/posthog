@@ -33,6 +33,14 @@ class EmailChannel(UUIDModel):
 
     created_at = models.DateTimeField(auto_now_add=True)
 
+    def mark_domain_unverified(self) -> None:
+        """Flip domain_verified off after Mailgun reports the domain is no longer
+        registered. Single source of truth — called from the send-reply task and
+        the test-send view when send_mime raises MailgunDomainNotRegistered.
+        """
+        self.domain_verified = False
+        self.save(update_fields=["domain_verified"])
+
     class Meta:
         app_label = "conversations"
         db_table = "posthog_conversations_email_channel"

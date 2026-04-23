@@ -1535,6 +1535,30 @@ class EmptyPropertyFilter(BaseModel):
     type: Literal["empty"] = "empty"
 
 
+class EndpointExecutionFailedSignalExtra(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    endpoint_name: str
+    endpoint_version: float | None = None
+    error_class: str
+    error_message: str
+    materialized: bool
+    saved_query_id: str | None = None
+
+
+class EndpointExecutionFailedSignalInput(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    description: str
+    extra: EndpointExecutionFailedSignalExtra
+    source_id: str
+    source_product: Literal["endpoints"] = "endpoints"
+    source_type: Literal["endpoint_execution_failed"] = "endpoint_execution_failed"
+    weight: float
+
+
 class EndpointLastExecutionTimesRequest(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -2099,6 +2123,7 @@ class ExternalDataSourceType(StrEnum):
     BUILD_BETTER = "BuildBetter"
     CONVEX = "Convex"
     CLICK_HOUSE = "ClickHouse"
+    PLAIN = "Plain"
 
 
 class ExternalQueryErrorCode(StrEnum):
@@ -4348,6 +4373,7 @@ class SignalSourceProduct(StrEnum):
     ZENDESK = "zendesk"
     CONVERSATIONS = "conversations"
     ERROR_TRACKING = "error_tracking"
+    ENDPOINTS = "endpoints"
 
 
 class SignalSourceType(StrEnum):
@@ -4359,6 +4385,7 @@ class SignalSourceType(StrEnum):
     ISSUE_CREATED = "issue_created"
     ISSUE_REOPENED = "issue_reopened"
     ISSUE_SPIKING = "issue_spiking"
+    ENDPOINT_EXECUTION_FAILED = "endpoint_execution_failed"
 
 
 class SimilarIssue(BaseModel):
@@ -4409,6 +4436,12 @@ class SnapchatAdsTableExclusions(StrEnum):
 
 class SnapchatAdsTableKeywords(StrEnum):
     CAMPAIGNS = "campaigns"
+
+
+class ReleaseStatus(StrEnum):
+    ALPHA = "alpha"
+    BETA = "beta"
+    GA = "ga"
 
 
 class SourceFieldFileUploadJsonFormatConfig(BaseModel):
@@ -6706,6 +6739,14 @@ class ExperimentParameters(BaseModel):
             " but catch smaller changes. Suggest 20–30% for most experiments."
         ),
     )
+    rollout_percentage: float | None = Field(
+        default=None,
+        description=(
+            "Overall rollout percentage (0-100). Controls what fraction of all users"
+            " enter the experiment. Users outside the rollout never see any variant and"
+            " are excluded from analysis. Default: 100."
+        ),
+    )
 
 
 class ExperimentStatsBase(BaseModel):
@@ -8116,6 +8157,7 @@ class SignalInput(
         | LinearIssueSignalInput
         | ConversationsTicketSignalInput
         | ErrorTrackingSignalInput
+        | EndpointExecutionFailedSignalInput
     ]
 ):
     root: (
@@ -8126,6 +8168,7 @@ class SignalInput(
         | LinearIssueSignalInput
         | ConversationsTicketSignalInput
         | ErrorTrackingSignalInput
+        | EndpointExecutionFailedSignalInput
     ) = Field(..., discriminator="source_product")
 
 
@@ -9539,7 +9582,9 @@ class AssistantRecordingsQuery(BaseModel):
             " $entry_current_url).\n- `event`: Filter by properties of events in the"
             " session (e.g. $current_url, $browser).\n- `recording`: Filter by"
             " recording metrics (e.g. console_error_count, click_count,"
-            " activity_score)."
+            " activity_score).\n- `cohort`: Filter recordings to persons belonging to a"
+            ' cohort. Example: `{ type: "cohort", key: "id", value: 42, operator:'
+            ' "in" }`.'
         ),
     )
 
@@ -17188,6 +17233,9 @@ class RetentionEntity(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    aggregation_target_field: str | None = Field(
+        default=None, description="Data warehouse field used as the actor identifier"
+    )
     custom_name: str | None = None
     id: str | float | None = None
     kind: RetentionEntityKind | None = None
@@ -17218,6 +17266,8 @@ class RetentionEntity(BaseModel):
         ]
         | None
     ) = Field(default=None, description="filters on the event")
+    table_name: str | None = Field(default=None, description="Data warehouse table name")
+    timestamp_field: str | None = Field(default=None, description="Data warehouse timestamp field")
     type: EntityType | None = None
     uuid: str | None = None
 
@@ -17239,6 +17289,13 @@ class RetentionFilter(BaseModel):
         description="The aggregation type to use for retention",
     )
     cumulative: bool | None = None
+    customAggregationTarget: bool | None = Field(
+        default=None,
+        description=(
+            "For data warehouse based retention insights when the aggregation target"
+            " can't be mapped to persons or groups."
+        ),
+    )
     dashboardDisplay: RetentionDashboardDisplayType | None = None
     display: ChartDisplayType | None = Field(default=None, description="controls the display of the retention graph")
     goalLines: list[GoalLine] | None = None
@@ -23202,7 +23259,6 @@ class SourceConfig(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    betaSource: bool | None = None
     caption: str | Any | None = None
     disabledReason: str | None = None
     docsUrl: str | None = None
@@ -23225,6 +23281,7 @@ class SourceConfig(BaseModel):
     label: str | None = None
     name: ExternalDataSourceType
     permissionsCaption: str | None = None
+    releaseStatus: ReleaseStatus | None = None
     suggestedTables: list[SuggestedTable] | None = Field(
         default=[],
         description="Tables to suggest enabling, with optional tooltip explaining why",

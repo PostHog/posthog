@@ -1341,6 +1341,7 @@ export interface AssistantRecordingsQuery {
      * - `session`: Filter by session properties (e.g. $session_duration, $channel_type, $entry_current_url).
      * - `event`: Filter by properties of events in the session (e.g. $current_url, $browser).
      * - `recording`: Filter by recording metrics (e.g. console_error_count, click_count, activity_score).
+     * - `cohort`: Filter recordings to persons belonging to a cohort. Example: `{ type: "cohort", key: "id", value: 42, operator: "in" }`.
      */
     properties?: AssistantRecordingsQueryPropertyFilter[]
     /** Exclude internal and test users. Default: false. */

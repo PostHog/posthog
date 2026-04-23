@@ -2843,7 +2843,7 @@
                     "type": "string"
                 },
                 "properties": {
-                    "description": "Property filters to narrow results. Each filter has a `key`, `value`, `operator`, and `type`.\n\nSupported types:\n- `person`: Filter by person properties (e.g. email, country).\n- `session`: Filter by session properties (e.g. $session_duration, $channel_type, $entry_current_url).\n- `event`: Filter by properties of events in the session (e.g. $current_url, $browser).\n- `recording`: Filter by recording metrics (e.g. console_error_count, click_count, activity_score).",
+                    "description": "Property filters to narrow results. Each filter has a `key`, `value`, `operator`, and `type`.\n\nSupported types:\n- `person`: Filter by person properties (e.g. email, country).\n- `session`: Filter by session properties (e.g. $session_duration, $channel_type, $entry_current_url).\n- `event`: Filter by properties of events in the session (e.g. $current_url, $browser).\n- `recording`: Filter by recording metrics (e.g. console_error_count, click_count, activity_score).\n- `cohort`: Filter recordings to persons belonging to a cohort. Example: `{ type: \"cohort\", key: \"id\", value: 42, operator: \"in\" }`.",
                     "items": {
                         "$ref": "#/definitions/AssistantRecordingsQueryPropertyFilter"
                     },
@@ -13956,6 +13956,65 @@
             },
             "type": "object"
         },
+        "EndpointExecutionFailedSignalExtra": {
+            "additionalProperties": false,
+            "properties": {
+                "endpoint_name": {
+                    "type": "string"
+                },
+                "endpoint_version": {
+                    "type": ["number", "null"]
+                },
+                "error_class": {
+                    "type": "string"
+                },
+                "error_message": {
+                    "type": "string"
+                },
+                "materialized": {
+                    "type": "boolean"
+                },
+                "saved_query_id": {
+                    "type": ["string", "null"]
+                }
+            },
+            "required": [
+                "endpoint_name",
+                "endpoint_version",
+                "materialized",
+                "saved_query_id",
+                "error_class",
+                "error_message"
+            ],
+            "type": "object"
+        },
+        "EndpointExecutionFailedSignalInput": {
+            "additionalProperties": false,
+            "properties": {
+                "description": {
+                    "type": "string"
+                },
+                "extra": {
+                    "$ref": "#/definitions/EndpointExecutionFailedSignalExtra"
+                },
+                "source_id": {
+                    "type": "string"
+                },
+                "source_product": {
+                    "const": "endpoints",
+                    "type": "string"
+                },
+                "source_type": {
+                    "const": "endpoint_execution_failed",
+                    "type": "string"
+                },
+                "weight": {
+                    "type": "number"
+                }
+            },
+            "required": ["source_type", "source_product", "source_id", "description", "weight", "extra"],
+            "type": "object"
+        },
         "EndpointLastExecutionTimesRequest": {
             "additionalProperties": false,
             "properties": {
@@ -17177,6 +17236,10 @@
                 "minimum_detectable_effect": {
                     "description": "Minimum detectable effect as a percentage. Lower values need more users but catch smaller changes. Suggest 20–30% for most experiments.",
                     "type": "number"
+                },
+                "rollout_percentage": {
+                    "description": "Overall rollout percentage (0-100). Controls what fraction of all users enter the experiment. Users outside the rollout never see any variant and are excluded from analysis. Default: 100.",
+                    "type": "number"
                 }
             },
             "type": "object"
@@ -18055,7 +18118,8 @@
                 "Granola",
                 "BuildBetter",
                 "Convex",
-                "ClickHouse"
+                "ClickHouse",
+                "Plain"
             ],
             "type": "string"
         },
@@ -32228,6 +32292,10 @@
         "RetentionEntity": {
             "additionalProperties": false,
             "properties": {
+                "aggregation_target_field": {
+                    "description": "Data warehouse field used as the actor identifier",
+                    "type": "string"
+                },
                 "custom_name": {
                     "type": "string"
                 },
@@ -32249,6 +32317,14 @@
                         "$ref": "#/definitions/AnyPropertyFilter"
                     },
                     "type": "array"
+                },
+                "table_name": {
+                    "description": "Data warehouse table name",
+                    "type": "string"
+                },
+                "timestamp_field": {
+                    "description": "Data warehouse timestamp field",
+                    "type": "string"
                 },
                 "type": {
                     "$ref": "#/definitions/EntityType"
@@ -32283,6 +32359,10 @@
                     "type": "string"
                 },
                 "cumulative": {
+                    "type": "boolean"
+                },
+                "customAggregationTarget": {
+                    "description": "For data warehouse based retention insights when the aggregation target can't be mapped to persons or groups.",
                     "type": "boolean"
                 },
                 "dashboardDisplay": {
@@ -34796,6 +34876,9 @@
                 },
                 {
                     "$ref": "#/definitions/ErrorTrackingSignalInput"
+                },
+                {
+                    "$ref": "#/definitions/EndpointExecutionFailedSignalInput"
                 }
             ],
             "required": ["source_product"],
@@ -34831,7 +34914,8 @@
                 "linear",
                 "zendesk",
                 "conversations",
-                "error_tracking"
+                "error_tracking",
+                "endpoints"
             ],
             "type": "string"
         },
@@ -34844,7 +34928,8 @@
                 "ticket",
                 "issue_created",
                 "issue_reopened",
-                "issue_spiking"
+                "issue_spiking",
+                "endpoint_execution_failed"
             ],
             "type": "string"
         },
@@ -34948,9 +35033,6 @@
         "SourceConfig": {
             "additionalProperties": false,
             "properties": {
-                "betaSource": {
-                    "type": "boolean"
-                },
                 "caption": {
                     "anyOf": [
                         {
@@ -34995,6 +35077,10 @@
                     "$ref": "#/definitions/ExternalDataSourceType"
                 },
                 "permissionsCaption": {
+                    "type": "string"
+                },
+                "releaseStatus": {
+                    "enum": ["alpha", "beta", "ga"],
                     "type": "string"
                 },
                 "suggestedTables": {

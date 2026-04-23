@@ -1,9 +1,18 @@
+from __future__ import annotations
+
 import dataclasses
 
 import structlog
 
-from posthog.models.activity_logging.activity_log import ActivityContextBase, Detail, changes_between, log_activity
+from posthog.models.activity_logging.activity_log import (
+    ActivityContextBase,
+    ActivityScope,
+    Detail,
+    changes_between,
+    log_activity,
+)
 from posthog.models.signals import model_activity_signal, mutable_receiver
+from posthog.models.user import User
 
 from .models import LegalDocument
 
@@ -20,8 +29,15 @@ class LegalDocumentContext(ActivityContextBase):
 
 @mutable_receiver(model_activity_signal, sender=LegalDocument)
 def handle_legal_document_change(
-    sender, scope, before_update, after_update, activity, user, was_impersonated=False, **kwargs
-):
+    sender: type[LegalDocument],
+    scope: ActivityScope,
+    before_update: LegalDocument | None,
+    after_update: LegalDocument | None,
+    activity: str,
+    user: User,
+    was_impersonated: bool = False,
+    **kwargs: object,
+) -> None:
     instance: LegalDocument | None = after_update or before_update
     if instance is None:
         return

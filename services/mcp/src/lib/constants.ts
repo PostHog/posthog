@@ -6,14 +6,36 @@ import packageJson from '../../package.json'
 
 export const USER_AGENT = `posthog/mcp-server; version: ${packageJson.version}`
 
-export function getUserAgent(clientUserAgent?: string): string {
+export interface GetUserAgentOptions {
+    clientUserAgent?: string | undefined
+    /** `x-posthog-mcp-consumer` — self-identifier of the wrapping app (e.g. `posthog-code`, `slack`). */
+    mcpConsumer?: string | undefined
+    /** MCP `clientInfo.name` — the wrapped client (e.g. `claude-code`). */
+    mcpClientName?: string | undefined
+}
+
+export function getUserAgent(opts: GetUserAgentOptions = {}): string {
+    const { clientUserAgent, mcpConsumer, mcpClientName } = opts
+    const parts: string[] = []
+
+    // When the caller self-identifies as a wrapping consumer app, emit
+    // `<consumer>/<wrapped-client>` as the leading UA token so downstream
+    // services can attribute traffic without parsing custom headers.
+    if (mcpConsumer) {
+        const wrappedClient = (mcpClientName || 'unknown').replace(/\s+/g, '-')
+        parts.push(`${mcpConsumer}/${wrappedClient}`)
+    }
+
+    parts.push(USER_AGENT)
+
     if (clientUserAgent) {
         const match = clientUserAgent.match(/posthog\/([\w.-]+)/)
         if (match) {
-            return `${USER_AGENT}; for ${match[0]}`
+            parts[parts.length - 1] = `${USER_AGENT}; for ${match[0]}`
         }
     }
-    return USER_AGENT
+
+    return parts.join(' ')
 }
 
 // Region-specific PostHog API base URLs
@@ -104,6 +126,8 @@ export const OAUTH_SCOPES_SUPPORTED = [
     'hog_function:write',
     'insight:read',
     'insight:write',
+    'insight_variable:read',
+    'insight_variable:write',
     'integration:read',
     'integration:write',
     'llm_analytics:read',
