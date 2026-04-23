@@ -34,7 +34,7 @@ class MailchimpSource(ResumableSource[MailchimpSourceConfig, MailchimpResumeConf
         return SourceConfig(
             name=SchemaExternalDataSourceType.MAILCHIMP,
             label="Mailchimp",
-            betaSource=True,
+            releaseStatus="beta",
             caption="""Enter your Mailchimp API key to automatically pull your Mailchimp data into the PostHog Data warehouse.
 
 You can create an API key in your [Mailchimp account settings](https://us1.admin.mailchimp.com/account/api/).
