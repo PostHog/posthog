@@ -289,7 +289,7 @@ export function QuickSurveyModal({
     showFollowupToggle?: boolean
 }): JSX.Element {
     return (
-        <LemonModal title={modalTitle || 'Quick feedback survey'} isOpen={isOpen} onClose={onCancel} width={900}>
+        <LemonModal title={modalTitle || 'Quick feedback survey'} isOpen={isOpen} onClose={onCancel} maxWidth="48rem">
             {context && (
                 <QuickSurveyForm
                     context={context}

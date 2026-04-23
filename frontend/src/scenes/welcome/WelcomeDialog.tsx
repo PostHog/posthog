@@ -51,7 +51,7 @@ export function WelcomeDialog(): JSX.Element | null {
         <LemonModal
             isOpen={shouldShowDialog}
             onClose={() => closeDialog()}
-            width={640}
+            maxWidth="48rem"
             title={`Welcome to ${organizationName || 'PostHog'}`}
             description={inviterLine}
             data-attr="welcome-dialog"

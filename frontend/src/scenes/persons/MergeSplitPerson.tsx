@@ -19,7 +19,6 @@ export function MergeSplitPerson({ person }: { person: PersonType }): JSX.Elemen
     return (
         <LemonModal
             isOpen
-            width="40rem"
             title="Split persons"
             footer={
                 <div className="flex items-center gap-2">

@@ -50,7 +50,6 @@ export function BatchExportBackfillModal({ id, context }: BatchExportBackfillMod
             title="Start backfill"
             onClose={closeBackfillModal}
             isOpen={isBackfillModalOpen}
-            width="30rem"
             footer={
                 <>
                     <LemonButton

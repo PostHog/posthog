@@ -96,7 +96,7 @@ LIMIT
                     </p>
                 </div>
             }
-            width={800}
+            maxWidth="48rem"
         >
             <div className="flex flex-col gap-2">
                 <div className="flex flex-col gap-1">

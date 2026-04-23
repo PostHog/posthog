@@ -595,6 +595,7 @@ function NativeEmailTemplaterForm({
                             isOpen={!!previewTemplate}
                             onClose={() => setPreviewTemplate(null)}
                             title={`Preview: ${previewTemplate?.name}`}
+                            width="90vw"
                             maxWidth="90vw"
                         >
                             <div className="h-[80vh] overflow-auto">
@@ -739,6 +740,7 @@ function EmailTemplaterModal(): JSX.Element {
         <>
             <LemonModal
                 isOpen={isModalOpen}
+                width="90vw"
                 maxWidth="90vw"
                 onClose={() => closeWithConfirmation()}
                 hasUnsavedInput={emailTemplateChanged}

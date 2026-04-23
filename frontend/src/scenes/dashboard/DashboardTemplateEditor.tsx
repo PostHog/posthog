@@ -28,7 +28,7 @@ export function DashboardTemplateEditor({ inline = false }: DashboardTemplateEdi
         <LemonModal
             title={id ? 'Edit dashboard template' : 'New dashboard template'}
             isOpen={isOpenNewDashboardTemplateModal}
-            width={1000}
+            maxWidth="90vw"
             onClose={() => {
                 closeDashboardTemplateEditor()
             }}

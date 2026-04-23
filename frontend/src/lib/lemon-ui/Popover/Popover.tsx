@@ -349,9 +349,10 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
                                         // floating-ui sets an imperative maxWidth on the outer .Popover to keep it
                                         // inside the viewport; this cap on .Popover__box shapes the content width
                                         // (prose / wide / extra-wide) without fighting the viewport clamp. When the
-                                        // popover matches the reference width we skip the cap so the dropdown can
-                                        // line up with a wider trigger.
-                                        style={matchWidth ? undefined : { maxWidth }}
+                                        // popover matches the reference width (matchWidth) or hugs its content
+                                        // (maxContentWidth) we skip the cap so the dropdown can line up with a
+                                        // wider trigger or let long items dictate their own width.
+                                        style={matchWidth || maxContentWidth ? undefined : { maxWidth }}
                                     >
                                         {showArrow && isAttached && (
                                             // Arrow is outside of .Popover__content to avoid affecting :nth-child for content

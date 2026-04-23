@@ -13,7 +13,7 @@ interface SurveyBranchingFlowModalProps {
 
 export function SurveyBranchingFlowModal({ survey, isOpen, onClose }: SurveyBranchingFlowModalProps): JSX.Element {
     return (
-        <LemonModal title="Survey flow" isOpen={isOpen} onClose={onClose} width="90vw">
+        <LemonModal title="Survey flow" isOpen={isOpen} onClose={onClose} width="90vw" maxWidth="90vw">
             <div className="h-[70vh]">
                 <SurveyBranchingFlow survey={survey} />
             </div>

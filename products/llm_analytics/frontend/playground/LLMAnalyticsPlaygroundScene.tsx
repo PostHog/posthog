@@ -732,6 +732,7 @@ function ToolsButton({ promptId }: { promptId: string }): JSX.Element {
                 onClose={() => setEditModal(null)}
                 title="Tools"
                 description="Define functions the model can call during generation. Tools use the OpenAI function calling format."
+                width="90vw"
                 maxWidth="90vw"
                 footer={
                     <div className="flex justify-end gap-2">
@@ -929,6 +930,7 @@ function SystemMessageDisplay({ promptId }: { promptId: string }): JSX.Element {
                 isOpen={showEditModal}
                 onClose={() => setEditModal(null)}
                 title="Edit system prompt"
+                width="90vw"
                 maxWidth="90vw"
                 footer={
                     <div className="flex justify-end gap-2">
@@ -1101,6 +1103,7 @@ function MessageDisplay({
                 isOpen={showEditModal}
                 onClose={() => setEditModal(null)}
                 title="Edit message"
+                width="90vw"
                 maxWidth="90vw"
                 footer={
                     <div className="flex justify-end gap-2">

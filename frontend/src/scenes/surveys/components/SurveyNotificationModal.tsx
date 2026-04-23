@@ -172,7 +172,7 @@ export function SurveyNotificationModal({ surveyId }: { surveyId: string }): JSX
             onClose={closeDialog}
             title="Add survey notification"
             description="Send survey responses to Slack, Discord, Microsoft Teams, or a webhook."
-            width={720}
+            maxWidth="48rem"
             footer={
                 <>
                     <LemonButton type="secondary" onClick={closeDialog}>

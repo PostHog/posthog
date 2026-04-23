@@ -12,7 +12,7 @@ export function QuickFiltersModal({ context, onNewFilterCreated }: QuickFiltersM
     const { closeModal } = useActions(quickFiltersModalLogic(logicProps))
 
     return (
-        <LemonModal title={modalTitle} isOpen={isModalOpen} onClose={closeModal} width={800}>
+        <LemonModal title={modalTitle} isOpen={isModalOpen} onClose={closeModal} maxWidth="48rem">
             {view === ModalView.List ? (
                 <QuickFiltersModalContent context={context} />
             ) : (

@@ -39,7 +39,6 @@ export function ResultCustomizationsModal(): JSX.Element | null {
             data-attr="legend-entry-modal"
             isOpen={modalVisible}
             title="Customize result color"
-            width={520}
             footer={
                 <>
                     <LemonButton type="secondary" onClick={closeModal}>

@@ -50,7 +50,7 @@ export function DashboardQuickFiltersButton({ context, dashboard }: DashboardQui
                 isOpen={isModalOpen}
                 onClose={cancelModal}
                 hasUnsavedInput={hasDashboardSelectionChanges}
-                width={800}
+                maxWidth="48rem"
             >
                 {view === ModalView.List ? (
                     <QuickFiltersModalContent
