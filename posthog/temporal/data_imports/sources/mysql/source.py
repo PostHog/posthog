@@ -16,10 +16,11 @@ from posthog.schema import (
 
 from posthog.exceptions_capture import capture_exception
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
-from posthog.temporal.data_imports.sources.common.base import FieldType, SimpleSource
+from posthog.temporal.data_imports.sources.common.base import FieldType
 from posthog.temporal.data_imports.sources.common.mixins import SSHTunnelMixin, ValidateDatabaseHostMixin
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
-from posthog.temporal.data_imports.sources.common.schema import SourceSchema
+from posthog.temporal.data_imports.sources.common.sql.base import DiscoveryResult, SQLSource
+from posthog.temporal.data_imports.sources.common.sql.incremental import IncrementalFieldFilter
 from posthog.temporal.data_imports.sources.generated_configs import MySQLSourceConfig
 from posthog.temporal.data_imports.sources.mysql.mysql import (
     filter_mysql_incremental_fields,
@@ -28,11 +29,13 @@ from posthog.temporal.data_imports.sources.mysql.mysql import (
     mysql_source,
 )
 
-from products.data_warehouse.backend.types import ExternalDataSourceType, IncrementalField
+from products.data_warehouse.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
-class MySQLSource(SimpleSource[MySQLSourceConfig], SSHTunnelMixin, ValidateDatabaseHostMixin):
+class MySQLSource(SQLSource[MySQLSourceConfig], SSHTunnelMixin, ValidateDatabaseHostMixin):
+    source_display_name = "MySQL"
+
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.MYSQL
@@ -116,13 +119,18 @@ class MySQLSource(SimpleSource[MySQLSourceConfig], SSHTunnelMixin, ValidateDatab
             "Bad handshake": None,
         }
 
-    def get_schemas(
-        self, config: MySQLSourceConfig, team_id: int, with_counts: bool = False, names: list[str] | None = None
-    ) -> list[SourceSchema]:
-        schemas = []
+    # ------------------------------------------------------------------
+    # SQLSource hooks
+    # ------------------------------------------------------------------
 
+    def _discover(
+        self,
+        config: MySQLSourceConfig,
+        names: list[str] | None,
+        with_counts: bool,
+    ) -> DiscoveryResult:
         with self.with_ssh_tunnel(config) as (host, port):
-            db_schemas = get_mysql_schemas(
+            columns_by_table = get_mysql_schemas(
                 host=host,
                 port=port,
                 user=config.user,
@@ -140,39 +148,44 @@ class MySQLSource(SimpleSource[MySQLSourceConfig], SSHTunnelMixin, ValidateDatab
                     password=config.password,
                     database=config.database,
                     schema=config.schema,
-                    table_names=list(db_schemas.keys()),
+                    table_names=list(columns_by_table.keys()),
                     using_ssl=config.using_ssl,
                 )
             except Exception as e:
                 structlog.get_logger().warning("Failed to detect primary keys for MySQL schemas", exc_info=e)
-                detected_pks = {}
+                detected_pks = dict.fromkeys(columns_by_table.keys())
 
-        for table_name, columns in db_schemas.items():
-            incremental_field_tuples = filter_mysql_incremental_fields(columns)
-            incremental_fields: list[IncrementalField] = [
-                {
-                    "label": field_name,
-                    "type": field_type,
-                    "field": field_name,
-                    "field_type": field_type,
-                    "nullable": nullable,
-                }
-                for field_name, field_type, nullable in incremental_field_tuples
-            ]
+        return DiscoveryResult(
+            columns_by_table=columns_by_table,
+            primary_keys_by_table=detected_pks,
+        )
 
-            schemas.append(
-                SourceSchema(
-                    name=table_name,
-                    supports_incremental=len(incremental_fields) > 0,
-                    supports_append=len(incremental_fields) > 0,
-                    incremental_fields=incremental_fields,
-                    columns=columns,
-                    detected_primary_keys=detected_pks.get(table_name)
-                    or (["id"] if any(col[0] == "id" for col in columns) else None),
-                )
-            )
+    def _filter_incremental_fields(self) -> IncrementalFieldFilter:
+        return filter_mysql_incremental_fields
 
-        return schemas
+    def _run_pipeline_source(self, config: MySQLSourceConfig, inputs: SourceInputs) -> SourceResponse:
+        ssh_tunnel = self.make_ssh_tunnel_func(config)
+
+        return mysql_source(
+            tunnel=ssh_tunnel,
+            user=config.user,
+            password=config.password,
+            database=config.database,
+            using_ssl=config.using_ssl,
+            schema=config.schema,
+            table_names=[inputs.schema_name],
+            should_use_incremental_field=inputs.should_use_incremental_field,
+            logger=inputs.logger,
+            incremental_field=inputs.incremental_field,
+            incremental_field_type=inputs.incremental_field_type,
+            db_incremental_field_last_value=inputs.db_incremental_field_last_value,
+        )
+
+    # ------------------------------------------------------------------
+    # Credentials validation — stays on the subclass because the
+    # error-mapping shape is driver specific (common work to land in a
+    # follow-up once more drivers are on SQLSource).
+    # ------------------------------------------------------------------
 
     def validate_credentials(
         self, config: MySQLSourceConfig, team_id: int, schema_name: Optional[str] = None
@@ -193,28 +206,13 @@ class MySQLSource(SimpleSource[MySQLSourceConfig], SSHTunnelMixin, ValidateDatab
             return (
                 False,
                 e.value
-                or "Could not connect to MySQL via the SSH tunnel. Please check all connection details are valid.",
+                or f"Could not connect to {self.source_display_name} via the SSH tunnel. Please check all connection details are valid.",
             )
         except Exception as e:
             capture_exception(e)
-            return False, "Could not connect to MySQL. Please check all connection details are valid."
+            return (
+                False,
+                f"Could not connect to {self.source_display_name}. Please check all connection details are valid.",
+            )
 
         return True, None
-
-    def source_for_pipeline(self, config: MySQLSourceConfig, inputs: SourceInputs) -> SourceResponse:
-        ssh_tunnel = self.make_ssh_tunnel_func(config)
-
-        return mysql_source(
-            tunnel=ssh_tunnel,
-            user=config.user,
-            password=config.password,
-            database=config.database,
-            using_ssl=config.using_ssl,
-            schema=config.schema,
-            table_names=[inputs.schema_name],
-            should_use_incremental_field=inputs.should_use_incremental_field,
-            logger=inputs.logger,
-            incremental_field=inputs.incremental_field,
-            incremental_field_type=inputs.incremental_field_type,
-            db_incremental_field_last_value=inputs.db_incremental_field_last_value,
-        )

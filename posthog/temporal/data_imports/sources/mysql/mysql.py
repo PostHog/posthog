@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import re
 import math
 import datetime
 import collections
@@ -20,7 +19,6 @@ from structlog.types import FilteringBoundLogger
 
 from posthog.exceptions_capture import capture_exception
 from posthog.temporal.data_imports.naming_convention import NamingConvention
-from posthog.temporal.data_imports.pipelines.helpers import incremental_type_to_initial_value
 from posthog.temporal.data_imports.pipelines.pipeline.consts import DEFAULT_CHUNK_SIZE, DEFAULT_TABLE_SIZE_BYTES
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from posthog.temporal.data_imports.pipelines.pipeline.utils import (
@@ -30,9 +28,18 @@ from posthog.temporal.data_imports.pipelines.pipeline.utils import (
     build_pyarrow_decimal_type,
     table_from_iterator,
 )
-from posthog.temporal.data_imports.sources.common.sql import Column, Table
+from posthog.temporal.data_imports.sources.common.sql import (
+    BacktickIdentifierQuoter,
+    Column,
+    InvalidIdentifierError,
+    SelectQueryBuilder,
+    Table,
+)
 
 from products.data_warehouse.backend.types import IncrementalFieldType, PartitionSettings
+
+_IDENTIFIER_QUOTER = BacktickIdentifierQuoter()
+_QUERY_BUILDER = SelectQueryBuilder(quoter=_IDENTIFIER_QUOTER)
 
 # Applied to the row-streaming connection so large result preparation
 # (e.g. filesort on a multi-GB table) doesn't hit MySQL's default 60s
@@ -152,19 +159,17 @@ def get_schemas(
 
 
 def _sanitize_identifier(identifier: str) -> str:
-    if not identifier.isidentifier():
-        # Allow identifiers of just numbers
-        if re.match("^\\d+$", identifier):
-            return f"`{identifier}`"
+    """Back-compat shim for callers that still expect a plain `ValueError`.
 
-        if identifier.startswith("$") or (len(identifier) > 0 and identifier[0].isdigit()):
-            if not identifier[1:].replace(".", "").replace("_", "").replace("-", "").replace("@", "").isidentifier():
-                raise ValueError(f"Invalid SQL identifier: {identifier}")
-
-    if not identifier.replace(".", "").replace("_", "").replace("-", "").replace("$", "").replace("@", "").isalnum():
-        raise ValueError(f"Invalid SQL identifier: {identifier}")
-
-    return f"`{identifier}`"
+    New code should use `BacktickIdentifierQuoter` directly — same allowlist,
+    same quoting, exposed through the shared `IdentifierQuoter` interface.
+    """
+    try:
+        return _IDENTIFIER_QUOTER.quote(identifier)
+    except InvalidIdentifierError as e:
+        # Preserve the old message shape so semgrep / log-matching rules that
+        # key on the old text keep working.
+        raise ValueError(f"Invalid SQL identifier: {identifier}") from e
 
 
 def _build_query(
@@ -176,29 +181,33 @@ def _build_query(
     db_incremental_field_last_value: Any | None,
     force_index_name: str | None = None,
 ) -> tuple[str, dict[str, Any]]:
-    table = f"{_sanitize_identifier(schema)}.{_sanitize_identifier(table_name)}"
-    hint = f" FORCE INDEX ({_sanitize_identifier(force_index_name)})" if force_index_name else ""
-
-    query = f"SELECT * FROM {table}{hint}"
+    hint: str | None = None
+    if force_index_name is not None:
+        # Sanitize before building the hint — bad names must fail fast.
+        hint = f"FORCE INDEX ({_IDENTIFIER_QUOTER.quote(force_index_name)})"
 
     if not should_use_incremental_field:
-        return query, {}
+        result = _QUERY_BUILDER.select_all(
+            schema=schema,
+            table_name=table_name,
+            extra_table_hint=hint,
+        )
+        params = result.params if isinstance(result.params, dict) else {}
+        return result.sql, params
 
     if incremental_field is None or incremental_field_type is None:
         raise ValueError("incremental_field and incremental_field_type can't be None")
 
-    if db_incremental_field_last_value is None:
-        db_incremental_field_last_value = incremental_type_to_initial_value(incremental_field_type)
-
-    query = (
-        f"SELECT * FROM {table}{hint}"
-        f" WHERE {_sanitize_identifier(incremental_field)} >= %(incremental_value)s"
-        f" ORDER BY {_sanitize_identifier(incremental_field)} ASC"
+    result = _QUERY_BUILDER.select_all(
+        schema=schema,
+        table_name=table_name,
+        incremental_field=incremental_field,
+        incremental_field_type=incremental_field_type,
+        incremental_last_value=db_incremental_field_last_value,
+        extra_table_hint=hint,
     )
-
-    return query, {
-        "incremental_value": db_incremental_field_last_value,
-    }
+    params = result.params if isinstance(result.params, dict) else {}
+    return result.sql, params
 
 
 # pymysql error code for "Lost connection to MySQL server during query" — the
