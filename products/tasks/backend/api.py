@@ -622,8 +622,8 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             user_github_integration = get_user_github_integration(task.created_by)
             if (
                 user_github_integration is None
-                or user_github_integration.refresh_token_expired()
-                or not user_github_integration.refresh_token
+                or user_github_integration.user_refresh_token_expired()
+                or not user_github_integration.user_refresh_token
             ):
                 return Response(
                     {
