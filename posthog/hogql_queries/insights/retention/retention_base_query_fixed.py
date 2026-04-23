@@ -656,7 +656,11 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
         )
 
     def _get_return_event_timestamps_expr(
-        self, minimum_occurrences: int, start_of_interval_sql: ast.Expr, return_entity_expr: ast.Expr
+        self,
+        minimum_occurrences: int,
+        start_of_interval_sql: ast.Expr,
+        return_entity_expr: ast.Expr,
+        timestamp_field: ast.Expr | None = None,
     ) -> ast.Expr:
         if self.property_aggregation_expr:
             # Collect 3-tuples of (interval_start, value, actual_timestamp) for return events.
@@ -704,7 +708,7 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
             {
                 "start_of_interval_timestamp": start_of_interval_sql,
                 "returning_entity_expr": return_entity_expr,
-                "filter_timestamp": self.events_timestamp_filter(),
+                "filter_timestamp": self.events_timestamp_filter(field=timestamp_field),
             },
         )
 
