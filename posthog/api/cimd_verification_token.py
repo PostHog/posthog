@@ -1,13 +1,17 @@
 from typing import Any
 
+from django.core.cache import cache
+from django.views.decorators.debug import sensitive_variables
+
 from drf_spectacular.utils import extend_schema
 from rest_framework import mixins, serializers, viewsets
 from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
-from posthog.models.oauth import CIMDVerificationToken, create_cimd_verification_token
-from posthog.permissions import OrganizationAdminWritePermissions
+from posthog.models.activity_logging.activity_log import Detail, log_activity
+from posthog.models.oauth import CIMDVerificationToken, OAuthApplication, create_cimd_verification_token
+from posthog.permissions import OrganizationAdminWritePermissions, TimeSensitiveActionPermission
 
 
 class CIMDVerificationTokenSerializer(serializers.ModelSerializer):
@@ -61,13 +65,14 @@ class CIMDVerificationTokenViewSet(
     """
 
     scope_object = "organization"
-    permission_classes = [OrganizationAdminWritePermissions]
+    permission_classes = [OrganizationAdminWritePermissions, TimeSensitiveActionPermission]
     queryset = CIMDVerificationToken.objects.select_related("created_by").order_by("-created_at")
     serializer_class = CIMDVerificationTokenSerializer
 
     def safely_get_queryset(self, queryset):
         return queryset.filter(organization_id=self.organization_id)
 
+    @sensitive_variables("plaintext", "output")
     def create(self, request, *args: Any, **kwargs: Any) -> Response:
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -78,4 +83,49 @@ class CIMDVerificationTokenViewSet(
         )
         output = self.get_serializer(token).data
         output["value"] = plaintext
+        log_activity(
+            organization_id=self.organization_id,
+            team_id=None,
+            user=request.user if request.user.is_authenticated else None,
+            was_impersonated=getattr(request, "impersonated_session", False),
+            item_id=str(token.id),
+            scope="CIMDVerificationToken",
+            activity="created",
+            detail=Detail(name=token.label),
+        )
         return Response(output, status=201)
+
+    def perform_destroy(self, instance: CIMDVerificationToken) -> None:
+        org_id = instance.organization_id
+        label = instance.label
+        token_id = str(instance.id)
+        instance.delete()
+
+        # Force metadata re-fetch for CIMD partner apps linked to this org so
+        # verification is re-evaluated on the next request. If another token on
+        # this org still matches the metadata, the app stays linked; otherwise
+        # it drops back to the unverified tier on next fetch. This matches the
+        # revoke-confirm UX ("partners using this token will no longer be
+        # recognized") without touching apps that have a different linking
+        # token.
+        from posthog.api.oauth.cimd import _cache_key
+
+        for url in OAuthApplication.objects.filter(
+            is_cimd_client=True,
+            organization_id=org_id,
+            cimd_metadata_url__isnull=False,
+        ).values_list("cimd_metadata_url", flat=True):
+            if url:
+                cache.delete(_cache_key(url))
+
+        request = self.request
+        log_activity(
+            organization_id=org_id,
+            team_id=None,
+            user=request.user if request.user.is_authenticated else None,
+            was_impersonated=getattr(request, "impersonated_session", False),
+            item_id=token_id,
+            scope="CIMDVerificationToken",
+            activity="deleted",
+            detail=Detail(name=label),
+        )

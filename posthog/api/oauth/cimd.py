@@ -333,7 +333,15 @@ def _create_cimd_application(url: str, metadata: CIMDMetadataDocument) -> OAuthA
     return app
 
 
+TOUCH_VERIFICATION_TOKEN_MIN_INTERVAL = 300  # 5 minutes
+
+
 def _touch_verification_token(token: CIMDVerificationToken) -> None:
+    # Bump last_used_at at most once per TOUCH_VERIFICATION_TOKEN_MIN_INTERVAL
+    # per token to avoid vacuum / lock-contention pressure on busy partners.
+    sentinel_key = f"cimd:token_touched:{token.pk}"
+    if not cache.add(sentinel_key, True, timeout=TOUCH_VERIFICATION_TOKEN_MIN_INTERVAL):
+        return
     CIMDVerificationToken.objects.filter(pk=token.pk).update(last_used_at=timezone.now())
 
 
@@ -484,7 +492,7 @@ def register_cimd_provisioning_application_task(url: str) -> None:
             if app is None:
                 return
             if not app.is_provisioning_partner:
-                _apply_provisioning_defaults(app)
+                apply_provisioning_defaults(app)
                 capture_ph_event(
                     distinct_id=url,
                     event="cimd_provisioning_partner_registered",
@@ -576,7 +584,7 @@ def _cimd_provisioning_defaults_for(app: OAuthApplication) -> dict:
     return defaults
 
 
-def _apply_provisioning_defaults(app: OAuthApplication) -> OAuthApplication:
+def apply_provisioning_defaults(app: OAuthApplication) -> OAuthApplication:
     """Apply provisioning defaults to a CIMD app and persist them.
 
     Computes the correct defaults (verified vs anonymous rate limit) based on
@@ -605,7 +613,7 @@ def get_or_create_cimd_provisioning_application(url: str) -> OAuthApplication | 
 
     app = get_or_create_cimd_application(url)
     if not app.is_provisioning_partner:
-        _apply_provisioning_defaults(app)
+        apply_provisioning_defaults(app)
         posthoganalytics.capture(
             distinct_id=url,
             event="cimd_provisioning_partner_registered",

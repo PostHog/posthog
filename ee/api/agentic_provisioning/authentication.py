@@ -3,8 +3,10 @@ from __future__ import annotations
 import hmac
 import time
 import uuid
+import hashlib
 
 from django.conf import settings
+from django.core.cache import cache
 from django.utils import timezone
 
 import structlog
@@ -14,7 +16,7 @@ from rest_framework.exceptions import AuthenticationFailed
 from rest_framework.request import Request
 
 from posthog.api.oauth.cimd import (
-    _apply_provisioning_defaults,
+    apply_provisioning_defaults,
     get_application_by_client_id,
     is_cimd_client_id,
     is_cimd_registration_in_progress,
@@ -148,7 +150,7 @@ class ProvisioningAuthentication(BaseAuthentication):
             if app is not None:
                 try:
                     if not app.is_provisioning_partner:
-                        _apply_provisioning_defaults(app)
+                        apply_provisioning_defaults(app)
                 except Exception as e:
                     logger.warning(
                         "provisioning_cimd_backfill_error",
@@ -163,9 +165,13 @@ class ProvisioningAuthentication(BaseAuthentication):
                         return None
                 return app if app.provisioning_active else None
 
-            # New CIMD URL: kick off background registration, don't block the worker
+            # New CIMD URL: kick off background registration, don't block the worker.
+            # cache.add is atomic - coalesces concurrent first-time requests so only
+            # one gets to enqueue until the worker's own fetch lock takes over.
             if not is_cimd_registration_in_progress(client_id):
-                register_cimd_provisioning_application_task.delay(client_id)
+                enqueue_key = f"cimd:enqueued:{hashlib.sha256(client_id.encode()).hexdigest()}"
+                if cache.add(enqueue_key, True, timeout=30):
+                    register_cimd_provisioning_application_task.delay(client_id)
             self.cimd_registration_pending = True
             return None
 

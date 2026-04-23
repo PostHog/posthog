@@ -760,7 +760,7 @@ class TestCimdProvisioningAutoRegistration(APIBaseTest):
             cimd_metadata_url=CIMD_PROV_URL,
         )
         with patch(
-            "ee.api.agentic_provisioning.authentication._apply_provisioning_defaults",
+            "ee.api.agentic_provisioning.authentication.apply_provisioning_defaults",
             side_effect=RuntimeError("simulated DB error"),
         ):
             _, challenge = _pkce_pair()
