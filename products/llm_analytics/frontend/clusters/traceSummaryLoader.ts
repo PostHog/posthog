@@ -142,6 +142,87 @@ async function loadEvaluationSummaries(
     return summaries
 }
 
+export type EvaluationVerdict = 'pass' | 'fail' | 'n/a' | 'unknown'
+
+export interface EvaluationItemAttributes {
+    evaluatorName: string
+    verdict: EvaluationVerdict
+}
+
+/**
+ * Lightweight per-item lookup of (evaluator name, verdict) for every eval in a clustering run.
+ * Used to power post-hoc client-side filtering of the scatter plot and cluster cards — we don't
+ * want to refetch full summaries (which include long reasoning text) just to know which evaluator
+ * a point belongs to.
+ */
+export async function loadEvaluationItemAttributes(
+    evalIds: string[],
+    windowStart: string,
+    windowEnd: string
+): Promise<Record<string, EvaluationItemAttributes>> {
+    if (evalIds.length === 0) {
+        return {}
+    }
+    // Same rationale as loadEvaluationSummaries — widen by 7 days on the
+    // leading edge to cover Stage B's embedding lookback while keeping
+    // ClickHouse partition pruning intact.
+    const response = await api.queryHogQL(
+        hogql`
+            SELECT
+                toString(uuid) as eval_id,
+                JSONExtractString(properties, '$ai_evaluation_name') as name,
+                JSONExtractString(properties, '$ai_evaluation_result') as result,
+                JSONExtractString(properties, '$ai_evaluation_applicable') as applicable
+            FROM events
+            WHERE event = '$ai_evaluation'
+                AND timestamp >= parseDateTimeBestEffort(${windowStart}) - INTERVAL 7 DAY
+                AND timestamp <= parseDateTimeBestEffort(${windowEnd}) + INTERVAL 1 DAY
+                AND toString(uuid) IN ${evalIds}
+        `,
+        { productKey: 'llm_analytics', scene: 'LLMAnalyticsClusters' },
+        { queryParams: { modifiers: { convertToProjectTimezone: false } } }
+    )
+    const out: Record<string, EvaluationItemAttributes> = {}
+    for (const row of response.results || []) {
+        const r = row as (string | null)[]
+        const evalId = r[0] as string
+        if (!evalId) {
+            continue
+        }
+        out[evalId] = {
+            evaluatorName: r[1] || 'Unknown',
+            verdict: deriveVerdict(r[2], r[3]),
+        }
+    }
+    return out
+}
+
+/**
+ * Render a short, scannable title for an eval cluster member: "{evaluator} — {reasoning preview}".
+ * Falls back to just the evaluator name when there's no reasoning, and to null when the summary
+ * hasn't loaded at all (callers can substitute their own "Loading..." placeholder).
+ *
+ * Trace/generation summaries ship with a real LLM-authored title; eval summaries don't (the only
+ * natural title is "{name}: {verdict}", and the verdict sits in its own tag). A reasoning preview
+ * makes each row visually distinct — otherwise long clusters read as "Accuracy" repeated N times.
+ */
+export function formatEvalTitle(summary: TraceSummary | undefined, maxReasoningChars: number): string | null {
+    if (!summary) {
+        return null
+    }
+    // Strip the trailing "{sep}{verdict}" suffix the backend appends to eval titles.
+    // Case-insensitive so a backend casing change doesn't silently pass through
+    // ("Accuracy: PASS" would otherwise leak into the rendered row).
+    const name = summary.title?.replace(/:\s*(pass|fail|n\/a|unknown)\s*$/i, '') || 'Evaluation'
+    const reasoning = summary.evaluationReasoning?.trim()
+    if (!reasoning) {
+        return name
+    }
+    const preview =
+        reasoning.length > maxReasoningChars ? reasoning.slice(0, maxReasoningChars).trimEnd() + '…' : reasoning
+    return `${name} — ${preview}`
+}
+
 function deriveVerdict(result: string | null, applicable: string | null): 'pass' | 'fail' | 'n/a' | 'unknown' {
     const a = (applicable || '').toLowerCase()
     if (a === 'false') {
