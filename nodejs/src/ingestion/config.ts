@@ -101,7 +101,6 @@ export type IngestionConsumerConfig = {
     // Kafka consumer config
     INGESTION_CONSUMER_GROUP_ID: string
     INGESTION_CONSUMER_CONSUME_TOPIC: string
-    INGESTION_CONSUMER_DLQ_TOPIC: string
     INGESTION_CONSUMER_OVERFLOW_TOPIC: string
 
     // Ingestion pipeline config
@@ -201,7 +200,6 @@ export function getDefaultIngestionConsumerConfig(): IngestionConsumerConfig {
         // Kafka consumer config
         INGESTION_CONSUMER_GROUP_ID: 'events-ingestion-consumer',
         INGESTION_CONSUMER_CONSUME_TOPIC: KAFKA_EVENTS_PLUGIN_INGESTION,
-        INGESTION_CONSUMER_DLQ_TOPIC: KAFKA_EVENTS_PLUGIN_INGESTION_DLQ,
         INGESTION_CONSUMER_OVERFLOW_TOPIC: KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW,
 
         // Ingestion pipeline config
