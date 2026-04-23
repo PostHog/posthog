@@ -110,7 +110,7 @@ def select_from_error_tracking_fingerprint_issue_state_table(
     # It lives in a ReplacingMergeTree table in CH and there is a delay between user mutating an issue and that CH table receiving an update (usually ~5s)
     # This breaks the UX because user often doesn't see his own updates reflected in the refreshed issues list.
     # For that reason whenever user does any mutation to an issue, we construct a row with an updated data on frontend.
-    # We then include these rows (called pending updated) when we run a list query and we UNION these rows with the base table.
+    # We then include these rows (called pending updates) when we run a list query and we UNION these rows with the base table.
     # Thanks to that, argMax will pick the latest version of the issue state before that version even reaches CH.
     if pending_updates:
         select.select_from = ast.JoinExpr(

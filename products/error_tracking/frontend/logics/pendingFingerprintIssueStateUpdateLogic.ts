@@ -76,125 +76,130 @@ export const pendingFingerprintIssueStateUpdateLogic = kea<pendingFingerprintIss
         ],
     }),
 
-    listeners(({ actions }) => {
-        function findCurrentIssueState(id: string): CurrentIssueState | null {
-            const detail = errorTrackingIssueSceneLogic.findMounted({ id })?.values.issue as
-                | ErrorTrackingRelationalIssue
-                | null
-                | undefined
-            if (detail && detail.id === id) {
-                return {
-                    id: detail.id,
-                    name: detail.name ?? null,
-                    description: detail.description ?? null,
-                    status: detail.status,
-                    assignee: detail.assignee ?? null,
-                    first_seen: detail.first_seen,
-                }
+    listeners(({ actions }) => ({
+        capturePendingUpdatesForIssues: async ({ issueIds, delta }) => {
+            const uniqueIds = Array.from(new Set(issueIds)).filter(Boolean)
+            if (uniqueIds.length === 0) {
+                return
             }
-
-            const listResults = (issuesDataNodeLogic.findMounted()?.values.results ?? []) as ErrorTrackingIssue[]
-            const listIssue = listResults.find((i) => i.id === id)
-            if (listIssue) {
-                return {
-                    id: listIssue.id,
-                    name: listIssue.name ?? null,
-                    description: listIssue.description ?? null,
-                    status: listIssue.status,
-                    assignee: listIssue.assignee ?? null,
-                    first_seen: listIssue.first_seen,
-                }
+            const fingerprintMap = await resolveFingerprintsForIssues(uniqueIds)
+            const rows = buildCaptureRows(uniqueIds, fingerprintMap, delta)
+            if (rows.length > 0) {
+                actions.addPendingUpdates(rows)
             }
-            return null
-        }
-
-        async function resolveFingerprintsForIssues(
-            issueIds: Array<ErrorTrackingIssue['id']>
-        ): Promise<Record<string, string[]>> {
-            const unique = Array.from(new Set(issueIds))
-            const result: Record<string, string[]> = {}
-
-            const toFetch: string[] = []
-            for (const id of unique) {
-                const mounted = errorTrackingIssueSceneLogic.findMounted({ id })
-                const loaded = mounted?.values.issueFingerprints
-                if (mounted && Array.isArray(loaded) && loaded.length > 0) {
-                    result[id] = loaded.map((f) => f.fingerprint)
-                } else {
-                    toFetch.push(id)
-                }
+        },
+        captureMergePendingUpdates: async ({ primaryId, sourceIds }) => {
+            const allIds = Array.from(new Set([primaryId, ...sourceIds])).filter(Boolean)
+            const primaryState = allIds.length > 0 ? findCurrentIssueState(primaryId) : null
+            if (!primaryState) {
+                return
             }
-
-            if (toFetch.length > 0) {
-                const responses = await Promise.all(
-                    toFetch.map((id) =>
-                        api.errorTracking.fingerprints
-                            .list(id)
-                            .then((rows: ErrorTrackingFingerprint[]) => [id, rows.map((r) => r.fingerprint)] as const)
-                            .catch(() => [id, [] as string[]] as const)
-                    )
-                )
-                for (const [id, fingerprints] of responses) {
-                    result[id] = fingerprints
-                }
+            const fingerprintMap = await resolveFingerprintsForIssues(allIds)
+            const rows = buildMergeRows(allIds, fingerprintMap, primaryId, primaryState)
+            if (rows.length > 0) {
+                actions.addPendingUpdates(rows)
             }
-
-            return result
-        }
-
-        return {
-            capturePendingUpdatesForIssues: async ({ issueIds, delta }) => {
-                const uniqueIds = Array.from(new Set(issueIds)).filter(Boolean)
-                if (uniqueIds.length === 0) {
-                    return
-                }
-
-                const fingerprintMap = await resolveFingerprintsForIssues(uniqueIds)
-                const version = Date.now()
-                const rows: ErrorTrackingPendingFingerprintIssueStateUpdate[] = []
-
-                for (const id of uniqueIds) {
-                    const current = findCurrentIssueState(id)
-                    if (!current) {
-                        continue
-                    }
-                    const merged = applyDelta(current, delta)
-                    const fingerprints = fingerprintMap[id] ?? []
-                    for (const fp of fingerprints) {
-                        rows.push(buildPendingUpdate(fp, id, merged, version))
-                    }
-                }
-
-                if (rows.length > 0) {
-                    actions.addPendingUpdates(rows)
-                }
-            },
-            captureMergePendingUpdates: async ({ primaryId, sourceIds }) => {
-                const allIds = Array.from(new Set([primaryId, ...sourceIds])).filter(Boolean)
-                if (allIds.length === 0) {
-                    return
-                }
-
-                const primaryState = findCurrentIssueState(primaryId)
-                if (!primaryState) {
-                    return
-                }
-
-                const fingerprintMap = await resolveFingerprintsForIssues(allIds)
-                const version = Date.now()
-                const rows: ErrorTrackingPendingFingerprintIssueStateUpdate[] = []
-
-                for (const id of allIds) {
-                    const fingerprints = fingerprintMap[id] ?? []
-                    for (const fp of fingerprints) {
-                        rows.push(buildPendingUpdate(fp, primaryId, primaryState, version))
-                    }
-                }
-
-                if (rows.length > 0) {
-                    actions.addPendingUpdates(rows)
-                }
-            },
-        }
-    }),
+        },
+    })),
 ])
+
+function findCurrentIssueState(id: string): CurrentIssueState | null {
+    const detail = errorTrackingIssueSceneLogic.findMounted({ id })?.values.issue as
+        | ErrorTrackingRelationalIssue
+        | null
+        | undefined
+    if (detail && detail.id === id) {
+        return {
+            id: detail.id,
+            name: detail.name ?? null,
+            description: detail.description ?? null,
+            status: detail.status,
+            assignee: detail.assignee ?? null,
+            first_seen: detail.first_seen,
+        }
+    }
+
+    const listResults = (issuesDataNodeLogic.findMounted()?.values.results ?? []) as ErrorTrackingIssue[]
+    const listIssue = listResults.find((i) => i.id === id)
+    if (listIssue) {
+        return {
+            id: listIssue.id,
+            name: listIssue.name ?? null,
+            description: listIssue.description ?? null,
+            status: listIssue.status,
+            assignee: listIssue.assignee ?? null,
+            first_seen: listIssue.first_seen,
+        }
+    }
+    return null
+}
+
+async function resolveFingerprintsForIssues(
+    issueIds: Array<ErrorTrackingIssue['id']>
+): Promise<Record<string, string[]>> {
+    const unique = Array.from(new Set(issueIds))
+    const result: Record<string, string[]> = {}
+
+    const toFetch: string[] = []
+    for (const id of unique) {
+        const mounted = errorTrackingIssueSceneLogic.findMounted({ id })
+        const loaded = mounted?.values.issueFingerprints
+        if (mounted && Array.isArray(loaded) && loaded.length > 0) {
+            result[id] = loaded.map((f) => f.fingerprint)
+        } else {
+            toFetch.push(id)
+        }
+    }
+
+    if (toFetch.length > 0) {
+        const responses = await Promise.all(
+            toFetch.map((id) =>
+                api.errorTracking.fingerprints
+                    .list(id)
+                    .then((rows: ErrorTrackingFingerprint[]) => [id, rows.map((r) => r.fingerprint)] as const)
+                    .catch(() => [id, [] as string[]] as const)
+            )
+        )
+        for (const [id, fingerprints] of responses) {
+            result[id] = fingerprints
+        }
+    }
+
+    return result
+}
+
+function buildCaptureRows(
+    issueIds: string[],
+    fingerprintMap: Record<string, string[]>,
+    delta: IssueStateDelta
+): ErrorTrackingPendingFingerprintIssueStateUpdate[] {
+    const version = Date.now()
+    const rows: ErrorTrackingPendingFingerprintIssueStateUpdate[] = []
+    for (const id of issueIds) {
+        const current = findCurrentIssueState(id)
+        if (!current) {
+            continue
+        }
+        const merged = applyDelta(current, delta)
+        for (const fp of fingerprintMap[id] ?? []) {
+            rows.push(buildPendingUpdate(fp, id, merged, version))
+        }
+    }
+    return rows
+}
+
+function buildMergeRows(
+    allIds: string[],
+    fingerprintMap: Record<string, string[]>,
+    primaryId: string,
+    primaryState: CurrentIssueState
+): ErrorTrackingPendingFingerprintIssueStateUpdate[] {
+    const version = Date.now()
+    const rows: ErrorTrackingPendingFingerprintIssueStateUpdate[] = []
+    for (const id of allIds) {
+        for (const fp of fingerprintMap[id] ?? []) {
+            rows.push(buildPendingUpdate(fp, primaryId, primaryState, version))
+        }
+    }
+    return rows
+}
