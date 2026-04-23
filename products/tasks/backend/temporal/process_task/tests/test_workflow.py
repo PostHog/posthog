@@ -3,7 +3,7 @@ import uuid
 import random
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from unittest.mock import AsyncMock
@@ -38,10 +38,20 @@ from products.tasks.backend.temporal.process_task.activities import (
     update_task_run_status,
 )
 from products.tasks.backend.temporal.process_task.workflow import (
+    MAX_RUNTIME,
     ProcessTaskInput,
     ProcessTaskOutput,
     ProcessTaskWorkflow,
+    TaskEvent,
 )
+
+
+class _NoopLogger:
+    def info(self, *args, **kwargs) -> None:
+        pass
+
+    def warning(self, *args, **kwargs) -> None:
+        pass
 
 
 def _build_context(
@@ -444,3 +454,75 @@ class TestProcessTaskWorkflowUnit:
         await workflow._get_sandbox_for_repository()
 
         assert inject_fresh_tokens_on_resume not in activity_calls
+
+    @pytest.mark.parametrize(
+        "elapsed, expected_sleep_seconds",
+        [
+            (timedelta(minutes=10), (MAX_RUNTIME - timedelta(minutes=10)).total_seconds()),
+            (timedelta(seconds=0), MAX_RUNTIME.total_seconds()),
+        ],
+    )
+    async def test_wait_for_max_runtime_sleeps_remaining_budget(
+        self, monkeypatch, elapsed: timedelta, expected_sleep_seconds: float
+    ):
+        workflow = ProcessTaskWorkflow()
+        workflow._context = _build_context(github_integration_id=123)
+
+        start = datetime(2025, 1, 1, 12, 0, 0, tzinfo=UTC)
+        workflow._start_time = start
+
+        sleep_calls: list[float] = []
+
+        async def fake_sleep(duration: float) -> None:
+            sleep_calls.append(duration)
+
+        monkeypatch.setattr(process_task_workflow_module.workflow, "now", lambda: start + elapsed)
+        monkeypatch.setattr(process_task_workflow_module.workflow, "sleep", fake_sleep)
+        monkeypatch.setattr(process_task_workflow_module.workflow, "logger", _NoopLogger())
+
+        result = await workflow._wait_for_max_runtime()
+
+        assert result == TaskEvent.TIMEOUT_REACHED
+        assert sleep_calls == [expected_sleep_seconds]
+
+    async def test_wait_for_max_runtime_returns_immediately_when_budget_exhausted(self, monkeypatch):
+        workflow = ProcessTaskWorkflow()
+        workflow._context = _build_context(github_integration_id=123)
+
+        start = datetime(2025, 1, 1, 12, 0, 0, tzinfo=UTC)
+        workflow._start_time = start
+        # Simulate the workflow having already exceeded its max runtime budget.
+        now = start + MAX_RUNTIME + timedelta(minutes=1)
+
+        sleep_calls: list[float] = []
+
+        async def fake_sleep(duration: float) -> None:
+            sleep_calls.append(duration)
+
+        monkeypatch.setattr(process_task_workflow_module.workflow, "now", lambda: now)
+        monkeypatch.setattr(process_task_workflow_module.workflow, "sleep", fake_sleep)
+        monkeypatch.setattr(process_task_workflow_module.workflow, "logger", _NoopLogger())
+
+        result = await workflow._wait_for_max_runtime()
+
+        assert result == TaskEvent.TIMEOUT_REACHED
+        assert sleep_calls == []
+
+    async def test_wait_for_max_runtime_falls_back_to_full_budget_when_start_time_unset(self, monkeypatch):
+        workflow = ProcessTaskWorkflow()
+        workflow._context = _build_context(github_integration_id=123)
+
+        assert workflow._start_time is None
+
+        sleep_calls: list[float] = []
+
+        async def fake_sleep(duration: float) -> None:
+            sleep_calls.append(duration)
+
+        monkeypatch.setattr(process_task_workflow_module.workflow, "sleep", fake_sleep)
+        monkeypatch.setattr(process_task_workflow_module.workflow, "logger", _NoopLogger())
+
+        result = await workflow._wait_for_max_runtime()
+
+        assert result == TaskEvent.TIMEOUT_REACHED
+        assert sleep_calls == [MAX_RUNTIME.total_seconds()]
