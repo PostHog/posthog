@@ -360,13 +360,39 @@ class SnapchatAdsPaginator(BasePaginator):
             logger.exception("snapchat_ads_paginator_error", error=str(e))
             raise SnapchatAdsAPIError(f"Failed to parse Snapchat API response: {str(e)}", response=response)
 
-    def update_request(self, request: Request) -> None:
+    def _apply_next_link_cursor(self, request: Request) -> None:
         """Extract cursor from next_link and add to request params."""
-        if self._next_link and request.params is not None:
-            # Extract cursor from next_link query params
-            from urllib.parse import parse_qs, urlparse
+        if not self._next_link:
+            return
 
-            parsed = urlparse(self._next_link)
-            query_params = parse_qs(parsed.query)
-            if "cursor" in query_params:
-                request.params["cursor"] = query_params["cursor"][0]
+        from urllib.parse import parse_qs, urlparse
+
+        parsed = urlparse(self._next_link)
+        query_params = parse_qs(parsed.query)
+        cursor = query_params.get("cursor")
+        if not cursor:
+            return
+
+        if request.params is None:
+            request.params = {}
+        request.params["cursor"] = cursor[0]
+
+    def init_request(self, request: Request) -> None:
+        # When seeded via set_resume_state the paginator already knows the
+        # next_link for the resumed page — inject its cursor into the initial
+        # request so we don't re-issue the first page.
+        self._apply_next_link_cursor(request)
+
+    def update_request(self, request: Request) -> None:
+        self._apply_next_link_cursor(request)
+
+    def get_resume_state(self) -> Optional[dict[str, Any]]:
+        if self._next_link and self._has_next_page:
+            return {"next_link": self._next_link}
+        return None
+
+    def set_resume_state(self, state: dict[str, Any]) -> None:
+        next_link = state.get("next_link")
+        if next_link:
+            self._next_link = next_link
+            self._has_next_page = True
