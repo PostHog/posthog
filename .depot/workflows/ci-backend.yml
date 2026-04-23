@@ -221,7 +221,7 @@ jobs:
               env:
                   WAIT_FOR_DOCKER_TIMEOUT: 900
               run: |
-                  bin/wait-for-docker temporal
+                  bin/ci-wait-for-docker wait temporal
                   python manage.py register_temporal_search_attributes
             - name: Run product tests
               # --force: discover already decided this product needs testing, skip turbo cache
@@ -777,6 +777,13 @@ jobs:
                   CLICKHOUSE_SERVER_IMAGE: ${{ matrix.clickhouse-server-image || needs.get_clickhouse_versions.outputs.oldest_supported_image }}
                   WAIT_FOR_DOCKER_TIMEOUT: 900
               run: bin/ci-wait-for-docker wait
+            - name: Wait for Temporal
+              # Some Core tests reach Temporal indirectly (batch_exports, etc). On
+              # slower Depot runners Temporal is not ready when tests start, so
+              # block here instead of racing in pytest.
+              env:
+                  WAIT_FOR_DOCKER_TIMEOUT: 900
+              run: bin/ci-wait-for-docker wait temporal
             # Tests
             - name: Log test environment diagnostics
               if: ${{ needs.changes.outputs.backend == 'true' && matrix.segment == 'Core' }}
@@ -1123,31 +1130,4 @@ jobs:
               with:
                   name: junit-results-async-migrations
                   path: junit.xml
-    calculate-running-time:
-        name: Calculate running time
-        needs: [django_tests, async-migrations]
-        runs-on: depot-ubuntu-latest # was: ubuntu-latest. Mapped standard GitHub runner to Depot equivalent.
-        timeout-minutes: 5
-        if: always() && github.actor != 'dependabot[bot]' && ( (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog') || (github.event_name != 'pull_request' && github.repository == 'PostHog/posthog')) # Run on pull requests to PostHog/posthog + on PostHog/posthog outside of PRs - but never on forks or Dependabot (no secrets access)
-        steps:
-            - name: Capture running time to PostHog
-              uses: PostHog/posthog-github-action@eea1405eeb2d1d2259f0ee0b44d7b152869e6840 # v1.1.1
-              with:
-                  posthog-token: ${{ secrets.POSTHOG_API_TOKEN }}
-                  event: 'posthog-ci-running-time'
-                  capture-run-duration: true
-                  capture-job-durations: true
-                  github-token: ${{ secrets.GITHUB_TOKEN }}
-                  status-job: 'Django Tests Pass'
-                  runner: 'depot'
-            - name: Capture running time to DevEx PostHog
-              continue-on-error: true
-              uses: PostHog/posthog-github-action@eea1405eeb2d1d2259f0ee0b44d7b152869e6840 # v1.1.1
-              with:
-                  posthog-token: ${{ secrets.POSTHOG_DEVEX_PROJECT_API_TOKEN }}
-                  event: 'posthog-ci-running-time'
-                  capture-run-duration: true
-                  capture-job-durations: true
-                  github-token: ${{ secrets.GITHUB_TOKEN }}
-                  status-job: 'Django Tests Pass'
-                  runner: 'depot'
+    # Shadow trial: calculate-running-time job stripped (would poison trial metrics).
