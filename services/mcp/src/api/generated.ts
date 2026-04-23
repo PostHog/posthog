@@ -12152,6 +12152,25 @@ export namespace Schemas {
       Desc: 'DESC',
     } as const;
 
+    export interface ErrorTrackingPendingFingerprintIssueStateUpdate {
+      /** @nullable */
+      assigned_role_id?: string | null;
+      /** @nullable */
+      assigned_user_id?: number | null;
+      fingerprint: string;
+      /** ISO 8601 datetime string. */
+      first_seen: string;
+      is_deleted: number;
+      /** @nullable */
+      issue_description?: string | null;
+      issue_id: string;
+      /** @nullable */
+      issue_name?: string | null;
+      issue_status: string;
+      /** Client-stamped monotonic version (`Date.now()` ms at mutation success). */
+      version: number;
+    }
+
     export interface ErrorTrackingQueryResponse {
       /** @nullable */
       columns?: string[] | null;
@@ -12215,6 +12234,11 @@ export namespace Schemas {
       orderBy: ErrorTrackingOrderBy;
       /** Sort direction. */
       orderDirection?: OrderDirection2 | null;
+      /**
+       * Pending fingerprint issue state updates UNIONed into the fingerprint issue state subquery (V3 only). The backend caps the list at 50 entries; extras are dropped silently.
+       * @nullable
+       */
+      pendingFingerprintIssueStateUpdates?: ErrorTrackingPendingFingerprintIssueStateUpdate[] | null;
       /** @nullable */
       personId?: string | null;
       response?: ErrorTrackingQueryResponse | null;

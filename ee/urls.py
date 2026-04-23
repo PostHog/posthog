@@ -259,7 +259,7 @@ urlpatterns: list[Any] = [
         name="scim_resource_types",
     ),
     path("scim/v2/<uuid:domain_id>/Schemas", csrf_exempt(scim_views.SCIMSchemasView.as_view()), name="scim_schemas"),
-    # Stripe Agentic Provisioning Protocol (APP 0.1d)
+    # Agentic Provisioning Protocol (APP 0.1d)
     path(
         "api/agentic/provisioning/health",
         csrf_exempt(agentic_provisioning_views.provisioning_health),
@@ -329,6 +329,57 @@ urlpatterns: list[Any] = [
         "agentic/login",
         agentic_provisioning_views.agentic_login,
         name="agentic_login",
+    ),
+    # Generic provisioning URL aliases (keep /api/agentic/... for backward compat)
+    path(
+        "api/provisioning/health",
+        csrf_exempt(agentic_provisioning_views.provisioning_health),
+        name="provisioning_health",
+    ),
+    path(
+        "api/provisioning/services",
+        csrf_exempt(agentic_provisioning_views.provisioning_services),
+        name="provisioning_services",
+    ),
+    path(
+        "api/provisioning/account_requests",
+        csrf_exempt(agentic_provisioning_views.account_requests),
+        name="provisioning_account_requests",
+    ),
+    path(
+        "api/provisioning/oauth/token",
+        csrf_exempt(agentic_provisioning_views.oauth_token),
+        name="provisioning_oauth_token",
+    ),
+    path(
+        "api/provisioning/resources",
+        csrf_exempt(agentic_provisioning_views.provisioning_resources_create),
+        name="provisioning_resources_create",
+    ),
+    path(
+        "api/provisioning/resources/<str:resource_id>/rotate_credentials",
+        csrf_exempt(agentic_provisioning_views.provisioning_rotate_credentials),
+        name="provisioning_rotate_credentials",
+    ),
+    path(
+        "api/provisioning/resources/<str:resource_id>/update_service",
+        csrf_exempt(agentic_provisioning_views.provisioning_update_service),
+        name="provisioning_update_service",
+    ),
+    path(
+        "api/provisioning/resources/<str:resource_id>/remove",
+        csrf_exempt(agentic_provisioning_views.provisioning_resource_remove),
+        name="provisioning_resource_remove",
+    ),
+    path(
+        "api/provisioning/resources/<str:resource_id>",
+        csrf_exempt(agentic_provisioning_views.provisioning_resource_detail),
+        name="provisioning_resource_detail",
+    ),
+    path(
+        "api/provisioning/deep_links",
+        csrf_exempt(agentic_provisioning_views.deep_links),
+        name="provisioning_deep_links",
     ),
     *admin_urlpatterns,
 ]
