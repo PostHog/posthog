@@ -593,6 +593,9 @@ def send_team_matview_failure_digest(team_id: int, failed_query_ids: list[str], 
             continue
         job: DataModelingJob | None = latest_jobs.get(qid)
         error = (job.error if job else None) or sq.latest_error or "Unknown error"
+        # Truncate to avoid HTTP form field limits in downstream email providers (e.g. Customer.io).
+        if len(error) > 255:
+            error = error[:252] + "..."
         run_at = (job.last_run_at if job else None) or sq.last_run_at
         views.append(
             {
