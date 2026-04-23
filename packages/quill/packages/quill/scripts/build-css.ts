@@ -62,8 +62,10 @@ const colorsScoped = readFileSync(colorsScopedSource, 'utf8')
  * bridge, so classes like `text-xs/relaxed`, `tracking-tight`, etc.
  * always resolve against known values.
  *
- * Inserted into the SAME `@theme inline { ... }` block as quill-tokens
- * by splicing before its closing brace.
+ * For unscoped mode: injected into the `@theme inline` block.
+ * For scoped mode: injected into the scoped CSS block (the last `}`)
+ * so they resolve as CSS custom properties inside [data-quill] without
+ * polluting the consumer's Tailwind theme.
  */
 const quillTailwindDefaults = `
   /* --- Line heights (leading modifier syntax: \`text-xs/relaxed\`) --- */
@@ -94,14 +96,19 @@ const quillTailwindDefaults = `
   --font-weight-black: 900;
 `
 
-const themeWithDefaults = theme.replace(/}\s*$/, `${quillTailwindDefaults}}\n`)
-if (themeWithDefaults === theme) {
-    throw new Error(
-        'build-css: failed to inject Tailwind defaults into tailwind-lib.css — ' +
-            'expected the file to end with a closing brace. Check the output of ' +
-            '`@posthog/quill-tokens build` and update the regex if the format changed.'
-    )
+/** Inject defaults before the last closing brace in a CSS string. */
+function injectBeforeLastBrace(css: string, defaults: string, label: string): string {
+    const result = css.replace(/}\s*$/, `${defaults}}\n`)
+    if (result === css) {
+        throw new Error(
+            `build-css: failed to inject Tailwind defaults into ${label} — ` +
+                'expected the file to end with a closing brace.'
+        )
+    }
+    return result
 }
+
+const themeWithDefaults = injectBeforeLastBrace(theme, quillTailwindDefaults, 'tailwind-lib.css')
 
 writeFileSync(
     resolve(distDir, 'tokens.css'),
@@ -173,21 +180,21 @@ copyFileSync(colorsSource, resolve(distDir, 'color-system.css'))
 // Gated behind [data-quill] with [theme="dark"] dark mode for
 // consumers migrating from an existing design system.
 
-const themeScopedWithDefaults = themeScoped.replace(/}\s*$/, `${quillTailwindDefaults}}\n`)
-if (themeScopedWithDefaults === themeScoped) {
-    throw new Error(
-        'build-css: failed to inject Tailwind defaults into tailwind-lib.scoped.css — ' +
-            'expected the file to end with a closing brace.'
-    )
-}
+// In scoped mode, the last `}` closes the scoped CSS block (not @theme inline),
+// so defaults land inside `:is([data-quill], [data-quill] *)` — exactly where
+// they should be to avoid polluting the consumer's theme.
+const themeScopedWithDefaults = injectBeforeLastBrace(themeScoped, quillTailwindDefaults, 'tailwind-lib.scoped.css')
 
 writeFileSync(
     resolve(distDir, 'tokens.scoped.css'),
     [
         '/* @posthog/quill — scoped design tokens.',
-        ' * All CSS vars are gated behind [data-quill] so they do not clash',
+        ' * Color vars are gated behind [data-quill] so they do not clash',
         ' * with existing consumer CSS custom properties.',
-        ' * Dark mode uses [theme="dark"] instead of .dark.',
+        ' * Non-color tokens (spacing, radius, shadows, fonts) are also scoped',
+        ' * under [data-quill] as CSS custom properties — NOT in @theme inline —',
+        ' * so they override the consumer\'s values only inside quill boundaries.',
+        ' * Dark mode: both .dark class and [theme="dark"] attribute.',
         ' */',
         '',
         colorsScoped,

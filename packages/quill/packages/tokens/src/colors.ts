@@ -415,7 +415,41 @@ export function generateStylesCSS(config: StylesConfig = {}): string {
     ]
     lines.push('')
 
+    // ── Non-color design tokens ────────────────────────
+    // Spacing, font sizes, font families, shadows, and radius.
+    // In scoped mode these are emitted as CSS custom properties under
+    // the scope selector so they don't pollute the consumer's Tailwind
+    // theme. Tailwind utilities like `rounded-sm` compile to
+    // `border-radius: var(--radius-sm)` — the var resolves at runtime
+    // from the scoped block inside [data-quill], falling back to the
+    // consumer's own value outside it.
+    const designTokens: string[] = [
+        '  /* --- Spacing --- */',
+        generateSpacingCSS(),
+        '',
+        '  /* --- Font sizes --- */',
+        generateFontSizeCSS(),
+        '',
+        '  /* --- Font families --- */',
+        generateFontFamilyCSS(),
+        '',
+        '  /* --- Shadows --- */',
+        generateShadowCSS(),
+        '',
+        '  /* --- Radius (derived from --radius base) --- */',
+        '  --radius-sm: calc(var(--radius) - 4px);',
+        '  --radius-md: calc(var(--radius) - 2px);',
+        '  --radius-lg: var(--radius);',
+        '  --radius-xl: calc(var(--radius) + 4px);',
+        '  --radius-2xl: calc(var(--radius) + 8px);',
+        '  --radius-3xl: calc(var(--radius) + 12px);',
+        '  --radius-4xl: calc(var(--radius) + 16px);',
+    ]
+
     // ── @theme inline ──────────────────────────────────
+    // Always contains: color mappings, animations, keyframes.
+    // In unscoped mode also contains design tokens (spacing, etc.).
+    // In scoped mode design tokens move to a scoped CSS block below.
     lines.push('@theme inline {')
     lines.push('  --animate-skeleton: skeleton 2s -1s infinite linear;')
     lines.push('  --animate-pulse-glow: pulse-glow 2s -1s infinite linear;')
@@ -424,27 +458,13 @@ export function generateStylesCSS(config: StylesConfig = {}): string {
     lines.push('')
     lines.push('  /* --- Colors --- */')
     lines.push(generateColorMappingsCSS())
-    lines.push('')
-    lines.push('  /* --- Spacing --- */')
-    lines.push(generateSpacingCSS())
-    lines.push('')
-    lines.push('  /* --- Font sizes --- */')
-    lines.push(generateFontSizeCSS())
-    lines.push('')
-    lines.push('  /* --- Font families --- */')
-    lines.push(generateFontFamilyCSS())
-    lines.push('')
-    lines.push('  /* --- Shadows --- */')
-    lines.push(generateShadowCSS())
-    lines.push('')
-    lines.push('  /* --- Radius (derived from --radius base) --- */')
-    lines.push('  --radius-sm: calc(var(--radius) - 4px);')
-    lines.push('  --radius-md: calc(var(--radius) - 2px);')
-    lines.push('  --radius-lg: var(--radius);')
-    lines.push('  --radius-xl: calc(var(--radius) + 4px);')
-    lines.push('  --radius-2xl: calc(var(--radius) + 8px);')
-    lines.push('  --radius-3xl: calc(var(--radius) + 12px);')
-    lines.push('  --radius-4xl: calc(var(--radius) + 16px);')
+
+    if (!scope) {
+        // Unscoped: everything in @theme inline (original behavior)
+        lines.push('')
+        lines.push(...designTokens)
+    }
+
     lines.push('')
     lines.push('  @keyframes skeleton {')
     lines.push('    to {')
@@ -470,6 +490,17 @@ export function generateStylesCSS(config: StylesConfig = {}): string {
     lines.push('    100% { transform: scale(1.5); opacity: 0; }')
     lines.push('  }')
     lines.push('}')
+
+    if (scope) {
+        // Scoped: design tokens as CSS custom properties under the scope
+        // selector. Tailwind utilities resolve these vars at runtime —
+        // quill's values inside the scope, consumer's values outside.
+        const scopeSel = `:is(${scope}, ${scope} *)`
+        lines.push('')
+        lines.push(`${scopeSel} {`)
+        lines.push(...designTokens)
+        lines.push('}')
+    }
 
     if (includeBaseLayer) {
         lines.push('')
