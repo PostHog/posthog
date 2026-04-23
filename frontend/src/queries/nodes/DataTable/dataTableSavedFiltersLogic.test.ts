@@ -60,9 +60,13 @@ describe('dataTableSavedFiltersLogic', () => {
     let logic: ReturnType<typeof dataTableSavedFiltersLogic.build>
     let mockSetQuery: jest.Mock
     let mockRouterPush: jest.SpyInstance
+    let originalAppContext: typeof window.POSTHOG_APP_CONTEXT
 
     beforeEach(() => {
         initKeaTests()
+        // Snapshot app context so per-test mutations (e.g. switchAppContextTeamId)
+        // don't make test ordering load-bearing for later tests in this file.
+        originalAppContext = window.POSTHOG_APP_CONTEXT
         localStorage.clear()
         mockSetQuery = jest.fn()
         ;(uuidv4 as jest.Mock).mockImplementation(() => 'test-uuid')
@@ -73,6 +77,7 @@ describe('dataTableSavedFiltersLogic', () => {
     afterEach(() => {
         logic?.unmount()
         mockRouterPush?.mockRestore()
+        window.POSTHOG_APP_CONTEXT = originalAppContext
     })
 
     describe('with unique key', () => {
