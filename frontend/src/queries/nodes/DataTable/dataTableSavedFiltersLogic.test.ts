@@ -2,6 +2,8 @@ import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 import { v4 as uuidv4 } from 'uuid'
 
+import { teamLogic } from 'scenes/teamLogic'
+
 import { DataTableNode, NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { PropertyFilterType, PropertyOperator } from '~/types'
@@ -409,6 +411,28 @@ describe('dataTableSavedFiltersLogic', () => {
                 })
 
                 logic2.unmount()
+            })
+
+            it('should use separate storage keys for different teams', () => {
+                logic.actions.createSavedFilter('Team A Filter')
+                logic.unmount()
+
+                teamLogic.actions.loadCurrentTeamSuccess({
+                    ...teamLogic.values.currentTeam!,
+                    id: teamLogic.values.currentTeamId! + 1,
+                } as any)
+
+                logic = dataTableSavedFiltersLogic({
+                    uniqueKey: 'test-table',
+                    query: mockQuery,
+                    setQuery: mockSetQuery,
+                })
+                logic.mount()
+
+                // A different team's saved filters must not leak through.
+                expectLogic(logic).toMatchValues({
+                    savedFilters: [],
+                })
             })
         })
     })

@@ -9,6 +9,7 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { GROUPS_LIST_DEFAULT_QUERY } from 'scenes/groups/groupsListLogic'
 import { PERSON_EVENTS_CONTEXT_KEY } from 'scenes/persons/personsLogic'
 import { PEOPLE_LIST_CONTEXT_KEY, PEOPLE_LIST_DEFAULT_QUERY } from 'scenes/persons/personsSceneLogic'
+import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { ActorsQuery, EventsQuery, GroupsQuery } from '~/queries/schema/schema-general'
@@ -144,10 +145,16 @@ export const tableViewLogic = kea<tableViewLogicType>([
         ],
     })),
 
-    reducers({
+    reducers(({ props }) => ({
         currentView: [
             null as ColumnConfigurationApi | null,
-            { persist: true },
+            {
+                persist: true,
+                // Scope by team so views don't leak across projects (e.g. after impersonation).
+                storageKey: `queries.nodes.DataTable.TableView.tableViewLogic.${
+                    teamLogic.values.currentTeamId ?? 'unknown'
+                }.${props.contextKey}.currentView`,
+            },
             {
                 setCurrentView: (_, { view }) => view,
                 applyView: (_, { view }) => view,
@@ -181,7 +188,7 @@ export const tableViewLogic = kea<tableViewLogicType>([
                 saveCurrentAsViewSuccess: () => false,
             },
         ],
-    }),
+    })),
 
     selectors(() => ({
         hasUnsavedChanges: [

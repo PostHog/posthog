@@ -2,6 +2,8 @@ import { actions, afterMount, kea, key, listeners, path, props, reducers, select
 import { router } from 'kea-router'
 import { v4 as uuidv4 } from 'uuid'
 
+import { teamLogic } from 'scenes/teamLogic'
+
 import { DataTableNode } from '~/queries/schema/schema-general'
 
 import type { dataTableSavedFiltersLogicType } from './dataTableSavedFiltersLogicType'
@@ -20,7 +22,9 @@ export interface DataTableSavedFiltersLogicProps {
     setQuery: (query: DataTableNode) => void
 }
 
-const getStorageKey = (uniqueKey: string): string => `datatable-saved-filters-${uniqueKey}`
+// Scope by team so saved filters don't leak across projects (e.g. after impersonation).
+const getStorageKey = (uniqueKey: string, teamId: number | null): string =>
+    `datatable-saved-filters.${teamId ?? 'unknown'}.${uniqueKey}`
 
 export const dataTableSavedFiltersLogic = kea<dataTableSavedFiltersLogicType>([
     props({} as DataTableSavedFiltersLogicProps),
@@ -43,7 +47,7 @@ export const dataTableSavedFiltersLogic = kea<dataTableSavedFiltersLogicType>([
             [] as DataTableSavedFilter[],
             {
                 persist: true,
-                storageKey: getStorageKey(props.uniqueKey),
+                storageKey: getStorageKey(props.uniqueKey, teamLogic.values.currentTeamId),
             },
             {
                 createSavedFilter: (state, { name }) => {
