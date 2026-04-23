@@ -1,0 +1,42 @@
+extend = "../pyproject.toml"
+src = [".."]
+
+[lint]
+extend-select = ["ANN001", "ANN201", "ANN202", "ANN204"]
+
+[lint.per-file-ignores]
+"**/tests/**" = ["ANN"]
+"**/test_*" = ["ANN"]
+"**/migrations/**" = ["ANN"]
+"**/management/**" = ["ANN"]
+"**/skills/**" = ["ANN"]
+"**/eval/**" = ["ANN"]
+"**/dags/**" = ["ANN"]
+"**/scripts/**" = ["ANN"]
+"**/stats/**" = ["ANN"]
+
+# Temporarily exempted — too many violations to fix in one pass.
+# Run: ruff check products/<name>/backend --select ANN --statistics
+# to check remaining count before removing the exemption.
+"batch_exports/backend/**" = ["ANN"]
+"conversations/backend/**" = ["ANN"]
+"customer_analytics/backend/**" = ["ANN"]
+"dashboards/backend/**" = ["ANN"]
+"data_modeling/backend/**" = ["ANN"]
+"data_warehouse/backend/**" = ["ANN"]
+"early_access_features/backend/**" = ["ANN"]
+"endpoints/backend/**" = ["ANN"]
+"error_tracking/backend/**" = ["ANN"]
+"experiments/backend/**" = ["ANN"]
+"llm_analytics/backend/**" = ["ANN"]
+"logs/backend/**" = ["ANN"]
+"marketing_analytics/backend/**" = ["ANN"]
+"messaging/backend/**" = ["ANN"]
+"notebooks/backend/**" = ["ANN"]
+"product_tours/backend/**" = ["ANN"]
+"revenue_analytics/backend/**" = ["ANN"]
+"signals/backend/**" = ["ANN"]
+"surveys/backend/**" = ["ANN"]
+"tasks/backend/**" = ["ANN"]
+"visual_review/backend/**" = ["ANN"]
+"workflows/backend/**" = ["ANN"]

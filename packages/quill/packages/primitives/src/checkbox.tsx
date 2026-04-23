@@ -70,6 +70,7 @@ function Checkbox({
 }: CheckboxPrimitive.Root.Props & VariantProps<typeof checkboxVariants>): React.ReactElement {
     return (
         <CheckboxPrimitive.Root
+            data-quill
             data-slot="checkbox"
             className={cn(checkboxVariants({ size }), className)}
             {...props}

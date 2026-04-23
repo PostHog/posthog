@@ -11,10 +11,9 @@
  * * `api_key` - API Key
  * `oauth` - OAuth
  */
-export type MCPServerInstallationAuthTypeEnumApi =
-    (typeof MCPServerInstallationAuthTypeEnumApi)[keyof typeof MCPServerInstallationAuthTypeEnumApi]
+export type AuthType9cbEnumApi = (typeof AuthType9cbEnumApi)[keyof typeof AuthType9cbEnumApi]
 
-export const MCPServerInstallationAuthTypeEnumApi = {
+export const AuthType9cbEnumApi = {
     ApiKey: 'api_key',
     Oauth: 'oauth',
 } as const
@@ -22,14 +21,14 @@ export const MCPServerInstallationAuthTypeEnumApi = {
 export interface MCPServerInstallationApi {
     readonly id: string
     /** @nullable */
-    readonly server_id: string | null
+    readonly template_id: string | null
     readonly name: string
     /** @maxLength 200 */
     display_name?: string
     /** @maxLength 2048 */
     url?: string
     description?: string
-    auth_type?: MCPServerInstallationAuthTypeEnumApi
+    auth_type?: AuthType9cbEnumApi
     is_enabled?: boolean
     readonly needs_reauth: boolean
     readonly pending_oauth: boolean
@@ -52,6 +51,62 @@ export interface PatchedMCPServerInstallationUpdateApi {
     display_name?: string
     description?: string
     is_enabled?: boolean
+}
+
+/**
+ * * `approved` - Approved
+ * `needs_approval` - Needs approval
+ * `do_not_use` - Do not use
+ */
+export type MCPServerInstallationToolApprovalStateEnumApi =
+    (typeof MCPServerInstallationToolApprovalStateEnumApi)[keyof typeof MCPServerInstallationToolApprovalStateEnumApi]
+
+export const MCPServerInstallationToolApprovalStateEnumApi = {
+    Approved: 'approved',
+    NeedsApproval: 'needs_approval',
+    DoNotUse: 'do_not_use',
+} as const
+
+export interface MCPServerInstallationToolApi {
+    readonly id: string
+    readonly tool_name: string
+    readonly display_name: string
+    readonly description: string
+    readonly input_schema: unknown
+    approval_state?: MCPServerInstallationToolApprovalStateEnumApi
+    readonly last_seen_at: string
+    /** @nullable */
+    readonly removed_at: string | null
+    readonly created_at: string
+    /** @nullable */
+    readonly updated_at: string | null
+}
+
+export interface PaginatedMCPServerInstallationToolListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: MCPServerInstallationToolApi[]
+}
+
+/**
+ * * `approved` - approved
+ * `needs_approval` - needs_approval
+ * `do_not_use` - do_not_use
+ */
+export type ToolApprovalUpdateApprovalStateEnumApi =
+    (typeof ToolApprovalUpdateApprovalStateEnumApi)[keyof typeof ToolApprovalUpdateApprovalStateEnumApi]
+
+export const ToolApprovalUpdateApprovalStateEnumApi = {
+    Approved: 'approved',
+    NeedsApproval: 'needs_approval',
+    DoNotUse: 'do_not_use',
+} as const
+
+export interface PatchedToolApprovalUpdateApi {
+    approval_state?: ToolApprovalUpdateApprovalStateEnumApi
 }
 
 /**
@@ -85,6 +140,8 @@ export interface InstallCustomApi {
     auth_type: InstallCustomAuthTypeEnumApi
     api_key?: string
     description?: string
+    client_id?: string
+    client_secret?: string
     install_source?: InstallSourceEnumApi
     posthog_code_callback_url?: string
 }
@@ -93,34 +150,32 @@ export interface OAuthRedirectResponseApi {
     redirect_url: string
 }
 
-/**
- * * `none` - none
- * `api_key` - api_key
- * `oauth` - oauth
- */
-export type RecommendedServerAuthTypeEnumApi =
-    (typeof RecommendedServerAuthTypeEnumApi)[keyof typeof RecommendedServerAuthTypeEnumApi]
-
-export const RecommendedServerAuthTypeEnumApi = {
-    None: 'none',
-    ApiKey: 'api_key',
-    Oauth: 'oauth',
-} as const
-
-export interface RecommendedServerApi {
-    name: string
-    url: string
-    description: string
-    auth_type: RecommendedServerAuthTypeEnumApi
+export interface InstallTemplateApi {
+    template_id: string
+    api_key?: string
+    install_source?: InstallSourceEnumApi
+    posthog_code_callback_url?: string
 }
 
-export interface PaginatedRecommendedServerListApi {
+export interface MCPServerTemplateApi {
+    readonly id: string
+    /** @maxLength 200 */
+    name: string
+    /** @maxLength 2048 */
+    url: string
+    description?: string
+    auth_type?: AuthType9cbEnumApi
+    /** @maxLength 100 */
+    icon_key?: string
+}
+
+export interface PaginatedMCPServerTemplateListApi {
     count: number
     /** @nullable */
     next?: string | null
     /** @nullable */
     previous?: string | null
-    results: RecommendedServerApi[]
+    results: MCPServerTemplateApi[]
 }
 
 export type McpServerInstallationsListParams = {
@@ -141,8 +196,9 @@ export type McpServerInstallationsAuthorizeRetrieveParams = {
      * @minLength 1
      */
     install_source?: McpServerInstallationsAuthorizeRetrieveInstallSource
+    installation_id?: string
     posthog_code_callback_url?: string
-    server_id: string
+    template_id?: string
 }
 
 export type McpServerInstallationsAuthorizeRetrieveInstallSource =

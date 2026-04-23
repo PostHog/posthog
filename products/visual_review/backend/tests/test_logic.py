@@ -185,8 +185,8 @@ class TestRunOperations:
 
         # Classification happens at complete_run time, not create_run time
         mocker.patch(
-            "products.visual_review.backend.logic._resolve_baselines",
-            return_value={"Button": "baseline_hash"},
+            "products.visual_review.backend.logic._resolve_baselines_with_merge_base",
+            return_value=({"Button": "baseline_hash"}, 0),
         )
         mocker.patch("products.visual_review.backend.tasks.tasks.process_run_diffs.delay")
         logic.complete_run(run.id)
@@ -221,8 +221,8 @@ class TestRunOperations:
 
         # Classification happens at complete_run time
         mocker.patch(
-            "products.visual_review.backend.logic._resolve_baselines",
-            return_value={"unchanged": "same_hash", "changed": "old_hash"},
+            "products.visual_review.backend.logic._resolve_baselines_with_merge_base",
+            return_value=({"unchanged": "same_hash", "changed": "old_hash"}, 0),
         )
         mocker.patch("products.visual_review.backend.tasks.tasks.process_run_diffs.delay")
         logic.complete_run(run.id)
@@ -337,8 +337,8 @@ class TestRunOperations:
 
         # Mock baseline to include an identifier not in the run
         mocker.patch(
-            "products.visual_review.backend.logic._resolve_baselines",
-            return_value={"kept": "h1", "deleted": "h2"},
+            "products.visual_review.backend.logic._resolve_baselines_with_merge_base",
+            return_value=({"kept": "h1", "deleted": "h2"}, 0),
         )
 
         completed = logic.complete_run(run.id)
@@ -435,8 +435,8 @@ class TestRunOperations:
 
         # Classification happens at complete_run time
         mocker.patch(
-            "products.visual_review.backend.logic._resolve_baselines",
-            return_value={"changed1": "old"},
+            "products.visual_review.backend.logic._resolve_baselines_with_merge_base",
+            return_value=({"changed1": "old"}, 0),
         )
         mocker.patch("products.visual_review.backend.tasks.tasks.process_run_diffs.delay")
         logic.complete_run(run.id)
@@ -526,8 +526,8 @@ class TestApproveRun:
 
         # Classification happens at complete_run time
         mocker.patch(
-            "products.visual_review.backend.logic._resolve_baselines",
-            return_value={"Button": "old_hash"},
+            "products.visual_review.backend.logic._resolve_baselines_with_merge_base",
+            return_value=({"Button": "old_hash"}, 0),
         )
         mocker.patch("products.visual_review.backend.tasks.tasks.process_run_diffs.delay")
         logic.complete_run(run.id)
@@ -571,7 +571,10 @@ class TestApproveSnapshots:
             snapshots=[{"identifier": "Button", "content_hash": "new_hash"}],
             baseline_hashes={"Button": "old_hash"},
         )
-        mocker.patch("products.visual_review.backend.logic._resolve_baselines", return_value={"Button": "old_hash"})
+        mocker.patch(
+            "products.visual_review.backend.logic._resolve_baselines_with_merge_base",
+            return_value=({"Button": "old_hash"}, 0),
+        )
         mocker.patch("products.visual_review.backend.tasks.tasks.process_run_diffs.delay")
         logic.complete_run(run.id)
         logic.finalize_run(run.id)
@@ -613,7 +616,8 @@ class TestToleratedHashes:
             baseline_hashes={identifier: baseline_hash},
         )
         mocker.patch(
-            "products.visual_review.backend.logic._resolve_baselines", return_value={identifier: baseline_hash}
+            "products.visual_review.backend.logic._resolve_baselines_with_merge_base",
+            return_value=({identifier: baseline_hash}, 0),
         )
         mocker.patch("products.visual_review.backend.tasks.tasks.process_run_diffs.delay")
         logic.complete_run(run.id)
@@ -647,7 +651,10 @@ class TestToleratedHashes:
             snapshots=[{"identifier": "Button", "content_hash": "same"}],
             baseline_hashes={"Button": "same"},
         )
-        mocker.patch("products.visual_review.backend.logic._resolve_baselines", return_value={"Button": "same"})
+        mocker.patch(
+            "products.visual_review.backend.logic._resolve_baselines_with_merge_base",
+            return_value=({"Button": "same"}, 0),
+        )
         mocker.patch("products.visual_review.backend.tasks.tasks.process_run_diffs.delay")
         logic.complete_run(run.id)
         logic.finalize_run(run.id)
@@ -805,8 +812,8 @@ class TestCommitStatusChecks:
         )
 
         mocker.patch(
-            "products.visual_review.backend.logic._resolve_baselines",
-            return_value={"snap": "same"},
+            "products.visual_review.backend.logic._resolve_baselines_with_merge_base",
+            return_value=({"snap": "same"}, 0),
         )
         logic.complete_run(run.id)
 
@@ -833,8 +840,8 @@ class TestCommitStatusChecks:
         )
 
         mocker.patch(
-            "products.visual_review.backend.logic._resolve_baselines",
-            return_value={"changed": "old_h"},
+            "products.visual_review.backend.logic._resolve_baselines_with_merge_base",
+            return_value=({"changed": "old_h"}, 0),
         )
         mocker.patch("products.visual_review.backend.tasks.tasks.process_run_diffs.delay")
         logic.complete_run(run.id)
@@ -927,8 +934,8 @@ class TestCommitStatusChecks:
 
         # Mock baseline for classification at complete time
         mocker.patch(
-            "products.visual_review.backend.logic._resolve_baselines",
-            return_value=dict(baseline_hashes),
+            "products.visual_review.backend.logic._resolve_baselines_with_merge_base",
+            return_value=(dict(baseline_hashes), 0),
         )
 
         run, _ = logic.create_run(
@@ -1176,8 +1183,8 @@ class TestRunSupersession:
 
         # Classification happens at complete_run time
         mocker.patch(
-            "products.visual_review.backend.logic._resolve_baselines",
-            return_value={"snap": "same"},
+            "products.visual_review.backend.logic._resolve_baselines_with_merge_base",
+            return_value=({"snap": "same"}, 0),
         )
         logic.complete_run(clean_run.id)
 
@@ -1233,8 +1240,8 @@ class TestQuarantineStamping:
         )
 
         mocker.patch(
-            "products.visual_review.backend.logic._resolve_baselines",
-            return_value=baseline or {},
+            "products.visual_review.backend.logic._resolve_baselines_with_merge_base",
+            return_value=(baseline or {}, 0),
         )
         mocker.patch("products.visual_review.backend.tasks.tasks.process_run_diffs.delay")
         logic.complete_run(run.id)
@@ -1339,3 +1346,193 @@ class TestQuarantineStamping:
         # Button-secondary is changed (not quarantined), Card-new is new (not quarantined)
         assert finalized.changed_count == 1  # only Button-secondary
         assert finalized.new_count == 1  # only Card-new
+
+
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+class TestMergeBaseBaselineHealing:
+    """Tests for _resolve_baselines_with_merge_base healing rebase-corrupted baselines."""
+
+    @pytest.fixture
+    def repo(self, team):
+        return logic.create_repo(team_id=team.id, repo_external_id=99999, repo_full_name="org/test-repo")
+
+    def _mock_github(
+        self, mocker, branch_baseline, merge_base_baseline=None, merge_base_sha="abc123", default_branch="master"
+    ):
+        mock_github = mocker.MagicMock()
+        mock_github.integration.sensitive_config = {"access_token": "fake"}
+        mock_github.access_token_expired.return_value = False
+        mocker.patch("products.visual_review.backend.logic.get_github_integration_for_repo", return_value=mock_github)
+
+        def fake_fetch(github, repo_full_name, file_path, ref):
+            if ref in ("my-branch", default_branch):
+                return {k: {"hash": v} for k, v in branch_baseline.items()}, "sha1"
+            if ref == merge_base_sha:
+                baselines = merge_base_baseline if merge_base_baseline is not None else branch_baseline
+                return {k: {"hash": v} for k, v in baselines.items()}, "sha2"
+            return {}, None
+
+        mocker.patch("products.visual_review.backend.logic._fetch_baseline_file", side_effect=fake_fetch)
+        mocker.patch("products.visual_review.backend.logic._get_merge_base_sha", return_value=merge_base_sha)
+        mocker.patch("products.visual_review.backend.logic._get_default_branch", return_value=default_branch)
+        mocker.patch(
+            "products.visual_review.backend.logic._verify_baseline_hashes", side_effect=lambda repo, hashes: hashes
+        )
+        return mock_github
+
+    def test_no_healing_when_baselines_match(self, repo, mocker):
+        baseline = {"A": "h1", "B": "h2"}
+        self._mock_github(mocker, branch_baseline=baseline, merge_base_baseline=baseline)
+
+        merged, healed = logic._resolve_baselines_with_merge_base(repo, "storybook", "my-branch")
+
+        assert merged == baseline
+        assert healed == 0
+
+    def test_heals_entries_missing_from_branch(self, repo, mocker):
+        branch_baseline = {"A": "h1"}
+        merge_base_baseline = {"A": "h1", "B": "h2", "C": "h3"}
+        self._mock_github(mocker, branch_baseline=branch_baseline, merge_base_baseline=merge_base_baseline)
+
+        merged, healed = logic._resolve_baselines_with_merge_base(repo, "storybook", "my-branch")
+
+        assert merged == {"A": "h1", "B": "h2", "C": "h3"}
+        assert healed == 2
+
+    def test_branch_wins_on_conflict(self, repo, mocker):
+        branch_baseline = {"A": "branch_hash"}
+        merge_base_baseline = {"A": "master_hash", "B": "h2"}
+        self._mock_github(mocker, branch_baseline=branch_baseline, merge_base_baseline=merge_base_baseline)
+
+        merged, healed = logic._resolve_baselines_with_merge_base(repo, "storybook", "my-branch")
+
+        assert merged["A"] == "branch_hash"
+        assert merged["B"] == "h2"
+        assert healed == 1
+
+    def test_branch_approvals_preserved(self, repo, mocker):
+        branch_baseline = {"A": "h1", "NewStory": "new_hash"}
+        merge_base_baseline = {"A": "h1"}
+        self._mock_github(mocker, branch_baseline=branch_baseline, merge_base_baseline=merge_base_baseline)
+
+        merged, healed = logic._resolve_baselines_with_merge_base(repo, "storybook", "my-branch")
+
+        assert "NewStory" in merged
+        assert merged["NewStory"] == "new_hash"
+        assert healed == 0
+
+    def test_skips_merge_base_for_default_branch(self, repo, mocker):
+        baseline = {"A": "h1"}
+        self._mock_github(mocker, branch_baseline=baseline, default_branch="master")
+
+        merged, healed = logic._resolve_baselines_with_merge_base(repo, "storybook", "master")
+
+        assert merged == baseline
+        assert healed == 0
+
+    def test_falls_back_on_merge_base_failure(self, repo, mocker):
+        branch_baseline = {"A": "h1"}
+        self._mock_github(mocker, branch_baseline=branch_baseline, merge_base_sha=None)
+
+        merged, healed = logic._resolve_baselines_with_merge_base(repo, "storybook", "my-branch")
+
+        assert merged == branch_baseline
+        assert healed == 0
+
+    def test_falls_back_when_merge_base_file_fetch_raises(self, repo, mocker):
+        branch_baseline = {"A": "h1"}
+        self._mock_github(mocker, branch_baseline=branch_baseline, merge_base_baseline={"A": "h1", "B": "h2"})
+        mocker.patch(
+            "products.visual_review.backend.logic._resolve_baselines_at_ref",
+            side_effect=[branch_baseline, Exception("GitHub 500")],
+        )
+
+        merged, healed = logic._resolve_baselines_with_merge_base(repo, "storybook", "my-branch")
+
+        assert merged == branch_baseline
+        assert healed == 0
+
+    def test_first_run_both_baselines_empty(self, repo, mocker):
+        self._mock_github(mocker, branch_baseline={}, merge_base_baseline={})
+
+        merged, healed = logic._resolve_baselines_with_merge_base(repo, "storybook", "my-branch")
+
+        assert merged == {}
+        assert healed == 0
+
+    def test_heals_rebase_scenario_end_to_end(self, repo, mocker):
+        """Simulates Paul's bug: rebase replayed bot commit, dropping 8 entries."""
+        branch_baseline = {"story1": "h1", "story2": "h2"}
+        merge_base_baseline = {
+            "story1": "h1",
+            "story2": "h2",
+            "lost1": "h3",
+            "lost2": "h4",
+            "lost3": "h5",
+            "lost4": "h6",
+            "lost5": "h7",
+            "lost6": "h8",
+            "lost7": "h9",
+            "lost8": "h10",
+        }
+        self._mock_github(mocker, branch_baseline=branch_baseline, merge_base_baseline=merge_base_baseline)
+
+        merged, healed = logic._resolve_baselines_with_merge_base(repo, "storybook", "my-branch")
+
+        assert len(merged) == 10
+        assert healed == 8
+        assert all(f"lost{i}" in merged for i in range(1, 9))
+
+    def test_healing_integrates_with_complete_run(self, repo, mocker):
+        """Healed entries classify as unchanged when hashes match."""
+        branch_baseline = {"existing": "h1"}
+        merge_base_baseline = {"existing": "h1", "healed": "h2"}
+        self._mock_github(mocker, branch_baseline=branch_baseline, merge_base_baseline=merge_base_baseline)
+
+        logic.get_or_create_artifact(repo_id=repo.id, content_hash="h1", storage_path="p/h1")
+        logic.get_or_create_artifact(repo_id=repo.id, content_hash="h2", storage_path="p/h2")
+        run, _ = logic.create_run(
+            repo_id=repo.id,
+            team_id=repo.team_id,
+            run_type=RunType.STORYBOOK,
+            commit_sha="abc",
+            branch="my-branch",
+            pr_number=1,
+            snapshots=[
+                {"identifier": "existing", "content_hash": "h1"},
+                {"identifier": "healed", "content_hash": "h2"},
+            ],
+        )
+        mocker.patch("products.visual_review.backend.tasks.tasks.process_run_diffs.delay")
+        logic.complete_run(run.id)
+
+        snapshots = {s.identifier: s for s in run.snapshots.all()}
+        assert snapshots["existing"].result == SnapshotResult.UNCHANGED
+        assert snapshots["healed"].result == SnapshotResult.UNCHANGED
+
+        run.refresh_from_db()
+        assert run.metadata.get("baseline_healed_from_merge_base") == 1
+
+    def test_healing_detects_changed_when_hash_differs(self, repo, mocker):
+        """Healed entry with different hash shows as changed, not new."""
+        branch_baseline: dict[str, str] = {}
+        merge_base_baseline = {"flaky": "master_hash"}
+        self._mock_github(mocker, branch_baseline=branch_baseline, merge_base_baseline=merge_base_baseline)
+
+        logic.get_or_create_artifact(repo_id=repo.id, content_hash="master_hash", storage_path="p/master")
+        logic.get_or_create_artifact(repo_id=repo.id, content_hash="branch_hash", storage_path="p/branch")
+        run, _ = logic.create_run(
+            repo_id=repo.id,
+            team_id=repo.team_id,
+            run_type=RunType.STORYBOOK,
+            commit_sha="abc",
+            branch="my-branch",
+            pr_number=1,
+            snapshots=[{"identifier": "flaky", "content_hash": "branch_hash"}],
+        )
+        mocker.patch("products.visual_review.backend.tasks.tasks.process_run_diffs.delay")
+        logic.complete_run(run.id)
+
+        snapshot = run.snapshots.get(identifier="flaky")
+        assert snapshot.result == SnapshotResult.CHANGED
+        assert snapshot.baseline_hash == "master_hash"

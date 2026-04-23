@@ -98,6 +98,9 @@ jobs:
                     - release: personhog-router
                       digest_key: personhog-router
                       values_key: image
+                    - release: personhog-writer
+                      digest_key: personhog-writer
+                      values_key: image
                     - release: kafka-assigner
                       digest_key: kafka-assigner
                       values_key: image

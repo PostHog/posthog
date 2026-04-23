@@ -13,6 +13,7 @@ from django.utils import timezone
 from drf_spectacular.utils import extend_schema
 from rest_framework import mixins, serializers, viewsets
 from rest_framework.exceptions import ValidationError
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 
@@ -25,6 +26,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.integration import (
     ERROR_TOKEN_REFRESH_FAILED,
+    GITHUB_REPOSITORY_REFRESH_COOLDOWN_SECONDS,
     AzureBlobIntegration,
     AzureBlobIntegrationError,
     ClickUpIntegration,
@@ -45,8 +47,16 @@ from posthog.models.integration import (
     SlackIntegration,
     StripeIntegration,
     TwilioIntegration,
+    defer_repository_cache_fields,
 )
-from posthog.permissions import TeamMemberStrictManagementPermission
+from posthog.permissions import (
+    AccessControlPermission,
+    APIScopePermission,
+    TeamMemberAccessPermission,
+    TeamMemberLightManagementPermission,
+    TeamMemberStrictManagementPermission,
+)
+from posthog.rate_limit import GitHubRepositoryRefreshThrottle
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 
 
@@ -109,8 +119,18 @@ class GitHubReposResponseSerializer(serializers.Serializer):
     has_more = serializers.BooleanField(help_text="Whether more repositories are available beyond this page.")
 
 
+class GitHubReposRefreshResponseSerializer(serializers.Serializer):
+    repositories = GitHubRepoSerializer(many=True, help_text="The refreshed repository cache.")
+
+
 class GitHubBranchesQuerySerializer(serializers.Serializer):
     repo = serializers.CharField(help_text="Repository in owner/repo format")
+    search = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        default="",
+        help_text="Optional case-insensitive branch name search query.",
+    )
     limit = serializers.IntegerField(
         required=False, default=100, min_value=1, max_value=1000, help_text="Maximum number of branches to return"
     )
@@ -343,10 +363,32 @@ class IntegrationViewSet(
     viewsets.GenericViewSet,
 ):
     scope_object = "integration"
-    scope_object_read_actions = ["list", "retrieve", "github_repos", "github_branches"]
+    scope_object_read_actions = [
+        "list",
+        "retrieve",
+        "github_repos",
+        "github_branches",
+    ]
+    scope_object_write_actions = ["create", "update", "partial_update", "patch", "destroy", "refresh_github_repos"]
     permission_classes = [TeamMemberStrictManagementPermission]
-    queryset = Integration.objects.all()
+    queryset = defer_repository_cache_fields(Integration.objects.all())
     serializer_class = IntegrationSerializer
+
+    def dangerously_get_permissions(self):
+        if self.action == "refresh_github_repos":
+            return [
+                IsAuthenticated(),
+                APIScopePermission(),
+                AccessControlPermission(),
+                TeamMemberAccessPermission(),
+                TeamMemberLightManagementPermission(),
+            ]
+        raise NotImplementedError()
+
+    def get_throttles(self):
+        if self.action == "refresh_github_repos":
+            return [GitHubRepositoryRefreshThrottle(), *super().get_throttles()]
+        return super().get_throttles()
 
     def perform_destroy(self, instance) -> None:
         if instance.kind == "stripe":
@@ -362,7 +404,7 @@ class IntegrationViewSet(
         if isinstance(self.request.successful_authenticator, PersonalAPIKeyAuthentication) or isinstance(
             self.request.successful_authenticator, OAuthAccessTokenAuthentication
         ):
-            return queryset.filter(kind="github")
+            return defer_repository_cache_fields(queryset.filter(kind="github"))
         return queryset
 
     @action(methods=["GET"], detail=False)
@@ -637,9 +679,19 @@ class IntegrationViewSet(
         offset = query_serializer.validated_data["offset"]
 
         github = GitHubIntegration(self.get_object())
-        repositories, has_more = github.list_repositories(limit=limit, offset=offset)
+        repositories, has_more = github.list_cached_repositories(limit=limit, offset=offset)
 
         return Response({"repositories": repositories, "has_more": has_more})
+
+    @extend_schema(request=None, responses={200: GitHubReposRefreshResponseSerializer})
+    @action(methods=["POST"], detail=True, url_path="github_repos/refresh")
+    def refresh_github_repos(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        github = GitHubIntegration(self.get_object())
+        repositories = github.sync_repository_cache(
+            min_refresh_interval_seconds=GITHUB_REPOSITORY_REFRESH_COOLDOWN_SECONDS
+        )
+
+        return Response({"repositories": repositories})
 
     @extend_schema(
         parameters=[GitHubBranchesQuerySerializer],
@@ -651,6 +703,7 @@ class IntegrationViewSet(
         params.is_valid(raise_exception=True)
 
         repo: str = params.validated_data["repo"]
+        search: str = params.validated_data["search"]
         limit: int = params.validated_data["limit"]
         offset: int = params.validated_data["offset"]
 
@@ -665,20 +718,12 @@ class IntegrationViewSet(
             raise ValidationError("repo must be in owner/repo format")
 
         github = GitHubIntegration(self.get_object())
-        branches, has_more = github.list_branches(repo, limit=limit, offset=offset)
-
-        try:
-            default_branch = github.get_default_branch(repo)
-        except Exception:
-            default_branch = None
-
-        # The default branch is always shown first on page 1 and removed
-        # from all other pages to avoid duplicates.
-        if default_branch:
-            if default_branch in branches:
-                branches.remove(default_branch)
-            if offset == 0:
-                branches.insert(0, default_branch)
+        branches, default_branch, has_more = github.list_cached_branches(
+            repo,
+            search=search,
+            limit=limit,
+            offset=offset,
+        )
 
         return Response({"branches": branches, "default_branch": default_branch, "has_more": has_more})
 

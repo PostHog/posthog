@@ -3,11 +3,14 @@ mod common;
 use std::sync::Arc;
 use std::time::Duration;
 
+use dashmap::DashMap;
+
 use common::{
     create_leader_client, create_local_kafka_producer, create_test_kafka, seed_person,
-    start_coordinator, start_leader_pod, start_leader_pod_with_lease_ttl, start_router,
-    test_cached_person, test_store, wait_for_condition, CHANGELOG_TOPIC, KAFKA_BOOTSTRAP,
-    NUM_PARTITIONS, POLL_INTERVAL, WAIT_TIMEOUT,
+    start_coordinator, start_leader_pod, start_leader_pod_with_lease_ttl,
+    start_leader_with_pg_fallback, start_router, test_cached_person, test_store,
+    wait_for_condition, CHANGELOG_TOPIC, KAFKA_BOOTSTRAP, NUM_PARTITIONS, POLL_INTERVAL,
+    WAIT_TIMEOUT,
 };
 use personhog_coordination::strategy::StickyBalancedStrategy;
 use personhog_leader::cache::{CacheLookup, PartitionedCache};
@@ -143,6 +146,8 @@ async fn unowned_partition_returns_failed_precondition() {
         Arc::clone(&cache),
         kafka_producer,
         CHANGELOG_TOPIC.to_string(),
+        None,
+        Arc::new(DashMap::new()),
     );
 
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -434,6 +439,8 @@ async fn update_produces_person_state_to_kafka() {
         Arc::clone(&cache),
         kafka_producer,
         CHANGELOG_TOPIC.to_string(),
+        None,
+        Arc::new(DashMap::new()),
     );
 
     cache.create_partition(0);
@@ -525,6 +532,8 @@ async fn kafka_produce_failure_leaves_cache_unchanged() {
         Arc::clone(&cache),
         kafka_producer,
         CHANGELOG_TOPIC.to_string(),
+        None,
+        Arc::new(DashMap::new()),
     );
 
     cache.create_partition(0);
@@ -621,6 +630,8 @@ async fn e2e_update_produces_to_local_kafka() {
         Arc::clone(&cache),
         kafka_producer,
         CHANGELOG_TOPIC.to_string(),
+        None,
+        Arc::new(DashMap::new()),
     );
 
     cache.create_partition(0);
@@ -705,6 +716,146 @@ async fn e2e_update_produces_to_local_kafka() {
     let props: serde_json::Value = serde_json::from_slice(&person.properties).unwrap();
     assert_eq!(props["name"], "E2E Test");
     assert_eq!(props["email"], "test@example.com");
+
+    cancel.cancel();
+}
+
+// ============================================================
+// Test 8: PG fallback on cache miss
+// Requires local Postgres with posthog_person data.
+// ============================================================
+
+#[tokio::test]
+async fn pg_fallback_loads_person_on_cache_miss() {
+    let cancel = CancellationToken::new();
+    let (addr, cache, _mock_cluster) = start_leader_with_pg_fallback(cancel.clone()).await;
+
+    // Warm partition 0 (the cache is empty — no persons seeded)
+    cache.create_partition(0);
+
+    // Find a real person in the local DB to query
+    let pool = common::create_persons_pool().await;
+    let row: Option<(i64, i32)> = sqlx::query_as("SELECT id, team_id FROM posthog_person LIMIT 1")
+        .fetch_optional(&pool)
+        .await
+        .unwrap();
+
+    let Some((person_id, team_id)) = row else {
+        println!("No persons in posthog_person, skipping PG fallback test");
+        cancel.cancel();
+        return;
+    };
+
+    let mut client = create_leader_client(addr).await;
+
+    // First call: cache miss → PG fallback → loads and caches the person
+    let response = client
+        .get_person(LeaderGetPersonRequest {
+            team_id: team_id as i64,
+            person_id,
+            partition: 0,
+        })
+        .await
+        .unwrap();
+
+    let person = response.into_inner().person.unwrap();
+    assert_eq!(person.id, person_id);
+    assert_eq!(person.team_id, team_id as i64);
+
+    // Verify person is now cached
+    let key = personhog_leader::cache::PersonCacheKey {
+        team_id: team_id as i64,
+        person_id,
+    };
+    assert!(
+        matches!(
+            cache.get(0, &key),
+            personhog_leader::cache::CacheLookup::Found(_)
+        ),
+        "person should be cached after PG fallback"
+    );
+
+    cancel.cancel();
+}
+
+// ============================================================
+// Test 9: PG fallback returns NotFound for non-existent person
+// ============================================================
+
+#[tokio::test]
+async fn pg_fallback_returns_not_found_for_missing_person() {
+    let cancel = CancellationToken::new();
+    let (addr, cache, _mock_cluster) = start_leader_with_pg_fallback(cancel.clone()).await;
+
+    cache.create_partition(0);
+
+    let mut client = create_leader_client(addr).await;
+
+    // Query a person that doesn't exist in PG
+    let result = client
+        .get_person(LeaderGetPersonRequest {
+            team_id: 99999,
+            person_id: 99999999,
+            partition: 0,
+        })
+        .await;
+
+    assert!(result.is_err());
+    assert_eq!(result.unwrap_err().code(), tonic::Code::NotFound);
+
+    cancel.cancel();
+}
+
+// ============================================================
+// Test 10: Update triggers PG fallback on cache miss then applies changes
+// ============================================================
+
+#[tokio::test]
+async fn update_triggers_pg_fallback_then_applies_changes() {
+    let cancel = CancellationToken::new();
+    let (addr, cache, _mock_cluster) = start_leader_with_pg_fallback(cancel.clone()).await;
+
+    cache.create_partition(0);
+
+    // Find a real person to update
+    let pool = common::create_persons_pool().await;
+    let row: Option<(i64, i32)> = sqlx::query_as("SELECT id, team_id FROM posthog_person LIMIT 1")
+        .fetch_optional(&pool)
+        .await
+        .unwrap();
+
+    let Some((person_id, team_id)) = row else {
+        println!("No persons in posthog_person, skipping PG fallback update test");
+        cancel.cancel();
+        return;
+    };
+
+    let mut client = create_leader_client(addr).await;
+
+    // Update a person not in cache — should load from PG then apply
+    let response = client
+        .update_person_properties(UpdatePersonPropertiesRequest {
+            team_id: team_id as i64,
+            person_id,
+            event_name: "$set".to_string(),
+            set_properties: serde_json::to_vec(&serde_json::json!({
+                "pg_fallback_test": "it_works"
+            }))
+            .unwrap(),
+            set_once_properties: vec![],
+            unset_properties: vec![],
+            partition: 0,
+        })
+        .await
+        .unwrap();
+
+    let result = response.into_inner();
+    assert!(result.updated);
+
+    let updated_person = result.person.unwrap();
+    assert_eq!(updated_person.id, person_id);
+    let props: serde_json::Value = serde_json::from_slice(&updated_person.properties).unwrap();
+    assert_eq!(props["pg_fallback_test"], "it_works");
 
     cancel.cancel();
 }

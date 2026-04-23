@@ -606,6 +606,11 @@ class PlaidSourceConfig(config.Config):
 
 
 @config.config
+class PlainSourceConfig(config.Config):
+    api_key: str
+
+
+@config.config
 class PolarSourceConfig(config.Config):
     pass
 
@@ -977,6 +982,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.PINTERESTADS: PinterestAdsSourceConfig,
         ExternalDataSourceType.PIPEDRIVE: PipedriveSourceConfig,
         ExternalDataSourceType.PLAID: PlaidSourceConfig,
+        ExternalDataSourceType.PLAIN: PlainSourceConfig,
         ExternalDataSourceType.POLAR: PolarSourceConfig,
         ExternalDataSourceType.POSTGRES: PostgresSourceConfig,
         ExternalDataSourceType.POSTMARK: PostmarkSourceConfig,

@@ -26,6 +26,7 @@ MCP_READ_SCOPES: list[str] = [
     "feature_flag:read",
     "hog_flow:read",
     "insight:read",
+    "insight_variable:read",
     "llm_prompt:read",
     "logs:read",
     "organization:read",
@@ -47,6 +48,7 @@ MCP_WRITE_SCOPES: list[str] = [
     "experiment:write",
     "feature_flag:write",
     "insight:write",
+    "insight_variable:write",
     "llm_prompt:write",
     "survey:write",
 ]
