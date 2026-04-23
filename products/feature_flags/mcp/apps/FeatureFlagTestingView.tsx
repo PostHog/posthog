@@ -1,36 +1,49 @@
 import type { ReactElement } from 'react'
 
-import { Badge, Card, formatDate, Stack } from '@posthog/mosaic'
+import { Badge, Card, Stack } from '@posthog/mosaic'
 
 import { PropertyFilterList, type PropertyFilter } from './PropertyFilterList'
 
-export interface FeatureFlagTestingData {
-    id: number
-    key: string
-    name: string
-    description?: string | null
-    active: boolean
-    filters?: {
-        groups: Array<{
-            properties: Array<{ key: string; value: unknown; operator?: string; type?: string }>
-            rollout_percentage: number
-            variant?: string | null
-        }>
-        multivariate?: {
-            variants: Array<{ key: string; name?: string; rollout_percentage: number }>
-        }
-    }
-    tags?: string[]
-    updated_at?: string | null
-    _posthogUrl?: string
+export interface ConditionAnalysis {
+    condition_index: number
+    matched: boolean
+    rollout_percentage: number
+    variant?: string | null
+    properties?: Array<{ key: string; value: unknown; operator?: string; type?: string }>
+    reason?: string
 }
+
+export interface FeatureFlagTestEvaluationResult {
+    flag_key: string
+    result: boolean | string
+    reason: string
+    condition_index: number | null
+    payload: unknown | null
+    person_properties: Record<string, unknown>
+    conditions: ConditionAnalysis[]
+}
+
+// Keep the original name for backward compatibility with the generated UI app
+export type FeatureFlagTestingData = FeatureFlagTestEvaluationResult
 
 export interface FeatureFlagTestingViewProps {
     flag: FeatureFlagTestingData
 }
 
 export function FeatureFlagTestingView({ flag }: FeatureFlagTestingViewProps): ReactElement {
-    const groups = flag.filters?.groups ?? []
+    const getResultBadgeVariant = (): 'success' | 'danger' | 'info' => {
+        if (typeof flag.result === 'boolean') {
+            return flag.result ? 'success' : 'danger'
+        }
+        return 'info'
+    }
+
+    const formatResult = (): string => {
+        if (typeof flag.result === 'boolean') {
+            return flag.result ? 'True' : 'False'
+        }
+        return String(flag.result)
+    }
 
     return (
         <div className="p-4">
@@ -38,84 +51,112 @@ export function FeatureFlagTestingView({ flag }: FeatureFlagTestingViewProps): R
                 {/* Header */}
                 <Stack gap="xs">
                     <div className="flex items-center gap-2 flex-wrap">
-                        <span className="text-lg font-semibold text-text-primary">{flag.key}</span>
-                        <Badge variant={flag.active ? 'success' : 'neutral'} size="md">
-                            {flag.active ? 'Active' : 'Inactive'}
+                        <span className="text-lg font-semibold text-text-primary">{flag.flag_key}</span>
+                        <Badge variant="neutral" size="md">
+                            Test Result
                         </Badge>
                     </div>
-                    {flag.name && <span className="text-sm text-text-secondary">{flag.name}</span>}
-                    {flag.description && <span className="text-sm text-text-secondary">{flag.description}</span>}
+                    <span className="text-sm text-text-secondary">
+                        Feature flag evaluation result for the tested user
+                    </span>
                 </Stack>
 
-                {/* Testing Information */}
+                {/* Evaluation Result */}
                 <Card>
                     <Stack gap="sm">
-                        <span className="font-medium text-text-primary">Flag Testing</span>
+                        <span className="font-medium text-text-primary">Test Evaluation Results</span>
                         <span className="text-sm text-text-secondary">
-                            Use the feature flag test evaluation tool to test how this flag evaluates for specific
-                            users. The testing provides detailed analysis of condition matching and person properties.
+                            This shows how the flag evaluated for the specified user, including which condition matched
+                            and the person properties that were considered.
                         </span>
-
-                        {/* Show current conditions for reference */}
-                        {groups.length > 0 && (
-                            <div>
-                                <span className="text-sm font-medium text-text-primary mb-2 block">
-                                    Current conditions ({groups.length} group{groups.length !== 1 ? 's' : ''})
-                                </span>
-                                <Stack gap="sm">
-                                    {groups.map((group, index) => (
-                                        <Card key={index}>
-                                            <Stack gap="xs">
-                                                <div className="flex items-center gap-2">
-                                                    <span className="text-sm font-medium">Condition #{index + 1}</span>
-                                                    <Badge variant="neutral" size="sm">
-                                                        {group.rollout_percentage}% rollout
-                                                    </Badge>
-                                                    {group.variant && (
-                                                        <Badge variant="info" size="sm">
-                                                            {group.variant}
-                                                        </Badge>
-                                                    )}
-                                                </div>
-                                                {group.properties && group.properties.length > 0 && (
-                                                    <PropertyFilterList
-                                                        filters={group.properties as PropertyFilter[]}
-                                                    />
-                                                )}
-                                            </Stack>
-                                        </Card>
-                                    ))}
-                                </Stack>
+                        <div className="flex items-center gap-2">
+                            <span className="text-sm font-medium">Result:</span>
+                            <Badge variant={getResultBadgeVariant()} size="md">
+                                {formatResult()}
+                            </Badge>
+                        </div>
+                        <div className="text-sm">
+                            <span className="font-medium">Reason: </span>
+                            <span className="text-text-secondary">{flag.reason}</span>
+                        </div>
+                        {flag.condition_index !== null && (
+                            <div className="text-sm">
+                                <span className="font-medium">Matched condition: </span>
+                                <span className="text-text-secondary">#{flag.condition_index + 1}</span>
                             </div>
                         )}
-
-                        {groups.length === 0 && (
-                            <div className="text-sm text-text-secondary">
-                                This flag has no targeting conditions and will evaluate based on global rollout
-                                settings.
+                        {flag.payload != null && (
+                            <div className="text-sm">
+                                <span className="font-medium">Payload: </span>
+                                <code className="text-xs bg-bg-light p-1 rounded">
+                                    {JSON.stringify(flag.payload) || 'null'}
+                                </code>
                             </div>
                         )}
                     </Stack>
                 </Card>
 
-                {/* Metadata */}
-                {flag.tags && flag.tags.length > 0 && (
+                {/* Person Properties */}
+                {Object.keys(flag.person_properties).length > 0 && (
                     <Card>
                         <Stack gap="sm">
-                            <span className="font-medium text-text-primary">Tags</span>
-                            <div className="flex gap-1 flex-wrap">
-                                {flag.tags.map((tag) => (
-                                    <Badge key={tag} variant="neutral" size="sm">
-                                        {tag}
-                                    </Badge>
+                            <span className="font-medium text-text-primary">Person Properties</span>
+                            <div className="space-y-1">
+                                {Object.entries(flag.person_properties).map(([key, value]) => (
+                                    <div key={key} className="flex items-center gap-2 text-sm">
+                                        <span className="font-mono text-text-primary">{key}:</span>
+                                        <span className="text-text-secondary">
+                                            {typeof value === 'object' ? String(JSON.stringify(value)) : String(value)}
+                                        </span>
+                                    </div>
                                 ))}
                             </div>
                         </Stack>
                     </Card>
                 )}
 
-                {flag.updated_at && (
-                    <span className="text-xs text-text-tertiary">Last updated: {formatDate(flag.updated_at)}</span>
+                {/* Condition Analysis */}
+                {flag.conditions.length > 0 && (
+                    <Card>
+                        <Stack gap="sm">
+                            <span className="font-medium text-text-primary">Condition Analysis</span>
+                            <span className="text-sm text-text-secondary">
+                                Detailed breakdown of how each condition was evaluated
+                            </span>
+                            <Stack gap="sm">
+                                {flag.conditions.map((condition, index) => (
+                                    <Card key={index}>
+                                        <Stack gap="xs">
+                                            <div className="flex items-center gap-2">
+                                                <span className="text-sm font-medium">
+                                                    Condition #{condition.condition_index + 1}
+                                                </span>
+                                                <Badge variant={condition.matched ? 'success' : 'danger'} size="sm">
+                                                    {condition.matched ? 'Matched' : 'No match'}
+                                                </Badge>
+                                                <Badge variant="neutral" size="sm">
+                                                    {condition.rollout_percentage}% rollout
+                                                </Badge>
+                                                {condition.variant && (
+                                                    <Badge variant="info" size="sm">
+                                                        {condition.variant}
+                                                    </Badge>
+                                                )}
+                                            </div>
+                                            {condition.reason && (
+                                                <div className="text-sm text-text-secondary">{condition.reason}</div>
+                                            )}
+                                            {condition.properties && condition.properties.length > 0 && (
+                                                <PropertyFilterList
+                                                    filters={condition.properties as PropertyFilter[]}
+                                                />
+                                            )}
+                                        </Stack>
+                                    </Card>
+                                ))}
+                            </Stack>
+                        </Stack>
+                    </Card>
                 )}
             </Stack>
         </div>
