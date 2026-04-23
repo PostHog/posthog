@@ -462,6 +462,88 @@ export const TasksStagedArtifactsPrepareUploadCreateBody = /* @__PURE__ */ zod.o
 })
 
 /**
+ * Create a new run for a specific task without starting execution.
+ * @summary Create task run
+ */
+export const tasksRunsCreateBodyEnvironmentDefault = `local`
+export const tasksRunsCreateBodyModeDefault = `background`
+export const tasksRunsCreateBodyBranchMax = 255
+
+export const TasksRunsCreateBody = /* @__PURE__ */ zod
+    .object({
+        environment: zod
+            .enum(['local', 'cloud'])
+            .describe('* `local` - local\n* `cloud` - cloud')
+            .default(tasksRunsCreateBodyEnvironmentDefault)
+            .describe(
+                "Execution environment for the new run. Use 'cloud' for remote sandbox runs and 'local' for desktop sessions.\n\n* `local` - local\n* `cloud` - cloud"
+            ),
+        mode: zod
+            .enum(['interactive', 'background'])
+            .describe('* `interactive` - interactive\n* `background` - background')
+            .default(tasksRunsCreateBodyModeDefault)
+            .describe(
+                "Execution mode: 'interactive' for user-connected runs, 'background' for autonomous runs\n\n* `interactive` - interactive\n* `background` - background"
+            ),
+        branch: zod
+            .string()
+            .max(tasksRunsCreateBodyBranchMax)
+            .nullish()
+            .describe('Git branch to checkout in the sandbox'),
+        sandbox_environment_id: zod
+            .uuid()
+            .optional()
+            .describe('Optional sandbox environment to apply for this cloud run.'),
+        pr_authorship_mode: zod
+            .enum(['user', 'bot'])
+            .describe('* `user` - user\n* `bot` - bot')
+            .optional()
+            .describe(
+                'Whether pull requests for this run should be authored by the user or the bot.\n\n* `user` - user\n* `bot` - bot'
+            ),
+        run_source: zod
+            .enum(['manual', 'signal_report'])
+            .describe('* `manual` - manual\n* `signal_report` - signal_report')
+            .optional()
+            .describe(
+                'High-level source that triggered this run, used to distinguish manual and signal-based cloud runs.\n\n* `manual` - manual\n* `signal_report` - signal_report'
+            ),
+        signal_report_id: zod
+            .string()
+            .optional()
+            .describe('Optional signal report identifier when this run was started from Inbox.'),
+        runtime_adapter: zod
+            .enum(['claude', 'codex'])
+            .describe('* `claude` - claude\n* `codex` - codex')
+            .optional()
+            .describe(
+                "Agent runtime adapter to launch for this run. Use 'claude' for the Claude runtime or 'codex' for the Codex runtime.\n\n* `claude` - claude\n* `codex` - codex"
+            ),
+        model: zod.string().optional().describe('LLM model identifier to run in the selected runtime.'),
+        reasoning_effort: zod
+            .enum(['low', 'medium', 'high', 'max'])
+            .describe('* `low` - low\n* `medium` - medium\n* `high` - high\n* `max` - max')
+            .optional()
+            .describe(
+                'Reasoning effort to request for models that expose an effort control.\n\n* `low` - low\n* `medium` - medium\n* `high` - high\n* `max` - max'
+            ),
+        github_user_token: zod
+            .string()
+            .optional()
+            .describe('Ephemeral GitHub user token from PostHog Code for user-authored cloud pull requests.'),
+        initial_permission_mode: zod
+            .enum(['default', 'acceptEdits', 'plan', 'bypassPermissions', 'auto', 'read-only', 'full-access'])
+            .describe(
+                '* `default` - default\n* `acceptEdits` - acceptEdits\n* `plan` - plan\n* `bypassPermissions` - bypassPermissions\n* `auto` - auto\n* `read-only` - read-only\n* `full-access` - full-access'
+            )
+            .optional()
+            .describe(
+                "Initial permission mode for the agent session. Claude runtimes accept PostHog permission presets like 'plan'. Codex runtimes accept native Codex modes like 'auto' and 'read-only'.\n\n* `default` - default\n* `acceptEdits` - acceptEdits\n* `plan` - plan\n* `bypassPermissions` - bypassPermissions\n* `auto` - auto\n* `read-only` - read-only\n* `full-access` - full-access"
+            ),
+    })
+    .describe('Request body for creating a task run without starting execution yet.')
+
+/**
  * API for managing task runs. Each run represents an execution of a task.
  * @summary Update task run
  */
@@ -711,4 +793,23 @@ export const TasksRunsSetOutputPartialUpdateBody = /* @__PURE__ */ zod.object({
         .unknown()
         .optional()
         .describe("Output data from the run. Validated against the task's json_schema if one is set."),
+})
+
+/**
+ * Start an existing cloud run after any initial run-scoped attachments have been uploaded.
+ * @summary Start task run
+ */
+export const tasksRunsStartCreateBodyPendingUserArtifactIdsItemMax = 128
+
+export const TasksRunsStartCreateBody = /* @__PURE__ */ zod.object({
+    pending_user_message: zod
+        .string()
+        .optional()
+        .describe('Initial or follow-up user message to include in the run prompt.'),
+    pending_user_artifact_ids: zod
+        .array(zod.string().max(tasksRunsStartCreateBodyPendingUserArtifactIdsItemMax))
+        .optional()
+        .describe(
+            'Identifiers for run artifacts that should be attached to the next user message delivered to the sandbox.'
+        ),
 })
