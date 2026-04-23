@@ -1,0 +1,109 @@
+# MCP tool definition — tool entries are scaffolded from the OpenAPI schema.
+# The tool list and operation IDs are kept in sync automatically:
+#   pnpm --filter=@posthog/mcp run scaffold-yaml -- --sync-all
+#
+# To enable a tool, set enabled: true and add required scopes + annotations.
+# All other fields (title, description, enrich_url, etc.) are yours to configure.
+category: Customer analytics
+feature: customer_analytics
+url_prefix: /customer-analytics
+tools:
+    customer-journeys-list:
+        operation: customer_journeys_list
+        enabled: false
+    customer-journeys-create:
+        operation: customer_journeys_create
+        enabled: false
+    customer-profile-configs-list:
+        operation: customer_profile_configs_list
+        enabled: false
+    customer-profile-configs-create:
+        operation: customer_profile_configs_create
+        enabled: false
+    usage-metrics-list:
+        operation: groups_types_metrics_list
+        enabled: true
+        scopes:
+            - usage_metric:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: List usage metrics
+        description: >
+            List usage metrics for a group type in the project. Returns each metric's
+            id, name, format, interval (days), display mode, math aggregation, and
+            filter definition. Requires `group_type_index` to target a specific group
+            type.
+        param_overrides:
+            group_type_index:
+                description: >
+                    Zero-based index of the group type whose usage metrics you want to list.
+                    Find available group types via the groups API or the groups system table.
+    usage-metrics-create:
+        operation: groups_types_metrics_create
+        enabled: true
+        scopes:
+            - usage_metric:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Create usage metric
+        description: >
+            Create a new usage metric for a given group type. `filters` takes the same
+            shape as HogFunction filters (a dict with an `events` list and optional
+            `properties` list). When `math` is `sum`, `math_property` is required;
+            when `math` is `count`, `math_property` must be empty.
+        param_overrides:
+            group_type_index:
+                description: Zero-based index of the group type this metric applies to.
+    usage-metrics-retrieve:
+        operation: groups_types_metrics_retrieve
+        enabled: true
+        scopes:
+            - usage_metric:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get usage metric
+        description: Fetch a single usage metric by id for a given group type.
+        param_overrides:
+            group_type_index:
+                description: Zero-based index of the group type this metric belongs to.
+    usage-metrics-update:
+        operation: groups_types_metrics_update
+        enabled: false
+    usage-metrics-partial-update:
+        operation: groups_types_metrics_partial_update
+        enabled: true
+        scopes:
+            - usage_metric:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Update usage metric
+        description: >
+            Update fields on an existing usage metric. Accepts a subset of fields;
+            unspecified fields are left unchanged. Changing `math` to `sum` requires
+            `math_property`; changing to `count` requires clearing `math_property`.
+        param_overrides:
+            group_type_index:
+                description: Zero-based index of the group type this metric belongs to.
+    usage-metrics-destroy:
+        operation: groups_types_metrics_destroy
+        enabled: true
+        scopes:
+            - usage_metric:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Delete usage metric
+        description: Permanently delete a usage metric by id.
+        param_overrides:
+            group_type_index:
+                description: Zero-based index of the group type this metric belongs to.
