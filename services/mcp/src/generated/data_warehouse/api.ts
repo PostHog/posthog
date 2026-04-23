@@ -380,6 +380,10 @@ export const ExternalDataSourcesCreateParams = /* @__PURE__ */ zod.object({
         ),
 })
 
+export const externalDataSourcesCreateBodyPrefixMax = 100
+
+export const externalDataSourcesCreateBodyDescriptionMax = 400
+
 export const externalDataSourcesCreateBodyAccessMethodDefault = `warehouse`
 
 export const ExternalDataSourcesCreateBody = /* @__PURE__ */ zod.object({
@@ -538,8 +542,12 @@ export const ExternalDataSourcesCreateBody = /* @__PURE__ */ zod.object({
     payload: zod
         .record(zod.string(), zod.unknown())
         .describe("Connection credentials and a 'schemas' array. Keys depend on source_type."),
-    prefix: zod.string().nullish().describe('Table name prefix in HogQL.'),
-    description: zod.string().nullish().describe('Human-readable description.'),
+    prefix: zod.string().max(externalDataSourcesCreateBodyPrefixMax).nullish().describe('Table name prefix in HogQL.'),
+    description: zod
+        .string()
+        .max(externalDataSourcesCreateBodyDescriptionMax)
+        .nullish()
+        .describe('Human-readable description.'),
     access_method: zod
         .enum(['warehouse', 'direct'])
         .describe('* `warehouse` - warehouse\n* `direct` - direct')
