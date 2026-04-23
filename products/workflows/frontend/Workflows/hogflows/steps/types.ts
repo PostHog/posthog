@@ -101,7 +101,7 @@ export const CyclotronInputMappingSchema = z.object({
     name: z.string(),
     disabled: z.boolean().optional(),
     inputs_schema: z.array(CyclotronJobInputSchemaTypeSchema).optional(),
-    inputs: z.record(CyclotronInputSchema).optional().nullable(),
+    inputs: z.record(z.string(), CyclotronInputSchema).optional().nullable(),
     filters: z.any().optional().nullable(),
 })
 
@@ -120,19 +120,19 @@ export const HogFlowTriggerSchema = z.discriminatedUnion('type', [
         type: z.literal('webhook'),
         template_uuid: z.string().uuid().optional(), // May be used later to specify a specific template version
         template_id: z.string(),
-        inputs: z.record(CyclotronInputSchema),
+        inputs: z.record(z.string(), CyclotronInputSchema),
     }),
     z.object({
         type: z.literal('manual'),
         template_uuid: z.string().uuid().optional(), // May be used later to specify a specific template version
         template_id: z.string(),
-        inputs: z.record(CyclotronInputSchema),
+        inputs: z.record(z.string(), CyclotronInputSchema),
     }),
     z.object({
         type: z.literal('tracking_pixel'),
         template_uuid: z.string().uuid().optional(), // May be used later to specify a specific template version
         template_id: z.string(),
-        inputs: z.record(CyclotronInputSchema),
+        inputs: z.record(z.string(), CyclotronInputSchema),
     }),
     z.object({
         type: z.literal('schedule'),
@@ -233,7 +233,7 @@ export const HogFlowActionSchema = z.discriminatedUnion('type', [
         config: z.object({
             template_uuid: z.string().uuid().optional(), // May be used later to specify a specific template version
             template_id: z.string(),
-            inputs: z.record(CyclotronInputSchema),
+            inputs: z.record(z.string(), CyclotronInputSchema),
             mappings: z.array(CyclotronInputMappingSchema).optional(),
         }),
     }),
@@ -245,7 +245,7 @@ export const HogFlowActionSchema = z.discriminatedUnion('type', [
             message_category_type: z.enum(['marketing', 'transactional']).optional(),
             template_uuid: z.string().optional(), // May be used later to specify a specific template version
             template_id: z.literal('template-email'),
-            inputs: z.record(CyclotronInputSchema),
+            inputs: z.record(z.string(), CyclotronInputSchema),
         }),
     }),
     z.object({
@@ -256,7 +256,7 @@ export const HogFlowActionSchema = z.discriminatedUnion('type', [
             message_category_type: z.enum(['marketing', 'transactional']).optional(),
             template_uuid: z.string().uuid().optional(),
             template_id: z.literal('template-twilio'),
-            inputs: z.record(CyclotronInputSchema),
+            inputs: z.record(z.string(), CyclotronInputSchema),
         }),
     }),
 

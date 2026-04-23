@@ -13956,6 +13956,65 @@
             },
             "type": "object"
         },
+        "EndpointExecutionFailedSignalExtra": {
+            "additionalProperties": false,
+            "properties": {
+                "endpoint_name": {
+                    "type": "string"
+                },
+                "endpoint_version": {
+                    "type": ["number", "null"]
+                },
+                "error_class": {
+                    "type": "string"
+                },
+                "error_message": {
+                    "type": "string"
+                },
+                "materialized": {
+                    "type": "boolean"
+                },
+                "saved_query_id": {
+                    "type": ["string", "null"]
+                }
+            },
+            "required": [
+                "endpoint_name",
+                "endpoint_version",
+                "materialized",
+                "saved_query_id",
+                "error_class",
+                "error_message"
+            ],
+            "type": "object"
+        },
+        "EndpointExecutionFailedSignalInput": {
+            "additionalProperties": false,
+            "properties": {
+                "description": {
+                    "type": "string"
+                },
+                "extra": {
+                    "$ref": "#/definitions/EndpointExecutionFailedSignalExtra"
+                },
+                "source_id": {
+                    "type": "string"
+                },
+                "source_product": {
+                    "const": "endpoints",
+                    "type": "string"
+                },
+                "source_type": {
+                    "const": "endpoint_execution_failed",
+                    "type": "string"
+                },
+                "weight": {
+                    "type": "number"
+                }
+            },
+            "required": ["source_type", "source_product", "source_id", "description", "weight", "extra"],
+            "type": "object"
+        },
         "EndpointLastExecutionTimesRequest": {
             "additionalProperties": false,
             "properties": {
@@ -18055,7 +18114,8 @@
                 "Granola",
                 "BuildBetter",
                 "Convex",
-                "ClickHouse"
+                "ClickHouse",
+                "Plain"
             ],
             "type": "string"
         },
@@ -32228,6 +32288,10 @@
         "RetentionEntity": {
             "additionalProperties": false,
             "properties": {
+                "aggregation_target_field": {
+                    "description": "Data warehouse field used as the actor identifier",
+                    "type": "string"
+                },
                 "custom_name": {
                     "type": "string"
                 },
@@ -32249,6 +32313,14 @@
                         "$ref": "#/definitions/AnyPropertyFilter"
                     },
                     "type": "array"
+                },
+                "table_name": {
+                    "description": "Data warehouse table name",
+                    "type": "string"
+                },
+                "timestamp_field": {
+                    "description": "Data warehouse timestamp field",
+                    "type": "string"
                 },
                 "type": {
                     "$ref": "#/definitions/EntityType"
@@ -34796,6 +34868,9 @@
                 },
                 {
                     "$ref": "#/definitions/ErrorTrackingSignalInput"
+                },
+                {
+                    "$ref": "#/definitions/EndpointExecutionFailedSignalInput"
                 }
             ],
             "required": ["source_product"],
@@ -34831,7 +34906,8 @@
                 "linear",
                 "zendesk",
                 "conversations",
-                "error_tracking"
+                "error_tracking",
+                "endpoints"
             ],
             "type": "string"
         },
@@ -34844,7 +34920,8 @@
                 "ticket",
                 "issue_created",
                 "issue_reopened",
-                "issue_spiking"
+                "issue_spiking",
+                "endpoint_execution_failed"
             ],
             "type": "string"
         },

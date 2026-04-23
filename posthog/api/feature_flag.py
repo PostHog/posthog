@@ -870,11 +870,12 @@ class FeatureFlagSerializer(
             assert isinstance(self.instance, FeatureFlag)
             return self.instance.filters
 
+        filters.setdefault("groups", [])
+
         # Only validate empty groups for new flag creation (POST), not updates (PUT/PATCH)
         # Existing flags may legitimately have empty groups temporarily during scheduled changes
         if self.context["request"].method == "POST":
-            groups = filters.get("groups", [])
-            if not groups:
+            if not filters["groups"]:
                 raise serializers.ValidationError("Feature flags must have at least one condition set (group).")
 
         flag_level_aggregation = filters.get("aggregation_group_type_index", None)
@@ -1551,6 +1552,23 @@ class FeatureFlagSerializer(
             # Continue with the update
             validated_data["version"] = locked_version + 1
             old_key = instance.key
+
+            # If the key is changing, free it up by hard-deleting any soft-deleted
+            # flag that still holds the target key — the DB unique constraint on
+            # (team, key) spans soft-deleted rows, so without this the update
+            # would fail with an IntegrityError. Mirrors the behavior in create().
+            new_key = validated_data.get("key")
+            if new_key and new_key != old_key and validated_data.get("deleted", instance.deleted) is False:
+                try:
+                    FeatureFlag.objects_including_soft_deleted.filter(
+                        key=new_key,
+                        team__project_id=self.context["project_id"],
+                        deleted=True,
+                    ).exclude(pk=instance.pk).delete()
+                except deletion.RestrictedError:
+                    raise exceptions.ValidationError(
+                        "Feature flag with this key already exists and is used in an experiment. Please delete the experiment before renaming the flag."
+                    )
 
             with ImpersonatedContext(request):
                 instance = super().update(instance, validated_data)

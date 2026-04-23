@@ -33,6 +33,8 @@ import type {
     LLMSkillCreateApi,
     LLMSkillDuplicateApi,
     LLMSkillFileApi,
+    LLMSkillFileCreateApi,
+    LLMSkillFileRenameApi,
     LLMSkillResolveResponseApi,
     LlmAnalyticsClusteringConfigRetrieve200,
     LlmAnalyticsClusteringConfigSetEventFiltersCreate200,
@@ -53,6 +55,7 @@ import type {
     LlmPromptsNameRetrieveParams,
     LlmPromptsResolveNameRetrieveParams,
     LlmSkillsListParams,
+    LlmSkillsNameFilesDestroyParams,
     LlmSkillsNameFilesRetrieveParams,
     LlmSkillsNameRetrieveParams,
     LlmSkillsResolveNameRetrieveParams,
@@ -1767,6 +1770,42 @@ export const llmSkillsNameDuplicateCreate = async (
     })
 }
 
+export const getLlmSkillsNameFilesCreateUrl = (projectId: string, skillName: string) => {
+    return `/api/environments/${projectId}/llm_skills/name/${skillName}/files/`
+}
+
+export const llmSkillsNameFilesCreate = async (
+    projectId: string,
+    skillName: string,
+    lLMSkillFileCreateApi: LLMSkillFileCreateApi,
+    options?: RequestInit
+): Promise<LLMSkillApi> => {
+    return apiMutator<LLMSkillApi>(getLlmSkillsNameFilesCreateUrl(projectId, skillName), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(lLMSkillFileCreateApi),
+    })
+}
+
+export const getLlmSkillsNameFilesRenameCreateUrl = (projectId: string, skillName: string) => {
+    return `/api/environments/${projectId}/llm_skills/name/${skillName}/files-rename/`
+}
+
+export const llmSkillsNameFilesRenameCreate = async (
+    projectId: string,
+    skillName: string,
+    lLMSkillFileRenameApi: LLMSkillFileRenameApi,
+    options?: RequestInit
+): Promise<LLMSkillApi> => {
+    return apiMutator<LLMSkillApi>(getLlmSkillsNameFilesRenameCreateUrl(projectId, skillName), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(lLMSkillFileRenameApi),
+    })
+}
+
 export const getLlmSkillsNameFilesRetrieveUrl = (
     projectId: string,
     skillName: string,
@@ -1798,6 +1837,40 @@ export const llmSkillsNameFilesRetrieve = async (
     return apiMutator<LLMSkillFileApi>(getLlmSkillsNameFilesRetrieveUrl(projectId, skillName, filePath, params), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getLlmSkillsNameFilesDestroyUrl = (
+    projectId: string,
+    skillName: string,
+    filePath: string,
+    params?: LlmSkillsNameFilesDestroyParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/environments/${projectId}/llm_skills/name/${skillName}/files/${filePath}/?${stringifiedParams}`
+        : `/api/environments/${projectId}/llm_skills/name/${skillName}/files/${filePath}/`
+}
+
+export const llmSkillsNameFilesDestroy = async (
+    projectId: string,
+    skillName: string,
+    filePath: string,
+    params?: LlmSkillsNameFilesDestroyParams,
+    options?: RequestInit
+): Promise<LLMSkillApi> => {
+    return apiMutator<LLMSkillApi>(getLlmSkillsNameFilesDestroyUrl(projectId, skillName, filePath, params), {
+        ...options,
+        method: 'DELETE',
     })
 }
 

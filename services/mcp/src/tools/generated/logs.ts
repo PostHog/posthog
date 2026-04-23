@@ -95,7 +95,6 @@ const logsAlertsList = (): ToolBase<
 > => ({
     name: 'logs-alerts-list',
     schema: LogsAlertsListSchema,
-    mcpVersion: 1,
     handler: async (context: Context, params: z.infer<typeof LogsAlertsListSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.PaginatedLogsAlertConfigurationList>({
@@ -200,7 +199,6 @@ const LogsAlertsRetrieveSchema = LogsAlertsRetrieveParams.omit({ project_id: tru
 const logsAlertsRetrieve = (): ToolBase<typeof LogsAlertsRetrieveSchema, Schemas.LogsAlertConfiguration> => ({
     name: 'logs-alerts-retrieve',
     schema: LogsAlertsRetrieveSchema,
-    mcpVersion: 1,
     handler: async (context: Context, params: z.infer<typeof LogsAlertsRetrieveSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.LogsAlertConfiguration>({

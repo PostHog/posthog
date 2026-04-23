@@ -468,6 +468,7 @@ SPECTACULAR_SETTINGS = {
         "StringMatchOperatorEnum": ["exact", "is_not", "icontains", "not_icontains", "regex", "not_regex"],
         "DateOperatorEnum": ["is_date_exact", "is_date_before", "is_date_after"],
         "DetailModeValueEnum": ["minimal", "detailed"],
+        "LogsAlertConfigurationStateEnum": "products.logs.backend.models.LogsAlertConfiguration.State",
     },
 }
 
