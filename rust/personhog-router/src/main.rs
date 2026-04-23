@@ -19,6 +19,7 @@ use personhog_router::config::{Config, RouterMode};
 use personhog_router::router::PersonHogRouter;
 use personhog_router::service::PersonHogRouterService;
 use tokio_util::sync::CancellationToken;
+use tonic::codec::CompressionEncoding;
 use tonic::transport::Server;
 use tracing::level_filters::LevelFilter;
 use tracing_subscriber::fmt;
@@ -321,7 +322,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .add_service(
                 PersonHogServiceServer::new(service)
                     .max_encoding_message_size(max_send)
-                    .max_decoding_message_size(max_recv),
+                    .max_decoding_message_size(max_recv)
+                    .send_compressed(CompressionEncoding::Zstd)
+                    .accept_compressed(CompressionEncoding::Zstd),
             )
             .serve_with_incoming_shutdown(incoming, grpc_handle.shutdown_signal())
             .await

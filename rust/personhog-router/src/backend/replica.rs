@@ -20,6 +20,7 @@ use personhog_proto::personhog::types::v1::{
     PersonsResponse, UpsertHashKeyOverridesRequest, UpsertHashKeyOverridesResponse,
 };
 use std::time::Duration;
+use tonic::codec::CompressionEncoding;
 use tonic::transport::Channel;
 use tonic::{Request, Status};
 
@@ -62,7 +63,9 @@ impl ReplicaBackend {
         Ok(Self {
             client: PersonHogReplicaClient::new(channel)
                 .max_encoding_message_size(max_send_message_size)
-                .max_decoding_message_size(max_recv_message_size),
+                .max_decoding_message_size(max_recv_message_size)
+                .send_compressed(CompressionEncoding::Zstd)
+                .accept_compressed(CompressionEncoding::Zstd),
             retry_config,
         })
     }
