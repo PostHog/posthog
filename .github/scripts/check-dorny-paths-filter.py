@@ -12,8 +12,7 @@ independently. A '!path' rule then matches every file NOT at that path — which
 silently inverts the intended exclusion. Using '!' patterns is only safe when
 the step also sets `predicate-quantifier: 'every'`.
 
-This has slipped in twice (most recently in ci-storybook.yml, fixed by
-PR #55920). This lint catches the class of bug.
+Docs: https://github.com/dorny/paths-filter#advanced-options
 
 Usage:
     uv run .github/scripts/check-dorny-paths-filter.py
@@ -27,6 +26,7 @@ import yaml
 
 WORKFLOWS_DIR = Path(__file__).resolve().parent.parent / "workflows"
 DORNY_PREFIX = "dorny/paths-filter@"
+DOCS_URL = "https://github.com/dorny/paths-filter#advanced-options"
 
 
 def parse_filters(raw: Any) -> dict[str, list[str]] | None:
@@ -117,7 +117,7 @@ def check_workflows() -> tuple[list[str], int, int]:
                     f"filter '{filter_name}' uses negation '{pattern}' without "
                     f"`predicate-quantifier: 'every'` — with the default "
                     f"'some' quantifier, '!' rules match every file NOT at the "
-                    f"path (including unrelated changes)."
+                    f"path (including unrelated changes). See {DOCS_URL}."
                 )
 
     return errors, workflow_count, step_count
@@ -132,7 +132,7 @@ def main() -> None:
         print(
             "\nFix: either remove the '!' patterns and use positive filters "
             "with count comparison, or add `predicate-quantifier: 'every'` "
-            "to the step's `with:` block."
+            f"to the step's `with:` block. See {DOCS_URL}."
         )
         sys.exit(1)
 
