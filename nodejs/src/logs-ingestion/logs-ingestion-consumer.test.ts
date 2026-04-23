@@ -953,6 +953,7 @@ describe('LogsIngestionConsumer', () => {
             expect(stats!.recordsAllowed).toBe(5)
             expect(stats!.bytesDropped).toBe(0)
             expect(stats!.recordsDropped).toBe(0)
+            expect(stats!.piiReplacements).toBe(0)
         })
 
         it('should aggregate stats for multiple messages from same team', async () => {
@@ -1090,6 +1091,7 @@ describe('LogsIngestionConsumer', () => {
                         recordsAllowed: 8,
                         bytesDropped: 200,
                         recordsDropped: 2,
+                        piiReplacements: 0,
                     },
                 ],
             ])
@@ -1120,6 +1122,7 @@ describe('LogsIngestionConsumer', () => {
                         recordsAllowed: 10,
                         bytesDropped: 0,
                         recordsDropped: 0,
+                        piiReplacements: 0,
                     },
                 ],
             ])
@@ -1156,6 +1159,7 @@ describe('LogsIngestionConsumer', () => {
                         recordsAllowed: 1,
                         bytesDropped: 0,
                         recordsDropped: 0,
+                        piiReplacements: 0,
                     },
                 ],
                 [
@@ -1167,6 +1171,7 @@ describe('LogsIngestionConsumer', () => {
                         recordsAllowed: 2,
                         bytesDropped: 0,
                         recordsDropped: 0,
+                        piiReplacements: 0,
                     },
                 ],
             ])
@@ -1219,6 +1224,35 @@ describe('LogsIngestionConsumer', () => {
             expect(metricNames).toContain('records_received')
             expect(metricNames).toContain('bytes_ingested')
             expect(metricNames).toContain('records_ingested')
+        })
+
+        it('should emit pii_replacements when pii scrub is on and the body has pattern matches', async () => {
+            await hub.postgres.query(
+                PostgresUse.COMMON_WRITE,
+                `UPDATE posthog_team
+                 SET logs_settings = $1
+                 WHERE id = $2`,
+                [JSON.stringify({ pii_scrub_logs: true, json_parse_logs: false }), team.id],
+                'updateTeamLogsPiiScrub'
+            )
+            hub.teamManager['lazyLoader'].markForRefresh(String(team.id))
+
+            const logData = createLogMessage({ message: 'email me at foo@bar.com' })
+            const messages = await createKafkaMessages([logData], {
+                token: team.api_token,
+                bytes_uncompressed: '200',
+                record_count: '1',
+            })
+
+            await waitForBackgroundTasks(consumer.processKafkaBatch(messages))
+
+            const appMetricsMessages = getProducedKafkaMessages().filter((m) => m.topic === KAFKA_APP_METRICS_2)
+            const pii = appMetricsMessages.find((m) => {
+                const value = parseMetricValue(m.value)
+                return value.metric_name === 'pii_replacements' && value.team_id === team.id
+            })
+            expect(pii).toBeDefined()
+            expect(parseMetricValue(pii!.value).count).toBe(1)
         })
 
         it('should emit correct metric values per team', async () => {
