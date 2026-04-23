@@ -165,8 +165,12 @@ export const makeBillingWithPlatformAddons = (scenario: PlatformAddonScenario): 
         return billingJson
     }
 
-    const subscribedType: PlatformAddonType | 'teams' | null =
-        scenario === 'on-scale' ? BillingPlan.Scale : scenario === 'on-legacy-teams' ? 'teams' : null
+    const subscribedType: PlatformAddonType | BillingPlan.Teams | null =
+        scenario === 'on-scale'
+            ? BillingPlan.Scale
+            : scenario === 'on-legacy-teams'
+              ? BillingPlan.Teams
+              : null
     const trialEligible = scenario === 'trial-available'
 
     const comparisonAddons = PLATFORM_ADDON_TYPES.map((type) =>
@@ -176,14 +180,14 @@ export const makeBillingWithPlatformAddons = (scenario: PlatformAddonScenario): 
         })
     )
 
-    const legacyTeamsSource = platformProduct.addons?.find((addon) => addon.type === 'teams')
+    const legacyTeamsSource = platformProduct.addons?.find((addon) => addon.type === BillingPlan.Teams)
     const legacyTeams = legacyTeamsSource
         ? {
               ...legacyTeamsSource,
               legacy_product: true,
-              subscribed: subscribedType === 'teams',
-              current_amount_usd: subscribedType === 'teams' ? '450.00' : null,
-              projected_amount_usd: subscribedType === 'teams' ? '450.00' : null,
+              subscribed: subscribedType === BillingPlan.Teams,
+              current_amount_usd: subscribedType === BillingPlan.Teams ? '450.00' : null,
+              projected_amount_usd: subscribedType === BillingPlan.Teams ? '450.00' : null,
           }
         : null
 
