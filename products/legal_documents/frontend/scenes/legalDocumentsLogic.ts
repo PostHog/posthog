@@ -28,7 +28,6 @@ export interface LegalDocument {
     company_name: string
     representative_email: string
     status: LegalDocumentStatus
-    signed_document_url: string
     created_by: LegalDocumentCreator | null
     created_at: string
 }
