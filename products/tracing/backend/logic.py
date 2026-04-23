@@ -56,6 +56,23 @@ def _is_number(value: str) -> bool:
         return False
 
 
+# OTel span.kind enum labels sent from the filter UI, mapped to their wire integer values.
+_SPAN_KIND_LABEL_TO_INT: dict[str, int] = {
+    "Unspecified": 0,
+    "Internal": 1,
+    "Server": 2,
+    "Client": 3,
+    "Producer": 4,
+    "Consumer": 5,
+}
+
+# OTel status_code label → int. 'OK' expands to {0, 1} so 'unset' spans match 'ok' filters.
+_STATUS_CODE_LABEL_TO_INTS: dict[str, list[int]] = {
+    "OK": [0, 1],
+    "Error": [2],
+}
+
+
 class TraceSpansQueryRunnerMixin(QueryRunner):
     """Shared WHERE clause and settings for all trace span query runners."""
 
@@ -157,6 +174,22 @@ class TraceSpansQueryRunnerMixin(QueryRunner):
                     else:
                         if _is_number(str(span_filter.value)):
                             span_filter.value = str(decimal.Decimal(str(span_filter.value)) * 1000000)
+
+                # Filter UI stores human labels for kind/status_code so the applied-filter
+                # chip reads naturally. Translate labels to the integer column values here.
+                if span_filter.key == "kind":
+                    values = span_filter.value if isinstance(span_filter.value, list) else [str(span_filter.value)]
+                    span_filter.value = [
+                        _SPAN_KIND_LABEL_TO_INT[str(v)] for v in values if str(v) in _SPAN_KIND_LABEL_TO_INT
+                    ]
+
+                if span_filter.key == "status_code":
+                    values = span_filter.value if isinstance(span_filter.value, list) else [str(span_filter.value)]
+                    expanded: list[int] = []
+                    for v in values:
+                        if str(v) in _STATUS_CODE_LABEL_TO_INTS:
+                            expanded.extend(_STATUS_CODE_LABEL_TO_INTS[str(v)])
+                    span_filter.value = [str(v) for v in expanded]
 
                 exprs.append(property_to_expr(span_filter, team=self.team))
 
@@ -469,7 +502,9 @@ def run_attribute_names_query(
         timezone_info=ZoneInfo("UTC"),
     )
 
-    property_filter_type = "span_resource_attribute" if attribute_type == "resource" else "span_attribute"
+    property_filter_type = (
+        attribute_type if attribute_type in ("span", "span_attribute", "span_resource_attribute") else "span_attribute"
+    )
 
     query = parse_select(
         """
