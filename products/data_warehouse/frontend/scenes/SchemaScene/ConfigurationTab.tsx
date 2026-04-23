@@ -19,11 +19,18 @@ import {
 import api from 'lib/api'
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
+import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { newInternalTab } from 'lib/utils/newInternalTab'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { DataWarehouseSyncInterval, ExternalDataSource, ExternalDataSourceSchema } from '~/types'
+import {
+    AccessControlLevel,
+    AccessControlResourceType,
+    DataWarehouseSyncInterval,
+    ExternalDataSource,
+    ExternalDataSourceSchema,
+} from '~/types'
 
 import {
     SyncMethodForm,
@@ -284,6 +291,19 @@ function SyncMethodSection({
     const [saveDisabledReason, setSaveDisabledReason] = useState<string | undefined>()
     const [saving, setSaving] = useState(false)
 
+    // We intentionally do NOT use `SourceEditorAction`'s render-prop form around the form here:
+    // the inline render-prop is a new function reference on every parent render, which makes React
+    // treat it as a new component type and remount the whole subtree (including SyncMethodForm),
+    // wiping the user's radio/field selections on every sourceSettingsLogic auto-refresh.
+    // Derive the disabled state once via the underlying helper and wrap the form in a plain
+    // `<fieldset>` whose identity is stable.
+    const accessDisabledReason =
+        getAccessControlDisabledReason(
+            AccessControlResourceType.ExternalDataSource,
+            AccessControlLevel.Editor,
+            source?.user_access_level
+        ) ?? undefined
+
     // Load incremental fields only when the schema id changes. We intentionally exclude the kea
     // action refs from the deps — if they aren't stable, the effect would re-fire on every parent
     // re-render (e.g. the 5s sourceSettingsLogic auto-refresh), reset `schemaIncrementalFields`
@@ -336,58 +356,50 @@ function SyncMethodSection({
                     </div>
                 )}
                 {!loading && schemaIncrementalFields && (
-                    <SourceEditorAction source={source}>
-                        {({ disabled }) => (
-                            <fieldset disabled={disabled}>
-                                <SyncMethodForm
-                                    ref={formRef}
-                                    hideFooter
-                                    onSaveDisabledReasonChange={setSaveDisabledReason}
-                                    saveButtonIsLoading={saving}
-                                    schema={{
-                                        table: schema.name,
-                                        should_sync: schema.should_sync,
-                                        description: schema.description,
-                                        should_sync_default: schema.should_sync_default ?? true,
-                                        sync_type: schema.sync_type,
-                                        sync_time_of_day: schema.sync_time_of_day ?? null,
-                                        incremental_field: schema.incremental_field ?? null,
-                                        incremental_field_type: schema.incremental_field_type ?? null,
-                                        incremental_available: schemaIncrementalFields.incremental_available,
-                                        append_available: schemaIncrementalFields.append_available,
-                                        cdc_available: schemaIncrementalFields.cdc_available,
-                                        cdc_table_mode: schema.cdc_table_mode,
-                                        incremental_fields: schemaIncrementalFields.incremental_fields,
-                                        supports_webhooks: schemaIncrementalFields.supports_webhooks ?? false,
-                                        primary_key_columns: schema.primary_key_columns ?? null,
-                                        available_columns: [],
-                                        detected_primary_keys: null,
-                                    }}
-                                    availableColumns={schemaIncrementalFields.available_columns ?? []}
-                                    detectedPrimaryKeys={schemaIncrementalFields.detected_primary_keys ?? null}
-                                    primaryKeyLocked={!!schema.table}
-                                    onClose={() => {}}
-                                    onSave={persistSyncMethod}
-                                />
-                            </fieldset>
-                        )}
-                    </SourceEditorAction>
+                    <fieldset disabled={!!accessDisabledReason}>
+                        <SyncMethodForm
+                            ref={formRef}
+                            hideFooter
+                            onSaveDisabledReasonChange={setSaveDisabledReason}
+                            saveButtonIsLoading={saving}
+                            schema={{
+                                table: schema.name,
+                                should_sync: schema.should_sync,
+                                description: schema.description,
+                                should_sync_default: schema.should_sync_default ?? true,
+                                sync_type: schema.sync_type,
+                                sync_time_of_day: schema.sync_time_of_day ?? null,
+                                incremental_field: schema.incremental_field ?? null,
+                                incremental_field_type: schema.incremental_field_type ?? null,
+                                incremental_available: schemaIncrementalFields.incremental_available,
+                                append_available: schemaIncrementalFields.append_available,
+                                cdc_available: schemaIncrementalFields.cdc_available,
+                                cdc_table_mode: schema.cdc_table_mode,
+                                incremental_fields: schemaIncrementalFields.incremental_fields,
+                                supports_webhooks: schemaIncrementalFields.supports_webhooks ?? false,
+                                primary_key_columns: schema.primary_key_columns ?? null,
+                                available_columns: [],
+                                detected_primary_keys: null,
+                            }}
+                            availableColumns={schemaIncrementalFields.available_columns ?? []}
+                            detectedPrimaryKeys={schemaIncrementalFields.detected_primary_keys ?? null}
+                            primaryKeyLocked={!!schema.table}
+                            onClose={() => {}}
+                            onSave={persistSyncMethod}
+                        />
+                    </fieldset>
                 )}
             </div>
             {!loading && schemaIncrementalFields && (
                 <div className="mt-4 flex justify-end">
-                    <SourceEditorAction source={source}>
-                        {({ disabledReason: accessDisabledReason }) => (
-                            <LemonButton
-                                type="primary"
-                                loading={saving}
-                                disabledReason={accessDisabledReason ?? saveDisabledReason}
-                                onClick={() => formRef.current?.triggerSave()}
-                            >
-                                Save
-                            </LemonButton>
-                        )}
-                    </SourceEditorAction>
+                    <LemonButton
+                        type="primary"
+                        loading={saving}
+                        disabledReason={accessDisabledReason ?? saveDisabledReason}
+                        onClick={() => formRef.current?.triggerSave()}
+                    >
+                        Save
+                    </LemonButton>
                 </div>
             )}
         </div>
