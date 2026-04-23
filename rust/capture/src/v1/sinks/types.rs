@@ -75,7 +75,7 @@ pub struct BatchSummary {
     pub fatal: usize,
     pub timed_out: usize,
     /// Counts keyed by cause tag (e.g. "queue_full", "timeout").
-    pub errors: HashMap<String, usize>,
+    pub errors: HashMap<&'static str, usize>,
 }
 
 impl BatchSummary {
@@ -84,7 +84,7 @@ impl BatchSummary {
         let mut retriable = 0usize;
         let mut fatal = 0usize;
         let mut timed_out = 0usize;
-        let mut errors: HashMap<String, usize> = HashMap::new();
+        let mut errors: HashMap<&'static str, usize> = HashMap::new();
 
         for r in results {
             match r.outcome() {
@@ -92,19 +92,19 @@ impl BatchSummary {
                 Outcome::Timeout => {
                     timed_out += 1;
                     if let Some(tag) = r.cause() {
-                        *errors.entry(tag.to_string()).or_default() += 1;
+                        *errors.entry(tag).or_default() += 1;
                     }
                 }
                 Outcome::RetriableError => {
                     retriable += 1;
                     if let Some(tag) = r.cause() {
-                        *errors.entry(tag.to_string()).or_default() += 1;
+                        *errors.entry(tag).or_default() += 1;
                     }
                 }
                 Outcome::FatalError => {
                     fatal += 1;
                     if let Some(tag) = r.cause() {
-                        *errors.entry(tag.to_string()).or_default() += 1;
+                        *errors.entry(tag).or_default() += 1;
                     }
                 }
             }

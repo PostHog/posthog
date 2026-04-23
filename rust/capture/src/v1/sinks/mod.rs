@@ -44,13 +44,13 @@ impl SinkName {
 }
 
 impl FromStr for SinkName {
-    type Err = String;
+    type Err = anyhow::Error;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s.trim().to_lowercase().as_str() {
             "msk" => Ok(Self::Msk),
             "msk_alt" => Ok(Self::MskAlt),
             "ws" => Ok(Self::Ws),
-            other => Err(format!("unknown sink: {other}")),
+            other => Err(anyhow::anyhow!("unknown sink: {other}")),
         }
     }
 }

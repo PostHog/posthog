@@ -33,5 +33,5 @@ pub trait Event: Send + Sync {
     fn write_partition_key(&self, ctx: &Context, buf: &mut String);
 
     /// Serialize the event payload into a caller-provided buffer.
-    fn serialize_into(&self, ctx: &Context, buf: &mut String) -> Result<(), String>;
+    fn serialize_into(&self, ctx: &Context, buf: &mut String) -> anyhow::Result<()>;
 }
