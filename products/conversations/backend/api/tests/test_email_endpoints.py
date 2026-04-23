@@ -13,6 +13,7 @@ from posthog.models.comment import Comment
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team import Team
 
+from products.conversations.backend.mailgun import MailgunDomainConflict
 from products.conversations.backend.models import EmailChannel
 from products.conversations.backend.models.ticket import Ticket
 
@@ -316,7 +317,7 @@ class TestEmailMultiConfig(BaseTest):
 
     @patch(
         "products.conversations.backend.api.email_settings.mailgun_add_domain",
-        side_effect=ValueError("Domain example.com already exists"),
+        side_effect=MailgunDomainConflict("Domain example.com already exists"),
     )
     @patch("products.conversations.backend.api.email_settings.mailgun_delete_domain")
     @patch(

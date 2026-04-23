@@ -3,11 +3,13 @@
 import html as html_mod
 from email.utils import formataddr, make_msgid
 from typing import Any, cast
-from urllib.parse import urlparse
+from urllib.parse import quote, urlparse
 from uuid import UUID
 
 from django.core import mail
 from django.core.cache import cache
+from django.db import transaction
+from django.utils import timezone
 
 import requests
 import structlog
@@ -19,6 +21,7 @@ from posthog.models.team import Team
 from posthog.models.uploaded_media import UploadedMedia
 from posthog.storage import object_storage
 
+from products.conversations.backend.events import capture_ticket_status_changed
 from products.conversations.backend.formatting import (
     extract_images_from_rich_content,
     rich_content_to_html,
@@ -26,16 +29,35 @@ from products.conversations.backend.formatting import (
     rich_content_to_slack_payload,
 )
 from products.conversations.backend.mailgun import get_smtp_connection
-from products.conversations.backend.models import EmailMessageMapping
+from products.conversations.backend.models import (
+    EmailMessageMapping,
+    TeamConversationsSlackConfig,
+    TeamConversationsTeamsConfig,
+)
 from products.conversations.backend.models.constants import Status
 from products.conversations.backend.models.ticket import Ticket
-from products.conversations.backend.slack import get_slack_client, resolve_slack_avatar_by_email
+from products.conversations.backend.slack import (
+    get_slack_client,
+    handle_support_mention,
+    handle_support_message,
+    handle_support_reaction,
+    resolve_slack_avatar_by_email,
+)
+from products.conversations.backend.support_teams import (
+    get_bot_framework_token,
+    get_bot_from_id,
+    invalidate_bot_framework_token,
+    is_trusted_teams_service_url,
+)
+from products.conversations.backend.teams import _is_bot_mention, handle_teams_mention, handle_teams_message
+from products.conversations.backend.teams_formatting import rich_content_to_teams_html
 
 from .support_slack import SUPPORT_SLACK_ALLOWED_HOST_SUFFIXES, SUPPORT_SLACK_MAX_IMAGE_BYTES
 
 logger = structlog.get_logger(__name__)
 SUPPORTHOG_EVENT_IDEMPOTENCY_TTL_SECONDS = 6 * 60
 SUPPORTHOG_EVENT_IDEMPOTENCY_KEY_PREFIX = "supporthog:slack:event:"
+SUPPORTHOG_TEAMS_EVENT_IDEMPOTENCY_KEY_PREFIX = "supporthog:teams:event:"
 
 
 def _is_duplicate_supporthog_event(event_id: str) -> bool:
@@ -43,19 +65,16 @@ def _is_duplicate_supporthog_event(event_id: str) -> bool:
     return not cache.add(key, True, timeout=SUPPORTHOG_EVENT_IDEMPOTENCY_TTL_SECONDS)
 
 
+def _is_duplicate_teams_event(activity_id: str) -> bool:
+    key = f"{SUPPORTHOG_TEAMS_EVENT_IDEMPOTENCY_KEY_PREFIX}{activity_id}"
+    return not cache.add(key, True, timeout=SUPPORTHOG_EVENT_IDEMPOTENCY_TTL_SECONDS)
+
+
 @shared_task(ignore_result=True, max_retries=3, default_retry_delay=5)
 def process_supporthog_event(event: dict[str, Any], slack_team_id: str, event_id: str | None = None) -> None:
-    from products.conversations.backend.slack import (
-        handle_support_mention,
-        handle_support_message,
-        handle_support_reaction,
-    )
-
     if event_id and _is_duplicate_supporthog_event(event_id):
         logger.info("supporthog_event_duplicate_skipped", event_id=event_id)
         return
-
-    from products.conversations.backend.models import TeamConversationsSlackConfig
 
     config = (
         TeamConversationsSlackConfig.objects.filter(slack_team_id=slack_team_id, slack_bot_token__isnull=False)
@@ -493,16 +512,118 @@ def send_email_reply(
     )
 
 
+@shared_task(ignore_result=True, max_retries=3, default_retry_delay=5)
+def process_teams_event(activity: dict[str, Any], tenant_id: str, activity_id: str = "") -> None:
+    """Process an inbound Teams Bot Framework activity."""
+
+    if activity_id and _is_duplicate_teams_event(activity_id):
+        logger.info("supporthog_teams_event_duplicate_skipped", activity_id=activity_id)
+        return
+
+    config = (
+        TeamConversationsTeamsConfig.objects.filter(teams_tenant_id=tenant_id, teams_graph_access_token__isnull=False)
+        .select_related("team")
+        .first()
+    )
+    if not config:
+        logger.warning("supporthog_teams_no_team", tenant_id=tenant_id)
+        return
+
+    team = config.team
+    support_settings = team.conversations_settings or {}
+    if not support_settings.get("teams_enabled"):
+        logger.info("supporthog_teams_not_configured", team_id=team.id, tenant_id=tenant_id)
+        return
+
+    try:
+        if _is_bot_mention(activity):
+            handle_teams_mention(activity, team, tenant_id)
+        else:
+            handle_teams_message(activity, team, tenant_id)
+    except Exception as e:
+        logger.exception("supporthog_teams_event_handler_failed", error=str(e))
+        raise cast(Any, process_teams_event).retry(exc=e)
+
+
+@shared_task(ignore_result=True, max_retries=3, default_retry_delay=5)
+def post_reply_to_teams(
+    ticket_id: str,
+    team_id: int,
+    content: str,
+    rich_content: dict | None,
+    author_name: str,
+    teams_service_url: str,
+    teams_conversation_id: str,
+) -> None:
+    """Post a support agent's reply to the corresponding Teams conversation thread."""
+    if not is_trusted_teams_service_url(teams_service_url):
+        logger.warning("teams_reply_untrusted_service_url", ticket_id=ticket_id, service_url=teams_service_url)
+        return
+
+    if not Team.objects.filter(id=team_id).exists():
+        logger.warning("teams_reply_team_not_found", team_id=team_id)
+        return
+
+    try:
+        bot_token = get_bot_framework_token()
+        bot_from_id = get_bot_from_id()
+    except ValueError:
+        logger.warning("teams_reply_no_bot_token", team_id=team_id)
+        return
+
+    reply_html = rich_content_to_teams_html(rich_content, content)
+    display_text = f"{author_name}: {content[:200]}" if author_name else content[:200]
+
+    payload: dict[str, Any] = {
+        "type": "message",
+        "from": {"id": bot_from_id},
+        "conversation": {"id": teams_conversation_id},
+        "text": reply_html,
+        # Teams accepts only "plain", "markdown", or "xml" for textFormat — not "html".
+        # With "markdown", Teams passes through the common HTML tags we emit
+        # (<b>, <i>, <a>, <ul>, <li>, <p>, <br>, <code>, <pre>, <img>).
+        "textFormat": "markdown",
+        "summary": display_text,
+    }
+
+    encoded_conversation_id = quote(teams_conversation_id, safe="")
+    url = f"{teams_service_url.rstrip('/')}/v3/conversations/{encoded_conversation_id}/activities"
+    try:
+        resp = requests.post(
+            url,
+            json=payload,
+            headers={
+                "Authorization": f"Bearer {bot_token}",
+                "Content-Type": "application/json",
+            },
+            timeout=15,
+        )
+        if resp.status_code == 401:
+            invalidate_bot_framework_token()
+        if resp.status_code not in (200, 201):
+            logger.warning(
+                "teams_reply_post_failed",
+                ticket_id=ticket_id,
+                status=resp.status_code,
+                body=resp.text[:500],
+                url=url,
+            )
+            raise cast(Any, post_reply_to_teams).retry(
+                exc=Exception(f"Teams reply failed with status {resp.status_code}")
+            )
+
+        logger.info("teams_reply_posted", ticket_id=ticket_id, conversation_id=teams_conversation_id)
+    except requests.RequestException as e:
+        logger.exception("teams_reply_post_error", ticket_id=ticket_id, error=str(e))
+        raise cast(Any, post_reply_to_teams).retry(exc=e)
+
+
 WAKE_SNOOZE_BATCH_SIZE = 100
 
 
 @shared_task(ignore_result=True)
 def wake_snoozed_tickets() -> None:
     """Reopen tickets whose snooze period has expired, in batches."""
-    from django.db import transaction
-    from django.utils import timezone
-
-    from products.conversations.backend.events import capture_ticket_status_changed
 
     now = timezone.now()
     total = 0

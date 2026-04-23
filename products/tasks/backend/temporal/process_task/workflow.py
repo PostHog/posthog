@@ -20,6 +20,7 @@ from products.tasks.backend.temporal.create_snapshot.workflow import CreateSnaps
 
 from .activities.cleanup_sandbox import CleanupSandboxInput, cleanup_sandbox
 from .activities.create_resume_snapshot import CreateResumeSnapshotInput, create_resume_snapshot
+from .activities.emit_progress_activity import EmitProgressInput, emit_progress_activity
 from .activities.execute_task_in_sandbox import ExecuteTaskOutput
 from .activities.forward_pending_message import forward_pending_user_message
 from .activities.get_sandbox_for_repository import GetSandboxForRepositoryOutput
@@ -97,6 +98,10 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         self._pending_followup: Optional[dict[str, Any]] = None
         self._ci_repetitions: int = 0
         self._last_active_time: Optional[datetime] = None
+        # Tracks which progress step is currently in-progress (step, label,
+        # group) so we can emit a "failed" transition from the workflow-level
+        # exception handler onto the right card.
+        self._current_progress_step: Optional[tuple[str, str, str]] = None
 
     @property
     def context(self) -> TaskProcessingContext:
@@ -209,6 +214,10 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             self._posthog_mcp_scopes = input.posthog_mcp_scopes
             await self._update_task_run_status("in_progress")
 
+            # Announce the first progress step immediately so the desktop card
+            # shows up before any provisioning log lines arrive.
+            await self._emit_progress("sandbox", "in_progress", "Setting up sandbox", "setup")
+
             await self._track_workflow_event(
                 "task_run_started",
                 {
@@ -231,7 +240,9 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             await self._post_slack_update()
 
             # Start agent-server for direct connection from PostHog Code
+            await self._emit_progress("agent", "in_progress", "Starting agent", "setup")
             agent_server_output = await self._start_agent_server(sandbox_output)
+            await self._emit_progress("agent", "completed", "Started agent", "setup")
 
             await self._track_workflow_event(
                 "sandbox_started",
@@ -319,6 +330,15 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         except asyncio.CancelledError:
             current_sandbox_id = sandbox_id or self._sandbox_id_for_cleanup
             if self._context:
+                if self._current_progress_step is not None:
+                    failed_step, failed_label, failed_group = self._current_progress_step
+                    await self._emit_progress(
+                        failed_step,
+                        "failed",
+                        failed_label,
+                        failed_group,
+                        detail="Cancelled",
+                    )
                 await self._track_workflow_event(
                     "task_run_cancelled",
                     {
@@ -339,6 +359,15 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             current_sandbox_id = sandbox_id or self._sandbox_id_for_cleanup
             error_message = str(e)[:500]
             if self._context:
+                if self._current_progress_step is not None:
+                    failed_step, failed_label, failed_group = self._current_progress_step
+                    await self._emit_progress(
+                        failed_step,
+                        "failed",
+                        failed_label,
+                        failed_group,
+                        detail=error_message[:200],
+                    )
                 await self._track_workflow_event(
                     "task_run_failed",
                     {
@@ -397,6 +426,16 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             retry_policy=RetryPolicy(maximum_attempts=3),
         )
         self._sandbox_id_for_cleanup = created.sandbox_id
+        if prepared.used_snapshot:
+            await self._emit_progress(
+                "sandbox",
+                "completed",
+                "Restored sandbox",
+                "setup",
+                detail="Resumed from a previous snapshot",
+            )
+        else:
+            await self._emit_progress("sandbox", "completed", "Set up sandbox", "setup")
 
         # Resuming from a filesystem snapshot carries the previous run's
         # credentials baked into .git/config and any agentsh env file — refresh
@@ -416,7 +455,11 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         can_clone_without_integration = is_public_sandbox_repo(prepared.repository)
         has_clone_credentials = self.context.github_integration_id is not None or can_clone_without_integration
 
-        if prepared.repository and not prepared.used_snapshot and has_clone_credentials:
+        will_clone = bool(prepared.repository and not prepared.used_snapshot and has_clone_credentials)
+        will_checkout = bool(prepared.repository and prepared.branch and has_clone_credentials)
+
+        if will_clone:
+            await self._emit_progress("clone", "in_progress", "Cloning repository", "setup")
             await workflow.execute_activity(
                 clone_repository_in_sandbox,
                 CloneRepositoryInSandboxInput(
@@ -429,8 +472,12 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 start_to_close_timeout=timedelta(minutes=5),
                 retry_policy=RetryPolicy(maximum_attempts=3),
             )
+            await self._emit_progress("clone", "completed", "Cloned repository", "setup")
 
-        if prepared.repository and prepared.branch and has_clone_credentials:
+        if will_checkout:
+            branch_label_active = f"Checking out branch {prepared.branch}"
+            branch_label_done = f"Checked out branch {prepared.branch}"
+            await self._emit_progress("checkout", "in_progress", branch_label_active, "setup")
             await workflow.execute_activity(
                 checkout_branch_in_sandbox,
                 CheckoutBranchInSandboxInput(
@@ -445,6 +492,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 start_to_close_timeout=timedelta(minutes=5),
                 retry_policy=RetryPolicy(maximum_attempts=3),
             )
+            await self._emit_progress("checkout", "completed", branch_label_done, "setup")
 
         return GetSandboxForRepositoryOutput(
             sandbox_id=created.sandbox_id,
@@ -521,6 +569,50 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             start_to_close_timeout=timedelta(minutes=2),
             retry_policy=RetryPolicy(maximum_attempts=1),
         )
+
+    async def _emit_progress(
+        self,
+        step: str,
+        status: str,
+        label: str,
+        group: str,
+        detail: Optional[str] = None,
+    ) -> None:
+        """Emit a structured progress notification. Best-effort.
+
+        The caller-supplied `group` is scoped with the workflow's run id so
+        cards never collide across workflow executions (retries, resumes). The
+        scoped id is what actually goes on the wire — callers don't need to
+        think about uniqueness.
+        """
+        scoped_group = f"{group}:{self.context.run_id}"
+        try:
+            await workflow.execute_activity(
+                emit_progress_activity,
+                EmitProgressInput(
+                    run_id=self.context.run_id,
+                    step=step,
+                    status=status,
+                    label=label,
+                    group=scoped_group,
+                    detail=detail,
+                ),
+                start_to_close_timeout=timedelta(seconds=30),
+                retry_policy=RetryPolicy(maximum_attempts=1),
+            )
+            if status == "in_progress":
+                self._current_progress_step = (step, label, group)
+            elif status in {"completed", "failed"}:
+                if self._current_progress_step and self._current_progress_step[0] == step:
+                    self._current_progress_step = None
+        except Exception as e:
+            workflow.logger.warning(
+                "emit_progress_failed",
+                run_id=self.context.run_id,
+                step=step,
+                status=status,
+                error=str(e),
+            )
 
     async def _update_task_run_status(self, status: str, error_message: Optional[str] = None) -> None:
         await workflow.execute_activity(

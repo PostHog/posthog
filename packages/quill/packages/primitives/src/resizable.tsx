@@ -6,6 +6,7 @@ import { cn } from './lib/utils'
 function ResizablePanelGroup({ className, ...props }: ResizablePrimitive.GroupProps): React.ReactElement {
     return (
         <ResizablePrimitive.Group
+            data-quill
             data-slot="resizable-panel-group"
             className={cn(
                 'group/resizable-panel-group flex h-full w-full aria-[orientation=vertical]:flex-col',

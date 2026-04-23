@@ -2,11 +2,18 @@
     "$schema": "https://stripe.com/stripe-app.schema.json",
     "id": "com.posthog.stripe",
     "name": "PostHog",
-    "version": "1.2.0",
+    "version": "1.2.1",
     "icon": "./assets/logomark.png",
     "provisioning": {
         "base_url": "https://us.posthog.com/api/agentic/",
-        "oauth_scopes": ["query:read", "project:read", "feature_flag:read", "experiment:read"],
+        "oauth_scopes": [
+            "query:read",
+            "project:read",
+            "feature_flag:read",
+            "experiment:read",
+            "customer_journey:read",
+            "insight:read"
+        ],
         "oauth_token_endpoint": "https://us.posthog.com/api/agentic/oauth/token",
         "oauth_client_id": "3pFZtlNOg7UEBtr8t0rBAEbI8E4GBf1YqIC2L4jJ",
         "oauth_client_secret_secret_store_key": "oauth_client_secret",
@@ -22,6 +29,10 @@
                 "component": "Home"
             },
             {
+                "viewport": "stripe.dashboard.fullpage",
+                "component": "FullPage"
+            },
+            {
                 "viewport": "settings",
                 "component": "Settings"
             },
@@ -35,7 +46,7 @@
             "purpose": "Connect to PostHog API to populate the UI with PostHog data"
         }
     },
-    "extensions": [],
+    "extensions": null,
     "permissions": [
         {
             "permission": "secret_write",
@@ -96,14 +107,6 @@
         {
             "permission": "payment_method_read",
             "purpose": "Read payment methods for data syncing"
-        },
-        {
-            "permission": "webhook_read",
-            "purpose": "Read webhooks for data syncing"
-        },
-        {
-            "permission": "webhook_write",
-            "purpose": "Create new webhooks for syncing data in real-time"
         },
         {
             "permission": "provisioning_account_request_write",
