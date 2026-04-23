@@ -8,6 +8,7 @@ instead of relying on the batch clustering pipeline.
 
 import structlog
 import temporalio
+from structlog.contextvars import bind_contextvars
 
 from posthog.models.exported_asset import ExportedAsset
 from posthog.models.team.team import Team
@@ -31,6 +32,7 @@ async def emit_session_problem_signals_activity(
 
     Returns the number of signals emitted.
     """
+    bind_contextvars(team_id=inputs.team_id, session_id=inputs.session_id)
 
     if not problems:
         return 0

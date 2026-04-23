@@ -652,6 +652,7 @@ async def ensure_llm_single_session_summary(
         problems = collect_session_problems(consolidated_analysis.segments)
         logger.info(
             "session problem signals pre-emission",
+            team_id=inputs.team_id,
             session_id=inputs.session_id,
             workflow_id=trace_id,
             total_consolidated_segments=len(consolidated_analysis.segments),
@@ -688,6 +689,14 @@ async def ensure_llm_single_session_summary(
             if isinstance(store_result, BaseException):
                 raise store_result
         else:
+            logger.info(
+                "Skipping session problem signals emission activity (no problems found)",
+                team_id=inputs.team_id,
+                session_id=inputs.session_id,
+                workflow_id=trace_id,
+                total_consolidated_segments=len(consolidated_analysis.segments),
+                signals_type="session-summaries",
+            )
             await temporalio.workflow.execute_activity(
                 store_video_session_summary_activity,
                 args=(video_inputs, consolidated_analysis),
