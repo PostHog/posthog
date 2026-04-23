@@ -1,5 +1,4 @@
 import uuid
-
 from typing import Any, cast
 
 from django.db import transaction

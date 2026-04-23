@@ -22,7 +22,6 @@
         },
         "source_comment": {
             "description": "Filter replies to a specific parent comment.",
-            "minLength": 1,
             "type": "string"
         }
     },
