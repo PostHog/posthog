@@ -42,11 +42,6 @@ export const handlers: RequestHandler[] = [
     http.get('*/api/projects/:projectId/groups_types/', () => HttpResponse.json(groupTypes)),
     http.get('*/api/projects/:projectId', () => HttpResponse.json(project)),
     http.get('*/api/projects/:projectId/', () => HttpResponse.json(project)),
-    // Catch-all for any other PostHog API endpoint init() / StateManager might
-    // touch. Returning {} (instead of letting MSW warn or 404) keeps the
-    // `[API] Request failed …` console.error out of test stderr without
-    // changing semantics — every caller is wrapped to handle missing fields.
-    http.all('*/api/*', () => HttpResponse.json({})),
 ]
 
 /**
