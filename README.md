@@ -99,7 +99,7 @@ We <3 contributions big and small:
 - Open a PR (see our instructions on [developing PostHog locally](https://posthog.com/handbook/engineering/developing-locally))
 - Submit a [feature request](https://github.com/PostHog/posthog/issues/new?assignees=&labels=enhancement%2C+feature&template=feature_request.yml) or [bug report](https://github.com/PostHog/posthog/issues/new?assignees=&labels=bug&template=bug_report.yml)
 
-For an overview of the codebase structure, see [monorepo layout](docs/internal/monorepo-layout.md) and [products](products/README.md).
+For an overview of the codebase structure, see [monorepo layout](docs/internal/monorepo-layout.md) and [products](products/README.md). Contributors (and coding agents) should also read [AGENTS.md](AGENTS.md) for development commands, conventions, and architecture guidelines.
 
 ## Open-source vs. paid
 
