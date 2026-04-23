@@ -1,5 +1,11 @@
 import { parseJSON } from '../utils/json-parse'
-import { PII_REDACTED, encodeAttributeCell, scrubLogRecord, scrubPlainString } from './log-pii-scrub'
+import {
+    PII_REDACTED,
+    encodeAttributeCell,
+    scrubLogRecord,
+    scrubPlainString,
+    scrubPlainStringWithStats,
+} from './log-pii-scrub'
 import type { LogRecord } from './log-record-avro'
 
 describe('log-pii-scrub', () => {
@@ -37,6 +43,21 @@ describe('log-pii-scrub', () => {
         it('leaves digit runs with fullwidth digits unchanged', () => {
             const panWithFullwidthOne = '4242424242\uFF1142424242'
             expect(scrubPlainString(`card ${panWithFullwidthOne} end`)).toBe(`card ${panWithFullwidthOne} end`)
+        })
+    })
+
+    describe('scrubPlainStringWithStats', () => {
+        it('returns zero replacements when there are no matches', () => {
+            expect(scrubPlainStringWithStats('no patterns here')).toEqual({
+                output: 'no patterns here',
+                piiReplacements: 0,
+            })
+        })
+
+        it('counts one replacement per redaction in the string', () => {
+            const r = scrubPlainStringWithStats('a@b.com and c@d.com')
+            expect(r.piiReplacements).toBe(2)
+            expect(r.output).toBe(`${PII_REDACTED} and ${PII_REDACTED}`)
         })
     })
 
