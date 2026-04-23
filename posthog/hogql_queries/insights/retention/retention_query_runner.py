@@ -849,6 +849,26 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
                 is_first_interval_after_start_event, intervals_from_base_array_aggregator
             )
 
+        date_range_expr = ast.Alias(
+            alias="date_range",
+            expr=parse_expr(
+                """
+                            arrayMap(
+                                x -> {date_from_start_of_interval} + {to_interval_function},
+                                range(0, {intervals_between})
+                            )
+                        """,
+                {
+                    "intervals_between": ast.Constant(value=self.query_date_range.intervals_between),
+                    "date_from_start_of_interval": self.query_date_range.date_from_to_start_of_interval_hogql(),
+                    "to_interval_function": ast.Call(
+                        name=f"toInterval{self.query_date_range.interval_name.capitalize()}",
+                        args=[ast.Field(chain=["x"])],
+                    ),
+                },
+            ),
+        )
+
         has_data_warehouse_series = (
             self.start_event.type == EntityType.DATA_WAREHOUSE or self.return_event.type == EntityType.DATA_WAREHOUSE
         )
@@ -864,25 +884,7 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
                 # when TARGET_FIRST_TIME, also adds filter for start (target) event performed for first time
                 ast.Alias(alias="start_event_timestamps", expr=start_event_timestamps),
                 # get all intervals between date_from and date_to (represented by start of interval)
-                ast.Alias(
-                    alias="date_range",
-                    expr=parse_expr(
-                        """
-                            arrayMap(
-                                x -> {date_from_start_of_interval} + {to_interval_function},
-                                range(0, {intervals_between})
-                            )
-                        """,
-                        {
-                            "intervals_between": ast.Constant(value=self.query_date_range.intervals_between),
-                            "date_from_start_of_interval": self.query_date_range.date_from_to_start_of_interval_hogql(),
-                            "to_interval_function": ast.Call(
-                                name=f"toInterval{self.query_date_range.interval_name.capitalize()}",
-                                args=[ast.Field(chain=["x"])],
-                            ),
-                        },
-                    ),
-                ),
+                date_range_expr,
                 *minimum_occurrences_aliases,
             ]
 
@@ -999,6 +1001,7 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
                 select=[
                     ast.Alias(alias="actor_id", expr=start_actor_field),
                     ast.Alias(alias="start_event_timestamps", expr=start_event_timestamps),
+                    ast.Alias(alias="return_event_timestamps", expr=ast.Array(exprs=[])),
                 ],
                 select_from=ast.JoinExpr(table=ast.Field(chain=[start_table_name])),
                 where=start_where_expr,
@@ -1036,6 +1039,7 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
             return_event_query = ast.SelectQuery(
                 select=[
                     ast.Alias(alias="actor_id", expr=return_actor_field),
+                    ast.Alias(alias="start_event_timestamps", expr=ast.Array(exprs=[])),
                     ast.Alias(alias="return_event_timestamps", expr=return_event_timestamps),
                 ],
                 select_from=ast.JoinExpr(table=ast.Field(chain=[return_table_name])),
@@ -1067,7 +1071,7 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
                             """
                         ),
                     ),
-                    ast.Alias(alias="date_range", expr=parse_expr("any(date_range)")),
+                    date_range_expr,
                     ast.Alias(
                         alias="return_event_timestamps",
                         expr=parse_expr(

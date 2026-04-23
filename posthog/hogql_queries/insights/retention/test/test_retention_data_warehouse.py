@@ -161,6 +161,7 @@ class TestRetentionDataWarehouse(ClickhouseTestMixin, APIBaseTest):
                     [2, 1, 0],
                     [0, 0],
                     [0],
+                    [0],
                 ]
             ),
         )
@@ -239,6 +240,7 @@ class TestRetentionDataWarehouse(ClickhouseTestMixin, APIBaseTest):
                     [2, 1, 0],
                     [0, 0],
                     [0],
+                    [0],
                 ]
             ),
         )
@@ -305,6 +307,7 @@ class TestRetentionDataWarehouse(ClickhouseTestMixin, APIBaseTest):
                     [2, 1, 1, 0],
                     [2, 1, 0],
                     [0, 0],
+                    [0],
                     [0],
                 ]
             ),
