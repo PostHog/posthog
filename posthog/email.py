@@ -3,6 +3,7 @@
 import sys
 import html
 import uuid
+import datetime
 import dataclasses
 from decimal import Decimal
 from typing import TYPE_CHECKING, Any, Optional
@@ -286,7 +287,7 @@ def sanitize_email_properties(properties: dict[str, Any] | None) -> dict[str, An
     skip_sanitization_keys = ["utm_tags"]
 
     # Supported types (besides containers like dict and list)
-    supported_types = (str, int, float, bool, type(None), Decimal, uuid.UUID)
+    supported_types = (str, int, float, bool, type(None), Decimal, uuid.UUID, datetime.datetime, datetime.date)
 
     def sanitize_value(value: Any) -> Any:
         if isinstance(value, str):
@@ -298,6 +299,10 @@ def sanitize_email_properties(properties: dict[str, Any] | None) -> dict[str, An
         elif isinstance(value, uuid.UUID):
             # Handle UUID by converting to string and escaping
             return html.escape(str(value))
+        elif isinstance(value, datetime.datetime | datetime.date):
+            # Convert datetime/date to ISO-8601 string and escape — reached via
+            # dataclasses.asdict() for facade contracts with created_at-style fields
+            return html.escape(value.isoformat())
         elif hasattr(value, "_meta") and hasattr(value, "pk"):
             # Handle Django models by converting to string and escaping
             return html.escape(str(value))
