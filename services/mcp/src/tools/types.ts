@@ -82,6 +82,12 @@ export type Context = {
     env: Env
     stateManager: StateManager
     sessionManager: SessionManager
+    /**
+     * Resolve the current user's PostHog distinct ID. Cached by the MCP class —
+     * safe to call repeatedly. Exposed on the context so tool handlers (e.g. the
+     * exec wrapper) can attach `_analytics` without depending on the MCP class.
+     */
+    getDistinctId: () => Promise<string>
 }
 
 export type Tool<TSchema extends z.ZodType = z.ZodType, TResult = unknown> = {

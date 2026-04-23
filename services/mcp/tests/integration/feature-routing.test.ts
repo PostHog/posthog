@@ -21,6 +21,7 @@ const createMockContext = (): Context => ({
         getAiConsentGiven: async () => undefined,
     } as any,
     sessionManager: new SessionManager({} as any),
+    getDistinctId: async () => 'test-distinct-id',
 })
 
 describe('Feature Routing Integration', () => {

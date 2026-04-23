@@ -131,6 +131,16 @@ class TestPropertyTypes(BaseTest):
         printed = self._print_select("select person.properties.provided_timestamp from events")
         assert printed == self.snapshot
 
+    def test_resolve_property_types_from_qualified_posthog_events(self):
+        # Selecting from the qualified `posthog.events` form must produce the same property-type
+        # rewriting as the unqualified `events` form — otherwise queries using the qualified form
+        # silently miss numeric/boolean casts and DateTime timezone wrapping.
+        unqualified = self._print_select("select properties.$screen_width, properties.bool from events")
+        qualified = self._print_select("select properties.$screen_width, properties.bool from posthog.events")
+        # Both root-level `events` and `posthog.events` resolve to the same EventsTable and print
+        # identically, so property-type resolution output should match exactly.
+        assert unqualified == qualified
+
     @pytest.mark.usefixtures("unittest_snapshot")
     @override_settings(PERSON_ON_EVENTS_OVERRIDE=False, PERSON_ON_EVENTS_V2_OVERRIDE=False)
     def test_group_property_types(self):
