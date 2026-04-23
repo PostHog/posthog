@@ -52,11 +52,13 @@ export default meta
 type Story = StoryObj<typeof UsageMetricCard>
 
 const Grid = ({ metrics }: { metrics: UsageMetric[] }): JSX.Element => (
-    <div className="@container">
-        <div className="grid grid-cols-1 @md:grid-cols-2 @xl:grid-cols-4 gap-4 p-4">
-            {metrics.map((metric) => (
-                <UsageMetricCard key={metric.id} metric={metric} />
-            ))}
+    <div style={{ width: 1280 }}>
+        <div className="@container">
+            <div className="grid grid-cols-1 @md:grid-cols-2 @xl:grid-cols-4 gap-4 p-4">
+                {metrics.map((metric) => (
+                    <UsageMetricCard key={metric.id} metric={metric} />
+                ))}
+            </div>
         </div>
     </div>
 )
@@ -101,29 +103,27 @@ export const PositiveAndNegativeTrends: Story = {
  */
 export const MixedGridAtNarrowBreakpoint: Story = {
     render: () => (
-        <div style={{ width: 1280 }}>
-            <Grid
-                metrics={[
-                    baseNumberMetric,
-                    {
-                        ...baseNumberMetric,
-                        id: 'recordings',
-                        name: 'Recordings',
-                        value: 25_400,
-                        change_from_previous_pct: -0.92,
-                    },
-                    baseSparklineMetric,
-                    {
-                        ...baseSparklineMetric,
-                        id: 'events-with-groups',
-                        name: 'Events with groups',
-                        value: 563_000,
-                        change_from_previous_pct: 0.11,
-                        timeseries: sparklineData.slice().reverse(),
-                    },
-                ]}
-            />
-        </div>
+        <Grid
+            metrics={[
+                baseNumberMetric,
+                {
+                    ...baseNumberMetric,
+                    id: 'recordings',
+                    name: 'Recordings',
+                    value: 25_400,
+                    change_from_previous_pct: -0.92,
+                },
+                baseSparklineMetric,
+                {
+                    ...baseSparklineMetric,
+                    id: 'events-with-groups',
+                    name: 'Events with groups',
+                    value: 563_000,
+                    change_from_previous_pct: 0.11,
+                    timeseries: sparklineData.slice().reverse(),
+                },
+            ]}
+        />
     ),
 }
 
@@ -151,4 +151,7 @@ export const NullTrend: StoryObj = {
 
 export const Skeleton: StoryObj = {
     render: () => <UsageMetricCardSkeleton />,
+    parameters: {
+        testOptions: { waitForLoadersToDisappear: false },
+    },
 }
