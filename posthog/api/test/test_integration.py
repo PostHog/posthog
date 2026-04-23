@@ -3,6 +3,9 @@ from datetime import timedelta
 import pytest
 from unittest.mock import MagicMock, patch
 
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric import rsa
+from django.conf import settings as django_settings
 from django.core.cache import cache
 from django.test.client import Client as HttpClient
 from django.utils import timezone
@@ -1022,7 +1025,24 @@ class TestStripeIntegration:
         assert response.status_code == status.HTTP_201_CREATED
 
 
+def _generate_rsa_key() -> str:
+    private_key = rsa.generate_private_key(public_exponent=65537, key_size=4096)
+    pem = private_key.private_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PrivateFormat.TraditionalOpenSSL,
+        encryption_algorithm=serialization.NoEncryption(),
+    )
+    return pem.decode("utf-8")
+
+
 class TestStripeIntegrationOAuthTokens:
+    @pytest.fixture(autouse=True)
+    def _override_oidc_key(self, settings):
+        settings.OAUTH2_PROVIDER = {
+            **django_settings.OAUTH2_PROVIDER,
+            "OIDC_RSA_PRIVATE_KEY": _generate_rsa_key(),
+        }
+
     @pytest.fixture(autouse=True)
     def setup(self, db):
         self.organization = Organization.objects.create(name="Test Org")
