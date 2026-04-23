@@ -39,7 +39,7 @@ describe('paymentEntryLogic', () => {
             await seedBilling({ customer_id: 'cus_test', subscription_level: 'free' })
         })
 
-        const setupActivate = (activate: [number, unknown]): void => {
+        const setupActivate = (activate: [number] | [number, unknown]): void => {
             useMocks({ post: { '/api/billing/activate': () => activate } })
             logic = paymentEntryLogic()
             logic.mount()
