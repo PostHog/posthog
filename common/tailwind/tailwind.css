@@ -1,5 +1,17 @@
 @import 'tailwindcss';
 
+/* Quill design system — scoped imports.
+ * All quill CSS vars are gated behind [data-quill] so they don't clash
+ * with PostHog's existing CSS custom properties (--border, --accent, etc.).
+ * Add data-quill attribute to wrapper elements where quill components render.
+ * During migration, move the attribute up the DOM tree; when it reaches
+ * <html> the scope is effectively global and can be removed. */
+@import '@posthog/quill/tokens.scoped.css';
+@import '@posthog/quill/base.scoped.css';
+
+/* Scan Quill's compiled JS for Tailwind class strings */
+@import '@posthog/quill/tailwind.css';
+
 /* if this shows a warning, change the type of file in vscode to 'tailwind CSS' */
 @config "./tailwind.config.js";
 
