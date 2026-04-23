@@ -243,6 +243,10 @@ class TestGitHubPRWebhook(TestCase):
 class TestGitHubPRWebhookResolvesSignalReports(TestCase):
     """Webhook resolves any SignalReport linked to the merged PR's task."""
 
+    organization: ClassVar[Organization]
+    team: ClassVar[Team]
+    user: ClassVar[User]
+
     @classmethod
     def setUpTestData(cls):
         cls.organization = Organization.objects.create(name="Test Org")
@@ -279,7 +283,7 @@ class TestGitHubPRWebhookResolvesSignalReports(TestCase):
             relationship=SignalReportTask.Relationship.IMPLEMENTATION,
         )
 
-    def _post_pr_webhook(self, action: str, merged: bool) -> "object":
+    def _post_pr_webhook(self, action: str, merged: bool):
         payload = {
             "action": action,
             "pull_request": {
