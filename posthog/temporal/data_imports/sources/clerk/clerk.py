@@ -17,8 +17,9 @@ class ClerkResumeConfig:
     """Resume state for Clerk endpoints.
 
     All Clerk endpoints use offset-based pagination, so the checkpoint is just
-    the next offset to fetch. On resume we re-request the saved page — duplicates
-    are deduped by the ``id`` primary key.
+    the next offset to fetch. On resume we start fetching from the saved offset
+    (at-least-once semantics): any duplicates from a batch that was yielded but
+    whose checkpoint did not persist are deduped by the ``id`` primary key.
     """
 
     offset: int
@@ -76,19 +77,28 @@ class ClerkPaginator(BasePaginator):
         # Clerk endpoints return either:
         # - Direct array: /users, /invitations
         # - Wrapped object {data: [...], total_count: ...}: /organizations, /organization_memberships
+        total_count: Optional[int] = None
         if isinstance(res, dict) and "data" in res:
             items = res["data"]
+            raw_total = res.get("total_count")
+            if isinstance(raw_total, int):
+                total_count = raw_total
         elif isinstance(res, list):
             items = res
         else:
             items = []
 
-        # If we got fewer items than the limit, we've reached the end
-        if len(items) < self._limit:
-            self._has_next_page = False
+        next_offset = self._offset + len(items)
+
+        # Prefer total_count for wrapped endpoints so we don't issue an extra
+        # empty request when total_count is exactly divisible by limit.
+        if total_count is not None:
+            self._has_next_page = next_offset < total_count
         else:
-            self._offset += len(items)
-            self._has_next_page = True
+            self._has_next_page = len(items) >= self._limit
+
+        if self._has_next_page:
+            self._offset = next_offset
 
     def update_request(self, request: Request) -> None:
         if self._has_next_page:

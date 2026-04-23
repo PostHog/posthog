@@ -25,6 +25,13 @@ class TestClerkPaginator:
             ("direct_array_full_page", [{"id": f"u{i}"} for i in range(100)], True, 100),
             ("direct_array_partial_page", [{"id": "u1"}, {"id": "u2"}], False, 0),
             ("wrapped_full_page", {"data": [{"id": f"o{i}"} for i in range(100)], "total_count": 250}, True, 100),
+            # total_count exactly divisible by limit: skip the extra empty request.
+            (
+                "wrapped_full_terminal_page",
+                {"data": [{"id": f"o{i}"} for i in range(100)], "total_count": 100},
+                False,
+                0,
+            ),
             ("wrapped_partial_page", {"data": [{"id": "o1"}], "total_count": 1}, False, 0),
             ("empty_body", None, False, 0),
             ("empty_dict", {}, False, 0),
@@ -198,16 +205,17 @@ class TestClerkSourceResumeBehavior:
 
         manager.save_state.assert_not_called()
 
-    def test_saved_state_with_zero_offset_is_ignored(self) -> None:
+    @pytest.mark.parametrize("endpoint", [_DIRECT_ARRAY_ENDPOINT, _WRAPPED_ENDPOINT])
+    def test_saved_state_with_zero_offset_is_ignored(self, endpoint: str) -> None:
         # A zero-offset checkpoint is equivalent to a fresh run — don't seed.
         manager = MagicMock(spec=ResumableSourceManager)
         manager.can_resume.return_value = True
         manager.load_state.return_value = ClerkResumeConfig(offset=0)
 
         responses = [
-            _make_http_response(_partial_page(_DIRECT_ARRAY_ENDPOINT, ["u1"])),
+            _make_http_response(_partial_page(endpoint, ["u1"])),
         ]
-        sent_params = self._drive(_DIRECT_ARRAY_ENDPOINT, manager, responses)
+        sent_params = self._drive(endpoint, manager, responses)
 
         assert [p.get("offset") for p in sent_params] == [None]
 
