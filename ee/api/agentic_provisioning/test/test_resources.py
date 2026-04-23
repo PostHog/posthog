@@ -242,6 +242,46 @@ class TestProvisioningResources(StripeProvisioningTestBase):
         access_token = OAuthAccessToken.objects.get(token=token)
         assert foreign_team.id not in (access_token.scoped_teams or [])
 
+    def test_create_resource_race_winner_in_same_org_returns_winner_and_syncs_scopes(self):
+        from unittest.mock import patch
+
+        from django.db import IntegrityError
+
+        from posthog.models.team.team_provisioning_config import TeamProvisioningConfig
+
+        winner_team = Team.objects.create_with_data(
+            initiating_user=self.user,
+            organization=self.organization,
+            name="Race winner",
+        )
+        TeamProvisioningConfig.objects.update_or_create(
+            team=winner_team, defaults={"stripe_project_id": "proj_race_same_org"}
+        )
+
+        original_update_or_create = TeamProvisioningConfig.objects.update_or_create
+        calls: list[int] = []
+
+        def raise_once_then_passthrough(*args, **kwargs):
+            calls.append(1)
+            if len(calls) == 1:
+                raise IntegrityError
+            return original_update_or_create(*args, **kwargs)
+
+        token = self._get_bearer_token()
+        with patch.object(TeamProvisioningConfig.objects, "update_or_create", side_effect=raise_once_then_passthrough):
+            res = self._post_signed_with_bearer(
+                "/api/agentic/provisioning/resources",
+                data={"service_id": "analytics", "project_id": "proj_race_same_org"},
+                token=token,
+            )
+
+        assert res.status_code == 200
+        assert res.json()["id"] == str(winner_team.id)
+
+        access_token = OAuthAccessToken.objects.get(token=token)
+        assert winner_team.id in (access_token.scoped_teams or [])
+        assert self.team.id in (access_token.scoped_teams or [])
+
     def test_create_resource_with_existing_project_id_adds_resolved_team_to_scoped_teams(self):
         from posthog.models.team.team_provisioning_config import TeamProvisioningConfig
 
