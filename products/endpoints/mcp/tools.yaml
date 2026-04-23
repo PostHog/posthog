@@ -7,37 +7,8 @@
 category: Endpoints
 feature: endpoints
 url_prefix: /endpoints
+ui_apps: {}
 tools:
-    endpoints-get-all:
-        operation: endpoints_list
-        enabled: true
-        scopes:
-            - endpoint:read
-        annotations:
-            readOnly: true
-            destructive: false
-            idempotent: true
-        enrich_url: '{name}'
-        list: true
-        title: Get all endpoints
-        description: >
-            Get all API endpoints in the current project. Endpoints expose saved HogQL or insight queries as callable
-            API routes. Returns name, description, query, active status, current version, and materialization info for
-            each endpoint.
-    endpoint-get:
-        operation: endpoints_retrieve
-        enabled: true
-        scopes:
-            - endpoint:read
-        annotations:
-            readOnly: true
-            destructive: false
-            idempotent: true
-        enrich_url: '{name}'
-        title: Get endpoint
-        description: >
-            Get a specific endpoint by name. Returns the full endpoint configuration including query definition, version
-            info, materialization status, and column types. Supports ?version=N to retrieve a specific version.
     endpoint-create:
         operation: endpoints_create
         enabled: true
@@ -59,28 +30,6 @@ tools:
             - description
             - is_materialized
             - cache_age_seconds
-    endpoint-update:
-        operation: endpoints_partial_update
-        enabled: true
-        scopes:
-            - endpoint:write
-        annotations:
-            readOnly: false
-            destructive: false
-            idempotent: true
-        enrich_url: '{name}'
-        title: Update endpoint
-        description: >
-            Update an existing endpoint by name. Can update the query (auto-creates a new version), description, cache
-            age, active status, and materialization. Pass version in body to target a specific version for non-query
-            updates.
-        include_params:
-            - query
-            - description
-            - is_active
-            - is_materialized
-            - cache_age_seconds
-            - version
     endpoint-delete:
         operation: endpoints_destroy
         enabled: true
@@ -94,6 +43,48 @@ tools:
         description: |
             Delete an endpoint by name. The endpoint is soft-deleted and its materialized views are cleaned up.
         soft_delete: true
+    endpoint-get:
+        operation: endpoints_retrieve
+        enabled: true
+        scopes:
+            - endpoint:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        enrich_url: '{name}'
+        title: Get endpoint
+        description: >
+            Get a specific endpoint by name. Returns the full endpoint configuration including query definition, version
+            info, materialization status, and column types. Supports ?version=N to retrieve a specific version.
+    endpoint-materialization-status:
+        operation: endpoints_materialization_status_retrieve
+        enabled: true
+        scopes:
+            - endpoint:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        enrich_url: '{name}'
+        title: Get materialization status
+        description: >
+            Get lightweight materialization status for an endpoint without fetching full endpoint data. Returns whether
+            materialization is possible, current status, last run time, and any errors. Supports ?version=N.
+    endpoint-openapi-spec:
+        operation: endpoints_openapi.json_retrieve
+        enabled: true
+        scopes:
+            - endpoint:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get endpoint OpenAPI spec
+        description: >
+            Get the OpenAPI 3.0 specification for an endpoint. Returns a JSON spec that can be used with SDK generators
+            like openapi-generator or @hey-api/openapi-ts to create typed API clients. Supports ?version=N to generate a
+            spec for a specific version.
     endpoint-run:
         operation: endpoints_run_create
         enabled: true
@@ -120,6 +111,28 @@ tools:
                     Key-value pairs to parameterize the query. For HogQL endpoints, keys match variable code_name (e.g.
                     {"event_name": "$pageview"}). For insight endpoints with breakdowns, use the breakdown property name
                     as key.
+    endpoint-update:
+        operation: endpoints_partial_update
+        enabled: true
+        scopes:
+            - endpoint:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        enrich_url: '{name}'
+        title: Update endpoint
+        description: >
+            Update an existing endpoint by name. Can update the query (auto-creates a new version), description, cache
+            age, active status, and materialization. Pass version in body to target a specific version for non-query
+            updates.
+        include_params:
+            - query
+            - description
+            - is_active
+            - is_materialized
+            - cache_age_seconds
+            - version
     endpoint-versions:
         operation: endpoints_versions_list
         enabled: true
@@ -135,8 +148,8 @@ tools:
         description: >
             List all versions for an endpoint, in descending order (latest first). Each version contains the query
             snapshot, description, cache settings, and materialization status at that point in time.
-    endpoint-materialization-status:
-        operation: endpoints_materialization_status_retrieve
+    endpoints-get-all:
+        operation: endpoints_list
         enabled: true
         scopes:
             - endpoint:read
@@ -145,33 +158,21 @@ tools:
             destructive: false
             idempotent: true
         enrich_url: '{name}'
-        title: Get materialization status
+        list: true
+        title: Get all endpoints
         description: >
-            Get lightweight materialization status for an endpoint without fetching full endpoint data. Returns whether
-            materialization is possible, current status, last run time, and any errors. Supports ?version=N.
-    endpoints-update:
-        operation: endpoints_update
-        enabled: false
-    endpoints-run-retrieve:
-        operation: endpoints_run_retrieve
-        enabled: false
-    endpoint-openapi-spec:
-        operation: endpoints_openapi.json_retrieve
-        enabled: true
-        scopes:
-            - endpoint:read
-        annotations:
-            readOnly: true
-            destructive: false
-            idempotent: true
-        title: Get endpoint OpenAPI spec
-        description: >
-            Get the OpenAPI 3.0 specification for an endpoint. Returns a JSON spec that can be used
-            with SDK generators like openapi-generator or @hey-api/openapi-ts to create typed API
-            clients. Supports ?version=N to generate a spec for a specific version.
+            Get all API endpoints in the current project. Endpoints expose saved HogQL or insight queries as callable
+            API routes. Returns name, description, query, active status, current version, and materialization info for
+            each endpoint.
     endpoints-last-execution-times-create:
         operation: endpoints_last_execution_times_create
         enabled: false
     endpoints-materialization-preview-create:
         operation: endpoints_materialization_preview_create
+        enabled: false
+    endpoints-run-retrieve:
+        operation: endpoints_run_retrieve
+        enabled: false
+    endpoints-update:
+        operation: endpoints_update
         enabled: false

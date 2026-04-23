@@ -240,11 +240,13 @@ function generateFreshYaml(ops: DiscoveredOperation[], tag: string): string {
         }
     }
 
+    const sortedTools = Object.fromEntries(Object.entries(tools).sort(([a], [b]) => a.localeCompare(b)))
+
     const yaml: Record<string, unknown> = {
         category: tag.charAt(0).toUpperCase() + tag.slice(1),
         feature: tag.replace(/-/g, '_'),
         url_prefix: `/${tag.replace(/_/g, '-')}`,
-        tools,
+        tools: sortedTools,
     }
 
     return YAML_HEADER + stringifyYaml(yaml, { indent: 4, lineWidth: 120 })
@@ -324,12 +326,14 @@ function mergeWithExisting(
         }
     }
 
+    const sortedTools = Object.fromEntries(Object.entries(mergedTools).sort(([a], [b]) => a.localeCompare(b)))
+
     const merged: Record<string, unknown> = {
         category: existing.category ?? tag.charAt(0).toUpperCase() + tag.slice(1),
         feature: existing.feature ?? tag.replace(/-/g, '_'),
         url_prefix: existing.url_prefix ?? `/${tag.replace(/_/g, '-')}`,
         ui_apps: existing.ui_apps ?? {},
-        tools: mergedTools,
+        tools: sortedTools,
     }
 
     // Query wrappers are hand-authored (schema.json); OpenAPI sync must not drop them.
@@ -440,11 +444,8 @@ function syncAll(spec: OpenApiSpec): void {
             validIds,
             subset
         )
-        // Only write when there are semantic changes (avoids formatting-only rewrites)
-        if (added > 0 || removed > 0 || updated > 0) {
-            fs.writeFileSync(filePath, content)
-            writtenFiles.push(filePath)
-        }
+        fs.writeFileSync(filePath, content)
+        writtenFiles.push(filePath)
         const total = matched + unmatchedTools.length
         const parts = [
             subset ? (total === 0 ? '0 tool(s)' : `${matched}/${total} tool(s) matched`) : `${ops.length} operation(s)`,

@@ -15,24 +15,6 @@ ui_apps:
         type: list
         detail_tool: action-get
 tools:
-    actions-get-all:
-        operation: actions_list
-        enabled: true
-        scopes:
-            - action:read
-        annotations:
-            readOnly: true
-            destructive: false
-            idempotent: true
-        enrich_url: '{id}'
-        list: true
-        title: Get all actions
-        description: >
-            Get all actions in the project. Actions are reusable event definitions that can combine multiple trigger
-            conditions (page views, clicks, form submissions) into a single trackable event for use in insights and
-            funnels. Supports pagination with limit and offset parameters. Note: Search/filtering by name is not
-            supported on this endpoint.
-        ui_app: action-list
     action-create:
         operation: actions_create
         enabled: true
@@ -59,6 +41,20 @@ tools:
             name:
                 description: Name of the action (must be unique within the project)
         ui_app: action
+    action-delete:
+        operation: actions_destroy
+        enabled: true
+        scopes:
+            - action:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: false
+        title: Delete action
+        description: >
+            Delete an action by ID (soft delete - marks as deleted). The action will no longer appear in lists but
+            historical data is preserved.
+        soft_delete: true
     action-get:
         operation: actions_retrieve
         enabled: true
@@ -74,9 +70,6 @@ tools:
             Get a specific action by ID. Returns the action configuration including all steps and their trigger
             conditions.
         ui_app: action
-    actions-update:
-        operation: actions_update
-        enabled: false
     action-update:
         operation: actions_partial_update
         enabled: true
@@ -97,23 +90,30 @@ tools:
             - creation_context
             - last_calculated_at
         ui_app: action
-    action-delete:
-        operation: actions_destroy
+    actions-bulk-update-tags-create:
+        operation: actions_bulk_update_tags_create
+        enabled: false
+    actions-get-all:
+        operation: actions_list
         enabled: true
         scopes:
-            - action:write
+            - action:read
         annotations:
-            readOnly: false
-            destructive: true
-            idempotent: false
-        title: Delete action
+            readOnly: true
+            destructive: false
+            idempotent: true
+        enrich_url: '{id}'
+        list: true
+        title: Get all actions
         description: >
-            Delete an action by ID (soft delete - marks as deleted). The action will no longer appear in lists but
-            historical data is preserved.
-        soft_delete: true
+            Get all actions in the project. Actions are reusable event definitions that can combine multiple trigger
+            conditions (page views, clicks, form submissions) into a single trackable event for use in insights and
+            funnels. Supports pagination with limit and offset parameters. Note: Search/filtering by name is not
+            supported on this endpoint.
+        ui_app: action-list
     actions-references-list:
         operation: actions_references_list
         enabled: false
-    actions-bulk-update-tags-create:
-        operation: actions_bulk_update_tags_create
+    actions-update:
+        operation: actions_update
         enabled: false
