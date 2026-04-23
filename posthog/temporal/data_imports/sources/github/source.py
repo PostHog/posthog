@@ -12,12 +12,14 @@ from posthog.schema import (
 
 from posthog.models.integration import GitHubIntegration
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
-from posthog.temporal.data_imports.sources.common.base import FieldType, SimpleSource
+from posthog.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from posthog.temporal.data_imports.sources.common.mixins import OAuthMixin
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
+from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 from posthog.temporal.data_imports.sources.generated_configs import GithubSourceConfig
 from posthog.temporal.data_imports.sources.github.github import (
+    GithubResumeConfig,
     github_source,
     validate_credentials as validate_github_credentials,
 )
@@ -27,7 +29,7 @@ from products.data_warehouse.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
-class GithubSource(SimpleSource[GithubSourceConfig], OAuthMixin):
+class GithubSource(ResumableSource[GithubSourceConfig, GithubResumeConfig], OAuthMixin):
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.GITHUB
@@ -147,15 +149,23 @@ class GithubSource(SimpleSource[GithubSourceConfig], OAuthMixin):
         except Exception as e:
             return False, str(e)
 
-    def source_for_pipeline(self, config: GithubSourceConfig, inputs: SourceInputs) -> SourceResponse:
+    def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[GithubResumeConfig]:
+        return ResumableSourceManager[GithubResumeConfig](inputs, GithubResumeConfig)
+
+    def source_for_pipeline(
+        self,
+        config: GithubSourceConfig,
+        resumable_source_manager: ResumableSourceManager[GithubResumeConfig],
+        inputs: SourceInputs,
+    ) -> SourceResponse:
         access_token = self._get_access_token(config, inputs.team_id)
 
         return github_source(
             personal_access_token=access_token,
             repository=config.repository,
             endpoint=inputs.schema_name,
-            team_id=inputs.team_id,
-            job_id=inputs.job_id,
+            logger=inputs.logger,
+            resumable_source_manager=resumable_source_manager,
             should_use_incremental_field=inputs.should_use_incremental_field,
             db_incremental_field_last_value=inputs.db_incremental_field_last_value
             if inputs.should_use_incremental_field

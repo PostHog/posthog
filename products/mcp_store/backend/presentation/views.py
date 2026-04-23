@@ -1,6 +1,7 @@
 import time
 import hashlib
 import secrets
+from collections.abc import Mapping
 from datetime import timedelta
 from typing import Any, cast
 from urllib.parse import urlencode, urlparse
@@ -55,7 +56,12 @@ class MCPProxyRenderer(renderers.BaseRenderer):
     media_type = "*/*"
     format = "mcp"
 
-    def render(self, data, accepted_media_type=None, renderer_context=None):
+    def render(
+        self,
+        data: bytes,
+        accepted_media_type: str | None = None,
+        renderer_context: Mapping[str, Any] | None = None,
+    ) -> bytes:
         return data
 
 
@@ -1198,7 +1204,11 @@ class MCPOAuthRedirectViewSet(viewsets.ViewSet):
             return oauth_state
 
     @staticmethod
-    def _exchange_and_store_tokens(installation: MCPServerInstallation, code: str, pkce_verifier: str) -> None:
+    def _exchange_and_store_tokens(
+        installation: MCPServerInstallation,
+        code: str,
+        pkce_verifier: str,
+    ) -> None:
         redirect_uri = _get_oauth_redirect_uri()
         token_data = exchange_oauth_token(
             installation=installation,
