@@ -3497,8 +3497,6 @@ export interface ExperimentQuery extends DataNode<ExperimentQueryResponse> {
     experiment_id?: integer
     name?: string
     precomputation_mode?: 'precomputed' | 'direct'
-    /** @deprecated Now always enabled, kept for backward compatibility */
-    metric_events_precomputation?: boolean
 }
 
 export interface ExperimentExposureQuery extends DataNode<ExperimentExposureQueryResponse> {
@@ -5599,6 +5597,7 @@ export const externalDataSources = [
     'BuildBetter',
     'Convex',
     'ClickHouse',
+    'Plain',
 ] as const
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]

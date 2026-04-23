@@ -82,6 +82,12 @@ export type Context = {
     env: Env
     stateManager: StateManager
     sessionManager: SessionManager
+    /**
+     * Resolve the current user's PostHog distinct ID. Cached by the MCP class —
+     * safe to call repeatedly. Exposed on the context so tool handlers (e.g. the
+     * exec wrapper) can attach `_analytics` without depending on the MCP class.
+     */
+    getDistinctId: () => Promise<string>
 }
 
 export type Tool<TSchema extends z.ZodType = z.ZodType, TResult = unknown> = {
@@ -120,8 +126,13 @@ export const POSTHOG_META_KEY = 'com.posthog.mcp' as const
 export const POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY = '__formatted_results_override' as const
 
 export type PostHogToolMeta = {
-    /** Return JSON instead of TOON-encoded text. Use for tools whose output is consumed programmatically. */
-    responseFormat?: 'json'
+    /**
+     * Output format for the tool response.
+     * `'optimized'` surfaces the LLM-friendly formatter output (from `ee/hogai/context/insight/format/`)
+     * via `formatted_results` when available; `'json'` returns raw JSON-stringified content. When unset,
+     * the text content is TOON-encoded by default.
+     */
+    outputFormat?: 'optimized' | 'json'
 }
 
 export type ToolMeta = {
