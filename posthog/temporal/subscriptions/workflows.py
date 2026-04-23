@@ -1,6 +1,5 @@
 import json
 import uuid
-import typing
 import asyncio
 import datetime as dt
 
@@ -32,7 +31,6 @@ from posthog.temporal.subscriptions.snapshot_activities import snapshot_subscrip
 from posthog.temporal.subscriptions.types import (
     CreateDeliveryRecordInputs,
     CreateExportAssetsInputs,
-    CreateExportAssetsResult,
     DeliverSubscriptionInputs,
     DeliverSubscriptionResult,
     DeliveryStatus,
@@ -48,77 +46,19 @@ from posthog.temporal.subscriptions.types import (
 
 # Rolling-deploy deprecation bundle (TODO slug: subscriptions-patched-cleanup)
 # ---------------------------------------------------------------------------
-# The items below exist ONLY to keep pre-rollout workflows replayable on new
-# workers during a rolling deploy. They must be removed together, in two
-# follow-up PRs, once the subscriptions task queue has drained past the oldest
-# in-flight pre-patch workflow (workflow execution_timeout is 2h; wait ≥24h
-# after deploy to be safe).
+# Step 1 of the two-step `patched()` -> `deprecate_patch()` -> deletion dance.
+# `workflow.deprecate_patch()` records a "deprecated" marker at the same
+# command-sequence position the original `workflow.patched()` guard occupied,
+# so stragglers replaying either path stay deterministic. The old legacy-replay
+# helper and its if-gate are gone — by the time we deploy this, all pre-rollout
+# workflows have drained, so the branch is dead code.
 #
-# Grep for `subscriptions-patched-cleanup` to find every site. The removal
-# sequence matters — deleting `patched()` directly breaks replay of any
-# workflow whose history already recorded the marker:
-#   1. First cleanup PR: replace `workflow.patched(...)` with
-#      `workflow.deprecate_patch(...)` (same runtime behavior; records a
-#      "deprecated" marker instead).
-#   2. Second cleanup PR (after another full drain): delete
-#      `_reissue_phase_2_5_update_for_replay`, `_PATCH_ID_CONTENT_SNAPSHOT_DIRECT_WRITE`,
-#      `CreateExportAssetsResult.insight_snapshots`, and
-#      `UpdateDeliveryRecordInputs.content_snapshot`.
+# Grep `subscriptions-patched-cleanup` to find every site. Second cleanup PR
+# (after another full drain past this deploy) deletes: the `deprecate_patch()`
+# call, `_PATCH_ID_CONTENT_SNAPSHOT_DIRECT_WRITE`,
+# `CreateExportAssetsResult.insight_snapshots`, and
+# `UpdateDeliveryRecordInputs.content_snapshot`.
 _PATCH_ID_CONTENT_SNAPSHOT_DIRECT_WRITE = "subscriptions-content-snapshot-direct-write"
-
-
-async def _reissue_phase_2_5_update_for_replay(
-    *,
-    delivery_id: uuid.UUID,
-    prepare_result: CreateExportAssetsResult,
-    delivery_exported_asset_ids: list[int],
-    subscription_id: int,
-) -> None:
-    """DO NOT MODIFY — must match the pre-rollout command shape exactly.
-
-    Re-issues the old Phase 2.5 `update_delivery_record` command so pre-rollout
-    workflows replay deterministically on new workers. Any change to the
-    command's activity name, input type, or issued-or-not decision breaks
-    replay for every in-flight pre-patch workflow and leaves them stuck.
-
-    Correctness argument: the reconstructed content_snapshot only includes
-    `insights` when the activity actually returned them (pre-patch history).
-    When the new activity ran (insight_snapshots=None), it already persisted
-    the snapshot to Postgres directly, so we omit that key to avoid the
-    shallow-merge in `update_delivery_record` overwriting the in-activity
-    write. `total_insight_count` is always included and always computed the
-    same way on both code paths, so overwriting it is benign.
-
-    Part of the `subscriptions-patched-cleanup` deprecation bundle — see the
-    top-of-file comment for the two-step removal sequence.
-    """
-    legacy_content_snapshot: dict[str, typing.Any] = {
-        "total_insight_count": prepare_result.total_insight_count,
-    }
-    if prepare_result.insight_snapshots is not None:
-        legacy_content_snapshot["insights"] = prepare_result.insight_snapshots
-
-    try:
-        await temporalio.workflow.execute_activity(
-            update_delivery_record,
-            UpdateDeliveryRecordInputs(
-                delivery_id=delivery_id,
-                status=DeliveryStatus.STARTING,
-                exported_asset_ids=delivery_exported_asset_ids or None,
-                content_snapshot=legacy_content_snapshot,
-            ),
-            start_to_close_timeout=dt.timedelta(minutes=1),
-            retry_policy=temporalio.common.RetryPolicy(
-                initial_interval=dt.timedelta(seconds=5),
-                maximum_interval=dt.timedelta(seconds=30),
-                maximum_attempts=3,
-            ),
-        )
-    except Exception:
-        temporalio.workflow.logger.warning(
-            "process_subscription.content_snapshot_persist_failed",
-            extra={"subscription_id": subscription_id},
-        )
 
 
 def _build_outcome_assets(
@@ -340,22 +280,12 @@ class ProcessSubscriptionWorkflow(PostHogWorkflow):
                     f"{len(non_user_errors)} export(s) failed: {', '.join(distinct_classes)}",
                 )
 
-            # Rolling-deploy compat: re-issue the old Phase 2.5 command for
-            # in-flight pre-patch workflows so their replay stays deterministic.
-            # Post-patch workflows skip this entirely — the content_snapshot is
-            # already in Postgres via create_export_assets writing directly.
-            # `patched()` returns False on replay of a pre-rollout workflow's
-            # history (no marker recorded) and True on any workflow that first
-            # ran on new code. Inverted from the canonical pattern: we only
-            # execute the legacy replay on the False branch.
-            if not temporalio.workflow.patched(_PATCH_ID_CONTENT_SNAPSHOT_DIRECT_WRITE):
-                if delivery_id is not None:
-                    await _reissue_phase_2_5_update_for_replay(
-                        delivery_id=delivery_id,
-                        prepare_result=prepare_result,
-                        delivery_exported_asset_ids=delivery_exported_asset_ids,
-                        subscription_id=inputs.subscription_id,
-                    )
+            # Phase 2.5 (legacy) — deprecated. The pre-rollout `update_delivery_record`
+            # command at this position has drained; `deprecate_patch()` records a
+            # "deprecated" marker so any straggler replay from the original deploy
+            # reaches this point without tripping non-determinism. Next cleanup PR
+            # removes the call once the "deprecated"-marker histories have drained.
+            temporalio.workflow.deprecate_patch(_PATCH_ID_CONTENT_SNAPSHOT_DIRECT_WRITE)
 
             # Generate LLM change summary (best-effort, skip if not enabled).
             # Reads content_snapshot back from Postgres — it was persisted
