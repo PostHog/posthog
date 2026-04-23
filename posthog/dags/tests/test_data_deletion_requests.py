@@ -226,6 +226,43 @@ def test_execute_event_deletion_delete_all_events_drops_every_event_for_team(clu
 
 
 @pytest.mark.django_db
+def test_execute_event_deletion_applies_hogql_predicate(cluster: ClickhouseCluster):
+    from posthog.models.organization import Organization
+    from posthog.models.team import Team
+
+    org = Organization.objects.create(name="test-org-hogql")
+    team = Team.objects.create(organization=org, name="test-team-hogql")
+
+    now = datetime.now()
+    start_time = now - timedelta(days=7)
+    end_time = now + timedelta(minutes=1)
+
+    chrome_events = [
+        (team.id, "$pageview", uuid4(), now - timedelta(hours=i), '{"$browser": "Chrome"}') for i in range(10)
+    ]
+    firefox_events = [
+        (team.id, "$pageview", uuid4(), now - timedelta(hours=i), '{"$browser": "Firefox"}') for i in range(5)
+    ]
+
+    cluster.any_host(partial(_insert_events_with_properties, chrome_events + firefox_events)).result()
+    assert cluster.any_host(partial(_count_events_by_name, team.id, "$pageview")).result() == 15
+
+    deletion_ctx = DeletionRequestContext(
+        request_id=str(uuid4()),
+        team_id=team.id,
+        start_time=start_time,
+        end_time=end_time,
+        events=["$pageview"],
+        hogql_predicate="properties.$browser = 'Chrome'",
+    )
+    context = build_op_context()
+    execute_event_deletion(context, cluster, deletion_ctx)
+
+    # Only the Chrome events should be deleted; Firefox events remain.
+    assert cluster.any_host(partial(_count_events_by_name, team.id, "$pageview")).result() == 5
+
+
+@pytest.mark.django_db
 def test_execute_event_deletion_multiple_event_names(cluster: ClickhouseCluster):
     now = datetime.now()
     start_time = now - timedelta(days=7)

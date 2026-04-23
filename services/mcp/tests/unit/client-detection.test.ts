@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest'
 
-import { CODING_AGENT_CLIENT_NAME_FRAGMENTS, isCodingAgentClient } from '@/lib/client-detection'
+import {
+    CODING_AGENT_CLIENT_NAME_FRAGMENTS,
+    POSTHOG_CODE_CONSUMER,
+    isCodingAgentClient,
+    isPostHogCodeConsumer,
+} from '@/lib/client-detection'
 
 describe('isCodingAgentClient', () => {
     describe('detects known coding-agent clients', () => {
@@ -82,5 +87,23 @@ describe('isCodingAgentClient', () => {
             expect(fragment).toBe(fragment.toLowerCase())
             expect(fragment.length).toBeGreaterThan(0)
         }
+    })
+})
+
+describe('isPostHogCodeConsumer', () => {
+    it('matches the exact PostHog Code consumer value', () => {
+        expect(isPostHogCodeConsumer(POSTHOG_CODE_CONSUMER)).toBe(true)
+        expect(isPostHogCodeConsumer('posthog-code')).toBe(true)
+    })
+
+    it.each([['posthog_code'], ['PostHog-Code'], ['posthog-code-v2'], ['posthog'], ['slack'], ['']])(
+        'returns false for %s (must be exact match)',
+        (consumer) => {
+            expect(isPostHogCodeConsumer(consumer)).toBe(false)
+        }
+    )
+
+    it('returns false for undefined', () => {
+        expect(isPostHogCodeConsumer(undefined)).toBe(false)
     })
 })

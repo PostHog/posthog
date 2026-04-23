@@ -5,7 +5,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("llm_analytics", "0027_increase_skill_description_max_length"),
+        ("llm_analytics", "0028_clusteringjob_evaluation_level"),
     ]
 
     operations = [

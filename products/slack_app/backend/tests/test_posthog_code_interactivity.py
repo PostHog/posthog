@@ -198,6 +198,42 @@ class TestRepoPickerOptions(TestCase):
         mock_webclient_class.return_value.chat_update.assert_called_once()
 
     @patch("posthog.models.integration.WebClient")
+    @patch("products.slack_app.backend.api.asyncio.run")
+    @patch("products.slack_app.backend.api.sync_connect")
+    @patch("products.slack_app.backend.api.SlackIntegration.posthog_code_slack_config")
+    def test_no_repo_button_signals_temporal_workflow(
+        self, mock_config, mock_sync_connect, mock_asyncio_run, mock_webclient_class
+    ):
+        mock_config.return_value = {"SLACK_POSTHOG_CODE_SIGNING_SECRET": self.signing_secret}
+        mock_webclient_class.return_value = MagicMock()
+        self.context_payload["workflow_id"] = "posthog-code-mention-T12345:C001:1234.5678"
+        cache.set(f"posthog_code_repo_picker_ctx:{self.context_token}", self.context_payload, timeout=900)
+
+        payload = {
+            "type": "block_actions",
+            "user": {"id": "U123"},
+            "actions": [
+                {
+                    "action_id": "posthog_code_repo_none",
+                    "block_id": f"posthog_code_repo_picker_v2:{self.posthog_code_integration.id}:U123:{self.context_token}:actions",
+                    "value": "no_repo_needed",
+                    "action_ts": "1700000000.123",
+                }
+            ],
+            "message": {"ts": "1234.9999"},
+        }
+        response = self._post_interactivity(payload)
+        assert response.status_code == 200
+        mock_sync_connect.assert_called_once()
+        mock_sync_connect.return_value.get_workflow_handle.assert_called_once_with(
+            "posthog-code-mention-T12345:C001:1234.5678"
+        )
+        mock_asyncio_run.assert_called_once()
+        mock_webclient_class.return_value.chat_update.assert_called_once()
+        update_call = mock_webclient_class.return_value.chat_update.call_args.kwargs
+        assert "without a repository" in update_call["text"].lower()
+
+    @patch("posthog.models.integration.WebClient")
     @patch("products.slack_app.backend.api.SlackIntegration.posthog_code_slack_config")
     def test_submit_without_workflow_id_posts_expired(self, mock_config, mock_webclient_class):
         mock_config.return_value = {"SLACK_POSTHOG_CODE_SIGNING_SECRET": self.signing_secret}
@@ -223,6 +259,7 @@ class TestRepoPickerOptions(TestCase):
         assert response.status_code == 200
         mock_client.chat_postMessage.assert_called_once()
         assert "selection expired" in mock_client.chat_postMessage.call_args.kwargs["text"].lower()
+        assert "posthog again" in mock_client.chat_postMessage.call_args.kwargs["text"].lower()
 
     @patch("posthog.models.integration.WebClient")
     @patch("products.slack_app.backend.api.asyncio.run")
@@ -260,6 +297,7 @@ class TestRepoPickerOptions(TestCase):
         mock_sync_connect.assert_called_once()
         mock_client.chat_postMessage.assert_called_once()
         assert "selection expired" in mock_client.chat_postMessage.call_args.kwargs["text"].lower()
+        assert "posthog again" in mock_client.chat_postMessage.call_args.kwargs["text"].lower()
 
     @patch("products.slack_app.backend.api.asyncio.run")
     @patch("products.slack_app.backend.api.sync_connect")
