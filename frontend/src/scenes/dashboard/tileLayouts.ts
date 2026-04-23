@@ -123,9 +123,7 @@ export const calculateLayouts = (
 
         let sortedDashboardTiles: DashboardTile<QueryBasedInsightModel>[] | undefined
         if (referenceOrder === undefined) {
-            // First pass: calculate sm layout and establish order
             sortedDashboardTiles = sortTilesByLayout(tiles, 'sm')
-            referenceOrder = sortedDashboardTiles.map((tile) => tile.id)
         } else {
             // Subsequent passes: follow the reference order from sm layout
             sortedDashboardTiles = tiles.sort((a, b) => {
