@@ -7,6 +7,7 @@ import { useChart } from 'lib/hooks/useChart'
 import { urls } from 'scenes/urls'
 
 import { clusterDetailLogic } from './clusterDetailLogic'
+import { isCentroidDataset } from './constants'
 import { formatEvalTitle } from './traceSummaryLoader'
 
 interface ScatterPoint {
@@ -31,7 +32,7 @@ export function ClusterDetailScatterPlot(): JSX.Element {
 
         const element = elements[0]
         const dataset = chart.data?.datasets?.[element.datasetIndex]
-        if (!dataset || dataset.label === 'Centroid') {
+        if (!dataset || isCentroidDataset(dataset)) {
             return
         }
 
@@ -98,7 +99,7 @@ export function ClusterDetailScatterPlot(): JSX.Element {
                         }
                         const element = elements[0]
                         const dataset = chart?.data?.datasets?.[element.datasetIndex]
-                        if (dataset?.label === 'Centroid') {
+                        if (isCentroidDataset(dataset)) {
                             canvas.style.cursor = 'default'
                             return
                         }
@@ -138,14 +139,14 @@ export function ClusterDetailScatterPlot(): JSX.Element {
                             },
                             callbacks: {
                                 title: (context) => {
-                                    const isCentroid = context[0]?.dataset?.label === 'Centroid'
+                                    const isCentroid = isCentroidDataset(context[0]?.dataset)
                                     if (isCentroid) {
                                         return 'Cluster centroid'
                                     }
                                     return cluster.title
                                 },
                                 label: (context) => {
-                                    const isCentroid = context.dataset.label === 'Centroid'
+                                    const isCentroid = isCentroidDataset(context.dataset)
                                     if (isCentroid) {
                                         return 'Center of this cluster'
                                     }
@@ -181,7 +182,7 @@ export function ClusterDetailScatterPlot(): JSX.Element {
                                     return undefined
                                 },
                                 footer: (context) => {
-                                    const isCentroid = context[0]?.dataset?.label === 'Centroid'
+                                    const isCentroid = isCentroidDataset(context[0]?.dataset)
                                     if (isCentroid) {
                                         return ''
                                     }

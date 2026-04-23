@@ -172,11 +172,13 @@ export const clustersLogic = kea<clustersLogicType>([
             {
                 setEvaluationItemAttributes: (_, { attributes }) => attributes,
                 // Wipe on level switches so a stale lookup doesn't leak across levels.
-                // NOT wiped on setSelectedRunId — the URL handler fires setSelectedRunId(null)
-                // on nav back to /clusters without triggering a reload, which would leave the
-                // filter bar empty and un-refillable. Any run-change fires setEvaluationItemAttributes
-                // via the loadClusteringRunSuccess listener, which overrides this reducer anyway.
+                // Wipe on loadClusteringRun (rather than setSelectedRunId) so a run switch
+                // doesn't briefly show the previous run's counts in the filter bar before
+                // the new attributes load. Using setSelectedRunId would also wipe on the
+                // nav-back URL handler that fires setSelectedRunId(null) without reloading,
+                // which would leave the filter bar empty and un-refillable.
                 setClusteringLevel: () => ({}),
+                loadClusteringRun: () => ({}),
             },
         ],
         evalFilterEvaluatorNames: [

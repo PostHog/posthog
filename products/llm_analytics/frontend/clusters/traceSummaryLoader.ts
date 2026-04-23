@@ -178,7 +178,6 @@ export async function loadEvaluationItemAttributes(
                 AND timestamp >= parseDateTimeBestEffort(${windowStart}) - INTERVAL 7 DAY
                 AND timestamp <= parseDateTimeBestEffort(${windowEnd}) + INTERVAL 1 DAY
                 AND toString(uuid) IN ${evalIds}
-            LIMIT 50000
         `,
         { productKey: 'llm_analytics', scene: 'LLMAnalyticsClusters' },
         { queryParams: { modifiers: { convertToProjectTimezone: false } } }
@@ -211,7 +210,10 @@ export function formatEvalTitle(summary: TraceSummary | undefined, maxReasoningC
     if (!summary) {
         return null
     }
-    const name = summary.title?.replace(/:\s*(pass|fail|n\/a|unknown)$/, '') || 'Evaluation'
+    // Strip the trailing "{sep}{verdict}" suffix the backend appends to eval titles.
+    // Case-insensitive so a backend casing change doesn't silently pass through
+    // ("Accuracy: PASS" would otherwise leak into the rendered row).
+    const name = summary.title?.replace(/:\s*(pass|fail|n\/a|unknown)\s*$/i, '') || 'Evaluation'
     const reasoning = summary.evaluationReasoning?.trim()
     if (!reasoning) {
         return name

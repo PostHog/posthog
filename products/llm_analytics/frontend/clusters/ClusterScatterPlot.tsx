@@ -7,6 +7,7 @@ import { useChart } from 'lib/hooks/useChart'
 import { urls } from 'scenes/urls'
 
 import { clustersLogic } from './clustersLogic'
+import { isCentroidDataset } from './constants'
 import { formatEvalTitle } from './traceSummaryLoader'
 import { TraceSummary } from './types'
 
@@ -45,7 +46,7 @@ export function ClusterScatterPlot({ traceSummaries }: ClusterScatterPlotProps):
         const point = dataset.data?.[element.index] as ScatterPoint | undefined
 
         // Navigate to cluster page for centroid clicks
-        if (dataset.label?.includes('(centroid)')) {
+        if (isCentroidDataset(dataset)) {
             if (point?.clusterId !== undefined && effectiveRunId) {
                 router.actions.push(urls.llmAnalyticsCluster(effectiveRunId, point.clusterId))
             }
@@ -117,7 +118,7 @@ export function ClusterScatterPlot({ traceSummaries }: ClusterScatterPlotProps):
                         if (clusteringLevel === 'evaluation') {
                             const element = elements[0]
                             const dataset = chart?.data?.datasets?.[element.datasetIndex]
-                            if (dataset?.label?.includes('(centroid)')) {
+                            if (isCentroidDataset(dataset)) {
                                 canvas.style.cursor = 'pointer'
                                 return
                             }
@@ -157,7 +158,7 @@ export function ClusterScatterPlot({ traceSummaries }: ClusterScatterPlotProps):
                                     return datasetLabel.replace(' (centroid)', '')
                                 },
                                 label: (context) => {
-                                    const isCentroid = context.dataset.label?.includes('(centroid)')
+                                    const isCentroid = isCentroidDataset(context.dataset)
                                     if (isCentroid) {
                                         return 'Cluster centroid'
                                     }
@@ -187,7 +188,7 @@ export function ClusterScatterPlot({ traceSummaries }: ClusterScatterPlotProps):
                                     return undefined
                                 },
                                 footer: (context) => {
-                                    const isCentroid = context[0]?.dataset?.label?.includes('(centroid)')
+                                    const isCentroid = isCentroidDataset(context[0]?.dataset)
                                     if (isCentroid) {
                                         return 'click to view cluster'
                                     }
