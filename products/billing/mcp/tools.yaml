@@ -31,6 +31,47 @@ tools:
         exclude_params:
             - limit
             - offset
+        response:
+            exclude:
+                - license
+                - stripe_portal_url
+                - account_owner
+                - customer_trust_scores
+                - never_drop_data
+                - amount_off_expires_at
+                - products.*.image_url
+                - products.*.screenshot_url
+                - products.*.headline
+                - products.*.icon_key
+                - products.*.plans
+                - products.*.tiers
+                - products.*.features
+                - products.*.free_allocation
+                - products.*.price_description
+                - products.*.display_decimals
+                - products.*.display_divisor
+                - products.*.display_unit
+                - products.*.contact_support
+                - products.*.tiered
+                - products.*.trial
+                - products.*.inclusion_only
+                - products.*.legacy_product
+                - products.*.current_amount_usd_before_addons
+                - products.*.addons.*.image_url
+                - products.*.addons.*.icon_key
+                - products.*.addons.*.plans
+                - products.*.addons.*.tiers
+                - products.*.addons.*.features
+                - products.*.addons.*.free_allocation
+                - products.*.addons.*.price_description
+                - products.*.addons.*.display_decimals
+                - products.*.addons.*.display_divisor
+                - products.*.addons.*.display_unit
+                - products.*.addons.*.contact_support
+                - products.*.addons.*.tiered
+                - products.*.addons.*.trial
+                - products.*.addons.*.inclusion_only
+                - products.*.addons.*.legacy_product
     billing-partial-update:
         operation: billing_partial_update
         enabled: false
@@ -92,7 +133,11 @@ tools:
             team_ids:
                 description: Comma-separated team (project) IDs to filter by. Omit for all teams in the org.
             breakdowns:
-                description: Comma-separated dimensions to break down by (e.g. "type", "team"). Omit for a single aggregate series.
+                description: >
+                    JSON-encoded array of dimensions to break down by, NOT a comma-separated
+                    string. Valid dimensions are "type" (by usage type) and "team" (by project).
+                    Pass as e.g. `["type","team"]` or `["team"]`. Omit for a single aggregate
+                    series. Sending a bare string like "type,team" will fail with a 400 error.
             interval:
                 description: Time bucket size, one of "day" or "week". Default "day".
     billing-startups-apply-create:
@@ -132,6 +177,10 @@ tools:
             team_ids:
                 description: Comma-separated team (project) IDs to filter by. Omit for all teams in the org.
             breakdowns:
-                description: Comma-separated dimensions to break down by (e.g. "type", "team"). Omit for a single aggregate series.
+                description: >
+                    JSON-encoded array of dimensions to break down by, NOT a comma-separated
+                    string. Valid dimensions are "type" (by usage type) and "team" (by project).
+                    Pass as e.g. `["type","team"]` or `["team"]`. Omit for a single aggregate
+                    series. Sending a bare string like "type,team" will fail with a 400 error.
             interval:
                 description: Time bucket size, one of "day" or "week". Default "day".
