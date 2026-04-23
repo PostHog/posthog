@@ -656,7 +656,7 @@ class TaskRun(models.Model):
                     error=str(e),
                 )
 
-    def capture_event(self, event: str, properties: dict | None = None) -> None:
+    def capture_event(self, event: str, properties: dict | None = None, event_uuid: str | None = None) -> None:
         try:
             distinct_id = (
                 str(self.task.created_by.distinct_id)
@@ -676,12 +676,15 @@ class TaskRun(models.Model):
             }
             if properties:
                 all_properties.update(properties)
-            posthoganalytics.capture(
-                distinct_id=distinct_id,
-                event=event,
-                properties=all_properties,
-                groups=groups(team=self.team),
-            )
+            capture_kwargs: dict = {
+                "distinct_id": distinct_id,
+                "event": event,
+                "properties": all_properties,
+                "groups": groups(team=self.team),
+            }
+            if event_uuid:
+                capture_kwargs["uuid"] = event_uuid
+            posthoganalytics.capture(**capture_kwargs)
         except Exception as e:
             logger.warning("task_run.capture_event_failed", analytics_event=event, error=str(e))
 

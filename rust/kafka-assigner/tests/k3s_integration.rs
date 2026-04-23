@@ -327,15 +327,19 @@ async fn trigger_statefulset_rollout(client: &Client, name: &str) {
 /// The API server can crash under resource pressure in the single-node
 /// testcontainer; this avoids burning the `wait_for_condition` budget on
 /// Connect errors.
-async fn wait_for_k3s_api_ready(client: &Client, timeout: Duration) {
+async fn wait_for_k3s_api_ready(client: &Client, timeout_dur: Duration) {
     let start = std::time::Instant::now();
     let pods: Api<k8s_openapi::api::core::v1::Pod> = Api::namespaced(client.clone(), NAMESPACE);
     loop {
-        if pods.list(&ListParams::default()).await.is_ok() {
+        if tokio::time::timeout(Duration::from_secs(5), pods.list(&ListParams::default()))
+            .await
+            .map(|r| r.is_ok())
+            .unwrap_or(false)
+        {
             return;
         }
-        if start.elapsed() > timeout {
-            panic!("k3s API server did not recover within {timeout:?}");
+        if start.elapsed() > timeout_dur {
+            panic!("k3s API server did not recover within {timeout_dur:?}");
         }
         tokio::time::sleep(Duration::from_secs(2)).await;
     }

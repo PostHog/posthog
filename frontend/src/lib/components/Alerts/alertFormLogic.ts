@@ -3,7 +3,7 @@ import { forms, type DeepPartialMap, type ValidationErrorType } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import posthog from 'posthog-js'
 
-import api from 'lib/api'
+import api, { ApiError } from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 
@@ -79,18 +79,45 @@ export interface AlertFormLogicProps {
  * Hydrate alertLogic from the save response, then kick off a background refetch so pagination-aware
  * `checks` / `checks_total` (which PATCH/POST bodies omit) catch up without blocking the UI.
  * Preserves the previously loaded `checks` state so the history section doesn't flash empty.
+ *
+ * On create, the alertLogic instance keyed by the newly minted id has never been mounted — reading
+ * `logic.values` on an unmounted logic throws a `[KEA] Can not find path …` error. Check mount state
+ * first and skip the merge (there's nothing to preserve for a brand-new alert).
  */
 function hydrateAlertLogicFromSaveResponse(updatedAlert: AlertType, historyChartEnabled: boolean): void {
     const logic = alertLogic({ alertId: updatedAlert.id, historyChartEnabled })
-    const previousAlert = logic.values.alert
+    const wasMounted = logic.isMounted()
+    const previousAlert = wasMounted ? logic.values.alert : null
     const savedChecks = updatedAlert.checks ?? []
     const mergedAlert: AlertType = {
         ...updatedAlert,
         checks: savedChecks.length > 0 ? savedChecks : (previousAlert?.checks ?? []),
         checks_total: updatedAlert.checks_total ?? previousAlert?.checks_total,
     }
+
+    if (wasMounted) {
+        logic.actions.loadAlertSuccess(mergedAlert)
+        void logic.asyncActions.loadAlert()
+        return
+    }
+
+    const unmount = logic.mount()
     logic.actions.loadAlertSuccess(mergedAlert)
-    void logic.asyncActions.loadAlert()
+    // On create, mounting triggers `afterMount`, which already loads the alert in the background.
+    // Avoid a duplicate refetch here and clean up the temporary mount immediately after dispatching.
+    unmount()
+}
+
+function formatSaveError(error: unknown): string {
+    if (error instanceof ApiError) {
+        const field = error.attr?.replace(/_/g, ' ')
+        const detail = error.detail ?? error.message
+        return field ? `${field}: ${detail}` : detail
+    }
+    if (error instanceof Error) {
+        return error.message
+    }
+    return 'Unknown error'
 }
 
 function insightIntervalToAlertInterval(interval?: IntervalType | null): AlertCalculationInterval {
@@ -249,33 +276,35 @@ export const alertFormLogic = kea<alertFormLogicType>([
                     }
                 }
 
+                let updatedAlert: AlertType
                 try {
-                    if (alert.id === undefined) {
-                        const updatedAlert: AlertType = await api.alerts.create(payload)
-
-                        await flushPendingNotifications(updatedAlert.id)
-                        hydrateAlertLogicFromSaveResponse(updatedAlert, props.historyChartEnabled)
-                        lemonToast.success(`Alert created.`)
-                        upsertToParent(updatedAlert)
-                        props.onEditSuccess(updatedAlert.id)
-
-                        return updatedAlert
-                    }
-
-                    const updatedAlert: AlertType = await api.alerts.update(alert.id, payload)
-
-                    await flushPendingNotifications(updatedAlert.id)
-                    hydrateAlertLogicFromSaveResponse(updatedAlert, props.historyChartEnabled)
-                    lemonToast.success(`Alert saved.`)
-                    upsertToParent(updatedAlert)
-                    props.onEditSuccess(updatedAlert.id)
-
-                    return updatedAlert
-                } catch (error: any) {
-                    const field = error.data?.attr?.replace(/_/g, ' ')
-                    lemonToast.error(`Error saving alert: ${field}: ${error.detail}`)
+                    updatedAlert =
+                        alert.id === undefined
+                            ? await api.alerts.create(payload)
+                            : await api.alerts.update(alert.id, payload)
+                } catch (error: unknown) {
+                    // `AlertViewSet` is a standard DRF ModelViewSet, so validation errors arrive as
+                    // `{attr, detail}`. Anything else (network blip, non-ApiError thrown somehow) shouldn't
+                    // be formatted with those fields or we end up with "undefined: undefined".
+                    lemonToast.error(`Error saving alert: ${formatSaveError(error)}`)
                     throw error
                 }
+
+                // The alert is already persisted — any error from the local side-effects below is a
+                // client-side bug, not a save failure. Capture it for investigation but don't surface it
+                // as "Error saving alert" since the API returned 2xx. Regression guarded by `alertFormLogic.test.ts`.
+                try {
+                    await flushPendingNotifications(updatedAlert.id)
+                    hydrateAlertLogicFromSaveResponse(updatedAlert, props.historyChartEnabled)
+                    upsertToParent(updatedAlert)
+                    props.onEditSuccess(updatedAlert.id)
+                } catch (postSaveError) {
+                    posthog.captureException(postSaveError)
+                }
+
+                lemonToast.success(alert.id === undefined ? 'Alert created.' : 'Alert saved.')
+
+                return updatedAlert
             },
         },
     })),

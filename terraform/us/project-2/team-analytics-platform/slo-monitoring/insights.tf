@@ -15,6 +15,16 @@ locals {
       slo     = 99.95 # error budget = 0.05%
       regions = ["US", "EU"]
     }
+    subscription_create = {
+      name    = "Subscription created"
+      slo     = 99.95 # error budget = 0.05%
+      regions = ["US", "EU"]
+    }
+    subscription_delete = {
+      name    = "Subscription deleted"
+      slo     = 99.95 # error budget = 0.05%
+      regions = ["US", "EU"]
+    }
     alert_check = {
       name    = "Alert checks"
       slo     = 99.95 # error budget = 0.05%

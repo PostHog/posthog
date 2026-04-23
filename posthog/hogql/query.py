@@ -308,7 +308,19 @@ class HogQLQueryExecutor:
             if finder.has_filters:
                 if "filters" in self.placeholders and self.filters is not None:
                     raise ValueError("Query contains 'filters' both as placeholder and as a query parameter.")
-                self.select_query = replace_filters(self.select_query, self.filters, self.team)
+                # Build the database once with the executor's modifiers and cache it on the context
+                # so that _generate_hogql reuses it instead of building a second Database.
+                # Skip for direct-connection queries, whose database needs a connection_id resolved later.
+                if self.context.database is None and self.connection_id is None:
+                    self.context.database = Database.create_for(
+                        team=self.team,
+                        user=self.user,
+                        modifiers=self.query_modifiers,
+                        timings=self.timings,
+                    )
+                self.select_query = replace_filters(
+                    self.select_query, self.filters, self.team, database=self.context.database
+                )
 
             if finder.placeholder_fields or finder.placeholder_expressions:
                 self.select_query = cast(ast.SelectQuery, replace_placeholders(self.select_query, self.placeholders))

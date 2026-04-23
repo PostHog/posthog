@@ -1,4 +1,4 @@
-import { useCallback, useMemo } from 'react'
+import { useCallback, useRef } from 'react'
 import { Root, createRoot } from 'react-dom/client'
 
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
@@ -326,7 +326,11 @@ export function useInsightTooltip(options?: { isPinnable?: boolean }): {
     pinTooltip: ((onUnpin?: () => void) => void) | null
 } {
     const isPinnable = options?.isPinnable ?? false
-    const tooltipId = useMemo(() => Math.random().toString(36).substring(2, 11), [])
+    const tooltipIdRef = useRef<string | null>(null)
+    if (tooltipIdRef.current === null) {
+        tooltipIdRef.current = Math.random().toString(36).substring(2, 11)
+    }
+    const tooltipId = tooltipIdRef.current
 
     useOnMountEffect(() => {
         if (isPinnable) {

@@ -8,6 +8,8 @@ from pydantic import BaseModel, Field
 from posthog.schema import MaxRecordingUniversalFilters
 
 from posthog.models import Team, User
+from posthog.rbac.user_access_control import AccessControlLevel
+from posthog.scopes import APIScopeObject
 
 from ee.hogai.chat_agent.taxonomy.agent import TaxonomyAgent
 from ee.hogai.chat_agent.taxonomy.nodes import TaxonomyAgentNode, TaxonomyAgentToolsNode
@@ -29,7 +31,7 @@ logger.setLevel(logging.DEBUG)
 
 
 class SessionReplayFilterOptionsToolkit(TaxonomyAgentToolkit):
-    def __init__(self, team: Team, user: User):
+    def __init__(self, team: Team, user: User) -> None:
         super().__init__(team, user)
 
     def _get_custom_tools(self) -> list:
@@ -50,7 +52,12 @@ class SessionReplayFilterOptionsToolkit(TaxonomyAgentToolkit):
 class SessionReplayFilterNode(TaxonomyAgentNode[TaxonomyAgentState, TaxonomyAgentState[MaxRecordingUniversalFilters]]):
     """Node for generating filtering options for session replay."""
 
-    def __init__(self, team: Team, user: User, toolkit_class: type[SessionReplayFilterOptionsToolkit]):
+    def __init__(
+        self,
+        team: Team,
+        user: User,
+        toolkit_class: type[SessionReplayFilterOptionsToolkit],
+    ) -> None:
         super().__init__(team, user, toolkit_class=toolkit_class)
 
     def _get_system_prompt(self) -> ChatPromptTemplate:
@@ -71,7 +78,12 @@ class SessionReplayFilterOptionsToolsNode(
 ):
     """Node for generating filtering options for session replay."""
 
-    def __init__(self, team: Team, user: User, toolkit_class: type[SessionReplayFilterOptionsToolkit]):
+    def __init__(
+        self,
+        team: Team,
+        user: User,
+        toolkit_class: type[SessionReplayFilterOptionsToolkit],
+    ) -> None:
         super().__init__(team, user, toolkit_class=toolkit_class)
 
 
@@ -80,7 +92,7 @@ class SessionReplayFilterOptionsGraph(
 ):
     """Graph for generating filtering options for session replay."""
 
-    def __init__(self, team: Team, user: User):
+    def __init__(self, team: Team, user: User) -> None:
         super().__init__(
             team,
             user,
@@ -117,7 +129,9 @@ class SearchSessionRecordingsTool(MaxTool):
     )
     args_schema: type[BaseModel] = SearchSessionRecordingsArgs
 
-    def get_required_resource_access(self):
+    def get_required_resource_access(
+        self,
+    ) -> list[tuple[APIScopeObject, AccessControlLevel]]:
         return [("session_recording", "viewer")]
 
     async def _invoke_graph(self, change: str) -> dict[str, Any] | Any:

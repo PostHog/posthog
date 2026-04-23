@@ -3032,6 +3032,11 @@ export namespace Schemas {
     } as const;
 
     export interface RetentionEntity {
+      /**
+       * Data warehouse field used as the actor identifier
+       * @nullable
+       */
+      aggregation_target_field?: string | null;
       /** @nullable */
       custom_name?: string | null;
       id?: string | number | null;
@@ -3045,6 +3050,16 @@ export namespace Schemas {
        * @nullable
        */
       properties?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
+      /**
+       * Data warehouse table name
+       * @nullable
+       */
+      table_name?: string | null;
+      /**
+       * Data warehouse timestamp field
+       * @nullable
+       */
+      timestamp_field?: string | null;
       type?: EntityType | null;
       /** @nullable */
       uuid?: string | null;
@@ -3070,6 +3085,11 @@ export namespace Schemas {
       aggregationType?: AggregationType | null;
       /** @nullable */
       cumulative?: boolean | null;
+      /**
+       * For data warehouse based retention insights when the aggregation target can't be mapped to persons or groups.
+       * @nullable
+       */
+      customAggregationTarget?: boolean | null;
       dashboardDisplay?: RetentionDashboardDisplayType | null;
       /** controls the display of the retention graph */
       display?: ChartDisplayType | null;
@@ -5620,18 +5640,6 @@ export namespace Schemas {
     }
 
     /**
-     * * `trace` - trace
-    * `generation` - generation
-     */
-    export type AnalysisLevelEnum = typeof AnalysisLevelEnum[keyof typeof AnalysisLevelEnum];
-
-
-    export const AnalysisLevelEnum = {
-      Trace: 'trace',
-      Generation: 'generation',
-    } as const;
-
-    /**
      * * `USR` - user
     * `GIT` - GitHub
      */
@@ -5825,6 +5833,18 @@ export namespace Schemas {
       Linear: 'linear',
       TimeDecay: 'time_decay',
       PositionBased: 'position_based',
+    } as const;
+
+    /**
+     * * `api_key` - API Key
+    * `oauth` - OAuth
+     */
+    export type AuthType9cbEnum = typeof AuthType9cbEnum[keyof typeof AuthType9cbEnum];
+
+
+    export const AuthType9cbEnum = {
+      ApiKey: 'api_key',
+      Oauth: 'oauth',
     } as const;
 
     export interface UserBasicInfo {
@@ -6509,10 +6529,7 @@ export namespace Schemas {
       type: BatchExportDestinationTypeEnum;
       /** A JSON field to store all configuration parameters required to access a BatchExportDestination. */
       config?: unknown;
-      /**
-       * The integration for this destination.
-       * @nullable
-       */
+      /** @nullable */
       integration?: number | null;
       /** @nullable */
       integration_id?: number | null;
@@ -7428,6 +7445,8 @@ export namespace Schemas {
      * * `slack_channel_message` - Channel message
     * `slack_bot_mention` - Bot mention
     * `slack_emoji_reaction` - Emoji reaction
+    * `teams_channel_message` - Teams channel message
+    * `teams_bot_mention` - Teams bot mention
     * `widget_embedded` - Widget
     * `widget_api` - API
      */
@@ -7438,6 +7457,8 @@ export namespace Schemas {
       SlackChannelMessage: 'slack_channel_message',
       SlackBotMention: 'slack_bot_mention',
       SlackEmojiReaction: 'slack_emoji_reaction',
+      TeamsChannelMessage: 'teams_channel_message',
+      TeamsBotMention: 'teams_bot_mention',
       WidgetEmbedded: 'widget_embedded',
       WidgetApi: 'widget_api',
     } as const;
@@ -7446,6 +7467,7 @@ export namespace Schemas {
      * * `widget` - Widget
     * `email` - Email
     * `slack` - Slack
+    * `teams` - Microsoft Teams
      */
     export type ChannelSourceEnum = typeof ChannelSourceEnum[keyof typeof ChannelSourceEnum];
 
@@ -7454,6 +7476,7 @@ export namespace Schemas {
       Widget: 'widget',
       Email: 'email',
       Slack: 'slack',
+      Teams: 'teams',
     } as const;
 
     export type DisplayType = typeof DisplayType[keyof typeof DisplayType];
@@ -7826,11 +7849,25 @@ export namespace Schemas {
       readonly elements_chain: string;
     }
 
+    /**
+     * * `trace` - trace
+    * `generation` - generation
+    * `evaluation` - evaluation
+     */
+    export type ClusteringJobAnalysisLevelEnum = typeof ClusteringJobAnalysisLevelEnum[keyof typeof ClusteringJobAnalysisLevelEnum];
+
+
+    export const ClusteringJobAnalysisLevelEnum = {
+      Trace: 'trace',
+      Generation: 'generation',
+      Evaluation: 'evaluation',
+    } as const;
+
     export interface ClusteringJob {
       readonly id: string;
       /** @maxLength 100 */
       name: string;
-      analysis_level: AnalysisLevelEnum;
+      analysis_level: ClusteringJobAnalysisLevelEnum;
       event_filters?: unknown;
       enabled?: boolean;
       readonly created_at: string;
@@ -8617,6 +8654,11 @@ export namespace Schemas {
       Number2: 2,
     } as const;
 
+    export interface CopyDashboardTemplate {
+      /** UUID of a team-scoped template in the same organization. Global and feature-flag templates cannot be copied with this endpoint. */
+      source_template_id: string;
+    }
+
     export interface CopyDashboardTileRequest {
       /** Dashboard id the tile currently belongs to. */
       fromDashboardId: number;
@@ -8759,32 +8801,17 @@ export namespace Schemas {
     * `DPA` - DPA */
       document_type: DocumentTypeEnum;
       /**
-       * The customer legal entity entering the agreement.
+       * The customer legal entity entering the agreement (PandaDoc's Client.Company).
        * @maxLength 255
        */
       company_name: string;
       /**
-       * Customer address. Required for DPAs; ignored for BAAs.
+       * The customer address (PandaDoc's Client.StreetAddress).
        * @maxLength 512
        */
-      company_address?: string;
-      /**
-       * Name of the signer at the customer.
-       * @maxLength 255
-       */
-      representative_name: string;
-      /**
-       * Title of the signer at the customer.
-       * @maxLength 255
-       */
-      representative_title: string;
-      /** Email the signed PandaDoc envelope is sent to. */
+      company_address: string;
+      /** Email the signed PandaDoc envelope is sent to (PandaDoc's Client.Email). */
       representative_email: string;
-      /**
-       * DPA style: 'pretty' or 'lawyer' for submittable versions. 'fairytale' and 'tswift' are preview-only on posthog.com and are not accepted by the API.
-       * @maxLength 16
-       */
-      dpa_mode?: string;
     }
 
     /**
@@ -16288,11 +16315,12 @@ export namespace Schemas {
     * `BuildBetter` - BuildBetter
     * `Convex` - Convex
     * `ClickHouse` - ClickHouse
+    * `Plain` - Plain
      */
-    export type SourceTypeF0aEnum = typeof SourceTypeF0aEnum[keyof typeof SourceTypeF0aEnum];
+    export type SourceTypeEe8Enum = typeof SourceTypeEe8Enum[keyof typeof SourceTypeEe8Enum];
 
 
-    export const SourceTypeF0aEnum = {
+    export const SourceTypeEe8Enum = {
       Ashby: 'Ashby',
       Supabase: 'Supabase',
       CustomerIO: 'CustomerIO',
@@ -16435,6 +16463,7 @@ export namespace Schemas {
       BuildBetter: 'BuildBetter',
       Convex: 'Convex',
       ClickHouse: 'ClickHouse',
+      Plain: 'Plain',
     } as const;
 
     /**
@@ -16448,7 +16477,7 @@ export namespace Schemas {
       readonly status: string;
       client_secret: string;
       account_id: string;
-      readonly source_type: SourceTypeF0aEnum;
+      readonly source_type: SourceTypeEe8Enum;
       /** @nullable */
       readonly latest_error: string | null;
       /**
@@ -17158,6 +17187,11 @@ export namespace Schemas {
       full_name: string;
     }
 
+    export interface GitHubReposRefreshResponse {
+      /** The refreshed repository cache. */
+      repositories: GitHubRepo[];
+    }
+
     export interface GitHubReposResponse {
       repositories: GitHubRepo[];
       /** Whether more repositories are available beyond this page. */
@@ -17239,6 +17273,18 @@ export namespace Schemas {
       Sparkline: 'sparkline',
     } as const;
 
+    /**
+     * * `count` - count
+    * `sum` - sum
+     */
+    export type MathEnum = typeof MathEnum[keyof typeof MathEnum];
+
+
+    export const MathEnum = {
+      Count: 'count',
+      Sum: 'sum',
+    } as const;
+
     export interface GroupUsageMetric {
       readonly id: string;
       /** @maxLength 255 */
@@ -17252,6 +17298,12 @@ export namespace Schemas {
       interval?: number;
       display?: GroupUsageMetricDisplayEnum;
       filters: unknown;
+      math?: MathEnum;
+      /**
+       * @maxLength 255
+       * @nullable
+       */
+      math_property?: string | null;
     }
 
     /**
@@ -19684,16 +19736,36 @@ export namespace Schemas {
     } as const;
 
     export interface InsightVariable {
+      /** UUID of the SQL variable. */
       readonly id: string;
-      /** @maxLength 400 */
+      /**
+       * Human-readable name for the SQL variable.
+       * @maxLength 400
+       */
       name: string;
+      /** Variable type. Controls how the value is rendered and substituted in HogQL.
+
+    * `String` - String
+    * `Number` - Number
+    * `Boolean` - Boolean
+    * `List` - List
+    * `Date` - Date */
       type: InsightVariableTypeEnum;
+      /** Default value used when a query references this variable. */
       default_value?: unknown | null;
-      /** @nullable */
+      /**
+       * ID of the user who created the SQL variable.
+       * @nullable
+       */
       readonly created_by: number | null;
+      /** Timestamp when the SQL variable was created. */
       readonly created_at: string;
-      /** @nullable */
+      /**
+       * Generated code-safe name used in HogQL as {variables.code_name}. Derived from name.
+       * @nullable
+       */
       readonly code_name: string | null;
+      /** Allowed values for List variables. Null for other variable types. */
       values?: unknown | null;
     }
 
@@ -19729,6 +19801,15 @@ export namespace Schemas {
       auth_type: InstallCustomAuthTypeEnum;
       api_key?: string;
       description?: string;
+      client_id?: string;
+      client_secret?: string;
+      install_source?: InstallSourceEnum;
+      posthog_code_callback_url?: string;
+    }
+
+    export interface InstallTemplate {
+      template_id: string;
+      api_key?: string;
       install_source?: InstallSourceEnum;
       posthog_code_callback_url?: string;
     }
@@ -20036,7 +20117,7 @@ export namespace Schemas {
     }
 
     export interface LLMSkillEditOperation {
-      /** Text to find in the current skill body. Must match exactly once. */
+      /** Text to find in the target content. Must match exactly once. */
       old: string;
       /** Replacement text. */
       new: string;
@@ -20048,6 +20129,54 @@ export namespace Schemas {
       content: string;
       /** @maxLength 100 */
       content_type?: string;
+    }
+
+    export interface LLMSkillFileCreate {
+      /**
+       * File path relative to skill root, e.g. 'scripts/setup.sh' or 'references/guide.md'.
+       * @maxLength 500
+       */
+      path: string;
+      /** Text content of the file. */
+      content: string;
+      /**
+       * MIME type of the file content.
+       * @maxLength 100
+       */
+      content_type?: string;
+      /**
+       * Latest version you are editing from. If provided, the request fails with 409 when another write has landed in the meantime.
+       * @minimum 1
+       */
+      base_version?: number;
+    }
+
+    export interface LLMSkillFileEdit {
+      /**
+       * Path of the bundled file to edit. Must match an existing file on the current skill version.
+       * @maxLength 500
+       */
+      path: string;
+      /** Sequential find/replace operations to apply to this file's content. */
+      edits: LLMSkillEditOperation[];
+    }
+
+    export interface LLMSkillFileRename {
+      /**
+       * Current file path to rename.
+       * @maxLength 500
+       */
+      old_path: string;
+      /**
+       * New file path. Must not already exist in the skill.
+       * @maxLength 500
+       */
+      new_path: string;
+      /**
+       * Latest version you are editing from. If provided, the request fails with 409 when another write has landed in the meantime.
+       * @minimum 1
+       */
+      base_version?: number;
     }
 
     /**
@@ -20139,10 +20268,8 @@ export namespace Schemas {
       id: string;
       document_type: string;
       company_name: string;
-      representative_name: string;
       representative_email: string;
       status: string;
-      signed_document_url: string;
       created_by: LegalDocumentCreator | null;
       created_at: string;
     }
@@ -20217,15 +20344,22 @@ export namespace Schemas {
       Broken: 'broken',
     } as const;
 
-    export interface LogsAlertSparklineBucket {
-      /** Bucket start timestamp (UTC, hourly). */
-      timestamp: string;
-      /** Count of breached checks in this hour. */
-      breached: number;
-      /** Count of errored checks in this hour. */
-      errored: number;
-      /** Count of checks that transitioned the alert from firing to resolved in this hour. */
-      resolved: number;
+    export interface LogsAlertStateInterval {
+      /** Interval start (UTC, inclusive). */
+      start: string;
+      /** Interval end (UTC, exclusive). */
+      end: string;
+      /** Alert state during this interval.
+
+    * `not_firing` - Not firing
+    * `firing` - Firing
+    * `pending_resolve` - Pending resolve
+    * `errored` - Errored
+    * `snoozed` - Snoozed
+    * `broken` - Broken */
+      state: LogsAlertConfigurationStateEnum;
+      /** Whether the alert was enabled during this interval. Disabled alerts keep their state but are inactive. */
+      enabled: boolean;
     }
 
     export interface LogsAlertConfiguration {
@@ -20307,8 +20441,8 @@ export namespace Schemas {
        * @nullable
        */
       readonly last_error_message: string | null;
-      /** 24 hourly buckets of breached + errored check counts for the last 24h, ordered oldest-first. Drives the activity column on the alert list — empty sparkline = healthy alert. Ok checks are not included: retention caps OK rows at MAX_EVALUATION_PERIODS (~50min at 5-min cadence), so only events that survive the prune (breached + errored) are meaningful over a 24h window. */
-      readonly sparkline: readonly LogsAlertSparklineBucket[];
+      /** Continuous state intervals over the last 24h, ordered oldest-first. Each interval covers a span during which (state, enabled) was constant. Derived from LogsAlertEvent rows walked in chronological order; consecutive identical intervals are collapsed. Drives the 'Last 24h' status bar on the alert list. */
+      readonly state_timeline: readonly LogsAlertStateInterval[];
       /** Notification destination types configured for this alert — e.g. 'slack', 'webhook'. Empty list means no notifications will fire. One or more destinations should be added after creating an alert. */
       readonly destination_types: readonly DestinationTypesEnum[];
       /** When the alert was created. */
@@ -20658,29 +20792,17 @@ export namespace Schemas {
       blocked?: boolean;
     }
 
-    /**
-     * * `api_key` - API Key
-    * `oauth` - OAuth
-     */
-    export type MCPServerInstallationAuthTypeEnum = typeof MCPServerInstallationAuthTypeEnum[keyof typeof MCPServerInstallationAuthTypeEnum];
-
-
-    export const MCPServerInstallationAuthTypeEnum = {
-      ApiKey: 'api_key',
-      Oauth: 'oauth',
-    } as const;
-
     export interface MCPServerInstallation {
       readonly id: string;
       /** @nullable */
-      readonly server_id: string | null;
+      readonly template_id: string | null;
       readonly name: string;
       /** @maxLength 200 */
       display_name?: string;
       /** @maxLength 2048 */
       url?: string;
       description?: string;
-      auth_type?: MCPServerInstallationAuthTypeEnum;
+      auth_type?: AuthType9cbEnum;
       is_enabled?: boolean;
       readonly needs_reauth: boolean;
       readonly pending_oauth: boolean;
@@ -20688,6 +20810,47 @@ export namespace Schemas {
       readonly created_at: string;
       /** @nullable */
       readonly updated_at: string | null;
+    }
+
+    /**
+     * * `approved` - Approved
+    * `needs_approval` - Needs approval
+    * `do_not_use` - Do not use
+     */
+    export type MCPServerInstallationToolApprovalStateEnum = typeof MCPServerInstallationToolApprovalStateEnum[keyof typeof MCPServerInstallationToolApprovalStateEnum];
+
+
+    export const MCPServerInstallationToolApprovalStateEnum = {
+      Approved: 'approved',
+      NeedsApproval: 'needs_approval',
+      DoNotUse: 'do_not_use',
+    } as const;
+
+    export interface MCPServerInstallationTool {
+      readonly id: string;
+      readonly tool_name: string;
+      readonly display_name: string;
+      readonly description: string;
+      readonly input_schema: unknown;
+      approval_state?: MCPServerInstallationToolApprovalStateEnum;
+      readonly last_seen_at: string;
+      /** @nullable */
+      readonly removed_at: string | null;
+      readonly created_at: string;
+      /** @nullable */
+      readonly updated_at: string | null;
+    }
+
+    export interface MCPServerTemplate {
+      readonly id: string;
+      /** @maxLength 200 */
+      name: string;
+      /** @maxLength 2048 */
+      url: string;
+      description?: string;
+      auth_type?: AuthType9cbEnum;
+      /** @maxLength 100 */
+      icon_key?: string;
     }
 
     export interface MarkToleratedInput {
@@ -22199,6 +22362,24 @@ export namespace Schemas {
       results: MCPServerInstallation[];
     }
 
+    export interface PaginatedMCPServerInstallationToolList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: MCPServerInstallationTool[];
+    }
+
+    export interface PaginatedMCPServerTemplateList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: MCPServerTemplate[];
+    }
+
     export interface PaginatedMaterializedColumnSlotList {
       count: number;
       /** @nullable */
@@ -22611,36 +22792,6 @@ export namespace Schemas {
       results: QuickFilter[];
     }
 
-    /**
-     * * `none` - none
-    * `api_key` - api_key
-    * `oauth` - oauth
-     */
-    export type RecommendedServerAuthTypeEnum = typeof RecommendedServerAuthTypeEnum[keyof typeof RecommendedServerAuthTypeEnum];
-
-
-    export const RecommendedServerAuthTypeEnum = {
-      None: 'none',
-      ApiKey: 'api_key',
-      Oauth: 'oauth',
-    } as const;
-
-    export interface RecommendedServer {
-      name: string;
-      url: string;
-      description: string;
-      auth_type: RecommendedServerAuthTypeEnum;
-    }
-
-    export interface PaginatedRecommendedServerList {
-      count: number;
-      /** @nullable */
-      next?: string | null;
-      /** @nullable */
-      previous?: string | null;
-      results: RecommendedServer[];
-    }
-
     export type RepoBaselineFilePaths = {[key: string]: string};
 
     export interface Repo {
@@ -22820,7 +22971,7 @@ export namespace Schemas {
       /** ISO 8601 datetime when the change should be applied (e.g. '2025-06-01T14:00:00Z'). */
       scheduled_at: string;
       /** @nullable */
-      executed_at?: string | null;
+      readonly executed_at: string | null;
       /**
        * Return the safely formatted failure reason instead of raw data.
        * @nullable
@@ -23637,7 +23788,7 @@ export namespace Schemas {
       /** @nullable */
       readonly created_by: number | null;
       readonly status: string;
-      readonly source_type: SourceTypeF0aEnum;
+      readonly source_type: SourceTypeEe8Enum;
     }
 
     export type TableColumnsItem = {[key: string]: unknown};
@@ -24082,6 +24233,8 @@ export namespace Schemas {
       alternate_hash: string;
       baseline_hash: string;
       reason: string;
+      /** @nullable */
+      diff_percentage: number | null;
       created_at: string;
       /** @nullable */
       source_run_id: string | null;
@@ -24717,7 +24870,7 @@ export namespace Schemas {
       readonly id?: string;
       /** @maxLength 100 */
       name?: string;
-      analysis_level?: AnalysisLevelEnum;
+      analysis_level?: ClusteringJobAnalysisLevelEnum;
       event_filters?: unknown;
       enabled?: boolean;
       readonly created_at?: string;
@@ -25942,7 +26095,7 @@ export namespace Schemas {
       readonly status?: string;
       client_secret?: string;
       account_id?: string;
-      readonly source_type?: SourceTypeF0aEnum;
+      readonly source_type?: SourceTypeEe8Enum;
       /** @nullable */
       readonly latest_error?: string | null;
       /**
@@ -26060,6 +26213,12 @@ export namespace Schemas {
       interval?: number;
       display?: GroupUsageMetricDisplayEnum;
       filters?: unknown;
+      math?: MathEnum;
+      /**
+       * @maxLength 255
+       * @nullable
+       */
+      math_property?: string | null;
     }
 
     export interface PatchedHealthIssue {
@@ -26369,16 +26528,36 @@ export namespace Schemas {
     }
 
     export interface PatchedInsightVariable {
+      /** UUID of the SQL variable. */
       readonly id?: string;
-      /** @maxLength 400 */
+      /**
+       * Human-readable name for the SQL variable.
+       * @maxLength 400
+       */
       name?: string;
+      /** Variable type. Controls how the value is rendered and substituted in HogQL.
+
+    * `String` - String
+    * `Number` - Number
+    * `Boolean` - Boolean
+    * `List` - List
+    * `Date` - Date */
       type?: InsightVariableTypeEnum;
+      /** Default value used when a query references this variable. */
       default_value?: unknown | null;
-      /** @nullable */
+      /**
+       * ID of the user who created the SQL variable.
+       * @nullable
+       */
       readonly created_by?: number | null;
+      /** Timestamp when the SQL variable was created. */
       readonly created_at?: string;
-      /** @nullable */
+      /**
+       * Generated code-safe name used in HogQL as {variables.code_name}. Derived from name.
+       * @nullable
+       */
       readonly code_name?: string | null;
+      /** Allowed values for List variables. Null for other variable types. */
       values?: unknown | null;
     }
 
@@ -26453,8 +26632,10 @@ export namespace Schemas {
       allowed_tools?: string[];
       /** Arbitrary key-value metadata. */
       metadata?: PatchedLLMSkillPublishMetadata;
-      /** Bundled files to include with this version. Replaces all files from the previous version. */
+      /** Bundled files to include with this version. Replaces all files from the previous version. Mutually exclusive with file_edits. */
       files?: LLMSkillFileInput[];
+      /** Per-file find/replace updates. Each entry targets one existing file by path and applies sequential edits to its content. Non-targeted files carry forward unchanged. Cannot add, remove, or rename files — use 'files' for that. Mutually exclusive with files. */
+      file_edits?: LLMSkillFileEdit[];
       /**
        * Latest version you are editing from. Used for optimistic concurrency checks.
        * @minimum 1
@@ -26558,8 +26739,8 @@ export namespace Schemas {
        * @nullable
        */
       readonly last_error_message?: string | null;
-      /** 24 hourly buckets of breached + errored check counts for the last 24h, ordered oldest-first. Drives the activity column on the alert list — empty sparkline = healthy alert. Ok checks are not included: retention caps OK rows at MAX_EVALUATION_PERIODS (~50min at 5-min cadence), so only events that survive the prune (breached + errored) are meaningful over a 24h window. */
-      readonly sparkline?: readonly LogsAlertSparklineBucket[];
+      /** Continuous state intervals over the last 24h, ordered oldest-first. Each interval covers a span during which (state, enabled) was constant. Derived from LogsAlertEvent rows walked in chronological order; consecutive identical intervals are collapsed. Drives the 'Last 24h' status bar on the alert list. */
+      readonly state_timeline?: readonly LogsAlertStateInterval[];
       /** Notification destination types configured for this alert — e.g. 'slack', 'webhook'. Empty list means no notifications will fire. One or more destinations should be added after creating an alert. */
       readonly destination_types?: readonly DestinationTypesEnum[];
       /** When the alert was created. */
@@ -27903,7 +28084,7 @@ export namespace Schemas {
       /** ISO 8601 datetime when the change should be applied (e.g. '2025-06-01T14:00:00Z'). */
       scheduled_at?: string;
       /** @nullable */
-      executed_at?: string | null;
+      readonly executed_at?: string | null;
       /**
        * Return the safely formatted failure reason instead of raw data.
        * @nullable
@@ -29272,6 +29453,24 @@ export namespace Schemas {
       readonly cc_participants?: unknown;
       readonly person?: TicketPerson | null;
       tags?: unknown[];
+    }
+
+    /**
+     * * `approved` - approved
+    * `needs_approval` - needs_approval
+    * `do_not_use` - do_not_use
+     */
+    export type ToolApprovalUpdateApprovalStateEnum = typeof ToolApprovalUpdateApprovalStateEnum[keyof typeof ToolApprovalUpdateApprovalStateEnum];
+
+
+    export const ToolApprovalUpdateApprovalStateEnum = {
+      Approved: 'approved',
+      NeedsApproval: 'needs_approval',
+      DoNotUse: 'do_not_use',
+    } as const;
+
+    export interface PatchedToolApprovalUpdate {
+      approval_state?: ToolApprovalUpdateApprovalStateEnum;
     }
 
     export interface TraceReviewScoreWrite {
@@ -33664,13 +33863,25 @@ export namespace Schemas {
       results: SentimentBatchResponseResults;
     }
 
+    /**
+     * * `trace` - trace
+    * `generation` - generation
+     */
+    export type SentimentRequestAnalysisLevelEnum = typeof SentimentRequestAnalysisLevelEnum[keyof typeof SentimentRequestAnalysisLevelEnum];
+
+
+    export const SentimentRequestAnalysisLevelEnum = {
+      Trace: 'trace',
+      Generation: 'generation',
+    } as const;
+
     export interface SentimentRequest {
       /**
        * @minItems 1
        * @maxItems 5
        */
       ids: string[];
-      analysis_level?: AnalysisLevelEnum;
+      analysis_level?: SentimentRequestAnalysisLevelEnum;
       force_refresh?: boolean;
       /** @nullable */
       date_from?: string | null;
@@ -36871,6 +37082,10 @@ export namespace Schemas {
      * @minLength 1
      */
     repo: string;
+    /**
+     * Optional case-insensitive branch name search query.
+     */
+    search?: string;
     };
 
     export type EnvironmentsIntegrationsGithubReposRetrieveParams = {
@@ -36885,6 +37100,10 @@ export namespace Schemas {
      * @minimum 0
      */
     offset?: number;
+    /**
+     * Optional case-insensitive repository name search query.
+     */
+    search?: string;
     };
 
     export type EnvironmentsLogsAlertsListParams = {
@@ -38221,6 +38440,14 @@ export namespace Schemas {
     version?: number;
     };
 
+    export type LlmSkillsNameFilesDestroyParams = {
+    /**
+     * Latest version you are editing from. If provided, the request fails with 409 when another write has landed in the meantime.
+     * @minimum 1
+     */
+    base_version?: number;
+    };
+
     export type LlmSkillsResolveNameRetrieveParams = {
     /**
      * Return versions older than this version number. Mutually exclusive with offset.
@@ -38325,8 +38552,9 @@ export namespace Schemas {
      * @minLength 1
      */
     install_source?: McpServerInstallationsAuthorizeRetrieveInstallSource;
+    installation_id?: string;
     posthog_code_callback_url?: string;
-    server_id: string;
+    template_id?: string;
     };
 
     export type McpServerInstallationsAuthorizeRetrieveInstallSource = typeof McpServerInstallationsAuthorizeRetrieveInstallSource[keyof typeof McpServerInstallationsAuthorizeRetrieveInstallSource];
@@ -39307,6 +39535,8 @@ export namespace Schemas {
       SlackBotMention: 'slack_bot_mention',
       SlackChannelMessage: 'slack_channel_message',
       SlackEmojiReaction: 'slack_emoji_reaction',
+      TeamsBotMention: 'teams_bot_mention',
+      TeamsChannelMessage: 'teams_channel_message',
       WidgetApi: 'widget_api',
       WidgetEmbedded: 'widget_embedded',
     } as const;
@@ -39317,6 +39547,7 @@ export namespace Schemas {
     export const ConversationsTicketsListChannelSource = {
       Email: 'email',
       Slack: 'slack',
+      Teams: 'teams',
       Widget: 'widget',
     } as const;
 
@@ -40999,6 +41230,10 @@ export namespace Schemas {
      * @minLength 1
      */
     repo: string;
+    /**
+     * Optional case-insensitive branch name search query.
+     */
+    search?: string;
     };
 
     export type IntegrationsGithubReposRetrieveParams = {
@@ -41013,6 +41248,10 @@ export namespace Schemas {
      * @minimum 0
      */
     offset?: number;
+    /**
+     * Optional case-insensitive repository name search query.
+     */
+    search?: string;
     };
 
     export type LiveDebuggerBreakpointsListParams = {
