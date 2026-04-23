@@ -79,7 +79,7 @@ class CreateFeatureFlagInputSerializer(serializers.Serializer):
         return CreateFeatureFlagInput(
             key=self.validated_data["key"],
             name=self.validated_data.get("name") or None,
-            variants=variant_dtos,
+            variants=tuple(variant_dtos),
             rollout_percentage=self.validated_data.get("rollout_percentage"),
             aggregation_group_type_index=self.validated_data.get("aggregation_group_type_index"),
             ensure_experience_continuity=self.validated_data.get("ensure_experience_continuity"),
