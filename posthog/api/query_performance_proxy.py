@@ -29,6 +29,7 @@ from rest_framework.response import Response
 
 from posthog.auth import OAuthAccessTokenAuthentication
 from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.errors import InternalCHQueryError
 from posthog.permissions import APIScopePermission
 
@@ -98,7 +99,14 @@ def _run_autoresearch_query(sql: str) -> Response:
     )
     start = time.monotonic()
     try:
-        rows = sync_execute(sql, settings=_QUERY_SETTINGS, sync_client=client, readonly=True, flush=False)
+        # sync_execute in DEBUG mode refuses untagged queries (see
+        # posthog.clickhouse.client.execute.sync_execute). This isn't a
+        # customer-facing query — it's an autoresearch passthrough — so tag
+        # it as an internal query. Without this the call raises
+        # UntaggedQueryError, which the generic except below would disguise
+        # as "clickhouse unreachable".
+        with tags_context(product=Product.INTERNAL, feature=Feature.QUERY):
+            rows = sync_execute(sql, settings=_QUERY_SETTINGS, sync_client=client, readonly=True, flush=False)
     except InternalCHQueryError as e:
         return Response(
             {
