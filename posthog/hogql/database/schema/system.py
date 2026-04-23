@@ -685,6 +685,56 @@ error_tracking_issue_fingerprints: PostgresTable = PostgresTable(
     },
 )
 
+error_tracking_assignment_rules: PostgresTable = PostgresTable(
+    name="error_tracking_assignment_rules",
+    postgres_table_name="posthog_errortrackingassignmentrule",
+    access_scope="error_tracking",
+    fields={
+        "id": StringDatabaseField(name="id"),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "user_id": IntegerDatabaseField(name="user_id", nullable=True),
+        "role_id": StringDatabaseField(name="role_id", nullable=True),
+        "order_key": IntegerDatabaseField(name="order_key"),
+        "filters": StringJSONDatabaseField(name="filters"),
+        "bytecode": StringJSONDatabaseField(name="bytecode"),
+        "disabled_data": StringJSONDatabaseField(name="disabled_data", nullable=True),
+        "created_at": DateTimeDatabaseField(name="created_at"),
+        "updated_at": DateTimeDatabaseField(name="updated_at"),
+    },
+)
+
+error_tracking_suppression_rules: PostgresTable = PostgresTable(
+    name="error_tracking_suppression_rules",
+    postgres_table_name="posthog_errortrackingsuppressionrule",
+    access_scope="error_tracking",
+    fields={
+        "id": StringDatabaseField(name="id"),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "order_key": IntegerDatabaseField(name="order_key"),
+        "sampling_rate": FloatDatabaseField(name="sampling_rate"),
+        "filters": StringJSONDatabaseField(name="filters"),
+        "bytecode": StringJSONDatabaseField(name="bytecode", nullable=True),
+        "disabled_data": StringJSONDatabaseField(name="disabled_data", nullable=True),
+        "created_at": DateTimeDatabaseField(name="created_at"),
+        "updated_at": DateTimeDatabaseField(name="updated_at"),
+    },
+)
+
+error_tracking_releases: PostgresTable = PostgresTable(
+    name="error_tracking_releases",
+    postgres_table_name="posthog_errortrackingrelease",
+    access_scope="error_tracking",
+    fields={
+        "id": StringDatabaseField(name="id"),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "hash_id": StringDatabaseField(name="hash_id"),
+        "version": StringDatabaseField(name="version"),
+        "project": StringDatabaseField(name="project"),
+        "metadata": StringJSONDatabaseField(name="metadata", nullable=True),
+        "created_at": DateTimeDatabaseField(name="created_at"),
+    },
+)
+
 logs_views: PostgresTable = PostgresTable(
     name="logs_views",
     postgres_table_name="logs_logsview",
@@ -801,6 +851,9 @@ class SystemTables(TableNode):
         "data_modeling_endpoints": TableNode(name="data_modeling_endpoints", table=endpoints),
         "data_warehouse_sources": TableNode(name="data_warehouse_sources", table=data_warehouse_sources),
         "data_warehouse_tables": TableNode(name="data_warehouse_tables", table=data_warehouse_tables),
+        "error_tracking_assignment_rules": TableNode(
+            name="error_tracking_assignment_rules", table=error_tracking_assignment_rules
+        ),
         "error_tracking_issue_assignments": TableNode(
             name="error_tracking_issue_assignments", table=error_tracking_issue_assignments
         ),
@@ -808,6 +861,10 @@ class SystemTables(TableNode):
             name="error_tracking_issue_fingerprints", table=error_tracking_issue_fingerprints
         ),
         "error_tracking_issues": TableNode(name="error_tracking_issues", table=error_tracking_issues),
+        "error_tracking_releases": TableNode(name="error_tracking_releases", table=error_tracking_releases),
+        "error_tracking_suppression_rules": TableNode(
+            name="error_tracking_suppression_rules", table=error_tracking_suppression_rules
+        ),
         "early_access_features": TableNode(name="early_access_features", table=early_access_features),
         "experiments": TableNode(name="experiments", table=experiments),
         "exports": TableNode(name="exports", table=exports),

@@ -978,11 +978,18 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
 
             is_cdc_schema = sync_type == "cdc"
             if requires_incremental_fields and new_source_model.supports_scheduled_sync:
+                # If the caller didn't provide primary_key_columns, fall back to whatever the
+                # source detected during schema discovery. Otherwise we rely on sync-time
+                # re-detection, which can disagree with discovery (e.g. permissions differences
+                # across query paths) and leave incremental syncs without a primary key.
+                effective_primary_key_columns = primary_key_columns or (
+                    source_schema.detected_primary_keys if source_schema else None
+                )
                 sync_type_config = {
                     "incremental_field": incremental_field,
                     "incremental_field_type": incremental_field_type,
                     "schema_metadata": schema_metadata,
-                    **({"primary_key_columns": primary_key_columns} if primary_key_columns else {}),
+                    **({"primary_key_columns": effective_primary_key_columns} if effective_primary_key_columns else {}),
                 }
             elif is_cdc_schema:
                 cdc_table_mode = schema.get("cdc_table_mode", "consolidated")
