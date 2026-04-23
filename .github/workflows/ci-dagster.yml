@@ -92,6 +92,7 @@ jobs:
                         - 'posthog/exceptions_capture.py'
                         - 'posthog/metrics.py'
                         - 'posthog/git.py'
+                        - 'posthog/llm/**'
                         - 'posthog/person_db_router.py'
                         - 'posthog/redis.py'
                         - 'posthog/event_usage.py'

@@ -40,6 +40,7 @@ def find_dag_files() -> list[Path]:
     files = list((REPO_ROOT / "posthog" / "dags").rglob("*.py"))
     for dags_dir in (REPO_ROOT / "products").glob("*/dags"):
         files.extend(dags_dir.rglob("*.py"))
+    files.extend((REPO_ROOT / "ee" / "billing" / "dags").rglob("*.py"))
     return files
 
 
