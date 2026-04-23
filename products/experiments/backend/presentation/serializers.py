@@ -29,8 +29,8 @@ class FeatureFlagVariantSerializer(serializers.Serializer):
         """Convert validated data to DTO."""
         return FeatureFlagVariant(
             key=self.validated_data["key"],
+            split_percent=self.validated_data["rollout_percentage"],
             name=self.validated_data.get("name") or None,
-            rollout_percentage=self.validated_data["rollout_percentage"],
         )
 
 
