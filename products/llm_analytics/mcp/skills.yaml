@@ -83,9 +83,16 @@ tools:
             For file changes, prefer the per-file tools rather than passing a 'files' list:
             skill-file-create / skill-file-delete / skill-file-rename handle add/remove/rename
             one file at a time and return the updated skill (including the bumped version) so
-            callers can chain further edits via base_version. Passing a 'files' list here
-            replaces ALL files and risks data loss if any file is omitted — use it only when
-            you intentionally want to replace the entire bundle.
+            callers can chain further edits via base_version.
+
+            For per-file content updates, use 'file_edits' to apply find/replace updates to
+            individual files without resending the full file set — each entry targets one
+            existing file by path. Non-targeted files carry forward unchanged. 'file_edits'
+            cannot add, remove, or rename files; use the per-file tools or 'files' (replace-all)
+            for that. 'files' and 'file_edits' are mutually exclusive.
+
+            Passing a 'files' list here replaces ALL files and risks data loss if any file is
+            omitted — use it only when you intentionally want to replace the entire bundle.
         include_params:
             - body
             - edits
@@ -95,6 +102,7 @@ tools:
             - allowed_tools
             - metadata
             - files
+            - file_edits
             - base_version
     skill-file-create:
         operation: llm_skills_name_files_create

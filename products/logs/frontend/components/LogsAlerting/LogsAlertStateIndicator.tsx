@@ -21,13 +21,18 @@ const STATES_WITH_ERROR_TOOLTIP = new Set<LogsAlertConfigurationStateEnumApi>([
 
 export function LogsAlertStateIndicator({
     state,
+    enabled = true,
     lastErrorMessage,
     snoozeUntil,
 }: {
     state: LogsAlertConfigurationStateEnumApi
+    enabled?: boolean
     lastErrorMessage?: string | null
     snoozeUntil?: string | null
 }): JSX.Element {
+    if (!enabled) {
+        return <LemonTag type="muted">Disabled</LemonTag>
+    }
     const config = STATE_CONFIG[state] ?? { label: state, type: 'default' as LemonTagType }
     const tag = <LemonTag type={config.type}>{config.label}</LemonTag>
     if (lastErrorMessage && STATES_WITH_ERROR_TOOLTIP.has(state)) {

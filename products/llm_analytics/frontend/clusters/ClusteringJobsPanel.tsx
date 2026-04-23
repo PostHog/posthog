@@ -21,7 +21,12 @@ import type { AnyPropertyFilter } from '~/types'
 import { clusteringJobsLogic } from './clusteringJobsLogic'
 import type { ClusteringJob, ClusteringLevel } from './types'
 
-const MAX_JOBS = 5
+// Per-team cap. Must stay in sync with MAX_JOBS_PER_TEAM in
+// products/llm_analytics/backend/api/clustering_job.py — the backend enforces
+// the real limit and returns 400 past it; this only drives the "Add job" disable
+// state. Raised to 10 to give teams headroom for per-evaluator clustering jobs
+// once the third analysis level lands.
+const MAX_JOBS = 10
 
 function JobEditor({
     job,

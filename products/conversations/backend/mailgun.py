@@ -21,6 +21,18 @@ MAILGUN_API_BASE = "https://api.mailgun.net/v3"
 WEBHOOK_TIMESTAMP_MAX_AGE_SECONDS = 300  # 5 minutes
 
 
+class MailgunError(Exception):
+    """Base class for Mailgun integration errors that callers need to distinguish."""
+
+
+class MailgunNotConfigured(MailgunError):
+    """Mailgun API key is missing from instance settings."""
+
+
+class MailgunDomainConflict(MailgunError):
+    """Mailgun refuses to register the domain because it already exists (in our account or another)."""
+
+
 def validate_webhook_signature(token: str, timestamp: str, signature: str) -> bool:
     """Verify inbound Mailgun webhook authenticity via HMAC-SHA256.
 
@@ -54,7 +66,7 @@ def validate_webhook_signature(token: str, timestamp: str, signature: str) -> bo
 def _get_api_key() -> str:
     key = get_instance_setting("CONVERSATIONS_EMAIL_MAILGUN_API_KEY")
     if not key:
-        raise ValueError("CONVERSATIONS_EMAIL_MAILGUN_API_KEY is not configured")
+        raise MailgunNotConfigured("CONVERSATIONS_EMAIL_MAILGUN_API_KEY is not configured")
     return key
 
 
@@ -80,18 +92,16 @@ def add_domain(domain: str) -> dict[str, Any]:
 
     if resp.status_code == 400:
         try:
-            error_msg = resp.json().get("message", "")
-            # Never silently adopt a pre-existing Mailgun domain — the shared
-            # account may hold domains we don't own. Fail loud so operators
-            # can reconcile manually.
-            if "already exists" in error_msg.lower():
-                raise ValueError(f"Domain {domain} already exists")
-            if "already taken" in error_msg.lower():
-                raise ValueError(f"Domain {domain} is already registered by another Mailgun account")
-        except ValueError:
-            raise
+            error_msg = resp.json().get("message", "").lower()
         except Exception:
-            pass
+            error_msg = ""
+        # Never silently adopt a pre-existing Mailgun domain — the shared
+        # account may hold domains we don't own. Fail loud so operators
+        # can reconcile manually.
+        if "already exists" in error_msg:
+            raise MailgunDomainConflict(f"Domain {domain} already exists")
+        if "already taken" in error_msg:
+            raise MailgunDomainConflict(f"Domain {domain} is already registered by another Mailgun account")
 
     resp.raise_for_status()
     return {}

@@ -563,7 +563,7 @@ def _get_full_repo_names(integration: Integration) -> list[str]:
 
     for record in github_records:
         github = GitHubIntegration(record)
-        repo_entries = github.list_all_repositories(max_repos=_MAX_GITHUB_REPOS)
+        repo_entries = github.list_all_cached_repositories(max_repos=_MAX_GITHUB_REPOS)
         for repo in repo_entries:
             all_repos.add(repo["full_name"])
             if len(all_repos) >= _MAX_GITHUB_REPOS:
