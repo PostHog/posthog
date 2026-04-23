@@ -1,4 +1,5 @@
 import time
+import uuid
 import asyncio
 import datetime as dt
 import dataclasses
@@ -403,7 +404,7 @@ class Command(BaseCommand):
         )
 
         condition_hashes = sorted({f.condition_hash for f in filters})
-        workflow_id = f"backfill-precalculated-events-team-{team_id}-{int(time.time())}"
+        workflow_id = f"backfill-precalculated-events-team-{team_id}-{int(time.time())}-{uuid.uuid4().hex[:8]}"
 
         async def _run_workflow():
             client = await async_connect()
