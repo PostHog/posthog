@@ -4,7 +4,6 @@ import { LemonSwitch } from '@posthog/lemon-ui'
 
 import { DataWarehousePopoverField, TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { SINGLE_SERIES_DISPLAY_TYPES } from 'lib/constants'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { alphabet } from 'lib/utils'
 import { getProjectEventExistence } from 'lib/utils/getAppContext'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
@@ -37,8 +36,6 @@ export function TrendsSeries(): JSX.Element | null {
     )
     const { updateQuerySource, toggleFormulaMode } = useActions(insightVizDataLogic(insightProps))
 
-    const editorPanelsEnabled = useFeatureFlag('PRODUCT_ANALYTICS_SIMPLE_EDITOR', 'test')
-
     const { groupsTaxonomicTypes } = useValues(groupsModel)
 
     const { hasPageview, hasScreen } = getProjectEventExistence()
@@ -70,10 +67,7 @@ export function TrendsSeries(): JSX.Element | null {
         isStickiness
 
     const showFormulaOption =
-        editorPanelsEnabled &&
-        isTrends &&
-        display !== ChartDisplayType.CalendarHeatmap &&
-        display !== ChartDisplayType.BoxPlot
+        isTrends && display !== ChartDisplayType.CalendarHeatmap && display !== ChartDisplayType.BoxPlot
 
     const canDisableFormula: boolean =
         !isTrends || !display || !SINGLE_SERIES_DISPLAY_TYPES.includes(display) || series?.length === 1
@@ -118,13 +112,7 @@ export function TrendsSeries(): JSX.Element | null {
                     }
                 }}
                 typeKey={keyForInsightLogicProps('new')(insightProps)}
-                buttonCopy={
-                    editorPanelsEnabled
-                        ? hasFormula
-                            ? 'Variable'
-                            : 'Series'
-                        : `Add graph ${hasFormula ? 'variable' : 'series'}`
-                }
+                buttonCopy={hasFormula ? 'Variable' : 'Series'}
                 showSeriesIndicator
                 showNestedArrow
                 entitiesLimit={
@@ -147,7 +135,7 @@ export function TrendsSeries(): JSX.Element | null {
                 dataWarehousePopoverFields={isLifecycle ? lifecycleDataWarehousePopoverFields : undefined}
                 customFooter={formulaFooter}
             />
-            {editorPanelsEnabled && hasFormula && <TrendsFormula insightProps={insightProps} />}
+            {hasFormula && <TrendsFormula insightProps={insightProps} />}
         </>
     )
 }

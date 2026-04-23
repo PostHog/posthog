@@ -32,7 +32,7 @@ import {
     findTraceOccurrences,
 } from './searchUtils'
 import { SENTIMENT_DATE_WINDOW_DAYS } from './sentimentUtils'
-import { formatLLMUsage, getEventType, isLLMEvent, normalizeMessages } from './utils'
+import { formatLLMUsage, getEventType, getSessionID, isLLMEvent, normalizeMessages } from './utils'
 
 export interface TraceDataLogicProps {
     traceId: string
@@ -385,6 +385,28 @@ export const llmAnalyticsTraceDataLogic = kea<llmAnalyticsTraceDataLogicType>([
                 return undefined
             },
         ],
+        selectedNode: [
+            (s) => [s.event, s.enrichedTree],
+            (
+                event: LLMTrace | LLMTraceEvent | null,
+                enrichedTree: EnrichedTraceTreeNode[]
+            ): EnrichedTraceTreeNode | null => {
+                if (!event || !isLLMEvent(event)) {
+                    return null
+                }
+                return findNodeForEvent(enrichedTree, event.id)
+            },
+        ],
+        sessionId: [
+            (s) => [s.selectedNode, s.event],
+            (node: EnrichedTraceTreeNode | null, event: LLMTrace | LLMTraceEvent | null): string | null => {
+                if (!event) {
+                    return null
+                }
+                const childEvents = node?.children?.map((child) => child.event)
+                return getSessionID(event, childEvents)
+            },
+        ],
         availableEventTypes: [
             (s) => [s.enrichedTree],
             (enrichedTree: EnrichedTraceTreeNode[]): string[] => {
@@ -584,6 +606,21 @@ function aggregateSpanMetrics(node: TraceTreeNode): SpanAggregation {
 
 // Export functions for testing
 export { findEventWithParents }
+
+export function findNodeForEvent(tree: EnrichedTraceTreeNode[], eventId: string): EnrichedTraceTreeNode | null {
+    for (const node of tree) {
+        if (node.event.id === eventId) {
+            return node
+        }
+        if (node.children) {
+            const result = findNodeForEvent(node.children, eventId)
+            if (result) {
+                return result
+            }
+        }
+    }
+    return null
+}
 
 export function getInitialFocusEventId(
     showableEvents: LLMTraceEvent[],
