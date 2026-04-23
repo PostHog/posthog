@@ -136,7 +136,7 @@ class Command(BaseCommand):
         sandbox_name = f"autoresearch-smoke-{uuid.uuid4()}"
         config = SandboxConfig(
             name=sandbox_name,
-            template=SandboxTemplate.DEFAULT_BASE,
+            template=SandboxTemplate.PI_BASE,
             default_execution_timeout_seconds=_CAMPAIGN_TIMEOUT_S,
             metadata={"purpose": "autoresearch-smoke"},
         )

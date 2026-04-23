@@ -66,8 +66,10 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_MODAL_APP_NAME = "posthog-sandbox-default"
 NOTEBOOK_MODAL_APP_NAME = "posthog-sandbox-notebook"
+PI_MODAL_APP_NAME = "posthog-sandbox-pi"
 SANDBOX_BASE_IMAGE = "ghcr.io/posthog/posthog-sandbox-base"
 SANDBOX_NOTEBOOK_IMAGE = "ghcr.io/posthog/posthog-sandbox-notebook"
+SANDBOX_PI_IMAGE = "ghcr.io/posthog/posthog-sandbox-pi"
 SANDBOX_IMAGE = SANDBOX_BASE_IMAGE
 AGENT_SERVER_PORT = 8080  # Modal connect tokens require port 8080
 
@@ -152,16 +154,20 @@ def _attach_local_package_mounts(image: modal.Image, template: SandboxTemplate) 
     return image
 
 
-@lru_cache(maxsize=2)
+@lru_cache(maxsize=3)
 def _get_template_image(template: SandboxTemplate) -> modal.Image:
     registry_image = {
         SandboxTemplate.DEFAULT_BASE: SANDBOX_BASE_IMAGE,
         SandboxTemplate.NOTEBOOK_BASE: SANDBOX_NOTEBOOK_IMAGE,
+        SandboxTemplate.PI_BASE: SANDBOX_PI_IMAGE,
     }.get(template)
     if registry_image is None:
         raise ValueError(f"Unknown template: {template}")
 
-    if settings.DEBUG:
+    # PI_BASE is always pulled from the registry — the image layers on top of
+    # sandbox-base via a BASE_IMAGE build arg that the local-dockerfile path
+    # doesn't plumb through, so DEBUG-mode local builds aren't supported here.
+    if settings.DEBUG and template != SandboxTemplate.PI_BASE:
         dockerfile_path, context_dir = _prepare_local_modal_build_context(template)
         image = modal.Image.from_dockerfile(dockerfile_path, context_dir=context_dir, ignore=[])
     else:
@@ -214,6 +220,7 @@ class ModalSandbox(SandboxBase):
     provision_diagnostics: SandboxProvisionDiagnostics | None
     DEFAULT_APP_NAME = DEFAULT_MODAL_APP_NAME
     NOTEBOOK_APP_NAME = NOTEBOOK_MODAL_APP_NAME
+    PI_APP_NAME = PI_MODAL_APP_NAME
 
     def __init__(self, sandbox: modal.Sandbox, config: SandboxConfig, sandbox_url: str | None = None):
         self.id = sandbox.object_id
@@ -236,6 +243,8 @@ class ModalSandbox(SandboxBase):
     def _get_app_for_template(cls, template: SandboxTemplate) -> modal.App:
         if template == SandboxTemplate.NOTEBOOK_BASE:
             return modal.App.lookup(cls.NOTEBOOK_APP_NAME, create_if_missing=True)
+        if template == SandboxTemplate.PI_BASE:
+            return modal.App.lookup(cls.PI_APP_NAME, create_if_missing=True)
         return cls._get_default_app()
 
     @classmethod

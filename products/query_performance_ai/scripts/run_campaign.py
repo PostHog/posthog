@@ -1,9 +1,14 @@
 #!/usr/bin/env python3
 """Drive a query-performance autoresearch campaign inside a PostHog sandbox.
 
+Assumes the sandbox runs ``posthog-sandbox-pi``, which bakes pi-coding-agent
+and pi-autoresearch into the image. Only the local ``pi-clickhouse-autoresearch``
+plugin (shipped with this repo) is installed at runtime.
+
 Full loop:
 
-1. Install the pi toolchain + pi-autoresearch + our local plugin.
+1. Install the local ``pi-clickhouse-autoresearch`` plugin and apply runtime
+   patches (pi-ai gateway base URL, pi-autoresearch workspace-preservation).
 2. Init a campaign workspace for the supplied SQL (defaults to ``SELECT 1``,
    i.e. a smoke test).
 3. Write an ``adapter.json`` that routes queries through the PostHog
@@ -50,13 +55,10 @@ AUTORESEARCH_DIR = PRODUCT_DIR / "autoresearch"
 SCRIPTS_DIR = AUTORESEARCH_DIR / "scripts"
 DEFAULT_WORKSPACE = Path("/tmp/autoresearch-campaign")
 
-# Pinned upstream versions. Bumping these is an explicit decision — an
-# unpinned install would pull the next npm publish / git HEAD into every
-# sandbox, which means an upstream rewrite silently changes what the
-# agent sees. Bump together with a fresh smoke run to confirm nothing
-# broke.
-PI_CODING_AGENT_VERSION = "0.68.1"
-PI_AUTORESEARCH_COMMIT = "56e9f2ec6f0dc6f9997126e4f1d8a4223de2a534"
+# Where Dockerfile.sandbox-pi drops the pi-autoresearch extension. The image
+# copies it directly (not via ``pi install``), so the git-clone path under
+# ~/.pi/agent/git/… never exists in this image.
+BAKED_PI_AUTORESEARCH_EXTENSION = Path("/root/.pi/agent/extensions/pi-autoresearch")
 
 
 class CampaignError(RuntimeError):
@@ -79,7 +81,7 @@ def check_proxy_reachable(posthog_url: str, token: str) -> None:
     """Round-trip a SELECT 1 through the proxy before doing anything else.
 
     If the proxy is unreachable or the token is rejected, fail fast with a
-    useful error instead of discovering it three minutes into a pi install.
+    useful error instead of discovering it partway into a campaign.
     """
     endpoint = posthog_url.rstrip("/") + "/api/query_performance_proxy/execute-test/"
     body = json.dumps({"sql": "SELECT 1"}).encode("utf-8")
@@ -122,29 +124,16 @@ def check_proxy_reachable(posthog_url: str, token: str) -> None:
     log(f"proxy preflight OK ({data.get('elapsed_ms')}ms, query_id={data.get('query_id')})")
 
 
-def install_pi_toolchain() -> None:
-    # Always run npm install with the pinned version — it's a fast no-op when
-    # already at the same version and it's a visible upgrade step when not,
-    # instead of silently keeping whatever an earlier sandbox snapshotted.
-    log(f"installing @mariozechner/pi-coding-agent@{PI_CODING_AGENT_VERSION} globally via npm")
-    run(["npm", "install", "-g", f"@mariozechner/pi-coding-agent@{PI_CODING_AGENT_VERSION}"])
+def prepare_pi_runtime() -> None:
+    """Runtime prep on top of the baked posthog-sandbox-pi image.
 
+    pi-coding-agent and pi-autoresearch are installed at image-build time, so
+    this only does the runtime-scoped bits: patch pi-ai's hardcoded Anthropic
+    baseUrl to our LLM gateway, patch pi-autoresearch to preserve campaign
+    artifacts across experiments, and install the in-repo plugin.
+    """
     _patch_pi_ai_anthropic_baseurl()
-
-    pi_autoresearch_dir = Path.home() / ".pi/agent/git/github.com/davebcn87/pi-autoresearch"
-    if not pi_autoresearch_dir.is_dir():
-        log("cloning pi-autoresearch framework from git")
-        run(["pi", "install", "https://github.com/davebcn87/pi-autoresearch"])
-
-    # Pin to a known-good commit. ``pi install`` just clones HEAD, so without
-    # this the agent would pick up whatever upstream rewrote this morning.
-    # Safe to re-run on a stale clone: fetch + checkout of the same SHA is a
-    # no-op.
-    log(f"pinning pi-autoresearch to {PI_AUTORESEARCH_COMMIT[:12]}")
-    run(["git", "-C", str(pi_autoresearch_dir), "fetch", "--depth", "1", "origin", PI_AUTORESEARCH_COMMIT])
-    run(["git", "-C", str(pi_autoresearch_dir), "checkout", "--detach", PI_AUTORESEARCH_COMMIT])
-
-    _patch_pi_autoresearch_index_ts(pi_autoresearch_dir)
+    _patch_pi_autoresearch_index_ts()
 
     plugin_dir = Path.home() / ".pi/packages/pi-clickhouse-autoresearch"
     if not plugin_dir.is_dir():
@@ -154,7 +143,7 @@ def install_pi_toolchain() -> None:
         log("pi-clickhouse-autoresearch already installed")
 
 
-def _patch_pi_autoresearch_index_ts(pi_autoresearch_dir: Path) -> None:
+def _patch_pi_autoresearch_index_ts() -> None:
     """Keep workspace artifacts across experiments.
 
     ``log_experiment`` calls ``git clean -fd`` between experiments, which
@@ -163,8 +152,9 @@ def _patch_pi_autoresearch_index_ts(pi_autoresearch_dir: Path) -> None:
     them. The replace is idempotent: re-applying on an already-patched
     file is a no-op because the pre-patch string is gone.
     """
-    index_ts = pi_autoresearch_dir / "extensions/pi-autoresearch/index.ts"
+    index_ts = BAKED_PI_AUTORESEARCH_EXTENSION / "index.ts"
     if not index_ts.is_file():
+        log(f"pi-autoresearch index.ts not found at {index_ts}; skipping workspace-preservation patch")
         return
     preserve = " ".join(
         f"-e {name}"
@@ -569,7 +559,7 @@ def main() -> int:
 
     try:
         check_proxy_reachable(args.posthog_url, args.posthog_token)
-        install_pi_toolchain()
+        prepare_pi_runtime()
 
         log(f"resetting workspace {args.workspace}")
         if args.workspace.exists():
