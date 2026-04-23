@@ -138,6 +138,7 @@ class TestProvisioningResources(ProvisioningTestBase):
         )
         pat = PersonalAPIKey.objects.filter(user=self.user).order_by("-created_at").first()
         assert pat is not None
+        assert pat.scopes == ["*"]
         assert pat.scoped_teams == [self.team.id]
         assert pat.scoped_organizations == [str(self.team.organization_id)]
 
