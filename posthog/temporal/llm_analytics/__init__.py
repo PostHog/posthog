@@ -1,3 +1,17 @@
+from posthog.temporal.llm_analytics.eval_reports.activities import (
+    deliver_report_activity,
+    fetch_count_triggered_eval_reports_activity,
+    fetch_due_eval_reports_activity,
+    prepare_report_context_activity,
+    run_eval_report_agent_activity,
+    store_report_run_activity,
+    update_next_delivery_date_activity,
+)
+from posthog.temporal.llm_analytics.eval_reports.workflow import (
+    CheckCountTriggeredReportsWorkflow,
+    GenerateAndDeliverEvalReportWorkflow,
+    ScheduleAllEvalReportsWorkflow,
+)
 from posthog.temporal.llm_analytics.evaluation_clustering import (
     LLMAEvaluationClusteringWorkflow,
     LLMAEvaluationSamplerCoordinatorWorkflow,
@@ -73,6 +87,10 @@ WORKFLOWS = [
     BatchTraceSummarizationCoordinatorWorkflow,
     DailyTraceClusteringWorkflow,
     TraceClusteringCoordinatorWorkflow,
+    # Evaluation reports
+    ScheduleAllEvalReportsWorkflow,
+    CheckCountTriggeredReportsWorkflow,
+    GenerateAndDeliverEvalReportWorkflow,
     # Evaluation clustering Stage A (sampler). Stage B coordinator + clustering workflow body
     # land alongside the activities module in a follow-up PR; the LLMAEvaluationClusteringWorkflow
     # stub is registered here so its workflow name is known to the worker in the meantime.
@@ -100,6 +118,14 @@ ACTIVITIES = [
     generate_cluster_labels_activity,
     compute_cluster_aggregates_activity,
     emit_cluster_events_activity,
+    # Evaluation report activities
+    fetch_due_eval_reports_activity,
+    fetch_count_triggered_eval_reports_activity,
+    prepare_report_context_activity,
+    run_eval_report_agent_activity,
+    store_report_run_activity,
+    deliver_report_activity,
+    update_next_delivery_date_activity,
     # Evaluation clustering Stage A activity (Stage B activities land in a follow-up PR)
     sample_and_embed_for_job_activity,
     # Keep sentiment activity registered here temporarily so orphaned workflows on general-purpose queue can complete

@@ -1054,7 +1054,7 @@ def _resume_task_with_new_run(
         return True
 
     extra_state: dict[str, Any] = {
-        "interaction_origin": "slack",
+        "interaction_origin": "slack",  # Makes the agent auto-push and open a draft PR
     }
 
     previous_state = previous_run.state or {}

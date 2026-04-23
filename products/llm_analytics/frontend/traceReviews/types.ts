@@ -1,7 +1,7 @@
 import type { UserBasicType } from '~/types'
 
 import type {
-    Kind01eEnumApi as ScoreDefinitionKind,
+    KindD08EnumApi as ScoreDefinitionKind,
     ScoreDefinitionConfigApi as ScoreDefinitionConfig,
 } from '../generated/api.schemas'
 

@@ -101,6 +101,7 @@ class TraceQueryRunner(AnalyticsQueryRunner[TraceQueryResponse]):
                 trace_id AS id,
                 any(session_id) AS ai_session_id,
                 min(timestamp) AS first_timestamp,
+                max(timestamp) AS last_timestamp,
                 ifNull(
                     nullIf(argMinIf(distinct_id, timestamp, event = '$ai_trace'), ''),
                     argMin(distinct_id, timestamp)
@@ -264,8 +265,17 @@ class TraceQueryRunner(AnalyticsQueryRunner[TraceQueryResponse]):
         mapped_results = [dict(zip(columns, value)) for value in query_results]
         traces = []
 
+        date_from = self._date_range.date_from_for_filtering()
+        date_to = self._date_range.date_to_for_filtering()
+
         for result in mapped_results:
-            timestamp_dt = cast(datetime, result["first_timestamp"])
-            traces.append(self._map_trace(result, timestamp_dt))
+            # Overlap semantics: match sessions list behavior where a trace
+            # is counted if ANY of its events fall in the date window.
+            first_timestamp = cast(datetime, result["first_timestamp"])
+            last_timestamp = cast(datetime, result["last_timestamp"])
+            if first_timestamp > date_to or last_timestamp < date_from:
+                continue
+
+            traces.append(self._map_trace(result, first_timestamp))
 
         return traces
