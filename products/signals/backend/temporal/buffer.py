@@ -169,8 +169,9 @@ class BufferSignalsWorkflow:
                 if result.safe:
                     safe_signals.append(signal)
                 else:
-                    workflow.logger.warning(
-                        f"Safety filter dropped signal: {result.threat_type}",
+                    logger.warning(
+                        "Safety filter dropped signal",
+                        threat_type=result.threat_type,
                         team_id=signal.team_id,
                         source_product=signal.source_product,
                         source_type=signal.source_type,

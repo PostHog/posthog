@@ -54,7 +54,7 @@ export function ClustersView(): JSX.Element {
         ...(evaluationsEnabled ? [{ value: 'evaluation' as const, label: 'Evaluations' }] : []),
     ]
     const levelTooltip = evaluationsEnabled
-        ? 'Traces cluster entire conversations, generations cluster individual LLM calls, and evaluations cluster $ai_evaluation events by evaluation name, verdict, and reasoning'
+        ? 'Traces cluster entire conversations, generations cluster individual LLM calls, and evaluations cluster $ai_evaluation events by evaluator name, verdict, and reasoning'
         : 'Traces cluster entire conversations, while generations cluster individual LLM calls'
 
     // Build a map from job_id to job name for run labels

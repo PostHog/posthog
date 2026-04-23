@@ -126,28 +126,28 @@ export function ClusterCard({
                                     </Tooltip>
                                 )}
                                 {isEvalLevel && (metrics.naRate ?? null) !== null && (metrics.naRate as number) > 0 && (
-                                    <Tooltip title="Share of evaluations where the evaluation marked the criteria as not applicable">
+                                    <Tooltip title="Share of evaluations where the evaluator marked the criteria as not applicable">
                                         <LemonTag type="muted" size="small">
                                             N/A: {Math.round((metrics.naRate as number) * 100)}%
                                         </LemonTag>
                                     </Tooltip>
                                 )}
                                 {isEvalLevel && metrics.dominantEvaluationName && (
-                                    <Tooltip title="Most common evaluation in this cluster">
+                                    <Tooltip title="Most common evaluator in this cluster">
                                         <LemonTag type="muted" size="small">
-                                            Evaluation: {metrics.dominantEvaluationName}
+                                            Evaluator: {metrics.dominantEvaluationName}
                                         </LemonTag>
                                     </Tooltip>
                                 )}
                                 {isEvalLevel && metrics.dominantRuntime && (
-                                    <Tooltip title="Most common evaluation runtime (llm_judge = LLM-as-judge, hog = deterministic rule-based)">
+                                    <Tooltip title="Most common evaluator runtime (llm_judge = LLM-as-judge, hog = deterministic rule-based)">
                                         <LemonTag type="muted" size="small">
                                             Runtime: {metrics.dominantRuntime}
                                         </LemonTag>
                                     </Tooltip>
                                 )}
                                 {isEvalLevel && (metrics.avgJudgeCost ?? null) !== null && (
-                                    <Tooltip title="Average cost of running the LLM-as-judge evaluation per eval in this cluster">
+                                    <Tooltip title="Average cost of running the LLM-as-judge evaluator per eval in this cluster">
                                         <LemonTag type="muted" size="small">
                                             Avg Judge Cost: {formatLLMCost(metrics.avgJudgeCost as number)}
                                         </LemonTag>

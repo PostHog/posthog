@@ -422,8 +422,8 @@
      GROUP BY exposures.entity_id,
               exposures.variant),
        percentiles AS
-    (SELECT quantile(0.1)(entity_metrics.value) AS lower_bound,
-            quantile(0.9)(entity_metrics.value) AS upper_bound
+    (SELECT quantileExact(0.1)(entity_metrics.value) AS lower_bound,
+            quantileExact(0.9)(entity_metrics.value) AS upper_bound
      FROM entity_metrics),
        winsorized_entity_metrics AS
     (SELECT entity_metrics.entity_id AS entity_id,
@@ -485,8 +485,8 @@
      GROUP BY exposures.entity_id,
               exposures.variant),
        percentiles AS
-    (SELECT quantile(0.1)(entity_metrics.value) AS lower_bound,
-            quantile(0.9)(entity_metrics.value) AS upper_bound
+    (SELECT quantileExact(0.1)(entity_metrics.value) AS lower_bound,
+            quantileExact(0.9)(entity_metrics.value) AS upper_bound
      FROM entity_metrics),
        winsorized_entity_metrics AS
     (SELECT entity_metrics.entity_id AS entity_id,
@@ -692,8 +692,8 @@
      GROUP BY exposures.entity_id,
               exposures.variant),
        percentiles AS
-    (SELECT quantile(0.1)(entity_metrics.value) AS lower_bound,
-            quantile(0.9)(entity_metrics.value) AS upper_bound
+    (SELECT quantileExact(0.1)(entity_metrics.value) AS lower_bound,
+            quantileExact(0.9)(entity_metrics.value) AS upper_bound
      FROM entity_metrics),
        winsorized_entity_metrics AS
     (SELECT entity_metrics.entity_id AS entity_id,
@@ -755,8 +755,8 @@
      GROUP BY exposures.entity_id,
               exposures.variant),
        percentiles AS
-    (SELECT quantile(0.1)(entity_metrics.value) AS lower_bound,
-            quantile(0.9)(entity_metrics.value) AS upper_bound
+    (SELECT quantileExact(0.1)(entity_metrics.value) AS lower_bound,
+            quantileExact(0.9)(entity_metrics.value) AS upper_bound
      FROM entity_metrics),
        winsorized_entity_metrics AS
     (SELECT entity_metrics.entity_id AS entity_id,
@@ -836,8 +836,8 @@
      GROUP BY exposures.entity_id,
               exposures.variant),
        percentiles AS
-    (SELECT quantile(0.1)(entity_metrics.value) AS lower_bound,
-            quantile(0.9)(entity_metrics.value) AS upper_bound
+    (SELECT quantileExact(0.1)(entity_metrics.value) AS lower_bound,
+            quantileExact(0.9)(entity_metrics.value) AS upper_bound
      FROM entity_metrics),
        winsorized_entity_metrics AS
     (SELECT entity_metrics.entity_id AS entity_id,
@@ -899,8 +899,8 @@
      GROUP BY exposures.entity_id,
               exposures.variant),
        percentiles AS
-    (SELECT quantile(0.1)(entity_metrics.value) AS lower_bound,
-            quantile(0.9)(entity_metrics.value) AS upper_bound
+    (SELECT quantileExact(0.1)(entity_metrics.value) AS lower_bound,
+            quantileExact(0.9)(entity_metrics.value) AS upper_bound
      FROM entity_metrics),
        winsorized_entity_metrics AS
     (SELECT entity_metrics.entity_id AS entity_id,
@@ -981,7 +981,7 @@
               exposures.variant),
        percentiles AS
     (SELECT min(entity_metrics.value) AS lower_bound,
-            quantile(0.9)(if(ifNull(notEquals(entity_metrics.value, 0), 1), entity_metrics.value, NULL)) AS upper_bound
+            quantileExact(0.9)(if(ifNull(notEquals(entity_metrics.value, 0), 1), entity_metrics.value, NULL)) AS upper_bound
      FROM entity_metrics),
        winsorized_entity_metrics AS
     (SELECT entity_metrics.entity_id AS entity_id,
@@ -1044,7 +1044,7 @@
               exposures.variant),
        percentiles AS
     (SELECT min(entity_metrics.value) AS lower_bound,
-            quantile(0.9)(if(ifNull(notEquals(entity_metrics.value, 0), 1), entity_metrics.value, NULL)) AS upper_bound
+            quantileExact(0.9)(if(ifNull(notEquals(entity_metrics.value, 0), 1), entity_metrics.value, NULL)) AS upper_bound
      FROM entity_metrics),
        winsorized_entity_metrics AS
     (SELECT entity_metrics.entity_id AS entity_id,

@@ -181,6 +181,8 @@ def _build_environment_variables(
     run_state = parse_run_state(ctx.state)
     if run_state.resume_from_run_id:
         environment_variables["POSTHOG_RESUME_RUN_ID"] = run_state.resume_from_run_id
+    elif run_state.handoff_resumed:
+        environment_variables["POSTHOG_RESUME_RUN_ID"] = str(ctx.run_id)
 
     return environment_variables
 
