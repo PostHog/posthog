@@ -3,17 +3,46 @@
 Non-obvious facts about how PostHog bills that the agent should know before explaining
 costs to a customer. Each of these trips up first-time analyzers.
 
-## Special `$`-prefixed events are billed in the right product, not product analytics
+## Events excluded from the billable events product
 
-Some events starting with `$` are NOT counted against product analytics event volume:
+Several events are **dropped at usage-report time** and never counted toward the events
+product bill. Source of truth: `get_teams_with_billable_event_count_in_period` in
+`posthog/tasks/usage_report.py`.
 
-- `$feature_flag_called` — tracked in feature flags product (but see next point)
-- `$exception` — counted in error tracking product
-- `$survey_shown`, `$survey_sent`, `$survey_dismissed` — counted in surveys product
+- `$feature_flag_called` — billed under `feature_flag_requests` (see next section)
+- `$exception` — billed under error tracking
+- `survey sent`, `survey shown`, `survey dismissed` — billed under surveys. Note the event
+  names use spaces and have no `$` prefix.
+- AI analytics events — billed under `llm_analytics` / `ai_credits`:
+  - `$ai_generation`, `$ai_embedding`, `$ai_span`, `$ai_trace`, `$ai_metric`
+  - `$ai_feedback`, `$ai_evaluation`
+  - `$ai_trace_summary`, `$ai_generation_summary`, `$ai_trace_clusters`,
+    `$ai_generation_clusters`
 
-When a customer asks "why is my event volume so high", inspect whether a lot of the counted
-events are these special ones. If so, the product analytics bill should not be affected;
-the real cost is in the other product.
+**Practical consequence**: when drilling into raw `events` in ClickHouse to explain an
+events-product bill, always filter these out, or at minimum flag them separately in your
+summary. A raw `SELECT event, count() FROM events GROUP BY event` will overstate billable
+volume by whatever slice is flag-evaluations / survey events / AI traces — and recommending
+"disable `$feature_flag_called` capture" to lower the events bill is wrong advice (the
+event isn't in the events bill to begin with).
+
+Canonical SQL shape for a billable-events drill-down:
+
+```sql
+SELECT event, count() AS c
+FROM events
+WHERE team_id = {team_id}
+  AND timestamp >= {start} AND timestamp < {end}
+  AND event NOT IN (
+    '$feature_flag_called', '$exception',
+    'survey sent', 'survey shown', 'survey dismissed',
+    '$ai_generation', '$ai_embedding', '$ai_span', '$ai_trace', '$ai_metric',
+    '$ai_feedback', '$ai_evaluation',
+    '$ai_trace_summary', '$ai_generation_summary',
+    '$ai_trace_clusters', '$ai_generation_clusters'
+  )
+GROUP BY event ORDER BY c DESC LIMIT 20
+```
 
 ## Feature flags are billed by `/flags` requests, not events
 
