@@ -73,6 +73,7 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
         )
 
         start_table_name = self.start_event.table_name if start_entity_is_dwh else "events"
+        assert start_table_name
         start_where_expr = None if start_entity_is_dwh else ast.And(exprs=event_filters)
 
         start_event_query = ast.SelectQuery(
@@ -93,13 +94,16 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
             if return_entity_is_dwh
             else self.aggregation_target_events_column
         )
+        assert return_actor_column_name
         return_actor_field = ast.Field(chain=[return_actor_column_name])
 
         return_timestamp_column_name = self.return_event.timestamp_field if return_entity_is_dwh else "timestamp"
+        assert return_timestamp_column_name
         return_timestamp_field = ast.Field(chain=[return_timestamp_column_name])
         return_start_of_interval_sql = self.query_date_range.get_start_of_interval_hogql(source=return_timestamp_field)
 
         return_table_name = self.return_event.table_name if return_entity_is_dwh else "events"
+        assert return_table_name
         return_where_expr = None if return_entity_is_dwh else ast.And(exprs=event_filters)
 
         return_entity_expr = (
