@@ -6,6 +6,7 @@ from django.conf import settings
 from django.contrib.postgres.fields import ArrayField
 from django.core.exceptions import ValidationError
 from django.db import models
+from django.dispatch import receiver
 from django.utils import timezone
 
 from oauth2_provider.models import (
@@ -143,11 +144,32 @@ class OAuthApplication(AbstractApplication):
     provisioning_rate_limit_account_requests: models.IntegerField = models.IntegerField(
         null=True, blank=True, help_text="Override default rate limit for account_requests (per hour)"
     )
+    provisioning_rate_limit_account_requests_source: models.CharField = models.CharField(
+        max_length=24,
+        blank=True,
+        default="",
+        choices=[
+            ("default_unverified", "default_unverified"),
+            ("default_verified", "default_verified"),
+            ("admin", "admin"),
+        ],
+        help_text=(
+            "Records who set provisioning_rate_limit_account_requests so verification flips don't "
+            "overwrite an explicit admin override."
+        ),
+    )
     provisioning_rate_limit_token_exchanges: models.IntegerField = models.IntegerField(
         null=True, blank=True, help_text="Override default rate limit for token exchanges (per hour)"
     )
     provisioning_rate_limit_resource_creates: models.IntegerField = models.IntegerField(
         null=True, blank=True, help_text="Override default rate limit for resource creates (per hour)"
+    )
+    provisioning_disabled: models.BooleanField = models.BooleanField(
+        default=False,
+        help_text=(
+            "Kill switch for misbehaving partners. When true, apply_provisioning_defaults will not "
+            "re-enable the app on subsequent CIMD requests."
+        ),
     )
 
     @property
@@ -400,13 +422,13 @@ class CIMDVerificationToken(models.Model):
     """
 
     id: models.UUIDField = models.UUIDField(primary_key=True, default=UUIDT, editable=False)
-    organization: "Organization" = models.ForeignKey(  # type: ignore[assignment]
+    organization: "Organization" = models.ForeignKey(  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
         "posthog.Organization", on_delete=models.CASCADE, related_name="cimd_verification_tokens"
     )
     label: models.CharField = models.CharField(max_length=40)
     mask_value: models.CharField = models.CharField(max_length=11, editable=False, null=True)
     secure_value: models.CharField = models.CharField(unique=True, max_length=300, editable=False)
-    created_by: "User | None" = models.ForeignKey(  # type: ignore[assignment]
+    created_by: "User | None" = models.ForeignKey(  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
         "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+"
     )
     created_at: models.DateTimeField = models.DateTimeField(default=timezone.now)
@@ -441,3 +463,39 @@ def create_cimd_verification_token(
         mask_value=mask_key_value(plaintext),
     )
     return token, plaintext
+
+
+class CIMDBlocklistEntry(models.Model):
+    """Persistent blocklist for CIMD partner URLs.
+
+    Source of truth for is_cimd_url_blocked - the Redis check is a read-through
+    cache. Persisting in Postgres means the blocklist survives Redis flushes /
+    LRU eviction and a deleted CIMD app can stay blocked across restarts.
+    """
+
+    id: models.UUIDField = models.UUIDField(primary_key=True, default=UUIDT, editable=False)
+    cimd_url: models.URLField = models.URLField(max_length=2048, unique=True)
+    reason: models.CharField = models.CharField(max_length=200, blank=True, default="")
+    created_at: models.DateTimeField = models.DateTimeField(default=timezone.now)
+    created_by: "User | None" = models.ForeignKey(  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
+        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+"
+    )
+
+    class Meta:
+        verbose_name = "CIMD Blocklist Entry"
+        verbose_name_plural = "CIMD Blocklist Entries"
+
+
+@receiver(models.signals.post_delete, sender=OAuthApplication)
+def _block_cimd_url_on_application_delete(sender, instance: OAuthApplication, **kwargs):
+    # Auto-blocklist a CIMD URL when its app is deleted, so a metadata refresh
+    # can't immediately recreate the same partner. Admin can explicitly
+    # unblock via unblock_cimd_url if they want to allow re-registration.
+    if not (instance.is_cimd_client and instance.cimd_metadata_url):
+        return
+    from posthog.api.oauth.cimd import block_cimd_url
+
+    block_cimd_url(
+        instance.cimd_metadata_url,
+        reason=f"Auto-blocked on deletion of OAuthApplication {instance.pk}",
+    )

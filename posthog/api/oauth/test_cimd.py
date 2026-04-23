@@ -724,7 +724,13 @@ class TestCIMDVerificationToken(APIBaseTest):
         get_or_create_cimd_provisioning_application(VALID_CIMD_URL)
         app = OAuthApplication.objects.get(cimd_metadata_url=VALID_CIMD_URL)
         app.provisioning_rate_limit_account_requests = 250
-        app.save(update_fields=["provisioning_rate_limit_account_requests"])
+        app.provisioning_rate_limit_account_requests_source = "admin"
+        app.save(
+            update_fields=[
+                "provisioning_rate_limit_account_requests",
+                "provisioning_rate_limit_account_requests_source",
+            ]
+        )
 
         _, plaintext = create_cimd_verification_token(
             organization=self.organization, label="Post-admin-override", created_by=self.user
@@ -736,6 +742,7 @@ class TestCIMDVerificationToken(APIBaseTest):
         assert refreshed is not None
         self.assertEqual(refreshed.organization_id, self.organization.id)
         self.assertEqual(refreshed.provisioning_rate_limit_account_requests, 250)
+        self.assertEqual(refreshed.provisioning_rate_limit_account_requests_source, "admin")
 
 
 @override_settings(

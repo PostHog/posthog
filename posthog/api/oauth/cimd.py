@@ -27,7 +27,12 @@ from oauth2_provider.models import AbstractApplication
 from rest_framework.throttling import SimpleRateThrottle
 
 from posthog.exceptions_capture import capture_exception
-from posthog.models.oauth import CIMDVerificationToken, OAuthApplication, find_cimd_verification_token
+from posthog.models.oauth import (
+    CIMDBlocklistEntry,
+    CIMDVerificationToken,
+    OAuthApplication,
+    find_cimd_verification_token,
+)
 from posthog.ph_client import ph_scoped_capture
 from posthog.rate_limit import IPThrottle
 from posthog.security.url_validation import is_url_allowed
@@ -156,19 +161,34 @@ def _blocked_key(url: str) -> str:
     return f"cimd:blocked:{url_hash}"
 
 
-def block_cimd_url(url: str, ttl: int = 86400 * 365) -> None:
-    """Add a CIMD URL to the blocklist. Used by admin to prevent re-registration after deletion."""
+def block_cimd_url(url: str, *, reason: str = "", created_by=None, ttl: int = 86400 * 365) -> None:
+    """Add a CIMD URL to the blocklist. Persists in Postgres; Redis is cache."""
+    CIMDBlocklistEntry.objects.update_or_create(
+        cimd_url=url,
+        defaults={"reason": reason, "created_by": created_by},
+    )
     cache.set(_blocked_key(url), True, timeout=ttl)
 
 
 def unblock_cimd_url(url: str) -> None:
     """Remove a CIMD URL from the blocklist."""
+    CIMDBlocklistEntry.objects.filter(cimd_url=url).delete()
     cache.delete(_blocked_key(url))
 
 
 def is_cimd_url_blocked(url: str) -> bool:
-    """Check if a CIMD URL has been blocklisted."""
-    return bool(cache.get(_blocked_key(url)))
+    """Check if a CIMD URL has been blocklisted.
+
+    Postgres is source of truth; Redis is a read-through cache so the hot
+    path stays a single in-memory lookup. A cache miss falls back to a DB
+    read and re-warms the cache, so a Redis flush doesn't expose blocked
+    URLs."""
+    cached = cache.get(_blocked_key(url))
+    if cached is not None:
+        return bool(cached)
+    blocked = CIMDBlocklistEntry.objects.filter(cimd_url=url).exists()
+    cache.set(_blocked_key(url), blocked, timeout=86400 * 365)
+    return blocked
 
 
 def _parse_cache_ttl(response: requests.Response) -> int:
@@ -375,18 +395,29 @@ def _update_cimd_application(app: OAuthApplication, metadata: CIMDMetadataDocume
         app.organization = new_org
         update_fields.append("organization")
         # When verification status flips on an already-provisioning app, keep
-        # the rate-limit tier in sync. Only bump when the current value is one
-        # of our well-known tier defaults — admin overrides stay put.
-        if app.is_provisioning_partner:
+        # the rate-limit tier in sync. Only bump when the source is one of our
+        # default tiers — explicit admin overrides (source="admin") and
+        # legacy rows with no source recorded (source="") stay put. Legacy
+        # rows are treated conservatively as admin to avoid clobbering values
+        # that pre-date this field.
+        if app.is_provisioning_partner and app.provisioning_rate_limit_account_requests_source in (
+            "default_unverified",
+            "default_verified",
+        ):
             became_verified = old_org_id is None and new_org_id is not None
             became_unverified = old_org_id is not None and new_org_id is None
-            current_limit = app.provisioning_rate_limit_account_requests
-            if became_verified and current_limit == CIMD_PROVISIONING_ACCOUNT_REQUESTS_DEFAULT_RATE_LIMIT:
+            if became_verified:
                 app.provisioning_rate_limit_account_requests = CIMD_PROVISIONING_ACCOUNT_REQUESTS_VERIFIED_RATE_LIMIT
-                update_fields.append("provisioning_rate_limit_account_requests")
-            elif became_unverified and current_limit == CIMD_PROVISIONING_ACCOUNT_REQUESTS_VERIFIED_RATE_LIMIT:
+                app.provisioning_rate_limit_account_requests_source = "default_verified"
+                update_fields.extend(
+                    ["provisioning_rate_limit_account_requests", "provisioning_rate_limit_account_requests_source"]
+                )
+            elif became_unverified:
                 app.provisioning_rate_limit_account_requests = CIMD_PROVISIONING_ACCOUNT_REQUESTS_DEFAULT_RATE_LIMIT
-                update_fields.append("provisioning_rate_limit_account_requests")
+                app.provisioning_rate_limit_account_requests_source = "default_unverified"
+                update_fields.extend(
+                    ["provisioning_rate_limit_account_requests", "provisioning_rate_limit_account_requests_source"]
+                )
 
     try:
         app.full_clean()
@@ -595,6 +626,9 @@ def _cimd_provisioning_defaults_for(app: OAuthApplication) -> dict:
     defaults = dict(CIMD_PROVISIONING_DEFAULTS)
     if app.organization_id is not None:
         defaults["provisioning_rate_limit_account_requests"] = CIMD_PROVISIONING_ACCOUNT_REQUESTS_VERIFIED_RATE_LIMIT
+        defaults["provisioning_rate_limit_account_requests_source"] = "default_verified"
+    else:
+        defaults["provisioning_rate_limit_account_requests_source"] = "default_unverified"
     return defaults
 
 
@@ -602,7 +636,11 @@ def apply_provisioning_defaults(app: OAuthApplication) -> OAuthApplication:
     """Apply provisioning defaults to a CIMD app and persist them.
 
     Computes the correct defaults (verified vs anonymous rate limit) based on
-    the app's organization linkage, sets the fields, and saves."""
+    the app's organization linkage, sets the fields, and saves. Respects
+    `provisioning_disabled` as a kill switch - returns the app untouched
+    rather than re-enabling a partner an admin has explicitly disabled."""
+    if app.provisioning_disabled:
+        return app
     defaults = _cimd_provisioning_defaults_for(app)
     for field, value in defaults.items():
         setattr(app, field, value)
