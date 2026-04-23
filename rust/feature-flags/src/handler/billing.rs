@@ -16,6 +16,23 @@ use std::time::Instant;
 use super::canonical_log::with_canonical_log;
 use super::types::{Library, RequestContext};
 
+/// Emit the `flags_billing_increment_time_ms` histogram for a completed
+/// `increment_request_count` call, bucketing the Redis result into
+/// `outcome="ok" | "timeout" | "error"` to isolate the happy path from
+/// Redis timeouts.
+pub fn record_billing_increment_timing(result: &Result<(), CustomRedisError>, elapsed_ms: u64) {
+    let outcome = match result {
+        Ok(()) => "ok",
+        Err(CustomRedisError::Timeout) => "timeout",
+        Err(_) => "error",
+    };
+    histogram(
+        FLAG_BILLING_INCREMENT_TIME,
+        &[("outcome".to_string(), outcome.to_string())],
+        elapsed_ms as f64,
+    );
+}
+
 pub async fn check_limits(
     context: &RequestContext,
     verified_token: &str,
@@ -68,16 +85,7 @@ pub async fn record_usage(
         .await;
         let elapsed_ms = start.elapsed().as_millis() as u64;
 
-        let outcome = match &result {
-            Ok(()) => "ok",
-            Err(CustomRedisError::Timeout) => "timeout",
-            Err(_) => "error",
-        };
-        histogram(
-            FLAG_BILLING_INCREMENT_TIME,
-            &[("outcome".to_string(), outcome.to_string())],
-            elapsed_ms as f64,
-        );
+        record_billing_increment_timing(&result, elapsed_ms);
         with_canonical_log(|log| log.billing_duration_ms = Some(elapsed_ms));
 
         if let Err(e) = result {

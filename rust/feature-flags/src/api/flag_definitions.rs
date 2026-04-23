@@ -8,11 +8,10 @@ use crate::{
         flag_request::FlagRequestType,
         flag_service::FlagService,
     },
-    handler::types::Library,
+    handler::{billing::record_billing_increment_timing, types::Library},
     metrics::consts::{
-        FLAG_BILLING_INCREMENT_TIME, FLAG_DEFINITIONS_AUTH_COUNTER,
-        FLAG_DEFINITIONS_CACHE_HIT_COUNTER, FLAG_DEFINITIONS_CACHE_MISS_COUNTER,
-        FLAG_DEFINITIONS_ETAG_COUNTER,
+        FLAG_DEFINITIONS_AUTH_COUNTER, FLAG_DEFINITIONS_CACHE_HIT_COUNTER,
+        FLAG_DEFINITIONS_CACHE_MISS_COUNTER, FLAG_DEFINITIONS_ETAG_COUNTER,
     },
     router::State as AppState,
     team::team_models::Team,
@@ -24,8 +23,7 @@ use axum::{
     response::{IntoResponse, Json, Response},
 };
 use common_hypercache::{HyperCacheError, KeyType};
-use common_metrics::{histogram, inc};
-use common_redis::CustomRedisError;
+use common_metrics::inc;
 use common_types::TeamId;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -250,16 +248,7 @@ pub async fn flags_definitions(
         .await;
         let elapsed_ms = start.elapsed().as_millis() as u64;
 
-        let outcome = match &result {
-            Ok(()) => "ok",
-            Err(CustomRedisError::Timeout) => "timeout",
-            Err(_) => "error",
-        };
-        histogram(
-            FLAG_BILLING_INCREMENT_TIME,
-            &[("outcome".to_string(), outcome.to_string())],
-            elapsed_ms as f64,
-        );
+        record_billing_increment_timing(&result, elapsed_ms);
 
         if let Err(e) = result {
             inc(
