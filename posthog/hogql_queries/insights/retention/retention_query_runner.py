@@ -1012,8 +1012,11 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
             )
             return_actor_field = ast.Field(chain=[return_actor_column_name])
 
-            # start_timestamp_column_name = self.start_event.timestamp_field if start_entity_is_dwh else "timestamp"
-            # start_timestamp_field = ast.Field(chain=[start_timestamp_column_name])
+            return_timestamp_column_name = self.return_event.timestamp_field if return_entity_is_dwh else "timestamp"
+            return_timestamp_field = ast.Field(chain=[return_timestamp_column_name])
+            return_start_of_interval_sql = self.query_date_range.get_start_of_interval_hogql(
+                source=return_timestamp_field
+            )
 
             return_table_name = self.return_event.table_name if return_entity_is_dwh else "events"
             return_where_expr = None if return_entity_is_dwh else ast.And(exprs=event_filters)
@@ -1025,8 +1028,9 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
             )
             return_event_timestamps = self._get_return_event_timestamps_expr(
                 minimum_occurrences=minimum_occurrences,
-                start_of_interval_sql=start_of_interval_sql,
+                start_of_interval_sql=return_start_of_interval_sql,
                 return_entity_expr=return_entity_expr,
+                timestamp_field=return_timestamp_field,
             )
 
             return_event_query = ast.SelectQuery(
@@ -1844,7 +1848,11 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
             return events_query
 
     def _get_return_event_timestamps_expr(
-        self, minimum_occurrences: int, start_of_interval_sql: Expr, return_entity_expr: Expr
+        self,
+        minimum_occurrences: int,
+        start_of_interval_sql: Expr,
+        return_entity_expr: Expr,
+        timestamp_field: Expr | None = None,
     ) -> Expr:
         if self.aggregation_target:
             # Collect 3-tuples of (interval_start, value, actual_timestamp) for return events.
@@ -1892,7 +1900,7 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
             {
                 "start_of_interval_timestamp": start_of_interval_sql,
                 "returning_entity_expr": return_entity_expr,
-                "filter_timestamp": self.events_timestamp_filter(),
+                "filter_timestamp": self.events_timestamp_filter(field=timestamp_field),
             },
         )
 
