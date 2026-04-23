@@ -188,7 +188,7 @@
   SELECT toString(reinterpretAsUUID(bitOr(bitShiftLeft(raw_sessions.session_id_v7, 64), bitShiftRight(raw_sessions.session_id_v7, 64)))) AS session_id, nullIf(nullIf(argMinMerge(raw_sessions.entry_url), %(hogql_val_0)s), %(hogql_val_1)s) AS `$entry_current_url`, min(toTimeZone(raw_sessions.min_timestamp, %(hogql_val_2)s)) AS `$start_timestamp`, raw_sessions.session_id_v7 AS session_id_v7 
   FROM raw_sessions 
   WHERE and(equals(raw_sessions.team_id, 99999), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(toDateTime64('today', 6, 'UTC'), toIntervalDay(3))), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(toDateTime64('today', 6, 'UTC'), toIntervalDay(3)))) 
-  GROUP BY raw_sessions.session_id_v7, raw_sessions.session_id_v7) AS sessions 
+  GROUP BY raw_sessions.session_id_v7) AS sessions 
   WHERE and(ifNull(less(sessions.`$start_timestamp`, toDateTime64('today', 6, 'UTC')), 0), ifNull(greaterOrEquals(sessions.`$start_timestamp`, toDateTime64('today', 6, 'UTC')), 0)) 
   LIMIT 100 
   SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0
@@ -219,7 +219,7 @@
   SELECT toString(reinterpretAsUUID(bitOr(bitShiftLeft(raw_sessions.session_id_v7, 64), bitShiftRight(raw_sessions.session_id_v7, 64)))) AS session_id, nullIf(nullIf(argMinMerge(raw_sessions.entry_url), %(hogql_val_0)s), %(hogql_val_1)s) AS `$entry_current_url`, raw_sessions.session_id_v7 AS session_id_v7 
   FROM raw_sessions 
   WHERE equals(raw_sessions.team_id, 99999) 
-  GROUP BY raw_sessions.session_id_v7, raw_sessions.session_id_v7) AS sessions 
+  GROUP BY raw_sessions.session_id_v7) AS sessions 
   WHERE ifNull(equals(sessions.`$entry_current_url`, %(hogql_val_2)s), 0) 
   LIMIT 100 
   SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0

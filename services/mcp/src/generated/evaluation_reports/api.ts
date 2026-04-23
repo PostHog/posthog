@@ -110,7 +110,7 @@ export const LlmAnalyticsEvaluationReportsPartialUpdateBody = /* @__PURE__ */ zo
         .min(llmAnalyticsEvaluationReportsPartialUpdateBodyCooldownMinutesMin)
         .max(llmAnalyticsEvaluationReportsPartialUpdateBodyCooldownMinutesMax)
         .optional()
-        .describe('Minimum minutes between reports in every_n mode to prevent spam. Min 60.'),
+        .describe('Minimum minutes between reports in every_n mode to prevent spam. Min 60, max 1440 (24 hours).'),
     daily_run_cap: zod
         .number()
         .min(llmAnalyticsEvaluationReportsPartialUpdateBodyDailyRunCapMin)

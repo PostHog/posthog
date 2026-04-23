@@ -1,6 +1,11 @@
 from celery import shared_task
 
-from posthog.models.integration import FirebaseIntegration, GitHubIntegration, GoogleCloudIntegration
+from posthog.models.integration import (
+    FirebaseIntegration,
+    GitHubIntegration,
+    GoogleCloudIntegration,
+    defer_repository_cache_fields,
+)
 from posthog.tasks.utils import CeleryQueue
 
 
@@ -8,7 +13,9 @@ from posthog.tasks.utils import CeleryQueue
 def refresh_integrations() -> int:
     from posthog.models.integration import Integration, OauthIntegration
 
-    oauth_integrations = Integration.objects.filter(kind__in=OauthIntegration.supported_kinds).all()
+    oauth_integrations = defer_repository_cache_fields(
+        Integration.objects.filter(kind__in=OauthIntegration.supported_kinds).all()
+    )
 
     for integration in oauth_integrations:
         oauth_integration = OauthIntegration(integration)
@@ -16,7 +23,9 @@ def refresh_integrations() -> int:
         if oauth_integration.access_token_expired():
             refresh_integration.delay(integration.id)
 
-    gcloud_integrations = Integration.objects.filter(kind__in=GoogleCloudIntegration.supported_kinds).all()
+    gcloud_integrations = defer_repository_cache_fields(
+        Integration.objects.filter(kind__in=GoogleCloudIntegration.supported_kinds).all()
+    )
 
     for integration in gcloud_integrations:
         gcloud_integration = GoogleCloudIntegration(integration)
@@ -24,7 +33,7 @@ def refresh_integrations() -> int:
         if gcloud_integration.access_token_expired():
             refresh_integration.delay(integration.id)
 
-    github_integrations = Integration.objects.filter(kind="github").all()
+    github_integrations = defer_repository_cache_fields(Integration.objects.filter(kind="github").all())
 
     for integration in github_integrations:
         github_integration = GitHubIntegration(integration)
@@ -32,7 +41,7 @@ def refresh_integrations() -> int:
         if github_integration.access_token_expired():
             refresh_integration.delay(integration.id)
 
-    firebase_integrations = Integration.objects.filter(kind="firebase").all()
+    firebase_integrations = defer_repository_cache_fields(Integration.objects.filter(kind="firebase").all())
 
     for integration in firebase_integrations:
         firebase_integration = FirebaseIntegration(integration)
@@ -47,7 +56,7 @@ def refresh_integrations() -> int:
 def refresh_integration(id: int) -> int:
     from posthog.models.integration import Integration, OauthIntegration
 
-    integration = Integration.objects.get(id=id)
+    integration = defer_repository_cache_fields(Integration.objects.all()).get(id=id)
 
     if integration.kind in OauthIntegration.supported_kinds:
         oauth_integration = OauthIntegration(integration)
