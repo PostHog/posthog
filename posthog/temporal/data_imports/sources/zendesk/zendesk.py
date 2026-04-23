@@ -1,4 +1,5 @@
 import base64
+import dataclasses
 from typing import Any, Optional
 
 import requests
@@ -7,8 +8,54 @@ from requests import Request, Response
 from posthog.temporal.data_imports.sources.common.rest_source import RESTAPIConfig, rest_api_resource
 from posthog.temporal.data_imports.sources.common.rest_source.paginators import BasePaginator, JSONLinkPaginator
 from posthog.temporal.data_imports.sources.common.rest_source.typing import EndpointResource
+from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 
 from products.data_warehouse.backend.models.external_table_definitions import get_dlt_mapping_for_external_table
+
+
+@dataclasses.dataclass
+class ZendeskResumeConfig:
+    """Resume state for Zendesk endpoints.
+
+    Two pagination contracts are in play:
+    - URL-based: the standard endpoints (``JSONLinkPaginator`` on ``links.next``)
+      and the incremental ``ticket_events`` / ``ticket_metric_events``
+      endpoints both advance via a full next-page URL — persisted as
+      ``next_url``.
+    - Cursor-based: the incremental ``tickets`` endpoint advances via a
+      ``start_time`` cursor (``generated_timestamp`` of the last ticket) —
+      persisted as ``next_start_time``.
+
+    Exactly one of the two fields is set for a given checkpoint; the loader
+    picks the shape matching the endpoint's paginator.
+    """
+
+    next_url: Optional[str] = None
+    next_start_time: Optional[int] = None
+
+
+class ResumableJSONLinkPaginator(JSONLinkPaginator):
+    """``JSONLinkPaginator`` with resume support.
+
+    When seeded via ``set_resume_state`` the paginator redirects the *initial*
+    request to the saved next URL, so resumed runs skip the already-consumed
+    pages instead of replaying from the first page.
+    """
+
+    def init_request(self, request: Request) -> None:
+        if self._next_url is not None:
+            request.url = self._next_url
+
+    def get_resume_state(self) -> Optional[dict[str, Any]]:
+        if self._next_url and self._has_next_page:
+            return {"next_url": self._next_url}
+        return None
+
+    def set_resume_state(self, state: dict[str, Any]) -> None:
+        next_url = state.get("next_url")
+        if next_url:
+            self._next_url = next_url
+            self._has_next_page = True
 
 
 def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResource:
@@ -26,7 +73,7 @@ def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResou
             "endpoint": {
                 "data_selector": "brands",
                 "path": "/api/v2/brands",
-                "paginator": JSONLinkPaginator(next_url_path="links.next"),
+                "paginator": ResumableJSONLinkPaginator(next_url_path="links.next"),
                 "params": {
                     "page[size]": 100,
                 },
@@ -46,7 +93,7 @@ def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResou
             "endpoint": {
                 "data_selector": "organizations",
                 "path": "/api/v2/organizations",
-                "paginator": JSONLinkPaginator(next_url_path="links.next"),
+                "paginator": ResumableJSONLinkPaginator(next_url_path="links.next"),
                 "params": {
                     "page[size]": 100,
                 },
@@ -66,7 +113,7 @@ def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResou
             "endpoint": {
                 "data_selector": "groups",
                 "path": "/api/v2/groups",
-                "paginator": JSONLinkPaginator(next_url_path="links.next"),
+                "paginator": ResumableJSONLinkPaginator(next_url_path="links.next"),
                 "params": {
                     # the parameters below can optionally be configured
                     # "exclude_deleted": "OPTIONAL_CONFIG",
@@ -88,7 +135,7 @@ def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResou
             "endpoint": {
                 "data_selector": "sla_policies",
                 "path": "/api/v2/slas/policies",
-                "paginator": JSONLinkPaginator(next_url_path="links.next"),
+                "paginator": ResumableJSONLinkPaginator(next_url_path="links.next"),
             },
             "table_format": "delta",
         },
@@ -105,7 +152,7 @@ def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResou
             "endpoint": {
                 "data_selector": "users",
                 "path": "/api/v2/users",
-                "paginator": JSONLinkPaginator(next_url_path="links.next"),
+                "paginator": ResumableJSONLinkPaginator(next_url_path="links.next"),
                 "params": {
                     # the parameters below can optionally be configured
                     # "role": "OPTIONAL_CONFIG",
@@ -130,7 +177,7 @@ def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResou
             "endpoint": {
                 "data_selector": "ticket_fields",
                 "path": "/api/v2/ticket_fields",
-                "paginator": JSONLinkPaginator(next_url_path="links.next"),
+                "paginator": ResumableJSONLinkPaginator(next_url_path="links.next"),
                 "params": {
                     # the parameters below can optionally be configured
                     # "locale": "OPTIONAL_CONFIG",
@@ -227,6 +274,19 @@ def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResou
 
 
 class ZendeskTicketsIncrementalEndpointPaginator(BasePaginator):
+    def __init__(self) -> None:
+        super().__init__()
+        self._next_start_time: Optional[int] = None
+
+    def init_request(self, request: Request) -> None:
+        # When seeded via ``set_resume_state`` the saved cursor must override
+        # the incremental ``start_time`` the rest framework injected, so the
+        # first request lands on the resume page instead of the initial one.
+        if self._next_start_time is not None:
+            if request.params is None:
+                request.params = {}
+            request.params["start_time"] = self._next_start_time
+
     def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
         res = response.json()
 
@@ -250,8 +310,30 @@ class ZendeskTicketsIncrementalEndpointPaginator(BasePaginator):
 
         request.params["start_time"] = self._next_start_time
 
+    def get_resume_state(self) -> Optional[dict[str, Any]]:
+        if self._next_start_time is not None and self._has_next_page:
+            return {"next_start_time": self._next_start_time}
+        return None
+
+    def set_resume_state(self, state: dict[str, Any]) -> None:
+        next_start_time = state.get("next_start_time")
+        if next_start_time is not None:
+            self._next_start_time = int(next_start_time)
+            self._has_next_page = True
+
 
 class ZendeskIncrementalEndpointPaginator(BasePaginator):
+    def __init__(self) -> None:
+        super().__init__()
+        self._next_page: Optional[str] = None
+
+    def init_request(self, request: Request) -> None:
+        # When seeded via ``set_resume_state`` the saved URL is the full next
+        # page URL; sending the first request to it skips the hardcoded
+        # ``start_time=0`` path used on a fresh run.
+        if self._next_page is not None:
+            request.url = self._next_page
+
     def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
         res = response.json()
 
@@ -271,6 +353,23 @@ class ZendeskIncrementalEndpointPaginator(BasePaginator):
     def update_request(self, request: Request) -> None:
         request.url = self._next_page
 
+    def get_resume_state(self) -> Optional[dict[str, Any]]:
+        if self._next_page and self._has_next_page:
+            return {"next_url": self._next_page}
+        return None
+
+    def set_resume_state(self, state: dict[str, Any]) -> None:
+        next_url = state.get("next_url")
+        if next_url:
+            self._next_page = next_url
+            self._has_next_page = True
+
+
+def _endpoint_uses_start_time_cursor(endpoint: str) -> bool:
+    """Only the ``tickets`` endpoint persists a ``start_time`` cursor; every
+    other endpoint persists a ``next_url``."""
+    return endpoint == "tickets"
+
 
 def zendesk_source(
     subdomain: str,
@@ -280,6 +379,7 @@ def zendesk_source(
     team_id: int,
     job_id: str,
     db_incremental_field_last_value: Optional[Any],
+    resumable_source_manager: ResumableSourceManager[ZendeskResumeConfig],
     should_use_incremental_field: bool = False,
 ):
     config: RESTAPIConfig = {
@@ -302,7 +402,39 @@ def zendesk_source(
         "resources": [get_resource(endpoint, should_use_incremental_field)],
     }
 
-    return rest_api_resource(config, team_id, job_id, db_incremental_field_last_value)
+    uses_start_time_cursor = _endpoint_uses_start_time_cursor(endpoint)
+
+    initial_paginator_state: Optional[dict[str, Any]] = None
+    if resumable_source_manager.can_resume():
+        resume_config = resumable_source_manager.load_state()
+        if resume_config is not None:
+            if uses_start_time_cursor and resume_config.next_start_time is not None:
+                initial_paginator_state = {"next_start_time": resume_config.next_start_time}
+            elif not uses_start_time_cursor and resume_config.next_url:
+                initial_paginator_state = {"next_url": resume_config.next_url}
+
+    def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
+        # Only persist when there's a next page to resume to — Redis TTL
+        # handles cleanup on completion. Matches klaviyo / reddit_ads.
+        if not state:
+            return
+        if uses_start_time_cursor:
+            next_start_time = state.get("next_start_time")
+            if next_start_time is not None:
+                resumable_source_manager.save_state(ZendeskResumeConfig(next_start_time=int(next_start_time)))
+        else:
+            next_url = state.get("next_url")
+            if next_url:
+                resumable_source_manager.save_state(ZendeskResumeConfig(next_url=next_url))
+
+    return rest_api_resource(
+        config,
+        team_id,
+        job_id,
+        db_incremental_field_last_value,
+        resume_hook=save_checkpoint,
+        initial_paginator_state=initial_paginator_state,
+    )
 
 
 def validate_credentials(subdomain: str, api_key: str, email_address: str) -> bool:

@@ -9,8 +9,9 @@ from posthog.schema import (
 )
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
-from posthog.temporal.data_imports.sources.common.base import FieldType, SimpleSource
+from posthog.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
+from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 from posthog.temporal.data_imports.sources.generated_configs import ZendeskSourceConfig
 from posthog.temporal.data_imports.sources.zendesk.settings import (
@@ -19,13 +20,17 @@ from posthog.temporal.data_imports.sources.zendesk.settings import (
     PARTITION_FIELDS,
     SUPPORT_ENDPOINTS,
 )
-from posthog.temporal.data_imports.sources.zendesk.zendesk import validate_credentials, zendesk_source
+from posthog.temporal.data_imports.sources.zendesk.zendesk import (
+    ZendeskResumeConfig,
+    validate_credentials,
+    zendesk_source,
+)
 
 from products.data_warehouse.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
-class ZendeskSource(SimpleSource[ZendeskSourceConfig]):
+class ZendeskSource(ResumableSource[ZendeskSourceConfig, ZendeskResumeConfig]):
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.ZENDESK
@@ -103,7 +108,15 @@ class ZendeskSource(SimpleSource[ZendeskSourceConfig]):
             ),
         )
 
-    def source_for_pipeline(self, config: ZendeskSourceConfig, inputs: SourceInputs) -> SourceResponse:
+    def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[ZendeskResumeConfig]:
+        return ResumableSourceManager[ZendeskResumeConfig](inputs, ZendeskResumeConfig)
+
+    def source_for_pipeline(
+        self,
+        config: ZendeskSourceConfig,
+        resumable_source_manager: ResumableSourceManager[ZendeskResumeConfig],
+        inputs: SourceInputs,
+    ) -> SourceResponse:
         resource = zendesk_source(
             subdomain=config.subdomain,
             api_key=config.api_key,
@@ -111,6 +124,7 @@ class ZendeskSource(SimpleSource[ZendeskSourceConfig]):
             endpoint=inputs.schema_name,
             team_id=inputs.team_id,
             job_id=inputs.job_id,
+            resumable_source_manager=resumable_source_manager,
             should_use_incremental_field=inputs.should_use_incremental_field,
             db_incremental_field_last_value=inputs.db_incremental_field_last_value
             if inputs.should_use_incremental_field
