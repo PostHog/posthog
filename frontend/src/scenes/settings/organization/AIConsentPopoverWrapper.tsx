@@ -22,7 +22,7 @@ export function AIConsentPopoverContent({
     }, [])
 
     return (
-        <div className="flex flex-col gap-2 m-1.5 max-w-sm">
+        <div className="flex flex-col gap-2 m-1.5 max-w-prose">
             <p className="font-medium text-pretty">
                 PostHog AI needs your approval to potentially process identifying user data with{' '}
                 <Tooltip title={getExternalAIProvidersTooltipTitle()}>

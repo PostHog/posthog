@@ -20,7 +20,7 @@ export function AIHipaaDisclaimer(): JSX.Element {
 export function aiConsentLegalDialogProps({ onConfirm }: { onConfirm: () => void }): LemonDialogProps {
     return {
         title: 'The legal bits',
-        maxWidth: 500,
+        maxWidth: '65ch',
         content: (
             <div className="flex flex-col gap-2">
                 <p className="mb-0">
