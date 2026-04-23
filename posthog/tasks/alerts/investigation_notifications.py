@@ -39,13 +39,19 @@ def run_investigation_notification_safety_net() -> int:
     Returns the number of checks that were force-notified (for metrics / tests).
     """
     cutoff = datetime.now(UTC) - timedelta(minutes=INVESTIGATION_NOTIFY_GRACE_MINUTES)
+    # Scope the sweep to alerts that opted into the investigation agent rather
+    # than the narrower `investigation_gates_notifications` flag. The latter is
+    # a sub-toggle a user might flip off mid-investigation, which would hide a
+    # legitimately-held check from this safety net; `investigation_agent_enabled`
+    # is a stickier configuration knob and picks up exactly the checks whose
+    # dispatch could have been the workflow's responsibility.
     candidates = (
         AlertCheck.objects.select_related("alert_configuration").filter(
             state=AlertState.FIRING,
             notification_sent_at__isnull=True,
             notification_suppressed_by_agent=False,
             created_at__lte=cutoff,
-            alert_configuration__investigation_gates_notifications=True,
+            alert_configuration__investigation_agent_enabled=True,
         )
         # Do NOT exclude DONE — the activity marks status=DONE before dispatching
         # the notification, so if dispatch fails and retries are exhausted the check

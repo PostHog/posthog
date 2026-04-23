@@ -159,17 +159,21 @@ async def investigate_anomaly_activity(inputs: AnomalyInvestigationWorkflowInput
         investigation_error=None,
     )
 
-    # If the alert has gating on, the main task skipped the synchronous notification
-    # and left it to us. Dispatch or suppress based on the verdict, and enrich the
-    # notification body with the agent's summary and notebook link when we do send.
-    if alert.investigation_gates_notifications:
-        await sync_to_async(_dispatch_gated_notification, thread_sensitive=False)(
-            alert=alert,
-            alert_check=alert_check,
-            verdict=result.report.verdict,
-            summary=summary_for_list or "",
-            notebook_short_id=notebook.short_id,
-        )
+    # Always invoke the dispatcher — it reads the check's own delivery state
+    # (`notification_sent_at` / `notification_suppressed_by_agent`) as its
+    # idempotency guard, so non-gated checks (already dispatched by the main
+    # task) short-circuit safely. Calling unconditionally closes the race where
+    # a user toggles `investigation_gates_notifications` from True → False
+    # after the check was held back but before the workflow completes — in
+    # that case the current flag would say "don't dispatch" even though the
+    # notification was never sent.
+    await sync_to_async(_dispatch_gated_notification, thread_sensitive=False)(
+        alert=alert,
+        alert_check=alert_check,
+        verdict=result.report.verdict,
+        summary=summary_for_list or "",
+        notebook_short_id=notebook.short_id,
+    )
 
 
 MAX_SUMMARY_CHARS = 500
