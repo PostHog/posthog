@@ -497,8 +497,7 @@ def send_email_reply(
             team_id=team_id,
             domain=config.domain,
         )
-        config.domain_verified = False
-        config.save(update_fields=["domain_verified"])
+        config.mark_domain_unverified()
         return
     except (MailgunPermanentError, MailgunNotConfigured):
         logger.exception(

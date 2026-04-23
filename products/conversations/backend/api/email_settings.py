@@ -308,8 +308,7 @@ class EmailSendTestView(APIView):
                 config_id=config.id,
                 domain=config.domain,
             )
-            config.domain_verified = False
-            config.save(update_fields=["domain_verified"])
+            config.mark_domain_unverified()
             return Response(
                 {"error": "Domain not registered with Mailgun. Please reconnect."},
                 status=502,

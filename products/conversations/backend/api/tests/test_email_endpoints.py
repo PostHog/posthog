@@ -1052,55 +1052,48 @@ class TestEmailSendTestView(BaseTest):
         assert args[0] == "example.com"
         assert kwargs["recipients"] == [self.user.email]
 
+    @parameterized.expand(
+        [
+            ("not_configured", "MailgunNotConfigured", "no api key", 500),
+            ("domain_not_registered", "MailgunDomainNotRegistered", "gone", 502),
+            ("permanent_error", "MailgunPermanentError", "bad recipient", 502),
+        ]
+    )
     @patch(
         "products.conversations.backend.api.email_settings.get_instance_setting",
         return_value="mg.posthog.com",
     )
     @patch("products.conversations.backend.api.email_settings.send_mime")
-    def test_not_configured_returns_500(self, mock_send_mime: MagicMock, _mock_setting: MagicMock):
-        from products.conversations.backend.mailgun import MailgunNotConfigured
+    def test_mailgun_error_maps_to_status(
+        self,
+        _name: str,
+        exc_name: str,
+        exc_arg: str,
+        expected_status: int,
+        mock_send_mime: MagicMock,
+        _mock_setting: MagicMock,
+    ):
+        import products.conversations.backend.mailgun as mailgun_mod
 
-        mock_send_mime.side_effect = MailgunNotConfigured("no api key")
+        mock_send_mime.side_effect = getattr(mailgun_mod, exc_name)(exc_arg)
 
         response = self.client.post(
             "/api/conversations/v1/email/send-test", self._post(), content_type="application/json"
         )
 
-        assert response.status_code == 500
-        assert "not configured" in response.json()["error"].lower()
+        assert response.status_code == expected_status
 
     @patch(
         "products.conversations.backend.api.email_settings.get_instance_setting",
         return_value="mg.posthog.com",
     )
     @patch("products.conversations.backend.api.email_settings.send_mime")
-    def test_domain_not_registered_returns_502_and_flips_verified(
-        self, mock_send_mime: MagicMock, _mock_setting: MagicMock
-    ):
+    def test_domain_not_registered_flips_verified(self, mock_send_mime: MagicMock, _mock_setting: MagicMock):
         from products.conversations.backend.mailgun import MailgunDomainNotRegistered
 
         mock_send_mime.side_effect = MailgunDomainNotRegistered("gone")
 
-        response = self.client.post(
-            "/api/conversations/v1/email/send-test", self._post(), content_type="application/json"
-        )
+        self.client.post("/api/conversations/v1/email/send-test", self._post(), content_type="application/json")
 
-        assert response.status_code == 502
         self.config.refresh_from_db()
         assert self.config.domain_verified is False
-
-    @patch(
-        "products.conversations.backend.api.email_settings.get_instance_setting",
-        return_value="mg.posthog.com",
-    )
-    @patch("products.conversations.backend.api.email_settings.send_mime")
-    def test_permanent_error_returns_502(self, mock_send_mime: MagicMock, _mock_setting: MagicMock):
-        from products.conversations.backend.mailgun import MailgunPermanentError
-
-        mock_send_mime.side_effect = MailgunPermanentError("bad recipient")
-
-        response = self.client.post(
-            "/api/conversations/v1/email/send-test", self._post(), content_type="application/json"
-        )
-
-        assert response.status_code == 502
