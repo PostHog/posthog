@@ -3,7 +3,13 @@ import posthog from 'posthog-js'
 import api, { ApiError } from 'lib/api'
 
 import { useMocks } from '~/mocks/jest'
-import { performQuery, pollForResults, queryExportContext, waitForPageVisible } from '~/queries/query'
+import {
+    QUERY_EXPIRED_ERROR_MESSAGE,
+    performQuery,
+    pollForResults,
+    queryExportContext,
+    waitForPageVisible,
+} from '~/queries/query'
 import { EventsQuery, HogQLQuery, NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { PropertyFilterType, PropertyOperator } from '~/types'
@@ -268,6 +274,43 @@ describe('query', () => {
             await expect(pollForResults('test-query-id')).rejects.toMatchObject({
                 detail: { nested: 'object' },
             })
+        })
+    })
+
+    describe('pollForResults expired-status handling', () => {
+        it('rewrites a 404 ApiError to a user-friendly expired message and captures an event', async () => {
+            const captureSpy = jest.spyOn(posthog, 'capture')
+            captureSpy.mockClear()
+
+            const apiError = new ApiError('Non-OK response [GET /api/environments/1/query/abc] (status 404: )', 404)
+            jest.spyOn(api.queryStatus, 'get').mockRejectedValueOnce(apiError)
+
+            await expect(pollForResults('expired-query-id')).rejects.toMatchObject({
+                status: 404,
+                detail: QUERY_EXPIRED_ERROR_MESSAGE,
+                message: QUERY_EXPIRED_ERROR_MESSAGE,
+                code: 'query_status_expired',
+                queryId: 'expired-query-id',
+            })
+
+            const expiredCalls = captureSpy.mock.calls.filter((call) => call[0] === 'query_status_expired')
+            expect(expiredCalls).toHaveLength(1)
+            expect(expiredCalls[0][1]).toMatchObject({
+                queryId: 'expired-query-id',
+                elapsed_ms: expect.any(Number),
+            })
+        })
+
+        it('does not rewrite non-404 ApiErrors to the expired message', async () => {
+            const apiError = new ApiError('Internal server error', 500)
+            jest.spyOn(api.queryStatus, 'get').mockRejectedValueOnce(apiError)
+
+            const thrown: any = await pollForResults('server-error-query-id').catch((e) => e)
+            expect(thrown).not.toBeUndefined()
+            expect(thrown.status).toBe(500)
+            expect(thrown.code).not.toBe('query_status_expired')
+            expect(thrown.message).not.toBe(QUERY_EXPIRED_ERROR_MESSAGE)
+            expect(thrown.queryId).toBe('server-error-query-id')
         })
     })
 })

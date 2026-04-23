@@ -1,4 +1,4 @@
-import api, { ApiMethodOptions } from 'lib/api'
+import api, { ApiError, ApiMethodOptions } from 'lib/api'
 import posthog from 'lib/posthog-typed'
 import { delay } from 'lib/utils'
 
@@ -62,6 +62,10 @@ export function waitForPageVisible(signal?: AbortSignal): Promise<void> {
 const QUERY_ASYNC_MAX_INTERVAL_SECONDS = 3
 const QUERY_ASYNC_TOTAL_POLL_SECONDS = 10 * 60 + 6 // keep in sync with backend-side timeout (currently 10min) + a small buffer
 export const QUERY_TIMEOUT_ERROR_MESSAGE = 'Query timed out'
+// Matches STATUS_TTL_SECONDS in posthog/clickhouse/client/execute_async.py. A 404 while polling almost always
+// means the Redis key for this query has expired or the query was cancelled/evicted.
+export const QUERY_EXPIRED_ERROR_MESSAGE =
+    'Query results are no longer available (expired after 20 minutes). Please retry.'
 
 /**
  * Parse error message that may be in ErrorDetail string format.
@@ -132,6 +136,21 @@ export async function pollForResults(
                 onPoll(statusResponse)
             }
         } catch (e: any) {
+            // A 404 means the Redis-backed query status is gone (20-minute TTL, cancellation,
+            // or a dedup-race eviction). Surface a clear retry message instead of the raw
+            // "Non-OK response [GET …] (status 404)" ApiError string.
+            if (e instanceof ApiError && e.status === 404) {
+                posthog.capture('query_status_expired', {
+                    queryId,
+                    elapsed_ms: performance.now() - pollStart,
+                })
+                e.detail = QUERY_EXPIRED_ERROR_MESSAGE
+                e.code = 'query_status_expired'
+                e.message = QUERY_EXPIRED_ERROR_MESSAGE
+                ;(e as any).queryId = queryId
+                throw e
+            }
+
             // Parse error message to extract clean message and code if present
             const parsed = parseErrorMessage(e.data?.query_status?.error_message)
             e.detail = parsed.message
