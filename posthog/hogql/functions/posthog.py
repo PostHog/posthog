@@ -62,7 +62,18 @@ HOGQL_POSTHOG_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
         "getSurveyResponse", 1, 3, signatures=[((IntegerType(), StringType(), BooleanType()), StringType())]
     ),
     "uniqueSurveySubmissionsFilter": HogQLFunctionMeta(
-        "uniqueSurveySubmissionsFilter", 1, 1, signatures=[((StringType(),), StringType())]
+        "uniqueSurveySubmissionsFilter",
+        1,
+        3,
+        signatures=[
+            ((StringType(),), StringType()),
+            ((StringType(), StringType()), StringType()),
+            ((StringType(), DateTimeType()), StringType()),
+            ((StringType(), StringType(), StringType()), StringType()),
+            ((StringType(), StringType(), DateTimeType()), StringType()),
+            ((StringType(), DateTimeType(), StringType()), StringType()),
+            ((StringType(), DateTimeType(), DateTimeType()), StringType()),
+        ],
     ),
     # traffic type classification functions (experimental)
     "__preview_getTrafficType": HogQLFunctionMeta(

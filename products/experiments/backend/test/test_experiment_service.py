@@ -1,3 +1,4 @@
+from copy import deepcopy
 from datetime import timedelta
 from decimal import Decimal
 from typing import Any
@@ -15,6 +16,7 @@ from rest_framework.test import APIRequestFactory
 from posthog.api.feature_flag import FeatureFlagSerializer
 from posthog.models import FeatureFlag, Team
 from posthog.models.action.action import Action
+from posthog.models.cohort import Cohort
 from posthog.models.evaluation_context import EvaluationContext, FeatureFlagEvaluationContext
 from posthog.models.team.extensions import get_or_create_team_extension
 
@@ -188,6 +190,38 @@ class TestExperimentService(APIBaseTest):
 
         assert experiment.stats_config is not None
         assert experiment.stats_config["bayesian"]["ci_level"] == 0.99
+
+    # ------------------------------------------------------------------
+    # Only count matured users defaults
+    # ------------------------------------------------------------------
+
+    def test_only_count_matured_users_defaults_from_team(self):
+        config = get_or_create_team_extension(self.team, TeamExperimentsConfig)
+        config.default_only_count_matured_users = True
+        config.save()
+
+        self._create_flag(key="matured-default")
+        service = self._service()
+
+        experiment = service.create_experiment(name="Matured Default", feature_flag_key="matured-default")
+
+        assert experiment.only_count_matured_users is True
+
+    def test_only_count_matured_users_explicit_override(self):
+        config = get_or_create_team_extension(self.team, TeamExperimentsConfig)
+        config.default_only_count_matured_users = True
+        config.save()
+
+        self._create_flag(key="matured-override")
+        service = self._service()
+
+        experiment = service.create_experiment(
+            name="Matured Override",
+            feature_flag_key="matured-override",
+            only_count_matured_users=False,
+        )
+
+        assert experiment.only_count_matured_users is False
 
     # ------------------------------------------------------------------
     # Metric fingerprints
@@ -816,6 +850,150 @@ class TestExperimentService(APIBaseTest):
         assert len(variants) == 3
         assert variants[2]["key"] == "variant-b"
 
+    def test_update_running_experiment_syncs_flag_when_update_feature_flag_params_true(self):
+        experiment = self._create_running_experiment()
+        assert experiment.feature_flag.filters["multivariate"]["variants"][0]["rollout_percentage"] == 50
+        assert experiment.feature_flag.filters["groups"][0]["rollout_percentage"] == 100
+
+        self._service().update_experiment(
+            experiment,
+            {
+                "parameters": {
+                    "feature_flag_variants": [
+                        {"key": "control", "name": "Control", "rollout_percentage": 75},
+                        {"key": "test", "name": "Test", "rollout_percentage": 25},
+                    ],
+                    "rollout_percentage": 50,
+                },
+                "update_feature_flag_params": True,
+            },
+        )
+
+        experiment.feature_flag.refresh_from_db()
+        variants = experiment.feature_flag.filters["multivariate"]["variants"]
+        assert variants[0]["rollout_percentage"] == 75
+        assert variants[1]["rollout_percentage"] == 25
+        assert experiment.feature_flag.filters["groups"][0]["rollout_percentage"] == 50
+
+    @parameterized.expand(
+        [
+            ("absent", {}),
+            ("false", {"update_feature_flag_params": False}),
+        ]
+    )
+    def test_update_running_experiment_does_not_sync_flag(self, _name: str, extra: dict):
+        experiment = self._create_running_experiment()
+        assert experiment.feature_flag.filters["multivariate"]["variants"][0]["rollout_percentage"] == 50
+
+        self._service().update_experiment(
+            experiment,
+            {
+                "parameters": {
+                    "feature_flag_variants": [
+                        {"key": "control", "name": "Control", "rollout_percentage": 75},
+                        {"key": "test", "name": "Test", "rollout_percentage": 25},
+                    ],
+                },
+                **extra,
+            },
+        )
+
+        experiment.feature_flag.refresh_from_db()
+        assert experiment.feature_flag.filters["multivariate"]["variants"][0]["rollout_percentage"] == 50
+
+    def test_update_running_experiment_with_flag_preserves_single_group_with_custom_conditions(self):
+        """A flag with one group targeting a cohort at 57% — variant split change must not touch the group."""
+        experiment = self._create_running_experiment()
+
+        cohort = Cohort.objects.create(team=self.team, name="Internal / Test users")
+        flag = experiment.feature_flag
+        flag.filters["groups"] = [
+            {
+                "properties": [{"key": "id", "value": cohort.id, "type": "cohort"}],
+                "rollout_percentage": 57,
+            },
+        ]
+        flag.save()
+
+        self._service().update_experiment(
+            experiment,
+            {
+                "parameters": {
+                    "feature_flag_variants": [
+                        {"key": "control", "name": "Control", "rollout_percentage": 70},
+                        {"key": "test", "name": "Test", "rollout_percentage": 30},
+                    ],
+                },
+                "update_feature_flag_params": True,
+            },
+        )
+
+        flag.refresh_from_db()
+        assert len(flag.filters["groups"]) == 1
+        assert flag.filters["groups"][0]["properties"] == [{"key": "id", "value": cohort.id, "type": "cohort"}]
+        assert flag.filters["groups"][0]["rollout_percentage"] == 57
+        assert flag.filters["multivariate"]["variants"][0]["rollout_percentage"] == 70
+        assert flag.filters["multivariate"]["variants"][1]["rollout_percentage"] == 30
+
+    def test_update_running_experiment_with_flag_preserves_multiple_groups(self):
+        experiment = self._create_running_experiment()
+
+        cohort = Cohort.objects.create(team=self.team, name="Internal / Test users")
+        flag = experiment.feature_flag
+        flag.filters["groups"] = [
+            {
+                "properties": [{"key": "id", "value": cohort.id, "type": "cohort"}],
+                "rollout_percentage": 57,
+            },
+            {
+                "properties": [{"key": "country", "value": "US", "type": "person"}],
+                "rollout_percentage": 100,
+            },
+        ]
+        flag.save()
+
+        self._service().update_experiment(
+            experiment,
+            {
+                "parameters": {
+                    "feature_flag_variants": [
+                        {"key": "control", "name": "Control", "rollout_percentage": 70},
+                        {"key": "test", "name": "Test", "rollout_percentage": 30},
+                    ],
+                },
+                "update_feature_flag_params": True,
+            },
+        )
+
+        flag.refresh_from_db()
+        assert len(flag.filters["groups"]) == 2
+        assert flag.filters["groups"][0]["properties"] == [{"key": "id", "value": cohort.id, "type": "cohort"}]
+        assert flag.filters["groups"][0]["rollout_percentage"] == 57
+        assert flag.filters["groups"][1]["properties"] == [{"key": "country", "value": "US", "type": "person"}]
+        assert flag.filters["groups"][1]["rollout_percentage"] == 100
+        assert flag.filters["multivariate"]["variants"][0]["rollout_percentage"] == 70
+        assert flag.filters["multivariate"]["variants"][1]["rollout_percentage"] == 30
+
+    def test_update_running_experiment_with_flag_still_rejects_adding_variants(self):
+        experiment = self._create_running_experiment()
+
+        with self.assertRaises(ValidationError) as ctx:
+            self._service().update_experiment(
+                experiment,
+                {
+                    "parameters": {
+                        "feature_flag_variants": [
+                            {"key": "control", "name": "Control", "rollout_percentage": 34},
+                            {"key": "test", "name": "Test", "rollout_percentage": 33},
+                            {"key": "new_variant", "name": "New", "rollout_percentage": 33},
+                        ]
+                    },
+                    "update_feature_flag_params": True,
+                },
+            )
+
+        assert "Can't update feature_flag_variants" in str(ctx.exception)
+
     def test_update_experiment_recalculates_fingerprints(self):
         experiment = self._create_draft_experiment()
         assert experiment.metrics is not None
@@ -835,10 +1013,21 @@ class TestExperimentService(APIBaseTest):
             experiment,
             {
                 "metrics": [
-                    {"kind": "ExperimentMetric", "metric_type": "count", "uuid": "m1", "event": "$pageview"},
-                    {"kind": "ExperimentMetric", "metric_type": "count", "uuid": "m2", "event": "$pageleave"},
+                    {
+                        "kind": "ExperimentMetric",
+                        "metric_type": "mean",
+                        "uuid": "m1",
+                        "source": {"kind": "EventsNode", "event": "$pageview"},
+                    },
+                    {
+                        "kind": "ExperimentMetric",
+                        "metric_type": "mean",
+                        "uuid": "m2",
+                        "source": {"kind": "EventsNode", "event": "$pageleave"},
+                    },
                 ],
             },
+            allow_unknown_events=True,
         )
 
         assert updated.primary_metrics_ordered_uuids is not None
@@ -885,6 +1074,139 @@ class TestExperimentService(APIBaseTest):
         )
 
         assert updated.primary_metrics_ordered_uuids == ["m1"]
+
+    @parameterized.expand(
+        [
+            ("primary", "metrics", "primary_metrics_ordered_uuids"),
+            ("secondary", "metrics_secondary", "secondary_metrics_ordered_uuids"),
+        ]
+    )
+    def test_update_experiment_auto_generates_uuids(self, _name, field, ordering_attr):
+        experiment = self._create_draft_experiment()
+        service = self._service()
+
+        updated = service.update_experiment(
+            experiment,
+            {
+                field: [
+                    {
+                        "kind": "ExperimentMetric",
+                        "metric_type": "mean",
+                        "source": {"kind": "EventsNode", "event": "$pageview"},
+                    }
+                ],
+            },
+            allow_unknown_events=True,
+        )
+
+        metrics = getattr(updated, field)
+        assert len(metrics) == 1
+        generated_uuid = metrics[0].get("uuid")
+        assert generated_uuid, "UUID should be auto-generated for metrics without one"
+        assert getattr(updated, ordering_attr) == [generated_uuid]
+
+    @parameterized.expand(
+        [
+            ("primary", "metrics", "primary_metrics_ordered_uuids"),
+            ("secondary", "metrics_secondary", "secondary_metrics_ordered_uuids"),
+        ]
+    )
+    def test_update_experiment_preserves_provided_metric_uuids(self, _name, field, ordering_attr):
+        experiment = self._create_draft_experiment()
+        service = self._service()
+
+        updated = service.update_experiment(
+            experiment,
+            {
+                field: [
+                    {
+                        "kind": "ExperimentMetric",
+                        "metric_type": "mean",
+                        "uuid": "explicit-uuid",
+                        "source": {"kind": "EventsNode", "event": "$pageview"},
+                    }
+                ],
+            },
+            allow_unknown_events=True,
+        )
+
+        metrics = getattr(updated, field)
+        assert metrics[0]["uuid"] == "explicit-uuid"
+        assert "explicit-uuid" in (getattr(updated, ordering_attr) or [])
+
+    @parameterized.expand(
+        [
+            ("primary", "metrics"),
+            ("secondary", "metrics_secondary"),
+        ]
+    )
+    def test_create_experiment_does_not_mutate_input_metrics(self, _name, field):
+        self._create_flag(key=f"no-mutate-create-flag-{_name}")
+        service = self._service()
+
+        input_metrics = [
+            {
+                "kind": "ExperimentMetric",
+                "metric_type": "mean",
+                "source": {"kind": "EventsNode", "event": "$pageview"},
+            }
+        ]
+        snapshot = deepcopy(input_metrics)
+        metric_kwargs: dict[str, Any] = {field: input_metrics}
+
+        service.create_experiment(
+            name=f"No Mutate Create {_name}",
+            feature_flag_key=f"no-mutate-create-flag-{_name}",
+            allow_unknown_events=True,
+            **metric_kwargs,
+        )
+
+        assert input_metrics == snapshot
+
+    @parameterized.expand(
+        [
+            ("primary", "metrics"),
+            ("secondary", "metrics_secondary"),
+        ]
+    )
+    def test_update_experiment_does_not_mutate_input_metrics(self, _name, field):
+        experiment = self._create_draft_experiment()
+        service = self._service()
+
+        input_metrics = [
+            {
+                "kind": "ExperimentMetric",
+                "metric_type": "mean",
+                "source": {"kind": "EventsNode", "event": "$pageview"},
+            }
+        ]
+        snapshot = deepcopy(input_metrics)
+
+        service.update_experiment(experiment, {field: input_metrics}, allow_unknown_events=True)
+
+        assert input_metrics == snapshot
+
+    def test_update_experiment_does_not_mutate_flag_filters_in_place(self):
+        experiment = self._create_draft_experiment()
+        service = self._service()
+
+        original_filters = experiment.feature_flag.filters
+        snapshot = deepcopy(original_filters)
+
+        service.update_experiment(
+            experiment,
+            {
+                "parameters": {
+                    "feature_flag_variants": [
+                        {"key": "control", "name": "Control", "rollout_percentage": 50},
+                        {"key": "test", "name": "Test", "rollout_percentage": 50},
+                    ],
+                    "rollout_percentage": 75,
+                }
+            },
+        )
+
+        assert original_filters == snapshot
 
     def test_update_experiment_replaces_saved_metrics(self):
         experiment = self._create_draft_experiment()
@@ -2413,10 +2735,11 @@ class TestExperimentService(APIBaseTest):
             ("name", {"name": "Updated Name"}),
             ("description", {"description": "New hypothesis"}),
             ("end_date", {"end_date": timezone.now() + timedelta(days=7)}),
+            ("deleted", {"deleted": True}),
         ]
     )
     def test_update_experiment_with_legacy_metrics_allows_specific_fields(self, field_name: str, update_data: dict):
-        """Test that experiments with legacy metrics can update name, description, and end_date."""
+        """Test that experiments with legacy metrics can update name, description, end_date, and deleted."""
         service = self._service()
         flag = self._create_flag(key=f"legacy-flag-{field_name}")
 
@@ -2438,6 +2761,29 @@ class TestExperimentService(APIBaseTest):
             assert updated.description == "New hypothesis"
         elif field_name == "end_date":
             assert updated.end_date is not None
+        elif field_name == "deleted":
+            assert updated.deleted is True
+
+    def test_update_experiment_with_legacy_metrics_restore_with_deleted_flag_raises(self):
+        service = self._service()
+        flag = self._create_flag(key="legacy-restore-flag")
+
+        experiment = Experiment.objects.create(
+            team=self.team,
+            created_by=self.user,
+            feature_flag=flag,
+            name="Legacy Experiment",
+            metrics=[{"kind": "ExperimentTrendsQuery", "query": {}}],
+            start_date=timezone.now(),
+            deleted=True,
+        )
+        flag.deleted = True
+        flag.save()
+
+        with self.assertRaises(ValidationError) as ctx:
+            service.update_experiment(experiment, {"deleted": False})
+
+        assert "linked feature flag has been deleted" in str(ctx.exception)
 
     @parameterized.expand(
         [
@@ -2605,6 +2951,37 @@ class TestExperimentService(APIBaseTest):
                 feature_flag_key="bad-variant-flag-2",
                 parameters={"feature_flag_variants": ["control", "test"]},
             )
+
+    def test_variant_missing_both_percentages_raises_validation_error(self):
+        """Variant without split_percent or rollout_percentage should be rejected."""
+        service = self._service()
+        with self.assertRaises(ValidationError) as ctx:
+            service.create_experiment(
+                name="Missing Percentages",
+                feature_flag_key="missing-pct-flag",
+                parameters={
+                    "feature_flag_variants": [
+                        {"key": "control"},
+                        {"key": "test", "rollout_percentage": 50},
+                    ]
+                },
+            )
+        assert "split_percent" in str(ctx.exception)
+
+    def test_variant_with_only_rollout_percentage_succeeds(self):
+        """Legacy clients sending only rollout_percentage must still work (deprecated but accepted)."""
+        service = self._service()
+        experiment = service.create_experiment(
+            name="Legacy rollout only",
+            feature_flag_key="legacy-rollout-flag",
+            parameters={
+                "feature_flag_variants": [
+                    {"key": "control", "rollout_percentage": 50},
+                    {"key": "test", "rollout_percentage": 50},
+                ]
+            },
+        )
+        assert experiment.id is not None
 
     def test_duplicate_metric_uuids_raises_validation_error(self):
         """Metrics with duplicate UUIDs should be rejected."""
@@ -2896,6 +3273,85 @@ class TestExperimentService(APIBaseTest):
             ],
         )
         assert experiment.metrics is not None and len(experiment.metrics) == 1
+
+    def test_funnel_metric_with_empty_series_raises(self):
+        # The experiment exposure event is prepended as step_0 at query time, so an
+        # empty series would produce a degenerate single-step funnel with no conversion event.
+        service = self._service()
+        with self.assertRaises(ValidationError) as ctx:
+            service.create_experiment(
+                name="Empty Funnel",
+                feature_flag_key="empty-funnel-flag",
+                allow_unknown_events=True,
+                metrics=[
+                    {
+                        "kind": "ExperimentMetric",
+                        "metric_type": "funnel",
+                        "series": [],
+                    },
+                ],
+            )
+        assert "at least one step" in str(ctx.exception)
+
+    @parameterized.expand(
+        [
+            ("primary", "metrics"),
+            ("secondary", "metrics_secondary"),
+        ]
+    )
+    def test_update_experiment_rejects_empty_funnel_series(self, _name, field):
+        experiment = self._create_draft_experiment()
+        service = self._service()
+        with self.assertRaises(ValidationError):
+            service.update_experiment(
+                experiment,
+                {
+                    field: [
+                        {
+                            "kind": "ExperimentMetric",
+                            "metric_type": "funnel",
+                            "series": [],
+                        }
+                    ],
+                },
+                allow_unknown_events=True,
+            )
+
+    @parameterized.expand(
+        [
+            (
+                "single_step",
+                [{"kind": "EventsNode", "event": "$pageview"}],
+            ),
+            (
+                "two_steps",
+                [
+                    {"kind": "EventsNode", "event": "$pageview"},
+                    {"kind": "EventsNode", "event": "$pageleave"},
+                ],
+            ),
+        ]
+    )
+    def test_funnel_metric_with_valid_series_succeeds(self, name, series):
+        # Single-step series is valid: the exposure event is prepended as step_0 at query
+        # time, yielding a standard conversion-rate funnel (exposure → event).
+        flag_key = f"valid-funnel-flag-{name.replace('_', '-')}"
+        self._create_flag(key=flag_key)
+        service = self._service()
+        experiment = service.create_experiment(
+            name=f"Valid Funnel {name}",
+            feature_flag_key=flag_key,
+            allow_unknown_events=True,
+            metrics=[
+                {
+                    "kind": "ExperimentMetric",
+                    "metric_type": "funnel",
+                    "series": series,
+                },
+            ],
+        )
+        assert experiment.metrics is not None and len(experiment.metrics) == 1
+        assert experiment.metrics[0]["metric_type"] == "funnel"
 
     def test_funnel_metric_with_nonexistent_action_in_series_raises(self):
         action = Action.objects.create(team=self.team, name="real action")

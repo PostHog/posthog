@@ -2,7 +2,6 @@ import Fuse from 'fuse.js'
 import { LogicWrapper } from 'kea'
 import { ReactNode } from 'react'
 
-import { DataWarehouseTableForInsight } from 'scenes/data-warehouse/types'
 import { LocalFilter } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
 // eslint-disable-next-line import/no-cycle
 import { MaxContextTaxonomicFilterOption } from 'scenes/max/maxTypes'
@@ -19,6 +18,8 @@ import {
     PropertyFilterType,
     PropertyOperator,
 } from '~/types'
+
+import { DataWarehouseTableForInsight } from 'products/data_warehouse/frontend/types'
 
 export interface SimpleOption {
     name: string
@@ -96,12 +97,19 @@ export interface TaxonomicFilterProps {
     /** Allow users to select events that haven't been captured yet (default: false) */
     allowNonCapturedEvents?: boolean
     hogQLGlobals?: Record<string, any>
+    /** When true, the SQL expression tab shows a hint about using `AS column_name`
+     * or `-- column_name` to get a readable breakdown label. Only shown for long expressions. */
+    hogQLExpressionShowBreakdownLabelHint?: boolean
     /** Optionally customize definition popover contents for selected items. */
     definitionPopoverRenderer?: DefinitionPopoverRenderer
     /** Override the group-level minSearchQueryLength for all groups in this instance. */
     minSearchQueryLength?: number
     /** Override the "Suggested filters" tab label for specific contexts. */
     suggestedFiltersLabel?: string
+    /** Hide the built-in search input (useful when an external input drives the search query). */
+    hideSearchInput?: boolean
+    /** Controlled search query — synced into the logic on each change. Use with hideSearchInput for external input control. */
+    searchQuery?: string
 }
 
 export interface DataWarehousePopoverField {

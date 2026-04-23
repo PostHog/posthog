@@ -75,6 +75,16 @@ WHERE e.event IN (SELECT event FROM events WHERE ...)
   - Time window should remain enforced for events; add variable guards only if explicitly asked
 - Always add `LIMIT 100` to your queries. The maximum allowed limit is 500 rows. The user sees the full results in the UI. If you need to analyze more data, paginate using LIMIT and OFFSET in subsequent queries.
 
+# SQL variables
+SQL variables are stored in `system.insight_variables`. There is no list/get tool for reading them. When asked to find, search, or inspect SQL variables, query this system table directly:
+```sql
+SELECT id, name, code_name, type, default_value, values
+FROM system.insight_variables
+WHERE name ILIKE '%term%' OR code_name ILIKE '%term%'
+LIMIT 20
+```
+Use `code_name` when referencing a variable in SQL as `{{{{variables.code_name}}}}`. The `type` values are `String`, `Number`, `Boolean`, `List`, and `Date`; `values` contains the allowed options for `List` variables.
+
 # Expressions guide
 
 {{{sql_expressions_docs}}}

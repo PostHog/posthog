@@ -1,4 +1,5 @@
 import copy
+from typing import cast
 
 import structlog
 from rest_framework import mixins, serializers, status, viewsets
@@ -13,6 +14,7 @@ from posthog.api.utils import action
 from posthog.helpers.encrypted_flag_payloads import get_decrypted_flag_payloads
 from posthog.models import FeatureFlag, Team
 from posthog.models.cohort import Cohort, CohortOrEmpty
+from posthog.models.feature_flag.flag_analytics import get_cached_evaluations_7d_by_team
 from posthog.models.filters.filter import Filter
 from posthog.models.scheduled_change import ScheduledChange
 from posthog.user_permissions import UserPermissions
@@ -85,6 +87,11 @@ class OrganizationFeatureFlagView(
             key=feature_flag_key,
             team_id__in=team_ids,
         )
+
+        counts_by_team = get_cached_evaluations_7d_by_team(
+            cast(str, feature_flag_key), [flag.team_id for flag in flags]
+        )
+
         flags_data = [
             {
                 "flag_id": flag.id,
@@ -95,6 +102,7 @@ class OrganizationFeatureFlagView(
                 "filters": flag.get_filters(),
                 "created_at": flag.created_at,
                 "active": flag.active,
+                "evaluations_7d": counts_by_team.get(flag.team_id) if counts_by_team is not None else None,
             }
             for flag in flags
         ]
@@ -214,7 +222,7 @@ class OrganizationFeatureFlagView(
                                     original_child_cohort_id = int(prop.value)
                                     original_child_cohort = seen_cohorts_cache[original_child_cohort_id]
 
-                                    if not original_child_cohort:
+                                    if not original_child_cohort or original_child_cohort.name is None:
                                         continue
                                     prop.value = name_to_dest_cohort_id[original_child_cohort.name]
                                 except (ValueError, TypeError):
@@ -237,7 +245,7 @@ class OrganizationFeatureFlagView(
                         destination_cohort_serializer.is_valid(raise_exception=True)
                         destination_cohort = destination_cohort_serializer.save()
 
-                    if destination_cohort is not None:
+                    if destination_cohort is not None and original_cohort.name is not None:
                         name_to_dest_cohort_id[original_cohort.name] = destination_cohort.id
 
             # reference correct destination cohort ids in the flag
@@ -248,7 +256,7 @@ class OrganizationFeatureFlagView(
                         try:
                             original_cohort_id = int(prop["value"])
                             original_cohort_ref = seen_cohorts_cache[original_cohort_id]
-                            if not original_cohort_ref:
+                            if not original_cohort_ref or original_cohort_ref.name is None:
                                 continue
                             cohort_name = original_cohort_ref.name
                             prop["value"] = name_to_dest_cohort_id[cohort_name]

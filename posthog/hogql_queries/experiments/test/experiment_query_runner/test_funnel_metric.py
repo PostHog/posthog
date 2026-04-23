@@ -36,7 +36,10 @@ from posthog.hogql_queries.experiments.experiment_query_runner import Experiment
 from posthog.hogql_queries.experiments.test.experiment_query_runner.base import ExperimentQueryRunnerBaseTest
 from posthog.models.action.action import Action
 from posthog.models.filters.utils import GroupTypeIndex
+from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
+
+from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 
 
 @override_settings(IN_UNIT_TESTING=True)
@@ -249,6 +252,71 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
         # Step sessions should be absent
         self.assertIsNone(control_variant.step_sessions)
         self.assertIsNone(test_variant.step_sessions)
+
+    @parameterized.expand(
+        [
+            # (name, experiment_parameters, team_config_value, expect_disabled)
+            ("team_config_only", {}, True, True),
+            ("experiment_overrides_team", {"funnel_steps_data_disabled": False}, True, False),
+        ]
+    )
+    @freeze_time("2020-01-01T12:00:00Z")
+    def test_funnel_metric_steps_data_disabled_team_config(
+        self, name, experiment_parameters, team_config_value, expect_disabled
+    ):
+        feature_flag = self.create_feature_flag()
+        experiment = self.create_experiment(feature_flag=feature_flag)
+        experiment.parameters = experiment_parameters
+        experiment.save()
+
+        config = get_or_create_team_extension(self.team, TeamExperimentsConfig)
+        config.funnel_steps_data_disabled = team_config_value
+        config.save()
+
+        feature_flag_property = f"$feature/{feature_flag.key}"
+        metric = ExperimentFunnelMetric(series=[EventsNode(event="purchase")])
+        experiment_query = ExperimentQuery(experiment_id=experiment.id, kind="ExperimentQuery", metric=metric)
+        experiment.metrics = [metric.model_dump(mode="json")]
+        experiment.save()
+
+        for variant, convert_count in (("control", 8), ("test", 10)):
+            for i in range(15):
+                distinct_id = f"user_{variant}_{i}"
+                _create_person(distinct_ids=[distinct_id], team_id=self.team.pk)
+                _create_event(
+                    team=self.team,
+                    event="$feature_flag_called",
+                    distinct_id=distinct_id,
+                    timestamp="2020-01-02T12:00:00Z",
+                    properties={
+                        feature_flag_property: variant,
+                        "$feature_flag_response": variant,
+                        "$feature_flag": feature_flag.key,
+                    },
+                )
+                if i < convert_count:
+                    _create_event(
+                        team=self.team,
+                        event="purchase",
+                        distinct_id=distinct_id,
+                        timestamp="2020-01-02T12:01:00Z",
+                        properties={feature_flag_property: variant},
+                    )
+
+        flush_persons_and_events()
+
+        result = ExperimentQueryRunner(query=experiment_query, team=self.team).calculate()
+        control_variant = result.baseline
+        test_variant = result.variant_results[0]
+
+        self.assertEqual(control_variant.step_counts, [8])
+        self.assertEqual(test_variant.step_counts, [10])
+        if expect_disabled:
+            self.assertIsNone(control_variant.step_sessions)
+            self.assertIsNone(test_variant.step_sessions)
+        else:
+            self.assertIsNotNone(control_variant.step_sessions)
+            self.assertIsNotNone(test_variant.step_sessions)
 
     @parameterized.expand(
         [

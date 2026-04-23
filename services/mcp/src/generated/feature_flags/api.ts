@@ -190,9 +190,9 @@ export const FeatureFlagsCreateBody = /* @__PURE__ */ zod.object({
                                             .nullish()
                                             .describe('Group type index when using group-based filters.'),
                                         operator: zod
-                                            .enum(['is_date_exact', 'is_date_after', 'is_date_before'])
+                                            .enum(['is_date_exact', 'is_date_before', 'is_date_after'])
                                             .describe(
-                                                '* `is_date_exact` - is_date_exact\n* `is_date_after` - is_date_after\n* `is_date_before` - is_date_before'
+                                                '* `is_date_exact` - is_date_exact\n* `is_date_before` - is_date_before\n* `is_date_after` - is_date_after'
                                             )
                                             .describe(
                                                 'Date comparison operator.\n\n* `is_date_exact` - is_date_exact\n* `is_date_after` - is_date_after\n* `is_date_before` - is_date_before'
@@ -507,9 +507,9 @@ export const FeatureFlagsPartialUpdateBody = /* @__PURE__ */ zod.object({
                                             .nullish()
                                             .describe('Group type index when using group-based filters.'),
                                         operator: zod
-                                            .enum(['is_date_exact', 'is_date_after', 'is_date_before'])
+                                            .enum(['is_date_exact', 'is_date_before', 'is_date_after'])
                                             .describe(
-                                                '* `is_date_exact` - is_date_exact\n* `is_date_after` - is_date_after\n* `is_date_before` - is_date_before'
+                                                '* `is_date_exact` - is_date_exact\n* `is_date_before` - is_date_before\n* `is_date_after` - is_date_after'
                                             )
                                             .describe(
                                                 'Date comparison operator.\n\n* `is_date_exact` - is_date_exact\n* `is_date_after` - is_date_after\n* `is_date_before` - is_date_before'
@@ -905,7 +905,6 @@ export const ScheduledChangesPartialUpdateParams = /* @__PURE__ */ zod.object({
 
 export const scheduledChangesPartialUpdateBodyRecordIdMax = 200
 
-export const scheduledChangesPartialUpdateBodyIsRecurringDefault = false
 export const scheduledChangesPartialUpdateBodyCronExpressionMax = 100
 
 export const ScheduledChangesPartialUpdateBody = /* @__PURE__ */ zod.object({
@@ -933,7 +932,7 @@ export const ScheduledChangesPartialUpdateBody = /* @__PURE__ */ zod.object({
         .describe("ISO 8601 datetime when the change should be applied (e.g. '2025-06-01T14:00:00Z')."),
     is_recurring: zod
         .boolean()
-        .default(scheduledChangesPartialUpdateBodyIsRecurringDefault)
+        .optional()
         .describe("Whether this schedule repeats. Only the 'update_status' operation supports recurring schedules."),
     recurrence_interval: zod
         .union([

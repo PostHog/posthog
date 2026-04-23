@@ -19,6 +19,7 @@ import {
     AnyEntityNode,
     BreakdownFilter,
     CalendarHeatmapFilter,
+    DataTableNode,
     DataWarehouseNode,
     EntityNode,
     EventsNode,
@@ -51,6 +52,7 @@ import {
     isDataVisualizationNode,
     isDataWarehouseNode,
     isEndpointsUsageQuery,
+    isEventsQuery,
     isFunnelsQuery,
     isFunnelsDataWarehouseNode,
     isHogQuery,
@@ -529,15 +531,54 @@ export const insightNavLogic = kea<insightNavLogicType>([
         setQuery: ({ query }) => {
             if (isInsightVizNode(query)) {
                 actions.updateQueryPropertyCache(cachePropertiesFromQuery(query.source, values.queryPropertyCache))
+            } else if (isDataTableNode(query)) {
+                const seeded = cachePropertiesFromDataTable(query)
+                if (seeded) {
+                    actions.updateQueryPropertyCache(seeded)
+                }
             }
         },
     })),
     afterMount(({ values, actions }) => {
         if (values.query && isInsightVizNode(values.query)) {
             actions.updateQueryPropertyCache(cachePropertiesFromQuery(values.query.source, values.queryPropertyCache))
+        } else if (values.query && isDataTableNode(values.query)) {
+            const seeded = cachePropertiesFromDataTable(values.query)
+            if (seeded) {
+                actions.updateQueryPropertyCache(seeded)
+            }
         }
     }),
 ])
+
+const cachePropertiesFromDataTable = (query: DataTableNode): QueryPropertyCache | null => {
+    if (!isEventsQuery(query.source)) {
+        return null
+    }
+    const source = query.source
+    const cache: Partial<QueryPropertyCache> = {}
+
+    if (source.properties?.length) {
+        cache.properties = JSON.parse(JSON.stringify(source.properties))
+    }
+    if (source.after || source.before) {
+        cache.dateRange = {
+            ...(source.after ? { date_from: source.after } : {}),
+            ...(source.before ? { date_to: source.before } : {}),
+        }
+    }
+
+    const seriesEvents = source.events?.length ? source.events : source.event ? [source.event] : []
+    if (seriesEvents.length) {
+        cache.series = seriesEvents.map((event) => ({
+            kind: NodeKind.EventsNode,
+            event,
+            name: event,
+        }))
+    }
+
+    return Object.keys(cache).length > 0 ? (cache as QueryPropertyCache) : null
+}
 
 const cachePropertiesFromQuery = (query: InsightQueryNode, cache: QueryPropertyCache | null): QueryPropertyCache => {
     const newCache = JSON.parse(JSON.stringify(query)) as QueryPropertyCache

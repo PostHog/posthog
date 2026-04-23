@@ -1,3 +1,5 @@
+from typing import Any, cast
+
 from unittest import TestCase
 
 from products.experiments.stats.frequentist.method import FrequentistConfig, FrequentistMethod
@@ -5,7 +7,7 @@ from products.experiments.stats.shared.enums import DifferenceType
 from products.experiments.stats.shared.statistics import ProportionStatistic, RatioStatistic, SampleMeanStatistic
 
 
-def create_test_result_dict(result):
+def create_test_result_dict(result: Any) -> dict[str, Any]:
     """Convert TestResult to dictionary for easy interpretation."""
     return {
         "expected": result.point_estimate,
@@ -22,7 +24,19 @@ def create_test_result_dict(result):
     }
 
 
+def get_ci(result_dict: dict[str, Any]) -> list[Any]:
+    return cast(list[Any], result_dict["ci"])
+
+
+def get_expected_uplift(expected_dict: dict[str, Any]) -> dict[str, Any]:
+    return cast(dict[str, Any], expected_dict["uplift"])
+
+
 class TestTwoSidedTTest(TestCase):
+    @staticmethod
+    def _uplift(result_dict: dict[str, Any]) -> dict[str, Any]:
+        return cast(dict[str, Any], result_dict["uplift"])
+
     def test_two_sided_ttest_with_sample_mean(self):
         """Test basic two-sided t-test with sample mean statistics."""
 
@@ -37,7 +51,7 @@ class TestTwoSidedTTest(TestCase):
         result = method.run_test(stat_a, stat_b)
 
         result_dict = create_test_result_dict(result)
-        expected_dict = {
+        expected_dict: dict[str, Any] = {
             "expected": 0.63646,
             "ci": [-0.0875, 1.36048],
             "p_value": 0.08487,
@@ -48,10 +62,13 @@ class TestTwoSidedTTest(TestCase):
         # Compare the key values
         self.assertAlmostEqual(result_dict["expected"], expected_dict["expected"], places=4)
         self.assertAlmostEqual(result_dict["p_value"], expected_dict["p_value"], places=4)
-        self.assertAlmostEqual(result_dict["ci"][0], expected_dict["ci"][0], places=4)
-        self.assertAlmostEqual(result_dict["ci"][1], expected_dict["ci"][1], places=4)
-        self.assertAlmostEqual(result_dict["uplift"]["mean"], expected_dict["uplift"]["mean"], places=4)
-        self.assertAlmostEqual(result_dict["uplift"]["stddev"], expected_dict["uplift"]["stddev"], places=4)
+        ci = get_ci(result_dict)
+        self.assertAlmostEqual(ci[0], expected_dict["ci"][0], places=4)
+        self.assertAlmostEqual(ci[1], expected_dict["ci"][1], places=4)
+        uplift = self._uplift(result_dict)
+        expected_uplift = get_expected_uplift(expected_dict)
+        self.assertAlmostEqual(uplift["mean"], expected_uplift["mean"], places=4)
+        self.assertAlmostEqual(uplift["stddev"], expected_uplift["stddev"], places=4)
 
     def test_two_sided_ttest_with_sample_proportion(self):
         """Test basic two-sided t-test with sample proportion statistics."""
@@ -67,7 +84,7 @@ class TestTwoSidedTTest(TestCase):
         result = method.run_test(stat_a, stat_b)
 
         result_dict = create_test_result_dict(result)
-        expected_dict = {
+        expected_dict: dict[str, Any] = {
             "expected": -0.25925,
             "ci": [-0.49475, -0.02376],
             "p_value": 0.030960,
@@ -78,10 +95,13 @@ class TestTwoSidedTTest(TestCase):
         # Compare the key values
         self.assertAlmostEqual(result_dict["expected"], expected_dict["expected"], places=4)
         self.assertAlmostEqual(result_dict["p_value"], expected_dict["p_value"], places=4)
-        self.assertAlmostEqual(result_dict["ci"][0], expected_dict["ci"][0], places=4)
-        self.assertAlmostEqual(result_dict["ci"][1], expected_dict["ci"][1], places=4)
-        self.assertAlmostEqual(result_dict["uplift"]["mean"], expected_dict["uplift"]["mean"], places=4)
-        self.assertAlmostEqual(result_dict["uplift"]["stddev"], expected_dict["uplift"]["stddev"], places=4)
+        ci = get_ci(result_dict)
+        self.assertAlmostEqual(ci[0], expected_dict["ci"][0], places=4)
+        self.assertAlmostEqual(ci[1], expected_dict["ci"][1], places=4)
+        uplift = self._uplift(result_dict)
+        expected_uplift = get_expected_uplift(expected_dict)
+        self.assertAlmostEqual(uplift["mean"], expected_uplift["mean"], places=4)
+        self.assertAlmostEqual(uplift["stddev"], expected_uplift["stddev"], places=4)
 
     def test_two_sided_ttest_with_ratio_statistic(self):
         """Test basic two-sided t-test with ratio statistics."""
@@ -111,7 +131,7 @@ class TestTwoSidedTTest(TestCase):
         result = method.run_test(stat_a, stat_b)
 
         result_dict = create_test_result_dict(result)
-        expected_dict = {
+        expected_dict: dict[str, Any] = {
             "expected": 0.041333,
             "ci": [0.01378609, 0.0689],
             "p_value": 0.0032826,
@@ -122,7 +142,10 @@ class TestTwoSidedTTest(TestCase):
         # Compare the key values
         self.assertAlmostEqual(result_dict["expected"], expected_dict["expected"], places=4)
         self.assertAlmostEqual(result_dict["p_value"], expected_dict["p_value"], places=4)
-        self.assertAlmostEqual(result_dict["ci"][0], expected_dict["ci"][0], places=4)
-        self.assertAlmostEqual(result_dict["ci"][1], expected_dict["ci"][1], places=4)
-        self.assertAlmostEqual(result_dict["uplift"]["mean"], expected_dict["uplift"]["mean"], places=4)
-        self.assertAlmostEqual(result_dict["uplift"]["stddev"], expected_dict["uplift"]["stddev"], places=4)
+        ci = get_ci(result_dict)
+        self.assertAlmostEqual(ci[0], expected_dict["ci"][0], places=4)
+        self.assertAlmostEqual(ci[1], expected_dict["ci"][1], places=4)
+        uplift = self._uplift(result_dict)
+        expected_uplift = get_expected_uplift(expected_dict)
+        self.assertAlmostEqual(uplift["mean"], expected_uplift["mean"], places=4)
+        self.assertAlmostEqual(uplift["stddev"], expected_uplift["stddev"], places=4)

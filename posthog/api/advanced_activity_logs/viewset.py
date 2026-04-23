@@ -95,6 +95,9 @@ class ActivityLogPagination(BasePagination):
         else:
             return self.cursor_pagination.get_paginated_response(data)
 
+    def get_paginated_response_schema(self, schema):
+        return self.page_number_pagination.get_paginated_response_schema(schema)
+
 
 class ActivityLogScopeField(serializers.ChoiceField):
     def __init__(self, **kwargs):
@@ -205,12 +208,25 @@ class AdvancedActivityLogFiltersSerializer(serializers.Serializer):
     users = serializers.ListField(child=serializers.UUIDField(), required=False, default=[])
     scopes = serializers.ListField(child=serializers.CharField(), required=False, default=[])
     activities = serializers.ListField(child=serializers.CharField(), required=False, default=[])
+    clients = serializers.ListField(child=serializers.CharField(), required=False, default=[])
     search_text = serializers.CharField(required=False, allow_blank=True)
     detail_filters = JSONStringFilterField(required=False)
     hogql_filter = serializers.CharField(required=False, allow_blank=True)
     was_impersonated = OptionalBooleanField(required=False)
     is_system = OptionalBooleanField(required=False)
     item_ids = serializers.ListField(child=serializers.CharField(), required=False, default=[])
+    page = serializers.IntegerField(
+        required=False,
+        min_value=1,
+        help_text="Page number for pagination. When provided, uses page-based pagination ordered by most recent first.",
+    )
+    page_size = serializers.IntegerField(
+        required=False,
+        min_value=1,
+        max_value=1000,
+        default=100,
+        help_text="Number of results per page (default: 100, max: 1000). Only used with page-based pagination.",
+    )
 
 
 class ActivityLogFlatExportSerializer(serializers.ModelSerializer):
@@ -234,6 +250,7 @@ class ActivityLogFlatExportSerializer(serializers.ModelSerializer):
             "scope",
             "item_id",
             "detail",
+            "client",
             "created_at",
         ]
 
@@ -245,6 +262,10 @@ class StaticFiltersSerializer(serializers.Serializer):
     users = serializers.ListField(child=serializers.DictField(), help_text="Users who have logged activity.")
     scopes = serializers.ListField(child=serializers.DictField(), help_text="Available activity scopes.")
     activities = serializers.ListField(child=serializers.DictField(), help_text="Available activity types.")
+    clients = serializers.ListField(
+        child=serializers.DictField(),
+        help_text="API clients that have generated activity (from x-posthog-client header).",
+    )
 
 
 class AvailableFiltersResponseSerializer(serializers.Serializer):

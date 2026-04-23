@@ -23,5 +23,8 @@ class TestWarehouse(APIBaseTest):
             validate_data_warehouse_table_columns(self.team.pk, str(table.id))
 
         table.refresh_from_db()
-
-        assert table.columns.get("some_columns").get("valid") is True
+        assert table.columns is not None
+        some_columns = table.columns.get("some_columns")
+        assert some_columns is not None
+        valid = some_columns.get("valid")
+        assert valid is True

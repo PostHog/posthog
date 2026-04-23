@@ -196,7 +196,7 @@ def class_queryset(
     entity_type = class_to_entity_name(klass)
     values = ["type", "result_id", "extra_fields", "_sort_name"]
 
-    qs: QuerySet[Any] = klass.objects.filter(team__project_id=project_id)  # filter team
+    qs: QuerySet[Any] = cast(Any, klass).objects.filter(team__project_id=project_id)  # filter team
     qs = view.user_access_control.filter_queryset_by_access_level(qs)  # filter access level
 
     # Apply entity-specific filters

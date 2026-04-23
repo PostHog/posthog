@@ -2,13 +2,15 @@ import { useActions, useMountedLogic, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
 import { useEffect } from 'react'
 
-import { LemonTag } from '@posthog/lemon-ui'
+import { IconGear } from '@posthog/icons'
+import { LemonButton, LemonDropdown, LemonSwitch, LemonTag } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { Link } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { objectsEqual } from 'lib/utils'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 
 import { DataTable } from '~/queries/nodes/DataTable/DataTable'
@@ -18,7 +20,7 @@ import { isTracesQuery } from '~/queries/utils'
 
 import { LLMMessageDisplay } from './ConversationDisplay/ConversationMessagesDisplay'
 import { llmAnalyticsColumnRenderers } from './llmAnalyticsColumnRenderers'
-import { llmAnalyticsSharedLogic } from './llmAnalyticsSharedLogic'
+import { buildApplyUrlStatePayload, llmAnalyticsSharedLogic } from './llmAnalyticsSharedLogic'
 import { llmAnalyticsTracesTabLogic } from './tabs/llmAnalyticsTracesTabLogic'
 import { TraceMessages, traceMessagesLazyLoaderLogic } from './traceMessagesLazyLoaderLogic'
 import { traceReviewsLazyLoaderLogic } from './traceReviews/traceReviewsLazyLoaderLogic'
@@ -27,6 +29,7 @@ import {
     formatLLMLatency,
     formatLLMUsage,
     getTraceTimestamp,
+    LLM_TRACES_PAGE_SIZE,
     normalizeMessages,
     sanitizeTraceUrlSearchParams,
 } from './utils'
@@ -35,10 +38,15 @@ export function LLMAnalyticsTraces(): JSX.Element {
     useMountedLogic(traceReviewsLazyLoaderLogic)
     useMountedLogic(traceMessagesLazyLoaderLogic)
 
-    const { setDates, setShouldFilterTestAccounts, setShouldFilterSupportTraces, setPropertyFilters } =
-        useActions(llmAnalyticsSharedLogic)
-    const { propertyFilters: currentPropertyFilters } = useValues(llmAnalyticsSharedLogic)
+    const { applyUrlState, setShouldFilterSupportTraces } = useActions(llmAnalyticsSharedLogic)
+    const { dateFilter, propertyFilters: currentPropertyFilters } = useValues(llmAnalyticsSharedLogic)
     const { tracesQuery } = useValues(llmAnalyticsTracesTabLogic)
+
+    const baseContext = useTracesQueryContext()
+    const context: QueryContext<DataTableNode> = {
+        ...baseContext,
+        customActions: <TracesOptionsMenu key="traces-options-menu" />,
+    }
 
     return (
         <div data-attr="llm-trace-table">
@@ -52,19 +60,69 @@ export function LLMAnalyticsTraces(): JSX.Element {
                     if (!isTracesQuery(query.source)) {
                         throw new Error('Invalid query')
                     }
-                    setDates(query.source.dateRange?.date_from || null, query.source.dateRange?.date_to || null)
-                    setShouldFilterTestAccounts(query.source.filterTestAccounts || false)
+                    // filterSupportTraces has no actionToUrl mapping, so keep it
+                    // separate — it cannot contribute to the URL-change counter.
                     setShouldFilterSupportTraces(query.source.filterSupportTraces ?? true)
 
-                    const newPropertyFilters = query.source.properties || []
-                    if (!objectsEqual(newPropertyFilters, currentPropertyFilters)) {
-                        setPropertyFilters(newPropertyFilters)
-                    }
+                    // Batch the remaining three URL-synced fields into a single
+                    // applyUrlState dispatch so the DataTable's setQuery emits
+                    // one URL change instead of three.
+                    applyUrlState(
+                        buildApplyUrlStatePayload({
+                            dateFrom: query.source.dateRange?.date_from || null,
+                            dateTo: query.source.dateRange?.date_to || null,
+                            shouldFilterTestAccounts: query.source.filterTestAccounts || false,
+                            propertyFilters: query.source.properties || [],
+                            currentDateFilter: dateFilter,
+                            currentPropertyFilters,
+                        })
+                    )
                 }}
-                context={useTracesQueryContext()}
+                context={context}
                 uniqueKey="llm-analytics-traces"
             />
         </div>
+    )
+}
+
+function TracesOptionsMenu(): JSX.Element | null {
+    const { featureFlags } = useValues(featureFlagLogic)
+    const { showInputOutputColumns } = useValues(llmAnalyticsTracesTabLogic)
+    const { setShowInputOutputColumns } = useActions(llmAnalyticsTracesTabLogic)
+
+    const showInputOutputToggleEnabled = !!featureFlags[FEATURE_FLAGS.LLM_OBSERVABILITY_SHOW_INPUT_OUTPUT]
+
+    if (!showInputOutputToggleEnabled) {
+        return null
+    }
+
+    return (
+        <LemonDropdown
+            closeOnClickInside={false}
+            placement="bottom-end"
+            overlay={
+                <div className="flex flex-col gap-2 py-1 px-2 min-w-64">
+                    <LemonSwitch
+                        checked={showInputOutputColumns}
+                        onChange={setShowInputOutputColumns}
+                        label="Show input/output"
+                        fullWidth
+                        tooltip="Preview each trace's first input and last output in the table. Turn off for a denser view."
+                        data-attr="llm-traces-show-input-output-toggle"
+                    />
+                </div>
+            }
+        >
+            <LemonButton
+                type="secondary"
+                size="small"
+                icon={<IconGear />}
+                tooltip="Customize traces view"
+                data-attr="llm-traces-options-menu"
+            >
+                Options
+            </LemonButton>
+        </LemonDropdown>
     )
 }
 
@@ -72,6 +130,7 @@ export const useTracesQueryContext = (): QueryContext<DataTableNode> => {
     return {
         emptyStateHeading: 'There were no traces in this period',
         emptyStateDetail: 'Try changing the date range or filters.',
+        dataTableMaxPaginationLimit: LLM_TRACES_PAGE_SIZE,
         columns: {
             id: {
                 title: 'ID',
