@@ -16,7 +16,9 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
+from posthog.hogql.query import execute_hogql_query
 
+from posthog.clickhouse.client import sync_execute
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 
 from products.data_warehouse.backend.models import DataWarehouseTable
@@ -433,6 +435,67 @@ class TestMarketingAnalyticsTableQueryRunner(ClickhouseTestMixin, BaseTest):
         assert isinstance(result, MarketingAnalyticsTableQueryResponse)
         assert result.columns is not None
         assert config_alias_in_columns(result.columns, DRILL_DOWN_LEVEL_CONFIG[level]["column_alias"])
+
+    @parameterized.expand(
+        [
+            ("google", "Paid Search"),
+            ("meta", "Paid Social"),
+            ("facebook", "Paid Social"),
+            ("instagram", "Paid Social"),
+            ("linkedin", "Paid Social"),
+            ("snapchat", "Paid Social"),
+            ("tiktok", "Paid Social"),
+            ("reddit", "Paid Social"),
+            ("bing", "Paid Search"),
+            ("pinterest", "Paid Social"),
+            ("totally_unknown_source", "Paid Unknown"),
+        ]
+    )
+    def test_channel_drill_down_classifies_adapter_source(self, source: str, expected_channel: str):
+        """Adapter rows group into the channel_type derived from their source column."""
+        # channel_definition_dict caches entries for its LIFETIME; force a reload
+        # so new JSON entries (e.g. "meta") are visible in this test run.
+        sync_execute("SYSTEM RELOAD DICTIONARY channel_definition_dict")
+
+        query = MarketingAnalyticsTableQuery(
+            dateRange=self.default_date_range,
+            limit=DEFAULT_LIMIT,
+            offset=0,
+            properties=[],
+            drillDownLevel=MarketingAnalyticsDrillDownLevel.CHANNEL,
+        )
+        runner = self._create_query_runner(query)
+        runner._apply_drill_down_level()
+
+        union_subquery = _build_synthetic_adapter_union([source])
+        cte_select = runner._build_campaign_cost_select(union_subquery)
+        response = execute_hogql_query(query=cte_select, team=self.team)
+
+        channels = {row[0] for row in response.results}
+        assert channels == {expected_channel}, (
+            f"source={source!r} expected channel={expected_channel!r}, got {channels}"
+        )
+
+
+def _build_synthetic_adapter_union(source_names: list[str]) -> ast.SelectSetQuery | ast.SelectQuery:
+    """UNION ALL matching MarketingSourceAdapter.build_query's 9-column schema."""
+    queries: list[ast.SelectQuery | ast.SelectSetQuery] = [
+        ast.SelectQuery(
+            select=[
+                ast.Alias(alias="match_key", expr=ast.Constant(value="")),
+                ast.Alias(alias="campaign", expr=ast.Constant(value=f"campaign_{source}")),
+                ast.Alias(alias="id", expr=ast.Constant(value=f"id_{source}")),
+                ast.Alias(alias="source", expr=ast.Constant(value=source)),
+                ast.Alias(alias="impressions", expr=ast.Constant(value=0.0)),
+                ast.Alias(alias="clicks", expr=ast.Constant(value=0.0)),
+                ast.Alias(alias="cost", expr=ast.Constant(value=0.0)),
+                ast.Alias(alias="reported_conversion", expr=ast.Constant(value=0.0)),
+                ast.Alias(alias="reported_conversion_value", expr=ast.Constant(value=0.0)),
+            ]
+        )
+        for source in source_names
+    ]
+    return ast.SelectSetQuery.create_from_queries(queries, set_operator="UNION ALL")
 
 
 def config_alias_in_columns(columns: list, alias: str) -> bool:

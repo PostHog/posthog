@@ -855,6 +855,7 @@
     ["messenger", "source", "Social", "Paid Social", "Organic Social", false],
     ["l.messenger.com", "source", "Social", "Paid Social", "Organic Social", false],
     ["messenger.com", "source", "Social", "Paid Social", "Organic Social", false],
+    ["meta", "source", "Social", "Paid Social", "Organic Social", false],
     ["metacrawler.com", "source", "Search", "Paid Search", "Organic Search", false],
     ["www.metacrawler.com", "source", "Search", "Paid Search", "Organic Search", false],
     ["com.microsoft.amp.apps.bingnews", "source", "Search", "Paid Search", "Organic Search", true],
