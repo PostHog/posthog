@@ -49,9 +49,12 @@ VALID_GUEST_RESOURCE_TYPES = ("dashboard", "insight", "notebook")
 def validate_guest_resources(value):
     """Structural validation for OrganizationInvite.guest_resources.
 
-    Deeper checks (team membership, resource existence, feature availability) live in
-    the invite serializer; this validator only enforces shape and enumerated values so
-    malformed items are rejected even on direct ORM writes.
+    Django field validators only run when something calls them — DRF serializers
+    (via ``is_valid()``) and Django admin forms (via ``full_clean()``). Raw ORM
+    writes like ``objects.create()`` bypass them. The invite serializer in PR #2
+    is the primary enforcement point; deeper checks (team membership, resource
+    existence, feature availability) live there. This validator handles shape
+    and enumerated values only.
     """
     if not isinstance(value, list):
         raise exceptions.ValidationError("The field must be a list of dictionaries.")
@@ -123,6 +126,17 @@ class OrganizationInvite(ModelActivityMixin, UUIDTModel):
             "and may not be in the SSO directory."
         ),
     )
+
+    class Meta:
+        # bypass_sso is only meaningful for guest invites; enforcing this at the DB level keeps the
+        # guarantee even when the serializer in PR #2 is bypassed (direct ORM writes, data migrations,
+        # agent-authored code paths).
+        constraints = [
+            models.CheckConstraint(
+                check=models.Q(bypass_sso=False) | ~models.Q(guest_resources=[]),
+                name="bypass_sso_requires_guest_resources",
+            ),
+        ]
 
     @property
     def is_guest_invite(self) -> bool:

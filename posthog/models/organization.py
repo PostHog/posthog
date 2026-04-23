@@ -591,6 +591,12 @@ class OrganizationMembership(ModelActivityMixin, UUIDTModel):
                 fields=["organization_id", "user_id"],
                 name="unique_organization_membership",
             ),
+            # Guests only exist at MEMBER level — ADMIN/OWNER guests are semantically incoherent
+            # and would also bypass the .regular manager guard inconsistently.
+            models.CheckConstraint(
+                check=models.Q(is_guest=False) | models.Q(level=1),
+                name="guest_membership_requires_member_level",
+            ),
         ]
         indexes = [
             models.Index(
