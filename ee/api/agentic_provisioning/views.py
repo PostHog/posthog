@@ -1183,9 +1183,17 @@ def _resolve_or_create_project_team(
         )
         if race_winner:
             return _ensure_team_in_token_scopes(access_token, scoped_teams, race_winner.team)
-        return base_team, scoped_teams
+        raise _ProjectIdCollisionError(project_id)
 
     return _ensure_team_in_token_scopes(access_token, scoped_teams, new_team)
+
+
+class _ProjectIdCollisionError(Exception):
+    """Raised when a stripe_project_id is already in use by a team outside the caller's orgs."""
+
+    def __init__(self, project_id: str) -> None:
+        super().__init__(project_id)
+        self.project_id = project_id
 
 
 def _ensure_team_in_token_scopes(
@@ -1266,9 +1274,19 @@ def provisioning_resources_create(request: Request) -> Response:
     configuration = request.data.get("configuration") or {}
 
     if project_id:
-        team, scoped_teams = _resolve_or_create_project_team(
-            project_id, scoped_teams, user, configuration, access_token
-        )
+        try:
+            team, scoped_teams = _resolve_or_create_project_team(
+                project_id, scoped_teams, user, configuration, access_token
+            )
+        except _ProjectIdCollisionError:
+            _capture_provisioning_event(
+                "resource_created", "error", error_code="project_id_conflict", project_id=project_id
+            )
+            return _error_response(
+                "project_id_conflict",
+                "Project ID already linked to another organization",
+                status=409,
+            )
     else:
         team_id = scoped_teams[0]
         try:

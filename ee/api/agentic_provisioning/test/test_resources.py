@@ -236,8 +236,8 @@ class TestProvisioningResources(StripeProvisioningTestBase):
                 token=token,
             )
 
-        assert res.status_code == 200
-        assert res.json()["id"] != str(foreign_team.id)
+        assert res.status_code == 409
+        assert res.json()["error"]["code"] == "project_id_conflict"
 
         access_token = OAuthAccessToken.objects.get(token=token)
         assert foreign_team.id not in (access_token.scoped_teams or [])
