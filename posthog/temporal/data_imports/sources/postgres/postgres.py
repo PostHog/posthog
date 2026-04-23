@@ -38,6 +38,15 @@ from posthog.temporal.data_imports.pipelines.pipeline.utils import (
     table_from_iterator,
 )
 from posthog.temporal.data_imports.sources.common.sql import Column, Table
+from posthog.temporal.data_imports.sources.postgres.partitioned_tables import (
+    PARTITIONED_TABLE_MAX_CHUNK_SIZE,
+    get_estimated_row_count_for_partitioned_table as _get_estimated_row_count_for_partitioned_table,
+    get_partition_settings_for_partitioned_table as _get_partition_settings_for_partitioned_table,
+    is_partitioned_table as _is_partitioned_table,
+    is_supported_incremental_type_for_window,
+    iterate_date_windows,
+    list_child_partitions,
+)
 
 from products.data_warehouse.backend.types import IncrementalFieldType, PartitionSettings
 
@@ -45,11 +54,6 @@ from products.data_warehouse.backend.types import IncrementalFieldType, Partitio
 SSL_REQUIRED_AFTER_DATE = datetime(2026, 2, 18, tzinfo=UTC)
 IDENTIFIER_FUNCTION_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 SYSTEM_POSTGRES_SCHEMAS = ["information_schema", "pg_catalog", "pg_toast"]
-
-# Max rows per FETCH when reading a partitioned parent table. A partitioned
-# parent scan dispatches across every child partition; a large chunk size can
-# blow past the source's statement_timeout even when per-row payload is small.
-PARTITIONED_TABLE_MAX_CHUNK_SIZE = 10_000
 
 # Statement timeout applied to the row-streaming connection so a slow FETCH
 # (large partitioned scan, cold cache, etc.) does not get killed by a short
@@ -693,6 +697,8 @@ def _build_query(
     incremental_field_type: Optional[IncrementalFieldType],
     db_incremental_field_last_value: Optional[Any],
     add_sampling: Optional[bool] = False,
+    *,
+    upper_bound_inclusive: Optional[Any] = None,
 ) -> sql.Composed:
     if not should_use_incremental_field:
         if add_sampling:
@@ -745,9 +751,16 @@ def _build_query(
     if add_sampling:
         query_with_limit = cast(LiteralString, f"{query.as_string()} LIMIT 1000")
         return sql.SQL(query_with_limit).format()
-    else:
-        query_str = cast(LiteralString, f"{query.as_string()} ORDER BY {{incremental_field}} ASC")
-        return sql.SQL(query_str).format(incremental_field=sql.Identifier(incremental_field))
+
+    if upper_bound_inclusive is not None:
+        query = sql.SQL("{inner} AND {field} <= {upper}").format(
+            inner=query,
+            field=sql.Identifier(incremental_field),
+            upper=sql.Literal(upper_bound_inclusive),
+        )
+
+    query_str = cast(LiteralString, f"{query.as_string()} ORDER BY {{incremental_field}} ASC")
+    return sql.SQL(query_str).format(incremental_field=sql.Identifier(incremental_field))
 
 
 def _build_count_query(
@@ -776,102 +789,6 @@ def _build_count_query(
         incremental_field=sql.Identifier(incremental_field),
         last_value=sql.Literal(db_incremental_field_last_value),
     )
-
-
-def _is_partitioned_table(cursor: psycopg.Cursor, schema: str, table_name: str) -> bool:
-    """Check if a table is a partitioned (parent) table via pg_partitioned_table."""
-    cursor.execute(
-        """
-        SELECT EXISTS (
-            SELECT 1
-            FROM pg_partitioned_table pt
-            JOIN pg_class c ON c.oid = pt.partrelid
-            JOIN pg_namespace n ON n.oid = c.relnamespace
-            WHERE n.nspname = %(schema)s AND c.relname = %(table)s
-        )
-        """,
-        {"schema": schema, "table": table_name},
-    )
-    row = cursor.fetchone()
-    return bool(row and row[0])
-
-
-def _get_estimated_row_count_for_partitioned_table(
-    cursor: psycopg.Cursor, schema: str, table_name: str, logger: FilteringBoundLogger
-) -> int | None:
-    """Get approximate row count for a partitioned table by summing stats across child partitions.
-
-    Tries two sources in order:
-    1. pg_class.reltuples — accurate after ANALYZE, but 0 if ANALYZE never ran.
-    2. pg_stat_user_tables.n_live_tup — maintained incrementally by the stats
-       collector (tracks inserts/deletes in near-real-time), works even without ANALYZE.
-
-    Returns None if neither source has data (no child partitions found), so the
-    caller can fall back to an exact COUNT(*).
-    """
-    # pg_class.reltuples = -1 means the partition has never been ANALYZEd.
-    # Summing a mix of analyzed (>=0) and unanalyzed (-1) partitions produces
-    # an under-count, so we track unanalyzed partitions separately and only
-    # trust reltuples_sum when every partition has been analyzed.
-    cursor.execute(
-        """
-        SELECT
-            COALESCE(SUM(CASE WHEN c.reltuples >= 0 THEN c.reltuples ELSE 0 END), 0)::bigint,
-            COALESCE(SUM(CASE WHEN c.reltuples < 0 THEN 1 ELSE 0 END), 0)::bigint,
-            COALESCE(SUM(s.n_live_tup), 0)::bigint,
-            COUNT(*)::bigint
-        FROM pg_inherits i
-        JOIN pg_class c ON c.oid = i.inhrelid
-        LEFT JOIN pg_stat_user_tables s ON s.relid = c.oid
-        WHERE i.inhparent = (
-            SELECT c2.oid
-            FROM pg_class c2
-            JOIN pg_namespace n ON n.oid = c2.relnamespace
-            WHERE n.nspname = %(schema)s AND c2.relname = %(table)s
-        )
-        """,
-        {"schema": schema, "table": table_name},
-    )
-    row = cursor.fetchone()
-
-    if row is None:
-        logger.debug("_get_estimated_row_count_for_partitioned_table: no result, returning None")
-        return None
-
-    reltuples_sum, unanalyzed_count, n_live_tup_sum, partition_count = (
-        int(row[0]),
-        int(row[1]),
-        int(row[2]),
-        int(row[3]),
-    )
-
-    if partition_count == 0:
-        logger.debug("_get_estimated_row_count_for_partitioned_table: no child partitions, returning None")
-        return None
-
-    # reltuples is most accurate (set by ANALYZE), but only trustworthy when
-    # every partition has been analyzed — otherwise the sum under-counts.
-    if unanalyzed_count == 0 and reltuples_sum > 0:
-        logger.debug(f"_get_estimated_row_count_for_partitioned_table: reltuples estimate = {reltuples_sum}")
-        return reltuples_sum
-
-    # reltuples unreliable (unanalyzed partitions present) — fall back to
-    # stats collector count, which is maintained incrementally.
-    if n_live_tup_sum > 0:
-        logger.debug(
-            f"_get_estimated_row_count_for_partitioned_table: reltuples unreliable "
-            f"(unanalyzed_partitions={unanalyzed_count}/{partition_count}), "
-            f"n_live_tup estimate = {n_live_tup_sum}"
-        )
-        return n_live_tup_sum
-
-    # Both sources unreliable — caller will fall back to exact COUNT(*).
-    logger.debug(
-        f"_get_estimated_row_count_for_partitioned_table: no reliable estimate "
-        f"(reltuples={reltuples_sum}, unanalyzed={unanalyzed_count}/{partition_count}, "
-        f"n_live_tup={n_live_tup_sum}), returning None"
-    )
-    return None
 
 
 def _explain_query(cursor: psycopg.Cursor, query: sql.Composed, logger: FilteringBoundLogger):
@@ -1130,63 +1047,6 @@ def _get_partition_settings(
         return PartitionSettings(partition_count=1, partition_size=partition_size)
 
     logger.debug(f"_get_partition_settings: partition_count={partition_count}, partition_size={partition_size}")
-    return PartitionSettings(partition_count=partition_count, partition_size=partition_size)
-
-
-def _get_partition_settings_for_partitioned_table(
-    cursor: psycopg.Cursor, schema: str, table_name: str, logger: FilteringBoundLogger
-) -> PartitionSettings | None:
-    """Compute PartitionSettings for a partitioned table via catalog stats.
-
-    Summing pg_table_size and reltuples across child partitions avoids the
-    full-table scan that COUNT(*) + pg_table_size on the parent would incur.
-    Returns None if catalog stats are unreliable (any partition unanalyzed),
-    letting the caller skip partitioning rather than use bad numbers.
-    """
-    cursor.execute(
-        """
-        SELECT
-            COALESCE(SUM(pg_table_size(c.oid)), 0)::bigint,
-            COALESCE(SUM(CASE WHEN c.reltuples >= 0 THEN c.reltuples ELSE 0 END), 0)::bigint,
-            COALESCE(SUM(CASE WHEN c.reltuples < 0 THEN 1 ELSE 0 END), 0)::bigint,
-            COUNT(*)::bigint
-        FROM pg_inherits i
-        JOIN pg_class c ON c.oid = i.inhrelid
-        WHERE i.inhparent = (
-            SELECT c2.oid
-            FROM pg_class c2
-            JOIN pg_namespace n ON n.oid = c2.relnamespace
-            WHERE n.nspname = %(schema)s AND c2.relname = %(table)s
-        )
-        """,
-        {"schema": schema, "table": table_name},
-    )
-    row = cursor.fetchone()
-    if row is None:
-        return None
-
-    total_size, total_rows, unanalyzed_count, partition_count_children = (
-        int(row[0]),
-        int(row[1]),
-        int(row[2]),
-        int(row[3]),
-    )
-
-    if partition_count_children == 0 or total_size == 0 or total_rows == 0 or unanalyzed_count > 0:
-        logger.debug(
-            f"_get_partition_settings_for_partitioned_table: no reliable estimate "
-            f"(children={partition_count_children}, size={total_size}, rows={total_rows}, "
-            f"unanalyzed={unanalyzed_count}), returning None"
-        )
-        return None
-
-    avg_row_size = total_size / total_rows
-    partition_size = round(DEFAULT_PARTITION_TARGET_SIZE_IN_BYTES / avg_row_size)
-    partition_count = max(1, math.floor(total_rows / partition_size))
-    logger.debug(
-        f"_get_partition_settings_for_partitioned_table: partition_count={partition_count}, "
-        f"partition_size={partition_size} (total_rows={total_rows}, total_size={total_size})"
-    )
     return PartitionSettings(partition_count=partition_count, partition_size=partition_size)
 
 
@@ -1608,8 +1468,11 @@ def postgres_source(
                         logger.debug(f"Found primary keys: {primary_keys}")
                     logger.debug("Checking if table is partitioned...")
                     is_partitioned = False
+                    child_partitions: list = []
                     try:
                         is_partitioned = _is_partitioned_table(cursor, schema, table_name)
+                        if is_partitioned:
+                            child_partitions = list_child_partitions(cursor, schema, table_name)
                     except Exception as e:
                         logger.debug(f"Partition detection failed: {e}")
                     logger.debug("Getting table chunk size...")
@@ -1656,6 +1519,21 @@ def postgres_source(
                         if should_use_incremental_field
                         else None
                     )
+
+                    # Bounded date/numeric window chunking for partitioned parents keeps
+                    # each query small so statement_timeout stays comfortable and partition
+                    # pruning can drop empty partitions server-side. Non-partitioned tables
+                    # continue through the legacy single-cursor path below.
+                    use_window_chunking = (
+                        is_partitioned
+                        and should_use_incremental_field
+                        and is_supported_incremental_type_for_window(incremental_field_type)
+                    )
+                    logger.debug(
+                        f"Postgres read strategy: use_window_chunking={use_window_chunking}, "
+                        f"child_partitions={len(child_partitions)}"
+                    )
+
                     has_duplicate_primary_keys = False
 
                     # Fallback on checking for an `id` field on the table
@@ -1802,6 +1680,36 @@ def postgres_source(
 
                 if connection.closed is False:
                     connection.__exit__(None, None, None)
+
+            if use_window_chunking and incremental_field is not None and incremental_field_type is not None:
+
+                def _build_windowed_query(lo: Any, hi: Any) -> sql.Composed:
+                    return _build_query(
+                        schema,
+                        table_name,
+                        should_use_incremental_field,
+                        table.type,
+                        incremental_field,
+                        incremental_field_type,
+                        lo,
+                        upper_bound_inclusive=hi,
+                    )
+
+                yield from iterate_date_windows(
+                    get_connection=get_connection,
+                    build_windowed_query=_build_windowed_query,
+                    schema=schema,
+                    table_name=table_name,
+                    incremental_field=incremental_field,
+                    incremental_field_type=incremental_field_type,
+                    db_incremental_field_last_value=db_incremental_field_last_value,
+                    child_partitions=child_partitions,
+                    chunk_size=chunk_size,
+                    arrow_schema=arrow_schema,
+                    logger=logger,
+                    using_read_replica=using_read_replica,
+                )
+                return
 
             offset = 0
             try:

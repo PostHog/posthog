@@ -4438,6 +4438,12 @@ class SnapchatAdsTableKeywords(StrEnum):
     CAMPAIGNS = "campaigns"
 
 
+class ReleaseStatus(StrEnum):
+    ALPHA = "alpha"
+    BETA = "beta"
+    GA = "ga"
+
+
 class SourceFieldFileUploadJsonFormatConfig(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -23245,7 +23251,6 @@ class SourceConfig(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    betaSource: bool | None = None
     caption: str | Any | None = None
     disabledReason: str | None = None
     docsUrl: str | None = None
@@ -23268,6 +23273,7 @@ class SourceConfig(BaseModel):
     label: str | None = None
     name: ExternalDataSourceType
     permissionsCaption: str | None = None
+    releaseStatus: ReleaseStatus | None = None
     suggestedTables: list[SuggestedTable] | None = Field(
         default=[],
         description="Tables to suggest enabling, with optional tooltip explaining why",
