@@ -32,7 +32,6 @@ from posthog.constants import AvailableFeature
 from posthog.exceptions_capture import capture_exception
 from posthog.models.organization import OrganizationMembership
 from posthog.models.organization_domain import OrganizationDomain
-from posthog.models.user_social_identity import UserSocialIdentity
 
 from ee import settings
 from ee.api.scim.utils import mask_email
@@ -588,36 +587,6 @@ class BillingServiceAuthentication(authentication.BaseAuthentication):
 
 def social_auth_allowed(backend, details, response, *args, **kwargs) -> None:
     email = details.get("email")
-
-    # Reject if the provider+uid is known to PostHog (via UserSocialIdentity) but has
-    # no UserSocialAuth row — meaning login was explicitly disabled for this external
-    # account. Without this check, social-auth would simply create a new UserSocialAuth
-    # row during the pipeline, re-enabling login and bypassing the user's toggle.
-    # The UserSocialIdentity row is the signal that distinguishes "login intentionally
-    # disabled" from "user hasn't logged in with this provider yet".
-    # This runs before the SSO check so the user sees a clear reason when it's their
-    # own toggle rather than org policy.
-    uid = kwargs.get("uid")
-    if uid is None and response:
-        uid = response.get("id")
-    uid = str(uid) if uid is not None else None
-    if uid:
-        has_social_auth = UserSocialAuth.objects.filter(provider=backend.name, uid=uid).exists()
-        if not has_social_auth:
-            has_identity = UserSocialIdentity.objects.filter(provider=backend.name, uid=uid).exists()
-            if has_identity:
-                saml_logger.warning(
-                    "login_disabled_for_social_auth",
-                    attempted_backend=backend.name,
-                    **(_saml_log_context(email) if email else {"masked_email": "unknown"}),
-                )
-                provider_codes = {
-                    "google-oauth2": "google",
-                    "github": "github",
-                    "gitlab": "gitlab",
-                }
-                provider_code = provider_codes.get(backend.name, backend.name.replace("-", "_"))
-                raise AuthFailed(backend, f"{provider_code}_login_disabled_for_account")
 
     # Check if SSO enforcement is enabled for this email address
     sso_enforcement = OrganizationDomain.objects.get_sso_enforcement_for_email_address(email)

@@ -1761,9 +1761,9 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'linked-accounts',
                 title: 'Linked accounts',
                 description:
-                    'Third-party accounts linked to your PostHog account. Each can be used as a sign-in method.',
+                    'Your personal GitHub integration for repo access, code attribution, and pull request authorship.',
                 component: <LinkedAccounts />,
-                keywords: ['github', 'google', 'sign in', 'login', 'oauth', 'identity', 'link', 'sso'],
+                keywords: ['github', 'integration', 'repos', 'identity', 'link', 'code'],
             },
         ],
     },
