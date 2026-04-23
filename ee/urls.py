@@ -281,6 +281,11 @@ urlpatterns: list[Any] = [
         name="agentic_authorize",
     ),
     path(
+        "api/agentic/authorize/pending/",
+        agentic_provisioning_views.agentic_authorize_pending,
+        name="agentic_authorize_pending",
+    ),
+    path(
         "api/agentic/authorize/confirm/",
         agentic_provisioning_views.agentic_authorize_confirm,
         name="agentic_authorize_confirm",

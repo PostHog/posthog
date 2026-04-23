@@ -64,8 +64,10 @@ class TestClusteringJobViewSet(APIBaseTest):
         self.assertEqual(job.event_filters, filters)
         self.assertEqual(job.analysis_level, "generation")
 
-    def test_create_enforces_max_5_jobs(self):
-        for i in range(5):
+    def test_create_enforces_max_jobs_per_team(self):
+        from products.llm_analytics.backend.api.clustering_job import MAX_JOBS_PER_TEAM
+
+        for i in range(MAX_JOBS_PER_TEAM):
             self._create_job(name=f"Job {i}")
 
         response = self.client.post(

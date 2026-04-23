@@ -5,6 +5,7 @@ import asyncio
 import pytest
 from posthog.test.base import BaseTest, ClickhouseTestMixin
 
+from parameterized import parameterized
 from pydantic import ValidationError
 
 from posthog.hogql.query import execute_hogql_query
@@ -341,3 +342,24 @@ class TestQueryTaggingSourceInQueryLog(BaseTest, ClickhouseTestMixin):
 
         assert comment["source_file"] == "posthog/clickhouse/test/test_query_tagging.py"
         assert comment["source_line"] > 0
+
+    @parameterized.expand([("approved", True), ("not_approved", False)])
+    def test_sync_execute_preserves_ai_data_processing_approved_tag(self, _name, approved):
+        marker = str(uuid.uuid4())
+        reset_query_tags()
+        tag_queries(kind="request", id="test", team_id=self.team.pk, ai_data_processing_approved=approved)
+        sync_execute(f"SELECT '{marker}'")  # noqa: S608
+
+        comment = self._get_log_comment(marker)
+
+        assert comment["ai_data_processing_approved"] is approved
+
+    def test_sync_execute_omits_ai_data_processing_approved_when_not_tagged(self):
+        marker = str(uuid.uuid4())
+        reset_query_tags()
+        tag_queries(kind="request", id="test", team_id=self.team.pk)
+        sync_execute(f"SELECT '{marker}'")  # noqa: S608
+
+        comment = self._get_log_comment(marker)
+
+        assert "ai_data_processing_approved" not in comment
