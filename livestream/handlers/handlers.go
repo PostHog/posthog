@@ -218,8 +218,8 @@ func NotificationsHandler(redisClient rueidis.Client) func(c echo.Context) error
 			return c.NoContent(http.StatusNoContent)
 		}
 
-		metrics.NotificationSubsTotal.Inc()
-		defer metrics.NotificationSubsTotal.Dec()
+		metrics.NotificationSubs.Inc()
+		defer metrics.NotificationSubs.Dec()
 
 		ctx := c.Request().Context()
 		channel := fmt.Sprintf("notifications:%s", claims.OrganizationID)

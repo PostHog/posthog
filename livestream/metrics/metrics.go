@@ -180,8 +180,8 @@ var (
 	})
 
 	// /notifications handler metrics
-	NotificationSubsTotal = promauto.NewGauge(prometheus.GaugeOpts{
-		Name: "livestream_active_notification_subscriptions_total",
+	NotificationSubs = promauto.NewGauge(prometheus.GaugeOpts{
+		Name: "livestream_active_notification_subscriptions",
 		Help: "Current number of active SSE connections on /notifications",
 	})
 	NotificationMessagesReceivedTotal = promauto.NewCounter(prometheus.CounterOpts{
