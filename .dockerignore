@@ -1,5 +1,4 @@
 *
-!.github/clickhouse-versions.json
 !Dockerfile.recording-rasterizer
 !.devcontainer
 !.kearc
