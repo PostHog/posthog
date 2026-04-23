@@ -23,10 +23,14 @@ import type { MCP } from '@/mcp'
 function interceptWaitUntil(mcp: MCP): { flush: () => Promise<void> } {
     const pending: Promise<unknown>[] = []
     const ctx = (mcp as any).ctx
-    const original = ctx.waitUntil.bind(ctx)
+    // Replace — do NOT forward to the original. The real `ctx.waitUntil`
+    // tells the runtime to keep the DO alive after the handler returns,
+    // which means the promise can access storage *after*
+    // `runInDurableObject` has already popped the isolated storage frame.
+    // Collecting and flushing ourselves keeps all storage access inside
+    // the frame.
     ctx.waitUntil = (p: Promise<unknown>) => {
         pending.push(p)
-        original(p)
     }
     return {
         async flush() {
