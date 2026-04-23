@@ -8,8 +8,12 @@ export function hash(data: string): string {
 }
 
 export function formatPrompt(template: string, vars: Record<string, string>): string {
+    // Use a function replacement so `$` sequences (`$&`, `$$`, `` $` ``, `$'`) inside a
+    // value are NOT interpreted as replacement-pattern escapes. Otherwise values containing
+    // e.g. `` `$` `` (common in PostHog docs that mention `$pageview`) would splice the
+    // template prefix/suffix into the output and look like a double injection.
     return Object.entries(vars)
-        .reduce((result, [key, value]) => result.replaceAll(`{${key}}`, value), template)
+        .reduce((result, [key, value]) => result.replaceAll(`{${key}}`, () => value), template)
         .trim()
 }
 

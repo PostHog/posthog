@@ -165,6 +165,7 @@ class Organization(ModelActivityMixin, UUIDTModel):  # type: ignore[django-manag
     members = models.ManyToManyField(
         "posthog.User",
         through="posthog.OrganizationMembership",
+        through_fields=("organization", "user"),
         related_name="organizations",
         related_query_name="organization",
     )
@@ -550,6 +551,15 @@ class OrganizationMembership(ModelActivityMixin, UUIDTModel):
     level = models.PositiveSmallIntegerField(default=Level.MEMBER, choices=Level.choices)
     joined_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+    # Persisted at invite acceptance so the welcome dialog can attribute who invited the member —
+    # the OrganizationInvite row itself is deleted during use() and can't be looked up afterwards.
+    invited_by = models.ForeignKey(
+        "posthog.User",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+    )
 
     # Transient flag set by the pre_save signal to communicate level changes to post_save.
     _level_changed: bool = False

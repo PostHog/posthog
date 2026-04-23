@@ -72,7 +72,7 @@ class EvaluationReportSerializer(serializers.ModelSerializer):
                 "help_text": "Number of evaluation runs that trigger a report (every_n mode). Min 10, max 1000."
             },
             "cooldown_minutes": {
-                "help_text": "Minimum minutes between reports in every_n mode to prevent spam. Min 60."
+                "help_text": "Minimum minutes between reports in every_n mode to prevent spam. Min 60, max 1440 (24 hours)."
             },
             "daily_run_cap": {"help_text": "Max reports generated per day. Defaults to 3."},
         }
@@ -128,6 +128,10 @@ class EvaluationReportSerializer(serializers.ModelSerializer):
             if cooldown < EvaluationReport.COOLDOWN_MINUTES_MIN:
                 raise serializers.ValidationError(
                     {"cooldown_minutes": f"Minimum is {EvaluationReport.COOLDOWN_MINUTES_MIN} minutes."}
+                )
+            if cooldown > EvaluationReport.COOLDOWN_MINUTES_MAX:
+                raise serializers.ValidationError(
+                    {"cooldown_minutes": f"Maximum is {EvaluationReport.COOLDOWN_MINUTES_MAX} minutes."}
                 )
         elif frequency == EvaluationReport.Frequency.SCHEDULED:
             rrule_str = attrs.get("rrule") if "rrule" in attrs else (self.instance.rrule if self.instance else "")

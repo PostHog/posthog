@@ -51,6 +51,7 @@ function DialogContent({
         <DialogPortal>
             <DialogOverlay />
             <DialogPrimitive.Popup
+                data-quill
                 data-slot="dialog-content"
                 className={cn(
                     'fixed top-[calc(max(1rem,10vh+1.25rem*var(--nested-dialogs)))] start-1/2 z-50 grid w-full max-w-[calc(100vw-3rem)] -translate-x-1/2 rtl:translate-x-1/2 scale-[calc(1-0.1*var(--nested-dialogs))] gap-4 rounded-xl bg-background text-xs/relaxed ring-1 ring-foreground/10 outline-none transition-all duration-150 sm:max-w-sm',

@@ -2,7 +2,7 @@
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
         "cooldown_minutes": {
-            "description": "Minimum minutes between reports in every_n mode to prevent spam. Min 60.",
+            "description": "Minimum minutes between reports in every_n mode to prevent spam. Min 60, max 1440 (24 hours).",
             "maximum": 2147483647,
             "minimum": -2147483648,
             "type": "number"

@@ -77,10 +77,7 @@ export interface BatchExportDestinationApi {
     type: BatchExportDestinationTypeEnumApi
     /** A JSON field to store all configuration parameters required to access a BatchExportDestination. */
     config?: unknown
-    /**
-     * The integration for this destination.
-     * @nullable
-     */
+    /** @nullable */
     integration?: number | null
     /** @nullable */
     integration_id?: number | null
@@ -197,8 +194,8 @@ export interface BatchExportRunApi {
     records_total_count?: number | null
     /**
      * The number of bytes that have been exported in this BatchExportRun.
-     * @minimum -9223372036854776000
-     * @maximum 9223372036854776000
+     * @minimum -2147483648
+     * @maximum 2147483647
      * @nullable
      */
     bytes_exported?: number | null
@@ -411,8 +408,8 @@ export interface BatchExportBackfillApi {
     readonly last_updated_at: string
     /**
      * The total number of records to export. Initially estimated, updated with actual count after completion.
-     * @minimum -9223372036854776000
-     * @maximum 9223372036854776000
+     * @minimum -2147483648
+     * @maximum 2147483647
      * @nullable
      */
     total_records_count?: number | null

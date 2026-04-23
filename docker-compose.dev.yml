@@ -29,7 +29,7 @@ services:
                         trusted_proxies static ${CADDY_TRUSTED_PROXIES:-127.0.0.1/32 ::1/128}
                     }
                 }
-                http://localhost:8000 {
+                ${CADDY_HOST:-http://localhost:8000} {
                     @replay-capture {
                         path /s
                         path /s/*

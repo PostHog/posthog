@@ -1,14 +1,13 @@
 import os
 import asyncio
 from datetime import datetime
-from typing import Any, Literal, cast
+from typing import Any, cast
 
 from django.conf import settings
 from django.contrib.auth.models import AnonymousUser
 from django.db.models import Func, IntegerField, QuerySet
 
 import structlog
-import posthoganalytics
 from asgiref.sync import async_to_sync
 from drf_spectacular.utils import extend_schema
 from loginas.utils import is_impersonated_session
@@ -76,8 +75,6 @@ class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
         has_openai_api_key = bool(os.environ.get("OPENAI_API_KEY"))
         if not environment_is_allowed or not has_openai_api_key:
             raise exceptions.ValidationError("Session summaries are only supported in PostHog Cloud")
-        if not posthoganalytics.feature_enabled("ai-session-summary", str(user.distinct_id)):
-            raise exceptions.ValidationError("Session summaries are not enabled for this user")
         return user
 
     def _validate_input(self, request: Request) -> tuple[list[str], datetime, datetime, ExtraSummaryContext | None]:
@@ -93,29 +90,6 @@ class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
             extra_summary_context = ExtraSummaryContext(focus_area=focus_area)
         return session_ids, min_timestamp, max_timestamp, extra_summary_context
 
-    def _determine_video_validation_enabled(self, user: User) -> bool | Literal["full"]:
-        """
-        Check if the user has the video validation for session summaries feature flag enabled.
-        """
-        if posthoganalytics.feature_enabled(
-            "max-session-summarization-video-as-base",
-            str(user.distinct_id),
-            groups={"organization": str(self.team.organization_id)},
-            group_properties={"organization": {"id": str(self.team.organization_id)}},
-            send_feature_flag_events=False,
-        ):
-            return "full"  # Use video as base of summarization
-        return (
-            posthoganalytics.feature_enabled(
-                "max-session-summarization-video-validation",
-                str(user.distinct_id),
-                groups={"organization": str(self.team.organization_id)},
-                group_properties={"organization": {"id": str(self.team.organization_id)}},
-                send_feature_flag_events=False,
-            )
-            or False
-        )
-
     @staticmethod
     async def _get_summary_from_progress_stream(
         session_ids: list[str],
@@ -123,7 +97,6 @@ class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
         team: Team,
         min_timestamp: datetime,
         max_timestamp: datetime,
-        video_validation_enabled: bool | Literal["full"] | None,
         extra_summary_context: ExtraSummaryContext | None = None,
     ) -> EnrichedSessionGroupSummaryPatternsList:
         """Helper function to consume the async generator and return a summary"""
@@ -135,7 +108,6 @@ class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
             min_timestamp=min_timestamp,
             max_timestamp=max_timestamp,
             summary_title="Group summary",  # Generic name, as no user input is provided (vs the chat)
-            video_validation_enabled=video_validation_enabled,
             extra_summary_context=extra_summary_context,
         ):
             if update_type == SessionSummaryStreamUpdate.SESSION_PROGRESS:
@@ -169,7 +141,6 @@ class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
     def create_session_summaries(self, request: Request, **kwargs) -> Response:
         user = self._validate_user(request)
         session_ids, min_timestamp, max_timestamp, extra_summary_context = self._validate_input(request)
-        video_validation_enabled = self._determine_video_validation_enabled(user)
         tracking_id = (
             generate_tracking_id()
         )  # Unified id to combine start/end, calculate duration, check success rate and so
@@ -179,9 +150,7 @@ class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
             tracking_id=tracking_id,
             summary_source="api",
             summary_type="group",
-            is_streaming=False,
             session_ids=session_ids,
-            video_validation_enabled=video_validation_enabled,
         )
         # Summarize provided sessions
         try:
@@ -191,7 +160,6 @@ class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
                 team=self.team,
                 min_timestamp=min_timestamp,
                 max_timestamp=max_timestamp,
-                video_validation_enabled=video_validation_enabled,
                 extra_summary_context=extra_summary_context,
             )
             capture_session_summary_generated(
@@ -200,9 +168,7 @@ class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
                 tracking_id=tracking_id,
                 summary_source="api",
                 summary_type="group",
-                is_streaming=False,
                 session_ids=session_ids,
-                video_validation_enabled=video_validation_enabled,
                 success=True,
             )
             return Response(summary.model_dump(exclude_none=True, mode="json"), status=status.HTTP_200_OK)
@@ -219,9 +185,7 @@ class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
                 tracking_id=tracking_id,
                 summary_source="api",
                 summary_type="group",
-                is_streaming=False,
                 session_ids=session_ids,
-                video_validation_enabled=video_validation_enabled,
                 success=False,
                 error_type=type(err).__name__,
                 error_message=str(err),
@@ -235,7 +199,6 @@ class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
         session_id: str,
         user: User,
         team: Team,
-        video_validation_enabled: bool | Literal["full"] | None,
         extra_summary_context: ExtraSummaryContext | None = None,
     ) -> SessionSummarySerializer | Exception:
         try:
@@ -243,7 +206,6 @@ class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
                 session_id=session_id,
                 user=user,
                 team=team,
-                video_validation_enabled=video_validation_enabled,
                 extra_summary_context=extra_summary_context,
             )
             summary = SessionSummarySerializer(data=summary_raw)
@@ -258,7 +220,6 @@ class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
         session_ids: list[str],
         user: User,
         team: Team,
-        video_validation_enabled: bool | Literal["full"] | None,
         extra_summary_context: ExtraSummaryContext | None = None,
     ) -> dict[str, dict[str, Any]]:
         tasks = {}
@@ -269,7 +230,6 @@ class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
                         session_id=session_id,
                         user=user,
                         team=team,
-                        video_validation_enabled=video_validation_enabled,
                         extra_summary_context=extra_summary_context,
                     )
                 )
@@ -296,7 +256,6 @@ class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
     def create_session_summaries_individually(self, request: Request, **kwargs) -> Response:
         user = self._validate_user(request)
         session_ids, _, _, extra_summary_context = self._validate_input(request)
-        video_validation_enabled = self._determine_video_validation_enabled(user)
         tracking_id = generate_tracking_id()
         capture_session_summary_started(
             user=user,
@@ -304,9 +263,7 @@ class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
             tracking_id=tracking_id,
             summary_source="api",
             summary_type="single",
-            is_streaming=False,
             session_ids=session_ids,
-            video_validation_enabled=video_validation_enabled,
         )
         # Summarize provided sessions individually
         try:
@@ -314,7 +271,6 @@ class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
                 session_ids=session_ids,
                 user=user,
                 team=self.team,
-                video_validation_enabled=video_validation_enabled,
                 extra_summary_context=extra_summary_context,
             )
             capture_session_summary_generated(
@@ -323,9 +279,7 @@ class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
                 tracking_id=tracking_id,
                 summary_source="api",
                 summary_type="single",
-                is_streaming=False,
                 session_ids=session_ids,
-                video_validation_enabled=video_validation_enabled,
                 success=True,
             )
             return Response(summaries, status=status.HTTP_200_OK)
@@ -342,9 +296,7 @@ class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
                 tracking_id=tracking_id,
                 summary_source="api",
                 summary_type="single",
-                is_streaming=False,
                 session_ids=session_ids,
-                video_validation_enabled=video_validation_enabled,
                 success=False,
                 error_type=type(err).__name__,
                 error_message=str(err),

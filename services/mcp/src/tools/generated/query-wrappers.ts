@@ -1130,7 +1130,7 @@ const AssistantTraceQuery = z.object({
         .describe('The trace ID to fetch (the `id` field from a trace in `query-llm-traces-list` results).'),
 })
 
-const AssistantInsightActorsQuery = z.object({
+const AssistantTrendsActorsQuery = z.object({
     breakdown: z
         .array(z.string())
         .describe(
@@ -1142,12 +1142,76 @@ const AssistantInsightActorsQuery = z.object({
         .describe('Whether to pull from the previous period when `compare` is enabled in the source.')
         .optional(),
     day: z
-        .union([z.string(), integer])
-        .describe('Bucket date for the data point. Accepts ISO date or integer offset.')
+        .string()
+        .describe("Bucket date for the data point. Must be an ISO date string (YYYY-MM-DD), e.g. '2024-01-15'."),
+    includeRecordings: z.coerce
+        .boolean()
+        .describe('Whether to include matched session recordings for each actor.')
+        .default(true)
         .optional(),
     kind: z.literal('InsightActorsQuery').default('InsightActorsQuery'),
     series: integer.describe('Series index (0-based) when the source has multiple series.').optional(),
     source: AssistantTrendsQuery.describe('The source insight query whose data point we are drilling into.'),
+})
+
+const QueryTrendsSchema = AssistantTrendsQuery.extend({
+    output_format: z
+        .enum(['optimized', 'json'])
+        .default('optimized')
+        .optional()
+        .describe(
+            'Output format. "optimized" returns a human-readable summary from server-side formatters (recommended for analysis). "json" returns the raw query results as JSON.'
+        ),
+})
+
+const QueryFunnelSchema = AssistantFunnelsQuery.extend({
+    output_format: z
+        .enum(['optimized', 'json'])
+        .default('optimized')
+        .optional()
+        .describe(
+            'Output format. "optimized" returns a human-readable summary from server-side formatters (recommended for analysis). "json" returns the raw query results as JSON.'
+        ),
+})
+
+const QueryRetentionSchema = AssistantRetentionQuery.extend({
+    output_format: z
+        .enum(['optimized', 'json'])
+        .default('optimized')
+        .optional()
+        .describe(
+            'Output format. "optimized" returns a human-readable summary from server-side formatters (recommended for analysis). "json" returns the raw query results as JSON.'
+        ),
+})
+
+const QueryStickinessSchema = AssistantStickinessQuery.extend({
+    output_format: z
+        .enum(['optimized', 'json'])
+        .default('optimized')
+        .optional()
+        .describe(
+            'Output format. "optimized" returns a human-readable summary from server-side formatters (recommended for analysis). "json" returns the raw query results as JSON.'
+        ),
+})
+
+const QueryPathsSchema = AssistantPathsQuery.extend({
+    output_format: z
+        .enum(['optimized', 'json'])
+        .default('optimized')
+        .optional()
+        .describe(
+            'Output format. "optimized" returns a human-readable summary from server-side formatters (recommended for analysis). "json" returns the raw query results as JSON.'
+        ),
+})
+
+const QueryLifecycleSchema = AssistantLifecycleQuery.extend({
+    output_format: z
+        .enum(['optimized', 'json'])
+        .default('optimized')
+        .optional()
+        .describe(
+            'Output format. "optimized" returns a human-readable summary from server-side formatters (recommended for analysis). "json" returns the raw query results as JSON.'
+        ),
 })
 
 // --- Tool registrations ---
@@ -1155,65 +1219,72 @@ const AssistantInsightActorsQuery = z.object({
 export const GENERATED_TOOLS: Record<string, ReturnType<typeof createQueryWrapper<ZodObjectAny>>> = {
     'query-trends': createQueryWrapper({
         name: 'query-trends',
-        schema: AssistantTrendsQuery,
+        schema: QueryTrendsSchema,
         kind: 'TrendsQuery',
         uiResourceUri: 'ui://posthog/query-results.html',
+        outputFormat: 'optimized',
         mcpVersion: 2,
     }),
     'query-funnel': createQueryWrapper({
         name: 'query-funnel',
-        schema: AssistantFunnelsQuery,
+        schema: QueryFunnelSchema,
         kind: 'FunnelsQuery',
         uiResourceUri: 'ui://posthog/query-results.html',
+        outputFormat: 'optimized',
         mcpVersion: 2,
     }),
     'query-retention': createQueryWrapper({
         name: 'query-retention',
-        schema: AssistantRetentionQuery,
+        schema: QueryRetentionSchema,
         kind: 'RetentionQuery',
         uiResourceUri: 'ui://posthog/query-results.html',
+        outputFormat: 'optimized',
         mcpVersion: 2,
     }),
     'query-stickiness': createQueryWrapper({
         name: 'query-stickiness',
-        schema: AssistantStickinessQuery,
+        schema: QueryStickinessSchema,
         kind: 'StickinessQuery',
         uiResourceUri: 'ui://posthog/query-results.html',
+        outputFormat: 'optimized',
         mcpVersion: 2,
     }),
     'query-paths': createQueryWrapper({
         name: 'query-paths',
-        schema: AssistantPathsQuery,
+        schema: QueryPathsSchema,
         kind: 'PathsQuery',
         uiResourceUri: 'ui://posthog/query-results.html',
+        outputFormat: 'optimized',
         mcpVersion: 2,
     }),
     'query-lifecycle': createQueryWrapper({
         name: 'query-lifecycle',
-        schema: AssistantLifecycleQuery,
+        schema: QueryLifecycleSchema,
         kind: 'LifecycleQuery',
         uiResourceUri: 'ui://posthog/query-results.html',
+        outputFormat: 'optimized',
         mcpVersion: 2,
     }),
     'query-llm-traces-list': createQueryWrapper({
         name: 'query-llm-traces-list',
         schema: AssistantTracesQuery,
         kind: 'TracesQuery',
-        responseFormat: 'json',
+        outputFormat: 'json',
         mcpVersion: 2,
     }),
     'query-llm-trace': createQueryWrapper({
         name: 'query-llm-trace',
         schema: AssistantTraceQuery,
         kind: 'TraceQuery',
-        responseFormat: 'json',
+        outputFormat: 'json',
         mcpVersion: 2,
     }),
     'query-trends-actors': createQueryWrapper({
         name: 'query-trends-actors',
-        schema: AssistantInsightActorsQuery,
+        schema: AssistantTrendsActorsQuery,
         kind: 'InsightActorsQuery',
         uiResourceUri: 'ui://posthog/query-results.html',
+        outputFormat: 'json',
         mcpVersion: 2,
     }),
 }

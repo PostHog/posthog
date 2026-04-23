@@ -384,10 +384,10 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                     state: (TaxonomicDefinitionTypes & { group: TaxonomicFilterGroupType })[],
                     { items }: { items: (TaxonomicDefinitionTypes & { group: TaxonomicFilterGroupType })[] }
                 ) => {
-                    if (items.length === 0) {
+                    const incomingGroup = items[0]?.group
+                    if (!incomingGroup) {
                         return state
                     }
-                    const incomingGroup = items[0].group
                     return [...state.filter((i) => i.group !== incomingGroup), ...items]
                 },
             },
@@ -446,9 +446,15 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
             () => [(_, props) => props.hideBehavioralCohorts],
             (hideBehavioralCohorts: boolean | undefined) => hideBehavioralCohorts ?? false,
         ],
-        hogQLGlobals: [
-            () => [(_, props) => props.hogQLGlobals],
-            (hogQLGlobals: Record<string, any> | undefined) => hogQLGlobals,
+        hogQLExpressionComponentProps: [
+            () => [(_, props) => props.hogQLGlobals, (_, props) => props.hogQLExpressionShowBreakdownLabelHint],
+            (
+                hogQLGlobals: Record<string, any> | undefined,
+                showBreakdownLabelHint: boolean | undefined
+            ): { globals?: Record<string, any>; showBreakdownLabelHint: boolean } => ({
+                globals: hogQLGlobals,
+                showBreakdownLabelHint: showBreakdownLabelHint ?? false,
+            }),
         ],
         endpointFilters: [
             () => [(_, props) => props.endpointFilters],
@@ -470,7 +476,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 s.maxContextOptions,
                 s.hideBehavioralCohorts,
                 s.endpointFilters,
-                s.hogQLGlobals,
+                s.hogQLExpressionComponentProps,
                 s.featureFlags,
             ],
             (
@@ -488,7 +494,10 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 maxContextOptions: MaxContextTaxonomicFilterOption[],
                 hideBehavioralCohorts: boolean,
                 endpointFilters: Record<string, any> | undefined,
-                hogQLGlobals: Record<string, any> | undefined,
+                hogQLExpressionComponentProps: {
+                    globals?: Record<string, any>
+                    showBreakdownLabelHint: boolean
+                },
                 featureFlags: Record<string, boolean | string | undefined>
             ): TaxonomicFilterGroup[] => {
                 const { id: teamId } = currentTeam
@@ -878,10 +887,21 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         searchPlaceholder: 'spans',
                         type: TaxonomicFilterGroupType.Spans,
                         options: [
+                            { key: 'name', name: 'name', propertyFilterType: 'span' },
+                            { key: 'kind', name: 'kind', propertyFilterType: 'span' },
+                            { key: 'duration', name: 'duration (ms)', propertyFilterType: 'span' },
                             { key: 'trace_id', name: 'trace_id', propertyFilterType: 'span' },
                             { key: 'span_id', name: 'span_id', propertyFilterType: 'span' },
-                            { key: 'duration', name: 'duration (ms)', propertyFilterType: 'span' },
+                            { key: 'status_code', name: 'status code', propertyFilterType: 'span' },
                         ],
+                        valuesEndpoint: (key) =>
+                            key === 'name'
+                                ? combineUrl(`api/environments/${projectId}/tracing/spans/values`, {
+                                      attribute_type: 'span',
+                                      key: key,
+                                      ...endpointFilters,
+                                  }).url
+                                : undefined,
                         localItemsSearch: (items: any[], q: string): any[] => {
                             if (!q) {
                                 return items
@@ -1217,7 +1237,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         type: TaxonomicFilterGroupType.HogQLExpression,
                         render: InlineHogQLEditor,
                         getPopoverHeader: () => 'SQL expression',
-                        componentProps: { metadataSource, globals: hogQLGlobals },
+                        componentProps: { metadataSource, ...hogQLExpressionComponentProps },
                     },
                     {
                         name: 'Replay',
@@ -1733,12 +1753,14 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
         },
 
         infiniteListResultsReceived: ({ groupType, results }) => {
-            if (!values.metaGroupTypes.has(groupType)) {
+            if (groupType && !values.metaGroupTypes.has(groupType)) {
                 const subLogic = values.infiniteListLogics[groupType]
                 if (subLogic?.isMounted()) {
                     const matches = subLogic.values.topMatchesForQuery
+                        .filter(Boolean)
+                        .map((m) => ({ ...m, group: groupType }))
                     if (matches.length > 0) {
-                        actions.appendTopMatches(matches.map((m) => ({ ...m, group: groupType })))
+                        actions.appendTopMatches(matches)
                     }
                 }
             }

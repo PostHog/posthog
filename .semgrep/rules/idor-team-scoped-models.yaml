@@ -191,6 +191,7 @@ rules:
                               |EvaluationReport
                               |Text
                               |Threshold
+                              |TeamConversationsTeamsConfig
                               |Ticket
                               |TicketView
                               |ReviewQueue
@@ -386,6 +387,7 @@ rules:
                         |EvaluationReport
                         |Text
                         |Threshold
+                        |TeamConversationsTeamsConfig
                         |Ticket
                         |TicketView
                         |ReviewQueue
@@ -480,7 +482,8 @@ rules:
                       metavariable: $MODEL
                       regex: |
                           (?x)(
-                              OrganizationMembership
+                              LegalDocument
+                              |OrganizationMembership
                               |OrganizationDomain
                               |OrganizationIntegration
                               |OrganizationInvite
@@ -541,7 +544,8 @@ rules:
                 metavariable: $MODEL
                 regex: |
                     (?x)(
-                        OrganizationMembership
+                        LegalDocument
+                        |OrganizationMembership
                         |OrganizationDomain
                         |OrganizationIntegration
                         |OrganizationInvite

@@ -707,6 +707,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 is_retry: boolean
                 refresh_id: string
                 metric_kind: string
+                execution_mode: 'sync' | 'async'
             }
         ) => ({
             experimentId,
@@ -755,6 +756,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 experiment_duration_hours: number | null
                 experiment_status: string | null
                 total_metrics_count: number
+                execution_mode: 'sync' | 'async'
             }
         ) => ({
             experimentId,

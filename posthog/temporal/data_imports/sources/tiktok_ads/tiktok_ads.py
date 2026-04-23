@@ -119,11 +119,10 @@ def tiktok_ads_source(
         is_exception_retryable=TikTokErrorHandler.is_retryable,
     )()
 
-    if endpoint_type == EndpointType.REPORT:
-        items = TikTokReportResource.process_resources(dlt_resources)
-    else:
+    if endpoint_type != EndpointType.REPORT:
         assert len(dlt_resources) == 1, f"Expected 1 resource for {endpoint_type} endpoint, got {len(dlt_resources)}"
-        items = dlt_resources[0]
+
+    items = TikTokReportResource.process_resources(dlt_resources)
 
     # Apply appropriate transformations based on endpoint type
     items = TikTokReportResource.apply_stream_transformations(endpoint_type, items)

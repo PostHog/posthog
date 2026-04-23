@@ -50,8 +50,8 @@ tools:
         description: >
             Partially update an evaluation report configuration. Toggle enabled/disabled, update delivery
             targets (email or Slack), change frequency ('every_n' or 'scheduled'), set trigger_threshold
-            and cooldown_minutes for every_n mode, or set rrule/starts_at for scheduled mode.
-            Set deleted=true to soft-delete the config.
+            and cooldown_minutes (min 60, max 1440) for every_n mode, or set rrule/starts_at for scheduled
+            mode. Set deleted=true to soft-delete the config.
 
     evaluation-report-generate:
         operation: llm_analytics_evaluation_reports_generate_create

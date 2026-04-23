@@ -15,7 +15,13 @@ import getLLMCosts from './llmAnalytics/getLLMCosts'
 // Organizations
 import setActiveOrganization from './organizations/setActive'
 // PostHog AI tools
-import { executeSql, readDataSchema, readDataWarehouseSchema } from './posthogAiTools'
+import {
+    executeSql,
+    externalDataSourcesDbSchema,
+    externalDataSourcesJobs,
+    readDataSchema,
+    readDataWarehouseSchema,
+} from './posthogAiTools'
 // Projects
 import eventDefinitions from './projects/eventDefinitions'
 import getProjects from './projects/getProjects'
@@ -73,6 +79,10 @@ export const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
     'execute-sql': executeSql,
     'read-data-schema': readDataSchema,
     'read-data-warehouse-schema': readDataWarehouseSchema,
+
+    // Data warehouse (custom handlers for non-standard request shapes)
+    'external-data-sources-db-schema': externalDataSourcesDbSchema,
+    'external-data-sources-jobs': externalDataSourcesJobs,
 }
 
 export const getToolsFromContext = async (
