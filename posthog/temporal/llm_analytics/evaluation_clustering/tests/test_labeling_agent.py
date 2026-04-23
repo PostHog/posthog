@@ -192,7 +192,7 @@ class TestApplyFallbacks:
             0: ClusterEvalData(cluster_id=0, size=5, centroid_x=0, centroid_y=0, evals={}),
             1: ClusterEvalData(cluster_id=1, size=3, centroid_x=0, centroid_y=0, evals={}),
         }
-        existing = {0: ClusterLabel(title="kept", description="bullet")}
+        existing: dict[int, ClusterLabel | None] = {0: ClusterLabel(title="kept", description="bullet")}
         result = _apply_fallbacks(existing, cluster_data)
         assert result[0].title == "kept"
         assert result[1].title == "Cluster 1"
