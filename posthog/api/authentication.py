@@ -194,24 +194,24 @@ class EmailMFARequired(APIException):
         super().__init__(detail=detail, code=self.default_code)
 
 
-def enforce_email_verification_login_policy(user: User) -> bool:
+def is_email_verified_for_login(user: User) -> bool:
     """
     Send a verification email when the login policy requires it.
 
-    Returns whether login should be blocked for this user. Legacy users with a
-    null verification state are still allowed to sign in.
+    Returns whether login may continue for this user. Legacy users with a null
+    verification state are still allowed to sign in.
     """
     if not is_email_available():
-        return False
+        return True
 
     if user.is_email_verified is True:
-        return False
+        return True
 
     if is_email_verification_disabled(user):
-        return False
+        return True
 
     EmailVerifier.create_token_and_send_email_verification(user)
-    return user.is_email_verified is False
+    return user.is_email_verified is not False
 
 
 class LoginSerializer(serializers.Serializer):
@@ -320,7 +320,7 @@ class LoginSerializer(serializers.Serializer):
 
             raise serializers.ValidationError("Invalid email or password.", code="invalid_credentials")
 
-        if enforce_email_verification_login_policy(user):
+        if not is_email_verified_for_login(user):
             raise serializers.ValidationError(
                 "Your account is awaiting verification. Please check your email for a verification link.",
                 code="not_verified",

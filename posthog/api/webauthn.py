@@ -17,7 +17,7 @@ from webauthn.helpers import base64url_to_bytes, bytes_to_base64url, options_to_
 from webauthn.helpers.decode_credential_public_key import decode_credential_public_key
 from webauthn.helpers.structs import AuthenticatorTransport, PublicKeyCredentialDescriptor
 
-from posthog.api.authentication import axes_locked_out, enforce_email_verification_login_policy
+from posthog.api.authentication import axes_locked_out, is_email_verified_for_login
 from posthog.auth import SessionAuthentication, WebAuthnAuthenticationResponse, WebauthnBackend
 from posthog.event_usage import report_user_logged_in
 from posthog.helpers.two_factor_session import set_two_factor_verified_in_session
@@ -352,7 +352,7 @@ class WebAuthnLoginViewSet(viewsets.ViewSet):
             if sso_enforcement_response := self._check_sso_enforcement(verified_user):
                 return sso_enforcement_response
 
-            if enforce_email_verification_login_policy(verified_user):
+            if not is_email_verified_for_login(verified_user):
                 return Response(
                     {
                         "error": (
