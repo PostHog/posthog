@@ -701,7 +701,10 @@ def complete_run(run_id: UUID) -> Run:
     Idempotent: returns immediately if already processing or completed.
     """
     run = get_run(run_id)
-    if run.status in (RunStatus.PROCESSING, RunStatus.COMPLETED):
+    if run.status == RunStatus.COMPLETED:
+        _update_counts_and_post_status(run)
+        return run
+    if run.status == RunStatus.PROCESSING:
         return run
 
     # Transition to PROCESSING early so late add_snapshots calls are rejected.
@@ -750,7 +753,7 @@ def complete_run(run_id: UUID) -> Run:
 
     # Optimization: if no changes, skip diff processing entirely
     if run.changed_count == 0 and run.new_count == 0:
-        finalize_run(run_id)
+        finish_processing(run_id)
         return get_run(run_id)
 
     # Mark as processing and trigger diff task
@@ -835,36 +838,26 @@ def _stamp_quarantine(run: Run) -> None:
     snapshots.filter(is_quarantined=True).exclude(identifier__in=quarantined_ids).update(is_quarantined=False)
 
 
-def finalize_run(run_id: UUID, error_message: str = "") -> Run:
-    run = get_run_with_snapshots(run_id)
+def _update_counts_and_post_status(run: Run) -> None:
+    """Re-stamp quarantine, recount actionable snapshots, and post commit status.
 
-    # Stamp quarantine state — evaluated now and frozen on each snapshot
+    Shared by finish_processing (first time) and re-evaluation paths
+    (e.g. when quarantine state changes after completion).
+    """
     _stamp_quarantine(run)
 
     snapshots = list(run.snapshots.using(WRITER_DB).select_related("tolerated_hash_match").all())
 
-    # Gating counts exclude quarantined identifiers — they don't block PRs
-    changed_count = sum(1 for s in snapshots if s.result == SnapshotResult.CHANGED and not s.is_quarantined)
-    new_count = sum(1 for s in snapshots if s.result == SnapshotResult.NEW and not s.is_quarantined)
-    removed_count = sum(1 for s in snapshots if s.result == SnapshotResult.REMOVED and not s.is_quarantined)
-    tolerated_match_count = sum(
+    run.changed_count = sum(1 for s in snapshots if s.result == SnapshotResult.CHANGED and not s.is_quarantined)
+    run.new_count = sum(1 for s in snapshots if s.result == SnapshotResult.NEW and not s.is_quarantined)
+    run.removed_count = sum(1 for s in snapshots if s.result == SnapshotResult.REMOVED and not s.is_quarantined)
+    run.tolerated_match_count = sum(
         1
         for s in snapshots
         if s.tolerated_hash_match is not None and s.tolerated_hash_match.reason == ToleratedReason.HUMAN
     )
-
-    run.status = RunStatus.FAILED if error_message else RunStatus.COMPLETED
-    run.error_message = error_message
-    run.completed_at = timezone.now()
-    run.changed_count = changed_count
-    run.new_count = new_count
-    run.removed_count = removed_count
-    run.tolerated_match_count = tolerated_match_count
     run.save(
         update_fields=[
-            "status",
-            "error_message",
-            "completed_at",
             "changed_count",
             "new_count",
             "removed_count",
@@ -873,22 +866,31 @@ def finalize_run(run_id: UUID, error_message: str = "") -> Run:
     )
 
     repo = run.repo
-    if error_message:
-        _post_commit_status(run, repo, "error", f"Visual review failed: {error_message[:100]}")
-    elif changed_count > 0 or new_count > 0 or removed_count > 0:
+    if run.error_message:
+        _post_commit_status(run, repo, "error", f"Visual review failed: {run.error_message[:100]}")
+    elif run.changed_count > 0 or run.new_count > 0 or run.removed_count > 0:
         parts = []
-        if changed_count:
-            parts.append(f"{changed_count} changed")
-        if new_count:
-            parts.append(f"{new_count} new")
-        if removed_count:
-            parts.append(f"{removed_count} removed")
-        # During migration VR is observational — always green so drift doesn't block PRs.
-        # Flip to "failure" when VR becomes the gate.
+        if run.changed_count:
+            parts.append(f"{run.changed_count} changed")
+        if run.new_count:
+            parts.append(f"{run.new_count} new")
+        if run.removed_count:
+            parts.append(f"{run.removed_count} removed")
         _post_commit_status(run, repo, "failure", f"Visual changes detected: {', '.join(parts)}")
         _post_review_prompt_comment(run, repo)
     else:
         _post_commit_status(run, repo, "success", "No visual changes")
+
+
+def finish_processing(run_id: UUID, error_message: str = "") -> Run:
+    run = get_run_with_snapshots(run_id)
+
+    run.status = RunStatus.FAILED if error_message else RunStatus.COMPLETED
+    run.error_message = error_message
+    run.completed_at = timezone.now()
+    run.save(update_fields=["status", "error_message", "completed_at"])
+
+    _update_counts_and_post_status(run)
 
     return run
 
