@@ -530,6 +530,39 @@ class TaskRun(models.Model):
                 return None
         return env
 
+    def prepare_for_cloud_handoff(self) -> None:
+        """
+        Restart this run in the cloud, resuming from its existing log/checkpoints.
+
+        The `handoff_resumed` flag tells the workflow and sandbox provisioning
+        to treat this as a resume of the same run (skip initial prompt, hydrate
+        from the existing log) without overloading `resume_from_run_id`, which
+        means "continue from a different run".
+        """
+        self.status = self.Status.QUEUED
+        self.environment = self.Environment.CLOUD
+        self.completed_at = None
+        self.error_message = None
+
+        state = self.state or {}
+        state["handoff_resumed"] = True
+        state["mode"] = "interactive"
+        state.pop("pending_user_message", None)
+        state.pop("pending_user_message_ts", None)
+        self.state = state
+
+        self.save(
+            update_fields=[
+                "status",
+                "environment",
+                "completed_at",
+                "error_message",
+                "state",
+                "updated_at",
+            ]
+        )
+        self.publish_stream_state_event()
+
     @classmethod
     def mutate_state_atomic(
         cls,

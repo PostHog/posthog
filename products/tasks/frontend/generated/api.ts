@@ -693,6 +693,26 @@ export const tasksRunsRelayMessageCreate = async (
 }
 
 /**
+ * Resume an existing task run in a cloud sandbox. Terminates any existing workflow and starts a new one.
+ * @summary Resume task run in cloud
+ */
+export const getTasksRunsResumeInCloudCreateUrl = (projectId: string, taskId: string, id: string) => {
+    return `/api/projects/${projectId}/tasks/${taskId}/runs/${id}/resume_in_cloud/`
+}
+
+export const tasksRunsResumeInCloudCreate = async (
+    projectId: string,
+    taskId: string,
+    id: string,
+    options?: RequestInit
+): Promise<TaskRunDetailApi> => {
+    return apiMutator<TaskRunDetailApi>(getTasksRunsResumeInCloudCreateUrl(projectId, taskId, id), {
+        ...options,
+        method: 'POST',
+    })
+}
+
+/**
  * Fetch session log entries for a task run with optional filtering by timestamp, event type, and limit.
  * @summary Get filtered task run session logs
  */

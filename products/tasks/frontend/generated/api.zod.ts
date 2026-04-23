@@ -566,6 +566,13 @@ export const TasksRunsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe('State keys to remove atomically before applying any state updates.'),
     error_message: zod.string().nullish().describe('Error message if execution failed'),
+    environment: zod
+        .enum(['local'])
+        .describe('* `local` - local')
+        .optional()
+        .describe(
+            'Transition a cloud run to local. Use the resume_in_cloud action to move a run into cloud.\n\n* `local` - local'
+        ),
 })
 
 /**
