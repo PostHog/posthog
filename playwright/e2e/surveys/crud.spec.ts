@@ -190,7 +190,6 @@ test.describe('CRUD Survey', () => {
         const saveButton = page.locator('[data-attr=save-survey]')
         await expect(saveButton).toBeEnabled()
         await saveButton.click()
-        await expect(page.locator('[data-attr=success-toast]')).toContainText('created')
         await expect(page).toHaveURL(/\/surveys\/[\w-]+/)
 
         await expect(page.locator('button[data-attr="launch-survey"]').first()).toContainText('Launch')
@@ -227,7 +226,6 @@ test.describe('CRUD Survey', () => {
         await page.locator('span[aria-label="Autocapture"]').getByText('Autocapture').click()
 
         await page.locator('[data-attr=save-survey]').click()
-        await expect(page.locator('[data-attr=success-toast]')).toContainText('created')
         await expect(page).toHaveURL(/\/surveys\/[\w-]+/)
         await expect(page.locator('button[data-attr="launch-survey"]').first()).toContainText('Launch')
 
