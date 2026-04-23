@@ -89,7 +89,12 @@ def _fetch_evaluation_descriptions(team_id: int, evaluation_ids: list[str]) -> d
 
 
 def _parse_iso(ts: str) -> datetime:
-    """Parse an ISO-8601 string with optional trailing Z into a datetime."""
+    """Parse an ISO-8601 string with a trailing ``Z`` into a datetime.
+
+    Contract: only ``Z``-suffixed UTC strings produced by ``LLMAEvaluationSamplerWorkflow``
+    are supported — no other offset forms or bare naïve strings. Generalise only if a
+    caller needs it.
+    """
     return datetime.fromisoformat(ts.replace("Z", "+00:00"))
 
 
@@ -125,6 +130,9 @@ def _sample_and_embed_sync(inputs: SamplerActivityInputs) -> SamplerActivityResu
             AND timestamp >= {start_dt}
             AND timestamp < {end_dt}
             AND {filter_expr}
+        -- perf: ORDER BY rand() is a full scan with a per-row random key;
+        -- fine at today's 250 samples/hr/job, but revisit before a high-volume
+        -- tenant opts in (consider reservoir sampling or bloom-pruned windows).
         ORDER BY rand()
         LIMIT {max_samples}
         """
@@ -191,7 +199,7 @@ def _sample_and_embed_sync(inputs: SamplerActivityInputs) -> SamplerActivityResu
         # would land the same row (idempotent at the document level). A collision is fine —
         # ClickHouse will just see the same (team_id, product, document_type, document_id)
         # tuple with a new timestamp/rendering.
-        embedder._embed_document(
+        embedder.embed_document(
             content=content,
             document_id=event_uuid or str(uuid4()),
             document_type=LLMA_EVALUATION_DOCUMENT_TYPE,
@@ -226,10 +234,16 @@ async def sample_and_embed_for_job_activity(inputs: SamplerActivityInputs) -> Sa
     no dedupe state, no watermark.
 
     Exceptions are stringified before propagating so Temporal's failure serializer
-    doesn't trip on cyclic references inside HogQL AST nodes or ClickHouse error
-    payloads. ``ValueError`` and ``TypeError`` are re-raised unchanged so they
-    still match the non-retryable list in ``SAMPLER_ACTIVITY_RETRY_POLICY`` —
-    those never carry cyclic references and must fail fast.
+    doesn't trip on cyclic references inside HogQL AST nodes (query objects hold
+    back-references to their parents) or ClickHouse driver exception payloads
+    (context pointers into the live connection). ``ValueError`` and ``TypeError``
+    are re-raised unchanged so they still match the non-retryable list in
+    ``SAMPLER_ACTIVITY_RETRY_POLICY`` — those never carry cyclic references and
+    must fail fast.
+
+    ``from None`` intentionally drops the cause chain for the same serializer
+    reason; the original traceback is preserved in the structured log via
+    ``logger.exception`` above, which is where debugging should start.
     """
     async with Heartbeater():
         try:

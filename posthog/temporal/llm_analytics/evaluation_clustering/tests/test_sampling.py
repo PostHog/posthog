@@ -135,7 +135,7 @@ class TestSampleAndEmbedForJobActivity:
 
         # Every call used the eval document type and the team-scoped rendering suffix
         expected_rendering = f"{mock_team.id}_2026-04-15T12:00:00Z_job-abc"
-        calls = mock_embedder._embed_document.call_args_list
+        calls = mock_embedder.embed_document.call_args_list
         assert len(calls) == 3
         for call in calls:
             kwargs = call.kwargs
@@ -181,7 +181,7 @@ class TestSampleAndEmbedForJobActivity:
 
         assert result.sampled == 0
         assert result.embedded == 0
-        mock_embedder._embed_document.assert_not_called()
+        mock_embedder.embed_document.assert_not_called()
 
     @pytest.mark.django_db(transaction=True)
     @pytest.mark.asyncio
