@@ -4,7 +4,12 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from llm_gateway.auth.models import AuthenticatedUser
-from llm_gateway.callbacks.posthog import PostHogCallback, _replace_binary_content, _truncate_for_capture
+from llm_gateway.callbacks.posthog import (
+    PostHogCallback,
+    _region_from_host,
+    _replace_binary_content,
+    _truncate_for_capture,
+)
 
 
 def _run_sync(executor, fn, *args):
@@ -15,7 +20,7 @@ def _run_sync(executor, fn, *args):
 class TestPostHogCallback:
     @pytest.fixture
     def callback(self):
-        return PostHogCallback(api_key="test-key", host="https://test.posthog.com")
+        return PostHogCallback(api_key="test-key", host="https://us.i.posthog.com")
 
     @pytest.fixture
     def auth_user(self):
@@ -74,7 +79,7 @@ class TestPostHogCallback:
             await callback._on_success(kwargs, None, 0.0, 1.0, end_user_id=None)
 
             mock_cls.assert_called_once_with(
-                "test-key", host="https://test.posthog.com", sync_mode=True, enable_local_evaluation=False
+                "test-key", host="https://us.i.posthog.com", sync_mode=True, enable_local_evaluation=False
             )
             mock_client.capture.assert_called_once()
             call_kwargs = mock_client.capture.call_args.kwargs
@@ -92,6 +97,7 @@ class TestPostHogCallback:
             assert props["$ai_total_cost_usd"] == 0.05
             assert props["team_id"] == 456
             assert props["ai_product"] == "wizard"
+            assert props["region"] == "US"
             mock_client.shutdown.assert_called_once()
 
     @pytest.mark.asyncio
@@ -204,6 +210,44 @@ class TestPostHogCallback:
             assert "team_id" in call_kwargs["properties"]
             assert call_kwargs["properties"]["team_id"] is None
             assert "groups" not in call_kwargs
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "host,expected_region",
+        [
+            ("https://us.i.posthog.com", "US"),
+            ("https://eu.i.posthog.com", "EU"),
+            ("https://self-hosted.example.com", None),
+        ],
+    )
+    @pytest.mark.parametrize("method_name", ["_on_success", "_on_failure"])
+    async def test_region_is_tagged_from_host(
+        self,
+        auth_user: AuthenticatedUser,
+        standard_logging_object: dict,
+        host: str,
+        expected_region: str | None,
+        method_name: str,
+    ) -> None:
+        """Every generation event must be tagged with the region derived from the PostHog host."""
+        mock_client = MagicMock()
+        callback = PostHogCallback(api_key="test-key", host=host)
+        kwargs = {
+            "standard_logging_object": {**standard_logging_object, "error_str": "boom"},
+            "litellm_params": {},
+        }
+
+        with (
+            patch("llm_gateway.callbacks.posthog.Posthog", return_value=mock_client),
+            patch("llm_gateway.callbacks.posthog.get_auth_user", return_value=auth_user),
+            patch("llm_gateway.callbacks.posthog.get_product", return_value="llm_gateway"),
+        ):
+            method = getattr(callback, method_name)
+            await method(kwargs, None, 0.0, 1.0, end_user_id=None)
+
+            props = mock_client.capture.call_args.kwargs["properties"]
+            assert "region" in props
+            assert props["region"] == expected_region
 
     @pytest.mark.asyncio
     async def test_on_success_uses_end_user_id_for_distinct_id(
@@ -427,6 +471,35 @@ class TestPostHogCallback:
             call_kwargs = mock_client.capture.call_args.kwargs
             assert call_kwargs["distinct_id"] == "openai-end-user-789"
             assert call_kwargs["properties"]["$ai_trace_id"] == "trace-id-from-metadata"
+
+
+class TestRegionFromHost:
+    @pytest.mark.parametrize(
+        "host,expected",
+        [
+            ("https://us.i.posthog.com", "US"),
+            ("https://us.posthog.com", "US"),
+            ("http://us.i.posthog.com", "US"),
+            ("https://US.I.POSTHOG.COM", "US"),
+            ("https://us.i.posthog.com/path", "US"),
+            ("https://eu.i.posthog.com", "EU"),
+            ("https://eu.posthog.com", "EU"),
+            ("https://EU.I.POSTHOG.COM/", "EU"),
+            # Unrecognized hosts return None
+            ("https://app.posthog.com", None),
+            ("https://self-hosted.example.com", None),
+            ("https://posthog.example.com", None),
+            # Leading subdomain must be exactly "us" or "eu"
+            ("https://custom-us.posthog.com", None),
+            ("https://usa.posthog.com", None),
+            # Malformed / empty inputs
+            ("", None),
+            ("not-a-url", None),
+            ("us.i.posthog.com", None),  # missing scheme
+        ],
+    )
+    def test_region_from_host(self, host: str, expected: str | None) -> None:
+        assert _region_from_host(host) == expected
 
 
 class TestReplaceBinaryContent:

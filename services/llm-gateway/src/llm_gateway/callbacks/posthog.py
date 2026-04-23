@@ -1,6 +1,7 @@
 import ast
 import asyncio
 import json
+import re
 from functools import partial
 from typing import Any
 from uuid import uuid4
@@ -47,6 +48,29 @@ def _replace_binary_content(data: Any) -> Any:
             return data
 
 
+_HOST_HOSTNAME_RE = re.compile(r"^https?://([^/]+)", re.IGNORECASE)
+
+
+def _region_from_host(host: str) -> str | None:
+    """
+    Derive the PostHog cloud region from the ingestion host URL.
+
+    Returns "US" or "EU" for PostHog Cloud hosts (e.g. https://us.i.posthog.com,
+    https://eu.i.posthog.com), or None for self-hosted / dev / unrecognized hosts
+    so billing can flag events that were captured outside the known regions.
+    """
+    match = _HOST_HOSTNAME_RE.match(host or "")
+    if not match:
+        return None
+    hostname = match.group(1).lower()
+    leading = hostname.split(".", 1)[0]
+    if leading == "us":
+        return "US"
+    if leading == "eu":
+        return "EU"
+    return None
+
+
 _MAX_CAPTURE_SIZE = 15 * 1024 * 1024
 _MIN_FIELD_SIZE_TO_TRUNCATE = 10 * 1024
 _TRUNCATION_MARKER = "[truncated: content too large for capture]"
@@ -80,6 +104,7 @@ class PostHogCallback(InstrumentedCallback):
         super().__init__()
         self._api_key = api_key
         self._host = host
+        self._region = _region_from_host(host)
 
     async def _on_success(
         self, kwargs: dict[str, Any], response_obj: Any, start_time: float, end_time: float, end_user_id: str | None
@@ -122,6 +147,8 @@ class PostHogCallback(InstrumentedCallback):
             "ai_product": product,
             # Always tag with team_id (may be None) so billing can reliably attribute every generation event.
             "team_id": team_id,
+            # Region (US/EU) derived from the configured PostHog host, or None for self-hosted/dev.
+            "region": self._region,
         }
 
         posthog_properties = get_posthog_properties() or {}
@@ -200,6 +227,8 @@ class PostHogCallback(InstrumentedCallback):
             "ai_product": product,
             # Always tag with team_id (may be None) so billing can reliably attribute every generation event.
             "team_id": team_id,
+            # Region (US/EU) derived from the configured PostHog host, or None for self-hosted/dev.
+            "region": self._region,
         }
 
         posthog_properties = get_posthog_properties() or {}
