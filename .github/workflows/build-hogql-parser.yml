@@ -192,9 +192,13 @@ jobs:
               env:
                   RETRIES: 20
               run: |
+                  # setuptools isn't installed by default after actions/setup-python, but
+                  # `python setup.py --version` needs it. Mirrors the sdist step above.
+                  pip install setuptools==80.9.0
+                  VERSION=$(python common/hogql_parser/setup.py --version)
                   # In case the version is not available yet, try up to $RETRIES times
-                  for i in {1..$RETRIES}; do
-                      if uv add hogql-parser==$(python common/hogql_parser/setup.py --version); then
+                  for i in $(seq 1 "$RETRIES"); do
+                      if uv add "hogql-parser==$VERSION"; then
                           break
                       fi
                       if [[ $i -eq $RETRIES ]]; then
@@ -205,8 +209,20 @@ jobs:
                   done
 
             - uses: EndBug/add-and-commit@a94899bca583c204427a224a7af87c02f9b325d5 # v9.1.4
+              id: commit-pin
               with:
                   add: '["pyproject.toml", "uv.lock"]'
                   message: 'Use new hogql-parser version'
                   default_author: github_actions
                   github_token: ${{ steps.app-token.outputs.token }}
+
+            - name: Fail if pin update produced no commit
+              shell: bash
+              env:
+                  PUSHED: ${{ steps.commit-pin.outputs.pushed }}
+              run: |
+                  if [[ "$PUSHED" != "true" ]]; then
+                    echo "::error::hogql-parser wheel was published to PyPI but pyproject.toml pin was not updated."
+                    echo "Check the 'Update hogql-parser in requirements' step above for why uv add did not produce a diff."
+                    exit 1
+                  fi
