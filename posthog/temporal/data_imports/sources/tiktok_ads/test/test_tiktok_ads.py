@@ -445,3 +445,156 @@ class TestTikTokAdsResumeBehavior:
         # Falls back to a fresh run that requests page 1.
         sent_request = mock_session.send.call_args_list[0].args[0]
         assert sent_request.params["page"] == 1
+
+
+class TestTikTokAdsReportChunkResumeBehavior:
+    """End-to-end resume behavior for chunked report endpoints."""
+
+    def setup_method(self):
+        self.advertiser_id = "123456789"
+        self.team_id = 123
+        self.job_id = "test_job"
+        self.access_token = "test_access_token"
+
+    def _report_chunks(self) -> list[dict[str, Any]]:
+        """Build deterministic chunks using the production setup code.
+
+        Uses a 58-day span and 29-day chunk size to produce exactly two
+        29-day chunks. The test then extends this to three chunks below
+        where multi-chunk skip/resume behavior is exercised.
+        """
+        base = get_tiktok_resource("campaign_report", self.advertiser_id, True)
+        return TikTokReportResource.create_chunked_resources(
+            base,
+            start_date="2024-01-01",
+            end_date="2024-03-30",  # 90 days -> 4 chunks at 29-day chunk size
+            advertiser_id=self.advertiser_id,
+        )
+
+    def _run_report(self, manager: MagicMock, responses: list[Response]) -> MagicMock:
+        with (
+            patch(
+                "posthog.temporal.data_imports.sources.common.rest_source.rest_client.requests.Session"
+            ) as MockSession,
+            patch(
+                "posthog.temporal.data_imports.sources.tiktok_ads.tiktok_ads.TikTokReportResource.setup_report_resources",
+                return_value=self._report_chunks(),
+            ),
+        ):
+            mock_session = MockSession.return_value
+            mock_session.headers = {}
+            mock_session.prepare_request.side_effect = lambda req: req
+            mock_session.send.side_effect = responses
+
+            response = tiktok_ads_source(
+                advertiser_id=self.advertiser_id,
+                endpoint="campaign_report",
+                team_id=self.team_id,
+                job_id=self.job_id,
+                access_token=self.access_token,
+                db_incremental_field_last_value=None,
+                resumable_source_manager=manager,
+                should_use_incremental_field=True,
+            )
+            list(cast(Iterable[Any], response.items()))
+            return mock_session
+
+    def test_resume_from_middle_chunk_skips_earlier_and_runs_later_chunks_fresh(self):
+        """Resuming into a non-first chunk:
+        - chunks before the resumed one issue no HTTP requests,
+        - the first request for the resumed chunk targets the saved page,
+        - chunks after it start fresh at page 1.
+        """
+        chunks = self._report_chunks()
+        assert len(chunks) >= 3, "need at least 3 chunks to exercise skip/resume/fresh"
+
+        resume_idx = 1
+        chunk_r = chunks[resume_idx]
+        chunk_r_start = chunk_r["endpoint"]["params"]["start_date"]
+        chunk_r_end = chunk_r["endpoint"]["params"]["end_date"]
+
+        manager = _make_manager(
+            can_resume=True,
+            state=TikTokAdsResumeConfig(
+                page=3,
+                chunk_index=resume_idx,
+                chunk_start_date=chunk_r_start,
+                chunk_end_date=chunk_r_end,
+            ),
+        )
+
+        # Resumed chunk: single terminal page at page=3. Subsequent chunks:
+        # each resolves in one page.
+        responses: list[Response] = [_page_response(page=3, total_pages=3, items=[{"campaign_id": "c-resume"}])]
+        responses.extend(
+            _page_response(page=1, total_pages=1, items=[{"campaign_id": f"c{i}"}])
+            for i in range(resume_idx + 1, len(chunks))
+        )
+        mock_session = self._run_report(manager, responses)
+
+        sent_requests = [c.args[0] for c in mock_session.send.call_args_list]
+        # One request for the resumed chunk + one for each chunk after it.
+        assert len(sent_requests) == 1 + (len(chunks) - resume_idx - 1)
+
+        resumed_request = sent_requests[0]
+        assert resumed_request.params["page"] == 3
+        assert resumed_request.params["start_date"] == chunk_r_start
+        assert resumed_request.params["end_date"] == chunk_r_end
+
+        for req, chunk in zip(sent_requests[1:], chunks[resume_idx + 1 :], strict=True):
+            assert req.params["page"] == 1
+            assert req.params["start_date"] == chunk["endpoint"]["params"]["start_date"]
+
+    def test_resume_falls_back_when_saved_chunk_dates_no_longer_match(self):
+        """If the saved chunk's date range doesn't exist in the current chunk
+        list (e.g. ``datetime.now()`` advanced and shifted the window), discard
+        the state and start fresh from chunk 0, page 1."""
+        manager = _make_manager(
+            can_resume=True,
+            state=TikTokAdsResumeConfig(
+                page=5,
+                chunk_index=1,
+                chunk_start_date="1999-12-01",  # definitely not in any current chunk
+                chunk_end_date="1999-12-29",
+            ),
+        )
+
+        chunks = self._report_chunks()
+        responses: list[Response] = [
+            _page_response(page=1, total_pages=1, items=[{"campaign_id": f"c{i}"}]) for i in range(len(chunks))
+        ]
+        mock_session = self._run_report(manager, responses)
+
+        sent_requests = [c.args[0] for c in mock_session.send.call_args_list]
+        assert len(sent_requests) == len(chunks)
+        for req in sent_requests:
+            assert req.params["page"] == 1
+
+    def test_fresh_run_save_state_includes_chunk_dates(self):
+        """Fresh chunked run: save_state calls include the chunk's
+        ``(start_date, end_date)`` so the saved state is stable across
+        boundary-shifting re-runs."""
+        chunks = self._report_chunks()
+        chunk0_start = chunks[0]["endpoint"]["params"]["start_date"]
+        chunk0_end = chunks[0]["endpoint"]["params"]["end_date"]
+
+        manager = _make_manager(can_resume=False)
+
+        responses: list[Response] = [
+            # chunk 0: two pages (save expected after page 1, not after page 2).
+            _page_response(page=1, total_pages=2, items=[{"campaign_id": "c0a"}]),
+            _page_response(page=2, total_pages=2, items=[{"campaign_id": "c0b"}]),
+        ]
+        # Remaining chunks each resolve in a single page (no saves).
+        responses.extend(
+            _page_response(page=1, total_pages=1, items=[{"campaign_id": f"c{i}"}]) for i in range(1, len(chunks))
+        )
+        self._run_report(manager, responses)
+
+        save_calls = manager.save_state.call_args_list
+        assert len(save_calls) == 1
+        saved: TikTokAdsResumeConfig = save_calls[0].args[0]
+        assert saved.chunk_index == 0
+        assert saved.page == 2
+        assert saved.chunk_start_date == chunk0_start
+        assert saved.chunk_end_date == chunk0_end

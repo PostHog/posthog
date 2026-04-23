@@ -21,15 +21,25 @@ from posthog.temporal.data_imports.sources.tiktok_ads.utils import (
 class TikTokAdsResumeConfig:
     """Resume state for TikTok Ads endpoints.
 
-    Entity/account endpoints run as a single page-number-paginated resource
-    (``chunk_index`` is always 0). Report endpoints split the date range into
-    sequential chunks; resume must capture both which chunk was in flight and
-    the page within it. Duplicates on resume are deduped by the endpoint's
-    primary key.
+    Entity/account endpoints run as a single page-number-paginated resource;
+    ``chunk_index`` is always 0 and ``chunk_start_date``/``chunk_end_date``
+    are ``None``.
+
+    Report endpoints split the date range into sequential chunks. Between
+    runs the chunk boundaries can shift (``datetime.now()`` advances, or the
+    incremental cursor moves), so matching by ``chunk_index`` alone risks
+    resuming into a different date window. The saved chunk's
+    ``(start_date, end_date)`` pair is the stable identity we match on; we
+    only fall back to ``chunk_index`` when dates are absent (non-report
+    endpoints).
+
+    Duplicates on resume are deduped by the endpoint's primary key.
     """
 
     page: int
     chunk_index: int = 0
+    chunk_start_date: Optional[str] = None
+    chunk_end_date: Optional[str] = None
 
 
 def get_tiktok_resource(
@@ -37,7 +47,12 @@ def get_tiktok_resource(
     advertiser_id: str,
     should_use_incremental_field: bool = False,
 ) -> dict[str, Any]:
-    """Get TikTok resource configuration for rest_api_resources."""
+    """Build the base REST resource config for a TikTok Ads endpoint.
+
+    The result is fed to ``rest_api_resource`` (singular) per date chunk —
+    see ``tiktok_ads_source``. Report endpoints layer date-chunked copies
+    on top of this base via ``TikTokReportResource.setup_report_resources``.
+    """
     if endpoint_name not in TIKTOK_ADS_CONFIG:
         raise ValueError(f"Unknown endpoint: {endpoint_name}")
 
@@ -120,6 +135,13 @@ def _iter_chunk(
         "resources": cast(list, [chunk_copy]),
     }
 
+    # NOTE: ``rest_api_resource`` returns a lazy iterable; actual HTTP
+    # requests happen when the caller consumes it in ``process_resources``.
+    # The retry below therefore only guards the (fast, rare-to-fail)
+    # resource-construction step — mid-pagination TikTok errors propagate
+    # out and are not retried here. Per-request retries would need to live
+    # inside the paginator or rest_client. Kept as-is to preserve existing
+    # behaviour.
     resource = make_sync_retryable_with_exponential_backoff(
         lambda: rest_api_resource(
             chunk_config,
@@ -138,6 +160,40 @@ def _iter_chunk(
     )()
 
     return resource
+
+
+def _get_chunk_dates(chunk_resource: dict[str, Any]) -> tuple[Optional[str], Optional[str]]:
+    """Extract the chunk's ``(start_date, end_date)`` params, or ``(None, None)``."""
+    endpoint_cfg = chunk_resource.get("endpoint")
+    if not isinstance(endpoint_cfg, dict):
+        return None, None
+    params = endpoint_cfg.get("params")
+    if not isinstance(params, dict):
+        return None, None
+    start = params.get("start_date")
+    end = params.get("end_date")
+    return (start if isinstance(start, str) else None, end if isinstance(end, str) else None)
+
+
+def _resolve_resume_chunk_index(loaded: TikTokAdsResumeConfig, chunk_resources: list[dict[str, Any]]) -> Optional[int]:
+    """Find the current chunk matching the saved checkpoint, or ``None`` if stale.
+
+    For non-report endpoints the saved dates are ``None`` and we validate
+    the raw ``chunk_index`` against the current chunk count. For report
+    endpoints the chunk list can shift between runs (``datetime.now()``
+    advances), so we match on the chunk's ``(start_date, end_date)`` pair
+    — a stable identity — and discard the state if no chunk matches.
+    """
+    if loaded.chunk_start_date is None and loaded.chunk_end_date is None:
+        if 0 <= loaded.chunk_index < len(chunk_resources):
+            return loaded.chunk_index
+        return None
+
+    for idx, chunk in enumerate(chunk_resources):
+        start, end = _get_chunk_dates(chunk)
+        if start == loaded.chunk_start_date and end == loaded.chunk_end_date:
+            return idx
+    return None
 
 
 def tiktok_ads_source(
@@ -162,32 +218,42 @@ def tiktok_ads_source(
         endpoint, advertiser_id, should_use_incremental_field, db_incremental_field_last_value, endpoint_type
     )
 
-    resume_config: TikTokAdsResumeConfig | None = None
+    resumed_chunk_index: Optional[int] = None
+    resumed_page: Optional[int] = None
     if resumable_source_manager.can_resume():
         loaded = resumable_source_manager.load_state()
-        # Only honour a saved checkpoint whose chunk still exists in this run's
-        # chunk list; otherwise the resume state is stale (e.g. the date range
-        # shifted) and we fall back to a fresh run.
-        if loaded is not None and 0 <= loaded.chunk_index < len(chunk_resources):
-            resume_config = loaded
+        if loaded is not None:
+            matching_idx = _resolve_resume_chunk_index(loaded, chunk_resources)
+            if matching_idx is not None:
+                resumed_chunk_index = matching_idx
+                resumed_page = loaded.page
 
     def items_iterator() -> Iterator[Any]:
         for chunk_index, chunk_resource in enumerate(chunk_resources):
-            if resume_config is not None and chunk_index < resume_config.chunk_index:
+            if resumed_chunk_index is not None and chunk_index < resumed_chunk_index:
                 continue
 
             initial_paginator_state: Optional[dict[str, Any]] = None
-            if resume_config is not None and chunk_index == resume_config.chunk_index:
-                initial_paginator_state = {"page": resume_config.page}
+            if resumed_chunk_index is not None and chunk_index == resumed_chunk_index:
+                initial_paginator_state = {"page": resumed_page}
 
-            def make_save_checkpoint(idx: int) -> Callable[[Optional[dict[str, Any]]], None]:
+            chunk_start, chunk_end = _get_chunk_dates(chunk_resource)
+
+            def make_save_checkpoint(
+                idx: int, start: Optional[str], end: Optional[str]
+            ) -> Callable[[Optional[dict[str, Any]]], None]:
                 def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
                     # The paginator only emits state while there are pages
                     # left, so ``state["page"]`` points at the page still to
                     # fetch. Redis TTL handles cleanup on completion.
                     if state and state.get("page") is not None:
                         resumable_source_manager.save_state(
-                            TikTokAdsResumeConfig(page=int(state["page"]), chunk_index=idx)
+                            TikTokAdsResumeConfig(
+                                page=int(state["page"]),
+                                chunk_index=idx,
+                                chunk_start_date=start,
+                                chunk_end_date=end,
+                            )
                         )
 
                 return save_checkpoint
@@ -199,7 +265,7 @@ def tiktok_ads_source(
                 job_id,
                 db_incremental_field_last_value,
                 initial_paginator_state,
-                make_save_checkpoint(chunk_index),
+                make_save_checkpoint(chunk_index, chunk_start, chunk_end),
             )
 
             flat = TikTokReportResource.process_resources([resource])
