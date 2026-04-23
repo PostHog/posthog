@@ -104,6 +104,11 @@ class EndpointMaterializationSerializer(serializers.Serializer):
         allow_null=True,
         help_text="How often the materialization refreshes (e.g. 'every_hour').",
     )
+    saved_query_id = serializers.UUIDField(
+        required=False,
+        allow_null=True,
+        help_text="UUID of the underlying saved query backing this materialization. Only populated when the version is materialized.",
+    )
 
 
 class EndpointColumnSerializer(serializers.Serializer):
@@ -156,6 +161,13 @@ class EndpointResponseSerializer(serializers.Serializer):
         help_text="Whether the current version's results are pre-computed to S3.",
     )
     current_version = serializers.IntegerField(help_text="Latest version number.")
+
+    current_version_id = serializers.UUIDField(
+        required=False,
+        allow_null=True,
+        help_text="UUID of the current EndpointVersion row.",
+    )
+
     versions_count = serializers.IntegerField(help_text="Total number of versions for this endpoint.")
     derived_from_insight = serializers.CharField(
         allow_null=True,

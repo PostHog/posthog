@@ -153,16 +153,50 @@ export const LogsAlertConfigurationStateEnumApi = {
     Broken: 'broken',
 } as const
 
+export interface LogsAlertStateIntervalApi {
+    /** Interval start (UTC, inclusive). */
+    start: string
+    /** Interval end (UTC, exclusive). */
+    end: string
+    /** Alert state during this interval.
+
+* `not_firing` - Not firing
+* `firing` - Firing
+* `pending_resolve` - Pending resolve
+* `errored` - Errored
+* `snoozed` - Snoozed
+* `broken` - Broken */
+    state: LogsAlertConfigurationStateEnumApi
+    /** Whether the alert was enabled during this interval. Disabled alerts keep their state but are inactive. */
+    enabled: boolean
+}
+
+/**
+ * * `slack` - slack
+ * `webhook` - webhook
+ */
+export type DestinationTypesEnumApi = (typeof DestinationTypesEnumApi)[keyof typeof DestinationTypesEnumApi]
+
+export const DestinationTypesEnumApi = {
+    Slack: 'slack',
+    Webhook: 'webhook',
+} as const
+
 export interface LogsAlertConfigurationApi {
+    /** Unique identifier for this alert. */
     readonly id: string
-    /** @maxLength 255 */
+    /**
+     * Human-readable name for this alert.
+     * @maxLength 255
+     */
     name: string
+    /** Whether the alert is actively being evaluated. Disabling resets the state to not_firing. */
     enabled?: boolean
     /** Filter criteria — subset of LogsViewerFilters. Must contain at least one of: severityLevels (list of severity strings), serviceNames (list of service name strings), or filterGroup (property filter group object). */
     filters: unknown
     /**
+     * Number of matching log entries that constitutes a threshold breach within the evaluation window.
      * @minimum 1
-     * @maximum 2147483647
      */
     threshold_count: number
     /** Whether the alert fires when the count is above or below the threshold.
@@ -170,12 +204,18 @@ export interface LogsAlertConfigurationApi {
 * `above` - Above
 * `below` - Below */
     threshold_operator?: ThresholdOperatorEnumApi
-    /**
-     * @minimum 0
-     * @maximum 2147483647
-     */
+    /** Time window in minutes over which log entries are counted. Allowed values: 5, 10, 15, 30, 60. */
     window_minutes?: number
+    /** How often the alert is evaluated, in minutes. Server-managed. */
     readonly check_interval_minutes: number
+    /** Current alert state: not_firing, firing, pending_resolve, errored, or snoozed. Server-managed.
+
+* `not_firing` - Not firing
+* `firing` - Firing
+* `pending_resolve` - Pending resolve
+* `errored` - Errored
+* `snoozed` - Snoozed
+* `broken` - Broken */
     readonly state: LogsAlertConfigurationStateEnumApi
     /**
      * Total number of check periods in the sliding evaluation window for firing (M in N-of-M).
@@ -190,27 +230,48 @@ export interface LogsAlertConfigurationApi {
      */
     datapoints_to_alarm?: number
     /**
+     * Minimum minutes between repeated notifications after the alert fires. 0 means no cooldown.
      * @minimum 0
-     * @maximum 2147483647
      */
     cooldown_minutes?: number
-    /** @nullable */
+    /**
+     * ISO 8601 timestamp until which the alert is snoozed. Set to null to unsnooze.
+     * @nullable
+     */
     snooze_until?: string | null
-    /** @nullable */
+    /**
+     * When the next evaluation is scheduled. Server-managed.
+     * @nullable
+     */
     readonly next_check_at: string | null
-    /** @nullable */
+    /**
+     * When the last notification was sent. Server-managed.
+     * @nullable
+     */
     readonly last_notified_at: string | null
-    /** @nullable */
+    /**
+     * When the alert was last evaluated. Server-managed.
+     * @nullable
+     */
     readonly last_checked_at: string | null
+    /** Number of consecutive evaluation failures. Resets on success. Server-managed. */
     readonly consecutive_failures: number
     /**
      * Error message from the most recent errored check, or null if the alert's most recent check was successful. Sourced from LogsAlertEvent without denormalization so retention-aware cleanup rules stay the only source of truth.
      * @nullable
      */
     readonly last_error_message: string | null
+    /** Continuous state intervals over the last 24h, ordered oldest-first. Each interval covers a span during which (state, enabled) was constant. Derived from LogsAlertEvent rows walked in chronological order; consecutive identical intervals are collapsed. Drives the 'Last 24h' status bar on the alert list. */
+    readonly state_timeline: readonly LogsAlertStateIntervalApi[]
+    /** Notification destination types configured for this alert — e.g. 'slack', 'webhook'. Empty list means no notifications will fire. One or more destinations should be added after creating an alert. */
+    readonly destination_types: readonly DestinationTypesEnumApi[]
+    /** When the alert was created. */
     readonly created_at: string
     readonly created_by: UserBasicApi
-    /** @nullable */
+    /**
+     * When the alert was last modified.
+     * @nullable
+     */
     readonly updated_at: string | null
 }
 
@@ -224,15 +285,20 @@ export interface PaginatedLogsAlertConfigurationListApi {
 }
 
 export interface PatchedLogsAlertConfigurationApi {
+    /** Unique identifier for this alert. */
     readonly id?: string
-    /** @maxLength 255 */
+    /**
+     * Human-readable name for this alert.
+     * @maxLength 255
+     */
     name?: string
+    /** Whether the alert is actively being evaluated. Disabling resets the state to not_firing. */
     enabled?: boolean
     /** Filter criteria — subset of LogsViewerFilters. Must contain at least one of: severityLevels (list of severity strings), serviceNames (list of service name strings), or filterGroup (property filter group object). */
     filters?: unknown
     /**
+     * Number of matching log entries that constitutes a threshold breach within the evaluation window.
      * @minimum 1
-     * @maximum 2147483647
      */
     threshold_count?: number
     /** Whether the alert fires when the count is above or below the threshold.
@@ -240,12 +306,18 @@ export interface PatchedLogsAlertConfigurationApi {
 * `above` - Above
 * `below` - Below */
     threshold_operator?: ThresholdOperatorEnumApi
-    /**
-     * @minimum 0
-     * @maximum 2147483647
-     */
+    /** Time window in minutes over which log entries are counted. Allowed values: 5, 10, 15, 30, 60. */
     window_minutes?: number
+    /** How often the alert is evaluated, in minutes. Server-managed. */
     readonly check_interval_minutes?: number
+    /** Current alert state: not_firing, firing, pending_resolve, errored, or snoozed. Server-managed.
+
+* `not_firing` - Not firing
+* `firing` - Firing
+* `pending_resolve` - Pending resolve
+* `errored` - Errored
+* `snoozed` - Snoozed
+* `broken` - Broken */
     readonly state?: LogsAlertConfigurationStateEnumApi
     /**
      * Total number of check periods in the sliding evaluation window for firing (M in N-of-M).
@@ -260,27 +332,48 @@ export interface PatchedLogsAlertConfigurationApi {
      */
     datapoints_to_alarm?: number
     /**
+     * Minimum minutes between repeated notifications after the alert fires. 0 means no cooldown.
      * @minimum 0
-     * @maximum 2147483647
      */
     cooldown_minutes?: number
-    /** @nullable */
+    /**
+     * ISO 8601 timestamp until which the alert is snoozed. Set to null to unsnooze.
+     * @nullable
+     */
     snooze_until?: string | null
-    /** @nullable */
+    /**
+     * When the next evaluation is scheduled. Server-managed.
+     * @nullable
+     */
     readonly next_check_at?: string | null
-    /** @nullable */
+    /**
+     * When the last notification was sent. Server-managed.
+     * @nullable
+     */
     readonly last_notified_at?: string | null
-    /** @nullable */
+    /**
+     * When the alert was last evaluated. Server-managed.
+     * @nullable
+     */
     readonly last_checked_at?: string | null
+    /** Number of consecutive evaluation failures. Resets on success. Server-managed. */
     readonly consecutive_failures?: number
     /**
      * Error message from the most recent errored check, or null if the alert's most recent check was successful. Sourced from LogsAlertEvent without denormalization so retention-aware cleanup rules stay the only source of truth.
      * @nullable
      */
     readonly last_error_message?: string | null
+    /** Continuous state intervals over the last 24h, ordered oldest-first. Each interval covers a span during which (state, enabled) was constant. Derived from LogsAlertEvent rows walked in chronological order; consecutive identical intervals are collapsed. Drives the 'Last 24h' status bar on the alert list. */
+    readonly state_timeline?: readonly LogsAlertStateIntervalApi[]
+    /** Notification destination types configured for this alert — e.g. 'slack', 'webhook'. Empty list means no notifications will fire. One or more destinations should be added after creating an alert. */
+    readonly destination_types?: readonly DestinationTypesEnumApi[]
+    /** When the alert was created. */
     readonly created_at?: string
     readonly created_by?: UserBasicApi
-    /** @nullable */
+    /**
+     * When the alert was last modified.
+     * @nullable
+     */
     readonly updated_at?: string | null
 }
 
@@ -288,10 +381,9 @@ export interface PatchedLogsAlertConfigurationApi {
  * * `slack` - slack
  * `webhook` - webhook
  */
-export type LogsAlertCreateDestinationTypeEnumApi =
-    (typeof LogsAlertCreateDestinationTypeEnumApi)[keyof typeof LogsAlertCreateDestinationTypeEnumApi]
+export type TypeC34EnumApi = (typeof TypeC34EnumApi)[keyof typeof TypeC34EnumApi]
 
-export const LogsAlertCreateDestinationTypeEnumApi = {
+export const TypeC34EnumApi = {
     Slack: 'slack',
     Webhook: 'webhook',
 } as const
@@ -301,7 +393,7 @@ export interface LogsAlertCreateDestinationApi {
 
 * `slack` - slack
 * `webhook` - webhook */
-    type: LogsAlertCreateDestinationTypeEnumApi
+    type: TypeC34EnumApi
     /** Integration ID for the Slack workspace. Required when type=slack. */
     slack_workspace_id?: number
     /** Slack channel ID. Required when type=slack. */
@@ -525,6 +617,19 @@ export interface _LogPropertyFilterApi {
     value?: unknown | null
 }
 
+export interface _LogAttributeEntryApi {
+    name: string
+    /** Property filter type: "log_attribute" or "log_resource_attribute". Use this as the `type` field when filtering. */
+    propertyFilterType: string
+}
+
+export interface _LogsAttributesResponseApi {
+    /** Available attribute keys matching the filters. */
+    results: _LogAttributeEntryApi[]
+    /** Total attribute keys matched (not paginated). */
+    count: number
+}
+
 /**
  * * `trace` - trace
  * `debug` - debug
@@ -583,6 +688,107 @@ export interface _LogsQueryRequestApi {
 }
 
 /**
+ * The parsed query that was executed, echoed back for confirmation.
+ */
+export type _LogsQueryResponseApiQuery = { [key: string]: unknown }
+
+/**
+ * Log-level attributes as a string-keyed map. Values are strings (numeric/datetime attributes are also accessible via materialized columns).
+ */
+export type _LogEntryApiAttributes = { [key: string]: string }
+
+/**
+ * Resource-level attributes (service.name, k8s.*, host.hostname, etc.) as a string-keyed map. Repeats across all logs from the same pod/host.
+ */
+export type _LogEntryApiResourceAttributes = { [key: string]: string }
+
+export interface _LogEntryApi {
+    uuid: string
+    /** ISO 8601 timestamp of the original log event. */
+    timestamp: string
+    /** ISO 8601 timestamp the log pipeline observed the event (may differ from `timestamp`). */
+    observed_timestamp: string
+    body: string
+    /** Log severity as a string (e.g. "info", "error"). Preferred over severity_number. */
+    severity_text: string
+    /** Log severity as a numeric code. Redundant with severity_text; kept for OpenTelemetry compatibility. */
+    severity_number: number
+    /** ClickHouse alias for severity_text. Redundant; prefer severity_text. */
+    level: string
+    /** Trace ID. Returns "00000000000000000000000000000000" when not set (padding, not null). */
+    trace_id: string
+    /** Span ID. Returns "0000000000000000" when not set (padding, not null). */
+    span_id: string
+    /** OpenTelemetry trace flags. */
+    trace_flags?: number
+    /** Log-level attributes as a string-keyed map. Values are strings (numeric/datetime attributes are also accessible via materialized columns). */
+    attributes: _LogEntryApiAttributes
+    /** Resource-level attributes (service.name, k8s.*, host.hostname, etc.) as a string-keyed map. Repeats across all logs from the same pod/host. */
+    resource_attributes: _LogEntryApiResourceAttributes
+    /** OpenTelemetry event name, if set. */
+    event_name?: string
+}
+
+export interface _LogsQueryResponseApi {
+    /** The parsed query that was executed, echoed back for confirmation. */
+    query: _LogsQueryResponseApiQuery
+    /** Log entries matching the query. */
+    results: _LogEntryApi[]
+    /** True if more results exist beyond this page. */
+    hasMore: boolean
+    /**
+     * Opaque cursor to pass as `after` in the next request to fetch the next page. Null when hasMore is false.
+     * @nullable
+     */
+    nextCursor?: string | null
+    /** Maximum number of rows the `export` endpoint will produce — informational. */
+    maxExportableLogs: number
+}
+
+export interface _LogsServicesBodyApi {
+    /** Date range for the services aggregation. Defaults to last hour. */
+    dateRange?: _DateRangeApi
+    /** Filter by log severity levels. */
+    severityLevels?: SeverityLevelsEnumApi[]
+    /** Restrict the aggregation to these service names. */
+    serviceNames?: string[]
+    /** Full-text search term to filter log bodies. */
+    searchTerm?: string
+    /** Property filters for the query. */
+    filterGroup?: _LogPropertyFilterApi[]
+}
+
+export interface _LogsServicesRequestApi {
+    /** The services aggregation query to execute. */
+    query: _LogsServicesBodyApi
+}
+
+export interface _LogsServiceAggregateApi {
+    /** Service name, or "(no value)" / "(no service)" placeholder for unset entries. */
+    service_name: string
+    /** Total log entries from this service in the window. */
+    log_count: number
+    /** Count of logs at severity "error" or "fatal". */
+    error_count: number
+    /** Pre-computed error_count / log_count, rounded to 4 decimals. Useful for ranking noisy services. */
+    error_rate: number
+}
+
+export interface _LogsServicesSparklineBucketApi {
+    /** Bucket start time (ISO 8601). */
+    time: string
+    service_name: string
+    count: number
+}
+
+export interface _LogsServicesResponseApi {
+    /** Per-service aggregates, ordered by log_count descending. Capped at 25 services. */
+    services: _LogsServiceAggregateApi[]
+    /** Time-bucketed counts broken down by service, for plotting volume over time. */
+    sparkline: _LogsServicesSparklineBucketApi[]
+}
+
+/**
  * * `severity` - severity
  * `service` - service
  */
@@ -614,6 +820,35 @@ export interface _LogsSparklineBodyApi {
 export interface _LogsSparklineRequestApi {
     /** The sparkline query to execute. */
     query: _LogsSparklineBodyApi
+}
+
+export interface _LogsSparklineBucketApi {
+    /** Bucket start time (ISO 8601). */
+    time: string
+    /** Severity label when sparklineBreakdownBy="severity". Present only for severity-broken-down sparklines. */
+    severity?: string
+    /** Service name when sparklineBreakdownBy="service". Present only for service-broken-down sparklines. */
+    service?: string
+    count: number
+}
+
+export interface _LogsSparklineResponseApi {
+    /** Time-bucketed log counts. Each bucket carries either `severity` or `service` depending on breakdown. */
+    results: _LogsSparklineBucketApi[]
+}
+
+export interface _LogAttributeValueApi {
+    /** Attribute value (used as the identifier). */
+    id: string
+    /** Display name — currently identical to `id`. */
+    name: string
+}
+
+export interface _LogsValuesResponseApi {
+    /** Distinct values observed for the requested attribute. */
+    results: _LogAttributeValueApi[]
+    /** Always false — reserved for future cached-value refresh signalling. */
+    refreshing: boolean
 }
 
 /**

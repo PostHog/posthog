@@ -5317,13 +5317,13 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
                 },
             },
         )
-        actor_query = runner.actor_query()
+        base_query = runner.base_query()
         context = HogQLContext(
             team_id=self.team.pk,
             enable_select_queries=True,
             modifiers=create_default_modifiers_for_team(self.team),
         )
-        sql, _ = prepare_and_print_ast(actor_query, context, "clickhouse", pretty=True)
+        sql, _ = prepare_and_print_ast(base_query, context, "clickhouse", pretty=True)
 
         self.assertNotIn("events__events", sql, "Self-join detected with person property aggregation")
         self.assertIn("_start_event_data", sql)
@@ -5348,13 +5348,13 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
                 },
             },
         )
-        actor_query = runner.actor_query()
+        base_query = runner.base_query()
         context = HogQLContext(
             team_id=self.team.pk,
             enable_select_queries=True,
             modifiers=create_default_modifiers_for_team(self.team),
         )
-        sql, _ = prepare_and_print_ast(actor_query, context, "clickhouse", pretty=True)
+        sql, _ = prepare_and_print_ast(base_query, context, "clickhouse", pretty=True)
 
         self.assertNotIn("events__events", sql)
         # event property access should be present, not person property access
@@ -6333,6 +6333,7 @@ class TestClickhouseRetentionGroupAggregation(ClickhouseTestMixin, APIBaseTest):
         assert canada_day0_cohort is not None
         self.assertEqual(canada_day0_cohort["values"][0]["count"], 3, "Canada should have 3 users")
 
+    @snapshot_clickhouse_queries
     def test_retention_24h_window_calculation(self):
         # This test validates that 24-hour window retention works differently from calendar-based retention
         # Key difference: with 24h windows, intervals are calculated from each user's first event timestamp,

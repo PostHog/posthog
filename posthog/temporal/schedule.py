@@ -40,6 +40,10 @@ from posthog.temporal.llm_analytics.eval_reports.schedule import (
     create_count_trigger_schedule,
     create_eval_reports_schedule,
 )
+from posthog.temporal.llm_analytics.evaluation_clustering.schedule import (
+    create_evaluation_clustering_schedule,
+    create_evaluation_sampler_schedule,
+)
 from posthog.temporal.llm_analytics.trace_clustering.schedule import (
     create_generation_clustering_coordinator_schedule,
     create_trace_clustering_coordinator_schedule,
@@ -521,6 +525,8 @@ schedules = [
     create_generation_clustering_coordinator_schedule,
     create_eval_reports_schedule,
     create_count_trigger_schedule,
+    create_evaluation_sampler_schedule,
+    create_evaluation_clustering_schedule,
     create_video_segment_clustering_coordinator_schedule,
     create_ducklake_compaction_schedule,
     create_purge_deleted_recording_metadata_schedule,

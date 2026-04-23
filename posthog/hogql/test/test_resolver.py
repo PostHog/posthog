@@ -1769,9 +1769,14 @@ class TestResolver(BaseTest):
             resolve_types(expr, self.context, dialect="clickhouse")
 
     def test_limit_with_ties_postgres_error(self):
+        # WITH TIES is rejected by the Postgres printer's ``_assert_with_ties_supported`` hook
+        # rather than by the resolver, so we need to run the full print pipeline to observe it.
         with self.assertRaisesMessage(QueryError, "WITH TIES is not supported in postgres dialect"):
-            expr = self._select("SELECT 1 FROM events ORDER BY 1 LIMIT 1 WITH TIES")
-            resolve_types(expr, self.context, dialect="postgres")
+            prepare_and_print_ast(
+                self._select("SELECT 1 FROM events ORDER BY 1 LIMIT 1 WITH TIES"),
+                self.context,
+                "postgres",
+            )
 
     def test_positional_refs_postgres(self):
         expr = self._select("SELECT #1, #2 FROM events")
