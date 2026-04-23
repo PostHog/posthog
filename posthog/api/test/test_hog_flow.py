@@ -1,7 +1,9 @@
+import uuid as uuid_mod
+from datetime import UTC, datetime
 from typing import Optional
 
-from posthog.test.base import APIBaseTest
-from unittest.mock import patch
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin
+from unittest.mock import Mock, patch
 
 from parameterized import parameterized
 from rest_framework import status
@@ -1512,3 +1514,276 @@ class TestHogFlowAPI(APIBaseTest):
         assert response.status_code == expected_status, response.json()
         if expected_error:
             assert response.json()["detail"] == expected_error
+
+
+class TestHogFlowBlockedRuns(ClickhouseTestMixin, APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        sync_template_to_db(webhook_template)
+        from posthog.models.feature_flag import FeatureFlag
+
+        FeatureFlag.objects.create(
+            team=self.team,
+            key="workflows-replay-blocked-runs",
+            active=True,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+            created_by=self.user,
+        )
+
+    def _create_flow(self) -> str:
+        trigger_action = {
+            "id": "trigger_node",
+            "name": "trigger_1",
+            "type": "trigger",
+            "config": {
+                "type": "event",
+                "filters": {
+                    "events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0}],
+                },
+            },
+        }
+        action = {
+            "id": "action_1",
+            "name": "action_1",
+            "type": "function",
+            "config": {"template_id": "template-webhook", "inputs": {"url": {"value": "https://example.com"}}},
+        }
+        hog_flow = {"name": "Test Flow", "actions": [trigger_action, action]}
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        return response.json()["id"]
+
+    def _insert_blocked_log(self, flow_id: str, instance_id: str, action_id: str, event_uuid: str):
+        from posthog.clickhouse.client.execute import sync_execute
+        from posthog.clickhouse.log_entries import INSERT_LOG_ENTRY_SQL
+
+        sync_execute(
+            INSERT_LOG_ENTRY_SQL,
+            {
+                "team_id": self.team.pk,
+                "log_source": "hog_flow",
+                "log_source_id": flow_id,
+                "instance_id": instance_id,
+                "timestamp": datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S.%f"),
+                "level": "warn",
+                "message": (
+                    f"[Action:{action_id}] Skipped: duplicate execution detected "
+                    f"for event {event_uuid}. Another invocation (other-inv-id) already executed this action."
+                ),
+            },
+        )
+
+    def test_blocked_runs_returns_parsed_results(self):
+        flow_id = self._create_flow()
+        event_uuid = "550e8400-e29b-41d4-a716-446655440000"
+
+        self._insert_blocked_log(flow_id, "inv-001", "action_1", event_uuid)
+        self._insert_blocked_log(flow_id, "inv-002", "action_1", "660e8400-e29b-41d4-a716-446655440000")
+
+        response = self.client.get(f"/api/projects/{self.team.id}/hog_flows/{flow_id}/blocked_runs")
+        assert response.status_code == status.HTTP_200_OK
+        results = response.json()["results"]
+        assert len(results) == 2
+
+        for result in results:
+            assert result["action_id"] == "action_1"
+            assert result["event_uuid"] is not None
+            assert result["instance_id"] is not None
+
+    def test_blocked_runs_invalid_limit(self):
+        flow_id = self._create_flow()
+
+        response = self.client.get(f"/api/projects/{self.team.id}/hog_flows/{flow_id}/blocked_runs?limit=abc")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["error"] == "limit must be an integer"
+
+    def test_blocked_runs_empty_when_no_blocked_logs(self):
+        flow_id = self._create_flow()
+
+        response = self.client.get(f"/api/projects/{self.team.id}/hog_flows/{flow_id}/blocked_runs")
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["results"] == []
+
+    def test_blocked_runs_scoped_to_workflow(self):
+        flow_a = self._create_flow()
+        flow_b = self._create_flow()
+
+        self._insert_blocked_log(flow_a, "inv-001", "action_1", "550e8400-e29b-41d4-a716-446655440000")
+        self._insert_blocked_log(flow_b, "inv-002", "action_1", "660e8400-e29b-41d4-a716-446655440000")
+
+        response = self.client.get(f"/api/projects/{self.team.id}/hog_flows/{flow_a}/blocked_runs")
+        results = response.json()["results"]
+        assert len(results) == 1
+        assert results[0]["instance_id"] == "inv-001"
+
+    @patch("posthog.api.hog_flow.bulk_replay_hog_flow_invocations")
+    def test_replay_blocked_run_success(self, mock_bulk_replay):
+        from posthog.models.event.util import create_event
+
+        mock_response = Mock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {"succeeded": 1, "failed": 0}
+        mock_bulk_replay.return_value = mock_response
+
+        flow_id = self._create_flow()
+        event_uuid = uuid_mod.uuid4()
+        person_id = uuid_mod.uuid4()
+        create_event(
+            event_uuid=event_uuid,
+            event="$pageview",
+            team=self.team,
+            distinct_id="user-1",
+            properties={"url": "https://example.com"},
+            person_id=person_id,
+            person_properties={"email": "test@example.com"},
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}/replay_blocked_run",
+            {"event_uuid": str(event_uuid), "action_id": "action_1", "instance_id": "inv-001"},
+        )
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["status"] == "queued"
+
+        mock_bulk_replay.assert_called_once()
+        call_kwargs = mock_bulk_replay.call_args[1]
+        items = call_kwargs["items"]
+        assert len(items) == 1
+        assert items[0]["action_id"] == "action_1"
+        assert items[0]["instance_id"] == "inv-001"
+        assert items[0]["clickhouse_event"]["uuid"] == str(event_uuid)
+        assert items[0]["clickhouse_event"]["person_id"] == str(person_id)
+        assert "person_properties" in items[0]["clickhouse_event"]
+
+    def test_replay_blocked_run_missing_params(self):
+        flow_id = self._create_flow()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}/replay_blocked_run",
+            {"event_uuid": "550e8400-e29b-41d4-a716-446655440000"},
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}/replay_blocked_run",
+            {"action_id": "action_1"},
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_replay_blocked_run_event_not_found(self):
+        flow_id = self._create_flow()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}/replay_blocked_run",
+            {"event_uuid": "550e8400-e29b-41d4-a716-446655440000", "action_id": "action_1", "instance_id": "inv-001"},
+        )
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    @patch("posthog.api.hog_flow.bulk_replay_hog_flow_invocations")
+    def test_replay_all_blocked_runs_sends_bulk_request(self, mock_bulk_replay):
+        from posthog.models.event.util import create_event
+
+        mock_response = Mock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {"succeeded": 2, "failed": 0}
+        mock_bulk_replay.return_value = mock_response
+
+        flow_id = self._create_flow()
+        event_uuid_1 = uuid_mod.uuid4()
+        event_uuid_2 = uuid_mod.uuid4()
+        for eu in [event_uuid_1, event_uuid_2]:
+            create_event(
+                event_uuid=eu,
+                event="$pageview",
+                team=self.team,
+                distinct_id="user-1",
+                properties={},
+                person_id=uuid_mod.uuid4(),
+            )
+
+        self._insert_blocked_log(flow_id, "inv-001", "action_1", str(event_uuid_1))
+        self._insert_blocked_log(flow_id, "inv-002", "action_1", str(event_uuid_2))
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}/replay_all_blocked_runs",
+        )
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["succeeded"] == 2
+        assert response.json()["failed"] == 0
+
+        mock_bulk_replay.assert_called_once()
+        call_kwargs = mock_bulk_replay.call_args[1]
+        items = call_kwargs["items"]
+        assert len(items) == 2
+        assert all(item["clickhouse_event"]["uuid"] in [str(event_uuid_1), str(event_uuid_2)] for item in items)
+        assert all(item["action_id"] == "action_1" for item in items)
+
+    @patch("posthog.api.hog_flow.bulk_replay_hog_flow_invocations")
+    def test_replay_all_skips_runs_with_missing_events(self, mock_bulk_replay):
+        mock_response = Mock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {"succeeded": 0, "failed": 0}
+        mock_bulk_replay.return_value = mock_response
+
+        flow_id = self._create_flow()
+        # Insert blocked logs but don't create the events — they should be skipped
+        self._insert_blocked_log(flow_id, "inv-001", "action_1", "550e8400-e29b-41d4-a716-446655440000")
+        self._insert_blocked_log(flow_id, "inv-002", "action_1", "660e8400-e29b-41d4-a716-446655440000")
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}/replay_all_blocked_runs",
+        )
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["skipped"] == 2
+
+        # No items to send, so bulk_replay should not be called
+        mock_bulk_replay.assert_not_called()
+
+    def test_replay_all_empty_when_no_blocked_runs(self):
+        flow_id = self._create_flow()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}/replay_all_blocked_runs",
+        )
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {"succeeded": 0, "failed": 0, "skipped": 0}
+
+    def test_blocked_runs_returns_empty_when_feature_flag_disabled(self):
+        from posthog.models.feature_flag import FeatureFlag
+
+        FeatureFlag.objects.filter(team=self.team, key="workflows-replay-blocked-runs").update(active=False)
+
+        flow_id = self._create_flow()
+        self._insert_blocked_log(flow_id, "inv-001", "action_1", "550e8400-e29b-41d4-a716-446655440000")
+
+        response = self.client.get(f"/api/projects/{self.team.id}/hog_flows/{flow_id}/blocked_runs")
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["results"] == []
+
+    def test_replay_blocked_run_returns_403_when_feature_flag_disabled(self):
+        from posthog.models.feature_flag import FeatureFlag
+
+        FeatureFlag.objects.filter(team=self.team, key="workflows-replay-blocked-runs").update(active=False)
+
+        flow_id = self._create_flow()
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}/replay_blocked_run",
+            {"event_uuid": "550e8400-e29b-41d4-a716-446655440000", "action_id": "action_1", "instance_id": "inv-001"},
+        )
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+
+    def test_blocked_runs_pagination(self):
+        flow_id = self._create_flow()
+        for i in range(3):
+            self._insert_blocked_log(flow_id, f"inv-{i:03d}", "action_1", f"550e8400-e29b-41d4-a716-44665544{i:04d}")
+
+        response = self.client.get(f"/api/projects/{self.team.id}/hog_flows/{flow_id}/blocked_runs?limit=2&offset=0")
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert len(data["results"]) == 2
+        assert data["has_next"] is True
+
+        response = self.client.get(f"/api/projects/{self.team.id}/hog_flows/{flow_id}/blocked_runs?limit=2&offset=2")
+        data = response.json()
+        assert len(data["results"]) == 1
+        assert data["has_next"] is False

@@ -6059,6 +6059,39 @@ const api = {
         async deleteHogFlowSchedule(hogFlowId: HogFlow['id'], scheduleId: string): Promise<void> {
             return await new ApiRequest().hogFlow(hogFlowId).withAction('schedules').withAction(scheduleId).delete()
         },
+        async getBlockedRuns(
+            hogFlowId: HogFlow['id'],
+            limit = 100,
+            offset = 0
+        ): Promise<{
+            results: {
+                instance_id: string
+                timestamp: string
+                action_id: string | null
+                event_uuid: string | null
+                message: string
+            }[]
+            has_next: boolean
+            limit: number
+            offset: number
+        }> {
+            return await new ApiRequest()
+                .hogFlow(hogFlowId)
+                .withAction('blocked_runs')
+                .withQueryString(`limit=${limit}&offset=${offset}`)
+                .get()
+        },
+        async replayBlockedRun(
+            hogFlowId: HogFlow['id'],
+            data: { event_uuid: string; action_id: string; instance_id: string }
+        ): Promise<{ status: string; invocation_id: string }> {
+            return await new ApiRequest().hogFlow(hogFlowId).withAction('replay_blocked_run').create({ data })
+        },
+        async replayAllBlockedRuns(
+            hogFlowId: HogFlow['id']
+        ): Promise<{ succeeded: number; failed: number; skipped: number }> {
+            return await new ApiRequest().hogFlow(hogFlowId).withAction('replay_all_blocked_runs').create()
+        },
     },
     hogFlowTemplates: {
         async getHogFlowTemplates(): Promise<PaginatedResponse<HogFlowTemplate>> {

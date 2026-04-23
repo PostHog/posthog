@@ -327,6 +327,24 @@ export const hogFlowsBatchJobsCreate = async (
     })
 }
 
+/**
+ * List workflow runs that were blocked by the dedup bug.
+ */
+export const getHogFlowsBlockedRunsRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/hog_flows/${id}/blocked_runs/`
+}
+
+export const hogFlowsBlockedRunsRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<HogFlowApi> => {
+    return apiMutator<HogFlowApi>(getHogFlowsBlockedRunsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getHogFlowsInvocationsCreateUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/hog_flows/${id}/invocations/`
 }
@@ -434,6 +452,27 @@ export const hogFlowsMetricsTotalsRetrieve = async (
     return apiMutator<AppMetricsTotalsResponseApi>(getHogFlowsMetricsTotalsRetrieveUrl(projectId, id, params), {
         ...options,
         method: 'GET',
+    })
+}
+
+/**
+ * Replay a workflow run that was blocked by the dedup bug, starting from the blocked action.
+ */
+export const getHogFlowsReplayBlockedRunCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/hog_flows/${id}/replay_blocked_run/`
+}
+
+export const hogFlowsReplayBlockedRunCreate = async (
+    projectId: string,
+    id: string,
+    hogFlowApi: NonReadonly<HogFlowApi>,
+    options?: RequestInit
+): Promise<HogFlowApi> => {
+    return apiMutator<HogFlowApi>(getHogFlowsReplayBlockedRunCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(hogFlowApi),
     })
 }
 

@@ -862,4 +862,158 @@ describe('CDP API', () => {
             expect(mockQueueInvocations).toHaveBeenCalledTimes(1)
         })
     })
+
+    describe('replay hogflow invocations', () => {
+        let replayHogFlow: HogFlow
+        let mockQueueInvocations: jest.Mock
+
+        const clickhouseEvent = {
+            uuid: 'b3a1fe86-b10c-43cc-acaf-d208977608d0',
+            event: '$pageview',
+            properties: '{"url":"https://example.com"}',
+            timestamp: '2021-09-28T14:00:00.000Z',
+            team_id: 0, // set in beforeEach
+            distinct_id: 'user-1',
+            elements_chain: '',
+            person_id: 'a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d',
+            person_properties: '{"email":"test@example.com"}',
+        }
+
+        beforeEach(async () => {
+            mockQueueInvocations = jest.fn().mockResolvedValue(undefined)
+            api['cyclotronJobQueue'] = { queueInvocations: mockQueueInvocations } as any
+
+            replayHogFlow = await insertHogFlow({
+                id: new UUIDT().toString(),
+                name: 'test replay flow',
+                status: 'active',
+                version: 1,
+                exit_condition: 'exit_on_conversion',
+                edges: [],
+                actions: [
+                    {
+                        id: 'trigger_node',
+                        type: 'trigger',
+                        name: 'trigger',
+                        config: { type: 'event', filters: { events: [{ id: '$pageview', type: 'events' }] } },
+                    },
+                    {
+                        id: 'action_1',
+                        type: 'function',
+                        name: 'webhook',
+                        config: { template_id: 'template-webhook', inputs: { url: { value: 'https://example.com' } } },
+                    },
+                ],
+                trigger: {
+                    type: 'event',
+                    filters: { events: [{ id: '$pageview', type: 'events' }] },
+                },
+            } as any)
+            clickhouseEvent.team_id = team.id
+        })
+
+        describe('bulk replay', () => {
+            it('queues multiple replay invocations in a single call', async () => {
+                const res = await supertest(app)
+                    .post(
+                        `/api/projects/${replayHogFlow.team_id}/hog_flows/${replayHogFlow.id}/bulk_replay_invocations`
+                    )
+                    .send({
+                        items: [
+                            {
+                                clickhouse_event: clickhouseEvent,
+                                action_id: 'action_1',
+                                instance_id: 'inv-001',
+                            },
+                            {
+                                clickhouse_event: { ...clickhouseEvent, uuid: 'c4b2fe97-c21d-54e5-bdbe-e319088719e1' },
+                                action_id: 'action_1',
+                                instance_id: 'inv-002',
+                            },
+                        ],
+                    })
+
+                expect(res.status).toEqual(200)
+                expect(res.body.succeeded).toEqual(2)
+                expect(res.body.failed).toEqual(0)
+                expect(mockQueueInvocations).toHaveBeenCalledTimes(1)
+
+                const queuedInvocations = mockQueueInvocations.mock.calls[0][0]
+                expect(queuedInvocations).toHaveLength(2)
+                expect(queuedInvocations[0].state.currentAction.id).toEqual('action_1')
+                expect(queuedInvocations[1].state.currentAction.id).toEqual('action_1')
+            })
+
+            it('skips items with invalid action_id and reports failures', async () => {
+                const res = await supertest(app)
+                    .post(
+                        `/api/projects/${replayHogFlow.team_id}/hog_flows/${replayHogFlow.id}/bulk_replay_invocations`
+                    )
+                    .send({
+                        items: [
+                            {
+                                clickhouse_event: clickhouseEvent,
+                                action_id: 'action_1',
+                                instance_id: 'inv-001',
+                            },
+                            {
+                                clickhouse_event: clickhouseEvent,
+                                action_id: 'nonexistent_action',
+                                instance_id: 'inv-002',
+                            },
+                        ],
+                    })
+
+                expect(res.status).toEqual(200)
+                expect(res.body.succeeded).toEqual(1)
+                expect(res.body.failed).toEqual(1)
+            })
+
+            it('errors if items array is empty', async () => {
+                const res = await supertest(app)
+                    .post(
+                        `/api/projects/${replayHogFlow.team_id}/hog_flows/${replayHogFlow.id}/bulk_replay_invocations`
+                    )
+                    .send({ items: [] })
+
+                expect(res.status).toEqual(400)
+            })
+
+            it('errors if workflow not found', async () => {
+                const res = await supertest(app)
+                    .post(
+                        `/api/projects/${replayHogFlow.team_id}/hog_flows/${new UUIDT().toString()}/bulk_replay_invocations`
+                    )
+                    .send({
+                        items: [
+                            {
+                                clickhouse_event: clickhouseEvent,
+                                action_id: 'action_1',
+                                instance_id: 'inv-001',
+                            },
+                        ],
+                    })
+
+                expect(res.status).toEqual(404)
+            })
+
+            it('skips items with missing required fields', async () => {
+                const res = await supertest(app)
+                    .post(
+                        `/api/projects/${replayHogFlow.team_id}/hog_flows/${replayHogFlow.id}/bulk_replay_invocations`
+                    )
+                    .send({
+                        items: [
+                            { clickhouse_event: clickhouseEvent, action_id: 'action_1', instance_id: 'inv-001' },
+                            { action_id: 'action_1', instance_id: 'inv-002' }, // missing clickhouse_event
+                            { clickhouse_event: clickhouseEvent, instance_id: 'inv-003' }, // missing action_id
+                        ],
+                    })
+
+                expect(res.status).toEqual(200)
+                expect(res.body.succeeded).toEqual(1)
+                expect(res.body.failed).toEqual(2)
+            })
+        })
+    })
 })
