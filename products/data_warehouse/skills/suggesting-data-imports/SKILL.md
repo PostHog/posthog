@@ -21,7 +21,7 @@ This skill helps identify when data the user needs lives outside PostHog and gui
 
 Listen for signals that the user needs external data:
 
-- They mention a specific tool or system (Stripe, Hubspot, Zendesk, their database, etc.)
+- They mention a specific tool or system (Stripe, Hubspot, Zendesk, their production database, etc.)
 - A query references a table that doesn't exist in PostHog
 - They want to analyze something PostHog doesn't track natively (revenue, support tickets, CRM deals, etc.)
 
