@@ -28,7 +28,9 @@ const getStorageKey = (uniqueKey: string, teamId: number | null): string =>
 
 export const dataTableSavedFiltersLogic = kea<dataTableSavedFiltersLogicType>([
     props({} as DataTableSavedFiltersLogicProps),
-    key((props) => props.uniqueKey),
+    // Include the team id so a team switch yields a fresh logic instance
+    // rather than reusing one whose storageKey is frozen to the old team.
+    key((props) => `${teamLogic.values.currentTeamId ?? 'unknown'}.${props.uniqueKey}`),
     path(['queries', 'nodes', 'DataTable', 'dataTableSavedFiltersLogic']),
 
     actions({

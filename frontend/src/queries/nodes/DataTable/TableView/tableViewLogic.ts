@@ -88,7 +88,9 @@ function getQueryFromView(
 
 export const tableViewLogic = kea<tableViewLogicType>([
     props({} as TableViewLogicProps),
-    key((props) => props.contextKey),
+    // Include the team id so a team switch yields a fresh logic instance
+    // rather than reusing one whose storageKey is frozen to the old team.
+    key((props) => `${teamLogic.values.currentTeamId ?? 'unknown'}.${props.contextKey}`),
     path(['queries', 'nodes', 'DataTable', 'TableView', 'tableViewLogic']),
     connect({
         values: [userLogic, ['user']],

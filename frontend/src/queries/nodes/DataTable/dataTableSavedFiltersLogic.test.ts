@@ -434,6 +434,34 @@ describe('dataTableSavedFiltersLogic', () => {
                     savedFilters: [],
                 })
             })
+
+            it('should return a fresh instance when the team changes without an unmount', () => {
+                logic.actions.createSavedFilter('Team A Filter')
+                const originalTeamId = teamLogic.values.currentTeamId!
+
+                // Switch the current team without unmounting the logic — this
+                // simulates the case greptile flagged (no full page reload).
+                teamLogic.actions.loadCurrentTeamSuccess({
+                    ...teamLogic.values.currentTeam!,
+                    id: originalTeamId + 1,
+                } as any)
+
+                const switchedLogic = dataTableSavedFiltersLogic({
+                    uniqueKey: 'test-table',
+                    query: mockQuery,
+                    setQuery: mockSetQuery,
+                })
+                switchedLogic.mount()
+
+                // Because the kea key includes the team id, this must be a
+                // different instance from `logic`, with its own empty state.
+                expect(switchedLogic).not.toBe(logic)
+                expectLogic(switchedLogic).toMatchValues({
+                    savedFilters: [],
+                })
+
+                switchedLogic.unmount()
+            })
         })
     })
 
