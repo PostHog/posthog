@@ -9,6 +9,7 @@ import { HumanizedActivityLogItem, humanize } from 'lib/components/ActivityLog/h
 import { showCriticalNotificationToast } from 'lib/components/NotificationsMenu/notificationToasts'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
+import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { retryWithBackoff, toParams } from 'lib/utils'
@@ -246,6 +247,9 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
             }
         },
         startSSE: () => {
+            // Drop any pending focus-reconnect from a previous give-up; we're reconnecting now.
+            cache.disposables.dispose('sseFocusReconnect')
+
             // TEMPORARY: lifecycle tracking for /notifications SSE connection.
             // Remove together with livestream_401_debug once root cause is known.
             posthog.capture('livestream_sse_startsse_called', {
@@ -320,13 +324,29 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
                     signal: abortController.signal,
                 }
             ).catch((error) => {
-                // TEMPORARY: livestream SSE lifecycle tracking. retryWithBackoff rejects with AbortError on clean shutdown; only log when it actually gave up.
-                if (!(error instanceof DOMException && error.name === 'AbortError')) {
-                    posthog.capture('livestream_sse_max_errors', {
-                        url,
-                        max_attempts: SSE_RETRY_ATTEMPTS,
-                    })
+                // retryWithBackoff rejects with AbortError on clean shutdown; only re-arm when it actually gave up.
+                if (error instanceof DOMException && error.name === 'AbortError') {
+                    return
                 }
+                // TEMPORARY: livestream SSE lifecycle tracking.
+                posthog.capture('livestream_sse_max_errors', {
+                    url,
+                    max_attempts: SSE_RETRY_ATTEMPTS,
+                })
+                // Re-arm SSE the next time the user focuses the window. pauseOnPageHidden must be false
+                // so the listener stays attached while the tab is backgrounded — that's exactly when we want it.
+                cache.disposables.add(
+                    () => {
+                        const onFocus = (): void => {
+                            posthog.capture('livestream_sse_refocus_reconnect', { url })
+                            actions.startSSE()
+                        }
+                        window.addEventListener('focus', onFocus, { once: true })
+                        return () => window.removeEventListener('focus', onFocus)
+                    },
+                    'sseFocusReconnect',
+                    { pauseOnPageHidden: false }
+                )
             })
         },
         stopSSE: () => {
@@ -334,23 +354,40 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
             posthog.capture('livestream_sse_stopped', {
                 had_connection: !!cache.sseConnection,
             })
+            cache.disposables.dispose('sseFocusReconnect')
             cache.sseConnection?.abort()
             cache.sseConnection = null
         },
         navigateToNotification: ({ notification }) => {
-            const path = buildNotificationSourcePath(notification)
+            const path = values.sourcePathForNotification(notification)
             if (!path) {
                 return
             }
-            if (!notification.read) {
-                actions.markAsRead(notification.id)
-            }
             const isOtherProject = notification.team_id !== null && notification.team_id !== values.currentTeamId
-            if (isOtherProject) {
-                window.location.href = urls.project(notification.team_id!, path)
-            } else {
+            if (!isOtherProject) {
+                if (!notification.read) {
+                    actions.markAsRead(notification.id)
+                }
                 router.actions.push(path)
+                return
             }
+            const targetProjectName = values.projectNameForNotification(notification)
+            LemonDialog.open({
+                title: 'Leave current project?',
+                description: `This notification is in ${targetProjectName ? `"${targetProjectName}"` : 'another project'}. Opening it will reload the page and you'll lose any unsaved work.`,
+                primaryButton: {
+                    children: 'Open',
+                    onClick: () => {
+                        if (!notification.read) {
+                            actions.markAsRead(notification.id)
+                        }
+                        window.location.href = urls.project(notification.team_id!, path)
+                    },
+                },
+                secondaryButton: {
+                    children: 'Stay here',
+                },
+            })
         },
         markAsRead: async ({ id }) => {
             try {
@@ -483,6 +520,12 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
                     return currentOrganization?.teams?.find((t) => t.id === notification.team_id)?.name ?? null
                 }
             },
+        ],
+        sourcePathForNotification: [
+            () => [],
+            () =>
+                (notification: InAppNotification): string | null =>
+                    buildNotificationSourcePath(notification),
         ],
     }),
     afterMount(({ cache, actions, values }) => {

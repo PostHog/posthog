@@ -9,10 +9,7 @@ import { dayjs } from 'lib/dayjs'
 import { IconRadioButtonUnchecked } from 'lib/lemon-ui/icons'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 
-import {
-    buildNotificationSourcePath,
-    sidePanelNotificationsLogic,
-} from '~/layout/navigation-3000/sidepanel/panels/activity/sidePanelNotificationsLogic'
+import { sidePanelNotificationsLogic } from '~/layout/navigation-3000/sidepanel/panels/activity/sidePanelNotificationsLogic'
 import { InAppNotification } from '~/types'
 
 export function NotificationRow({
@@ -23,12 +20,12 @@ export function NotificationRow({
     onNavigate?: () => void
 }): JSX.Element {
     const { navigateToNotification, toggleRead } = useActions(sidePanelNotificationsLogic)
-    const { projectNameForNotification } = useValues(sidePanelNotificationsLogic)
+    const { projectNameForNotification, sourcePathForNotification } = useValues(sidePanelNotificationsLogic)
     const [expanded, setExpanded] = useState(false)
 
     const otherProjectName = projectNameForNotification(notification)
 
-    const hasNavigationTarget = !!buildNotificationSourcePath(notification)
+    const hasNavigationTarget = !!sourcePathForNotification(notification)
     const handleNavigate = (e: React.MouseEvent): void => {
         e.stopPropagation()
         if (hasNavigationTarget) {
