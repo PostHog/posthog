@@ -97,6 +97,10 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     param_derived_from_user_current_team = "team_id"
 
     scope_object = "INTERNAL"
+    # Opt this viewset into the OpenAPI schema despite `INTERNAL` scope and `param_derived_from_user_current_team`,
+    # so the selectively exposed actions (see dangerously_get_required_scopes) are discoverable by frontend
+    # type generation and MCP tool scaffolding.
+    force_include_in_api_docs = True
 
     def dangerously_get_required_scopes(self, request, view) -> list[str] | None:
         # Selective opt-in for PAT/OAuth access. Only the listed actions are reachable via API token;
