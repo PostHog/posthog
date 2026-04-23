@@ -1,3 +1,4 @@
+import { getPostHogClient } from '@/lib/analytics'
 import { MCP_DOCS_URL, OAUTH_SCOPES_SUPPORTED, getAuthorizationServerUrl } from '@/lib/constants'
 import {
     buildInsufficientScopeChallenge,
@@ -83,7 +84,11 @@ const onThenErrorHandler = async (response: Response): Promise<Response> => {
     return response
 }
 
-const onCatchErrorHandler = async (error: Error): Promise<Response> => {
+const onCatchErrorHandler = async (
+    error: Error,
+    log: RequestLogger,
+    ctx: ExecutionContext<RequestProperties>
+): Promise<Response> => {
     const permissionError = findPostHogPermissionError(error)
     if (permissionError) {
         return new Response(formatPermissionErrorMessage(permissionError), {
@@ -94,7 +99,38 @@ const onCatchErrorHandler = async (error: Error): Promise<Response> => {
             },
         })
     }
-    return generateErrorResponseFromMessage(error.message) || new Response('Internal server error', { status: 500 })
+
+    const knownErrorResponse = generateErrorResponseFromMessage(error.message)
+    if (knownErrorResponse) {
+        return knownErrorResponse
+    }
+
+    // Unrecognized error → opaque 500 to the client. Surface the underlying
+    // error in the wide log and PostHog so we can debug without scraping CF
+    // request traces.
+    log.extend({
+        errorName: error?.name,
+        errorMessage: error?.message,
+        errorStack: error?.stack,
+    })
+
+    try {
+        const client = getPostHogClient()
+        const distinctId = ctx.props?.userHash
+        client.captureException(error, distinctId, {
+            team: 'posthog_ai',
+            source: 'mcp_request_handler',
+            mcp_transport: ctx.props?.transport,
+            mcp_version: ctx.props?.version,
+            has_organization_id: !!ctx.props?.organizationId,
+            has_project_id: !!ctx.props?.projectId,
+        })
+        ctx.waitUntil(client.flush())
+    } catch {
+        // Never let observability break the request.
+    }
+
+    return new Response('Internal server error', { status: 500 })
 }
 
 const generateErrorResponseFromMessage = (message: string): Response | null => {
@@ -302,7 +338,7 @@ const handleRequest = async (
     }
 
     if (server !== null) {
-        return server.then(onThenErrorHandler).catch(onCatchErrorHandler)
+        return server.then(onThenErrorHandler).catch((error: Error) => onCatchErrorHandler(error, log, ctx))
     }
 
     log.extend({ error: 'route_not_found' })

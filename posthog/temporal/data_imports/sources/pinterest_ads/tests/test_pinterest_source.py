@@ -23,7 +23,7 @@ class TestPinterestAdsSource:
 
         assert config.name.value == "PinterestAds"
         assert config.label == "Pinterest Ads"
-        assert config.betaSource is True
+        assert config.releaseStatus == "beta"
         assert config.featureFlag is None
         assert len(config.fields) == 2
 

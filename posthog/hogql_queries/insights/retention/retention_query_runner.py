@@ -427,15 +427,15 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
         # Replace NULL with empty string ''
         return ast.Call(name="ifNull", args=[to_string_expr, ast.Constant(value="")])
 
-    def actor_query(
+    def base_query(
         self,
         start_interval_index_filter: Optional[int] = None,
         selected_breakdown_value: str | list[str] | int | None = None,
     ) -> ast.SelectQuery:
         if self.is_24h_window_calculation:
-            inner_query = self.actor_query_24h_window()
+            base_query = self.base_query_rolling_interval()
         else:
-            inner_query = self.actor_query_calendar(
+            base_query = self.base_query_fixed_interval(
                 start_interval_index_filter=start_interval_index_filter,
                 selected_breakdown_value=selected_breakdown_value,
             )
@@ -444,9 +444,9 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
         if (
             self.query.samplingFactor is not None
             and isinstance(self.query.samplingFactor, float)
-            and inner_query.select_from is not None
+            and base_query.select_from is not None
         ):
-            inner_query.select_from.sample = ast.SampleExpr(
+            base_query.select_from.sample = ast.SampleExpr(
                 sample_value=ast.RatioExpr(left=ast.Constant(value=self.query.samplingFactor))
             )
 
@@ -467,12 +467,12 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
                 )
 
             if breakdown_expr:
-                inner_query.select.append(ast.Alias(alias="breakdown_value", expr=breakdown_expr))
-                cast(list[ast.Expr], inner_query.group_by).append(ast.Field(chain=["breakdown_value"]))
+                base_query.select.append(ast.Alias(alias="breakdown_value", expr=breakdown_expr))
+                cast(list[ast.Expr], base_query.group_by).append(ast.Field(chain=["breakdown_value"]))
 
-        return inner_query
+        return base_query
 
-    def actor_query_24h_window(self) -> ast.SelectQuery:
+    def base_query_rolling_interval(self) -> ast.SelectQuery:
         interval = self.query_date_range.interval_name
         if interval == "hour":
             unit, count = "hour", 1
@@ -597,7 +597,7 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
         else:
             return ast.Constant(value=None)
 
-    def actor_query_calendar(
+    def base_query_fixed_interval(
         self,
         start_interval_index_filter: Optional[int] = None,
         selected_breakdown_value: str | list[str] | int | None = None,
@@ -1027,7 +1027,7 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
 
     def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
         with self.timings.measure("retention_query"):
-            actor_query: ast.SelectQuery | ast.SelectSetQuery
+            base_query: ast.SelectQuery | ast.SelectSetQuery
 
             # is cohort breakdown
             if (
@@ -1035,7 +1035,7 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
                 and self.query.breakdownFilter.breakdowns is not None
                 and any(b.type == "cohort" for b in self.query.breakdownFilter.breakdowns)
             ):
-                actor_queries = []
+                base_queries = []
                 cohort_breakdowns = [b for b in self.query.breakdownFilter.breakdowns if b.type == "cohort"]
 
                 for breakdown in cohort_breakdowns:
@@ -1048,19 +1048,19 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
                     temp_runner = RetentionQueryRunner(
                         query=temp_query, team=self.team, timings=self.timings, modifiers=self.modifiers
                     )
-                    actor_queries.append(temp_runner.actor_query())
+                    base_queries.append(temp_runner.base_query())
 
-                if len(actor_queries) == 1:
-                    actor_query = actor_queries[0]
+                if len(base_queries) == 1:
+                    base_query = base_queries[0]
                 else:
-                    actor_query = ast.SelectSetQuery.create_from_queries(actor_queries, "UNION ALL")
+                    base_query = ast.SelectSetQuery.create_from_queries(base_queries, "UNION ALL")
             else:
-                actor_query = self.actor_query()
+                base_query = self.base_query()
 
             if self.query.retentionFilter.cumulative:
                 # For cumulative, we need to calculate the max interval and then explode it
-                cumulative_actors_query = self._build_cumulative_actors_query(actor_query)
-                actor_query = self._explode_cumulative_actors(cumulative_actors_query)
+                cumulative_actors_query = self._build_cumulative_actors_query(base_query)
+                base_query = self._explode_cumulative_actors(cumulative_actors_query)
 
             # count_expr always represents the number of distinct actors
             count_expr = parse_expr("COUNT(DISTINCT actor_activity.actor_id)")
@@ -1089,7 +1089,7 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
                             {count_expr} AS count,
                             {aggregation_value_expr} AS aggregation_value
 
-                        FROM {actor_query} AS actor_activity
+                        FROM {base_query} AS actor_activity
 
                         GROUP BY
                             start_event_matching_interval,
@@ -1104,7 +1104,7 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
                         LIMIT 100000
                         """,
                         {
-                            "actor_query": actor_query,
+                            "base_query": base_query,
                             "count_expr": count_expr,
                             "aggregation_value_expr": aggregation_value_expr,
                         },
@@ -1119,7 +1119,7 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
                             actor_activity.breakdown_value AS breakdown_value,
                             {count_expr} AS count
 
-                        FROM {actor_query} AS actor_activity
+                        FROM {base_query} AS actor_activity
 
                         GROUP BY
                             start_event_matching_interval,
@@ -1133,7 +1133,7 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
 
                         LIMIT 100000
                         """,
-                        {"actor_query": actor_query, "count_expr": count_expr},
+                        {"base_query": base_query, "count_expr": count_expr},
                         timings=self.timings,
                     )
             else:
@@ -1146,7 +1146,7 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
                                    {count_expr} AS count,
                                    {aggregation_value_expr} AS aggregation_value
 
-                            FROM {actor_query} AS actor_activity
+                            FROM {base_query} AS actor_activity
 
                             GROUP BY start_event_matching_interval,
                                      intervals_from_base
@@ -1157,7 +1157,7 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
                             LIMIT 100000
                         """,
                         {
-                            "actor_query": actor_query,
+                            "base_query": base_query,
                             "count_expr": count_expr,
                             "aggregation_value_expr": aggregation_value_expr,
                         },
@@ -1170,7 +1170,7 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
                                    actor_activity.intervals_from_base      AS intervals_from_base,
                                    {count_expr} AS count
 
-                            FROM {actor_query} AS actor_activity
+                            FROM {base_query} AS actor_activity
 
                             GROUP BY start_event_matching_interval,
                                      intervals_from_base
@@ -1180,16 +1180,15 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
 
                             LIMIT 100000
                         """,
-                        {"actor_query": actor_query, "count_expr": count_expr},
+                        {"base_query": base_query, "count_expr": count_expr},
                         timings=self.timings,
                     )
         return retention_query
 
     def _build_cumulative_actors_query(
-        self, actor_query_base: ast.SelectQuery | ast.SelectSetQuery
+        self, base_query: ast.SelectQuery | ast.SelectSetQuery
     ) -> ast.SelectQuery | ast.SelectSetQuery:
         # We need to calculate the max interval from the base query
-        # Note: we can't use actor_query(cumulative=True) anymore because it doesn't work with UNION ALL
         if self.breakdowns_in_query:
             return parse_select(
                 """
@@ -1198,10 +1197,10 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
                     max(intervals_from_base) as max_interval,
                     start_interval_index,
                     breakdown_value
-                FROM {actor_query}
+                FROM {base_query}
                 GROUP BY actor_id, start_interval_index, breakdown_value
                 """,
-                {"actor_query": actor_query_base},
+                {"base_query": base_query},
             )
         else:
             return parse_select(
@@ -1210,10 +1209,10 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
                     actor_id,
                     max(intervals_from_base) as max_interval,
                     start_interval_index
-                FROM {actor_query}
+                FROM {base_query}
                 GROUP BY actor_id, start_interval_index
                 """,
-                {"actor_query": actor_query_base},
+                {"base_query": base_query},
             )
 
     def _explode_cumulative_actors(
@@ -1442,7 +1441,7 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
                 and any(b.type == "cohort" for b in self.query.breakdownFilter.breakdowns)
             )
 
-            actor_query: ast.SelectQuery | ast.SelectSetQuery
+            base_query: ast.SelectQuery | ast.SelectSetQuery
             if is_cohort_breakdown:
                 if not breakdown_values or not isinstance(breakdown_values, list) or len(breakdown_values) == 0:
                     raise ValueError("A cohort breakdown value is required for actors query with cohort breakdowns.")
@@ -1458,7 +1457,7 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
                 runner = RetentionQueryRunner(
                     query=temp_query, team=self.team, timings=self.timings, modifiers=self.modifiers
                 )
-                actor_query = runner.actor_query(start_interval_index_filter=interval)
+                base_query = runner.base_query(start_interval_index_filter=interval)
 
             else:
                 selected_breakdown_value = None
@@ -1469,7 +1468,7 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
                         )
                     selected_breakdown_value = "::".join(breakdown_values)
 
-                actor_query = self.actor_query(
+                base_query = self.base_query(
                     start_interval_index_filter=interval, selected_breakdown_value=selected_breakdown_value
                 )
 
@@ -1481,12 +1480,12 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
                         groupArray(actor_activity.intervals_from_base) AS appearance_intervals,
                         arraySort(appearance_intervals) AS appearances
 
-                    FROM {actor_query} AS actor_activity
+                    FROM {base_query} AS actor_activity
 
                     GROUP BY actor_id
                 """,
                 placeholders={
-                    "actor_query": actor_query,
+                    "base_query": base_query,
                 },
                 timings=self.timings,
             )
@@ -1567,10 +1566,10 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
                     start_interval_index,
                     intervals_from_base
                 FROM
-                    {actor_query}
+                    {base_query}
                 """,
                     {
-                        "actor_query": self.actor_query(
+                        "base_query": self.base_query(
                             selected_breakdown_value=breakdown_value,
                             start_interval_index_filter=interval,
                         ),

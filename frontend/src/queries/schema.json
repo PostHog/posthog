@@ -32357,6 +32357,10 @@
                 "cumulative": {
                     "type": "boolean"
                 },
+                "customAggregationTarget": {
+                    "description": "For data warehouse based retention insights when the aggregation target can't be mapped to persons or groups.",
+                    "type": "boolean"
+                },
                 "dashboardDisplay": {
                     "$ref": "#/definitions/RetentionDashboardDisplayType"
                 },
@@ -35025,9 +35029,6 @@
         "SourceConfig": {
             "additionalProperties": false,
             "properties": {
-                "betaSource": {
-                    "type": "boolean"
-                },
                 "caption": {
                     "anyOf": [
                         {
@@ -35072,6 +35073,10 @@
                     "$ref": "#/definitions/ExternalDataSourceType"
                 },
                 "permissionsCaption": {
+                    "type": "string"
+                },
+                "releaseStatus": {
+                    "enum": ["alpha", "beta", "ga"],
                     "type": "string"
                 },
                 "suggestedTables": {
