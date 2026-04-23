@@ -493,14 +493,33 @@ def _resolve_baselines_with_merge_base(repo: Repo, run_type: str, branch: str) -
 
 
 def _tombstoned_identifiers(repo: Repo, run_type: str, branch: str) -> set[str]:
-    """Identifiers approved as REMOVED on this branch.
+    """Identifiers whose latest approved outcome on this branch was REMOVED.
 
     Healing pulls entries from merge-base back into the baseline when
     they're missing from branch. Without tombstoning, an approved
-    removal on this PR keeps reappearing: the bot commit drops it from
-    the branch file, but the next run's merge-base fetch re-adds it
-    and classifies it REMOVED all over again.
+    removal keeps reappearing: the bot commit drops it from the branch
+    file, but the next run's merge-base fetch re-adds it and classifies
+    it REMOVED all over again.
+
+    Uses the most recent approved decision per identifier so that a
+    later re-addition (approved as NEW/CHANGED) clears the tombstone.
     """
+    from django.db.models import OuterRef, Subquery
+
+    latest_approved_run = (
+        RunSnapshot.objects.using(WRITER_DB)
+        .filter(
+            run__repo=repo,
+            run__run_type=run_type,
+            run__branch=branch,
+            run__approved=True,
+            review_state=ReviewState.APPROVED,
+            identifier=OuterRef("identifier"),
+        )
+        .order_by("-run__created_at")
+        .values("run__created_at")[:1]
+    )
+
     return set(
         RunSnapshot.objects.using(WRITER_DB)
         .filter(
@@ -508,9 +527,11 @@ def _tombstoned_identifiers(repo: Repo, run_type: str, branch: str) -> set[str]:
             run__run_type=run_type,
             run__branch=branch,
             run__approved=True,
-            result=SnapshotResult.REMOVED,
             review_state=ReviewState.APPROVED,
+            result=SnapshotResult.REMOVED,
         )
+        .annotate(latest_approved_at=Subquery(latest_approved_run))
+        .filter(run__created_at=F("latest_approved_at"))
         .values_list("identifier", flat=True)
         .distinct()
     )
