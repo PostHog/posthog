@@ -21,6 +21,8 @@
 
 ## PostHog is an all-in-one, open source platform for building successful products
 
+## PostHog is an all-in-one, open source platform for building successful products
+
 [PostHog](https://posthog.com/) provides every tool you need to build a successful product including:
 
 - [Product Analytics](https://posthog.com/product-analytics): Autocapture or manually instrument event-based analytics to understand user behavior and analyze data with visualization or SQL.
