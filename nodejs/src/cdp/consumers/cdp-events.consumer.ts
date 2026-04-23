@@ -320,6 +320,8 @@ export class CdpEventsConsumer<
                         logger.warn('⚠️', 'Hogflow invocation rate limited', {
                             teamId: item.teamId,
                             hogFlowId: item.functionId,
+                            hogFlowName: item.hogFlow.name,
+                            eventUuid: item.state?.event?.uuid,
                             tokensRemaining: rateLimit.tokens,
                         })
 
