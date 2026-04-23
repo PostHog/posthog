@@ -36,6 +36,7 @@ from .event_buffer import EventBuffer
 from .event_filter_config import EventFilterConfig  # noqa: F401
 from products.event_definitions.backend.models import EventDefinition
 from products.event_definitions.backend.models import EventProperty
+from .role_external_reference import RoleExternalReference
 from .exported_asset import ExportedAsset
 from .exported_recording import ExportedRecording
 from .feature_flag import FeatureFlag
@@ -138,6 +139,7 @@ __all__ = [
     "EventBuffer",
     "EventDefinition",
     "EventProperty",
+    "RoleExternalReference",
     "ExportedAsset",
     "ExportedRecording",
     "FeatureFlag",
