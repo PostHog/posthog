@@ -33,12 +33,14 @@ import type {
     TaskRunArtifactsPrepareUploadResponseApi,
     TaskRunArtifactsUploadRequestApi,
     TaskRunArtifactsUploadResponseApi,
+    TaskRunBootstrapCreateRequestApi,
     TaskRunCommandRequestApi,
     TaskRunCommandResponseApi,
     TaskRunCreateRequestSchemaApi,
     TaskRunDetailApi,
     TaskRunRelayMessageRequestApi,
     TaskRunRelayMessageResponseApi,
+    TaskRunStartRequestApi,
     TaskStagedArtifactsFinalizeUploadRequestApi,
     TaskStagedArtifactsFinalizeUploadResponseApi,
     TaskStagedArtifactsPrepareUploadRequestApi,
@@ -417,7 +419,7 @@ export const tasksRunsList = async (
 }
 
 /**
- * Create a new run for a specific task.
+ * Create a new run for a specific task without starting execution.
  * @summary Create task run
  */
 export const getTasksRunsCreateUrl = (projectId: string, taskId: string) => {
@@ -427,11 +429,14 @@ export const getTasksRunsCreateUrl = (projectId: string, taskId: string) => {
 export const tasksRunsCreate = async (
     projectId: string,
     taskId: string,
+    taskRunBootstrapCreateRequestApi: TaskRunBootstrapCreateRequestApi,
     options?: RequestInit
 ): Promise<TaskRunDetailApi> => {
     return apiMutator<TaskRunDetailApi>(getTasksRunsCreateUrl(projectId, taskId), {
         ...options,
         method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(taskRunBootstrapCreateRequestApi),
     })
 }
 
@@ -745,6 +750,29 @@ export const tasksRunsSetOutputPartialUpdate = async (
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(patchedTaskRunSetOutputRequestApi),
+    })
+}
+
+/**
+ * Start an existing cloud run after any initial run-scoped attachments have been uploaded.
+ * @summary Start task run
+ */
+export const getTasksRunsStartCreateUrl = (projectId: string, taskId: string, id: string) => {
+    return `/api/projects/${projectId}/tasks/${taskId}/runs/${id}/start/`
+}
+
+export const tasksRunsStartCreate = async (
+    projectId: string,
+    taskId: string,
+    id: string,
+    taskRunStartRequestApi: TaskRunStartRequestApi,
+    options?: RequestInit
+): Promise<TaskApi> => {
+    return apiMutator<TaskApi>(getTasksRunsStartCreateUrl(projectId, taskId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(taskRunStartRequestApi),
     })
 }
 

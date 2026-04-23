@@ -22,7 +22,6 @@ from posthog.models import Integration, Organization, OrganizationMembership, Pe
 from posthog.models.personal_api_key import hash_key_value
 from posthog.models.utils import generate_random_token_personal
 from posthog.storage import object_storage
-from posthog.storage.object_storage import ObjectStorageError
 
 from products.tasks.backend.models import (
     CodeInvite,
@@ -39,6 +38,7 @@ from products.tasks.backend.serializers import (
 )
 from products.tasks.backend.services.connection_token import get_sandbox_jwt_public_key
 from products.tasks.backend.services.staged_artifacts import (
+    RUN_ARTIFACT_TTL_DAYS,
     build_task_artifact_entry,
     cache_task_staged_artifact,
     get_task_staged_artifacts,
@@ -435,21 +435,25 @@ class TestTaskAPI(BaseTaskAPITest):
         self.assertEqual(artifact["name"], "spec.pdf")
         self.assertEqual(artifact["type"], "user_attachment")
         self.assertEqual(artifact["source"], "user_attachment")
-        self.assertIn(f"tasks/artifacts/team_{self.team.id}/task_{task.id}/run_{run_id}/", artifact["storage_path"])
-        mock_copy.assert_called_once_with(
+        self.assertEqual(artifact["storage_path"], staged_artifact["storage_path"])
+        mock_copy.assert_not_called()
+        mock_tag.assert_called_once_with(
             staged_artifact["storage_path"],
-            artifact["storage_path"],
+            {
+                "ttl_days": RUN_ARTIFACT_TTL_DAYS,
+                "team_id": str(self.team.id),
+            },
         )
-        mock_tag.assert_called_once()
         remaining_staged_artifacts, missing_artifact_ids = get_task_staged_artifacts(task, ["artifact-123"])
         self.assertEqual(remaining_staged_artifacts, [])
         self.assertEqual(missing_artifact_ids, ["artifact-123"])
         mock_workflow.assert_called_once()
 
     @patch("posthog.storage.object_storage.copy")
+    @patch("posthog.storage.object_storage.tag")
     @patch("products.tasks.backend.api.execute_task_processing_workflow")
-    def test_run_endpoint_preserves_staged_artifacts_when_copy_fails(self, mock_workflow, mock_copy):
-        mock_copy.side_effect = ObjectStorageError("copy failed")
+    def test_run_endpoint_ignores_copy_failures_for_staged_artifacts(self, mock_workflow, mock_tag, mock_copy):
+        mock_copy.side_effect = AssertionError("copy should not be called")
         task = self.create_task()
         staged_artifact = build_task_artifact_entry(
             artifact_id="artifact-123",
@@ -471,15 +475,201 @@ class TestTaskAPI(BaseTaskAPITest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
-
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(TaskRun.objects.filter(task=task).count(), 1)
         task_run = TaskRun.objects.get(task=task)
-        self.assertEqual(task_run.artifacts, [])
+        self.assertEqual(task_run.artifacts, [staged_artifact])
         remaining_staged_artifacts, missing_artifact_ids = get_task_staged_artifacts(task, ["artifact-123"])
-        self.assertEqual(remaining_staged_artifacts, [staged_artifact])
-        self.assertEqual(missing_artifact_ids, [])
+        self.assertEqual(remaining_staged_artifacts, [])
+        self.assertEqual(missing_artifact_ids, ["artifact-123"])
+        mock_copy.assert_not_called()
+        mock_tag.assert_called_once_with(
+            staged_artifact["storage_path"],
+            {
+                "ttl_days": RUN_ARTIFACT_TTL_DAYS,
+                "team_id": str(self.team.id),
+            },
+        )
+        mock_workflow.assert_called_once()
+
+    @patch("products.tasks.backend.api.execute_task_processing_workflow")
+    def test_create_run_endpoint_creates_cloud_run_without_triggering_workflow(self, mock_workflow):
+        task = self.create_task()
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/runs/",
+            {
+                "environment": "cloud",
+                "mode": "interactive",
+                "branch": "release/direct-upload",
+                "runtime_adapter": "codex",
+                "model": "gpt-5.4",
+                "reasoning_effort": "high",
+                "initial_permission_mode": "auto",
+                "run_source": "manual",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        task_run = TaskRun.objects.get(id=response.json()["id"])
+        self.assertEqual(task_run.environment, TaskRun.Environment.CLOUD)
+        self.assertEqual(task_run.status, TaskRun.Status.QUEUED)
+        self.assertEqual(task_run.branch, "release/direct-upload")
+        self.assertEqual(task_run.state["mode"], "interactive")
+        self.assertEqual(task_run.state["pr_base_branch"], "release/direct-upload")
+        self.assertEqual(task_run.state["runtime_adapter"], "codex")
+        self.assertEqual(task_run.state["provider"], "openai")
+        self.assertEqual(task_run.state["model"], "gpt-5.4")
+        self.assertEqual(task_run.state["reasoning_effort"], "high")
+        self.assertEqual(task_run.state["initial_permission_mode"], "auto")
+        self.assertEqual(task_run.state["run_source"], "manual")
         mock_workflow.assert_not_called()
+
+    @patch("products.tasks.backend.api.execute_task_processing_workflow")
+    def test_create_run_endpoint_caches_user_github_token(self, mock_workflow):
+        integration = Integration.objects.create(team=self.team, kind="github", config={"access_token": "token"})
+        task = Task.objects.create(
+            team=self.team,
+            created_by=self.user,
+            title="GitHub task",
+            description="Ship it",
+            origin_product=Task.OriginProduct.USER_CREATED,
+            repository="posthog/posthog",
+            github_integration=integration,
+        )
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/runs/",
+            {
+                "environment": "cloud",
+                "pr_authorship_mode": "user",
+                "github_user_token": "ghu_test_token",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        task_run = TaskRun.objects.get(id=response.json()["id"])
+        self.assertEqual(get_cached_github_user_token(str(task_run.id)), "ghu_test_token")
+        mock_workflow.assert_not_called()
+
+    @patch("products.tasks.backend.api.execute_task_processing_workflow")
+    def test_start_run_endpoint_triggers_workflow_for_existing_cloud_run(self, mock_workflow):
+        task = self.create_task()
+        task_run = task.create_run(environment=TaskRun.Environment.CLOUD)
+        task_run.artifacts = [
+            build_task_artifact_entry(
+                artifact_id="artifact-123",
+                name="spec.pdf",
+                artifact_type="user_attachment",
+                source="user_attachment",
+                size=4096,
+                content_type="application/pdf",
+                storage_path=f"tasks/artifacts/team_{self.team.id}/task_{task.id}/run_{task_run.id}/artifact-123_spec.pdf",
+            )
+        ]
+        task_run.save(update_fields=["artifacts", "updated_at"])
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/runs/{task_run.id}/start/",
+            {
+                "pending_user_message": "Read the file first",
+                "pending_user_artifact_ids": ["artifact-123"],
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        task_run.refresh_from_db()
+        self.assertEqual(task_run.state["pending_user_message"], "Read the file first")
+        self.assertEqual(task_run.state["pending_user_artifact_ids"], ["artifact-123"])
+        mock_workflow.assert_called_once_with(
+            task_id=str(task.id),
+            run_id=str(task_run.id),
+            team_id=task.team.id,
+            user_id=self.user.id,
+        )
+
+    @patch("products.tasks.backend.api.execute_task_processing_workflow")
+    def test_start_run_endpoint_rejects_missing_run_artifacts(self, mock_workflow):
+        task = self.create_task()
+        task_run = task.create_run(environment=TaskRun.Environment.CLOUD)
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/runs/{task_run.id}/start/",
+            {"pending_user_artifact_ids": ["artifact-123"]},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            {
+                "detail": "Some pending_user_artifact_ids are invalid for this run",
+                "missing_artifact_ids": ["artifact-123"],
+            },
+        )
+        mock_workflow.assert_not_called()
+
+    @patch("products.tasks.backend.api.execute_task_processing_workflow")
+    def test_start_run_endpoint_rejects_non_startable_status(self, mock_workflow):
+        task = self.create_task()
+        task_run = task.create_run(environment=TaskRun.Environment.CLOUD)
+        task_run.status = TaskRun.Status.COMPLETED
+        task_run.save(update_fields=["status", "updated_at"])
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/runs/{task_run.id}/start/",
+            {"pending_user_message": "Retry this"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            {"error": "Only queued or not_started cloud runs can be started (current status: completed)"},
+        )
+        mock_workflow.assert_not_called()
+
+    @patch("products.tasks.backend.api.execute_task_processing_workflow")
+    def test_start_run_endpoint_rolls_back_pending_state_when_workflow_trigger_fails(self, mock_workflow):
+        mock_workflow.side_effect = RuntimeError("workflow start failed")
+        task = self.create_task()
+        task_run = task.create_run(environment=TaskRun.Environment.CLOUD)
+        task_run.state = {"existing_key": "keep-me"}
+        task_run.artifacts = [
+            build_task_artifact_entry(
+                artifact_id="artifact-123",
+                name="spec.pdf",
+                artifact_type="user_attachment",
+                source="user_attachment",
+                size=4096,
+                content_type="application/pdf",
+                storage_path=f"tasks/artifacts/team_{self.team.id}/task_{task.id}/run_{task_run.id}/artifact-123_spec.pdf",
+            )
+        ]
+        task_run.save(update_fields=["state", "artifacts", "updated_at"])
+
+        self.client.raise_request_exception = False
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/runs/{task_run.id}/start/",
+            {
+                "pending_user_message": "Read the file first",
+                "pending_user_artifact_ids": ["artifact-123"],
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
+        task_run.refresh_from_db()
+        self.assertEqual(task_run.state, {"existing_key": "keep-me"})
+        mock_workflow.assert_called_once_with(
+            task_id=str(task.id),
+            run_id=str(task_run.id),
+            team_id=task.team.id,
+            user_id=self.user.id,
+        )
 
     @parameterized.expand(
         [
@@ -3195,6 +3385,7 @@ class TestTasksAPIPermissions(BaseTaskAPITest):
             (f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/", "GET"),
             (f"/api/projects/@current/tasks/{task.id}/runs/", "POST"),
             (f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/", "PATCH"),
+            (f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/start/", "POST"),
             (f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/set_output/", "PATCH"),
             (f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/append_log/", "POST"),
             (f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/relay_message/", "POST"),
@@ -3333,6 +3524,7 @@ class TestTasksAPIPermissions(BaseTaskAPITest):
             ("task:write", "POST", f"/api/projects/@current/tasks/{{task_id}}/run/", True),
             ("task:write", "GET", f"/api/projects/@current/tasks/{{task_id}}/runs/", True),
             ("task:write", "GET", f"/api/projects/@current/tasks/{{task_id}}/runs/{{run_id}}/", True),
+            ("task:write", "POST", f"/api/projects/@current/tasks/{{task_id}}/runs/{{run_id}}/start/", True),
             ("task:write", "GET", "/api/projects/@current/task_automations/", True),
             ("task:write", "GET", "/api/projects/@current/task_automations/{automation_id}/", True),
             ("task:write", "POST", "/api/projects/@current/task_automations/", True),
@@ -3346,6 +3538,7 @@ class TestTasksAPIPermissions(BaseTaskAPITest):
             ("*", "POST", f"/api/projects/@current/tasks/{{task_id}}/run/", True),
             ("*", "GET", f"/api/projects/@current/tasks/{{task_id}}/runs/", True),
             ("*", "GET", f"/api/projects/@current/tasks/{{task_id}}/runs/{{run_id}}/", True),
+            ("*", "POST", f"/api/projects/@current/tasks/{{task_id}}/runs/{{run_id}}/start/", True),
             ("*", "GET", "/api/projects/@current/task_automations/", True),
             ("*", "GET", "/api/projects/@current/task_automations/{automation_id}/", True),
             ("*", "POST", "/api/projects/@current/task_automations/", True),
