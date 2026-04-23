@@ -97,6 +97,10 @@ export CLICKHOUSE_TEST_CLUSTER_PASSWORD=${CLICKHOUSE_TEST_CLUSTER_PASSWORD:-}
 export CLICKHOUSE_TEST_CLUSTER_SECURE=${CLICKHOUSE_TEST_CLUSTER_SECURE:-false}
 export CLICKHOUSE_TEST_CLUSTER_VERIFY=${CLICKHOUSE_TEST_CLUSTER_VERIFY:-true}
 
+# LLM gateway for sandboxes — dev gateway at the conventional host-bridge port
+# (see bin/start-llm-gateway). Prod/staging never set this.
+export SANDBOX_LLM_GATEWAY_URL=${SANDBOX_LLM_GATEWAY_URL:-http://host.docker.internal:3308}
+
 # Persons DB — Node.js and Rust use different env var names for the same connection
 export PERSONS_DATABASE_URL=${PERSONS_DATABASE_URL:-postgres://posthog:posthog@${PGHOST:-db}:${PGPORT:-5432}/posthog_persons}
 export PERSONS_READONLY_DATABASE_URL=${PERSONS_READONLY_DATABASE_URL:-postgres://posthog:posthog@${PGHOST:-db}:${PGPORT:-5432}/posthog_persons}

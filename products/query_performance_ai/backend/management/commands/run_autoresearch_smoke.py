@@ -365,8 +365,8 @@ def _resolve_anthropic_base_url(log) -> str | None:
     if not gateway:
         log(
             "warning: SANDBOX_LLM_GATEWAY_URL unset; pi-coding-agent in the sandbox will not have "
-            "a gateway to route through. Set SANDBOX_LLM_GATEWAY_URL=http://host.docker.internal:3308 "
-            "in your .env."
+            "a gateway to route through. bin/start sets this for local dev — if you invoked the "
+            "smoke another way, export it yourself."
         )
         return None
     return f"{gateway.rstrip('/')}/{LLM_GATEWAY_PRODUCT_SLUG}"
