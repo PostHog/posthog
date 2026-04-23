@@ -45,6 +45,15 @@ export function ClustersView(): JSX.Element {
     const { openJobsPanel } = useActions(clusteringJobsLogic)
 
     const showAdminPanel = featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_CLUSTERING_ADMIN]
+    const evaluationsEnabled = !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EVALUATIONS_CLUSTERING]
+    const levelOptions: { value: ClusteringLevel; label: string }[] = [
+        { value: 'trace', label: 'Traces' },
+        { value: 'generation', label: 'Generations' },
+        ...(evaluationsEnabled ? [{ value: 'evaluation' as const, label: 'Evaluations' }] : []),
+    ]
+    const levelTooltip = evaluationsEnabled
+        ? 'Traces cluster entire conversations, generations cluster individual LLM calls, and evaluations cluster $ai_evaluation events by evaluator name, verdict, and reasoning'
+        : 'Traces cluster entire conversations, while generations cluster individual LLM calls'
 
     // Build a map from job_id to job name for run labels
     const jobNameById: Record<string, string> = {}
@@ -70,18 +79,12 @@ export function ClustersView(): JSX.Element {
                 <div className="flex items-center justify-between">
                     {/* Level toggle is always visible so users can switch */}
                     <div className="flex items-center gap-3">
-                        <Tooltip
-                            title="Traces cluster entire conversations, while generations cluster individual LLM calls"
-                            placement="bottom"
-                        >
+                        <Tooltip title={levelTooltip} placement="bottom">
                             <span>
                                 <LemonSegmentedButton
                                     value={clusteringLevel}
                                     onChange={(value) => setClusteringLevel(value as ClusteringLevel)}
-                                    options={[
-                                        { value: 'trace', label: 'Traces' },
-                                        { value: 'generation', label: 'Generations' },
-                                    ]}
+                                    options={levelOptions}
                                     size="small"
                                     data-attr="clusters-level-toggle"
                                 />
@@ -124,12 +127,20 @@ export function ClustersView(): JSX.Element {
 
                 <div className="flex flex-col items-center justify-center p-8 text-center">
                     <h3 className="text-lg font-semibold mb-2">
-                        No {clusteringLevel === 'generation' ? 'generation' : 'trace'} clustering runs found
+                        No{' '}
+                        {clusteringLevel === 'generation'
+                            ? 'generation'
+                            : clusteringLevel === 'evaluation'
+                              ? 'evaluation'
+                              : 'trace'}{' '}
+                        clustering runs found
                     </h3>
                     <p className="text-muted max-w-md">
                         {clusteringLevel === 'trace'
-                            ? 'Try switching to "Generations" to see generation-level clusters, or check back later once more data has been collected.'
-                            : 'Try switching to "Traces" to see trace-level clusters, or check back later once more data has been collected.'}
+                            ? 'Try switching to "Generations" or "Evaluations" to see other clusters, or check back later once more data has been collected.'
+                            : clusteringLevel === 'generation'
+                              ? 'Try switching to "Traces" or "Evaluations" to see other clusters, or check back later once more data has been collected.'
+                              : 'Try switching to "Traces" or "Generations" to see other clusters, or check back later once more data has been collected.'}
                     </p>
                 </div>
 
@@ -145,18 +156,12 @@ export function ClustersView(): JSX.Element {
             {/* Run Selector Header */}
             <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3">
-                    <Tooltip
-                        title="Traces cluster entire conversations, while generations cluster individual LLM calls"
-                        placement="bottom"
-                    >
+                    <Tooltip title={levelTooltip} placement="bottom">
                         <span>
                             <LemonSegmentedButton
                                 value={clusteringLevel}
                                 onChange={(value) => setClusteringLevel(value as ClusteringLevel)}
-                                options={[
-                                    { value: 'trace', label: 'Traces' },
-                                    { value: 'generation', label: 'Generations' },
-                                ]}
+                                options={levelOptions}
                                 size="small"
                                 data-attr="clusters-level-toggle"
                             />
@@ -188,7 +193,12 @@ export function ClustersView(): JSX.Element {
                         <div className="flex items-center gap-2 text-muted text-sm whitespace-nowrap">
                             <span>
                                 {currentRun.totalItemsAnalyzed}{' '}
-                                {clusteringLevel === 'generation' ? 'generations' : 'traces'} analyzed
+                                {clusteringLevel === 'generation'
+                                    ? 'generations'
+                                    : clusteringLevel === 'evaluation'
+                                      ? 'evaluations'
+                                      : 'traces'}{' '}
+                                analyzed
                             </span>
                             <span>|</span>
                             <span>
