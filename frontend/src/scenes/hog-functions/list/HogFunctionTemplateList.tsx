@@ -9,6 +9,7 @@ import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
+import { SourceReleaseTag } from 'products/data_warehouse/frontend/shared/components/SourceReleaseTag'
 import { isManagedSourceTemplate } from 'products/data_warehouse/frontend/utils'
 
 import { HogFunctionIcon } from '../configuration/HogFunctionIcon'
@@ -87,6 +88,9 @@ export function HogFunctionTemplateList({
                                         <>
                                             {template.name}
                                             {template.status && <HogFunctionStatusTag status={template.status} />}
+                                            {template.releaseStatus && (
+                                                <SourceReleaseTag releaseStatus={template.releaseStatus} />
+                                            )}
                                         </>
                                     }
                                     description={template.description}

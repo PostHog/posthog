@@ -10,6 +10,7 @@ export enum SignalSourceProduct {
     ZENDESK = 'zendesk',
     CONVERSATIONS = 'conversations',
     ERROR_TRACKING = 'error_tracking',
+    ENDPOINTS = 'endpoints',
 }
 
 export enum SignalSourceType {
@@ -21,6 +22,7 @@ export enum SignalSourceType {
     ISSUE_CREATED = 'issue_created',
     ISSUE_REOPENED = 'issue_reopened',
     ISSUE_SPIKING = 'issue_spiking',
+    ENDPOINT_EXECUTION_FAILED = 'endpoint_execution_failed',
 }
 
 // ── Per-product signal extras & inputs ──────────────────────────────────────────
@@ -215,6 +217,26 @@ export interface ErrorTrackingSignalInput {
     extra: ErrorTrackingSignalExtra
 }
 
+// Endpoint execution failure
+
+export interface EndpointExecutionFailedSignalExtra {
+    endpoint_name: string
+    endpoint_version: number | null
+    materialized: boolean
+    saved_query_id: string | null
+    error_class: string
+    error_message: string
+}
+
+export interface EndpointExecutionFailedSignalInput {
+    source_type: 'endpoint_execution_failed'
+    source_product: 'endpoints'
+    source_id: string
+    description: string
+    weight: number
+    extra: EndpointExecutionFailedSignalExtra
+}
+
 // ── Report reviewer types ────────────────────────────────────────────────────────
 
 export interface RelevantCommit {
@@ -249,3 +271,4 @@ export type SignalInput =
     | LinearIssueSignalInput
     | ConversationsTicketSignalInput
     | ErrorTrackingSignalInput
+    | EndpointExecutionFailedSignalInput

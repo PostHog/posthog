@@ -50,6 +50,7 @@ class CheckResult:
     threshold_breached: bool
     error_message: str | None = None
     query_duration_ms: int | None = None
+    is_transient_error: bool = False
 
 
 @dataclass(frozen=True)
@@ -122,7 +123,9 @@ def evaluate_alert_check(
         effective_state = snapshot.state
 
     if check.error_message is not None:
-        consecutive_failures = snapshot.consecutive_failures + 1
+        consecutive_failures = (
+            snapshot.consecutive_failures if check.is_transient_error else snapshot.consecutive_failures + 1
+        )
         new_state = AlertState.BROKEN if consecutive_failures >= MAX_CONSECUTIVE_FAILURES else AlertState.ERRORED
         first_error = (
             effective_state != AlertState.ERRORED

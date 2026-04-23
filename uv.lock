@@ -11,7 +11,7 @@ resolution-markers = [
 ]
 
 [options]
-exclude-newer = "2026-04-15T14:51:19.916094Z"
+exclude-newer = "2026-04-16T07:27:37.174126Z"
 exclude-newer-span = "P7D"
 
 [options.exclude-newer-package]
@@ -5069,7 +5069,6 @@ dependencies = [
     { name = "google-cloud-iam" },
     { name = "google-genai" },
     { name = "google-re2" },
-    { name = "granian", extra = ["pname", "reload", "uvloop"] },
     { name = "grimp" },
     { name = "grpcio" },
     { name = "gspread" },
@@ -5185,6 +5184,7 @@ dev = [
     { name = "faker" },
     { name = "fakeredis", extra = ["lua"] },
     { name = "freezegun" },
+    { name = "granian", extra = ["pname", "reload", "uvloop"] },
     { name = "grpcio-tools" },
     { name = "hypothesis" },
     { name = "import-linter" },
@@ -5325,7 +5325,6 @@ requires-dist = [
     { name = "google-cloud-iam", specifier = "==2.21" },
     { name = "google-genai", specifier = "==1.46.0" },
     { name = "google-re2", specifier = ">=1.1.20251105" },
-    { name = "granian", extras = ["uvloop", "reload", "pname"], specifier = "==2.5.5" },
     { name = "grimp", specifier = "~=3.14" },
     { name = "grpcio", specifier = "~=1.71.0" },
     { name = "gspread", specifier = "==6.2.1" },
@@ -5441,6 +5440,7 @@ dev = [
     { name = "faker", specifier = "==17.5.0" },
     { name = "fakeredis", extras = ["lua"], specifier = "==2.23.3" },
     { name = "freezegun", specifier = "==1.2.2" },
+    { name = "granian", extras = ["uvloop", "reload", "pname"], specifier = "==2.5.5" },
     { name = "grpcio-tools", specifier = "~=1.71.0" },
     { name = "hypothesis", specifier = "~=6.151.9" },
     { name = "import-linter", specifier = "~=2.11" },

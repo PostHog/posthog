@@ -14,8 +14,9 @@ import {
     isFeatureFlagEnabled,
     type MCPAnalyticsContext,
 } from '@/lib/analytics'
-import { buildToolResultPayload } from '@/lib/build-tool-result'
+import { buildToolResultPayload, isToolCallPayload } from '@/lib/build-tool-result'
 import { DurableObjectCache } from '@/lib/cache/DurableObjectCache'
+import { isCodingAgentClient, isPostHogCodeConsumer } from '@/lib/client-detection'
 import {
     CUSTOM_API_BASE_URL,
     POSTHOG_EU_BASE_URL,
@@ -24,16 +25,17 @@ import {
     toCloudRegion,
 } from '@/lib/constants'
 import { handleToolError, wrapError } from '@/lib/errors'
-import { buildInstructionsV1, buildInstructionsV2 } from '@/lib/instructions'
+import { buildInstructionsV1, buildInstructionsV2, type QueryToolInfo } from '@/lib/instructions'
 import { initMcpCatObservability } from '@/lib/mcpcat'
 import { SessionManager } from '@/lib/SessionManager'
 import { StateManager } from '@/lib/StateManager'
-import { sanitizeHeaderValue } from '@/lib/utils'
+import { formatPrompt, sanitizeHeaderValue } from '@/lib/utils'
 import { registerPrompts } from '@/prompts'
 import { registerResources } from '@/resources'
 import { registerUiAppResources } from '@/resources/ui-apps'
 import CLI_PROXY_COMMAND from '@/templates/cli-proxy-command.md'
 import CLI_PROXY_TOOL from '@/templates/cli-proxy-tool.md'
+import EXECUTE_SQL_PROMPT from '@/templates/execute-sql-prompt.md'
 import INSTRUCTIONS_TEMPLATE_V1 from '@/templates/instructions-v1.md'
 import INSTRUCTIONS_TEMPLATE_V2 from '@/templates/instructions-v2.md'
 import { createExecTool } from '@/tools/exec'
@@ -51,6 +53,10 @@ export type RequestProperties = {
     organizationId?: string
     projectId?: string
     clientUserAgent?: string
+    mcpConsumer?: string
+    mcpClientName?: string
+    mcpClientVersion?: string
+    mcpProtocolVersion?: string
     readOnly?: boolean
     transport?: 'streamable-http' | 'sse'
     requestStartTime?: number
@@ -110,7 +116,27 @@ export class MCP extends McpAgent<Env> {
         return this._clientInfoPromise
     }
 
+    private _seedClientInfoFromProps(): boolean {
+        const { mcpClientName, mcpClientVersion, mcpProtocolVersion } = this.requestProperties
+        if (!mcpClientName && !mcpClientVersion) {
+            return false
+        }
+        this._mcpClientName = mcpClientName
+        this._mcpClientVersion = mcpClientVersion
+        this._mcpProtocolVersion = mcpProtocolVersion
+        return true
+    }
+
     private async _doResolveClientInfo(): Promise<void> {
+        // Prefer values parsed from the current request body (see
+        // `extractClientInfoFromBody` in index.ts). This is the only path
+        // that works on first-connect, because the framework's
+        // `getInitializeRequest()` reads from DO storage which is only written
+        // *after* `onStart`/`init()` has already run.
+        if (this._seedClientInfoFromProps()) {
+            return
+        }
+
         try {
             const initRequest = await this.getInitializeRequest()
             if (!initRequest || !('params' in initRequest)) {
@@ -198,6 +224,7 @@ export class MCP extends McpAgent<Env> {
                 mcpClientName: this._mcpClientName,
                 mcpClientVersion: this._mcpClientVersion,
                 mcpProtocolVersion: this._mcpProtocolVersion,
+                mcpConsumer: this.requestProperties.mcpConsumer,
             })
         }
 
@@ -296,6 +323,7 @@ export class MCP extends McpAgent<Env> {
                     ...(this._mcpClientName ? { mcp_client_name: this._mcpClientName } : {}),
                     ...(this._mcpClientVersion ? { mcp_client_version: this._mcpClientVersion } : {}),
                     ...(this._mcpProtocolVersion ? { mcp_protocol_version: this._mcpProtocolVersion } : {}),
+                    ...(this.requestProperties.mcpConsumer ? { mcp_consumer: this.requestProperties.mcpConsumer } : {}),
                     ...(this.requestProperties.transport ? { mcp_transport: this.requestProperties.transport } : {}),
                     ...contextProperties,
                     ...previousContextProperties,
@@ -369,6 +397,13 @@ export class MCP extends McpAgent<Env> {
                         this.trackContextSwitchEvent(tool.name, await this.getContext(), previousContext)
                     )
                 }
+                // The exec wrapper (single-exec mode) assembles the per-call payload itself —
+                // propagating the inner tool's UI resourceUri onto the response — so pass it
+                // through unchanged. Re-running `buildToolResultPayload` on the payload would
+                // object-rest-destructure its content/structuredContent fields.
+                if (isToolCallPayload(handlerResult)) {
+                    return handlerResult
+                }
                 // Fetch distinctId only when a UI-resource tool with a non-string result might
                 // actually use it in structuredContent; avoids an extra round-trip otherwise.
                 const hasUiResource = !!tool._meta?.ui?.resourceUri
@@ -427,11 +462,20 @@ export class MCP extends McpAgent<Env> {
             env: this.env,
             stateManager: new StateManager(this.cache, api),
             sessionManager: this.sessionManager,
+            getDistinctId: () => this.getDistinctId(),
         }
     }
 
     async init(): Promise<void> {
         const { features, tools, version: clientVersion, organizationId, projectId, readOnly } = this.requestProperties
+
+        // Seed the MCP client-info fields from request properties (parsed from
+        // the JSON-RPC initialize message in the request body at the worker
+        // entry point). This must happen before any code reads
+        // `this._mcpClientName` — most importantly the `useSingleExec`
+        // decision below. Without this, first-connect sessions make tool
+        // registration decisions with an undefined client name.
+        this._seedClientInfoFromProps()
 
         // Start feature flag resolution in parallel with cache seeding
         const flagPromise = this.resolveVersionFlag()
@@ -442,22 +486,43 @@ export class MCP extends McpAgent<Env> {
         if (organizationId) {
             await this.cache.set('orgId', organizationId)
         }
+        let cachedProjectId: string | undefined
         if (projectId) {
+            cachedProjectId = projectId
             await this.cache.set('projectId', projectId)
         }
 
         const context = await this.getContext()
+        // Sticky session: skip default resolution if a previous init for this
+        // userHash already picked a project (cache survives DO cold-restarts).
+        // Without this guard, switching the active org in the user's browser
+        // would silently reshuffle an established Claude session — `users/@me`
+        // returns whatever team the browser currently has selected, and
+        // setDefaultOrganizationAndProject would overwrite the cache with it.
+        // Headers always win because they were applied to the cache above.
+        if (!cachedProjectId) {
+            cachedProjectId = await this.cache.get('projectId')
+        }
 
-        // Resolve defaults if headers didn't provide org/project
-        if (!organizationId || !projectId) {
+        // Initialize org and project
+        if (!cachedProjectId) {
             await context.stateManager.setDefaultOrganizationAndProject()
         }
 
-        const [flagVersion, toolFeatureFlags, useSingleExec] = await Promise.all([
+        const [flagVersion, toolFeatureFlags, singleExecFlagOn] = await Promise.all([
             flagPromise,
             toolFlagsPromise,
             singleExecPromise,
         ])
+        // Restrict single-exec mode to coding agents only — Cursor and other clients that
+        // render `structuredContent` in their UI need the full per-tool roster, not the
+        // wrapped CLI. `_mcpClientName` is seeded from request properties at the top of
+        // `init()` so this decision sees the real value on first-connect. PostHog's agent
+        // wrapper self-identifies via the `x-posthog-mcp-consumer` header and forces
+        // single-exec regardless of the wrapped client's reported name.
+        const useSingleExec =
+            singleExecFlagOn &&
+            (isCodingAgentClient(this._mcpClientName) || isPostHogCodeConsumer(this.requestProperties.mcpConsumer))
         const version = useSingleExec ? 2 : (flagVersion ?? clientVersion ?? 1)
 
         // Fetch group types and metadata in parallel (cache is now seeded)
@@ -468,14 +533,6 @@ export class MCP extends McpAgent<Env> {
                 : Promise.resolve(undefined),
             context.stateManager.getEnvironmentPrompt(),
         ])
-        const standardInstructions =
-            version === 2
-                ? buildInstructionsV2(INSTRUCTIONS_TEMPLATE_V2, guidelines, groupTypes, metadata)
-                : buildInstructionsV1(INSTRUCTIONS_TEMPLATE_V1, metadata)
-        const instructions = useSingleExec ? '' : standardInstructions
-
-        this.server = new McpServer({ name: 'PostHog', version: '1.0.0' }, { instructions })
-
         // When project ID is provided, both switch tools are removed (project implies org).
         // When only organization ID is provided, only switch-organization is removed.
         const excludeTools: string[] = []
@@ -485,14 +542,8 @@ export class MCP extends McpAgent<Env> {
             excludeTools.push('switch-organization')
         }
 
-        // Register prompts and resources
-        await Promise.all([
-            registerPrompts(this.server),
-            registerResources(this.server, context),
-            registerUiAppResources(this.server, context),
-        ])
-
-        // Register tools
+        // Fetch tools up-front so we can build the query tool catalog (and the
+        // CLI exec tool's domain list) before constructing the system prompt.
         const { getToolsFromContext } = await import('@/tools')
         const allTools = await getToolsFromContext(context, {
             features,
@@ -510,16 +561,71 @@ export class MCP extends McpAgent<Env> {
             this._api.config.oauthClientName = oauthClientName
         }
 
+        const toolInfos = allTools.map((t) => ({
+            name: t.name,
+            category: getToolDefinition(t.name, version).category,
+        }))
+        const queryToolInfos: QueryToolInfo[] = allTools
+            .filter((t) => t.name.startsWith('query-'))
+            .map((t) => {
+                const def = getToolDefinition(t.name, version)
+                return {
+                    name: t.name,
+                    title: def.title,
+                    ...(def.system_prompt_hint ? { systemPromptHint: def.system_prompt_hint } : {}),
+                }
+            })
+
+        const standardInstructions =
+            version === 2
+                ? buildInstructionsV2(
+                      INSTRUCTIONS_TEMPLATE_V2,
+                      guidelines,
+                      groupTypes,
+                      metadata,
+                      toolInfos,
+                      queryToolInfos
+                  )
+                : buildInstructionsV1(INSTRUCTIONS_TEMPLATE_V1, metadata)
+        const instructions = useSingleExec ? '' : standardInstructions
+
+        this.server = new McpServer({ name: 'PostHog', version: '1.0.0' }, { instructions })
+
+        // Register prompts and resources
+        await Promise.all([
+            registerPrompts(this.server),
+            registerResources(this.server, context),
+            registerUiAppResources(this.server, context),
+        ])
+
         // In single-exec mode, register one "posthog" tool that wraps all tools
         // behind a CLI-like interface. Otherwise, register each tool individually.
         if (useSingleExec) {
-            const toolInfos = allTools.map((t) => ({
-                name: t.name,
-                category: getToolDefinition(t.name, version).category,
-            }))
-            const commandReference = buildInstructionsV2(CLI_PROXY_COMMAND, guidelines, groupTypes, metadata, toolInfos)
+            // Swap execute-sql's description with the single-exec-specific
+            // prompt (visible via `info execute-sql`). It already folds in
+            // the HogQL/SQL intro, guidelines, discovery workflow, and the
+            // truncation guidance that the base JSON description carried.
+            const sqlTool = allTools.find((t) => t.name === 'execute-sql')
+            if (sqlTool) {
+                sqlTool.description = formatPrompt(EXECUTE_SQL_PROMPT, { guidelines: guidelines.trim() })
+            }
 
-            const execTool = createExecTool(allTools, context, CLI_PROXY_TOOL, commandReference)
+            const commandReference = buildInstructionsV2(
+                CLI_PROXY_COMMAND,
+                guidelines,
+                groupTypes,
+                metadata,
+                toolInfos,
+                queryToolInfos
+            )
+
+            const execTool = createExecTool(
+                allTools,
+                context,
+                CLI_PROXY_TOOL,
+                commandReference,
+                this.requestProperties.mcpConsumer
+            )
             const typedExecTool = execTool as Tool<z.ZodObject>
             this.registerTool(typedExecTool, async (params) => typedExecTool.handler(context, params))
         } else {

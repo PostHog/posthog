@@ -82,8 +82,8 @@ catalogs:
       specifier: ^0.35.0
       version: 0.35.0
     posthog-js:
-      specifier: ^1.370.1
-      version: 1.370.1
+      specifier: ^1.371.2
+      version: 1.371.2
     ts-pattern:
       specifier: '4.3'
       version: 4.3.0
@@ -141,6 +141,9 @@ importers:
       uuid:
         specifier: ^10.0.0
         version: 10.0.0
+      zod:
+        specifier: ^4.3.6
+        version: 4.3.6
     devDependencies:
       '@parcel/packager-ts':
         specifier: 'catalog:'
@@ -724,7 +727,7 @@ importers:
         version: link:../products/workflows
       '@posthog/react':
         specifier: 'catalog:'
-        version: 1.9.0(@types/react@18.3.27)(posthog-js@1.370.1)(react@18.3.1)
+        version: 1.9.0(@types/react@18.3.27)(posthog-js@1.371.2)(react@18.3.1)
       '@posthog/replay-shared':
         specifier: workspace:*
         version: link:../common/replay-shared
@@ -1063,7 +1066,7 @@ importers:
         version: 2.11.0
       posthog-js:
         specifier: 'catalog:'
-        version: 1.370.1
+        version: 1.371.2
       protomaps-themes-base:
         specifier: 2.0.0-alpha.1
         version: 2.0.0-alpha.1
@@ -1151,6 +1154,9 @@ importers:
       use-resize-observer:
         specifier: ^8.0.0
         version: 8.0.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+      zod:
+        specifier: ^4.3.6
+        version: 4.3.6
       zxcvbn:
         specifier: ^4.4.2
         version: 4.4.2
@@ -2179,7 +2185,7 @@ importers:
         version: 3.3.0
       posthog-js:
         specifier: 'catalog:'
-        version: 1.370.1
+        version: 1.371.2
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -2223,7 +2229,7 @@ importers:
         version: 0.2.4(kea@4.0.0-pre.5(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
-        version: 1.370.1
+        version: 1.371.2
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -2313,7 +2319,7 @@ importers:
         version: 0.2.4(kea@4.0.0-pre.5(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
-        version: 1.370.1
+        version: 1.371.2
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -2450,7 +2456,7 @@ importers:
         version: 3.0.1(kea@4.0.0-pre.5(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
-        version: 1.370.1
+        version: 1.371.2
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -2525,7 +2531,7 @@ importers:
         version: 3.4.1(kea@4.0.0-pre.5(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
-        version: 1.370.1
+        version: 1.371.2
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -2748,7 +2754,7 @@ importers:
         version: 0.1.7
       posthog-js:
         specifier: 'catalog:'
-        version: 1.370.1
+        version: 1.371.2
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -2795,6 +2801,9 @@ importers:
       '@types/react':
         specifier: 18.3.27
         version: 18.3.27
+      '@types/react-dom':
+        specifier: 18.3.7
+        version: 18.3.7(@types/react@18.3.27)
       ansi-colors:
         specifier: '*'
         version: 4.1.3
@@ -2830,10 +2839,13 @@ importers:
         version: 5.4.1
       posthog-js:
         specifier: 'catalog:'
-        version: 1.370.1
+        version: 1.371.2
       react:
         specifier: 18.3.1
         version: 18.3.1
+      react-dom:
+        specifier: 18.3.1
+        version: 18.3.1(react@18.3.1)
       react-window:
         specifier: '*'
         version: 2.2.5(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
@@ -3248,7 +3260,7 @@ importers:
         version: 3.4.1(kea@4.0.0-pre.5(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
-        version: 1.370.1
+        version: 1.371.2
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -3341,7 +3353,7 @@ importers:
         version: 3.0.1(kea@4.0.0-pre.5(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
-        version: 1.370.1
+        version: 1.371.2
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -3352,8 +3364,8 @@ importers:
         specifier: 'catalog:'
         version: 9.0.3(react@18.3.1)
       zod:
-        specifier: '*'
-        version: 3.25.76
+        specifier: ^4.0.0
+        version: 4.3.6
     devDependencies:
       '@storybook/react':
         specifier: 'catalog:'
@@ -3455,6 +3467,9 @@ importers:
       dotenv:
         specifier: ^16.4.7
         version: 16.4.7
+      msw:
+        specifier: ^2.12.14
+        version: 2.12.14(@types/node@22.18.8)(typescript@5.9.3)
       oxfmt:
         specifier: ^0.33.0
         version: 0.33.0
@@ -8810,8 +8825,8 @@ packages:
   '@posthog/core@1.25.2':
     resolution: {integrity: sha512-h2FO7ut/BbfwpAXWpwdDHTzQgUo9ibDFEs6ZO+3cI3KPWQt5XwczK1OLAuPprcjm8T/jl0SH8jSFo5XdU4RbTg==}
 
-  '@posthog/core@1.26.0':
-    resolution: {integrity: sha512-q6pSkW7V9RC3rIXjJBo7IBXOH2KPJEh8o+xIcSqw7QD4vq7OYVzTJfUIvkD38+sm54RG/61/3QaPdpQZkDnOyg==}
+  '@posthog/core@1.27.1':
+    resolution: {integrity: sha512-130F5zAmGoY0KAqdT2FYfU79mk54z0wTWfCMkyzXmkKz2eg23694O2ofaAf4NuIdI8e6LFNHyaZ7aWbatUeW5A==}
 
   '@posthog/core@1.7.1':
     resolution: {integrity: sha512-kjK0eFMIpKo9GXIbts8VtAknsoZ18oZorANdtuTj1CbgS28t4ZVq//HAWhnxEuXRTrtkd+SUJ6Ux3j2Af8NCuA==}
@@ -8884,8 +8899,8 @@ packages:
   '@posthog/types@1.369.3':
     resolution: {integrity: sha512-Ywqvs4513PixR2TIA5O3GMEyK4F65uefwxPfsIUeHr9ruGylyXp00YJ4CEbp8U0DMzCkeF+LsMKVnHgN3pAXcA==}
 
-  '@posthog/types@1.370.1':
-    resolution: {integrity: sha512-91AGn76zDgitMphnjrhvZ0WZ1oPipW4P8vrhVz/uKjtisYTZtokjrxeZyD+3imx4nYGyi6eNpPcvPdWXNBmN/A==}
+  '@posthog/types@1.371.2':
+    resolution: {integrity: sha512-Ak3kuGMPBTjuoK6Ki0kQbq9eROk7LRJ3GBkbQINCZBT9FPlHvlXRwQr0/OVsi4xYPSMSGxWjRDMPFsR9Px66Cg==}
 
   '@protobufjs/aspromise@1.1.2':
     resolution: {integrity: sha512-j+gKExEuLmKwvz3OgROXtrJ2UG2x8Ch2YZUxahh+s1F2HZ+wAceUNLkvy6zKCPVRkU++ZWQrdxsUeQXmcg4uoQ==}
@@ -19880,8 +19895,8 @@ packages:
   posthog-js@1.369.3:
     resolution: {integrity: sha512-t4vk8mgkSdhIYr8YDRdLG45uJYH58MC7bPL83lKTEeDgoejyXbJ1/G77GZB/aWVQDST055GkgjQtUtK5DiYGkg==}
 
-  posthog-js@1.370.1:
-    resolution: {integrity: sha512-cj9V6L0qyf0htMfBshBdwvcUEfhTfqUEQPI/ly2dN4kZx4QmhmKERcelSI9CMKoBD1gX5Fp+f/cNTwKvzDvjsQ==}
+  posthog-js@1.371.2:
+    resolution: {integrity: sha512-2cd4NqsFbBUiBAXLRCcM8De4lA/x2ZmNI7ii3BegpQItMKZUk2w1HY/91pLvvwEyShWa2WGloBJSCBJAVo/hWg==}
 
   posthog-node@5.25.0:
     resolution: {integrity: sha512-DFE5lZAoD6hk7RATuT8qVQ7KFgFP5YlFTJciMbU2qq6NX0A8eJxiJcmEsMnB3g30jJJ9suiwGIq4I8ESwf9bZg==}
@@ -28858,8 +28873,7 @@ snapshots:
   '@img/sharp-win32-x64@0.34.5':
     optional: true
 
-  '@inquirer/ansi@1.0.2':
-    optional: true
+  '@inquirer/ansi@1.0.2': {}
 
   '@inquirer/confirm@5.1.21(@types/node@22.18.8)':
     dependencies:
@@ -28867,7 +28881,6 @@ snapshots:
       '@inquirer/type': 3.0.10(@types/node@22.18.8)
     optionalDependencies:
       '@types/node': 22.18.8
-    optional: true
 
   '@inquirer/core@10.3.2(@types/node@22.18.8)':
     dependencies:
@@ -28881,15 +28894,12 @@ snapshots:
       yoctocolors-cjs: 2.1.3
     optionalDependencies:
       '@types/node': 22.18.8
-    optional: true
 
-  '@inquirer/figures@1.0.15':
-    optional: true
+  '@inquirer/figures@1.0.15': {}
 
   '@inquirer/type@3.0.10(@types/node@22.18.8)':
     optionalDependencies:
       '@types/node': 22.18.8
-    optional: true
 
   '@isaacs/cliui@8.0.2':
     dependencies:
@@ -29893,7 +29903,7 @@ snapshots:
       '@xmldom/xmldom': 0.8.11
       debug: 4.4.3
       headers-polyfill: 3.2.5
-      outvariant: 1.4.0
+      outvariant: 1.4.3
       strict-event-emitter: 0.2.8
       web-encoding: 1.1.5
     transitivePeerDependencies:
@@ -29907,7 +29917,6 @@ snapshots:
       is-node-process: 1.2.0
       outvariant: 1.4.3
       strict-event-emitter: 0.5.1
-    optional: true
 
   '@napi-rs/snappy-android-arm-eabi@7.2.2':
     optional: true
@@ -30018,19 +30027,16 @@ snapshots:
     dependencies:
       semver: 7.7.4
 
-  '@open-draft/deferred-promise@2.2.0':
-    optional: true
+  '@open-draft/deferred-promise@2.2.0': {}
 
   '@open-draft/logger@0.3.0':
     dependencies:
       is-node-process: 1.2.0
       outvariant: 1.4.3
-    optional: true
 
   '@open-draft/until@1.0.3': {}
 
-  '@open-draft/until@2.1.0':
-    optional: true
+  '@open-draft/until@2.1.0': {}
 
   '@opentelemetry/api-logs@0.203.0':
     dependencies:
@@ -31714,7 +31720,9 @@ snapshots:
 
   '@posthog/core@1.25.2': {}
 
-  '@posthog/core@1.26.0': {}
+  '@posthog/core@1.27.1':
+    dependencies:
+      '@posthog/types': 1.371.2
 
   '@posthog/core@1.7.1':
     dependencies:
@@ -31753,9 +31761,9 @@ snapshots:
       react: 18.3.1
       react-dom: 18.3.1(react@18.3.1)
 
-  '@posthog/react@1.9.0(@types/react@18.3.27)(posthog-js@1.370.1)(react@18.3.1)':
+  '@posthog/react@1.9.0(@types/react@18.3.27)(posthog-js@1.371.2)(react@18.3.1)':
     dependencies:
-      posthog-js: 1.370.1
+      posthog-js: 1.371.2
       react: 18.3.1
     optionalDependencies:
       '@types/react': 18.3.27
@@ -31794,7 +31802,7 @@ snapshots:
 
   '@posthog/types@1.369.3': {}
 
-  '@posthog/types@1.370.1': {}
+  '@posthog/types@1.371.2': {}
 
   '@protobufjs/aspromise@1.1.2': {}
 
@@ -36088,8 +36096,7 @@ snapshots:
 
   '@types/stack-utils@2.0.3': {}
 
-  '@types/statuses@2.0.6':
-    optional: true
+  '@types/statuses@2.0.6': {}
 
   '@types/stylis@4.2.6': {}
 
@@ -38079,8 +38086,7 @@ snapshots:
 
   cli-width@3.0.0: {}
 
-  cli-width@4.1.0:
-    optional: true
+  cli-width@4.1.0: {}
 
   cliui@5.0.0:
     dependencies:
@@ -40821,8 +40827,7 @@ snapshots:
 
   graphemer@1.4.0: {}
 
-  graphql@16.13.2:
-    optional: true
+  graphql@16.13.2: {}
 
   graphql@16.8.1: {}
 
@@ -40975,8 +40980,7 @@ snapshots:
 
   headers-polyfill@3.2.5: {}
 
-  headers-polyfill@4.0.3:
-    optional: true
+  headers-polyfill@4.0.3: {}
 
   heap-js@2.6.0: {}
 
@@ -44565,7 +44569,6 @@ snapshots:
       typescript: 5.9.3
     transitivePeerDependencies:
       - '@types/node'
-    optional: true
 
   muggle-string@0.4.1: {}
 
@@ -44578,8 +44581,7 @@ snapshots:
 
   mute-stream@0.0.8: {}
 
-  mute-stream@2.0.0:
-    optional: true
+  mute-stream@2.0.0: {}
 
   mylas@2.1.13: {}
 
@@ -44976,8 +44978,7 @@ snapshots:
 
   outvariant@1.4.0: {}
 
-  outvariant@1.4.3:
-    optional: true
+  outvariant@1.4.3: {}
 
   own-keys@1.0.1:
     dependencies:
@@ -46176,15 +46177,15 @@ snapshots:
       query-selector-shadow-dom: 1.0.1
       web-vitals: 5.1.0
 
-  posthog-js@1.370.1:
+  posthog-js@1.371.2:
     dependencies:
       '@opentelemetry/api': 1.9.0
       '@opentelemetry/api-logs': 0.208.0
       '@opentelemetry/exporter-logs-otlp-http': 0.208.0(@opentelemetry/api@1.9.0)
       '@opentelemetry/resources': 2.5.0(@opentelemetry/api@1.9.0)
       '@opentelemetry/sdk-logs': 0.208.0(@opentelemetry/api@1.9.0)
-      '@posthog/core': 1.26.0
-      '@posthog/types': 1.370.1
+      '@posthog/core': 1.27.1
+      '@posthog/types': 1.371.2
       core-js: 3.40.0
       dompurify: 3.3.2
       fflate: 0.4.8
@@ -47576,8 +47577,7 @@ snapshots:
 
   retry@0.13.1: {}
 
-  rettime@0.10.1:
-    optional: true
+  rettime@0.10.1: {}
 
   reusify@1.0.4: {}
 
@@ -48323,8 +48323,7 @@ snapshots:
     dependencies:
       events: 3.3.0
 
-  strict-event-emitter@0.5.1:
-    optional: true
+  strict-event-emitter@0.5.1: {}
 
   string-argv@0.3.2: {}
 
@@ -48739,8 +48738,7 @@ snapshots:
       string-width: 4.2.3
       strip-ansi: 6.0.1
 
-  tagged-tag@1.0.0:
-    optional: true
+  tagged-tag@1.0.0: {}
 
   tail@2.2.6: {}
 
@@ -48998,8 +48996,7 @@ snapshots:
 
   tldts-core@6.1.57: {}
 
-  tldts-core@7.0.28:
-    optional: true
+  tldts-core@7.0.28: {}
 
   tldts@6.1.57:
     dependencies:
@@ -49008,7 +49005,6 @@ snapshots:
   tldts@7.0.28:
     dependencies:
       tldts-core: 7.0.28
-    optional: true
 
   tmp@0.0.33:
     dependencies:
@@ -49051,7 +49047,6 @@ snapshots:
   tough-cookie@6.0.1:
     dependencies:
       tldts: 7.0.28
-    optional: true
 
   tr46@0.0.3: {}
 
@@ -49283,7 +49278,6 @@ snapshots:
   type-fest@5.5.0:
     dependencies:
       tagged-tag: 1.0.0
-    optional: true
 
   type-is@1.6.18:
     dependencies:
@@ -49582,8 +49576,7 @@ snapshots:
       '@unrs/resolver-binding-win32-ia32-msvc': 1.11.1
       '@unrs/resolver-binding-win32-x64-msvc': 1.11.1
 
-  until-async@3.0.2:
-    optional: true
+  until-async@3.0.2: {}
 
   untildify@4.0.0: {}
 
@@ -50501,8 +50494,7 @@ snapshots:
 
   yocto-queue@1.2.2: {}
 
-  yoctocolors-cjs@2.1.3:
-    optional: true
+  yoctocolors-cjs@2.1.3: {}
 
   yoctocolors@2.1.2: {}
 

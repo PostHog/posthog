@@ -8,16 +8,13 @@ instead of relying on the batch clustering pipeline.
 
 import structlog
 import temporalio
+from structlog.contextvars import bind_contextvars
 
 from posthog.models.exported_asset import ExportedAsset
 from posthog.models.team.team import Team
 from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
 from posthog.sync import database_sync_to_async
-from posthog.temporal.session_replay.session_summary.types.video import (
-    ConsolidatedVideoAnalysis,
-    ConsolidatedVideoSegment,
-    VideoSummarySingleSessionInputs,
-)
+from posthog.temporal.session_replay.session_summary.types.video import SessionProblem, VideoSummarySingleSessionInputs
 
 from products.signals.backend.api import emit_signal
 
@@ -29,12 +26,16 @@ logger = structlog.get_logger(__name__)
 @temporalio.activity.defn
 async def emit_session_problem_signals_activity(
     inputs: VideoSummarySingleSessionInputs,
-    analysis: ConsolidatedVideoAnalysis,
+    problems: list[SessionProblem],
 ) -> int:
     """Emit signals for consolidated segments that indicate user problems.
 
     Returns the number of signals emitted.
     """
+    bind_contextvars(team_id=inputs.team_id, session_id=inputs.session_id)
+
+    if not problems:
+        return 0
 
     team = await Team.objects.select_related("organization").aget(id=inputs.team_id)
 
@@ -60,19 +61,15 @@ async def emit_session_problem_signals_activity(
 
     signals_emitted = 0
 
-    for segment in analysis.segments:
-        problem_type = _classify_problem(segment)
-        if problem_type is None:
-            continue
-
-        source_id = f"{inputs.session_id}:{segment.start_time}:{segment.end_time}"
+    for problem in problems:
+        source_id = f"{inputs.session_id}:{problem.start_time}:{problem.end_time}"
 
         extra: dict = {
             "session_id": inputs.session_id,
-            "segment_title": segment.title,
-            "start_time": segment.start_time,
-            "end_time": segment.end_time,
-            "problem_type": problem_type,
+            "segment_title": problem.title,
+            "start_time": problem.start_time,
+            "end_time": problem.end_time,
+            "problem_type": problem.problem_type,
             "distinct_id": session_metadata["distinct_id"] if session_metadata else "",
         }
         if session_metadata:
@@ -90,7 +87,7 @@ async def emit_session_problem_signals_activity(
                 source_product="session_replay",
                 source_type="session_problem",
                 source_id=source_id,
-                description=segment.description,
+                description=problem.description,
                 weight=1.0,  # Always research
                 extra=extra,
             )
@@ -98,7 +95,7 @@ async def emit_session_problem_signals_activity(
             logger.debug(
                 f"Emitted session problem signal for {source_id}",
                 session_id=inputs.session_id,
-                problem_type=problem_type,
+                problem_type=problem.problem_type,
                 signals_type="session-summaries",
             )
         except Exception:
@@ -117,18 +114,3 @@ async def emit_session_problem_signals_activity(
         )
 
     return signals_emitted
-
-
-def _classify_problem(segment: ConsolidatedVideoSegment) -> str | None:
-    """Return the most severe problem type for a segment, or None if no problem detected."""
-    if segment.exception == "blocking":
-        return "blocking_exception"
-    if segment.abandonment_detected:
-        return "abandonment"
-    if segment.exception == "non-blocking":
-        return "non_blocking_exception"
-    if segment.confusion_detected:
-        return "confusion"
-    if not segment.success:
-        return "failure"
-    return None

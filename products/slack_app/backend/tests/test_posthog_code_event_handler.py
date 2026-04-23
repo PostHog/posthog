@@ -3,6 +3,7 @@ from typing import Any
 
 from unittest.mock import patch
 
+from django.core.cache import cache
 from django.test import TestCase, override_settings
 from django.test.client import RequestFactory
 
@@ -102,6 +103,7 @@ class TestPostHogCodeEventHandler(TestCase):
 
 class TestRoutePostHogCodeEventToRelevantRegion(TestCase):
     def setUp(self):
+        cache.clear()
         self.factory = RequestFactory()
         self.organization = Organization.objects.create(name="Test Org")
         self.team = Team.objects.create(organization=self.organization, name="Test Team")
@@ -128,6 +130,115 @@ class TestRoutePostHogCodeEventToRelevantRegion(TestCase):
         mock_sync_connect.assert_called_once()
         mock_sync_connect.return_value.start_workflow.assert_called_once()
         mock_asyncio_run.assert_called_once()
+
+    @parameterized.expand(
+        [
+            (
+                "resolves_pending_picker",
+                True,
+                "<@U_BOT> use posthog/posthog-js",
+                ["posthog/posthog", "posthog/posthog-js"],
+                False,
+                True,
+            ),
+            (
+                "repo_not_in_connected_list_starts_new_workflow",
+                True,
+                "<@U_BOT> use posthog/unknown-repo",
+                ["posthog/posthog", "posthog/posthog-js"],
+                True,
+                False,
+            ),
+            (
+                "no_pending_picker_starts_new_workflow",
+                False,
+                "<@U_BOT> use posthog/posthog-js",
+                ["posthog/posthog", "posthog/posthog-js"],
+                True,
+                False,
+            ),
+        ]
+    )
+    @patch("products.slack_app.backend.api._get_full_repo_names")
+    @patch("products.slack_app.backend.api._posthog_code_enabled_for_integration", return_value=True)
+    @patch("products.slack_app.backend.api.SlackIntegration")
+    @patch("products.slack_app.backend.api.asyncio.run")
+    @patch("products.slack_app.backend.api.sync_connect")
+    @override_settings(DEBUG=False)
+    def test_explicit_repo_followup_handling(
+        self,
+        _name,
+        has_pending_picker: bool,
+        event_text: str,
+        repo_list: list[str],
+        expect_new_workflow: bool,
+        expect_picker_resolution: bool,
+        mock_sync_connect,
+        mock_asyncio_run,
+        mock_slack_cls,
+        _mock_flag,
+        mock_get_repos,
+    ):
+        request = self.factory.post("/slack/event-callback/", HTTP_HOST="eu.posthog.com")
+        mock_get_repos.return_value = repo_list
+
+        from products.slack_app.backend.api import (
+            ROUTE_HANDLED_LOCALLY,
+            _get_pending_repo_picker,
+            _set_pending_repo_picker,
+            route_posthog_code_event_to_relevant_region,
+        )
+
+        if has_pending_picker:
+            _set_pending_repo_picker(
+                integration_id=self.posthog_code_integration.id,
+                channel="C001",
+                thread_ts="1234.5678",
+                slack_user_id="U123",
+                workflow_id="posthog-code-mention-T12345:pending",
+                context_token="ctx-1",
+                message_ts="1234.7777",
+            )
+        event = {
+            "type": "app_mention",
+            "channel": "C001",
+            "thread_ts": "1234.5678",
+            "user": "U123",
+            "text": event_text,
+            "ts": "1234.9999",
+        }
+
+        result = route_posthog_code_event_to_relevant_region(request, event, "T12345")
+
+        assert result == ROUTE_HANDLED_LOCALLY
+        mock_sync_connect.assert_called_once()
+        if expect_picker_resolution:
+            mock_sync_connect.return_value.get_workflow_handle.assert_called_once_with(
+                "posthog-code-mention-T12345:pending"
+            )
+            mock_sync_connect.return_value.start_workflow.assert_not_called()
+            mock_asyncio_run.assert_called_once()
+            mock_slack_cls.return_value.client.chat_update.assert_called_once()
+        else:
+            mock_sync_connect.return_value.get_workflow_handle.assert_not_called()
+            mock_sync_connect.return_value.start_workflow.assert_called_once()
+            mock_asyncio_run.assert_called_once()
+            mock_slack_cls.return_value.client.chat_update.assert_not_called()
+
+        pending_picker = _get_pending_repo_picker(
+            integration_id=self.posthog_code_integration.id,
+            channel="C001",
+            thread_ts="1234.5678",
+            slack_user_id="U123",
+        )
+        if expect_new_workflow:
+            if has_pending_picker:
+                assert pending_picker is not None
+                assert pending_picker["workflow_id"] == "posthog-code-mention-T12345:pending"
+            else:
+                assert pending_picker is None
+        else:
+            assert pending_picker is None
 
     @patch("products.slack_app.backend.api._posthog_code_enabled_for_integration", return_value=False)
     @patch("products.slack_app.backend.api.asyncio.run")

@@ -147,3 +147,8 @@ class EventsTable(Table):
             "$virt_traffic_category",
             "$virt_bot_name",
         ]
+
+
+# All table types that represent the events table (including virtual subtables like poe/goe).
+# Use in isinstance() checks when you need to match any events-family table.
+EVENTS_TABLE_TYPES = (EventsTable, EventsPersonSubTable, EventsGroupSubTable)

@@ -13,8 +13,11 @@ from __future__ import annotations
 
 import hmac
 import hashlib
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
-from typing import Any
+from enum import StrEnum
+from typing import IO, Any
 
 from django.conf import settings
 
@@ -42,26 +45,20 @@ class PandaDocDocument:
     name: str
 
 
-@dataclass(frozen=True)
-class PandaDocSenderPostHog:
+class PandaDocRole(StrEnum):
     """
-    We wanna make sure we always have someone from our team attached as a CC
-    on the PandaDoc envelopes, so let's assign it here.
+    Roles PandaDoc templates bind recipients to. Must match the role names
+    configured on each template in the PandaDoc dashboard.
     """
 
-    email: str = "sales@posthog.com"
-    role: str = "PostHog"
+    CLIENT = "Client"
+    POSTHOG = "PostHog"
 
 
 @dataclass(frozen=True)
 class PandaDocRecipient:
     email: str
-    # Built-in recipient contact fields. PandaDoc auto-populates `Client.Email`,
-    # `Client.Company`, and `Client.StreetAddress` in the template body from
-    # these values, so no custom tokens are needed.
-    company: str = ""
-    street_address: str = ""
-    role: str = "Client"
+    role: PandaDocRole
 
 
 class PandaDocClient:
@@ -99,23 +96,50 @@ class PandaDocClient:
         except ValueError as exc:
             raise PandaDocError(f"PandaDoc {path} returned non-JSON body: {exc}") from exc
 
+    @contextmanager
+    def _get_stream(self, path: str) -> Iterator[IO[bytes]]:
+        """
+        Open a streaming GET to PandaDoc and yield the raw binary stream.
+        Keeps peak memory flat regardless of payload size — the caller pipes
+        bytes straight from the socket to wherever they're going (e.g. S3).
+        """
+        url = f"{self._base_url}{path}"
+        try:
+            with requests.get(url, headers=self._headers(), stream=True, timeout=self._timeout) as response:
+                if response.status_code >= 400:
+                    raise PandaDocError(f"PandaDoc {path} returned {response.status_code}: {response.text[:500]}")
+                # Transparently handle gzip/deflate on the wire so consumers
+                # see the decoded body.
+                response.raw.decode_content = True
+                yield response.raw
+        except requests.RequestException as exc:
+            raise PandaDocError(f"Network error calling PandaDoc {path}: {exc}") from exc
+
     def create_document_from_template(
         self,
         *,
         template_id: str,
         name: str,
-        recipients: list[PandaDocRecipient | PandaDocSenderPostHog],
+        recipients: list[PandaDocRecipient],
+        tokens: dict[str, str] | None = None,
         metadata: dict[str, str] | None = None,
     ) -> PandaDocDocument:
         """
         Create a new document from a PandaDoc template. The returned document is in
         `document.uploaded` state — call `send_document` to dispatch the signing email.
+
+        `tokens` is a flat {name: value} map that maps onto the template's token
+        placeholders (`[Client.Company]`, `[Client.StreetAddress]`, etc.). Only
+        `Client.Email` is auto-populated from the recipient — everything else
+        the template references has to be passed explicitly here.
         """
         payload: dict[str, Any] = {
             "name": name,
             "template_uuid": template_id,
             "recipients": [_serialize_recipient(r) for r in recipients],
         }
+        if tokens:
+            payload["tokens"] = [{"name": name, "value": value} for name, value in tokens.items()]
         if metadata:
             payload["metadata"] = metadata
         data = self._post("/public/v1/documents", payload)
@@ -134,22 +158,20 @@ class PandaDocClient:
             {"subject": subject, "message": message, "silent": False},
         )
 
+    @contextmanager
+    def stream_document(self, *, document_id: str) -> Iterator[IO[bytes]]:
+        """
+        Open a streaming download for a completed document's signed PDF.
+        PandaDoc's `document.completed` webhook doesn't carry a signed-PDF URL,
+        so this is how we actually retrieve the artifact. Use as a context
+        manager — the underlying HTTP connection is released on exit.
+        """
+        with self._get_stream(f"/public/v1/documents/{document_id}/download") as stream:
+            yield stream
 
-def _serialize_recipient(r: PandaDocRecipient | PandaDocSenderPostHog) -> dict[str, Any]:
-    payload: dict[str, Any] = {"email": r.email, "role": r.role}
-    # PandaDoc expects contact fields under `fields`, keyed by the snake_case
-    # field name (e.g. `Client.Company` → `company`). Only include fields we
-    # actually have a value for so we don't stomp existing template defaults,
-    # and only for recipient types that declare them (the PostHog sender doesn't).
-    fields: dict[str, dict[str, str]] = {}
-    if company := getattr(r, "company", ""):
-        fields["company"] = {"value": company}
-    if street_address := getattr(r, "street_address", ""):
-        fields["street_address"] = {"value": street_address}
 
-    if fields:
-        payload["fields"] = fields
-    return payload
+def _serialize_recipient(r: PandaDocRecipient) -> dict[str, Any]:
+    return {"email": r.email, "role": str(r.role)}
 
 
 def verify_webhook_signature(*, secret: str, body: bytes, signature: str) -> bool:
