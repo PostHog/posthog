@@ -40,7 +40,7 @@ export function EditCustomProductsModal(): JSX.Element {
                     Close
                 </LemonButton>
             }
-            width={600}
+            maxWidth="48rem"
         >
             <div className="flex flex-col gap-2">
                 <div>

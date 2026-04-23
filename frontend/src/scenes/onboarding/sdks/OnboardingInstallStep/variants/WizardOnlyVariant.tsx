@@ -82,7 +82,7 @@ export function WizardOnlyVariant({
                 isOpen={manualModalOpen}
                 onClose={() => setManualModalOpen(false)}
                 title="Manual SDK setup"
-                width="80vw"
+                maxWidth="90vw"
             >
                 <div className="p-4">
                     <SDKGrid {...{ ...sdkGridProps, onSDKClick: handleWizardOnlySDKClick }} showTopControls />

@@ -143,7 +143,7 @@ export function QueryHistoryModal(): JSX.Element {
     const { editingView } = useValues(sqlEditorLogic)
 
     return (
-        <LemonModal title="View history" isOpen={isHistoryModalOpen} onClose={closeHistoryModal} width={800}>
+        <LemonModal title="View history" isOpen={isHistoryModalOpen} onClose={closeHistoryModal} maxWidth="48rem">
             <div className="ActivityLog">
                 <QueryHistoryLog id={editingView?.id} />
             </div>

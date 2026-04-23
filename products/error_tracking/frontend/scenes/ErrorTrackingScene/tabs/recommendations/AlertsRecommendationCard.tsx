@@ -110,7 +110,7 @@ function AlertsRecommendationWizardModal({
     }
 
     return (
-        <LemonModal isOpen onClose={onClose} width={560} simple>
+        <LemonModal isOpen onClose={onClose} maxWidth="48rem" simple>
             <BindLogic logic={alertWizardLogic} props={wizardProps}>
                 <AlertsRecommendationWizardContent onClose={onClose} />
             </BindLogic>

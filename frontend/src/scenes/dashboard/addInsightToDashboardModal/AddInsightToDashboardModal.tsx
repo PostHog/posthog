@@ -55,7 +55,7 @@ export function AddInsightToDashboardModal(): JSX.Element {
                 title="Add insight to dashboard"
                 onClose={handleClose}
                 isOpen={addInsightToDashboardModalVisible}
-                width={860}
+                maxWidth="48rem"
                 className="bg-surface-secondary"
             >
                 <div className="-mt-1 space-y-3">

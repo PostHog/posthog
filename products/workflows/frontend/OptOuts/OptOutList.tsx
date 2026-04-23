@@ -140,7 +140,7 @@ export function OptOutList({ category }: { category?: MessageCategory }): JSX.El
                 isOpen={Boolean(selectedIdentifier)}
                 onClose={handleCloseModal}
                 title={`Persons for ${selectedIdentifier}`}
-                width="50rem"
+                maxWidth="48rem"
                 footer={null}
             >
                 {actorsQuery && (

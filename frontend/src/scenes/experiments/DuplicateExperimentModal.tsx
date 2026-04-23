@@ -77,7 +77,7 @@ export function DuplicateExperimentModal({ isOpen, onClose, experiment }: Duplic
             isOpen={isOpen}
             onClose={handleClose}
             title="Duplicate experiment"
-            width="max-content"
+            maxWidth="90vw"
             footer={
                 <div className="flex justify-end">
                     <LemonButton type="primary" onClick={handleDuplicate} data-attr="duplicate-experiment-submit">

@@ -70,12 +70,7 @@ export function InsightPickerEndpointModal({ tabId }: InsightPickerEndpointModal
     return (
         <>
             <BindLogic logic={addSavedInsightsModalLogic} props={{}}>
-                <LemonModal
-                    title="New insight-based endpoint"
-                    onClose={closeModal}
-                    isOpen={isOpen}
-                    width="min(80vw, 64rem)"
-                >
+                <LemonModal title="New insight-based endpoint" onClose={closeModal} isOpen={isOpen} maxWidth="90vw">
                     <div className="space-y-4">
                         <div className="flex flex-wrap items-center gap-3 p-4 bg-surface-secondary rounded-lg">
                             <IconPlus className="text-2xl text-secondary shrink-0" />

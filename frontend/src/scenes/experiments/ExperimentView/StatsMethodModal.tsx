@@ -55,7 +55,7 @@ export function StatsMethodModal(): JSX.Element {
 
     return (
         <LemonModal
-            maxWidth={600}
+            maxWidth="48rem"
             isOpen={isStatsEngineModalOpen}
             onClose={onClose}
             title="Statistics configuration"

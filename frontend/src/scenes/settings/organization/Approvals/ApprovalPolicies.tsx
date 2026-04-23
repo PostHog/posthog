@@ -301,7 +301,7 @@ function ApprovalPolicyModal({ policy, onClose }: { policy?: ApprovalPolicy; onC
         <LemonModal
             isOpen
             onClose={onClose}
-            width={600}
+            maxWidth="48rem"
             title={policy ? 'Edit approval policy' : 'Create approval policy'}
             footer={
                 <>

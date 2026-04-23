@@ -217,7 +217,7 @@ function MaterializationModal({ tabId }: { tabId: string }): JSX.Element {
             title={materializationModalView ? `Materialize ${materializationModalView.name}` : 'Materialize view'}
             isOpen={materializationModalOpen}
             onClose={closeMaterializationModal}
-            width={960}
+            maxWidth="90vw"
         >
             <div className="max-h-[75vh] overflow-auto">
                 {viewLoading ? (

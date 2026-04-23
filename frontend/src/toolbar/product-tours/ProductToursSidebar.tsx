@@ -342,7 +342,7 @@ export function ProductToursSidebar(): JSX.Element | null {
                 title="Help us improve Product Tours"
                 forceAbovePopovers
                 overlayClassName="items-center"
-                maxWidth="42rem"
+                maxWidth="48rem"
                 footer={
                     <>
                         <LemonButton type="secondary" onClick={() => setSessionRecordingConsent(false)}>

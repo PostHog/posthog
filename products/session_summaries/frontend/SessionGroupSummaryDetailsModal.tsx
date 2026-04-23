@@ -64,7 +64,7 @@ export function SessionGroupSummaryDetailsModal({ isOpen, onClose, event }: Sess
             onClose={onClose}
             simple
             title=""
-            width={1600}
+            maxWidth="90vw"
             closable={true}
             hideCloseButton={true}
         >

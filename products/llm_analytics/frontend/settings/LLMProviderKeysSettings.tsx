@@ -219,7 +219,6 @@ function AddKeyModal({ restrictionReason }: { restrictionReason: string | null }
             isOpen={newKeyModalOpen}
             onClose={handleClose}
             title="Add API key"
-            width={480}
             footer={
                 <>
                     <LemonButton type="secondary" onClick={handleClose}>
@@ -433,7 +432,6 @@ function DeleteKeyModal({
             isOpen
             onClose={handleClose}
             title="Delete API key?"
-            width={480}
             footer={
                 <>
                     <LemonButton type="secondary" onClick={handleClose}>
@@ -550,7 +548,6 @@ function AssignKeyModal(): JSX.Element | null {
             isOpen={isOpen}
             onClose={dismissAssignKey}
             title={`Apply "${newlyCreatedKey.name}" to existing evaluations?`}
-            width={520}
             footer={
                 <>
                     <LemonButton type="secondary" onClick={dismissAssignKey}>

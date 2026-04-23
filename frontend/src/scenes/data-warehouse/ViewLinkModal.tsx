@@ -61,7 +61,7 @@ export function ViewLinkModal({ mode }: ViewLinkModalProps): JSX.Element {
             }
             isOpen={isJoinTableModalOpen}
             onClose={toggleJoinTableModal}
-            width={hasPreviewFlag ? 1200 : 700}
+            maxWidth={hasPreviewFlag ? '90vw' : '48rem'}
         >
             {hasPreviewFlag ? <ViewLinkFormWithPreview mode={mode} /> : <ViewLinkForm mode={mode} />}
         </LemonModal>

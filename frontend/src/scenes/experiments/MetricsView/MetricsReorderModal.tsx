@@ -223,7 +223,7 @@ export function MetricsReorderModal({ isSecondary = false }: { isSecondary?: boo
         <LemonModal
             onClose={closeModal}
             isOpen={isOpen}
-            width={600}
+            maxWidth="48rem"
             title={`Reorder ${isSecondary ? 'secondary' : 'primary'} metrics`}
             description={<p>Drag and drop to reorder, or remove metrics you no longer need.</p>}
             footer={

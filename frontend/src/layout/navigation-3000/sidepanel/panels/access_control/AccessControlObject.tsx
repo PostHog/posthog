@@ -462,7 +462,6 @@ function AddItemsControlsModal(props: {
             isOpen={props.modelOpen || false}
             onClose={() => props.setModelOpen(false)}
             title="Add access"
-            maxWidth="30rem"
             description="Allow other users or roles to access this resource"
             footer={
                 <div className="flex items-center justify-end gap-2">

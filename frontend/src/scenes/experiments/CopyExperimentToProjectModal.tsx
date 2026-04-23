@@ -171,7 +171,7 @@ export function CopyExperimentToProjectModal({
             isOpen={isOpen}
             onClose={handleClose}
             title="Copy experiment to project"
-            width="max-content"
+            maxWidth="90vw"
             footer={
                 <div className="flex justify-end">
                     <LemonButton

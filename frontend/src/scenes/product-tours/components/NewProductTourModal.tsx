@@ -69,7 +69,7 @@ export function NewProductTourModal({
     }
 
     return (
-        <LemonModal title="What would you like to create?" isOpen={isOpen} onClose={handleClose} width={800}>
+        <LemonModal title="What would you like to create?" isOpen={isOpen} onClose={handleClose} maxWidth="48rem">
             <div className="flex flex-col gap-4">
                 <div className="flex gap-3 mt-2">
                     <TourTypeButton

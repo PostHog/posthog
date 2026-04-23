@@ -81,7 +81,7 @@ PostHog issue: ${issueUrl}
             isOpen={isOpen}
             onClose={onClose}
             title={mode === 'explain' ? 'Explain this error with AI' : 'Fix this error with AI'}
-            width="50rem"
+            maxWidth="48rem"
             footer={
                 <div className="flex items-center justify-end gap-2">
                     <LemonButton type="secondary" onClick={onClose}>

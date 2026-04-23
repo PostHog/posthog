@@ -50,7 +50,7 @@ export function ConversionGoalModal(): JSX.Element {
             isOpen={conversionGoalModalVisible}
             onClose={hideConversionGoalModal}
             title="Conversion goal"
-            width={600}
+            maxWidth="48rem"
             footer={
                 <div className="flex justify-between items-center w-full">
                     <LemonButton

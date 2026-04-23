@@ -67,7 +67,7 @@ export function ProxySDKSetup(): JSX.Element {
                 isOpen={showFullSetup}
                 onClose={() => setShowFullSetup(false)}
                 title={`${name} setup`}
-                width={640}
+                maxWidth="48rem"
             >
                 {wizardIntegrationName && <SetupWizardBanner integrationName={wizardIntegrationName} />}
                 <OnboardingDocsContentWrapper snippets={snippets} useReverseProxy>

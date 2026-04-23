@@ -251,7 +251,7 @@ export function ColumnMappingModal({ table, isOpen, onClose }: ColumnMappingModa
             isOpen={isOpen}
             onClose={onClose}
             title={`Configure ${table.name} mapping`}
-            width={600}
+            maxWidth="48rem"
             footer={
                 <div className="flex justify-between items-center w-full">
                     <span className="text-sm text-muted">

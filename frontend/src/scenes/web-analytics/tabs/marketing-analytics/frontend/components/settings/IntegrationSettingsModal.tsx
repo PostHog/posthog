@@ -49,7 +49,7 @@ export function IntegrationSettingsModal({
                     <span>{integrationName} settings</span>
                 </div>
             }
-            width={600}
+            maxWidth="48rem"
         >
             <LemonTabs
                 activeKey={activeTab}

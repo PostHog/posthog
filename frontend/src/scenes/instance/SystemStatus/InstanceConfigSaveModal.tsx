@@ -71,7 +71,6 @@ export function InstanceConfigSaveModal({ onClose, isOpen }: { onClose: () => vo
             isOpen={isOpen}
             closable={!loading}
             onClose={onClose}
-            width={576}
             footer={
                 <>
                     <LemonButton

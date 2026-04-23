@@ -20,7 +20,6 @@ export function GroupedAccessControlRuleModal(props: { state: GroupedAccessContr
             isOpen={true}
             onClose={loading ? undefined : close}
             title={modalTitle}
-            maxWidth="32rem"
             footer={
                 <GroupedAccessControlRuleModalFooter close={close} loading={loading} canEdit={canEdit} onSave={save} />
             }

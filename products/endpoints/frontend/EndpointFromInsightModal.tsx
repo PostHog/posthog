@@ -62,7 +62,7 @@ export function EndpointFromInsightModal({
     }
 
     return (
-        <LemonModal isOpen={createFromInsightModalOpen} onClose={handleClose} width={600}>
+        <LemonModal isOpen={createFromInsightModalOpen} onClose={handleClose} maxWidth="48rem">
             <LemonModal.Header>
                 <h3>{duplicateEndpoint ? 'Duplicate insight-based endpoint' : 'Create endpoint from insight'}</h3>
             </LemonModal.Header>

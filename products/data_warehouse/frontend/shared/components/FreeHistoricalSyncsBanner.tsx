@@ -37,7 +37,7 @@ export function FreeHistoricalSyncsBanner({ hideGetStarted }: { hideGetStarted?:
                 isOpen={showModal}
                 onClose={() => setShowModal(false)}
                 title="Free rows for the first 7-days on new sources"
-                width={600}
+                maxWidth="48rem"
                 footer={
                     <div className="flex items-center justify-between gap-2 w-full">
                         <Link

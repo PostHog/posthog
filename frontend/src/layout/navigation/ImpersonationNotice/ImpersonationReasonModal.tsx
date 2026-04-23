@@ -80,7 +80,6 @@ export function ImpersonationReasonModal({
                     </LemonButton>
                 </>
             }
-            width={500}
         >
             <div className="space-y-2">
                 {description && <p className="text-sm text-secondary">{description}</p>}

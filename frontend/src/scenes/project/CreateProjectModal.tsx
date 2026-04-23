@@ -58,7 +58,6 @@ export function CreateProjectModal({
 
     return (
         <LemonModal
-            width={560}
             title={currentOrganization ? `Create a project within ${currentOrganization.name}` : 'Create a project'}
             description={
                 <>

@@ -148,7 +148,7 @@ export function RetentionModal(): JSX.Element | null {
                         </div>
                     </div>
                 }
-                width={isEmpty ? undefined : '90%'}
+                maxWidth={isEmpty ? undefined : '90vw'}
                 title={modalTitle}
             >
                 {people && !!people.missing_persons && (

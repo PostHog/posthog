@@ -75,7 +75,7 @@ export const LemonModalContent = ({ children, className, embedded = false }: Lem
 
 export function LemonModal({
     width,
-    maxWidth,
+    maxWidth = '65ch',
     children,
     isOpen = true,
     onClose,

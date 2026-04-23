@@ -26,7 +26,7 @@ export function ReleaseConditionsModal(): JSX.Element {
         <LemonModal
             isOpen={isReleaseConditionsModalOpen}
             onClose={closeReleaseConditionsModal}
-            width={600}
+            maxWidth="48rem"
             title="Change release conditions"
             footer={
                 <div className="flex items-center gap-2">

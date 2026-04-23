@@ -84,7 +84,7 @@ export function InstructionsModal({ onClose, visible, flag }: InstructionsModalP
     const panels: JSX.Element = preflight?.cloud ? getCloudPanels() : getSelfHostedPanels()
 
     return (
-        <LemonModal title="How to implement opt-in feature flags" isOpen={visible} onClose={onClose} width={640}>
+        <LemonModal title="How to implement opt-in feature flags" isOpen={visible} onClose={onClose} maxWidth="48rem">
             <div>
                 <div className="mb-2">
                     Implement manual release condition toggles to give your users the ability choose which features they

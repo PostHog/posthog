@@ -61,6 +61,8 @@ export interface PopoverProps {
     /** Whether the popover's width should be synced with the children's width or bigger. */
     matchWidth?: boolean
     maxContentWidth?: boolean
+    /** Caps the popover content width. Defaults to prose (`65ch`); use `'48rem'` for wide content, `'90vw'` for extra-wide, or `'none'` to opt out. */
+    maxWidth?: number | string
     className?: string
     /** Whether default box padding should be applies. @default true */
     padded?: boolean
@@ -111,6 +113,7 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
         middleware,
         matchWidth = false,
         maxContentWidth = false,
+        maxWidth = '65ch',
         additionalRefs = [],
         closeParentPopoverOnClickInside = false,
         referenceRef: extraReferenceRef,
@@ -340,7 +343,11 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
                                     onMouseLeave={onMouseLeaveInside}
                                     aria-level={currentPopoverLevel}
                                 >
-                                    <div className="Popover__box">
+                                    <div
+                                        className="Popover__box"
+                                        // eslint-disable-next-line react/forbid-dom-props
+                                        style={{ maxWidth }}
+                                    >
                                         {showArrow && isAttached && (
                                             // Arrow is outside of .Popover__content to avoid affecting :nth-child for content
                                             <div

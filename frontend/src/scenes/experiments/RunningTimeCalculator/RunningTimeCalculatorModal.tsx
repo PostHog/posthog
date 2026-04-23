@@ -42,7 +42,7 @@ export function RunningTimeCalculatorModal(): JSX.Element {
         <LemonModal
             isOpen={isCalculateRunningTimeModalOpen}
             onClose={closeCalculateRunningTimeModal}
-            width={700}
+            maxWidth="48rem"
             title="Calculate estimated running time"
             footer={
                 <RunningTimeCalculatorModalFooter

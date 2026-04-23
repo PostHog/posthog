@@ -273,7 +273,7 @@ function ReportListPane(): JSX.Element {
         <ResizableElement
             defaultWidth={420}
             minWidth={280}
-            maxWidth={600}
+            maxWidth="48rem"
             borderPosition="right"
             onResize={() => {}}
             className={clsx(

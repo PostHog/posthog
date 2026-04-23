@@ -568,7 +568,6 @@ function ResourceAccessControlModal(props: {
             isOpen={props.modalOpen || false}
             onClose={props.loading ? undefined : props.setModalOpen}
             title={getModalTitle()}
-            maxWidth="30rem"
             description={`Set resource access levels for ${props.type === 'member' ? 'members' : 'roles'}`}
             footer={
                 <div className="flex items-center justify-end gap-2">
@@ -724,7 +723,6 @@ function DefaultResourceAccessControlModal(props: {
             isOpen={props.modalOpen || false}
             onClose={props.loading ? undefined : props.setModalOpen}
             title="Edit project defaults"
-            maxWidth="30rem"
             description="Set default resource access levels for all roles and members"
             footer={
                 <div className="flex items-center justify-end gap-2">

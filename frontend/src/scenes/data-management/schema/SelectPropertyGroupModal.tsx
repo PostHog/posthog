@@ -116,7 +116,7 @@ export function SelectPropertyGroupModal({
 
     return (
         <>
-            <LemonModal isOpen={isOpen} onClose={onClose} title="Add property group" width={900}>
+            <LemonModal isOpen={isOpen} onClose={onClose} title="Add property group" maxWidth="90vw">
                 <div className="space-y-4">
                     <div className="flex gap-2">
                         <LemonInput

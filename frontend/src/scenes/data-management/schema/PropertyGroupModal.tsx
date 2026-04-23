@@ -177,7 +177,7 @@ export function PropertyGroupModal({ logicKey, onAfterSave }: PropertyGroupModal
             isOpen={propertyGroupModalOpen}
             onClose={handleClose}
             title={editingPropertyGroup ? 'Edit Property Group' : 'New Property Group'}
-            width={900}
+            maxWidth="90vw"
         >
             <Form
                 logic={schemaManagementLogic}

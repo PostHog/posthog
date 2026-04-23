@@ -338,7 +338,7 @@ CREATE PUBLICATION "${pubName}" FOR TABLE ${tableList}
             onClose={closeCdcSelfManagedSetupDialog}
             title="Create your publication"
             description={`Self-managed CDC needs the publication to exist before PostHog connects — PostHog will create and manage the replication slot itself. Run the SQL below (covering the ${cdcTableNames.length} table${cdcTableNames.length === 1 ? '' : 's'} you selected for CDC) as the table owner, then click Verify & create.`}
-            width={720}
+            maxWidth="48rem"
             footer={
                 <>
                     <LemonButton

@@ -59,7 +59,7 @@ export function ProductTourComponent({ id }: ProductTourLogicProps): JSX.Element
                         description="Select a URL to launch the toolbar"
                         isOpen={isToolbarModalOpen}
                         onClose={closeToolbarModal}
-                        width={600}
+                        maxWidth="48rem"
                     >
                         <div className="mt-4">
                             <AuthorizedUrlList

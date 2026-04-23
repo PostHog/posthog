@@ -18,7 +18,7 @@ export function TemplateJsonModal(props: WorkflowTemplateLogicProps = {}): JSX.E
             onClose={hideTemplateJsonModal}
             isOpen={templateJsonModalVisible}
             title="Template JSON"
-            width="60vw"
+            maxWidth="90vw"
             footer={
                 <LemonButton type="secondary" onClick={hideTemplateJsonModal}>
                     Close

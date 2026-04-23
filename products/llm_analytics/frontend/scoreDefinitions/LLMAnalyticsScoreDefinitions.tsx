@@ -260,7 +260,7 @@ function ScoreDefinitionModal({
     const { draft, isCreateMode, isMetadataMode, isConfigMode, title, submitting } = useValues(logic)
 
     return (
-        <LemonModal isOpen onClose={onClose} simple maxWidth="42rem">
+        <LemonModal isOpen onClose={onClose} simple maxWidth="48rem">
             <LemonModalHeader>
                 <h3>{title}</h3>
             </LemonModalHeader>

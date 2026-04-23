@@ -75,7 +75,7 @@ export function TimeseriesModal({
         <LemonModal
             isOpen={isOpen}
             onClose={onClose}
-            width={1000}
+            maxWidth="90vw"
             title={
                 <div className="flex items-center gap-2 text-sm min-w-0">
                     <div className="flex items-center shrink-0">

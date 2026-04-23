@@ -152,7 +152,7 @@ export function ConfigurePinnedTabsModal({ isOpen, onClose }: ConfigurePinnedTab
     )
 
     return (
-        <LemonModal isOpen={isOpen} onClose={onClose} title="Configure tabs & home" width="48rem">
+        <LemonModal isOpen={isOpen} onClose={onClose} title="Configure tabs & home" maxWidth="48rem">
             <div className="space-y-6">
                 <section className="flex flex-col gap-3">
                     <div className="flex flex-col">

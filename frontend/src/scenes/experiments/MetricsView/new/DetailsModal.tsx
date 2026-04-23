@@ -21,7 +21,7 @@ export function DetailsModal({ isOpen, onClose, metric, result, experiment }: De
         <LemonModal
             isOpen={isOpen}
             onClose={onClose}
-            width={1200}
+            maxWidth="90vw"
             title={`Metric results: ${metric.name || 'Untitled metric'}`}
             footer={
                 <LemonButton type="secondary" onClick={onClose}>

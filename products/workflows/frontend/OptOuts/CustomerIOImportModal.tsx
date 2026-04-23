@@ -557,7 +557,7 @@ export function CustomerIOImportModal(): JSX.Element {
             description="Import categories and unsubscribed users from Customer.io."
             isOpen={isImportModalOpen}
             onClose={closeImportModal}
-            width={640}
+            maxWidth="48rem"
         >
             {isAdminOrOwner === false ? (
                 <AccessDenied object="Customer.io integration" inline />

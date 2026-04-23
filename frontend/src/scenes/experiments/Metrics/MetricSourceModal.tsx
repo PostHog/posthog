@@ -26,7 +26,7 @@ export const MetricSourceModal = (): JSX.Element | null => {
     const showWarning = metricCount >= METRIC_COUNT_WARNING_THRESHOLD || isRunning
 
     return (
-        <LemonModal isOpen={isModalOpen} onClose={closeMetricSourceModal} width={1000} title="Choose metric source">
+        <LemonModal isOpen={isModalOpen} onClose={closeMetricSourceModal} maxWidth="90vw" title="Choose metric source">
             <div className="flex gap-4 mb-4">
                 <div
                     className="flex-1 cursor-pointer p-4 rounded border hover:border-accent"

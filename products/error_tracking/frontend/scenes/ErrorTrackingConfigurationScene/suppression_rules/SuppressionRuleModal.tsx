@@ -23,7 +23,7 @@ export function SuppressionRuleModal(): JSX.Element {
             ruleLabel="suppression"
             description="Matching exceptions will be dropped before they create issues."
             pageKey="suppression-rule-modal"
-            width={800}
+            maxWidth="48rem"
             taxonomicGroupTypes={[
                 TaxonomicFilterGroupType.ErrorTrackingProperties,
                 TaxonomicFilterGroupType.EventProperties,

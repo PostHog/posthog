@@ -23,7 +23,7 @@ export function LogsAlertEventHistoryModal({ alert, onClose }: LogsAlertEventHis
         <LemonModal
             isOpen={alert !== null}
             onClose={onClose}
-            width={640}
+            maxWidth="48rem"
             title={alert ? `Alert history · ${alert.name}` : 'Alert history'}
             description="Transitions, errors, and user actions."
         >

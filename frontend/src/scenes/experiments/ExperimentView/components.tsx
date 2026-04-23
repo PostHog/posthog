@@ -539,7 +539,7 @@ export function EditConclusionModal(): JSX.Element {
             isOpen={isEditConclusionModalOpen}
             onClose={closeEditConclusionModal}
             title="Edit conclusion"
-            width={600}
+            maxWidth="48rem"
             footer={
                 <div className="flex items-center gap-2">
                     <LemonButton
@@ -583,7 +583,7 @@ export function PauseExperimentModal(): JSX.Element {
             isOpen={isPauseExperimentModalOpen}
             onClose={closePauseExperimentModal}
             title="Pause experiment"
-            width={600}
+            maxWidth="48rem"
             footer={
                 <div className="flex items-center gap-2">
                     <LemonButton type="secondary" onClick={closePauseExperimentModal}>
@@ -622,7 +622,7 @@ export function ResumeExperimentModal(): JSX.Element {
             isOpen={isResumeExperimentModalOpen}
             onClose={closeResumeExperimentModal}
             title="Resume experiment"
-            width={600}
+            maxWidth="48rem"
             footer={
                 <div className="flex items-center gap-2">
                     <LemonButton type="secondary" onClick={closeResumeExperimentModal}>
@@ -690,7 +690,7 @@ export function FinishExperimentModal(): JSX.Element {
                     restoreUnmodifiedExperiment()
                     closeFinishExperimentModal()
                 }}
-                width={600}
+                maxWidth="48rem"
                 title="End experiment"
                 footer={
                     <div className="flex items-center gap-2">

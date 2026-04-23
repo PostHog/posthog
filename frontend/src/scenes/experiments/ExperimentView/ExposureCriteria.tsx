@@ -32,7 +32,7 @@ export function ExposureCriteriaModal({ onSave }: ExposureCriteriaModalProps): J
         <LemonModal
             isOpen={isExposureCriteriaModalOpen}
             onClose={closeExposureCriteriaModal}
-            width={860}
+            maxWidth="48rem"
             title="Edit exposure criteria"
             zIndex="1169"
             footer={

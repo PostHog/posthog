@@ -99,7 +99,7 @@ export function EventConfigurationModal({ event, onClose }: EventConfigurationMo
     }
 
     return (
-        <LemonModal isOpen onClose={handleClose} width={800}>
+        <LemonModal isOpen onClose={handleClose} maxWidth="48rem">
             <LemonModal.Header>
                 <h3>{originalEvent ? `Edit Event: ${originalEvent?.eventName}` : 'Add Revenue Event'}</h3>
             </LemonModal.Header>

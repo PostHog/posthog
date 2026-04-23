@@ -84,7 +84,7 @@ export function SampledSessionsModal(): JSX.Element {
     ]
 
     return (
-        <LemonModal isOpen={isOpen} onClose={closeModal} title={`Sampled persons - ${variant}`} width={720}>
+        <LemonModal isOpen={isOpen} onClose={closeModal} title={`Sampled persons - ${variant}`} maxWidth="48rem">
             <div className="space-y-4">
                 <div className="text">
                     Persons in <strong>{variant}</strong> with <strong>{stepName}</strong> as their last funnel step.

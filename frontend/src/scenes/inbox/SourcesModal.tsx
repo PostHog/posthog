@@ -50,7 +50,7 @@ export function SourcesModal(): JSX.Element {
                 isOpen={sourcesModalOpen}
                 onClose={closeSourcesModal}
                 simple
-                width={sessionAnalysisSetupOpen || isDataSourceSetupOpen ? '48rem' : '32rem'}
+                maxWidth={sessionAnalysisSetupOpen || isDataSourceSetupOpen ? '48rem' : undefined}
             >
                 <LemonModal.Header>
                     <div className="flex items-center gap-2">

@@ -231,7 +231,7 @@ function RowDetailsModal({ isOpen, onClose, row, columns, columnKeys }: RowDetai
     })
 
     return (
-        <LemonModal title="Row Details" isOpen={isOpen} onClose={onClose} width={800}>
+        <LemonModal title="Row Details" isOpen={isOpen} onClose={onClose} maxWidth="48rem">
             <div className="RowDetailsModal max-h-[70vh] overflow-y-auto px-2 overflow-x-hidden">
                 <LemonTable
                     dataSource={tableData}

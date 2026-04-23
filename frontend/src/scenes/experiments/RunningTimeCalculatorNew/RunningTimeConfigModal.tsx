@@ -62,7 +62,7 @@ export function RunningTimeConfigModal({ experimentId, tabId }: RunningTimeConfi
     const isPreLaunch = !isLaunched(experiment)
 
     return (
-        <LemonModal isOpen={isRunningTimeConfigModalOpen} onClose={cancel} width={480} simple>
+        <LemonModal isOpen={isRunningTimeConfigModalOpen} onClose={cancel} simple>
             <LemonModal.Header>
                 <h3>{isPreLaunch ? 'Estimate running time' : 'Running time configuration'}</h3>
             </LemonModal.Header>

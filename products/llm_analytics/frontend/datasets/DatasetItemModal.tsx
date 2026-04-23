@@ -45,7 +45,7 @@ export const DatasetItemModal = React.memo(function DatasetItemModal({
         <LemonModal
             isOpen={isOpen}
             onClose={() => onClose(refetchDatasetItems)}
-            maxWidth="40rem"
+            maxWidth="48rem"
             simple
             className="w-full"
         >

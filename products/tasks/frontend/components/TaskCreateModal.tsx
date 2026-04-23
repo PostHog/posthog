@@ -24,7 +24,7 @@ export function TaskCreateModal({ isOpen, onClose }: TaskCreateModalProps): JSX.
             isOpen={isOpen}
             onClose={handleCancel}
             title="Create new task"
-            width={800}
+            maxWidth="48rem"
             footer={
                 <div className="flex gap-2">
                     <LemonButton type="secondary" onClick={handleCancel}>

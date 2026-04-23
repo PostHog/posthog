@@ -340,7 +340,7 @@ export function CoreEventsSettings(): JSX.Element {
                 isOpen={isModalOpen}
                 onClose={handleCloseModal}
                 title={isEditing ? 'Edit core event' : 'Add core event'}
-                width="40rem"
+                maxWidth="48rem"
                 footer={
                     <>
                         <LemonButton onClick={handleCloseModal}>Cancel</LemonButton>

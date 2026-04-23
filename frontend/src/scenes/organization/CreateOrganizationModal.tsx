@@ -33,7 +33,6 @@ export function CreateOrganizationModal({
 
     return (
         <LemonModal
-            width={440}
             title="Create an organization"
             description={
                 <p>

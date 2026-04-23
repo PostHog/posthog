@@ -413,7 +413,7 @@ export function TraceReviewButton({
                 )}
             </AccessControlAction>
 
-            <LemonModal isOpen={isOpen} onClose={closeModal} title={modalTitle} width={680}>
+            <LemonModal isOpen={isOpen} onClose={closeModal} title={modalTitle} maxWidth="48rem">
                 {modalDataLoading ? (
                     <div className="py-12 flex justify-center">
                         <Spinner />

@@ -55,7 +55,6 @@ export function CreateSlotModal(): JSX.Element {
             isOpen
             onClose={() => setShowCreateModal(false)}
             title="Assign Materialized Column Slot"
-            width="36rem"
             footer={
                 <>
                     <LemonButton type="secondary" onClick={() => setShowCreateModal(false)}>

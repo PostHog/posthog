@@ -63,7 +63,6 @@ export function PostOnboardingModal(): JSX.Element | null {
             isOpen={isModalOpen}
             onClose={() => dismissModal('close_button')}
             simple
-            width={400}
             overlayClassName="!items-center"
             data-attr="post-onboarding-modal"
         >

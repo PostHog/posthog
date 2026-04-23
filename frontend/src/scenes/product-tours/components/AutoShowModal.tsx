@@ -27,7 +27,7 @@ export function AutoShowModal({ tourId, isOpen, onClose }: AutoShowModalProps): 
             isOpen={isOpen}
             onClose={onClose}
             title="Auto-show settings"
-            width={640}
+            maxWidth="48rem"
             footer={
                 <LemonButton type="primary" onClick={onClose}>
                     Done

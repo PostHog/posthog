@@ -21,7 +21,7 @@ export function DataColorThemeModal(): JSX.Element {
             title={title}
             onClose={closeModal}
             isOpen={isOpen}
-            width={768}
+            maxWidth="48rem"
             footer={
                 isOfficial ? (
                     <div className="flex justify-between items-center w-full">

@@ -56,7 +56,7 @@ function LogsAlertingSectionInner(): JSX.Element {
                 }}
                 title=""
                 simple
-                width={720}
+                maxWidth="48rem"
             >
                 {isModalOpen && <LogsAlertModalContent editingAlert={editingAlert} />}
             </LemonModal>

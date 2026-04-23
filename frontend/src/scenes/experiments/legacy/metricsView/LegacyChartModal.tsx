@@ -42,7 +42,7 @@ export function LegacyChartModal({
         <LemonModal
             isOpen={isOpen}
             onClose={onClose}
-            width={1200}
+            maxWidth="90vw"
             title="Metric results"
             footer={
                 <LemonButton type="secondary" onClick={onClose}>

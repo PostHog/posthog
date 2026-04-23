@@ -192,7 +192,7 @@ export function MarketingAnalyticsColumnConfigModal({ query: rawQuery }: { query
             isOpen={columnConfigModalVisible}
             onClose={hideColumnConfigModal}
             title="Configure columns"
-            width={600}
+            maxWidth="48rem"
             footer={
                 <div className="flex justify-between items-center w-full">
                     <LemonButton

@@ -112,7 +112,7 @@ export function ScimLogsModal(): JSX.Element {
     const handleClose = (): void => setScimLogsModalId(null)
 
     return (
-        <LemonModal onClose={handleClose} isOpen={!!scimLogsModalId} title="SCIM request logs" width={960}>
+        <LemonModal onClose={handleClose} isOpen={!!scimLogsModalId} title="SCIM request logs" maxWidth="90vw">
             <div className="space-y-4">
                 <div className="flex items-center gap-2">
                     <LemonSegmentedButton

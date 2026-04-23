@@ -312,7 +312,7 @@ export function ProductTourStepsEditor({ tourId }: ProductTourStepsEditorProps):
                     isOpen={showPreviewModal}
                     onClose={() => setShowPreviewModal(false)}
                     title={`Preview: ${getStepTitle(selectedStep, selectedStepIndex)}`}
-                    width={800}
+                    maxWidth="48rem"
                 >
                     <div className="flex justify-center items-center p-8 bg-[#f0f0f0] rounded min-h-[300px]">
                         {selectedStep && (

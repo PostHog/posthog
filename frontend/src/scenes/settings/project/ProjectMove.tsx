@@ -30,7 +30,6 @@ export function MoveProjectModal({
             title="Move the project to another organization?"
             onClose={!projectBeingMovedLoading ? () => setIsOpen(false) : undefined}
             closable={!projectBeingMovedLoading}
-            maxWidth="30rem"
             footer={
                 <>
                     <LemonButton

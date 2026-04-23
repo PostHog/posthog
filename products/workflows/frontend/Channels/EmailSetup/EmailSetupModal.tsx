@@ -29,7 +29,7 @@ export const EmailSetupModal = (props: EmailSetupModalLogicProps): JSX.Element =
 
     return (
         <>
-            <LemonModal title="Configure email sender" width="auto" onClose={props.onClose}>
+            <LemonModal title="Configure email sender" maxWidth="90vw" onClose={props.onClose}>
                 <Form logic={emailSetupModalLogic} props={props} formKey="emailSender">
                     <div className="space-y-4">
                         <FlaggedFeature flag="messaging-ses">

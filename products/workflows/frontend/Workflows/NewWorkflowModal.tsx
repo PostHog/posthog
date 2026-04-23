@@ -24,7 +24,7 @@ export function NewWorkflowModal(): JSX.Element {
         <LemonModal
             onClose={hideNewWorkflowModal}
             isOpen={newWorkflowModalVisible}
-            width={1200}
+            maxWidth="90vw"
             title="Create a workflow"
             data-attr="new-workflow-chooser"
             description={

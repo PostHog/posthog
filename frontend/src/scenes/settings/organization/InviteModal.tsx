@@ -420,7 +420,7 @@ export function InviteModal({ isOpen, onClose }: { isOpen: boolean; onClose: () 
                     resetInviteRows()
                     onClose()
                 }}
-                width={800}
+                maxWidth="48rem"
                 title={<>Invite others to {user?.organization?.name || 'PostHog'}</>}
                 description={
                     preflight?.email_service_available ? (

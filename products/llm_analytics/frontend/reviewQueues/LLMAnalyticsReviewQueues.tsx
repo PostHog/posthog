@@ -372,7 +372,7 @@ export function LLMAnalyticsReviewQueues({ tabId }: { tabId?: string }): JSX.Ele
             )}
 
             {queueEditorMode ? (
-                <LemonModal isOpen onClose={closeQueueEditor} simple maxWidth="28rem">
+                <LemonModal isOpen onClose={closeQueueEditor} simple>
                     <LemonModalHeader>{queueEditorTitle}</LemonModalHeader>
                     <LemonModalContent className="space-y-4">
                         <div className="space-y-2">

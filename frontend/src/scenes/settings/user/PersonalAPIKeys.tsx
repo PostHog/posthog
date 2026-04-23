@@ -61,7 +61,7 @@ export function EditKeyModal({ zIndex }: EditKeyModalProps): JSX.Element {
                 title={`${isNew ? 'Create' : 'Edit'} personal API key`}
                 onClose={() => setEditingKeyId(null)}
                 isOpen={!!editingKeyId}
-                width="40rem"
+                maxWidth="48rem"
                 hasUnsavedInput={editingKeyChanged}
                 zIndex={zIndex}
                 footer={

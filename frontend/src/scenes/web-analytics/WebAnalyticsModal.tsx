@@ -36,7 +36,7 @@ export const WebAnalyticsModal = (): JSX.Element | null => {
             onClose={closeModal}
             simple={false}
             title={modal?.title || ''}
-            width={1600}
+            maxWidth="90vw"
             fullScreen={false}
             closable={true}
         >

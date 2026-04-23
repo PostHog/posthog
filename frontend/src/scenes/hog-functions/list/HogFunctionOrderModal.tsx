@@ -124,7 +124,7 @@ export function HogFunctionOrderModal(): JSX.Element {
         <LemonModal
             onClose={() => setReorderModalOpen(false)}
             isOpen={reorderModalOpen}
-            width={600}
+            maxWidth="48rem"
             title="Reorder transformations"
             description={
                 <p>
