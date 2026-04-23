@@ -377,11 +377,13 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
                 description: `This notification is in ${targetProjectName ? `"${targetProjectName}"` : 'another project'}. Opening it will reload the page and you'll lose any unsaved work.`,
                 primaryButton: {
                     children: 'Open',
-                    onClick: () => {
+
+                    onClick: async () => {
                         if (!notification.read) {
-                            actions.markAsRead(notification.id)
+                            await actions.markAsRead(notification.id)
                         }
                         window.location.href = urls.project(notification.team_id!, path)
+
                     },
                 },
                 secondaryButton: {
