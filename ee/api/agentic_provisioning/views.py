@@ -1191,9 +1191,9 @@ def _resolve_or_create_project_team(
 def _ensure_team_in_token_scopes(
     access_token: OAuthAccessToken, scoped_teams: list[int], team: Team
 ) -> tuple[Team, list[int]]:
-    _add_team_to_token_scopes(access_token, team.id)
     if team.id in scoped_teams:
         return team, scoped_teams
+    _add_team_to_token_scopes(access_token, team.id)
     return team, [*scoped_teams, team.id]
 
 
